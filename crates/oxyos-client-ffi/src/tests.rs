@@ -4,7 +4,7 @@ use super::*;
 use oxyos_ipc::{Listener, SharedBuffer};
 use oxyos_protocol::{
     AccessibleAction, DismissReason, GesturePhase, PointerKind, PreeditText, ServerConnection,
-    MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
+    TouchKind, MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::mem::{offset_of, size_of};
 
@@ -292,8 +292,9 @@ fn the_header_matches_the_abi() {
         offset_of!(OxyOSEvent, rotation_256),
         offset_of!(OxyOSEvent, flag),
         offset_of!(OxyOSEvent, text),
+        offset_of!(OxyOSEvent, time_us),
     ];
-    assert_eq!(event.last().map(|f| f.count), Some(TEXT_CHUNK_BYTES + 1));
+    assert_eq!(event[event.len() - 2].count, TEXT_CHUNK_BYTES + 1);
     assert_eq!(
         names(&event),
         [
@@ -310,7 +311,8 @@ fn the_header_matches_the_abi() {
             "scale_65536",
             "rotation_256",
             "flag",
-            "text"
+            "text",
+            "time_us"
         ]
     );
     assert_eq!(c_offsets(&event), (rust.to_vec(), size_of::<OxyOSEvent>()));
@@ -360,6 +362,7 @@ fn events_convert_field_by_field() {
         x: 256 * 10,
         y: 256 * 20,
         button: 272,
+        time_us: 86_400_123_456,
     })
     .unwrap();
     assert_eq!(
@@ -372,6 +375,7 @@ fn events_convert_field_by_field() {
             y: 5120,
             detail: PointerKind::Press as u32,
             code: 272,
+            time_us: 86_400_123_456,
             ..OxyOSEvent::default()
         }
     );
@@ -397,11 +401,26 @@ fn events_convert_field_by_field() {
         serial: 4,
         dx: 0,
         dy: 512,
+        time_us: 7,
     })
     .unwrap();
     assert_eq!(
-        (scroll.kind, scroll.x, scroll.y),
-        (OXYOS_EVENT_SCROLL, 0, 512)
+        (scroll.kind, scroll.x, scroll.y, scroll.time_us),
+        (OXYOS_EVENT_SCROLL, 0, 512, 7)
+    );
+    let touch = convert(&Event::Touch {
+        surface: 1,
+        serial: 5,
+        kind: TouchKind::Down,
+        id: 3,
+        x: 256,
+        y: 512,
+        time_us: 1_000_000,
+    })
+    .unwrap();
+    assert_eq!(
+        (touch.kind, touch.code, touch.time_us),
+        (OXYOS_EVENT_TOUCH, 3, 1_000_000)
     );
     assert_eq!(convert(&Event::Welcome { version: 2 }), None);
 }
@@ -1727,6 +1746,7 @@ fn the_header_matches_the_window_management_abi() {
         y: 0,
         scale_65536: 0,
         rotation_256: 0,
+        time_us: 0,
     };
     assert_eq!(u32::from(pinch.opcode()), OXYOS_EVENT_PINCH);
     assert_eq!(GesturePhase::Begin as u32, OXYOS_PINCH_BEGIN);
@@ -1745,8 +1765,10 @@ fn a_pinch_converts_field_by_field() {
         y: -512,
         scale_65536: 98304,
         rotation_256: -2560,
+        time_us: 5_000,
     })
     .unwrap();
+    assert_eq!(event.time_us, 5_000);
     assert_eq!(
         (
             event.kind,
@@ -3848,6 +3870,7 @@ fn a_key_with_its_text_converts_to_a_key_event_carrying_it() {
         key: 30,
         pressed: true,
         text: PreeditText::new("é").unwrap(),
+        time_us: 12_345,
     })
     .unwrap();
     assert_eq!(
@@ -3856,9 +3879,10 @@ fn a_key_with_its_text_converts_to_a_key_event_carrying_it() {
             event.surface,
             event.serial,
             event.code,
-            event.flag
+            event.flag,
+            event.time_us
         ),
-        (OXYOS_EVENT_KEY, 2, 9, 30, 1)
+        (OXYOS_EVENT_KEY, 2, 9, 30, 1, 12_345)
     );
     let text = CStr::from_bytes_until_nul(&event.text).unwrap();
     assert_eq!(text.to_str().unwrap(), "é");
@@ -3867,9 +3891,11 @@ fn a_key_with_its_text_converts_to_a_key_event_carrying_it() {
         serial: 10,
         key: 30,
         pressed: false,
+        time_us: 12_400,
     })
     .unwrap();
     assert_eq!(plain.text[0], 0, "a key without key text has none");
+    assert_eq!(plain.time_us, 12_400);
 }
 
 #[test]

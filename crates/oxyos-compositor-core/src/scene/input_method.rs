@@ -24,6 +24,8 @@ struct PendingKey {
     pressed: bool,
     /// What the layout types with it.
     text: Option<String>,
+    /// When the device reported it (`Scene::set_input_time`): a key given back keeps it.
+    time_us: u64,
     /// The input method's answer: whether it took the key.
     used: Option<bool>,
 }
@@ -281,6 +283,7 @@ impl Scene {
             key,
             pressed,
             text: text.map(str::to_string),
+            time_us: self.input_time_us,
             used: None,
         });
         let overflow = im.keys.len() > MAX_PENDING_KEYS;
@@ -295,6 +298,7 @@ impl Scene {
                 key,
                 pressed,
                 text: typed,
+                time_us: self.input_time_us,
             },
         );
         if overflow {
@@ -326,9 +330,14 @@ impl Scene {
     fn deliver_key(&mut self, pending: PendingKey) {
         let typed = pending.text.as_deref();
         let left = match self.focus.filter(|f| self.visible(*f)) {
-            Some(target) => {
-                self.emit_key(target, pending.serial, pending.key, pending.pressed, typed)
-            }
+            Some(target) => self.emit_key(
+                target,
+                pending.serial,
+                pending.key,
+                pending.pressed,
+                typed,
+                pending.time_us,
+            ),
             None => typed,
         };
         if let Some(text) = left.map(str::to_string) {

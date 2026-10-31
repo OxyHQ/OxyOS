@@ -103,6 +103,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   (Pointer enter/leave, which follow every motion, are left out of `react`, and so are the W3C
   pointer presses, every mouse button's pointerdown and pointerup;)
 - react_presses: those presses, exactly, as `react` checks its events;
+- react_apart_ms: how far apart the events React received in the step were made, by their
+  timeStamp (the device's time the compositor sent with the input, as Android's
+  MotionEvent.getEventTime()), not when they reached it: "event@name" -> [milliseconds between
+  each and the next], exactly (to 0.01 ms), and the count with them;
+- react_received_together_ms: given with react_apart_ms, the most time between the host's
+  deliveries of those events: they reached React together (behind a slow frame, read in one
+  turn), so only their timeStamp tells how far apart they were made;
 
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
@@ -904,6 +911,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["react_presses"]:
             fail(f"React received the presses {got}, expected exactly {expect['react_presses']}")
+    for key, wanted in expect.get("react_apart_ms", {}).items():
+        event, _, label = key.partition("@")
+        lines = [line for line in report
+                 if line["kind"] == "deliver" and start <= line["t"] <= end and line["event"] == event
+                 and (line.get("within") or line["target"]) == label]
+        times = [line.get("time") for line in lines]
+        if None in times:
+            fail(f"{key}: the host's report gives no time for some of them")
+            continue
+        apart = [round(b - a, 2) for a, b in zip(times, times[1:])]
+        if len(apart) != len(wanted) or any(abs(a - w) > 0.01 for a, w in zip(apart, wanted)):
+            fail(f"{key} were made {apart} ms apart by their timeStamp, expected {wanted}")
+        if "react_received_together_ms" in expect and lines:
+            spread = (lines[-1]["t"] - lines[0]["t"]) / 1e6  # the report's times are nanoseconds
+            if spread > expect["react_received_together_ms"]:
+                fail(f"{key} reached React {spread:.1f} ms apart, expected together (within "
+                     f"{expect['react_received_together_ms']} ms)")
     if "pointer_shape" in expect and result.get("pointer_shape") != expect["pointer_shape"]:
         # The pointer's shape the compositor shows after the step, as the surface under it asked.
         fail(f"the pointer's shape is {result.get('pointer_shape')}, expected {expect['pointer_shape']}")

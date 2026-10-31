@@ -1,0 +1,77 @@
+{
+  "about": "When inputs were made (sample/InputTimeProbe.tsx; input.h; docs/react-native-android-adaptation.mdx): React Native's touches and W3C pointer events carry the time the device reported each input, which the compositor sends with it (the protocol's time_us: libinput's event time, the development compositor's director giving its own), as Android's carry MotionEvent.getEventTime(), not the time they reached JavaScript. A double press made as a person makes one (the second press 150 ms after the first, oxyos-offscreen's DOUBLE_PRESS_MS) reaches the host at once, and its first press-in keeps JavaScript busy for 400 ms, a slow frame: the pad still tells a double press (within Android's 300 ms double-tap timeout) by the presses' timeStamp, 150 ms apart, the pointer downs' too, on performance.now()'s clock.",
+  "module": "InputTimeProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "one press: its touches and pointer events carry its time, on performance.now()'s clock",
+      "do": [
+        "press",
+        [
+          100,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Presses: 1, made none apart: single",
+          "Times on performance.now's clock: yes"
+        ],
+        "react": {
+          "touchStart@pad": 1,
+          "touchEnd@pad": 1
+        },
+        "react_presses": {
+          "pointerDown@pad": 1,
+          "pointerUp@pad": 1
+        },
+        "focus_input": null
+      }
+    },
+    {
+      "name": "a double press behind a slow frame is still a double press: its presses were made 150 ms apart",
+      "do": [
+        "double_press",
+        [
+          100,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Presses: 3, made 150.0 ms apart: double",
+          "Pointer downs made 150.0 ms apart",
+          "Second press reached JavaScript behind the slow frame: yes",
+          "Times on performance.now's clock: yes"
+        ],
+        "react": {
+          "touchStart@pad": 2,
+          "touchEnd@pad": 2
+        },
+        "react_presses": {
+          "pointerDown@pad": 2,
+          "pointerUp@pad": 2
+        },
+        "react_apart_ms": {
+          "touchStart@pad": [
+            150
+          ],
+          "touchEnd@pad": [
+            150
+          ],
+          "pointerDown@pad": [
+            150
+          ],
+          "pointerUp@pad": [
+            150
+          ]
+        },
+        "react_received_together_ms": 50,
+        "focus_input": null
+      }
+    }
+  ]
+}

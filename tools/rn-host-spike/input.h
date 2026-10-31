@@ -9,6 +9,7 @@
 #include <oxyos_client.h>
 
 #include <react/renderer/core/ReactPrimitives.h>
+#include <react/timing/primitives.h>
 
 #include <chrono>
 #include <functional>
@@ -141,7 +142,11 @@ class PointerInput {
   // Offsets this host gave each scroll view; the state commit that carries one may still be
   // pending when the next scroll arrives.
   std::unordered_map<facebook::react::Tag, facebook::react::Point> offsets_;
-  std::chrono::steady_clock::time_point epoch_ = std::chrono::steady_clock::now();
+  // When the input being handled was made, as Android's MotionEvent.getEventTime(): the device's
+  // time the compositor sent with it (CLOCK_MONOTONIC, the steady clock performance.now() reads),
+  // which the touches and W3C pointer events it makes carry as their timeStamp. A leave or a
+  // cancel, which no device made, is the moment it is handled, as Android's ACTION_CANCEL is.
+  facebook::react::HighResTimeStamp time_ = facebook::react::HighResTimeStamp::now();
 };
 
 }  // namespace oxyos

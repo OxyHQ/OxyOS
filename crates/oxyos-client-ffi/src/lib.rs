@@ -318,6 +318,8 @@ pub struct OxyOSEvent {
     pub flag: u8,
     /// A text event's UTF-8, NUL-terminated.
     pub text: [u8; TEXT_CHUNK_BYTES + 1],
+    /// An input event's time: when the device reported it, in microseconds of CLOCK_MONOTONIC.
+    pub time_us: u64,
 }
 
 impl Default for OxyOSEvent {
@@ -337,6 +339,7 @@ impl Default for OxyOSEvent {
             rotation_256: 0,
             flag: 0,
             text: [0; TEXT_CHUNK_BYTES + 1],
+            time_us: 0,
         }
     }
 }
@@ -546,9 +549,11 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             x,
             y,
             button,
+            time_us,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_POINTER,
+                time_us,
                 surface,
                 serial,
                 x,
@@ -563,9 +568,11 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             serial,
             key,
             pressed,
+            time_us,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_KEY,
+                time_us,
                 surface,
                 serial,
                 code: key,
@@ -579,11 +586,13 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             key,
             pressed,
             text,
+            time_us,
         } => {
             let bytes = text.as_str().as_bytes();
             out.text[..bytes.len()].copy_from_slice(bytes);
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_KEY,
+                time_us,
                 surface,
                 serial,
                 code: key,
@@ -606,9 +615,11 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             id,
             x,
             y,
+            time_us,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_TOUCH,
+                time_us,
                 surface,
                 serial,
                 x,
@@ -648,9 +659,11 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             y,
             scale_65536,
             rotation_256,
+            time_us,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_PINCH,
+                time_us,
                 surface,
                 serial,
                 x,
@@ -666,9 +679,11 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             serial,
             dx,
             dy,
+            time_us,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SCROLL,
+                time_us,
                 surface,
                 serial,
                 x: dx,

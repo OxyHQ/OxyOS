@@ -4,10 +4,10 @@
 //! (docs/native-foundation.mdx).
 
 use input::event::gesture::{
-    GestureEndEvent, GestureEvent, GesturePinchEvent, GesturePinchEventTrait,
+    GestureEndEvent, GestureEvent, GestureEventTrait, GesturePinchEvent, GesturePinchEventTrait,
 };
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
-use input::event::pointer::{Axis, ButtonState, PointerScrollEvent};
+use input::event::pointer::{Axis, ButtonState, PointerEventTrait, PointerScrollEvent};
 use input::event::{KeyboardEvent, PointerEvent};
 use input::{Libinput, LibinputInterface};
 use std::ffi::{OsStr, OsString};
@@ -570,8 +570,9 @@ impl Input {
             .map_err(|()| io::Error::other("libinput cannot resume"))
     }
 
-    /// What has happened since the last call; never blocks.
-    pub fn dispatch(&mut self) -> io::Result<Vec<Action>> {
+    /// What has happened since the last call, each with when the device reported it (libinput's
+    /// event time: microseconds of CLOCK_MONOTONIC); never blocks.
+    pub fn dispatch(&mut self) -> io::Result<Vec<(u64, Action)>> {
         match self.libinput.dispatch() {
             // A signal interrupted libinput's wait for its devices: what it has is still read.
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -582,7 +583,7 @@ impl Input {
             match event {
                 input::Event::Pointer(PointerEvent::Motion(motion)) => {
                     self.move_to(self.pointer.0 + motion.dx(), self.pointer.1 + motion.dy());
-                    actions.push(self.motion());
+                    actions.push((motion.time_usec(), self.motion()));
                 }
                 input::Event::Pointer(PointerEvent::MotionAbsolute(motion)) => {
                     let (x, y, width, height) = self.bounds();
@@ -590,24 +591,26 @@ impl Input {
                         x + motion.absolute_x_transformed(width as u32),
                         y + motion.absolute_y_transformed(height as u32),
                     );
-                    actions.push(self.motion());
+                    actions.push((motion.time_usec(), self.motion()));
                 }
-                input::Event::Pointer(PointerEvent::Button(button)) => {
-                    actions.push(Action::Button {
+                input::Event::Pointer(PointerEvent::Button(button)) => actions.push((
+                    button.time_usec(),
+                    Action::Button {
                         code: button.button(),
                         pressed: button.button_state() == ButtonState::Pressed,
-                    })
-                }
+                    },
+                )),
                 input::Event::Pointer(PointerEvent::ScrollWheel(scroll)) => {
-                    actions.push(scroll_action(&scroll))
+                    actions.push((scroll.time_usec(), scroll_action(&scroll)))
                 }
                 input::Event::Pointer(PointerEvent::ScrollFinger(scroll)) => {
-                    actions.push(scroll_action(&scroll))
+                    actions.push((scroll.time_usec(), scroll_action(&scroll)))
                 }
                 input::Event::Pointer(PointerEvent::ScrollContinuous(scroll)) => {
-                    actions.push(scroll_action(&scroll))
+                    actions.push((scroll.time_usec(), scroll_action(&scroll)))
                 }
                 input::Event::Gesture(GestureEvent::Pinch(pinch)) => {
+                    let time = pinch.time_usec();
                     let (phase, angle) = match &pinch {
                         GesturePinchEvent::Begin(_) => (GesturePhase::Begin, 0.0),
                         GesturePinchEvent::Update(update) => {
@@ -618,30 +621,30 @@ impl Input {
                         }
                         _ => (GesturePhase::End, 0.0),
                     };
-                    actions.push(self.pinch(phase, pinch.scale(), angle));
+                    actions.push((time, self.pinch(phase, pinch.scale(), angle)));
                 }
                 input::Event::Keyboard(KeyboardEvent::Key(key)) => {
+                    let time = key.time_usec();
                     let pressed = key.key_state() == KeyState::Pressed;
                     let caps = self.keyboard.caps_locked();
-                    match self.keyboard.key(key.key(), pressed) {
-                        Typed::Key(text) => actions.push(Action::Key {
+                    let action = match self.keyboard.key(key.key(), pressed) {
+                        Typed::Key(text) => Some(Action::Key {
                             code: key.key(),
                             pressed,
                             text,
                         }),
                         Typed::Compose { composition, text } => {
-                            actions.push(Action::Compose { composition, text })
+                            Some(Action::Compose { composition, text })
                         }
-                        Typed::SwitchTerminal(number) => {
-                            actions.push(Action::SwitchTerminal(number))
-                        }
-                        Typed::Terminate => actions.push(Action::Terminate),
-                        Typed::Lock => actions.push(Action::Lock),
-                        Typed::ToggleReader => actions.push(Action::ToggleReader),
-                        Typed::Nothing => {}
-                    }
+                        Typed::SwitchTerminal(number) => Some(Action::SwitchTerminal(number)),
+                        Typed::Terminate => Some(Action::Terminate),
+                        Typed::Lock => Some(Action::Lock),
+                        Typed::ToggleReader => Some(Action::ToggleReader),
+                        Typed::Nothing => None,
+                    };
+                    actions.extend(action.map(|action| (time, action)));
                     if self.keyboard.caps_locked() != caps {
-                        actions.push(Action::CapsLock(!caps));
+                        actions.push((time, Action::CapsLock(!caps)));
                     }
                 }
                 _ => {}

@@ -401,12 +401,14 @@ fn events() -> Vec<Event> {
             x: -1,
             y: 7,
             button: 272,
+            time_us: 86_400_000_123,
         },
         Event::Key {
             surface: 1,
             serial: 5,
             key: 1,
             pressed: true,
+            time_us: u64::MAX,
         },
         Event::Focus {
             surface: 1,
@@ -419,6 +421,7 @@ fn events() -> Vec<Event> {
             id: 0,
             x: 0,
             y: 0,
+            time_us: 0,
         },
         Event::Pinch {
             surface: 1,
@@ -428,6 +431,7 @@ fn events() -> Vec<Event> {
             y: 4,
             scale_65536: 98304,
             rotation_256: -2560,
+            time_us: 1,
         },
         Event::LaunchResult {
             serial: 3,
@@ -508,6 +512,7 @@ fn events() -> Vec<Event> {
             serial: 7,
             dx: 0,
             dy: -256 * 40,
+            time_us: 7_000_001,
         },
         Event::Text {
             surface: 1,
@@ -628,6 +633,7 @@ fn events() -> Vec<Event> {
             key: 30,
             pressed: true,
             text: PreeditText::new("a").unwrap(),
+            time_us: 42,
         },
         Event::KeyText {
             surface: 1,
@@ -635,6 +641,7 @@ fn events() -> Vec<Event> {
             key: 30,
             pressed: true,
             text: PreeditText::new("é").unwrap(),
+            time_us: 43,
         },
         Event::SystemText {
             serial: 11,

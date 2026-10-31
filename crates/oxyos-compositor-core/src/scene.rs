@@ -381,6 +381,9 @@ pub struct Scene {
     last_user_serial: u64,
     /// Counts the person's input, of every kind and wherever it goes (`Scene::activity`).
     activity: u64,
+    /// When the device reported the input being handled (`Scene::set_input_time`), which the
+    /// input events it makes carry.
+    input_time_us: u64,
     /// Per client: the serial at connect or of the latest user input delivered to it. A window
     /// mapped after the user interacted elsewhere does not take focus.
     activation: BTreeMap<ClientId, u64>,
@@ -3012,6 +3015,20 @@ impl Scene {
         self.activity = self.activity.wrapping_add(1);
     }
 
+    /// When the device reported the input the next calls handle (pointer, keys, scrolls, pinches,
+    /// touches), in microseconds of CLOCK_MONOTONIC (libinput's event time): the input events
+    /// they make carry it (`time_us`), so a client knows how far apart inputs were made however
+    /// late they reach it. Events the scene makes on its own (an enter, a leave, a cancel) carry
+    /// the latest input's.
+    pub fn set_input_time(&mut self, time_us: u64) {
+        self.input_time_us = time_us;
+    }
+
+    /// The time `set_input_time` last gave.
+    pub fn input_time(&self) -> u64 {
+        self.input_time_us
+    }
+
     /// The keyboard's Caps Lock came on or went off: the surface with keyboard focus is told.
     pub fn set_caps_lock(&mut self, on: bool) {
         if self.caps_lock == on {
@@ -3052,6 +3069,7 @@ impl Scene {
                 x,
                 y,
                 button,
+                time_us: self.input_time_us,
             },
         );
     }
@@ -3358,6 +3376,7 @@ impl Scene {
                 serial,
                 dx,
                 dy,
+                time_us: self.input_time_us,
             },
         );
     }
@@ -3389,6 +3408,7 @@ impl Scene {
                 y,
                 scale_65536,
                 rotation_256,
+                time_us: self.input_time_us,
             },
         );
     }
@@ -3438,7 +3458,7 @@ impl Scene {
             self.last_user_serial = serial;
         }
         if let Some(target) = self.focus.filter(|f| self.visible(*f)) {
-            self.emit_key(target, serial, key, pressed, None);
+            self.emit_key(target, serial, key, pressed, None, self.input_time_us);
         }
     }
 
@@ -3451,7 +3471,7 @@ impl Scene {
             self.last_user_serial = serial;
         }
         let left = match self.focus.filter(|f| self.visible(*f)) {
-            Some(target) => self.emit_key(target, serial, key, pressed, text),
+            Some(target) => self.emit_key(target, serial, key, pressed, text, self.input_time_us),
             None => text,
         };
         if let Some(text) = left {
@@ -3459,8 +3479,8 @@ impl Scene {
         }
     }
 
-    /// Sends a key with `serial` to `target`. Returns the text still to send: none when it went
-    /// with the key in a KeyText; a text longer than one chunk goes as before.
+    /// Sends a key with `serial`, made at `time_us`, to `target`. Returns the text still to send:
+    /// none when it went with the key in a KeyText; a text longer than one chunk goes as before.
     pub(super) fn emit_key<'t>(
         &mut self,
         target: SurfaceKey,
@@ -3468,6 +3488,7 @@ impl Scene {
         key: u32,
         pressed: bool,
         text: Option<&'t str>,
+        time_us: u64,
     ) -> Option<&'t str> {
         if pressed {
             self.record_press(serial, target, false);
@@ -3487,6 +3508,7 @@ impl Scene {
                         key,
                         pressed,
                         text,
+                        time_us,
                     },
                 );
                 None
@@ -3499,6 +3521,7 @@ impl Scene {
                         serial,
                         key,
                         pressed,
+                        time_us,
                     },
                 );
                 text
@@ -3525,6 +3548,7 @@ impl Scene {
                 id,
                 x: lx,
                 y: ly,
+                time_us: self.input_time_us,
             },
         );
     }

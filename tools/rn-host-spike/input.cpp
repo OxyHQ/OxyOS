@@ -202,6 +202,8 @@ Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x,
 
 void PointerInput::cancelResponder() {
   if ((!down_ && !pinching_) || responderCancelled_) return;
+  // A gesture handler took the touch now: its cancel is this moment's.
+  time_ = HighResTimeStamp::now();
   if (pinching_) {
     dispatchTouches(Phase::Cancel, pinchFingers(pinchSpread_, pinchDegrees_), std::nullopt);
   } else {
@@ -271,6 +273,20 @@ void PointerInput::pinch(const SurfaceContent& content, const OxyOSEvent& event)
   }
 }
 
+namespace {
+
+// When an input event was made (PointerInput::time_).
+HighResTimeStamp inputTime(const OxyOSEvent& event) {
+  bool made = event.kind != OXYOS_EVENT_POINTER ||
+              (event.detail != OXYOS_POINTER_LEAVE && event.detail != OXYOS_POINTER_CANCEL);
+  if (!made || event.time_us == 0) return HighResTimeStamp::now();
+  // The device's time is CLOCK_MONOTONIC's, which is the steady clock's on Linux.
+  return HighResTimeStamp::fromChronoSteadyClockTimePoint(
+      std::chrono::steady_clock::time_point(std::chrono::microseconds(event.time_us)));
+}
+
+}  // namespace
+
 void PointerInput::handle(const OxyOSEvent& event) {
   if (event.kind == OXYOS_EVENT_KEY) {
     // Linux codes of the modifiers, left and right.
@@ -288,6 +304,7 @@ void PointerInput::handle(const OxyOSEvent& event) {
   if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER && event.kind != OXYOS_EVENT_PINCH) return;
   auto content = surfaces_(event.surface);
   if (!content) return;
+  time_ = inputTime(event);
   if (event.kind == OXYOS_EVENT_PINCH) return pinch(*content, event);
   if (event.kind == OXYOS_EVENT_SCROLL) {
     content_ = *content;
@@ -389,6 +406,7 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
     event.shiftKey = shift_;
     event.altKey = alt_;
     event.metaKey = meta_;
+    event.timeStamp = time_;
     if (leaving) {
       emitter->onPointerLeave(event);
       Report::get().deliver("pointerLeave", surface, it->second.view);
@@ -442,6 +460,7 @@ void PointerInput::pointerButton(const SurfaceContent& content, uint32_t code, b
   event.shiftKey = shift_;
   event.altKey = alt_;
   event.metaKey = meta_;
+  event.timeStamp = time_;
   if (Report::get().enabled()) {
     std::string within;
     auto path = ancestry(tree_, target);
@@ -450,7 +469,8 @@ void PointerInput::pointerButton(const SurfaceContent& content, uint32_t code, b
       if (props && !props->testId.empty()) within = props->testId;
     }
     Report::get().deliver(down ? "pointerDown" : "pointerUp", content.surface, it->second.view,
-                          folly::dynamic::object("x", page.x)("y", page.y)("within", within)("button", button));
+                          folly::dynamic::object("x", page.x)("y", page.y)("within", within)("button", button)(
+                              "time", time_.toDOMHighResTimeStamp()));
   }
   if (down) {
     emitter->onPointerDown(event);
@@ -529,7 +549,6 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
   auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
   if (!emitter) return;
   Point targetOrigin = windowFrame(tree_, target_).value_or(Rect{}).origin;
-  double timestamp = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - epoch_).count();
   bool lifted = phase == Phase::End || phase == Phase::Cancel;
   TouchEvent event{};
   for (size_t i = 0; i < fingers.size(); ++i) {
@@ -544,7 +563,7 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
     touch.target = target_;
     bool isChanged = !changed || *changed == i;
     touch.force = lifted && isChanged ? 0 : 1;
-    touch.timestamp = timestamp;
+    touch.timeStamp = time_;
     if (isChanged) event.changedTouches.insert(touch);
     if (!(lifted && isChanged)) {
       event.touches.insert(touch);
@@ -564,7 +583,7 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
     }
     Report::get().deliver(events[static_cast<int>(phase)], content_.surface, it->second.view,
                           folly::dynamic::object("x", page.x)("y", page.y)("within", within)(
-                              "touches", static_cast<int>(event.touches.size())));
+                              "touches", static_cast<int>(event.touches.size()))("time", time_.toDOMHighResTimeStamp()));
   }
   if (std::getenv("OXYOS_HOST_TRACE")) {
     static const char* names[] = {"start", "move", "end", "cancel"};

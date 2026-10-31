@@ -103,6 +103,7 @@ impl Ime {
                     key,
                     pressed,
                     text,
+                    ..
                 } => {
                     self.keys += 1;
                     let used =

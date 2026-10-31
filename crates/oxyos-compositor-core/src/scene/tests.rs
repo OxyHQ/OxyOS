@@ -1295,6 +1295,81 @@ fn stale_configures_are_discarded_and_last_content_is_kept_during_resize() {
 }
 
 #[test]
+fn input_events_carry_when_the_device_reported_them() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.clear_log();
+    let time = |event: &Event| match *event {
+        Event::Pointer { time_us, .. }
+        | Event::Key { time_us, .. }
+        | Event::Touch { time_us, .. }
+        | Event::Scroll { time_us, .. }
+        | Event::Pinch { time_us, .. }
+        | Event::KeyText { time_us, .. } => Some(time_us),
+        _ => None,
+    };
+    // A double click read in one late turn: each event keeps its own time.
+    for (time_us, input) in [
+        (
+            1_000_000,
+            &(|scene: &mut Scene| scene.pointer_motion(w.x + 5, w.y + 5)) as &dyn Fn(&mut Scene),
+        ),
+        (1_000_000, &|scene| scene.pointer_button(BUTTON, true)),
+        (1_060_000, &|scene| scene.pointer_button(BUTTON, false)),
+        (1_150_000, &|scene| scene.pointer_button(BUTTON, true)),
+        (1_210_000, &|scene| scene.pointer_button(BUTTON, false)),
+        (1_300_000, &|scene| scene.pointer_scroll(0, 256)),
+        (1_400_000, &|scene| {
+            scene.pointer_pinch(GesturePhase::Begin, 65536, 0)
+        }),
+        (1_410_000, &|scene| {
+            scene.pointer_pinch(GesturePhase::End, 70000, 0)
+        }),
+        (1_500_000, &|scene| scene.key(30, true)),
+        (1_600_000, &|scene| scene.touch_down(1, w.x + 9, w.y + 9)),
+        (1_610_000, &|scene| scene.touch_up(1)),
+    ] {
+        h.scene.set_input_time(time_us);
+        input(&mut h.scene);
+    }
+    h.pump();
+    let times: Vec<(String, u64)> = h
+        .events_for(APP)
+        .iter()
+        .filter_map(|event| {
+            let kind = match event {
+                Event::Pointer { kind, .. } => format!("{kind:?}"),
+                Event::Touch { kind, .. } => format!("touch {kind:?}"),
+                Event::Scroll { .. } => "scroll".into(),
+                Event::Pinch { phase, .. } => format!("pinch {phase:?}"),
+                Event::Key { .. } => "key".into(),
+                _ => return None,
+            };
+            Some((kind, time(event)?))
+        })
+        .collect();
+    let expected: Vec<(String, u64)> = [
+        ("Enter", 1_000_000),
+        ("Motion", 1_000_000),
+        ("Press", 1_000_000),
+        ("Release", 1_060_000),
+        ("Press", 1_150_000),
+        ("Release", 1_210_000),
+        ("scroll", 1_300_000),
+        ("pinch Begin", 1_400_000),
+        ("pinch End", 1_410_000),
+        ("key", 1_500_000),
+        ("touch Down", 1_600_000),
+        ("touch Up", 1_610_000),
+    ]
+    .into_iter()
+    .map(|(kind, time)| (kind.to_string(), time))
+    .collect();
+    assert_eq!(times, expected);
+}
+
+#[test]
 fn touch_outside_a_grab_dismisses_and_cancel_releases_every_point() {
     let mut h = Harness::new();
     let other = h.toplevel(OTHER, 1, 1200, 800);
@@ -3721,6 +3796,7 @@ fn the_input_method_is_told_the_field_and_nothing_of_where_it_is() {
 #[test]
 fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
     let (mut h, _) = served("");
+    h.scene.set_input_time(5_000);
     h.scene.keyboard(KEY_A, true, Some("a"));
     let events = logged(&mut h);
     assert!(to(&events, APP).is_empty());
@@ -3732,9 +3808,13 @@ fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
             key: KEY_A,
             pressed: true,
             text: PreeditText::new("a").unwrap(),
+            time_us: 5_000,
         }]
     );
+    h.scene.set_input_time(6_000);
     h.scene.keyboard(KEY_B, true, Some("b"));
+    // The answers come later; each key given back keeps the time it was pressed.
+    h.scene.set_input_time(90_000);
     let b = held(&logged(&mut h));
     // The second answered first waits for the first.
     h.request(
@@ -3761,8 +3841,12 @@ fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
                 key,
                 serial,
                 pressed: true,
+                time_us,
                 ..
-            } => Some(format!("key {key} {}", *serial == a || *serial == b)),
+            } => Some(format!(
+                "key {key} {} at {time_us}",
+                *serial == a || *serial == b
+            )),
             Event::TextInputCommitText { text, .. } => Some(text.as_str().to_string()),
             _ => None,
         })
@@ -3771,9 +3855,9 @@ fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
     assert_eq!(
         delivered,
         [
-            format!("key {KEY_A} true"),
+            format!("key {KEY_A} true at 5000"),
             "a".into(),
-            format!("key {KEY_B} true"),
+            format!("key {KEY_B} true at 6000"),
             "b".into()
         ]
     );

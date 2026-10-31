@@ -497,6 +497,9 @@ fn run(out: &Path) -> Result<()> {
                         window.x + window.width as i32 / 2,
                         window.y + window.height as i32 / 2,
                     );
+                    compositor
+                        .scene
+                        .set_input_time(oxyos_compositor::monotonic().as_micros() as u64);
                     compositor.scene.pointer_motion(center.0, center.1);
                     compositor.scene.pointer_button(BUTTON + 1, true);
                     compositor.scene.pointer_button(BUTTON + 1, false);
@@ -516,6 +519,9 @@ fn run(out: &Path) -> Result<()> {
                     {
                         return Err("menu test point is not over the other application".into());
                     }
+                    compositor
+                        .scene
+                        .set_input_time(oxyos_compositor::monotonic().as_micros() as u64);
                     compositor.scene.pointer_motion(point.0, point.1);
                     compositor.scene.pointer_button(BUTTON, true);
                     compositor.scene.pointer_button(BUTTON, false);
@@ -545,6 +551,9 @@ fn run(out: &Path) -> Result<()> {
                     if menu.contains_point(outside.0, outside.1) {
                         return Err("outside point is inside the menu".into());
                     }
+                    compositor
+                        .scene
+                        .set_input_time(oxyos_compositor::monotonic().as_micros() as u64);
                     compositor.scene.pointer_motion(outside.0, outside.1);
                     compositor.scene.pointer_button(BUTTON, true);
                     compositor.scene.pointer_button(BUTTON, false);

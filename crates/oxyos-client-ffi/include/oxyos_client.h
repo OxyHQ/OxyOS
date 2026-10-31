@@ -189,7 +189,11 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_POLL_CLOSED (-1)
 #define OXYOS_ERROR (-2)
 
-/* One compositor event. Fields by kind:
+/* One compositor event. Fields by kind (and, for the input events POINTER, KEY, TOUCH, SCROLL
+ * and PINCH, time_us: when the device reported the input, in microseconds of CLOCK_MONOTONIC,
+ * libinput's event time, so how far apart inputs were made is known however late they arrive, as
+ * Android's MotionEvent.getEventTime(); an enter, leave or cancel the compositor makes on its own
+ * carries the latest input's):
  *   CONFIGURE   serial; x, y, width, height: the rect (logical; a popup's is relative to its
  *               parent); scale_120: scale * 120; flag: OXYOS_CONFIGURE_* bits (full screen,
  *               zoomed to the work area).
@@ -360,6 +364,7 @@ typedef struct OxyOSEvent {
   int32_t rotation_256;
   uint8_t flag;
   char text[33];
+  uint64_t time_us;
 } OxyOSEvent;
 
 

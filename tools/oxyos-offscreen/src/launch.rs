@@ -1178,6 +1178,19 @@ fn monotonic_ns() -> i64 {
     now.tv_sec * 1_000_000_000 + now.tv_nsec
 }
 
+/// The director's input happens now: what it injects next carries this moment as its device
+/// time (`Scene::set_input_time`, CLOCK_MONOTONIC in microseconds, as libinput's).
+fn stamp(scene: &mut Scene) {
+    scene.set_input_time((monotonic_ns() / 1_000) as u64);
+}
+
+/// When a double press's press, release, press and release were made, in milliseconds from the
+/// first, as a person double-clicks: the second press 150 ms after the first, well within
+/// Android's double-tap timeout (300 ms). The director injects them at once, the last now, so
+/// they reach the application together, as inputs read in one late turn do; what tells how far
+/// apart they were made is their device time.
+const DOUBLE_PRESS_MS: [u64; 4] = [0, 60, 150, 210];
+
 /// When a step's answer first appeared, when it settled, and the window then.
 struct Settled {
     window: Rect,
@@ -1644,6 +1657,9 @@ fn inject_through(
     window: Rect,
     step: &Step,
 ) -> Result<Option<usize>> {
+    // What reaches the scene directly (text no key types) happens now; what the devices send
+    // carries their own time.
+    stamp(&mut compositor.scene);
     let (ox, oy) = compositor.display_offset;
     let outputs: Vec<Rect> = compositor
         .screens
@@ -1938,6 +1954,7 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
     if !window.contains_point(start.0, start.1) {
         return Err(format!("({}, {}) is outside {window:?}", from.0, from.1).into());
     }
+    stamp(&mut session.compositor.scene);
     session.compositor.scene.pointer_motion(start.0, start.1);
     session.compositor.scene.pointer_button(BUTTON, true);
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -1946,8 +1963,10 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
         std::thread::sleep(Duration::from_millis(2));
     }
     for (x, y) in drag_points(start, (start.0 + by.0, start.1 + by.1)) {
+        stamp(&mut session.compositor.scene);
         session.compositor.scene.pointer_motion(x, y);
     }
+    stamp(&mut session.compositor.scene);
     session.compositor.scene.pointer_button(BUTTON, false);
     Ok(())
 }
@@ -2050,6 +2069,7 @@ fn drag_paced(
             }
         }
     };
+    stamp(&mut session.compositor.scene);
     session.compositor.scene.pointer_motion(from.0, from.1);
     session.compositor.scene.pointer_button(BUTTON, true);
     let interval = Duration::from_secs(1) / hz;
@@ -2067,6 +2087,7 @@ fn drag_paced(
         }
         let at = |a: i32, b: i32| (i64::from(a) + (i64::from(b) - i64::from(a)) * i / steps) as i32;
         moved.push(start.elapsed());
+        stamp(&mut session.compositor.scene);
         session
             .compositor
             .scene
@@ -2081,6 +2102,7 @@ fn drag_paced(
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
     }
+    stamp(&mut session.compositor.scene);
     session.compositor.scene.pointer_button(BUTTON, false);
     let deadline = start.elapsed() + Duration::from_secs(5);
     loop {
@@ -2192,6 +2214,7 @@ fn scroll_paced(
         return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
     }
     let sequence = |compositor: &Compositor| compositor.surface_sequence(CLIENT, WINDOW);
+    stamp(&mut session.compositor.scene);
     session
         .compositor
         .scene
@@ -2220,6 +2243,7 @@ fn scroll_paced(
         }
         let step = total * i / i64::from(events) - total * (i - 1) / i64::from(events);
         scrolled.push(start.elapsed());
+        stamp(&mut session.compositor.scene);
         session.compositor.scene.pointer_scroll(0, step as i32);
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
@@ -2274,6 +2298,7 @@ fn move_paced(
         }
     }
     let sequence = |compositor: &Compositor| compositor.surface_sequence(CLIENT, WINDOW);
+    stamp(&mut session.compositor.scene);
     session
         .compositor
         .scene
@@ -2302,6 +2327,7 @@ fn move_paced(
         let x = i64::from(from.0) + dx * i / i64::from(motions);
         let y = i64::from(from.1) + dy * i / i64::from(motions);
         moved.push(start.elapsed());
+        stamp(&mut session.compositor.scene);
         session
             .compositor
             .scene
@@ -2371,6 +2397,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         scene.pointer_button(BUTTON, true);
         scene.pointer_button(BUTTON, false);
     };
+    stamp(&mut compositor.scene);
     match step {
         Step::Press { x, y } => {
             inside(window, *x, *y)?;
@@ -2393,8 +2420,14 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         }
         Step::DoublePress { x, y } => {
             inside(window, *x, *y)?;
-            press(&mut compositor.scene, window.x + x, window.y + y);
-            press(&mut compositor.scene, window.x + x, window.y + y);
+            let scene = &mut compositor.scene;
+            let last = DOUBLE_PRESS_MS[3] * 1_000;
+            let start = scene.input_time().saturating_sub(last);
+            scene.pointer_motion(window.x + x, window.y + y);
+            for (at, pressed) in DOUBLE_PRESS_MS.into_iter().zip([true, false, true, false]) {
+                scene.set_input_time(start + at * 1_000);
+                scene.pointer_button(BUTTON, pressed);
+            }
         }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
