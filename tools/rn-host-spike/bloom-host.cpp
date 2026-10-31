@@ -975,6 +975,28 @@ int main(int argc, char** argv) {
           .announce = [&window](const std::string& text, bool polite) {
             window->announce(oxyos::Window::kToplevel, polite ? OXYOS_POLITE : OXYOS_ASSERTIVE, text);
           },
+          // Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): the capture cites the
+          // interface's serial, the opening of a saved one the press on its thumbnail.
+          .capture = [&window](uint64_t serial, uint8_t kind, uint32_t output, const OxyOSRect& rect,
+                               uint32_t target, uint8_t destination) {
+            bool sent = window->capture(serial, kind, output, rect, target, destination);
+            oxyos::Report::get().input(
+                "capture", 0,
+                folly::dynamic::object("kind", kind)("output", output)("window", target)("destination", destination)(
+                    "rect", folly::dynamic::array(rect.x, rect.y, rect.width, rect.height))("sent", sent));
+            return sent;
+          },
+          .endCapture = [&window](uint64_t serial) {
+            bool sent = window->endCapture(serial);
+            oxyos::Report::get().input("capture.end", 0, folly::dynamic::object("sent", sent));
+            return sent;
+          },
+          .openScreenshot = [&window, &lastPress](uint32_t screenshot) {
+            bool sent = window->openScreenshot(screenshot, lastPress);
+            oxyos::Report::get().input("screenshot.open", 0,
+                                       folly::dynamic::object("screenshot", screenshot)("sent", sent));
+            return sent;
+          },
       };
     }
     // An application's notifications (docs/adr/0026-notifications.mdx), expo-notifications' on
@@ -1031,6 +1053,8 @@ int main(int argc, char** argv) {
     // requests cite the latest press, as the session requires of what changes anything.
     auto launchCapabilities = oxyos::LaunchCapabilities::fromEnvironment();
     oxyos::ChunkTexts systemTexts, sheetTexts;
+    // A saved screenshot's path, assembled from its chunks (docs/adr/0024-system-shortcuts.mdx).
+    oxyos::ChunkTexts screenshotPaths;
     uint32_t systemSerial = 0;
     std::map<uint32_t, std::string> askedCapabilities;
     services.system = {
@@ -1147,6 +1171,10 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> preferenceResults;
         std::vector<OxyOSEvent> menuChoices;
         std::vector<OxyOSEvent> systemShortcuts;
+        // The screenshot interface's changes and the window under the pointer, in order, and the
+        // screenshots saved with their paths (docs/adr/0024-system-shortcuts.mdx, decision 10).
+        std::vector<OxyOSEvent> captures;
+        std::vector<std::pair<OxyOSEvent, std::string>> screenshots;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
         std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets;
@@ -1173,6 +1201,14 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
+              if (event.kind == OXYOS_EVENT_CAPTURE_MODE || event.kind == OXYOS_EVENT_CAPTURE_TARGET) {
+                captures.push_back(event);
+              }
+              if (event.kind == OXYOS_EVENT_SCREENSHOT_SAVED) {
+                if (auto path = screenshotPaths.add(event.code, event.detail, event.flag != 0, event.text)) {
+                  screenshots.emplace_back(event, std::move(*path));
+                }
+              }
               if (event.kind == OXYOS_EVENT_CONTROL_LEVEL && (event.flag & OXYOS_CONTROL_BEZEL)) {
                 bezels.push_back(event);
               }
@@ -1237,6 +1273,8 @@ int main(int argc, char** argv) {
                   event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED ||
                   // So is a system shortcut the shell shows: the search's field may cite it.
                   event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ||
+                  // And the screenshot interface opened or changed by the keyboard.
+                  event.kind == OXYOS_EVENT_CAPTURE_MODE ||
                   // And a notification the person pressed (ADR 0026): its response may copy.
                   event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE) {
                 lastPress = event.serial;
@@ -1427,6 +1465,32 @@ int main(int argc, char** argv) {
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellShortcut", payload));
+        }
+        // The screenshot interface (docs/adr/0024-system-shortcuts.mdx, decision 10): its changes
+        // and the window under the pointer, to JavaScript in order; then the screenshots saved.
+        for (const auto& capture : captures) {
+          if (capture.kind == OXYOS_EVENT_CAPTURE_MODE) {
+            static const char* modes[] = {"", "selection", "window", "toolbar", "confirm", "ended"};
+            const char* mode = capture.detail <= OXYOS_CAPTURE_MODE_ENDED ? modes[capture.detail] : "";
+            folly::dynamic payload = folly::dynamic::object("mode", mode)("serial", static_cast<double>(capture.serial))(
+                "output", capture.code);
+            oxyos::Report::get().input("capture.mode", 0, payload);
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSShellCapture", payload));
+          } else {
+            folly::dynamic payload = folly::dynamic::object("window", capture.code)("x", capture.x)("y", capture.y)(
+                "width", capture.width)("height", capture.height);
+            oxyos::Report::get().input("capture.target", 0, payload);
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSShellCaptureTarget", payload));
+          }
+        }
+        for (const auto& [saved, path] : screenshots) {
+          folly::dynamic payload = folly::dynamic::object("id", saved.code)("output", saved.x)("width", saved.width)(
+              "height", saved.height)("path", path);
+          oxyos::Report::get().input("screenshot.saved", 0, payload);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSShellScreenshot", payload));
         }
         // A hardware key's level for the shell's bezel (docs/adr/0025-hardware-keys-and-control-center.mdx),
         // after the state that holds it: to JavaScript in order, each a bezel shown again.
@@ -1679,6 +1743,13 @@ int main(int argc, char** argv) {
               auto x1 = static_cast<int32_t>(std::ceil((rect.origin.x + rect.size.width) * display.scale));
               auto y1 = static_cast<int32_t>(std::ceil((rect.origin.y + rect.size.height) * display.scale));
               pixels.push_back(OxyOSRect{x0, y0, static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(y1 - y0)});
+            }
+            // Its secure fields go with the frame: no screenshot captures them
+            // (docs/adr/0024-system-shortcuts.mdx, decision 10).
+            if (auto secure = oxyos::secureFields(tree, tree.root());
+                window->setSecureRegions(oxyos::Window::kToplevel, secure)) {
+              oxyos::Report::get().input("secure.regions", oxyos::Window::kToplevel,
+                                         folly::dynamic::object("rects", oxyos::toDynamic(secure)));
             }
             window->present(oxyos::Window::kToplevel, windowCanvas, pixels);
             // The share of the window drawn again (overlaps counted once per rectangle, at most 1).

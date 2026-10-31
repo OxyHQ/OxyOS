@@ -629,6 +629,48 @@ std::shared_ptr<TurboModule> createHostModule(
       services.shell.removeNotification(number(rt, args, count, 0));
       return jsi::Value::undefined();
     });
+    // Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): (serial, kind, output, rect,
+    // window, destination), kind 'screens' | 'area' | 'window', rect { x, y, width, height } in the
+    // global space (logical) or null, destination 'desktop' | 'documents'; (serial) to end the
+    // interface without a capture; (screenshot) to open a saved one. Each says whether it was sent.
+    module->method("capture", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      auto string = [&](size_t at) {
+        return count > at && args[at].isString() ? args[at].asString(rt).utf8(rt) : std::string();
+      };
+      auto kindName = string(1);
+      uint8_t kind = kindName == "screens" ? OXYOS_CAPTURE_SCREENS
+                     : kindName == "area"  ? OXYOS_CAPTURE_AREA
+                     : kindName == "window" ? OXYOS_CAPTURE_WINDOW
+                                            : 0;
+      if (kind == 0) throw jsi::JSError(rt, "OxyOSShell.capture: screens, area or window");
+      uint8_t destination = string(5) == "documents" ? OXYOS_CAPTURE_DOCUMENTS : OXYOS_CAPTURE_DESKTOP;
+      OxyOSRect rect{0, 0, 0, 0};
+      if (count > 3 && args[3].isObject()) {
+        auto object = args[3].asObject(rt);
+        auto field = [&](const char* name) {
+          auto value = object.getProperty(rt, name);
+          return value.isNumber() ? value.asNumber() : 0.0;
+        };
+        rect = OxyOSRect{static_cast<int32_t>(std::lround(field("x"))), static_cast<int32_t>(std::lround(field("y"))),
+                         static_cast<uint32_t>(std::max(0L, std::lround(field("width")))),
+                         static_cast<uint32_t>(std::max(0L, std::lround(field("height"))))};
+      }
+      // A serial is a 64-bit counter, as JavaScript's number holds it (below 2^53).
+      uint64_t serial = count > 0 && args[0].isNumber() ? static_cast<uint64_t>(args[0].asNumber()) : 0;
+      return jsi::Value(services.shell.capture(serial, kind, number(rt, args, count, 2), rect,
+                                               number(rt, args, count, 4), destination));
+    });
+    module->method("endCapture", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      uint64_t serial = count > 0 && args[0].isNumber() ? static_cast<uint64_t>(args[0].asNumber()) : 0;
+      return jsi::Value(services.shell.endCapture(serial));
+    });
+    module->method("openScreenshot", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
+                                                                 size_t count) {
+      ready(rt);
+      return jsi::Value(services.shell.openScreenshot(number(rt, args, count, 0)));
+    });
     // (text, polite): to assistive technologies, after what they are saying or at once.
     module->method("announce", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);

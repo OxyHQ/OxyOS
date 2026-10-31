@@ -188,6 +188,19 @@ class Window {
   void showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views);
   // Where a surface takes input: a surface-local logical rectangle.
   void setInputRegion(uint32_t id, const OxyOSRect& region);
+  // The parts of a surface never captured, its secure text fields (surface-local logical
+  // rectangles, docs/adr/0024-system-shortcuts.mdx, decision 10): sent, before the present they go
+  // with, only when they differ from what the surface last sent. True if they were sent.
+  bool setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects);
+  // Screenshots (ADR 0024, decision 10), the session's shell's: a capture of what the person chose,
+  // citing the interface's serial (OXYOS_CAPTURE_*, global logical rectangle), the interface ended
+  // without one, one of its shell surfaces left out of captures, and a saved screenshot opened
+  // citing an input it received. False if it could not be sent.
+  bool capture(uint64_t serial, uint8_t kind, uint32_t output, const OxyOSRect& rect, uint32_t window,
+               uint8_t destination);
+  bool endCapture(uint64_t serial);
+  void excludeFromCapture(uint32_t id, bool excluded);
+  bool openScreenshot(uint32_t screenshot, uint64_t serial);
   // The pointer's shape while it is over a surface (OXYOS_POINTER_*).
   void setPointerShape(uint32_t id, uint8_t shape);
   // Places an open popup again (its anchor moved or its content resized).
@@ -277,6 +290,8 @@ class Window {
   bool disconnected() const;
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
+  // The secure regions each surface last sent (setSecureRegions).
+  std::map<uint32_t, std::vector<OxyOSRect>> secureRegions_;
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far

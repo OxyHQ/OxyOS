@@ -210,3 +210,36 @@ export type ShellControls = {
   /** The Control Center opened: the session looks at the machine again. */
   refresh?: () => void;
 };
+
+/** A screenshot the session saved (docs/adr/0024-system-shortcuts.mdx, decision 10): the session's
+    number for it, the display it is of, its pixels and its file. */
+export type ShellScreenshot = { id: number; output: number; width: number; height: number; path: string };
+/**
+ * Screenshots as the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10): the
+ * compositor opens the interface from the keyboard (Super+Shift+4, Super+Shift+5), drives its keys
+ * (Space, Return, Escape) and captures; the shell shows the interface and the thumbnail and says
+ * what the person picked. Rectangles are the global space's logical pixels.
+ */
+export type ShellScreenshots = {
+  /** This shell's display: its id, where it is in the global space and its scale. */
+  output: { id: number; x: number; y: number; scale: number };
+  /** The interface open now (`serial` new for each), and how many times Return was pressed in its
+      toolbar; null while closed. */
+  active: { serial: number; mode: "selection" | "window" | "toolbar"; output: number; confirm: number } | null;
+  /** The window under the pointer while the interface is open (its rectangle without shadow). */
+  target: { window: number; x: number; y: number; width: number; height: number } | null;
+  /** The screenshots saved, in order (each of one display). */
+  saved: readonly ShellScreenshot[];
+  /** Captures what the person picked: every display, a rectangle of `output`, or a window. */
+  capture: (
+    kind: "screens" | "area" | "window",
+    output: number,
+    rect: { x: number; y: number; width: number; height: number } | null,
+    window: number,
+    destination: "desktop" | "documents",
+  ) => void;
+  /** Ends the interface without a capture (the toolbar's close). */
+  end: () => void;
+  /** Opens a saved screenshot in the application that opens it. */
+  open: (id: number) => void;
+};
