@@ -68,8 +68,6 @@
         ]
       ],
       "expect": {
-        "focus_input": "note",
-        "focus_surface": null,
         "react": {},
         "delivered": {
           "1": {
@@ -88,6 +86,8 @@
             }
           ]
         },
+        "focus_input": "note",
+        "focus_surface": null,
         "in_shell": {
           "texts": [
             "Allo",
@@ -155,7 +155,7 @@
       }
     },
     {
-      "name": "Down opens File under its title, the assistive technology's focus on its first row",
+      "name": "Down opens File under its title on its first row, New, as a Mac's menu opened from the keyboard",
       "do": [
         "key",
         108
@@ -196,24 +196,7 @@
       }
     },
     {
-      "name": "Down: the menu's own keys go to it, its first row active",
-      "do": [
-        "key",
-        108
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "in_shell": {
-          "texts": [
-            "New",
-            "Open Recent"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Right with File open: Edit opens in its place",
+      "name": "Right with File open: Edit opens in its place, on its first enabled row (Undo is disabled)",
       "do": [
         "key",
         106
@@ -249,7 +232,7 @@
       }
     },
     {
-      "name": "Left: File again in its place",
+      "name": "Left: File again in its place, on New",
       "do": [
         "key",
         105
@@ -376,8 +359,7 @@
       ],
       "expect": {
         "texts": [
-          "hola!",
-          "new documents: 1"
+          "hola!"
         ],
         "react": {
           "keyPress@note": 1,
@@ -445,7 +427,7 @@
       }
     },
     {
-      "name": "Return opens Edit",
+      "name": "Return opens Edit on its first enabled row, Wrap Lines",
       "do": [
         "key",
         28
@@ -462,25 +444,14 @@
             "Undo",
             "Wrap Lines"
           ]
-        }
-      }
-    },
-    {
-      "name": "a letter finds its row: w, Wrap Lines (typeahead)",
-      "do": [
-        "type",
-        "w"
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {},
+        },
         "texts": [
           "wrap lines: off"
         ]
       }
     },
     {
-      "name": "Return chooses it: it turns on in the application, the keyboard back with the field; the assistive technology's focus leaves the bar with it",
+      "name": "Return at once chooses Wrap Lines: it turns on in the application, the keyboard back with the field; the assistive technology's focus leaves the bar with it",
       "do": [
         "key",
         28
@@ -538,6 +509,171 @@
     },
     {
       "name": "Super+F2, Right and Right: File",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Space opens it, on New",
+      "do": [
+        "key",
+        57
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a letter finds its row: o, Open… (typeahead)",
+      "do": [
+        "type",
+        "o"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Return chooses Open…, not New: one command in the application, no document made; the assistive technology's focus leaves the bar with it",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "new documents: 1",
+          "wrap lines: on"
+        ],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "menu.activated": 1
+          }
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2, Right and Right: File, once more",
       "do": [
         "key",
         [
@@ -843,27 +979,6 @@
             "key.release": 1
           }
         },
-        "at": {
-          "window": [
-            {
-              "role": "TextInput",
-              "name": "note",
-              "selection": [
-                5,
-                5
-              ]
-            }
-          ],
-          "shell": [
-            {
-              "role": "Button",
-              "name": "Menú de Oxy",
-              "state": [
-                "collapsed"
-              ]
-            }
-          ]
-        },
         "at_absent": {
           "shell": [
             {
@@ -881,6 +996,27 @@
               "state": [
                 "expanded",
                 "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ],
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "note",
+              "selection": [
+                5,
+                5
               ]
             }
           ]

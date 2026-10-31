@@ -274,6 +274,15 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
     unstable_conditionNames: ['react-native', 'require', 'default'],
     resolveRequest(context, moduleName, platform) {
       if (moduleName === '@oxy.so/bloom' || moduleName.startsWith('@oxy.so/bloom/')) {
+        // The platform's own applications (apps/, this repository) declare the Bloom they need in
+        // their package.json: a checkout of another stops the build. An application from its own
+        // checkout (STASH_DIR) is built as it is.
+        if (!(APP && APP.owns(context.originModulePath)) &&
+            !accepted(context.originModulePath, '@oxy.so/bloom', path.join(BLOOM, 'package.json'))) {
+          const declared = manifestOf(context.originModulePath).json;
+          throw new Error(`${declared.name} needs @oxy.so/bloom ${declared.dependencies['@oxy.so/bloom']}; ` +
+            `BLOOM_DIR (${BLOOM}) is ${BLOOM_PACKAGE.version}`);
+        }
         const entry = bloomEntry(moduleName);
         if (!entry) throw new Error(`@oxy.so/bloom does not export ${moduleName}`);
         // Resolve without the extension so platform variants (.native.ts, ...) still apply.
