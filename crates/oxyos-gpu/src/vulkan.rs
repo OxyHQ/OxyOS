@@ -11,6 +11,8 @@ use ash::vk;
 use std::fmt;
 
 mod import;
+#[cfg(test)]
+pub(crate) use import::best_first;
 pub use import::{DmaBufFormat, DmaBufPlane};
 use import::{Images, IMAGE_SLOTS};
 
@@ -317,7 +319,12 @@ pub struct VulkanCompositor {
     memory: vk::PhysicalDeviceMemoryProperties,
     set_layout: vk::DescriptorSetLayout,
     pipeline_layout: vk::PipelineLayout,
+    /// The composition, from layers in the source buffer alone.
     pipeline: vk::Pipeline,
+    /// The same, also sampling clients' GPU buffers in place (ADR 0031), where the device
+    /// imports them: used only for frames that sample one, since indexing an array of images
+    /// per layer costs every pixel of the frame (null: none).
+    pipeline_images: vk::Pipeline,
     pool: vk::DescriptorPool,
     set: vk::DescriptorSet,
     commands: vk::CommandPool,
@@ -374,6 +381,22 @@ pub struct VulkanCompositor {
     /// A copy of the last deferred submission's completion as a sync file, while it is pending:
     /// what a client's buffer it read is released after (`completion_sync_file`).
     pending_sync_file: Option<std::os::fd::OwnedFd>,
+    /// Whether the last submission wrote timestamps (a composition did, a release did not).
+    timed: bool,
+    /// What the last submission did with clients' GPU buffers: how many it acquired from the
+    /// queues that wrote them, how many it released back, and whether it sampled any.
+    last_handovers: Handovers,
+}
+
+/// What a submission did with clients' GPU buffers (`VulkanCompositor::last_handovers`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Handovers {
+    /// Buffers acquired from the queue that wrote them: each a frame of a client's, newly shown.
+    pub acquired: usize,
+    /// Buffers released back to it: each one the compositor stopped showing.
+    pub released: usize,
+    /// Whether the composition sampled clients' buffers (the shader that can).
+    pub sampled: bool,
 }
 
 impl VulkanCompositor {
@@ -412,6 +435,7 @@ impl VulkanCompositor {
             set_layout: vk::DescriptorSetLayout::null(),
             pipeline_layout: vk::PipelineLayout::null(),
             pipeline: vk::Pipeline::null(),
+            pipeline_images: vk::Pipeline::null(),
             pool: vk::DescriptorPool::null(),
             set: vk::DescriptorSet::null(),
             commands: vk::CommandPool::null(),
@@ -442,6 +466,8 @@ impl VulkanCompositor {
             completed_ms: Vec::new(),
             images: None,
             pending_sync_file: None,
+            timed: false,
+            last_handovers: Handovers::default(),
         };
         this.build(opened.family, opened.images.is_some())?;
         if let Some(capabilities) = opened.images {
@@ -666,22 +692,30 @@ impl VulkanCompositor {
                     .push_constant_ranges(&ranges),
                 None,
             )?;
-            let code = if images { shader_images() } else { shader() };
-            let module = device
-                .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&code), None)?;
-            let stage = vk::PipelineShaderStageCreateInfo::default()
-                .stage(vk::ShaderStageFlags::COMPUTE)
-                .module(module)
-                .name(c"main");
-            let pipelines = device.create_compute_pipelines(
-                vk::PipelineCache::null(),
-                &[vk::ComputePipelineCreateInfo::default()
-                    .stage(stage)
-                    .layout(self.pipeline_layout)],
-                None,
-            );
-            device.destroy_shader_module(module, None);
-            self.pipeline = pipelines.map_err(|(_, result)| Error::from(result))?[0];
+            let layout = self.pipeline_layout;
+            let pipeline = |code: &[u32]| -> Result<vk::Pipeline, Error> {
+                let module = device.create_shader_module(
+                    &vk::ShaderModuleCreateInfo::default().code(code),
+                    None,
+                )?;
+                let stage = vk::PipelineShaderStageCreateInfo::default()
+                    .stage(vk::ShaderStageFlags::COMPUTE)
+                    .module(module)
+                    .name(c"main");
+                let pipelines = device.create_compute_pipelines(
+                    vk::PipelineCache::null(),
+                    &[vk::ComputePipelineCreateInfo::default()
+                        .stage(stage)
+                        .layout(layout)],
+                    None,
+                );
+                device.destroy_shader_module(module, None);
+                Ok(pipelines.map_err(|(_, result)| Error::from(result))?[0])
+            };
+            self.pipeline = pipeline(&shader())?;
+            if images {
+                self.pipeline_images = pipeline(&shader_images())?;
+            }
             let mut sizes = vec![vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(3)];
@@ -764,6 +798,12 @@ impl VulkanCompositor {
 
     /// The device's time around the last frame's composition, in milliseconds: before it (the
     /// uploads and the fill) and after it (copies and the release to the display).
+    pub fn last_handovers(&self) -> Handovers {
+        self.last_handovers
+    }
+
+    /// The device's time before the last composition (uploads, acquiring clients' buffers) and
+    /// after it (copies, releases), in milliseconds.
     pub fn last_gpu_phases(&self) -> Option<(f64, f64)> {
         self.last_gpu_phases
     }
@@ -841,7 +881,10 @@ impl VulkanCompositor {
         self.pending_sync_file = None;
         self.finish_reading();
         self.last_host_ms.1 = waiting.elapsed().as_secs_f64() * 1e3;
-        self.read_timestamps()
+        if self.timed {
+            self.read_timestamps()?;
+        }
+        Ok(())
     }
 
     /// The same, composing only `damage`, what changed since the previous frame composed here
@@ -1103,14 +1146,25 @@ impl VulkanCompositor {
             self.bind_slots(images, &slots);
         }
         self.images = images;
-        let sampled: Vec<vk::Image> = slots
-            .iter()
-            .filter_map(|id| self.images.as_ref()?.image(*id))
-            .collect();
+        // Clients' GPU buffers change hands as the protocol's buffers do (ADR 0031, decision
+        // 6): one is acquired from the queue that wrote it when a frame first samples it (a frame
+        // of the client's, newly latched: a buffer is written again only once released), held
+        // while it is shown, and released once the compositor lets it go (`release_dma_buf`),
+        // never per composition. On a driver keeping compressed or tiled images (Intel's), each
+        // hand-over can cost a pass over the whole image.
+        let (acquiring, releasing) = self
+            .images
+            .as_ref()
+            .map_or((Vec::new(), Vec::new()), |images| images.handovers(&slots));
         let foreign = self
             .images
             .as_ref()
             .map_or(vk::QUEUE_FAMILY_EXTERNAL, |images| images.foreign_family());
+        let pipeline = if slots.is_empty() || self.pipeline_images == vk::Pipeline::null() {
+            self.pipeline
+        } else {
+            self.pipeline_images
+        };
         let [Some(source), _, Some(upload), Some(readback), Some(table_buffer)] = &self.buffers
         else {
             unreachable!("reserved");
@@ -1332,56 +1386,9 @@ impl VulkanCompositor {
             if !copies.is_empty() {
                 device.cmd_copy_buffer(command, upload.buffer, source.buffer, &copies);
             }
-            // Clients' GPU buffers (ADR 0031): each acquired from the foreign queue that wrote
-            // it, as the shader samples it; released back after the composition.
-            let handover = |images: &[vk::Image], acquire: bool| {
-                let barriers: Vec<vk::ImageMemoryBarrier<'_>> = images
-                    .iter()
-                    .map(|&image| {
-                        let barrier = vk::ImageMemoryBarrier::default()
-                            .image(image)
-                            .subresource_range(import::color_range());
-                        if acquire {
-                            barrier
-                                .old_layout(vk::ImageLayout::GENERAL)
-                                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                                .src_queue_family_index(foreign)
-                                .dst_queue_family_index(family)
-                                .dst_access_mask(vk::AccessFlags::SHADER_READ)
-                        } else {
-                            barrier
-                                .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                                .new_layout(vk::ImageLayout::GENERAL)
-                                .src_queue_family_index(family)
-                                .dst_queue_family_index(foreign)
-                        }
-                    })
-                    .collect();
-                if barriers.is_empty() {
-                    return;
-                }
-                let (before, after) = if acquire {
-                    (
-                        vk::PipelineStageFlags::TOP_OF_PIPE,
-                        vk::PipelineStageFlags::COMPUTE_SHADER,
-                    )
-                } else {
-                    (
-                        vk::PipelineStageFlags::COMPUTE_SHADER,
-                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                    )
-                };
-                device.cmd_pipeline_barrier(
-                    command,
-                    before,
-                    after,
-                    vk::DependencyFlags::empty(),
-                    &[],
-                    &[],
-                    &barriers,
-                );
-            };
-            handover(&sampled, true);
+            // Clients' GPU buffers newly shown, acquired before the shader samples them.
+            let images: Vec<vk::Image> = acquiring.iter().map(|(_, image)| *image).collect();
+            import::handover(device, command, &images, true, foreign, family);
             barrier(
                 vk::AccessFlags::TRANSFER_WRITE,
                 vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
@@ -1396,7 +1403,7 @@ impl VulkanCompositor {
                     0,
                 );
             }
-            device.cmd_bind_pipeline(command, vk::PipelineBindPoint::COMPUTE, self.pipeline);
+            device.cmd_bind_pipeline(command, vk::PipelineBindPoint::COMPUTE, pipeline);
             device.cmd_bind_descriptor_sets(
                 command,
                 vk::PipelineBindPoint::COMPUTE,
@@ -1421,7 +1428,9 @@ impl VulkanCompositor {
                 );
                 // Regions do not overlap and nothing reads the output: they run together.
             }
-            handover(&sampled, false);
+            // Those the compositor let go, released once nothing reads them.
+            let images: Vec<vk::Image> = releasing.iter().map(|(_, image)| *image).collect();
+            import::handover(device, command, &images, false, foreign, family);
             if timing {
                 device.cmd_write_timestamp(
                     command,
@@ -1510,8 +1519,18 @@ impl VulkanCompositor {
             )?;
             self.submitted = true;
         }
+        self.timed = timing;
+        self.last_handovers = Handovers {
+            acquired: acquiring.len(),
+            released: releasing.len(),
+            sampled: !slots.is_empty(),
+        };
         if let Some(images) = self.images.as_mut() {
+            images.handed_over(&acquiring, &releasing);
+            // What it reads, and what it releases: neither goes back to its client before it is
+            // done.
             images.reading = slots;
+            images.reading.extend(releasing.iter().map(|(id, _)| *id));
         }
         if let (Some(&semaphore), Some((_, loader))) = (
             self.completion
@@ -1984,6 +2003,7 @@ impl Drop for VulkanCompositor {
             self.device.destroy_command_pool(self.commands, None);
             self.device.destroy_descriptor_pool(self.pool, None);
             self.device.destroy_pipeline(self.pipeline, None);
+            self.device.destroy_pipeline(self.pipeline_images, None);
             self.device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
             self.device

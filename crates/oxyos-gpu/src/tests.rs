@@ -2185,3 +2185,152 @@ fn a_dma_buf_sampled_in_place_composes_as_its_pixels_do() {
         "a modifier not in the table is refused"
     );
 }
+
+/// A client's GPU buffer changes hands as its buffer does (docs/adr/0031-gpu-buffers.mdx,
+/// decision 6), never per composition: acquired from the queue that wrote it by the first frame
+/// that shows it, held while frames show it unchanged, released once when the compositor lets it
+/// go (by the next composition, or alone when none comes), and read until that release is done. A
+/// frame sampling no client buffer composes with the shader that cannot.
+#[test]
+fn a_client_buffer_is_acquired_once_per_frame_shown_and_released_once() {
+    use std::os::fd::AsFd;
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let xrgb = 0x3432_5258;
+    if !gpu
+        .dma_buf_formats()
+        .iter()
+        .any(|format| format.fourcc == xrgb && format.modifier == 0 && format.planes == 1)
+    {
+        eprintln!("{} imports no linear DMA-BUF, skipped", gpu.device_name());
+        return;
+    }
+    let (window, _) = frame();
+    let buffer = |colour: u8| {
+        let (memfd, buffer) = match oxyos_dmabuf::shared_dmabuf(64 * 48 * 4) {
+            Ok(made) => made,
+            Err(error) => {
+                eprintln!("no udmabuf ({error}), skipped; tools/gpu-vm runs it");
+                return None;
+            }
+        };
+        rustix::io::pwrite(&memfd, &vec![colour; 64 * 48 * 4], 0).unwrap();
+        Some(buffer)
+    };
+    let Some(first) = buffer(0x40) else {
+        return;
+    };
+    let second = buffer(0x80).expect("udmabuf");
+    let import = |gpu: &mut VulkanCompositor, buffer: &oxyos_dmabuf::DmaBuf| {
+        gpu.import_dma_buf(
+            xrgb,
+            0,
+            64,
+            48,
+            &[DmaBufPlane {
+                fd: buffer.as_fd(),
+                offset: 0,
+                stride: 64 * 4,
+            }],
+        )
+        .unwrap()
+    };
+    let (a, b) = (import(&mut gpu, &first), import(&mut gpu, &second));
+    let shown = |image| Layer {
+        x: 4,
+        y: 4,
+        width: 64,
+        height: 48,
+        extent: (64, 48),
+        paint: Paint::Imported {
+            image,
+            opaque: true,
+            pixels: &[],
+        },
+        source: None,
+        changed: None,
+        opacity: 255,
+        radius: 0,
+        filter: Filter::Nearest,
+        clip: None,
+    };
+    let handed = |acquired, released, sampled| Handovers {
+        acquired,
+        released,
+        sampled,
+    };
+    // A frame of the client's, then frames showing it unchanged.
+    gpu.compose(80, 60, 0, &[shown(a)]).unwrap();
+    assert_eq!(gpu.last_handovers(), handed(1, 0, true));
+    assert!(gpu.holds_dma_buf(a));
+    for _ in 0..3 {
+        gpu.compose(80, 60, 0, &[shown(a)]).unwrap();
+        assert_eq!(
+            gpu.last_handovers(),
+            handed(0, 0, true),
+            "unchanged, no hand-over"
+        );
+    }
+    // Its next frame, in the other buffer: the first is let go and released by the composition
+    // showing the second, and read until that is done.
+    gpu.release_dma_buf(a);
+    assert!(gpu.holds_dma_buf(a), "held until a submission releases it");
+    gpu.compose_deferred(80, 60, 0, &[shown(b)]).unwrap();
+    assert_eq!(gpu.last_handovers(), handed(1, 1, true));
+    assert!(!gpu.holds_dma_buf(a));
+    assert!(gpu.reads_dma_buf(a), "released by the frame in flight");
+    let pixels = gpu.read_deferred().unwrap();
+    assert_eq!(pixels[10 * 80 + 10], 0x0080_8080);
+    assert!(!gpu.reads_dma_buf(a));
+    // The window goes: nothing composes, and its buffer is released alone, once.
+    gpu.release_dma_buf(b);
+    assert!(gpu.submit_releases().unwrap());
+    assert_eq!(gpu.last_handovers(), handed(0, 1, false));
+    assert!(!gpu.holds_dma_buf(b));
+    assert!(!gpu.submit_releases().unwrap(), "nothing more to release");
+    // The client's next frame in the first buffer is acquired again; a desktop of shared memory
+    // alone samples no client buffer.
+    gpu.compose(80, 60, 0, &[shown(a)]).unwrap();
+    assert_eq!(gpu.last_handovers(), handed(1, 0, true));
+    let desktop = Layer {
+        paint: Paint::Opaque(&window),
+        ..shown(a)
+    };
+    gpu.compose(80, 60, 0, &[desktop]).unwrap();
+    assert_eq!(gpu.last_handovers(), handed(0, 0, false));
+}
+
+/// The compositor offers clients' buffers' modifiers best first (docs/adr/0031-gpu-buffers.mdx,
+/// decision 2): tiled ones of a single plane, then linear, then those with auxiliary planes, the
+/// driver's order kept within each, so a client taking the first it can share never takes linear
+/// or a compressed one while a tiled one would do.
+#[test]
+fn the_modifiers_are_offered_tiled_then_linear_then_compressed() {
+    let intel = |n: u64| (0x01 << 56) | n;
+    // As Intel's driver lists them for B8G8R8A8: linear first.
+    let mut listed = vec![
+        (0, 1),
+        (intel(1), 1),
+        (intel(2), 1),
+        (intel(6), 2),
+        (intel(8), 3),
+        (intel(9), 1),
+    ];
+    crate::vulkan::best_first(&mut listed, |&entry| entry);
+    assert_eq!(
+        listed,
+        vec![
+            (intel(1), 1),
+            (intel(2), 1),
+            (intel(9), 1),
+            (0, 1),
+            (intel(6), 2),
+            (intel(8), 3),
+        ]
+    );
+}

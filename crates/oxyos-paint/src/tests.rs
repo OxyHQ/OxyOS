@@ -329,3 +329,28 @@ fn a_glyph_clip_on_a_column_keeps_it_on_the_left_and_drops_it_on_the_right_at_ev
         &missed[..missed.len().min(12)]
     );
 }
+
+/// A buffer's modifiers, as the host offers them to its driver (docs/adr/0031-gpu-buffers.mdx,
+/// decision 2): the best kind it shares with the compositor alone, tiled before linear before
+/// compressed, so the driver never takes linear or a compressed one while a tiled one would do.
+#[test]
+fn a_buffer_is_offered_the_best_kind_of_modifier_both_sides_share() {
+    let intel = |n: u64| (0x01 << 56) | n;
+    let exportable = [(0, 1), (intel(1), 1), (intel(2), 1), (intel(6), 2)];
+    let everything = [intel(1), intel(2), 0, intel(6)];
+    assert_eq!(
+        present::best_shared(&everything, &exportable),
+        vec![intel(1), intel(2)],
+        "the tiled ones, for the driver to pick its best"
+    );
+    assert_eq!(
+        present::best_shared(&[0, intel(6)], &exportable),
+        vec![0],
+        "linear before compressed"
+    );
+    assert_eq!(
+        present::best_shared(&[intel(6)], &exportable),
+        vec![intel(6)]
+    );
+    assert!(present::best_shared(&[intel(9)], &exportable).is_empty());
+}
