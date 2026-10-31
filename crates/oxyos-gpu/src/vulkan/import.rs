@@ -165,6 +165,12 @@ impl Capabilities {
                     .contains(vk::ExternalMemoryFeatureFlags::IMPORTABLE)
         };
         let mut formats = Vec::new();
+        best_first(&mut modifiers, |properties| {
+            (
+                properties.drm_format_modifier,
+                properties.drm_format_modifier_plane_count,
+            )
+        });
         for properties in &modifiers {
             if !properties
                 .drm_format_modifier_tiling_features
@@ -207,6 +213,10 @@ pub(crate) struct Images {
     forgotten: Vec<u64>,
     /// What each slot of the descriptor set's binding 3 names now.
     bound: Vec<vk::ImageView>,
+    /// The imports this queue holds (acquired from the queue that wrote them, readable by the
+    /// shader), and those of them the compositor let go, to release in the next submission.
+    held: std::collections::HashSet<u64>,
+    releases: Vec<u64>,
 }
 
 impl Images {
@@ -222,6 +232,119 @@ impl Images {
 
     pub(crate) fn image(&self, id: u64) -> Option<vk::Image> {
         self.imports.get(&id).map(|import| import.image)
+    }
+
+    /// For a frame sampling the imports in `slots`: those it acquires (sampled, not held) and
+    /// those it releases (let go, held, not sampled).
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn handovers(
+        &self,
+        slots: &[u64],
+    ) -> (Vec<(u64, vk::Image)>, Vec<(u64, vk::Image)>) {
+        let with_image = |id: &u64| self.image(*id).map(|image| (*id, image));
+        let acquiring = slots
+            .iter()
+            .filter(|id| !self.held.contains(id))
+            .filter_map(with_image)
+            .collect();
+        let releasing = self
+            .releases
+            .iter()
+            .filter(|id| self.held.contains(id) && !slots.contains(id))
+            .filter_map(with_image)
+            .collect();
+        (acquiring, releasing)
+    }
+
+    /// A submission acquired and released these.
+    pub(crate) fn handed_over(
+        &mut self,
+        acquired: &[(u64, vk::Image)],
+        released: &[(u64, vk::Image)],
+    ) {
+        self.held.extend(acquired.iter().map(|(id, _)| *id));
+        for (id, _) in released {
+            self.held.remove(id);
+        }
+        self.releases
+            .retain(|id| !released.iter().any(|(gone, _)| gone == id));
+    }
+}
+
+/// The order the compositor offers modifiers in, best first (docs/adr/0031-gpu-buffers.mdx,
+/// decision 2), the driver's order kept within each kind: tiled ones of a single plane, then
+/// linear (a GPU reads a tiled image's neighbourhoods from fewer cache lines than rows of a linear
+/// one), then those with auxiliary planes (compression): both sides must carry the planes, and
+/// handing a compressed image between queues may cost a pass over all of it. `of` gives an
+/// entry's modifier and plane count.
+pub(crate) fn best_first<T>(entries: &mut [T], of: impl Fn(&T) -> (u64, u32)) {
+    entries.sort_by_key(|entry| match of(entry) {
+        (_, planes) if planes > 1 => 2,
+        (0, _) => 1,
+        _ => 0,
+    });
+}
+
+/// Records the hand-over of clients' images between the queue that wrote them (`foreign`) and
+/// this one: acquired, from the layout their writer released them in to the one the shader
+/// samples, before the composition; or released back after what read them.
+pub(crate) fn handover(
+    device: &ash::Device,
+    command: vk::CommandBuffer,
+    images: &[vk::Image],
+    acquire: bool,
+    foreign: u32,
+    family: u32,
+) {
+    if images.is_empty() {
+        return;
+    }
+    let barriers: Vec<vk::ImageMemoryBarrier<'_>> = images
+        .iter()
+        .map(|&image| {
+            let barrier = vk::ImageMemoryBarrier::default()
+                .image(image)
+                .subresource_range(color_range());
+            if acquire {
+                barrier
+                    .old_layout(vk::ImageLayout::GENERAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .src_queue_family_index(foreign)
+                    .dst_queue_family_index(family)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            } else {
+                barrier
+                    .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .new_layout(vk::ImageLayout::GENERAL)
+                    .src_queue_family_index(family)
+                    .dst_queue_family_index(foreign)
+            }
+        })
+        .collect();
+    let (before, after) = if acquire {
+        (
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+        )
+    } else {
+        (
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+        )
+    };
+    // SAFETY: the caller records into `command`, which is in the recording state; every image is
+    // a live import of this device.
+    #[allow(unsafe_code)]
+    unsafe {
+        device.cmd_pipeline_barrier(
+            command,
+            before,
+            after,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &barriers,
+        );
     }
 }
 
@@ -239,6 +362,8 @@ impl VulkanCompositor {
             next: 0,
             reading: Vec::new(),
             forgotten: Vec::new(),
+            held: std::collections::HashSet::new(),
+            releases: Vec::new(),
         };
         self.bind_slots(&mut images, &[]);
         Ok(images)
@@ -612,6 +737,8 @@ impl VulkanCompositor {
             images.forgotten.push(id);
             return;
         }
+        images.held.remove(&id);
+        images.releases.retain(|other| *other != id);
         if let Some(import) = images.imports.remove(&id) {
             // A slot naming it names the dummy again before any frame binds.
             if let Some(slot) = images.bound.iter().position(|view| *view == import.view) {
@@ -619,6 +746,102 @@ impl VulkanCompositor {
             }
             self.destroy_import(import);
         }
+    }
+
+    /// The compositor lets import `id` go (its buffer goes back to its client): released to the
+    /// queue that wrote it by the next submission, a composition's or `submit_releases`'.
+    pub fn release_dma_buf(&mut self, id: u64) {
+        if let Some(images) = self.images.as_mut() {
+            if images.held.contains(&id) && !images.releases.contains(&id) {
+                images.releases.push(id);
+            }
+        }
+    }
+
+    /// Whether this queue still holds import `id`: acquired and not yet released by a submission.
+    /// Its buffer may not go back to its client before; once a submission releases it, it is
+    /// read (`reads_dma_buf`) until that submission is done.
+    pub fn holds_dma_buf(&self, id: u64) -> bool {
+        self.images
+            .as_ref()
+            .is_some_and(|images| images.held.contains(&id))
+    }
+
+    /// Submits the releases asked for (`release_dma_buf`) when no composition carried them and
+    /// nothing is in flight: never waits for the device. True when it submitted.
+    #[allow(unsafe_code)]
+    pub fn submit_releases(&mut self) -> Result<bool, Error> {
+        let pending = self
+            .images
+            .as_ref()
+            .map_or(Vec::new(), |images| images.handovers(&[]).1);
+        if pending.is_empty() || !self.poll_completion()? {
+            return Ok(false);
+        }
+        let foreign = self
+            .images
+            .as_ref()
+            .map_or(vk::QUEUE_FAMILY_EXTERNAL, |images| images.foreign_family());
+        let images: Vec<vk::Image> = pending.iter().map(|(_, image)| *image).collect();
+        let signal: Vec<vk::Semaphore> = self
+            .completion
+            .as_ref()
+            .map(|(semaphore, _)| *semaphore)
+            .into_iter()
+            .collect();
+        // SAFETY: nothing is in flight (polled above), so the command buffer is free; every image
+        // is a live import this queue holds.
+        unsafe {
+            let device = &self.device;
+            device.reset_command_buffer(self.command, vk::CommandBufferResetFlags::empty())?;
+            device.begin_command_buffer(
+                self.command,
+                &vk::CommandBufferBeginInfo::default()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )?;
+            handover(device, self.command, &images, false, foreign, self.family);
+            device.end_command_buffer(self.command)?;
+            let commands = [self.command];
+            device.queue_submit(
+                self.queue,
+                &[vk::SubmitInfo::default()
+                    .command_buffers(&commands)
+                    .signal_semaphores(&signal)],
+                self.fence,
+            )?;
+        }
+        self.submitted = true;
+        self.timed = false;
+        self.last_handovers = super::Handovers {
+            acquired: 0,
+            released: pending.len(),
+            sampled: false,
+        };
+        if let Some((semaphore, loader)) = self.completion.as_ref() {
+            use std::os::fd::FromRawFd;
+            let info = vk::SemaphoreGetFdInfoKHR::default()
+                .semaphore(*semaphore)
+                .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+            // SAFETY: the semaphore has a signal operation pending (the submission above); the
+            // export unsignals it for the next one.
+            match unsafe { loader.get_semaphore_fd(&info) } {
+                Ok(fd) if fd >= 0 => {
+                    // SAFETY: vkGetSemaphoreFdKHR returns a new descriptor the caller owns.
+                    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+                    self.pending_sync_file = Some(fd);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!("[gpu] a release's completion as a sync file: {error}");
+                    self.complete()?;
+                }
+            }
+        }
+        if let Some(images) = self.images.as_mut() {
+            images.handed_over(&[], &pending);
+            images.reading = pending.iter().map(|(id, _)| *id).collect();
+        }
+        Ok(true)
     }
 
     /// Whether the frame in flight reads import `id`.
