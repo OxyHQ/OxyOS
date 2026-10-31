@@ -12,7 +12,6 @@ crate-type = ["staticlib", "rlib"]
 oxyos-client = { path = "../oxyos-client" }
 oxyos-net = { path = "../oxyos-net" }
 oxyos-image = { path = "../oxyos-image" }
-oxyos-vector = { path = "../oxyos-vector" }
 oxyos-gestures = { path = "../oxyos-gestures" }
 oxyos-intl = { path = "../oxyos-intl" }
 oxyos-solar = { path = "../oxyos-solar" }
