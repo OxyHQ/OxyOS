@@ -84,6 +84,7 @@ interface PlatformSurfaceAdapter {
 }
 interface PopupSurfaceProps {
   anchorRef; side; align; sideOffset; alignOffset;  // Bloom's FloatingPositionProps
+  trackingRef?;                                      // a view that keeps the pointer while open (a menu bar)
   role: 'menu' | 'listbox' | 'dialog'; label?: string;
   onDismiss(reason: 'outside-press' | 'denied' | 'closed'): void;
   children: ReactNode;                               // the panel, sized by its content
@@ -99,7 +100,8 @@ The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It 
 - opens a protocol popup with the positioner in the table above (flip on the side axis, slide on both), grabbed with the serial of the press that opened it;
 - draws the subtree in premultiplied ARGB;
 - routes the popup's pointer input to it;
-- sends `PopupDone` back as `onDismiss`.
+- sends `PopupDone` back as `onDismiss`;
+- while the popup is open, gives the pointer's movement over the surface it hangs from only to the view `trackingRef` names (`trackingTag`): a menu bar's titles, so crossing onto another title opens its menu in place of the open one, as on a Mac ([ADR 0001](./0001-native-platform-boundaries#input-focus-and-grabs)). A popup that replaces another (same parent) is opened before that one is destroyed, so the compositor passes the grab straight on.
 
 `oxyos-offscreen --launch … --expect-popup` checks that the popup extends beyond the window.
 

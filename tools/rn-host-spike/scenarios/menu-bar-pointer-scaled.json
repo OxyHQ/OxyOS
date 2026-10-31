@@ -1,0 +1,590 @@
+{
+  "about": "menu-bar-pointer.json on a 1600x1000 output at 1.25 (ADR 0018), the same steps and expectations.",
+  "module": "MenuBarProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the window is active: the shell's bar shows its application's menu, then File and Edit",
+      "do": [
+        "press",
+        [
+          300,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "File",
+            "Edit"
+          ]
+        },
+        "react": {
+          "touchStart@menu-probe": 1,
+          "touchEnd@menu-probe": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on File opens it under its title",
+      "do": [
+        "press_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the pointer along the bar onto Edit, no press: Edit's menu opens in File's place, as a Mac's bar follows the pointer; the window hears nothing, its keyboard and pointer never handed back between the two menus",
+      "do": [
+        "move_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent",
+            "New"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "back onto File: File's menu again, Edit's gone",
+      "do": [
+        "move_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "beside the bar, over the clock, with File open: the pointer has left File's title and nothing there is hovered (the host gives the movement over the bar's surface only to the bar); File stays open",
+      "do": [
+        "move_output",
+        [
+          1200,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "react_hover": {
+            "pointerLeave@shell-menu-File": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "onto Edit again, from beside the bar",
+      "do": [
+        "move_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press on Edit's title, the open one, closes its menu and opens nothing; the screen reader's focus is back on the title",
+      "do": [
+        "press_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Undo",
+            "Wrap Lines",
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "File by a press, then onto Edit and down to Wrap Lines: chosen in the menu the pointer opened, it runs in the application once",
+      "do": [
+        "press_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "onto Edit",
+      "do": [
+        "move_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "choosing Wrap Lines turns it on in the application",
+      "do": [
+        "press_output",
+        [
+          194,
+          90
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "wrap lines: on",
+          "new documents: 0"
+        ],
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          }
+        },
+        "in_shell": {
+          "absent": [
+            "Wrap Lines",
+            "Undo"
+          ]
+        }
+      }
+    },
+    {
+      "name": "File by a press, the keyboard elsewhere",
+      "do": [
+        "press_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Right from the menu a press opened: Edit opens in its place on its first enabled row, as a Mac's menu opened by a click; the window hears nothing",
+      "do": [
+        "key",
+        106
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Wrap Lines",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Left: File again in its place, on New",
+      "do": [
+        "key",
+        105
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "New",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Escape closes it, choosing nothing: the screen reader's focus is back on its title",
+      "do": [
+        "key",
+        1
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "texts": [
+          "new documents: 0",
+          "wrap lines: on"
+        ],
+        "react": {}
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

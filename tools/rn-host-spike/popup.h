@@ -45,6 +45,10 @@ class OxyOSPopupViewProps final : public ViewProps {
   // A tooltip (Bloom's `role: 'tooltip'`, docs/adr/0034-the-dock.mdx): shown without a grab and
   // taking no input, presses passing through it to what is under it.
   bool tooltip{false};
+  // A view outside the popup that goes on taking the pointer's movement while the popup is open:
+  // a menu bar, whose titles open their menus as the pointer crosses them (Bloom's
+  // `PopupSurfaceProps.trackingRef`); -1 for none.
+  Tag trackingTag{-1};
 };
 
 using OxyOSPopupViewShadowNode = ConcreteViewShadowNode<OxyOSPopupViewComponentName, OxyOSPopupViewProps>;
@@ -95,6 +99,12 @@ class PopupHost {
   // Whether a popup surface was closed by the application (its view went away), not by the
   // compositor: the keyboard it had goes back to its parent next, so its leaving is no loss.
   bool closedByApplication(uint32_t surface) const { return closed_.count(surface) != 0; }
+  // Whether the pointer over `view`, of a surface none of these popups is, reaches that view. While
+  // a popup is open the compositor gives this client the pointer's movement over the surface the
+  // popup hangs from, as a Mac's menu bar goes on tracking the pointer with a menu open; it reaches
+  // only the views an open popup tracks (its `trackingTag`'s), so a menu bar's titles take it and
+  // nothing else under the menu does. With no menu open (a tooltip takes no grab), every view.
+  bool tracks(uint32_t surface, facebook::react::Tag view) const;
 
  private:
   struct Popup {
@@ -105,6 +115,8 @@ class PopupHost {
     // scale change) needs a new frame, and the compositor discards one drawn for an older size.
     uint64_t drawnFor = 0;
     bool dismissed = false;  // closed by the compositor; the view is still mounted
+    uint32_t parent = 0;     // the surface it hangs from
+    bool tooltip = false;    // shown without a grab (popup.h's `tooltip`)
   };
   // The anchor's surface, and its frame there.
   std::optional<std::pair<uint32_t, facebook::react::Rect>> anchored(

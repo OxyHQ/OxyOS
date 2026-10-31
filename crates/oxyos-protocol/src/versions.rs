@@ -32,7 +32,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// screenshots (ADR 0024, decision 10), both ways, `CaptureMode` sent unasked on Super+Shift+4
 /// and 5; version 7, file choosers (ADR 0029, decision 8), both ways, so the client library never
 /// sends a request a compositor of an older version would close the connection for; version 8,
-/// the dock's application menu (ADR 0034), both ways, `Ping` sent unasked.
+/// the dock's application menu (ADR 0034), both ways, `Ping` sent unasked; version 9, a popup's
+/// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -49,6 +50,7 @@ const REQUESTS_ADDED: Added = &[
     (6, 210..=215),
     (7, 220..=222),
     (8, 230..=234),
+    (9, 235..=235),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

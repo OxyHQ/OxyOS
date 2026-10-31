@@ -364,6 +364,11 @@ messages! {
         // Trash, ADR 0034), citing `input`, an input it received lately: the session asks the
         // person in a system sheet, and empties every Trash of the user's only once they accept.
         234 => EmptyTrash { input: u64 },
+        // While this popup is the first of the grab chain, the surface it hangs from (the chain's
+        // base) goes on receiving the pointer's enter, motion and leave, and nothing else: a menu
+        // bar's titles, which open their menus as the pointer crosses them, as a Mac's bar goes on
+        // tracking the pointer with a menu open (ADR 0001). Sent before GrabPopup; a popup only.
+        235 => TrackPointer { surface: u32 },
     }
 }
 

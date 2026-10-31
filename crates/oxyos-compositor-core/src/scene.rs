@@ -150,6 +150,9 @@ struct Node {
     mapped: bool,
     hidden: bool,
     dismissed: bool,
+    /// A popup whose parent goes on tracking the pointer while it is the first of the grab chain
+    /// (`TrackPointer`: a menu bar's menu).
+    tracks_pointer: bool,
     fullscreen: bool,
     /// Whether the latest configure was full-screen or zoomed, and whether the frame displayed
     /// answers such a one: what is drawn full-screen or with square corners, as `pending` and
@@ -1328,6 +1331,17 @@ impl Scene {
                 Ok(())
             }
             Request::GrabPopup { surface, serial } => self.grab_popup(key(surface), serial),
+            Request::TrackPointer { surface } => {
+                let node = self
+                    .nodes
+                    .get_mut(&key(surface))
+                    .ok_or(ErrorCode::UnknownSurface)?;
+                if !node.is_popup() {
+                    return Err(ErrorCode::InvalidRole);
+                }
+                node.tracks_pointer = true;
+                Ok(())
+            }
             Request::Reposition {
                 surface,
                 positioner,
@@ -1967,6 +1981,7 @@ impl Scene {
                 mapped: false,
                 hidden: false,
                 dismissed: false,
+                tracks_pointer: false,
                 fullscreen: false,
                 pending_framing: Framing::default(),
                 shown_framing: Framing::default(),
@@ -2296,6 +2311,21 @@ impl Scene {
             Some(top) => *top == parent,
             None => !self.nodes[&parent].is_popup(),
         };
+        // A grab on a popup lower in the chain, or on the chain's base, takes the place of the
+        // popups above it: a menu bar's next menu in place of the open one (the pointer crossing
+        // onto its title, or →), a row's submenu in place of another row's. The chain goes on, its
+        // keyboard passing straight from the replaced popup to the new one, so nothing between is
+        // told it had the keyboard or the pointer. The replaced popups are let go, not dismissed:
+        // the client asked for this, and destroys them.
+        let replaces = if chain_ok {
+            None
+        } else if let Some(index) = self.grab.iter().position(|popup| *popup == parent) {
+            Some(index + 1)
+        } else if self.grab_base() == Some(parent) {
+            Some(0)
+        } else {
+            None
+        };
         let press_ok = self.last_press.is_some_and(|press| {
             press.serial == serial
                 && press.client == key.client
@@ -2304,17 +2334,26 @@ impl Scene {
         });
         if self.locked {
             self.dismiss(key, DismissReason::Locked);
-        } else if !chain_ok || !press_ok {
+        } else if !(chain_ok || replaces.is_some()) || !press_ok {
             self.dismiss(key, DismissReason::GrabDenied);
         } else {
-            if self.grab.is_empty() {
-                self.focus_before_grab = self.focus;
+            match replaces {
+                Some(keep) => self.grab.truncate(keep),
+                None if self.grab.is_empty() => self.focus_before_grab = self.focus,
+                None => {}
             }
             self.grab.push(key);
             self.set_focus(Some(key));
             // The implicit button capture moves to the grab so press-drag-release selection works.
-            self.capture = None;
+            let lost = self.capture.take().filter(|captured| *captured != key);
             self.refresh_pointer_focus();
+            // A surface that loses the capture to the grab but keeps the pointer (the base of a
+            // chain that tracks it) is told its press is over, as leaving told it before: its
+            // release goes to the grab.
+            if let Some(lost) = lost.filter(|lost| self.pointer_focus == Some(*lost)) {
+                let serial = self.next_serial();
+                self.pointer_event(lost, serial, PointerKind::Cancel, 0);
+            }
         }
         Ok(())
     }
@@ -2709,6 +2748,12 @@ impl Scene {
                 None => return false,
             }
         }
+    }
+
+    /// The surface the grab's popups hang from: its first popup's parent.
+    fn grab_base(&self) -> Option<SurfaceKey> {
+        let first = self.grab.first()?;
+        self.nodes.get(first)?.parent
     }
 
     fn in_grab(&self, key: SurfaceKey) -> bool {
@@ -3460,6 +3505,36 @@ impl Scene {
         Some(hit)
     }
 
+    /// The chain's base, while the chain's first popup asked that it go on tracking the pointer
+    /// (`TrackPointer`).
+    fn tracking_base(&self) -> Option<SurfaceKey> {
+        let first = self.grab.first()?;
+        let node = self.nodes.get(first)?;
+        node.tracks_pointer.then_some(node.parent?)
+    }
+
+    /// Where the pointer's enter, motion and leave go: where its input goes, and during a grab
+    /// whose first popup asked for it (`TrackPointer`), also the chain's base, the surface its
+    /// menus hang from. A Mac's menu bar goes on tracking the pointer while one of its menus is
+    /// open, so moving onto another title opens that menu; as Wayland's popup grab gives the
+    /// grabbing client the pointer over its own surfaces, narrowed to the one surface that asked.
+    /// Only the movement: a press there is outside the chain, which it dismisses, and a scroll, a
+    /// pinch or resting fingers go nowhere outside the chain (`pointer_target`).
+    fn hover_target(&self) -> Option<SurfaceKey> {
+        match self.pointer_target() {
+            Some(target) => Some(target),
+            None if self.capture.is_none() => {
+                let base = self.tracking_base()?;
+                if self.moving.is_some() || self.resizing.is_some() || self.resize_hover.is_some() {
+                    return None;
+                }
+                let hit = self.hit_test(self.pointer.0, self.pointer.1)?;
+                (hit == base).then_some(hit)
+            }
+            None => None,
+        }
+    }
+
     fn set_pointer_focus(&mut self, target: Option<SurfaceKey>) {
         if self.pointer_focus == target {
             return;
@@ -3478,7 +3553,7 @@ impl Scene {
     }
 
     fn refresh_pointer_focus(&mut self) {
-        let target = self.pointer_target();
+        let target = self.hover_target();
         self.set_pointer_focus(target);
     }
 
@@ -3499,7 +3574,7 @@ impl Scene {
         } else {
             None
         };
-        let target = self.pointer_target();
+        let target = self.hover_target();
         self.set_pointer_focus(target);
         if let Some(target) = target {
             let serial = self.next_serial();

@@ -74,6 +74,13 @@ class PointerInput {
   }
   // The pointer's shape over a surface changed (OXYOS_POINTER_*): the compositor is to be told.
   void showsShapes(std::function<void(uint32_t surface, uint8_t shape)> tell) { tellShape_ = std::move(tell); }
+  // Whether the pointer over `view` of `surface` reaches it. While a popup holds the compositor's
+  // grab the pointer's movement over the surface the popup hangs from comes too (a menu bar goes on
+  // tracking it), but only the views the popup tracks take it (popup.h, `PopupHost::tracks`); over
+  // any other the pointer is over none.
+  void admitsHover(std::function<bool(uint32_t surface, facebook::react::Tag view)> admits) {
+    admits_ = std::move(admits);
+  }
   // A touchpad pinch's two fingers also go to gesture handlers: `action` an OXYOS_GESTURE_*
   // action, `index` the finger it is about, `fingers` where each finger is.
   void feedsFingers(std::function<void(uint8_t action, size_t index, const SurfaceContent& content,
@@ -179,6 +186,7 @@ class PointerInput {
   float pinchSpread_ = 1, pinchDegrees_ = 0;
   bool responderCancelled_ = false;  // React Native has let go of the current touch
   std::function<void(uint32_t, uint8_t)> tellShape_;
+  std::function<bool(uint32_t, facebook::react::Tag)> admits_;
   std::map<uint32_t, uint8_t> toldShapes_;  // the shape each surface last asked for
   SurfaceContent content_{};  // the surface the pointer is over
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first

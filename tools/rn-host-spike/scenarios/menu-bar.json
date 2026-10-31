@@ -482,12 +482,12 @@
       }
     },
     {
-      "name": "restored from the dock, its menus are the bar's again",
+      "name": "restored from the dock (its Allo button, wherever the installed applications put it), its menus are the bar's again",
       "do": [
-        "press_output",
+        "a11y-action",
         [
-          738,
-          693
+          "activate",
+          "Abrir Allo"
         ]
       ],
       "allow_unchanged": true,
