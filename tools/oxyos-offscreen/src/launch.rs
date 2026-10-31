@@ -485,10 +485,22 @@ fn chord(codes: &[u32]) -> String {
         .join("+")
 }
 
+/// How a step's answer settles, from the flags before it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Settling {
+    /// `--allow-unchanged`: it may leave the output unchanged.
+    pub may_stay: bool,
+    /// `--until-sheet`: its answer is a system sheet the session asks (ADR 0030), which may come
+    /// long after the step's first answer (an update staged before its consent is asked): it
+    /// settles only once the session has a sheet waiting and the shell shows a surface it did not
+    /// show before the step.
+    pub sheet: bool,
+}
+
 pub struct Launch {
     pub command: Vec<std::ffi::OsString>,
-    /// Each step, and whether it may leave the output unchanged (`--allow-unchanged` before it).
-    pub steps: Vec<(Step, bool)>,
+    /// Each step, and how its answer settles.
+    pub steps: Vec<(Step, Settling)>,
     /// `--gpu`: compose every frame on a Vulkan device too; any difference from the CPU
     /// reference fails the run.
     pub gpu: bool,
@@ -584,7 +596,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -655,9 +667,9 @@ fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>>
 impl Launch {
     pub fn parse(args: &[std::ffi::OsString]) -> Result<(PathBuf, Self)> {
         let mut out = PathBuf::from("target/oxyos-offscreen");
-        let mut steps: Vec<(Step, bool)> = Vec::new();
-        // `--allow-unchanged` applies to the step after it.
-        let mut allow = false;
+        let mut steps: Vec<(Step, Settling)> = Vec::new();
+        // `--allow-unchanged` and `--until-sheet` apply to the step after them.
+        let mut settling = Settling::default();
         let (mut gpu, mut gpu_only) = (false, false);
         let mut dump_frames = None;
         let mut kms = None;
@@ -685,7 +697,11 @@ impl Launch {
                     continue;
                 }
                 Some("--allow-unchanged") => {
-                    allow = true;
+                    settling.may_stay = true;
+                    continue;
+                }
+                Some("--until-sheet") => {
+                    settling.sheet = true;
                     continue;
                 }
                 Some("--launch") => continue,
@@ -1112,7 +1128,7 @@ impl Launch {
                 }
                 _ => return Err(format!("unexpected argument {arg:?}\n{USAGE}").into()),
             };
-            steps.push((step, std::mem::take(&mut allow)));
+            steps.push((step, std::mem::take(&mut settling)));
         }
         // A login screen has no application; anything else is shown with one.
         if command.is_empty() && login.is_none() {
@@ -1393,12 +1409,13 @@ struct Settled {
     settled_ns: i64,
 }
 
-/// What `settle` waits for: until when, what (to say when it gives up), and how long the surfaces
-/// must then stay unchanged.
+/// What `settle` waits for: until when, what (to say when it gives up), how long the surfaces
+/// must then stay unchanged, and whether the answer is a system sheet (`Settling::sheet`).
 struct Wait<'a> {
     deadline: Instant,
     waiting_for: &'a str,
     still: Duration,
+    sheet: bool,
 }
 
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
@@ -1413,6 +1430,7 @@ fn settle(
         deadline,
         waiting_for,
         still,
+        sheet,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
@@ -1420,6 +1438,7 @@ fn settle(
     // The shell's surfaces count too: a press on a panel changes the shell, not the application.
     let mut last = (before.to_vec(), Instant::now());
     let mut shell_last = shell_surfaces(&session.compositor);
+    let shell_before: Vec<SurfaceKey> = shell_last.iter().map(|(key, _, _)| *key).collect();
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -1502,9 +1521,16 @@ fn settle(
                 _ => None,
             })
             .is_none_or(|shown| Some(shown) == session.compositor.scene.configure_serial(window));
+        // A sheet asked for is shown once the shell shows a surface it did not show before.
+        let sheet_shown = !sheet
+            || session.compositor.scene.sheets_waiting() > 0
+                && shell_last
+                    .iter()
+                    .any(|(key, _, _)| !shell_before.contains(key));
         if !changed
             && !shell_changed
             && answered
+            && sheet_shown
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
         {
@@ -3506,6 +3532,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             deadline,
             waiting_for: "the first frame",
             still: launch.launch_settle,
+            sheet: false,
         },
         login.then_some(primary),
     ) {
@@ -3539,7 +3566,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let mut answered = Vec::new();
 
     session.compositor.log_input = true;
-    for (index, (step, may_stay)) in launch.steps.iter().enumerate() {
+    for (index, (step, settling)) in launch.steps.iter().enumerate() {
+        let may_stay = &settling.may_stay;
         session.compositor.input_log.clear();
         if let Step::SwitchTerminal(number) = step {
             let devices = devices.as_mut().ok_or("--switch-terminal needs --uinput")?;
@@ -3729,6 +3757,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 deadline: Instant::now() + STEP_DEADLINE,
                 waiting_for: &what,
                 still: SETTLE,
+                sheet: settling.sheet,
             },
             Some(window),
         )?;
@@ -4020,6 +4049,7 @@ mod tests {
             "800,600",
             "--expect-popup",
             "--allow-unchanged",
+            "--until-sheet",
             "--press-popup",
             "5,6",
             "--",
@@ -4033,7 +4063,13 @@ mod tests {
         assert_eq!(launch.kms, Some(PathBuf::from("/dev/dri/card1")));
         assert!(launch.seat && launch.input_method);
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
-        let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
+        let allowed: Vec<bool> = launch.steps.iter().map(|(_, s)| s.may_stay).collect();
+        // `--until-sheet`, as `--allow-unchanged`, is the step's after it alone.
+        let sheets = launch.steps.iter().filter(|(_, s)| s.sheet).count();
+        assert_eq!(
+            (sheets, launch.steps.last().map(|(_, s)| s.sheet)),
+            (1, Some(true))
+        );
         assert_eq!(
             allowed,
             [

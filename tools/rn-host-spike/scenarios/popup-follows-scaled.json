@@ -1,5 +1,5 @@
 {
-  "about": "A menu open while the shell moves and resizes its window, at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25; sample.json checks it at 1): the sample app's menu (sample/App.tsx) opens at its trigger, whose frame is laid out on the 1.25 pixel grid (its top at 392.8 logical pixels); moving the window moves the menu with it in the same frame, without placing it again; resizing lays the window out again and the compositor places the menu at its trigger anew (it fits right of it in the narrower window), and growing it back places it again once the larger frame is shown. At every step the menu's top edge is drawn one device pixel above its trigger's, as at scale 1: the host takes the trigger's edges to the nearest whole logical pixels (393), where flooring its origin (392) drew the menu a device pixel higher. Points of `output_pixels` are the output's pixels: the menu's top border (#e1d7dd) and the trigger's pill's first row (#fef7fe: an outline button's background is kept 0.8 device pixels inside its border box, as Android's BackgroundDrawable keeps it under a border, so that row is barely covered) down one column each.",
+  "about": "A menu open while the shell moves and resizes its window, at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25; sample.json checks it at 1): the sample app's menu (sample/App.tsx) opens at its trigger, whose frame is laid out on the 1.25 pixel grid (its top at 392.8 logical pixels); moving the window moves the menu with it in the same frame, without placing it again; resizing lays the window out again and the compositor places the menu at its trigger anew (it fits right of it in the narrower window), and growing it back places it again once the larger frame is shown. At every step the menu's top edge is drawn one device pixel above its trigger's, as at scale 1: the host takes the trigger's edges to the nearest whole logical pixels (393), where flooring its origin (392) drew the menu a device pixel higher. The menu is 266.4 by 222.4 logical pixels of content, 333 by 278 device pixels on the grid, and its popup is the least whole logical size the compositor gives those pixels (266 by 222: ceil(222 × 1.25) is 278), never the content's ceiling (267 by 223, a pixel too many each way). Since Bloom 15.80.0 (363efc6f) the native menu panel is drawn as the web's: Bloom's material inside a transparent 1px edge with a dropdown shadow, where it was an opaque fill in a hairline border (0.8 logical pixels at 1.25, so the content grew a device pixel), and its fill is the window's own background (#fff7f9). Points of `output_pixels` are the output's pixels: where the menu lies over dark (#0f1317), the last row of its fill and its edge below it, and in the narrower window, over the desktop, its edge above, its first row partly covered (#cecacc) as the trigger's pill's first row is (#fef7fe: an outline button's background is kept 0.8 device pixels inside its border box, as Android's BackgroundDrawable keeps it under a border, so that row is barely covered), and its fill below.",
   "window": [1024, 560],
   "outputs": "1600x1000@1.25",
   "steps": [
@@ -10,9 +10,9 @@
         "popups": 1, "focus_surface": 2,
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
         "popup_events": {"open@message-actions": 1},
-        "window_rect": [128, 120, 1024, 560], "popup_rect": [744, 513, 267, 222],
-        "frame_px": {"window": [1280, 700], "popup": [334, 278]},
-        "output_pixels": {"1100,640": "#fff7f9", "1100,641": "#e1d7dd", "1330,641": "#fff7f9", "1330,642": "#fef7fe"}
+        "window_rect": [128, 120, 1024, 560], "popup_rect": [745, 513, 266, 222],
+        "frame_px": {"window": [1280, 700], "popup": [333, 278]},
+        "output_pixels": {"1100,916": "#fff7f9", "1100,918": "#0f1317", "1330,641": "#fff7f9", "1330,642": "#fef7fe"}
       }
     },
     {
@@ -20,8 +20,8 @@
       "do": ["move-window", [-100, -20]],
       "expect": {
         "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {},
-        "window_rect": [28, 100, 1024, 560], "popup_rect": [644, 493, 267, 222],
-        "output_pixels": {"1000,615": "#fff7f9", "1000,616": "#e1d7dd", "1205,616": "#fff7f9", "1205,617": "#fef7fe"}
+        "window_rect": [28, 100, 1024, 560], "popup_rect": [645, 493, 266, 222],
+        "output_pixels": {"1000,891": "#fff7f9", "1000,893": "#0f1317", "1205,616": "#fff7f9", "1205,617": "#fef7fe"}
       }
     },
     {
@@ -29,9 +29,9 @@
       "do": ["resize-window", [900, 520]],
       "expect": {
         "popups": 1, "react": {}, "popup_events": {"reposition@message-actions": 1},
-        "window_rect": [28, 100, 900, 520], "popup_rect": [899, 493, 267, 222],
+        "window_rect": [28, 100, 900, 520], "popup_rect": [899, 493, 266, 222],
         "frame_px": {"window": [1125, 650]},
-        "output_pixels": {"1200,615": "#0f1317", "1200,616": "#e1d7dd", "1060,616": "#fff7f9", "1060,617": "#fef7fe"}
+        "output_pixels": {"1200,616": "#0f1317", "1200,617": "#cecacc", "1200,618": "#fff7f9", "1200,891": "#fff7f9", "1200,893": "#0f1317", "1060,616": "#fff7f9", "1060,617": "#fef7fe"}
       }
     },
     {
@@ -39,9 +39,9 @@
       "do": ["resize-window", [1024, 560]],
       "expect": {
         "popups": 1, "react": {}, "popup_events": {"reposition@message-actions": 2},
-        "window_rect": [28, 100, 1024, 560], "popup_rect": [644, 493, 267, 222],
+        "window_rect": [28, 100, 1024, 560], "popup_rect": [645, 493, 266, 222],
         "frame_px": {"window": [1280, 700]},
-        "output_pixels": {"1000,615": "#fff7f9", "1000,616": "#e1d7dd", "1205,616": "#fff7f9", "1205,617": "#fef7fe"}
+        "output_pixels": {"1000,891": "#fff7f9", "1000,893": "#0f1317", "1205,616": "#fff7f9", "1205,617": "#fef7fe"}
       }
     },
     {

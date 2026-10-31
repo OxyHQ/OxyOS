@@ -1,5 +1,5 @@
 {
-  "about": "menu-submenu-keys.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same keys open the submenu beside its row in a popup of its own and close it, and choose the same rows. The menu's 1px edge is a layout pixel, as on the web, so the menu is 223 logical pixels tall here.",
+  "about": "menu-submenu-keys.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same keys open the submenu beside its row in a popup of its own and close it, and choose the same rows. The menu's 1px edge is a layout pixel, as on the web (Bloom 15.80.0), so its content is 266.4 by 222.4 logical pixels here, 333 by 278 device pixels, and its popup the least whole logical size the compositor gives those pixels: 266 by 222 (ceil(222 × 1.25) is 278), never the content's ceiling, a pixel too many each way. The submenu's sits one 2px seam right of it, at 1013.",
   "window": [
     1024,
     560
@@ -19,8 +19,8 @@
         "popups": 1,
         "focus_surface": 2,
         "popup_size": [
-          267,
-          223
+          266,
+          222
         ],
         "absent": [
           "Copy link"
@@ -88,15 +88,15 @@
         },
         "popup_rects": [
           [
-            744,
+            745,
             513,
-            267,
-            223
+            266,
+            222
           ],
           [
-            1012,
+            1013,
             700,
-            267,
+            266,
             72
           ]
         ]
@@ -135,10 +135,10 @@
         },
         "popup_rects": [
           [
-            744,
+            745,
             513,
-            267,
-            223
+            266,
+            222
           ]
         ]
       }
@@ -190,8 +190,8 @@
         "popups": 1,
         "focus_surface": 4,
         "popup_size": [
-          267,
-          223
+          266,
+          222
         ],
         "react": {
           "touchStart@open-menu": 1,
@@ -233,15 +233,15 @@
         "focus_surface": 5,
         "popup_rects": [
           [
-            744,
+            745,
             513,
-            267,
-            223
+            266,
+            222
           ],
           [
-            1012,
+            1013,
             700,
-            267,
+            266,
             72
           ]
         ]
@@ -267,10 +267,10 @@
         },
         "popup_rects": [
           [
-            744,
+            745,
             513,
-            267,
-            223
+            266,
+            222
           ]
         ]
       }
@@ -295,15 +295,15 @@
         "focus_surface": 6,
         "popup_rects": [
           [
-            744,
+            745,
             513,
-            267,
-            223
+            266,
+            222
           ],
           [
-            1012,
+            1013,
             700,
-            267,
+            266,
             72
           ]
         ]

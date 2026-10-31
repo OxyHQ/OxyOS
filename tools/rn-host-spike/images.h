@@ -2,7 +2,10 @@
 // ReactImageView does for a mounted Image view. Each view's source is loaded at the size it is
 // drawn (crates/oxyos-image through oxyos_client.h, decoded on threads of their own), the picture is
 // given to the view (ViewTree::setPicture), and the view's load events follow Android's: only
-// when JavaScript listens (shouldNotifyLoadEvents), loadStart, then load or error, then loadEnd.
+// when JavaScript listens (shouldNotifyLoadEvents), loadStart, then load or error, then loadEnd,
+// once for each source a view shows. A view drawn at another size shows its source decoded again
+// for that size with no events, as Android's view resized keeps its request: its source did not
+// change.
 //
 // Sources are files: `file://` URIs (a release bundle's assets, which React Native resolves to
 // the bundle's drawable folders when it is loaded from the file system) and absolute paths.
@@ -64,11 +67,13 @@ class Images {
     std::string uri;
     float sourceScale = 1;
     uint64_t loading = 0;  // the load it waits for, 0 if none
+    bool told = false;     // its source's load or error was told (loadEnd sent)
   };
 
-  void started(facebook::react::Tag tag, const Shown& shown);
-  void loaded(facebook::react::Tag tag, const Shown& shown, const std::shared_ptr<const Picture>& picture);
-  void failed(facebook::react::Tag tag, const Shown& shown, const std::string& error);
+  void started(facebook::react::Tag tag);
+  // Each gives the view its picture (or none) and tells JavaScript, once for its source.
+  void loaded(facebook::react::Tag tag, Shown& shown, const std::shared_ptr<const Picture>& picture);
+  void failed(facebook::react::Tag tag, Shown& shown, const std::string& error);
 
   ViewTree& tree_;
   OxyOSImages* loader_;

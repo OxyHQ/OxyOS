@@ -52,9 +52,15 @@ using OxyOSPopupViewComponentDescriptor = ConcreteComponentDescriptor<OxyOSPopup
 namespace oxyos {
 
 // Bloom's placement as the protocol's positioner (docs/adr/0002): flip on the side axis, slide on
-// both. `anchor` is the anchor's window-local frame.
+// both. `anchor` is the anchor's window-local frame; `size`, the content's, is drawn at `scale`.
 OxyOSPositioner positioner(const facebook::react::OxyOSPopupViewProps& props, facebook::react::Rect anchor,
-                         facebook::react::Size size);
+                         facebook::react::Size size, float scale);
+
+// The whole logical length a popup is given for content `logical` long drawn at `scale`: the least
+// whose pixels as the protocol makes them (ceil(length × scale_120 / 120), Display::pixelWidth's)
+// hold the content's. The content's ceiling is a pixel too many whenever it ends on the scale's
+// pixel grid short of a whole logical pixel: 222.4 at 1.25 is 278 pixels, as 222 is; 223 is 279.
+uint32_t popupLength(float logical, float scale);
 
 class PopupHost {
  public:

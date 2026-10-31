@@ -1,7 +1,8 @@
-import React, { memo } from "react";
+import React, { memo, useEffect, useRef } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../primitives";
+import type { ShellKeyboard } from "../platform";
 import { sheetView, type Language, type SheetText } from "../sheet";
 
 export const SHEET_WIDTH = 380;
@@ -15,7 +16,8 @@ const QUIET = "#5b6472";
 /**
  * A system sheet (docs/adr/0030-installing-applications.mdx, decision 9): the session's question
  * to the person, over everything but the lock screen, in a shell surface no application draws,
- * covers or presses. Its answer is the shell's alone; Cancel is its first, safest button. A sheet
+ * covers or presses. Its answer is the shell's alone; Cancel is its first, safest button, and
+ * Escape is Cancel, as on a Mac. No key accepts it: only a press on its answer does. A sheet
  * that only tells (the install service is not running) has its one button, in the answer's place.
  */
 export const SystemSheet = memo(function SystemSheet({
@@ -23,14 +25,28 @@ export const SystemSheet = memo(function SystemSheet({
   language = "es",
   names,
   answer,
+  keyboard,
 }: {
   text: SheetText;
   language?: Language;
   /** The registry's names, by id, for an application asking for a capability. */
   names?: Record<string, string>;
   answer: (accepted: boolean) => void;
+  /** The keys its surface receives, where the platform offers them. */
+  keyboard?: ShellKeyboard;
 }) {
   const view = sheetView(text, language, names);
+  const latestAnswer = useRef(answer);
+  latestAnswer.current = answer;
+  useEffect(() => {
+    if (!keyboard) return undefined;
+    return keyboard.subscribe((event) => {
+      const chord = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+      if (event.key !== "Escape" || chord) return false;
+      latestAnswer.current(false);
+      return true;
+    });
+  }, [keyboard]);
   return (
     <Box
       testID="system-sheet-backdrop"
