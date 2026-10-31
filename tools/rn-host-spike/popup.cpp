@@ -33,7 +33,8 @@ OxyOSPopupViewProps::OxyOSPopupViewProps(
       hasPoint(convertRawProp(context, rawProps, "hasPoint", sourceProps.hasPoint, false)),
       pointX(convertRawProp(context, rawProps, "pointX", sourceProps.pointX, 0.0f)),
       pointY(convertRawProp(context, rawProps, "pointY", sourceProps.pointY, 0.0f)),
-      tooltip(convertRawProp(context, rawProps, "tooltip", sourceProps.tooltip, false)) {}
+      tooltip(convertRawProp(context, rawProps, "tooltip", sourceProps.tooltip, false)),
+      trackingTag(convertRawProp(context, rawProps, "trackingTag", sourceProps.trackingTag, -1)) {}
 
 }  // namespace facebook::react
 
@@ -152,9 +153,76 @@ void PopupHost::sync(uint64_t serial) {
     const auto& view = entry.view;
     if (view.componentName && std::strcmp(view.componentName, kPopupComponent) == 0) mounted.insert(tag);
   }
-  // Popups gone close before new ones open: one menu replaced by another in a commit (the top
-  // bar's Right from an open menu, docs/adr/0024-system-shortcuts.mdx) opens the new one with the
-  // old one's grab already ended, as the compositor grants a grab only on top of the chain.
+  // Outer popups first: a submenu's popup is opened on top of the menu's, in this same pass.
+  std::vector<Tag> order(mounted.begin(), mounted.end());
+  std::stable_sort(order.begin(), order.end(), [&](Tag a, Tag b) {
+    return ancestry(tree_, a).size() < ancestry(tree_, b).size();
+  });
+  // The surfaces the popups going away hang from. A new popup hanging from one of them takes the
+  // place of the one going (a menu bar's next menu in place of the open one, as the pointer crosses
+  // onto its title or → is pressed; another row's submenu): it opens first, while the one it
+  // replaces still holds the grab, and the compositor passes the grab and the keyboard straight
+  // from that one to it. Closing first would end the grab between the two, the keyboard and the
+  // pointer going back for an instant to whatever had them before the menu opened (another
+  // application's window among them).
+  std::set<uint32_t> replaced;
+  for (const auto& [tag, popup] : popups_) {
+    if (!mounted.count(tag) && !popup.dismissed && !popup.tooltip) replaced.insert(popup.parent);
+  }
+  auto open = [&](Tag tag, bool replacing) {
+    const auto& view = tree_.views().at(tag).view;
+    if (auto it = popups_.find(tag); it != popups_.end()) {
+      if (replacing) return;
+      // An open popup follows its anchor and its content's size: place it again when either
+      // changed (an inline submenu expanding, the window laid out anew).
+      auto& popup = it->second;
+      auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
+      auto anchor = anchored(*props);
+      if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) return;
+      const auto* shown = window_.surface(popup.surface);
+      const auto* parent = window_.surface(anchor->first);
+      float scale = shown && shown->configure ? shown->scale : parent ? parent->scale : window_.scale();
+      auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size, scale);
+      if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
+        window_.reposition(popup.surface, placed);
+        popup.placed = placed;
+        popup.dirty = true;
+        Report::get().popup("reposition", popup.surface, &view,
+                            folly::dynamic::object("width", placed.width)("height", placed.height)(
+                                "anchor_x", placed.anchor_x)("anchor_y", placed.anchor_y));
+      }
+      return;
+    }
+    auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
+    auto anchor = anchored(*props);
+    Size size = view.layoutMetrics.frame.size;
+    // Opened once its anchor is mounted and its content laid out.
+    if (!anchor || size.width <= 0 || size.height <= 0) return;
+    if (replacing && (props->tooltip || !replaced.count(anchor->first))) return;
+    uint32_t surface = window_.allocate();
+    // Sized for its parent's scale: the compositor has not configured it yet. Once it has, the
+    // popup's own scale sizes it (above), on whichever output it was placed.
+    const auto* parent = window_.surface(anchor->first);
+    auto placed = positioner(*props, anchor->second, size, parent ? parent->scale : window_.scale());
+    // A tooltip takes no grab and no input: the pointer over it is still over its trigger. A menu
+    // of a bar: the bar goes on taking the pointer's movement while it is open (`tracks`).
+    window_.openPopup(surface, anchor->first, placed, props->tooltip ? 0 : serial,
+                      !props->tooltip && props->trackingTag >= 0);
+    if (props->tooltip) window_.setInputRegion(surface, OxyOSRect{0, 0, 0, 0});
+    popups_[tag] =
+        Popup{.surface = surface, .placed = placed, .parent = anchor->first, .tooltip = props->tooltip};
+    Report::get().popup("open", surface, &view,
+                        folly::dynamic::object("anchor", Report::name(tree_.views().at(props->anchorTag).view))(
+                            "width", size.width)("height", size.height));
+    if (tracing()) {
+      std::cerr << "[popup] open " << surface << " on " << anchor->first << " for view " << tag << " anchored to "
+                << props->anchorTag << " at " << anchor->second.origin.x << "," << anchor->second.origin.y << " "
+                << size.width << "x" << size.height << "\n";
+    }
+  };
+  if (!replaced.empty()) {
+    for (Tag tag : order) open(tag, true);
+  }
   for (auto it = popups_.begin(); it != popups_.end();) {
     if (mounted.count(it->first)) {
       ++it;
@@ -169,57 +237,28 @@ void PopupHost::sync(uint64_t serial) {
     if (tracing()) std::cerr << "[popup] close " << it->second.surface << "\n";
     it = popups_.erase(it);
   }
-  // Outer popups first: a submenu's popup is opened on top of the menu's, in this same pass.
-  std::vector<Tag> order(mounted.begin(), mounted.end());
-  std::stable_sort(order.begin(), order.end(), [&](Tag a, Tag b) {
-    return ancestry(tree_, a).size() < ancestry(tree_, b).size();
-  });
-  for (Tag tag : order) {
-    const auto& view = tree_.views().at(tag).view;
-    if (auto open = popups_.find(tag); open != popups_.end()) {
-      // An open popup follows its anchor and its content's size: place it again when either
-      // changed (an inline submenu expanding, the window laid out anew).
-      auto& popup = open->second;
-      auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
-      auto anchor = anchored(*props);
-      if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) continue;
-      const auto* shown = window_.surface(popup.surface);
-      const auto* parent = window_.surface(anchor->first);
-      float scale = shown && shown->configure ? shown->scale : parent ? parent->scale : window_.scale();
-      auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size, scale);
-      if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
-        window_.reposition(popup.surface, placed);
-        popup.placed = placed;
-        popup.dirty = true;
-        Report::get().popup("reposition", popup.surface, &view,
-                            folly::dynamic::object("width", placed.width)("height", placed.height)(
-                                "anchor_x", placed.anchor_x)("anchor_y", placed.anchor_y));
-      }
-      continue;
-    }
-    auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
-    auto anchor = anchored(*props);
-    Size size = view.layoutMetrics.frame.size;
-    // Opened once its anchor is mounted and its content laid out.
-    if (!anchor || size.width <= 0 || size.height <= 0) continue;
-    uint32_t surface = window_.allocate();
-    // Sized for its parent's scale: the compositor has not configured it yet. Once it has, the
-    // popup's own scale sizes it (above), on whichever output it was placed.
-    const auto* parent = window_.surface(anchor->first);
-    auto placed = positioner(*props, anchor->second, size, parent ? parent->scale : window_.scale());
-    // A tooltip takes no grab and no input: the pointer over it is still over its trigger.
-    window_.openPopup(surface, anchor->first, placed, props->tooltip ? 0 : serial);
-    if (props->tooltip) window_.setInputRegion(surface, OxyOSRect{0, 0, 0, 0});
-    popups_[tag] = Popup{.surface = surface, .placed = placed};
-    Report::get().popup("open", surface, &view,
-                        folly::dynamic::object("anchor", Report::name(tree_.views().at(props->anchorTag).view))(
-                            "width", size.width)("height", size.height));
-    if (tracing()) {
-      std::cerr << "[popup] open " << surface << " on " << anchor->first << " for view " << tag << " anchored to "
-                << props->anchorTag << " at " << anchor->second.origin.x << "," << anchor->second.origin.y << " "
-                << size.width << "x" << size.height << "\n";
+  for (Tag tag : order) open(tag, false);
+}
+
+bool PopupHost::tracks(uint32_t surface, Tag view) const {
+  bool open = false;
+  for (const auto& [tag, popup] : popups_) {
+    if (popup.dismissed || popup.tooltip) continue;
+    if (popup.surface == surface) return true;
+    open = true;
+  }
+  if (!open) return true;
+  auto path = ancestry(tree_, view);
+  for (const auto& [tag, popup] : popups_) {
+    if (popup.dismissed || popup.tooltip) continue;
+    const auto& entry = tree_.views().find(tag);
+    if (entry == tree_.views().end()) continue;
+    auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(entry->second.view.props);
+    if (props->trackingTag >= 0 && std::find(path.begin(), path.end(), props->trackingTag) != path.end()) {
+      return true;
     }
   }
+  return false;
 }
 
 void PopupHost::changed() {

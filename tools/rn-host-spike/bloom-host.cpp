@@ -764,6 +764,9 @@ int main(int argc, char** argv) {
       return popups.content(surface);
     });
     pointer.takesPointerModifiers(window->protocolVersion() >= 8);
+    // While a popup is open, the pointer over the surface it hangs from reaches only the views it
+    // tracks: a menu bar's titles (popup.h).
+    pointer.admitsHover([&](uint32_t surface, facebook::react::Tag view) { return popups.tracks(surface, view); });
     oxyos::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxyos::Placement> {
       auto frame = oxyos::windowFrame(tree, view);
       if (!frame) return std::nullopt;

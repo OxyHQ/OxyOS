@@ -88,8 +88,10 @@ class Window {
   void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
 
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
-  // (the input event that opened it). Throws on failure.
-  void openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial);
+  // (the input event that opened it), the parent going on tracking the pointer meanwhile when
+  // `tracking` (a menu bar's menu: ADR 0001, TrackPointer). Throws on failure.
+  void openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial,
+                 bool tracking = false);
   // Names the toplevel (ADR 0009): its title and application id, as the session's shell shows it.
   void nameWindow(const std::string& title, const std::string& appId);
   // The session's shell acting on a window or a workspace (OXYOS_MANAGE_*).

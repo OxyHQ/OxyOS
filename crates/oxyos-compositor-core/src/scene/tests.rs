@@ -634,13 +634,40 @@ fn nested_submenus_chain_and_unwind_with_focus_return() {
     assert_eq!(h.scene.focus(), Some(sub));
     assert_eq!(h.rect(sub).x, m.x + 200);
 
-    // A grab for a sibling of the submenu is not the top of the chain.
+    // A grab for a sibling of the submenu, from a press in the menu, takes the submenu's place:
+    // another row's submenu. The keyboard passes straight to it, the menu between never told it
+    // had it; the submenu is let go, not dismissed, and the client destroys it.
+    h.clear_log();
     let serial = h.press(m.x + 20, m.y + 60);
     let sibling = h.popup(menu_popup, 4, menu(Rect::new(0, 50, 20, 20), 50, 50));
     h.request(APP, Request::GrabPopup { surface: 4, serial })
         .unwrap();
-    assert_eq!(h.dismissed(sibling), Some(DismissReason::GrabDenied));
+    h.present(sibling);
     h.scene.pointer_button(BUTTON, false);
+    assert_eq!(h.scene.grab_chain(), &[menu_popup, sibling]);
+    assert_eq!(h.scene.focus(), Some(sibling));
+    let focus: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .filter(|e| matches!(e, Event::Focus { .. }))
+        .collect();
+    assert_eq!(
+        focus,
+        [
+            Event::Focus {
+                surface: 3,
+                focused: false
+            },
+            Event::Focus {
+                surface: 4,
+                focused: true
+            }
+        ]
+    );
+    assert_eq!(h.dismissed(sub), None);
+    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
+    assert_eq!(h.scene.grab_chain(), &[menu_popup, sibling]);
+    assert_eq!(h.scene.focus(), Some(sibling));
 
     // Escape is application semantics: the client closes the submenu by destroying it.
     h.scene.key(ESCAPE, true);
@@ -648,17 +675,209 @@ fn nested_submenus_chain_and_unwind_with_focus_return() {
         && matches!(
             e,
             Event::Key {
-                surface: 3,
+                surface: 4,
                 key: ESCAPE,
                 ..
             }
         )));
-    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
+    h.request(APP, Request::Destroy { surface: 4 }).unwrap();
     assert_eq!(h.scene.grab_chain(), &[menu_popup]);
     assert_eq!(h.scene.focus(), Some(menu_popup));
     h.request(APP, Request::Destroy { surface: 2 }).unwrap();
     assert!(h.scene.grab_chain().is_empty());
     assert_eq!(h.scene.focus(), Some(window), "focus returns to the window");
+}
+
+/// A Mac's menu bar with a menu open: the pointer crossing the bar reaches it, so another title
+/// can open its menu in place of the open one, with no press; the chain goes on, its keyboard
+/// passing from menu to menu, no other surface or client told anything; a press on the bar is
+/// still outside the chain.
+#[test]
+fn a_menu_bar_tracks_the_pointer_while_its_menu_is_open() {
+    let mut h = Harness::new();
+    let other = h.toplevel(OTHER, 1, 1200, 800);
+    let bar = h.toplevel(APP, 1, 400, 300);
+    let b = h.rect(bar);
+    // File's title is at (10, 0) of the bar, 40x20; Edit's at (60, 0). Its menu hangs under it,
+    // the bar going on tracking the pointer while it is open. Opened while the press is held.
+    let serial = h.press(b.x + 20, b.y + 10);
+    h.clear_log();
+    let file = h.popup(bar, 2, menu(Rect::new(10, 0, 40, 20), 200, 150));
+    h.request(APP, Request::TrackPointer { surface: 2 })
+        .unwrap();
+    h.request(APP, Request::GrabPopup { surface: 2, serial })
+        .unwrap();
+    h.present(file);
+    assert_eq!(h.scene.grab_chain(), &[file]);
+    assert_eq!(h.scene.focus(), Some(file));
+    // The bar keeps the pointer, so it is not left; its press is over, the release the grab's.
+    let pointer: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Pointer { surface, kind, .. } => Some((surface, kind)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pointer, [(1, PointerKind::Cancel)]);
+    h.scene.pointer_button(BUTTON, false);
+    h.clear_log();
+
+    // Along the bar onto Edit's title: the bar hears the pointer move, as before the grab (it
+    // neither left nor came back), and nothing else hears anything.
+    h.scene.pointer_motion(b.x + 70, b.y + 10);
+    h.pump();
+    let heard: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .map(|e| match e {
+            Event::Pointer {
+                surface,
+                kind,
+                x,
+                y,
+                ..
+            } => Some((surface, kind, x / 256, y / 256)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(heard, [Some((1, PointerKind::Motion, 70, 10))]);
+    assert!(h.events_for(OTHER).is_empty());
+
+    // Edit's menu opens in File's place, with the press that opened File: no press came since.
+    // The keyboard goes straight from File's menu to Edit's; the bar is never told it had it.
+    h.clear_log();
+    let edit = h.popup(bar, 3, menu(Rect::new(60, 0, 40, 20), 200, 150));
+    h.request(APP, Request::TrackPointer { surface: 3 })
+        .unwrap();
+    h.request(APP, Request::GrabPopup { surface: 3, serial })
+        .unwrap();
+    h.present(edit);
+    assert_eq!(h.scene.grab_chain(), &[edit]);
+    assert_eq!(h.scene.focus(), Some(edit));
+    assert_eq!(
+        h.dismissed(file),
+        None,
+        "let go, not dismissed: the client destroys it"
+    );
+    h.request(APP, Request::Destroy { surface: 2 }).unwrap();
+    assert_eq!(h.scene.grab_chain(), &[edit]);
+    assert_eq!(h.scene.focus(), Some(edit));
+    let told: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .filter(|e| matches!(e, Event::Focus { .. } | Event::Pointer { .. }))
+        .collect();
+    assert_eq!(
+        told,
+        [
+            Event::Focus {
+                surface: 2,
+                focused: false
+            },
+            Event::Focus {
+                surface: 3,
+                focused: true
+            }
+        ]
+    );
+    assert!(h.events_for(OTHER).is_empty());
+
+    // Off the bar, over the other client's window: the bar is left, and the other client hears
+    // nothing, as during any grab. Back on the bar, it is entered again.
+    h.clear_log();
+    h.scene.pointer_motion(b.x + 70, b.y + 400);
+    h.scene.pointer_motion(b.x + 120, b.y + 10);
+    h.pump();
+    let kinds: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Pointer { surface, kind, .. } => Some((surface, kind)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (1, PointerKind::Leave),
+            (1, PointerKind::Enter),
+            (1, PointerKind::Motion)
+        ]
+    );
+    assert!(h.events_for(OTHER).is_empty());
+
+    // Only its movement: a scroll over the bar goes nowhere.
+    h.clear_log();
+    h.scene.pointer_scroll(0, 256, ScrollSource::Wheel, false);
+    h.pump();
+    assert!(h.log.is_empty());
+
+    // A popup on another surface is still no part of the chain, even from a press in its menu.
+    let e = h.rect(edit);
+    let serial = h.press(e.x + 20, e.y + 20);
+    h.scene.pointer_button(BUTTON, false);
+    let window = h.toplevel(APP, 5, 300, 200);
+    let stray = h.popup(window, 6, menu(Rect::new(0, 0, 10, 10), 50, 50));
+    h.request(APP, Request::GrabPopup { surface: 6, serial })
+        .unwrap();
+    assert_eq!(h.dismissed(stray), Some(DismissReason::GrabDenied));
+    assert_eq!(h.scene.grab_chain(), &[edit]);
+
+    // A press on the bar's open title is outside the chain: the menu closes and the press is
+    // consumed, never reaching the title to open it again.
+    h.clear_log();
+    h.scene.pointer_motion(b.x + 70, b.y + 10);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(h.dismissed(edit), Some(DismissReason::OutsidePress));
+    assert!(h.scene.grab_chain().is_empty());
+    assert!(!h.events_for(APP).iter().any(|e| matches!(
+        e,
+        Event::Pointer {
+            kind: PointerKind::Press | PointerKind::Release,
+            ..
+        }
+    )));
+    let _ = other;
+}
+
+/// A menu that did not ask for it leaves the surface it hangs from without the pointer, as
+/// before: a context menu's window hears nothing while it is open. Only a popup can ask.
+#[test]
+fn a_popup_that_does_not_track_the_pointer_leaves_its_parent_without_it() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    assert_eq!(
+        h.request(APP, Request::TrackPointer { surface: 1 }),
+        Err(ErrorCode::InvalidRole)
+    );
+    assert_eq!(
+        h.request(APP, Request::TrackPointer { surface: 9 }),
+        Err(ErrorCode::UnknownSurface)
+    );
+    h.click(w.x + 20, w.y + 10);
+    h.clear_log();
+    let serial = h.press(w.x + 20, w.y + 10);
+    h.scene.pointer_button(BUTTON, false);
+    h.clear_log();
+    let popup = h.popup(window, 2, menu(Rect::new(10, 0, 40, 20), 200, 150));
+    h.request(APP, Request::GrabPopup { surface: 2, serial })
+        .unwrap();
+    h.present(popup);
+    h.scene.pointer_motion(w.x + 70, w.y + 10);
+    h.pump();
+    let pointer: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Pointer { surface, kind, .. } => Some((surface, kind)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pointer, [(1, PointerKind::Leave)]);
 }
 
 #[test]
@@ -1779,9 +1998,9 @@ fn a_finished_move_leaves_no_pointer_capture_behind() {
 }
 
 #[test]
-fn a_key_on_an_open_menu_opens_its_sibling_once_it_closed() {
-    // The top bar from the keyboard (ADR 0024): Right on an open menu closes it and opens the
-    // next one, citing that key, which was the closed menu's.
+fn a_key_on_an_open_menu_opens_its_sibling_in_its_place() {
+    // The top bar from the keyboard (ADR 0024): Right on an open menu opens the next one in its
+    // place, citing that key, which was the open menu's; the client then destroys the first.
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
     let w = h.rect(window);
@@ -1795,8 +2014,8 @@ fn a_key_on_an_open_menu_opens_its_sibling_once_it_closed() {
     h.scene.keyboard(106, true, None);
     let key_serial = h.scene.last_press.expect("the key").serial;
     h.scene.keyboard(106, false, None);
-    // While the first is open, a sibling cannot take the grab, even with its key.
-    let early = h.popup(window, 3, menu(Rect::new(40, 0, 40, 20), 200, 150));
+    h.clear_log();
+    let next = h.popup(window, 3, menu(Rect::new(40, 0, 40, 20), 200, 150));
     h.request(
         APP,
         Request::GrabPopup {
@@ -1805,11 +2024,23 @@ fn a_key_on_an_open_menu_opens_its_sibling_once_it_closed() {
         },
     )
     .unwrap();
-    assert_eq!(h.dismissed(early), Some(DismissReason::GrabDenied));
-    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
-    // Closed, its key opens the sibling.
+    h.present(next);
+    assert_eq!(h.dismissed(next), None);
+    assert_eq!(h.scene.grab_chain(), vec![next]);
     h.request(APP, Request::Destroy { surface: 2 }).unwrap();
-    let next = h.popup(window, 4, menu(Rect::new(40, 0, 40, 20), 200, 150));
+    assert_eq!(h.scene.grab_chain(), vec![next]);
+    // The keyboard went from the one to the other: the window was never given it between.
+    assert!(!h
+        .events_for(APP)
+        .iter()
+        .any(|e| matches!(e, Event::Focus { surface: 1, .. })));
+    assert_eq!(h.scene.focus(), Some(next));
+    // Closed first, its key opens the sibling too, the chain empty by then.
+    h.scene.keyboard(106, true, None);
+    let key_serial = h.scene.last_press.expect("the key").serial;
+    h.scene.keyboard(106, false, None);
+    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
+    let after = h.popup(window, 4, menu(Rect::new(80, 0, 40, 20), 200, 150));
     h.request(
         APP,
         Request::GrabPopup {
@@ -1818,9 +2049,9 @@ fn a_key_on_an_open_menu_opens_its_sibling_once_it_closed() {
         },
     )
     .unwrap();
-    h.present(next);
-    assert_eq!(h.dismissed(next), None);
-    assert_eq!(h.scene.grab_chain(), vec![next]);
+    h.present(after);
+    assert_eq!(h.dismissed(after), None);
+    assert_eq!(h.scene.grab_chain(), vec![after]);
     // Another client's popup can never cite it.
     let other = h.toplevel(OTHER, 1, 200, 200);
     let theirs = h.popup(other, 2, menu(Rect::new(0, 0, 40, 20), 100, 100));

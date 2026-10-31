@@ -382,7 +382,9 @@ const BarMenus = memo(function BarMenus({
                 style={menuStyle}
                 textStyle={{ ...menuText, fontWeight: weight }}
               >
-                <Text style={{ ...menuText, fontWeight: weight }}>{menu.label}</Text>
+                <Text testID={`shell-menu-${menu.label}`} style={{ ...menuText, fontWeight: weight }}>
+                  {menu.label}
+                </Text>
               </Button>
             </MenubarTrigger>
             <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>

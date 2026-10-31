@@ -459,6 +459,7 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new("stash://trash").unwrap(),
         },
+        Request::TrackPointer { surface: 2 },
     ]
 }
 
@@ -1688,6 +1689,7 @@ fn file_choosers_are_version_7_and_never_reach_an_older_peer() {
         text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
     };
     assert_eq!(request_since(&answer), 7);
+    assert_eq!(request_since(&Request::TrackPointer { surface: 2 }), 9);
     assert_eq!(
         request_since(&Request::OpenScreenshot {
             screenshot: 1,
