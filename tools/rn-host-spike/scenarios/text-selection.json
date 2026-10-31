@@ -1,0 +1,174 @@
+{
+  "about": "Selecting text with the mouse in Bloom fields (sample/EditingProbe.tsx), as Android's Editor selects it with a mouse: a double click selects the word under it (ICU's word boundaries, through WordIterator) and a triple click its paragraph, the line break ending it included; a double click held and dragged grows the selection by whole words, forwards or backwards from the word clicked; a press long after a double click is a single press again, and Shift and a press extend the selection to it. Each step checks the text and selection as the application receives them and exactly which events it received: every press is a touch, and each click changes the selection once. Without the host counting clicks, every double and triple click only moves the caret.",
+  "module": "EditingProbe",
+  "window": [
+    800,
+    480
+  ],
+  "steps": [
+    {
+      "name": "focus the line",
+      "do": ["press", [400, 42]],
+      "expect": {
+        "texts": ["Line: \"\" [0,0]"],
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "focus@line": 1, "selectionChange@line": 1},
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "type three words",
+      "do": ["type", "hola mundo bonito"],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [17,17]"],
+        "react": {"change@line": 1, "selectionChange@line": 1}
+      },
+      "expect_devices": {
+        "react": {"keyPress@line": 17, "change@line": 17, "selectionChange@line": 17}
+      }
+    },
+    {
+      "name": "a double click on mundo selects it",
+      "do": ["double_press", [94, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [5,10]"],
+        "react": {"touchStart@line": 2, "touchEnd@line": 2, "selectionChange@line": 2},
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "a while later",
+      "do": ["wait", 400],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a press long after the double click is a single press: the caret goes to it",
+      "do": ["press", [130, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [12,12]"],
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "selectionChange@line": 1}
+      }
+    },
+    {
+      "name": "a while later again",
+      "do": ["wait", 400],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a triple click selects the paragraph, all of the line",
+      "do": ["triple_press", [60, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [0,17]"],
+        "react": {"touchStart@line": 3, "touchEnd@line": 3, "selectionChange@line": 3}
+      }
+    },
+    {
+      "name": "a while later, before dragging",
+      "do": ["wait", 400],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a double click on mundo dragged into bonito selects both words, whole",
+      "do": ["double_drag", [94, 42, 140, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [5,17]"],
+        "react": {"touchStart@line": 2, "touchMove@line": 2, "touchEnd@line": 2, "selectionChange@line": 3}
+      }
+    },
+    {
+      "name": "a while later, before dragging back",
+      "do": ["wait", 400],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a double click on bonito dragged back into hola selects the three words, whole",
+      "do": ["double_drag", [140, 42, 50, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [0,17]"],
+        "react": {"touchStart@line": 2, "touchMove@line": 2, "touchEnd@line": 2, "selectionChange@line": 4}
+      }
+    },
+    {
+      "name": "a while later, before a single press",
+      "do": ["wait", 400],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a press puts the caret in hola",
+      "do": ["press", [50, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [2,2]"],
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "selectionChange@line": 1}
+      }
+    },
+    {
+      "name": "Shift down",
+      "do": ["key_down", 42],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a while later, Shift and a press in bonito extend the selection to the press",
+      "do": ["press", [130, 42]],
+      "expect": {
+        "texts": ["Line: \"hola mundo bonito\" [2,12]"],
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "selectionChange@line": 1}
+      }
+    },
+    {
+      "name": "Shift up",
+      "do": ["key_up", 42],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "focus the notes",
+      "do": ["press", [154, 130]],
+      "expect": {
+        "texts": ["Notes: \"\" [0,0]"],
+        "react": {
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "touchStart@notes": 1,
+          "touchEnd@notes": 1,
+          "focus@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "focus_input": "notes"
+      }
+    },
+    {
+      "name": "type two paragraphs",
+      "do": ["type", "uno dos\ntres cuatro"],
+      "expect": {
+        "texts": ["Notes: \"uno dos\\ntres cuatro\" [19,19]"],
+        "react": {"change@notes": 1, "selectionChange@notes": 1}
+      },
+      "expect_devices": {
+        "react": {"keyPress@notes": 19, "change@notes": 19, "selectionChange@notes": 19}
+      }
+    },
+    {
+      "name": "a while later, before the triple click",
+      "do": ["wait", 400],
+      "allow_unchanged": true,
+      "expect": {"react": {}}
+    },
+    {
+      "name": "a triple click on the first paragraph selects it with its line break",
+      "do": ["triple_press", [50, 97]],
+      "expect": {
+        "texts": ["Notes: \"uno dos\\ntres cuatro\" [0,8]"],
+        "react": {"touchStart@notes": 3, "touchEnd@notes": 3, "selectionChange@notes": 3},
+        "focus_input": "notes"
+      }
+    }
+  ],
+  "final": {
+    "focus_input": "notes"
+  }
+}

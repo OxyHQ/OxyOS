@@ -41,6 +41,11 @@ pub enum Step {
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
     DoublePress { x: i32, y: i32 },
+    /// Three such presses: a triple click.
+    TriplePress { x: i32, y: i32 },
+    /// A press and release at the first point, then a press there held and moved to the second
+    /// point, then released: a double click whose second press drags.
+    DoubleDrag { from: (i32, i32), to: (i32, i32) },
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
     /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
@@ -193,6 +198,8 @@ impl Step {
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
             Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
+            Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
+            Step::DoubleDrag { from, to } => format!("double press at {from:?} dragged to {to:?}"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
             Step::Pinch {
                 x,
@@ -276,6 +283,10 @@ impl Step {
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
             Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
+            Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
+            Step::DoubleDrag { from, to } => {
+                format!("\"double_drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
+            }
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
             Step::Pinch {
                 x,
@@ -518,7 +529,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -741,6 +752,17 @@ impl Launch {
                 Some("--double-press") => {
                     let n = numbers(args.next(), 2)?;
                     Step::DoublePress { x: n[0], y: n[1] }
+                }
+                Some("--triple-press") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::TriplePress { x: n[0], y: n[1] }
+                }
+                Some("--double-drag") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::DoubleDrag {
+                        from: (n[0], n[1]),
+                        to: (n[2], n[3]),
+                    }
                 }
                 Some("--scroll") => {
                     let n = numbers(args.next(), 3)?;
@@ -1772,6 +1794,29 @@ fn inject_through(
             compositor.read_input();
             press(devices, compositor, point)?;
         }
+        Step::TriplePress { x, y } => {
+            inside(window, *x, *y)?;
+            let point = at(window.x + x, window.y + y);
+            for _ in 0..3 {
+                press(devices, compositor, point)?;
+                compositor.read_input();
+            }
+        }
+        Step::DoubleDrag { from, to } => {
+            inside(window, from.0, from.1)?;
+            inside(window, to.0, to.1)?;
+            let (fx, fy) = at(window.x + from.0, window.y + from.1);
+            let (tx, ty) = at(window.x + to.0, window.y + to.1);
+            press(devices, compositor, (fx, fy))?;
+            compositor.read_input();
+            devices.button(true)?;
+            compositor.read_input();
+            devices.move_to((fx + tx) / 2, (fy + ty) / 2)?;
+            compositor.read_input();
+            devices.move_to(tx, ty)?;
+            compositor.read_input();
+            devices.button(false)?;
+        }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
@@ -2551,6 +2596,25 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             inside(window, *x, *y)?;
             press(&mut compositor.scene, window.x + x, window.y + y);
             press(&mut compositor.scene, window.x + x, window.y + y);
+        }
+        Step::TriplePress { x, y } => {
+            inside(window, *x, *y)?;
+            for _ in 0..3 {
+                press(&mut compositor.scene, window.x + x, window.y + y);
+            }
+        }
+        Step::DoubleDrag { from, to } => {
+            inside(window, from.0, from.1)?;
+            inside(window, to.0, to.1)?;
+            let scene = &mut compositor.scene;
+            press(scene, window.x + from.0, window.y + from.1);
+            scene.pointer_button(BUTTON, true);
+            scene.pointer_motion(
+                window.x + (from.0 + to.0) / 2,
+                window.y + (from.1 + to.1) / 2,
+            );
+            scene.pointer_motion(window.x + to.0, window.y + to.1);
+            scene.pointer_button(BUTTON, false);
         }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
@@ -3479,6 +3543,10 @@ mod tests {
             "42+106",
             "--drag",
             "1,2,3,4",
+            "--triple-press",
+            "7,8",
+            "--double-drag",
+            "1,2,30,4",
             "--drag-output",
             "10,20,90,100",
             "--scale",
@@ -3509,7 +3577,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, true
+                false, false, false, false, false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -3559,6 +3627,11 @@ mod tests {
                 Step::Drag {
                     from: (1, 2),
                     to: (3, 4)
+                },
+                Step::TriplePress { x: 7, y: 8 },
+                Step::DoubleDrag {
+                    from: (1, 2),
+                    to: (30, 4)
                 },
                 Step::DragOutput {
                     from: (10, 20),
