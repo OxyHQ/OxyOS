@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS drag and drop</title>
+<style>
+html, body { margin: 0; height: 100%; }
+body { background: #2d6cdf; font: 24px sans-serif; caret-color: transparent; }
+#source { position: absolute; left: 20px; top: 20px; width: 200px; height: 80px; background: #ffffff; line-height: 80px; text-align: center; user-select: none; }
+#zone { position: absolute; left: 400px; top: 20px; width: 300px; height: 200px; background: #ffffff; }
+</style>
+</head>
+<body>
+<div id="source" draggable="true">Drag me</div>
+<div id="zone"></div>
+<script>
+const paint = (element, color) => { element.style.background = color; };
+source.addEventListener("dragstart", (event) => {
+  event.dataTransfer.setData("text/plain", "oxyos-drag");
+  event.dataTransfer.effectAllowed = "copyMove";
+});
+source.addEventListener("dragend", (event) => {
+  paint(document.body, event.dataTransfer.dropEffect === "none" ? "#e8590c" : "#7048e8");
+});
+zone.addEventListener("dragenter", (event) => { event.preventDefault(); paint(zone, "#fab005"); });
+zone.addEventListener("dragover", (event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; });
+zone.addEventListener("dragleave", () => paint(zone, "#ffffff"));
+zone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  paint(zone, event.dataTransfer.getData("text/plain") === "oxyos-drag" ? "#2f9e44" : "#e03131");
+});
+</script>
+</body>
+</html>

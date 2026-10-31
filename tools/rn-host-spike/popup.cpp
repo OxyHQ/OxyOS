@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <set>
+#include <vector>
 
 using namespace facebook::react;
 
@@ -96,7 +97,26 @@ std::optional<std::pair<uint32_t, Rect>> PopupHost::anchored(const OxyOSPopupVie
   Tag anchor = props.anchorTag;
   auto frame = windowFrame(tree_, anchor);
   if (!frame) return std::nullopt;
-  auto [surface, origin] = parent_ ? parent_(anchor) : std::pair<uint32_t, Point>{Window::kToplevel, {}};
+  // An anchor inside a popup of this host's (a submenu's row, its submenu flying out beside it in
+  // a popup of its own) is in that popup's surface, the parent the compositor grants a grab on top
+  // of; only one not yet open, or gone, has none. Anywhere else, the surface the parent callback
+  // names (a shell panel's), else the toplevel.
+  std::optional<std::pair<uint32_t, Point>> inPopup;
+  for (Tag at : ancestry(tree_, anchor)) {
+    if (at == anchor) continue;
+    auto open = popups_.find(at);
+    if (open != popups_.end()) {
+      auto origin = windowFrame(tree_, at);
+      if (open->second.dismissed || !origin) return std::nullopt;
+      inPopup = std::pair{open->second.surface, origin->origin};
+      break;
+    }
+    const auto& view = tree_.views().at(at).view;
+    if (view.componentName && std::strcmp(view.componentName, kPopupComponent) == 0) return std::nullopt;
+  }
+  auto [surface, origin] = inPopup                ? *inPopup
+                           : parent_              ? parent_(anchor)
+                                                  : std::pair<uint32_t, Point>{Window::kToplevel, {}};
   frame->origin.x -= origin.x;
   frame->origin.y -= origin.y;
   // A point in the anchor is a frame of no size there (the positioner makes it one pixel).
@@ -133,13 +153,21 @@ void PopupHost::sync(uint64_t serial) {
       ++it;
       continue;
     }
-    if (!it->second.dismissed) window_.destroy(it->second.surface);
+    if (!it->second.dismissed) {
+      window_.destroy(it->second.surface);
+      closed_.insert(it->second.surface);
+    }
     Report::get().popup("close", it->second.surface, nullptr);
     accessibility_.forget(it->second.surface);
     if (tracing()) std::cerr << "[popup] close " << it->second.surface << "\n";
     it = popups_.erase(it);
   }
-  for (Tag tag : mounted) {
+  // Outer popups first: a submenu's popup is opened on top of the menu's, in this same pass.
+  std::vector<Tag> order(mounted.begin(), mounted.end());
+  std::stable_sort(order.begin(), order.end(), [&](Tag a, Tag b) {
+    return ancestry(tree_, a).size() < ancestry(tree_, b).size();
+  });
+  for (Tag tag : order) {
     const auto& view = tree_.views().at(tag).view;
     if (auto open = popups_.find(tag); open != popups_.end()) {
       // An open popup follows its anchor and its content's size: place it again when either

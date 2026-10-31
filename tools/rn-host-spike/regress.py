@@ -16,7 +16,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
   launched received, by kind (exact; "close.requested" among them);
-- popups: how many popups of the application are shown after the step;
+- popups: how many popups of the application are shown after the step; popup_rects, where each
+  is on the output ([x, y, width, height]), exactly and in the order they opened (a submenu's
+  popup beside its menu's);
 - gpu_frames: the application's frames of GPU buffers (DMA-BUFs, docs/adr/0031-gpu-buffers.mdx)
   the compositor latched since the run began, at least "latched_min", and at least "waited_min"
   of them held until their acquire point signalled: frames that took the GPU path, not shared
@@ -300,7 +302,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "clipboard", "menu"}
@@ -368,7 +370,7 @@ def director_args(step, out):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
-    if kind in ("press_popup", "press_output", "press_secondary", "double_press", "triple_press"):
+    if kind in ("press_popup", "press_output", "move_output", "press_secondary", "double_press", "triple_press"):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "double_drag":
         # A double click whose second press is held and dragged: [x0, y0, x1, y1].
@@ -1742,6 +1744,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
         fail(f"popups at {result.get('popups')}, expected [{expect['popup_rect']}]")
+    if "popup_rects" in expect and result.get("popups", []) != expect["popup_rects"]:
+        fail(f"popups at {result.get('popups', [])}, expected {expect['popup_rects']}")
     if "popups" in expect:
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:

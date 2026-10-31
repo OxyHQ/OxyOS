@@ -80,7 +80,16 @@
             "leave": 1
           }
         },
-        "window_shown": true
+        "window_shown": true,
+        "output_pixels": {
+          "76,60": "#497cff",
+          "80,60": "#ffffff",
+          "343,60": "#ffffff",
+          "347,60": "#4479ff",
+          "200,33": "#ffffff",
+          "200,139": "#ffffff",
+          "200,101": "#dedfdf"
+        }
       }
     },
     {
@@ -104,6 +113,156 @@
           "1": {
             "menu.activated": 1
           }
+        }
+      }
+    },
+    {
+      "name": "File again",
+      "do": [
+        "press_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "notes.txt"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "the pointer on Open Recent opens its submenu beside it",
+      "do": [
+        "move_output",
+        [
+          200,
+          119
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "notes.txt"
+          ]
+        },
+        "react": {},
+        "output_pixels": {
+          "100,119": "#e8e8e8",
+          "346,119": "#4479ff",
+          "350,119": "#ffffff",
+          "611,125": "#ffffff",
+          "616,125": "#4277fe",
+          "400,104": "#4479ff",
+          "400,107": "#ffffff",
+          "400,146": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "into the submenu: it stays open",
+      "do": [
+        "move_output",
+        [
+          400,
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "notes.txt"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "onto New: the submenu closes after its grace",
+      "do": [
+        "move_output",
+        [
+          200,
+          53
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "after the grace, the submenu is gone",
+      "do": [
+        "wait",
+        400
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "notes.txt"
+          ],
+          "texts": [
+            "New"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "back on Open Recent, and notes.txt chosen in its submenu",
+      "do": [
+        "move_output",
+        [
+          200,
+          119
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "notes.txt"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "choosing notes.txt runs it in the application, once, and closes the menu",
+      "do": [
+        "press_output",
+        [
+          400,
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          }
+        },
+        "in_shell": {
+          "absent": [
+            "notes.txt",
+            "Open Recent"
+          ]
         }
       }
     },
@@ -215,7 +374,7 @@
           ]
         },
         "output_pixels": {
-          "144,118": "#ffffff"
+          "141,90": "#ffffff"
         },
         "react": {},
         "delivered": {
@@ -232,7 +391,7 @@
         "press_output",
         [
           194,
-          116
+          90
         ]
       ],
       "allow_unchanged": true,
@@ -268,7 +427,7 @@
           ]
         },
         "output_pixels": {
-          "144,118": "#5c645f"
+          "141,90": "#5c645f"
         },
         "pixel_tolerance": 16,
         "react": {},
@@ -281,7 +440,7 @@
         "press_output",
         [
           194,
-          116
+          90
         ]
       ],
       "allow_unchanged": true,
@@ -327,7 +486,7 @@
       "do": [
         "press_output",
         [
-          767,
+          738,
           693
         ]
       ],
