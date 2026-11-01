@@ -65,6 +65,15 @@ const native = [
 // and its Expo config plugin, `app.plugin.js`, which Expo's prebuild runs under Node and which
 // needs Node's modules, as `assert`).
 const bloomManifest = JSON.parse(fs.readFileSync(path.join(bloom, 'package.json'), 'utf8'));
+// The oldest Bloom the runtime's own parts work with: 15.91.0, whose ContextMenu hangs from a view
+// it has no trigger around (`anchorRef`), as the text fields' context menu does
+// (oxyos/text-menu.js, docs/adr/0037-text-editing.mdx). Older, the menu would never open.
+const BLOOM_AT_LEAST = [15, 91, 0];
+const bloomVersion = bloomManifest.version.split(/[.-]/).slice(0, 3).map(Number);
+const older = BLOOM_AT_LEAST.findIndex((part, index) => bloomVersion[index] !== part);
+if (older >= 0 && bloomVersion[older] < BLOOM_AT_LEAST[older]) {
+  throw new Error(`Bloom ${bloomManifest.version} in ${bloom} is older than ${BLOOM_AT_LEAST.join('.')}, which the runtime needs`);
+}
 const notCode = new Set(['./package.json', './tailwind-preset', './design-tokens/theme.css', './design-tokens/tokens.json',
   './app.plugin.js']);
 const bloomExports = [];

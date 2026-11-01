@@ -1,0 +1,856 @@
+{
+  "about": "A text field's context menu (scenarios/text-field-menu.json) on a 1600x1000 display at 1.25 (ADR 0018): the same steps, its points in the window's logical pixels, drawn and hit at the output's scale.",
+  "module": "TextMenuProbe",
+  "window": [
+    640,
+    360
+  ],
+  "locale": "es_ES.UTF-8",
+  "companion": {
+    "module": "DropProbe",
+    "window": [
+      260,
+      180
+    ],
+    "at": [
+      1300,
+      260
+    ]
+  },
+  "final": {
+    "focus_input": "line"
+  },
+  "steps": [
+    {
+      "name": "the window made active by a press on nothing in it: no field has focus",
+      "do": [
+        "press",
+        [
+          500,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "react": {
+          "touchStart@RootView#1": 1,
+          "touchEnd@RootView#1": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a secondary click on \"mundo\" in the Bloom field, which has no focus: the field takes focus with the word selected, as on a Mac, and its context menu opens at the pointer in a popup, announced as a menu, Undo and Redo disabled (nothing to undo) and Paste too (the clipboard is empty)",
+      "do": [
+        "press_secondary",
+        [
+          95,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola mundo café\" [5,10]"
+        ],
+        "popups": 1,
+        "focus_input": "line",
+        "react": {
+          "focus@line": 1,
+          "selectionChange@line": 1,
+          "oxyosTextMenu@line": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Menú contextual"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Deshacer",
+              "state": [
+                "disabled",
+                "focused"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Rehacer",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Cortar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Copiar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Pegar",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Seleccionar todo"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "2": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Down goes to the first row that applies, Cut, past the disabled ones",
+      "do": [
+        "key",
+        108
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "key@text-field-menu": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Cortar",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "delivered": {
+          "2": {
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Down again, Copy",
+      "do": [
+        "key",
+        108
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "key@text-field-menu": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Copiar",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "delivered": {
+          "2": {
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Return chooses it: the word is on the clipboard, the menu gone, and the field keeps its focus and selection, its text unchanged",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_input": "line",
+        "texts": [
+          "Line: \"Hola mundo café\" [5,10]"
+        ],
+        "react": {
+          "key@text-field-menu": 1
+        },
+        "field": {
+          "text": "Hola mundo café",
+          "anchor": 5,
+          "cursor": 10
+        },
+        "clipboard": {
+          "text/plain;charset=utf-8": "mundo"
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "2": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "the keyboard is the field's again: a key replaces the selection",
+      "do": [
+        "type",
+        "x"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola x café\" [6,6]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "a secondary click on \"plano\" in a plain React Native TextInput, which knows nothing of Bloom: the same menu, the line losing focus, Paste enabled now and Undo too",
+      "do": [
+        "press_secondary",
+        [
+          100,
+          90
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_input": "plain",
+        "texts": [
+          "Plain: \"texto plano\" [6,11]"
+        ],
+        "react": {
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "focus@plain": 1,
+          "selectionChange@plain": 1,
+          "oxyosTextMenu@plain": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Menú contextual"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Deshacer",
+              "state": [
+                "disabled",
+                "focused"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Rehacer",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Cortar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Copiar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Pegar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Seleccionar todo"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "3": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Escape closes it: nothing else happens, the selection kept",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_input": "plain",
+        "texts": [
+          "Plain: \"texto plano\" [6,11]"
+        ],
+        "react": {
+          "key@text-field-menu": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "3": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Control held",
+      "do": [
+        "key_down",
+        29
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "a Control-click within the selection is a secondary click, as on a Mac: the selection kept, no click, the menu",
+      "do": [
+        "press",
+        [
+          105,
+          90
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Plain: \"texto plano\" [6,11]"
+        ],
+        "react": {
+          "oxyosTextMenu@plain": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Menú contextual"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Deshacer",
+              "state": [
+                "disabled",
+                "focused"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Rehacer",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Cortar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Copiar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Pegar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Seleccionar todo"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "4": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Control released",
+      "do": [
+        "key_up",
+        29
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "4": {
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Paste chosen with the pointer: \"mundo\" replaces the selection",
+      "do": [
+        "press_popup",
+        [
+          40,
+          147
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_input": "plain",
+        "texts": [
+          "Plain: \"texto mundo\" [11,11]"
+        ],
+        "react": {
+          "touchStart@text-field-menu": 1,
+          "touchEnd@text-field-menu": 1,
+          "change@plain": 1,
+          "selectionChange@plain": 1
+        },
+        "field": {
+          "text": "texto mundo",
+          "anchor": 11,
+          "cursor": 11
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "4": {
+            "enter": 1,
+            "focus.out": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "a secondary click past the text's end: the caret goes there, no word; Undo enabled now, Cut and Copy disabled (nothing selected)",
+      "do": [
+        "press_secondary",
+        [
+          400,
+          90
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Plain: \"texto mundo\" [11,11]"
+        ],
+        "react": {
+          "oxyosTextMenu@plain": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Menú contextual"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Deshacer",
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Rehacer",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Cortar",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Copiar",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Pegar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Seleccionar todo"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "5": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Down: Undo",
+      "do": [
+        "key",
+        108
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "key@text-field-menu": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Deshacer",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "delivered": {
+          "5": {
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Return: the paste undone, the selection as it was",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "popups": 0,
+        "texts": [
+          "Plain: \"texto plano\" [6,11]"
+        ],
+        "react": {
+          "key@text-field-menu": 1,
+          "change@plain": 1,
+          "selectionChange@plain": 1
+        },
+        "field": {
+          "text": "texto plano",
+          "anchor": 6,
+          "cursor": 11
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "5": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "a secondary click on the secure field: it takes focus with the caret where pressed, no word selected; Cut and Copy disabled, as a secure field never gives its text, Paste enabled",
+      "do": [
+        "press_secondary",
+        [
+          60,
+          138
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_input": "secret",
+        "react": {
+          "blur@plain": 1,
+          "endEditing@plain": 1,
+          "focus@secret": 1,
+          "selectionChange@secret": 1,
+          "oxyosTextMenu@secret": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Menú contextual"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Deshacer",
+              "state": [
+                "disabled",
+                "focused"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Rehacer",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Cortar",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Copiar",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Pegar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Seleccionar todo"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "6": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "End and Return: Select All",
+      "do": [
+        "key",
+        107
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "key@text-field-menu": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Seleccionar todo",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "delivered": {
+          "6": {
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Return: everything selected",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_input": "secret",
+        "texts": [
+          "Secret: \"clave\" [0,5]"
+        ],
+        "react": {
+          "key@text-field-menu": 1,
+          "selectionChange@secret": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "6": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "a secondary click on the Bloom field again, then Cut: its word goes to the clipboard and out of the field",
+      "do": [
+        "press_secondary",
+        [
+          77,
+          42
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_input": "line",
+        "texts": [
+          "Line: \"Hola x café\" [5,6]"
+        ],
+        "react": {
+          "blur@secret": 1,
+          "endEditing@secret": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1,
+          "oxyosTextMenu@line": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "7": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Cut, with the pointer",
+      "do": [
+        "press_popup",
+        [
+          40,
+          87
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "texts": [
+          "Line: \"Hola  café\" [5,5]"
+        ],
+        "react": {
+          "touchStart@text-field-menu": 1,
+          "touchEnd@text-field-menu": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "clipboard": {
+          "text/plain;charset=utf-8": "x"
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "7": {
+            "enter": 1,
+            "focus.out": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {}
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

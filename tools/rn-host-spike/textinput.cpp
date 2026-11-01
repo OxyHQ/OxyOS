@@ -190,6 +190,10 @@ void TextEditing::command(const ShadowView& view, const std::string& name, const
     focus(view.tag);
   } else if (name == "blur") {
     if (view.tag == focused_) blur();
+  } else if (name == "oxyosEdit" && view.tag == focused_ && args.isArray() && !args.empty() && args[0].isString()) {
+    // A command chosen in the input's context menu (sample/oxyos/text-menu.js), citing the
+    // person's latest input: the menu's row they pressed or the key that chose it.
+    perform(args[0].getString(), inputSerial_ ? inputSerial_() : 0);
   } else if (name == "setTextAndSelection" && view.tag != focused_ && args.isArray() && args.size() >= 4) {
     // An input without focus keeps the selection, as Android's EditText does: the text is its
     // props', and focus from JavaScript shows the selection (a field opening with a name's stem
@@ -282,8 +286,17 @@ void TextEditing::focus(Tag tag) {
   anchor_ = caret_ = text_.size();
   auto kept = unfocusedSelections_.find(tag);
   std::optional<size_t> pressed;
-  if (press_) pressed = offsetAt(press_->first, press_->second.x, press_->second.y, true);
-  if (props->selectTextOnFocus) {
+  if (press_ && !contextPress_) pressed = offsetAt(press_->first, press_->second.x, press_->second.y, true);
+  if (contextPress_) {
+    // A context click (contextMenu): the word under it, or the caret there off a word.
+    auto [surface, at] = *contextPress_;
+    if (auto word = wordUnder(surface, at.x, at.y)) {
+      anchor_ = word->first;
+      caret_ = word->second;
+    } else if (auto offset = offsetAt(surface, at.x, at.y, false)) {
+      anchor_ = caret_ = *offset;
+    }
+  } else if (props->selectTextOnFocus) {
     anchor_ = 0;
   } else if (pressed && taps_ != Taps::Single) {
     // A double or triple click on an input without focus: its first press focused it.
@@ -600,34 +613,20 @@ void TextEditing::key(uint32_t code, uint64_t serial) {
       return select(code == kHome ? first : last, shift_);
     }
     case kC:
+      if (ctrl_) perform("copy", serial);
+      return;
     case kX:
-      // Copy, and cut: copy and delete as one edit. Never from a secure field, as Android's
-      // TextView refuses (pasting into one is allowed).
-      if (!ctrl_ || !selected || secure || !clipboard_.copy) return;
-      clipboard_.copy(serial, text_.substr(from, to - from));
-      if (code == kX) {
-        merging_ = false;
-        replace(from, to, "", "");
-        merging_ = false;
-      }
+      if (ctrl_) perform("cut", serial);
       return;
     case kV:
-      // The text arrives later, from the clipboard's owner; it goes into this input if it still
-      // has focus then.
-      if (ctrl_ && clipboard_.paste) {
-        clipboard_.paste(serial, [this, tag = focused_](std::string text) { pasted(tag, std::move(text)); });
-      }
+      if (ctrl_) perform("paste", serial);
       return;
     case kZ:
       // Ctrl+Z undoes, Ctrl+Shift+Z redoes, as Android's TextView takes them.
-      if (ctrl_) undo(shift_);
+      if (ctrl_) perform(shift_ ? "redo" : "undo", serial);
       return;
     case kA:
-      if (ctrl_ && (anchor_ != 0 || caret_ != text_.size())) {
-        anchor_ = 0;
-        caret_ = text_.size();
-        selectionChanged();
-      }
+      if (ctrl_) perform("selectAll", serial);
       return;
     case kEnter:
     case kKeypadEnter:
@@ -659,6 +658,13 @@ std::optional<size_t> TextEditing::offsetAt(uint32_t surface, float x, float y, 
 
 void TextEditing::pointer(const OxyOSEvent& event) {
   float x = event.x / 256.0f, y = event.y / 256.0f;
+  // A Control-click is a secondary click in a text input, as on a Mac (PointerInput opens its
+  // context menu): it neither moves the caret nor counts towards a double click.
+  bool control = (event.modifiers & OXYOS_MODIFIER_CONTROL) != 0 || ctrl_;
+  if (event.detail == OXYOS_POINTER_PRESS && event.code == kPrimaryButton && control && focused_ >= 0 &&
+      offsetAt(event.surface, x, y, true)) {
+    return;
+  }
   if (event.detail == OXYOS_POINTER_PRESS && event.code == kPrimaryButton) {
     // Editor's updateTapState, with its double-tap check: soon enough after the last release, and
     // near the press before it.
@@ -987,6 +993,119 @@ void TextEditing::endComposition() {
   // Its text stays, as Android's finishComposingText leaves it, and is one edit.
   if (composeBefore_) record(*composeBefore_, Edit::Replace);
   composeBefore_.reset();
+}
+
+void TextEditing::perform(const std::string& command, uint64_t serial) {
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  if (command == "undo" || command == "redo") return undo(command == "redo");
+  endComposition();
+  size_t from = std::min(anchor_, caret_), to = std::max(anchor_, caret_);
+  if (command == "copy" || command == "cut") {
+    // Copy, and cut: copy and delete as one edit. Never from a secure field, as Android's
+    // TextView refuses (pasting into one is allowed).
+    if (from == to || props->secureTextEntry || !clipboard_.copy) return;
+    if (command == "cut" && !props->editable) return;
+    clipboard_.copy(serial, text_.substr(from, to - from));
+    if (command == "cut") {
+      merging_ = false;
+      replace(from, to, "", "");
+      merging_ = false;
+    }
+  } else if (command == "paste") {
+    // The text arrives later, from the clipboard's owner; it goes into this input if it still has
+    // focus then.
+    if (props->editable && clipboard_.paste) {
+      clipboard_.paste(serial, [this, tag = focused_](std::string text) { pasted(tag, std::move(text)); });
+    }
+  } else if (command == "selectAll") {
+    selectRange(0, text_.size());
+  }
+}
+
+TextEditing::Commands TextEditing::commands() const {
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return {};
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  bool selected = anchor_ != caret_, secure = props->secureTextEntry, editable = props->editable;
+  Commands commands;
+  if (auto entry = histories_.find(focused_); entry != histories_.end() && editable) {
+    commands.undo = entry->second.done > 0;
+    commands.redo = entry->second.done < entry->second.entries.size();
+  }
+  commands.cut = selected && !secure && editable;
+  commands.copy = selected && !secure;
+  commands.paste = editable && clipboard_.hasText && clipboard_.hasText();
+  commands.selectAll = !text_.empty();
+  return commands;
+}
+
+std::optional<std::pair<size_t, size_t>> TextEditing::wordUnder(uint32_t surface, float x, float y) const {
+  auto it = tree_.views().find(focused_);
+  auto placement = locate_(focused_);
+  if (it == tree_.views().end() || !placement || placement->surface != surface || secure()) return std::nullopt;
+  // The point in the text's own space, as offsetAt takes it.
+  auto content = it->second.view.layoutMetrics.getContentFrame();
+  Point scroll{};
+  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
+  float tx = x - placement->frame.origin.x - content.origin.x + scroll.x;
+  float ty = y - placement->frame.origin.y - content.origin.y + scroll.y;
+  TextInputGeometry geometry(it->second.view, text_);
+  size_t offset = geometry.offsetAt(tx, ty);
+  // The character under the point: the one before the nearest caret stop when the point is left
+  // of it, else the one after (none past a line's end: its line break, or the text's end).
+  auto caret = geometry.caret(offset);
+  size_t start = tx < caret.x && offset > 0 ? previousBoundary(text_, offset) : offset;
+  if (start >= text_.size() || text_[start] == '\n') return std::nullopt;
+  auto boundaries = wordBoundaries(text_);
+  for (size_t i = 0; i + 1 < boundaries.size(); ++i) {
+    size_t from = boundaries[i].first, to = boundaries[i + 1].first;
+    if (start >= from && start < to) {
+      if (!boundaries[i + 1].second) return std::nullopt;
+      return std::make_pair(from, to);
+    }
+  }
+  return std::nullopt;
+}
+
+bool TextEditing::contextMenu(Tag tag, uint32_t surface, float x, float y) {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end() || !it->second.view.state) return false;
+  if (std::string(it->second.view.componentName ? it->second.view.componentName : "") != "AndroidTextInput") return false;
+  dragging_ = false;
+  if (tag != focused_) {
+    // Focus selects what the click selects (focus reads contextPress_).
+    contextPress_ = {surface, Point{x, y}};
+    focus(tag);
+    contextPress_.reset();
+    if (focused_ != tag) return false;
+  } else {
+    endComposition();
+    // A Mac keeps the selection when the click is within it, and otherwise selects the word under
+    // the pointer, or puts the caret there off a word.
+    size_t from = std::min(anchor_, caret_), to = std::max(anchor_, caret_);
+    auto at = offsetAt(surface, x, y, false);
+    bool within = from != to && at && *at >= from && *at <= to;
+    if (!within) {
+      if (auto word = wordUnder(surface, x, y)) {
+        selectRange(word->first, word->second);
+      } else if (at) {
+        select(*at, false);
+      }
+    }
+  }
+  auto placement = locate_(tag);
+  if (!placement) return false;
+  auto commands = this->commands();
+  Point local{x - placement->frame.origin.x, y - placement->frame.origin.y};
+  folly::dynamic payload = folly::dynamic::object("target", tag)("x", local.x)("y", local.y)("undo", commands.undo)(
+      "redo", commands.redo)("cut", commands.cut)("copy", commands.copy)("paste", commands.paste)(
+      "selectAll", commands.selectAll);
+  it->second.view.eventEmitter->dispatchEvent("oxyosTextMenu", folly::dynamic(payload));
+  Report::get().deliver("oxyosTextMenu", surface, it->second.view, payload);
+  if (tracing()) std::cerr << "[text] context menu " << tag << " " << folly::toJson(payload) << "\n";
+  return true;
 }
 
 void TextEditing::undo(bool redo) {

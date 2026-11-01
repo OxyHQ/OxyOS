@@ -67,6 +67,13 @@ class PointerInput {
   void scrollsText(std::function<bool(facebook::react::Tag, float dx, float dy)> scrollText) {
     scrollText_ = std::move(scrollText);
   }
+  // A secondary press on a text input, or a Control-click on one (which is a secondary press there,
+  // as on a Mac: its pointer events say button 2, and it is no touch), opens the input's context
+  // menu (TextEditing::contextMenu), after its pointerdown: `open` with the input, the surface and
+  // the surface-local point.
+  void opensTextMenus(std::function<void(facebook::react::Tag, uint32_t surface, float x, float y)> open) {
+    textMenu_ = std::move(open);
+  }
   // The touch's start, moves, end and cancel (0 to 3) also go to gesture handlers
   // (gesture-handler.h), after React Native, as Android's root view passes them on.
   void feedsGestures(std::function<void(int phase, const SurfaceContent& content, float x, float y)> feed) {
@@ -177,6 +184,10 @@ class PointerInput {
   const ViewTree& tree_;
   Surfaces surfaces_;
   std::function<bool(facebook::react::Tag, float, float)> scrollText_;
+  std::function<void(facebook::react::Tag, uint32_t, float, float)> textMenu_;
+  // The primary button is held as a Control-click on a text input: its press and release are the
+  // secondary button's.
+  bool controlClick_ = false;
   std::function<void(int, const SurfaceContent&, float, float)> gestures_;
   std::function<void(uint8_t, size_t, const SurfaceContent&, const std::vector<facebook::react::Point>&)> fingers_;
   float scale_ = 1;

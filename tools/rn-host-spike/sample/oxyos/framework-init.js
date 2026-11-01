@@ -9,14 +9,17 @@
 //   framework-asset-plugin.js) is resolved against the framework's URL, which the host gives
 //   (`OxyOSRuntime.frameworkURL`); every other asset against the application's bundle, as React
 //   Native resolves it.
+// - Every application's root wrapped in its text fields' context menu (text-menu.js,
+//   docs/adr/0037-text-editing.mdx), as AppRegistry wraps a root for its platform.
 import './expo-adapter';
 // expo-file-system's native module, once the adapter installed Expo's globals (ADR 0028), and
 // expo-document-picker's, on the system's file chooser (ADR 0029, decision 8).
 import './expo-file-system';
 import './expo-document-picker';
-import { TurboModuleRegistry } from 'react-native';
+import { AppRegistry, TurboModuleRegistry } from 'react-native';
 import AssetSourceResolver from 'react-native/Libraries/Image/AssetSourceResolver';
 import resolveAssetSource from 'react-native/Libraries/Image/resolveAssetSource';
+import { TextFieldMenus } from './text-menu';
 
 const { frameworkURL } = TurboModuleRegistry.getEnforcing('OxyOSRuntime').getConstants();
 // The directory the framework's assets are in, as React Native gives a bundle loaded from a file to
@@ -28,3 +31,5 @@ resolveAssetSource.addCustomSourceTransformer((resolver) =>
     ? new AssetSourceResolver(undefined, frameworkDirectory, resolver.asset).defaultAsset()
     : null,
 );
+
+AppRegistry.setWrapperComponentProvider(() => TextFieldMenus);

@@ -41,6 +41,7 @@ import ExpoPickerProbe from './ExpoPickerProbe';
 import ReducedMotionProbe from './ReducedMotionProbe';
 import DragProbe from './DragProbe';
 import DropProbe from './DropProbe';
+import TextMenuProbe from './TextMenuProbe';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -50,6 +51,7 @@ AppRegistry.registerComponent('ImeProbe', () => ImeProbe);
 AppRegistry.registerComponent('ClipboardProbe', () => ClipboardProbe);
 AppRegistry.registerComponent('DragProbe', () => DragProbe);
 AppRegistry.registerComponent('DropProbe', () => DropProbe);
+AppRegistry.registerComponent('TextMenuProbe', () => TextMenuProbe);
 AppRegistry.registerComponent('FileSystemProbe', () => FileSystemProbe);
 AppRegistry.registerComponent('PressProbe', () => PressProbe);
 AppRegistry.registerComponent('NotificationProbe', () => NotificationProbe);
