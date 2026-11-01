@@ -4,9 +4,11 @@
 
 pub mod placement;
 pub mod presentation;
+pub mod refusal;
 pub mod scene;
 
 pub use presentation::{Error, Extent, Frame, Presentation};
+pub use refusal::{BufferRefusal, Refusal};
 pub use scene::physical;
 pub use scene::{
     AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BluetoothStatus, CaptureRequest,

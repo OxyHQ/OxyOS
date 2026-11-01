@@ -14,6 +14,7 @@
 
 use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
+use crate::refusal::{BufferRefusal, Refusal};
 use oxyos_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, Format, GesturePhase, Outcome, PanelEdge,
     PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ScrollSource,
@@ -1224,12 +1225,41 @@ impl Scene {
     /// and disconnects the client. Valid but unsatisfiable requests (a denied grab, a stale
     /// frame) are answered with events instead.
     pub fn handle(&mut self, client: ClientId, request: Request) -> Result<(), ErrorCode> {
-        let grants = *self.clients.get(&client).ok_or(ErrorCode::InvalidOrder)?;
-        let key = |id| SurfaceKey { client, id };
+        self.handle_explained(client, request)
+            .map_err(|refusal| refusal.code)
+    }
+
+    /// [`Scene::handle`], saying why a request was refused where the code alone does not (a
+    /// buffer's `InvalidBuffer` has many causes): for the compositor's log, never the client's.
+    pub fn handle_explained(&mut self, client: ClientId, request: Request) -> Result<(), Refusal> {
+        if !self.clients.contains_key(&client) {
+            return Err(ErrorCode::InvalidOrder.into());
+        }
         if let Some(handled) = self.sheet_request(client, &request) {
-            return handled;
+            return handled.map_err(Refusal::from);
         }
         match request {
+            Request::Submit { .. }
+            | Request::AttachBuffer { .. }
+            | Request::AttachDmabuf { .. }
+            | Request::DestroyBuffer { .. }
+            | Request::SetPointerImage { .. } => self.buffer_request(client, request),
+            _ => self.apply_request(client, request).map_err(Refusal::from),
+        }
+    }
+
+    /// Every request but those of buffers ([`Scene::buffer_request`]).
+    fn apply_request(&mut self, client: ClientId, request: Request) -> Result<(), ErrorCode> {
+        let grants = *self.clients.get(&client).ok_or(ErrorCode::InvalidOrder)?;
+        let key = |id| SurfaceKey { client, id };
+        match request {
+            Request::Submit { .. }
+            | Request::AttachBuffer { .. }
+            | Request::AttachDmabuf { .. }
+            | Request::DestroyBuffer { .. }
+            | Request::SetPointerImage { .. } => self
+                .buffer_request(client, request)
+                .map_err(|refusal| refusal.code),
             Request::Hello { .. } => Err(ErrorCode::InvalidOrder),
             Request::Goodbye {} => {
                 self.disconnect(client);
@@ -1532,13 +1562,6 @@ impl Scene {
                 node.pointer_image = None;
                 Ok(())
             }
-            Request::SetPointerImage {
-                surface,
-                buffer,
-                hotspot_x,
-                hotspot_y,
-                scale_120,
-            } => self.set_pointer_image(key(surface), buffer, (hotspot_x, hotspot_y), scale_120),
             Request::SetSizeLimits {
                 surface,
                 min_width,
@@ -1718,88 +1741,12 @@ impl Scene {
                 self.refresh_pointer_focus();
                 Ok(())
             }
-            Request::Submit {
-                surface,
-                sequence,
-                buffer,
-                configure,
-                extent,
-            } => self.submit(
-                key(surface),
-                Frame {
-                    sequence,
-                    buffer,
-                    configure,
-                    extent,
-                },
-            ),
-            Request::AttachBuffer { buffer, .. } => {
-                let layout = request.buffer_layout().expect("attach carries a layout");
-                if buffer == 0 || layout.required_bytes().is_none() {
-                    return Err(ErrorCode::InvalidBuffer);
-                }
-                if self.buffers.contains_key(&(client, buffer)) {
-                    return Err(ErrorCode::InvalidBuffer);
-                }
-                let owned = self.buffers.range((client, 0)..=(client, u64::MAX)).count();
-                if owned >= MAX_BUFFERS_PER_CLIENT {
-                    return Err(ErrorCode::QuotaExceeded);
-                }
-                self.buffers.insert(
-                    (client, buffer),
-                    BufferEntry {
-                        layout,
-                        destroyed: false,
-                    },
-                );
-                Ok(())
-            }
-            // A GPU buffer (ADR 0031): the compositor checked and imported its planes; the scene
-            // knows it as any buffer, by its size and format.
-            Request::AttachDmabuf {
-                buffer,
-                format,
-                extent,
-                ..
-            } => {
-                if buffer == 0 || self.buffers.contains_key(&(client, buffer)) {
-                    return Err(ErrorCode::InvalidBuffer);
-                }
-                let owned = self.buffers.range((client, 0)..=(client, u64::MAX)).count();
-                if owned >= MAX_BUFFERS_PER_CLIENT {
-                    return Err(ErrorCode::QuotaExceeded);
-                }
-                self.buffers.insert(
-                    (client, buffer),
-                    BufferEntry {
-                        layout: BufferLayout {
-                            format,
-                            extent,
-                            stride: extent.width * format.bytes_per_pixel(),
-                            offset: 0,
-                        },
-                        destroyed: false,
-                    },
-                );
-                Ok(())
-            }
             // The planes, timelines and synchronization are the compositor's (ADR 0031): it holds
             // a frame until its acquire point signals and gives the scene the Submit then.
             Request::AttachDmabufPlane { .. }
             | Request::ImportTimeline { .. }
             | Request::DestroyTimeline { .. }
             | Request::SetSync { .. } => Ok(()),
-            Request::DestroyBuffer { buffer } => {
-                match self.buffers.get_mut(&(client, buffer)) {
-                    Some(entry) if !entry.destroyed => entry.destroyed = true,
-                    _ => return Err(ErrorCode::InvalidBuffer),
-                }
-                if !self.buffer_held(client, buffer) {
-                    self.buffers.remove(&(client, buffer));
-                    self.retired.push((client, buffer));
-                }
-                Ok(())
-            }
             Request::Destroy { surface } => {
                 if !self.nodes.contains_key(&key(surface)) {
                     return Err(ErrorCode::UnknownSurface);
@@ -2434,22 +2381,138 @@ impl Scene {
             .map(|entry| entry.layout)
     }
 
-    fn submit(&mut self, key: SurfaceKey, frame: Frame) -> Result<(), ErrorCode> {
-        if !self.nodes.contains_key(&key) {
-            return Err(ErrorCode::UnknownSurface);
+    /// The requests of buffers: attaching, destroying, a frame of one and a pointer image of
+    /// one, each refusal with its reason.
+    fn buffer_request(&mut self, client: ClientId, request: Request) -> Result<(), Refusal> {
+        let key = |id| SurfaceKey { client, id };
+        match request {
+            Request::Submit {
+                surface,
+                sequence,
+                buffer,
+                configure,
+                extent,
+            } => self.submit(
+                key(surface),
+                Frame {
+                    sequence,
+                    buffer,
+                    configure,
+                    extent,
+                },
+            ),
+            Request::AttachBuffer { buffer, .. } => {
+                let layout = request.buffer_layout().expect("attach carries a layout");
+                if buffer == 0 {
+                    return Err(BufferRefusal::ZeroId.into());
+                }
+                if layout.required_bytes().is_none() {
+                    return Err(BufferRefusal::BadLayout { buffer }.into());
+                }
+                self.check_new_buffer(client, buffer)?;
+                self.buffers.insert(
+                    (client, buffer),
+                    BufferEntry {
+                        layout,
+                        destroyed: false,
+                    },
+                );
+                Ok(())
+            }
+            // A GPU buffer (ADR 0031): the compositor checked and imported its planes; the scene
+            // knows it as any buffer, by its size and format.
+            Request::AttachDmabuf {
+                buffer,
+                format,
+                extent,
+                ..
+            } => {
+                if buffer == 0 {
+                    return Err(BufferRefusal::ZeroId.into());
+                }
+                self.check_new_buffer(client, buffer)?;
+                self.buffers.insert(
+                    (client, buffer),
+                    BufferEntry {
+                        layout: BufferLayout {
+                            format,
+                            extent,
+                            stride: extent.width * format.bytes_per_pixel(),
+                            offset: 0,
+                        },
+                        destroyed: false,
+                    },
+                );
+                Ok(())
+            }
+            Request::DestroyBuffer { buffer } => {
+                match self.buffers.get_mut(&(client, buffer)) {
+                    Some(entry) if !entry.destroyed => entry.destroyed = true,
+                    Some(_) => return Err(BufferRefusal::Destroyed { buffer }.into()),
+                    None => return Err(BufferRefusal::Unknown { buffer }.into()),
+                }
+                if !self.buffer_held(client, buffer) {
+                    self.buffers.remove(&(client, buffer));
+                    self.retired.push((client, buffer));
+                }
+                Ok(())
+            }
+            Request::SetPointerImage {
+                surface,
+                buffer,
+                hotspot_x,
+                hotspot_y,
+                scale_120,
+            } => self.set_pointer_image(key(surface), buffer, (hotspot_x, hotspot_y), scale_120),
+            _ => unreachable!("handle_explained gives only buffer requests"),
         }
-        match self.buffers.get(&(key.client, frame.buffer)) {
-            Some(entry) if !entry.destroyed && entry.layout.extent == frame.extent => {}
-            _ => return Err(ErrorCode::InvalidBuffer),
+    }
+
+    /// Whether `buffer` may be a new buffer of the client's: an id it has no buffer by, within
+    /// its quota.
+    fn check_new_buffer(&self, client: ClientId, buffer: u64) -> Result<(), Refusal> {
+        if let Some(entry) = self.buffers.get(&(client, buffer)) {
+            return Err(BufferRefusal::AlreadyAttached {
+                buffer,
+                destroyed: entry.destroyed,
+            }
+            .into());
+        }
+        let owned = self.buffers.range((client, 0)..=(client, u64::MAX)).count();
+        if owned >= MAX_BUFFERS_PER_CLIENT {
+            return Err(ErrorCode::QuotaExceeded.into());
+        }
+        Ok(())
+    }
+
+    fn submit(&mut self, key: SurfaceKey, frame: Frame) -> Result<(), Refusal> {
+        if !self.nodes.contains_key(&key) {
+            return Err(ErrorCode::UnknownSurface.into());
+        }
+        let buffer = frame.buffer;
+        match self.buffers.get(&(key.client, buffer)) {
+            None => return Err(BufferRefusal::Unknown { buffer }.into()),
+            Some(entry) if entry.destroyed => {
+                return Err(BufferRefusal::Destroyed { buffer }.into())
+            }
+            Some(entry) if entry.layout.extent != frame.extent => {
+                return Err(BufferRefusal::ExtentMismatch {
+                    buffer,
+                    attached: entry.layout.extent,
+                    frame: frame.extent,
+                }
+                .into())
+            }
+            Some(_) => {}
         }
         // A buffer whose release is waiting for the in-flight frame is still being read, on
         // whichever surface it was.
         if self
             .deferred
             .iter()
-            .any(|(held, buffer, _)| held.client == key.client && *buffer == frame.buffer)
+            .any(|(held, deferred, _)| held.client == key.client && *deferred == buffer)
         {
-            return Err(ErrorCode::InvalidBuffer);
+            return Err(BufferRefusal::ReleaseDeferred { buffer }.into());
         }
         // A buffer may be attached to only one surface at a time.
         let elsewhere = self.nodes.iter().any(|(other, node)| {
@@ -2461,7 +2524,7 @@ impl Scene {
                     .any(|f| f.buffer == frame.buffer)
         });
         if elsewhere {
-            return Err(ErrorCode::InvalidBuffer);
+            return Err(BufferRefusal::AttachedElsewhere { buffer }.into());
         }
         self.send_window_views(key, frame.sequence);
         self.send_secure_regions(key, frame.sequence);
@@ -2470,14 +2533,14 @@ impl Scene {
         // clipped to the buffer, or the whole surface without any or at a new size. It adds to
         // what the frames not yet presenting changed, shown or discarded.
         let requested = std::mem::take(&mut node.requested);
-        let buffer = Rect::new(0, 0, frame.extent.width, frame.extent.height);
+        let whole = Rect::new(0, 0, frame.extent.width, frame.extent.height);
         let drawn = if requested.is_empty() || node.last_extent != Some(frame.extent) {
             SurfaceDamage::Whole
         } else {
             SurfaceDamage::Rects(
                 requested
                     .iter()
-                    .filter_map(|rect| intersect(rect, &buffer))
+                    .filter_map(|rect| intersect(rect, &whole))
                     .collect(),
             )
         };
@@ -2490,6 +2553,7 @@ impl Scene {
             self.discard(key, frame);
             return Ok(());
         }
+        let configured = node.presentation.configuration().1;
         match node.presentation.submit(frame) {
             Ok(superseded) => {
                 if let Some(old) = superseded {
@@ -2501,8 +2565,15 @@ impl Scene {
                 self.discard(key, frame);
                 Ok(())
             }
-            Err(PresentError::OutOfOrder) => Err(ErrorCode::InvalidOrder),
-            Err(_) => Err(ErrorCode::InvalidBuffer),
+            Err(PresentError::OutOfOrder) => Err(ErrorCode::InvalidOrder.into()),
+            Err(PresentError::InvalidFrame) => Err(BufferRefusal::InvalidFrame.into()),
+            Err(PresentError::WrongExtent) => Err(BufferRefusal::SurfaceExtent {
+                frame: frame.extent,
+                surface: configured,
+            }
+            .into()),
+            Err(PresentError::BufferBusy) => Err(BufferRefusal::StillHeld { buffer }.into()),
+            Err(other) => Err(BufferRefusal::Presentation(other).into()),
         }
     }
 
@@ -3684,13 +3755,14 @@ impl Scene {
         buffer: u64,
         hotspot: (u32, u32),
         scale_120: u32,
-    ) -> Result<(), ErrorCode> {
+    ) -> Result<(), Refusal> {
         if self.nodes.get(&key).is_none_or(|node| node.dismissed) {
-            return Err(ErrorCode::UnknownSurface);
+            return Err(ErrorCode::UnknownSurface.into());
         }
         let layout = match self.buffers.get(&(key.client, buffer)) {
             Some(entry) if !entry.destroyed => entry.layout,
-            _ => return Err(ErrorCode::InvalidBuffer),
+            Some(_) => return Err(BufferRefusal::Destroyed { buffer }.into()),
+            None => return Err(BufferRefusal::Unknown { buffer }.into()),
         };
         let extent = layout.extent;
         if layout.format != Format::Argb8888
@@ -3700,7 +3772,7 @@ impl Scene {
             || hotspot.1 >= extent.height
             || !(SCALE_DENOMINATOR..=4 * SCALE_DENOMINATOR).contains(&scale_120)
         {
-            return Err(ErrorCode::InvalidGeometry);
+            return Err(ErrorCode::InvalidGeometry.into());
         }
         self.pointer_images += 1;
         self.nodes.get_mut(&key).expect("present").pointer_image = Some(self.pointer_images);

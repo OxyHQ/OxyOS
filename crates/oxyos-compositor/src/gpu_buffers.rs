@@ -8,7 +8,7 @@
 //! for, on the CPU or in the compositor's GPU work.
 
 use super::{Compositor, Event};
-use oxyos_compositor_core::{ClientId, SurfaceKey};
+use oxyos_compositor_core::{BufferRefusal, ClientId, Refusal, SurfaceKey};
 use oxyos_dmabuf::{DmaBuf, Mapping, RenderNode, Timeline, MODIFIER_LINEAR};
 use oxyos_protocol::{Clock, ErrorCode, Format, Outcome, Request, Size};
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -377,7 +377,7 @@ impl Compositor {
         client: ClientId,
         request: Request,
         fd: Option<OwnedFd>,
-    ) -> Option<Result<(), ErrorCode>> {
+    ) -> Option<Result<(), Refusal>> {
         let key = |surface| SurfaceKey {
             client,
             id: surface,
@@ -404,7 +404,7 @@ impl Compositor {
             Request::DestroyTimeline { timeline } => Some(
                 match self.gpu_buffers.timelines.remove(&(client, timeline)) {
                     Some(_) => Ok(()),
-                    None => Err(ErrorCode::InvalidMessage),
+                    None => Err(ErrorCode::InvalidMessage.into()),
                 },
             ),
             Request::SetSync {
@@ -425,7 +425,7 @@ impl Compositor {
                         && acquire_timeline == release_timeline
                         && release_point <= acquire_point)
                 {
-                    return Some(Err(ErrorCode::InvalidMessage));
+                    return Some(Err(ErrorCode::InvalidMessage.into()));
                 }
                 self.gpu_buffers.points.insert(
                     key(surface),
@@ -446,7 +446,7 @@ impl Compositor {
                 // Any frame supersedes one still waiting for its acquire point.
                 if let Some(waiting) = self.gpu_buffers.waiting.remove(&key(surface)) {
                     if waiting.buffer == buffer {
-                        return Some(Err(ErrorCode::InvalidBuffer));
+                        return Some(Err(BufferRefusal::AcquireWaiting { buffer }.into()));
                     }
                     self.supersede(key(surface), waiting);
                 }
@@ -457,7 +457,7 @@ impl Compositor {
                     .iter()
                     .any(|(held, waiting)| held.client == client && waiting.buffer == buffer)
                 {
-                    return Some(Err(ErrorCode::InvalidBuffer));
+                    return Some(Err(BufferRefusal::AcquireWaiting { buffer }.into()));
                 }
                 if self.gpu_buffers.failed.contains(&(client, buffer)) {
                     // A buffer the compositor could not import is never shown (decision 3).
@@ -481,7 +481,7 @@ impl Compositor {
                     // Shared memory: the scene's; points name GPU buffers only.
                     return points
                         .filter(|points| points.acquire.0 != 0 || points.release.0 != 0)
-                        .map(|_| Err(ErrorCode::InvalidBuffer));
+                        .map(|_| Err(BufferRefusal::SyncWithoutGpuBuffer { buffer }.into()));
                 }
                 let points = points.unwrap_or_default();
                 if points.release.0 != 0 {
@@ -494,14 +494,14 @@ impl Compositor {
                     let Some(timeline) =
                         self.gpu_buffers.timelines.get(&(client, points.acquire.0))
                     else {
-                        return Some(Err(ErrorCode::InvalidMessage));
+                        return Some(Err(ErrorCode::InvalidMessage.into()));
                     };
                     let signalled = timeline
                         .signalled()
                         .is_ok_and(|latest| latest >= points.acquire.1);
                     if !signalled {
                         let Ok(eventfd) = timeline.eventfd(points.acquire.1, false) else {
-                            return Some(Err(ErrorCode::InvalidMessage));
+                            return Some(Err(ErrorCode::InvalidMessage.into()));
                         };
                         self.gpu_buffers.waiting.insert(
                             key(surface),
@@ -559,17 +559,23 @@ impl Compositor {
         offset: u32,
         stride: u32,
         fd: OwnedFd,
-    ) -> Result<(), ErrorCode> {
+    ) -> Result<(), Refusal> {
         if self.gpu_buffers.offer.is_none() {
-            return Err(ErrorCode::InvalidBuffer);
+            return Err(BufferRefusal::NoGpuBuffers.into());
         }
-        let dma_buf = DmaBuf::from_fd(fd).map_err(|_| ErrorCode::InvalidBuffer)?;
-        if buffer == 0
-            || usize::from(plane) >= MAX_PLANES
-            || self.gpu_buffers.has(client, buffer)
-            || self.scene_has_buffer(client, buffer)
-        {
-            return Err(ErrorCode::InvalidBuffer);
+        let dma_buf = DmaBuf::from_fd(fd).map_err(|_| BufferRefusal::NotDmaBuf { buffer })?;
+        if buffer == 0 {
+            return Err(BufferRefusal::ZeroId.into());
+        }
+        if usize::from(plane) >= MAX_PLANES {
+            return Err(BufferRefusal::PlaneIndex { buffer, plane }.into());
+        }
+        if self.gpu_buffers.has(client, buffer) || self.scene_has_buffer(client, buffer) {
+            return Err(BufferRefusal::AlreadyAttached {
+                buffer,
+                destroyed: false,
+            }
+            .into());
         }
         let pending = self
             .gpu_buffers
@@ -582,8 +588,11 @@ impl Compositor {
             .planes
             .entry((client, buffer))
             .or_insert_with(|| (0..MAX_PLANES).map(|_| None).collect());
-        if planes[usize::from(plane)].is_some() || pending > MAX_GPU_BUFFERS {
-            return Err(ErrorCode::InvalidBuffer);
+        if planes[usize::from(plane)].is_some() {
+            return Err(BufferRefusal::PlaneAttachedTwice { buffer, plane }.into());
+        }
+        if pending > MAX_GPU_BUFFERS {
+            return Err(BufferRefusal::TooManyPendingPlanes.into());
         }
         planes[usize::from(plane)] = Some(Plane {
             buffer: dma_buf,
@@ -603,43 +612,35 @@ impl Compositor {
         modifier: u64,
         extent: Size,
         count: u8,
-    ) -> Result<(), ErrorCode> {
+    ) -> Result<(), Refusal> {
         let Some(offer) = &self.gpu_buffers.offer else {
-            return Err(ErrorCode::InvalidBuffer);
+            return Err(BufferRefusal::NoGpuBuffers.into());
         };
         let planes = self
             .gpu_buffers
             .planes
             .remove(&(client, buffer))
-            .ok_or(ErrorCode::InvalidBuffer)?;
-        // In the table sent (decision 2), with the modifier's planes, each attached once.
-        let (_, _, wanted) = *offer
-            .formats
+            .ok_or(BufferRefusal::NoPlanes { buffer })?;
+        let attached: Vec<Option<(u64, u32, u32)>> = planes
             .iter()
-            .find(|&&(f, m, _)| f == format && m == modifier)
-            .ok_or(ErrorCode::InvalidBuffer)?;
-        let count = usize::from(count);
-        if count != wanted as usize
-            || planes[..count].iter().any(Option::is_none)
-            || planes[count..].iter().any(Option::is_some)
-        {
-            return Err(ErrorCode::InvalidBuffer);
-        }
-        let planes: Vec<Plane> = planes.into_iter().flatten().collect();
-        let row = u64::from(extent.width) * u64::from(format.bytes_per_pixel());
-        if modifier == MODIFIER_LINEAR
-            && !planes.iter().all(|plane| {
-                oxyos_dmabuf::linear_plane_fits(
-                    plane.buffer.size(),
-                    plane.offset,
-                    plane.stride,
-                    row,
-                    extent.height,
-                )
+            .map(|plane| {
+                plane
+                    .as_ref()
+                    .map(|plane| (plane.buffer.size(), plane.offset, plane.stride))
             })
-        {
-            return Err(ErrorCode::InvalidBuffer);
-        }
+            .collect();
+        check_planes(
+            &offer.formats,
+            Layout {
+                buffer,
+                format,
+                modifier,
+                extent,
+                count,
+            },
+            &attached,
+        )?;
+        let planes: Vec<Plane> = planes.into_iter().flatten().collect();
         // Quotas: buffers and their memory (each descriptor counted once per buffer).
         let mine = || {
             self.gpu_buffers
@@ -655,7 +656,7 @@ impl Compositor {
         if mine().count() >= MAX_GPU_BUFFERS
             || mine().map(|(_, buffer)| buffer.bytes).sum::<u64>() + bytes > MAX_GPU_BYTES
         {
-            return Err(ErrorCode::QuotaExceeded);
+            return Err(ErrorCode::QuotaExceeded.into());
         }
         // Imported, mapped, or both (`--gpu`'s check composes on the CPU too).
         let image = match &mut self.gpu {
@@ -698,11 +699,11 @@ impl Compositor {
         } else {
             None
         };
-        if let Err(code) = self.scene.handle(client, request) {
+        if let Err(refusal) = self.scene.handle_explained(client, request) {
             if let (Some(image), Some(gpu)) = (image, &mut self.gpu) {
                 gpu.compositor.forget_dma_buf(image);
             }
-            return Err(code);
+            return Err(refusal);
         }
         self.gpu_buffers.buffers.insert(
             (client, buffer),
@@ -725,7 +726,7 @@ impl Compositor {
     }
 
     /// A well-formed buffer that could not be read: the client hears `BufferFailed`.
-    fn failed_buffer(&mut self, client: ClientId, buffer: u64) -> Result<(), ErrorCode> {
+    fn failed_buffer(&mut self, client: ClientId, buffer: u64) -> Result<(), Refusal> {
         self.gpu_buffers.failed.insert((client, buffer));
         self.send_to(client, Event::BufferFailed { buffer });
         Ok(())
@@ -736,9 +737,9 @@ impl Compositor {
         client: ClientId,
         timeline: u32,
         fd: OwnedFd,
-    ) -> Result<(), ErrorCode> {
+    ) -> Result<(), Refusal> {
         let Some(offer) = &self.gpu_buffers.offer else {
-            return Err(ErrorCode::InvalidMessage);
+            return Err(ErrorCode::InvalidMessage.into());
         };
         let mine = self
             .gpu_buffers
@@ -747,10 +748,10 @@ impl Compositor {
             .filter(|(owner, _)| *owner == client)
             .count();
         if timeline == 0 || self.gpu_buffers.timelines.contains_key(&(client, timeline)) {
-            return Err(ErrorCode::InvalidMessage);
+            return Err(ErrorCode::InvalidMessage.into());
         }
         if mine >= MAX_TIMELINES {
-            return Err(ErrorCode::QuotaExceeded);
+            return Err(ErrorCode::QuotaExceeded.into());
         }
         // Only a syncobj imports.
         let imported =
@@ -964,5 +965,226 @@ impl Compositor {
             || !self.gpu_buffers.orphans.is_empty()
             || !self.gpu_buffers.waiting.is_empty()
             || !self.gpu_buffers.after_acquire.is_empty()
+    }
+}
+
+/// What an `AttachDmabuf` says of its buffer.
+#[derive(Clone, Copy, Debug)]
+struct Layout {
+    buffer: u64,
+    format: Format,
+    modifier: u64,
+    extent: Size,
+    count: u8,
+}
+
+/// Whether the planes attached (each its DMA-BUF's size, offset and stride, by index) make the
+/// buffer `layout` says: its format and modifier offered (decision 2), with as many planes as
+/// they have, each attached once, and each linear plane's rows inside its DMA-BUF (decision 10).
+fn check_planes(
+    offered: &[(Format, u64, u32)],
+    layout: Layout,
+    attached: &[Option<(u64, u32, u32)>],
+) -> Result<(), BufferRefusal> {
+    let Layout {
+        buffer,
+        format,
+        modifier,
+        extent,
+        count,
+    } = layout;
+    let (_, _, wanted) = *offered
+        .iter()
+        .find(|&&(f, m, _)| f == format && m == modifier)
+        .ok_or(BufferRefusal::FormatNotOffered {
+            buffer,
+            format,
+            modifier,
+        })?;
+    if u32::from(count) != wanted || usize::from(count) > attached.len() {
+        return Err(BufferRefusal::PlaneCount {
+            buffer,
+            named: count,
+            wanted,
+        });
+    }
+    let index = |plane: usize| u8::try_from(plane).unwrap_or(u8::MAX);
+    if let Some(plane) = attached[..usize::from(count)]
+        .iter()
+        .position(Option::is_none)
+    {
+        return Err(BufferRefusal::MissingPlane {
+            buffer,
+            plane: index(plane),
+        });
+    }
+    if let Some(plane) = attached[usize::from(count)..]
+        .iter()
+        .position(Option::is_some)
+    {
+        return Err(BufferRefusal::ExtraPlane {
+            buffer,
+            plane: index(usize::from(count) + plane),
+        });
+    }
+    if modifier == MODIFIER_LINEAR {
+        let row = u64::from(extent.width) * u64::from(format.bytes_per_pixel());
+        let outside = attached
+            .iter()
+            .flatten()
+            .position(|&(size, offset, stride)| {
+                !oxyos_dmabuf::linear_plane_fits(size, offset, stride, row, extent.height)
+            });
+        if let Some(plane) = outside {
+            return Err(BufferRefusal::PlaneOutside {
+                buffer,
+                plane: index(plane),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LINEAR: (Format, u64, u32) = (Format::Argb8888, MODIFIER_LINEAR, 1);
+    /// A tiled modifier of two planes (Intel's Y-tiled with compression's).
+    const TILED: (Format, u64, u32) = (Format::Argb8888, 0x0100_0000_0000_0006, 2);
+
+    fn layout(modifier: u64, count: u8) -> Layout {
+        Layout {
+            buffer: 9,
+            format: Format::Argb8888,
+            modifier,
+            extent: Size::new(64, 48),
+            count,
+        }
+    }
+
+    /// 64×48 ARGB rows 256 bytes apart, in a DMA-BUF of exactly that.
+    const PLANE: (u64, u32, u32) = (256 * 48, 0, 256);
+
+    fn planes(attached: &[Option<(u64, u32, u32)>]) -> Vec<Option<(u64, u32, u32)>> {
+        let mut all = vec![None; MAX_PLANES];
+        all[..attached.len()].copy_from_slice(attached);
+        all
+    }
+
+    #[test]
+    fn planes_making_the_buffer_they_name_are_accepted() {
+        let offered = [LINEAR, TILED];
+        assert_eq!(
+            check_planes(
+                &offered,
+                layout(MODIFIER_LINEAR, 1),
+                &planes(&[Some(PLANE)])
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            check_planes(
+                &offered,
+                layout(TILED.1, 2),
+                &planes(&[Some(PLANE), Some((4096, 0, 64))])
+            ),
+            Ok(()),
+            "a tiled plane's layout is the driver's to check"
+        );
+    }
+
+    #[test]
+    fn without_an_offer_a_plane_and_a_buffer_are_refused_as_such() {
+        let mut compositor = Compositor::new(oxyos_compositor_core::Scene::new(), 0);
+        let memfd = rustix::fs::memfd_create("plane", rustix::fs::MemfdFlags::CLOEXEC).unwrap();
+        let plane = Request::AttachDmabufPlane {
+            buffer: 1,
+            plane: 0,
+            offset: 0,
+            stride: 256,
+        };
+        let refusal = |reason| Some(Err(Refusal::buffer(reason)));
+        assert_eq!(
+            compositor.receive_gpu(1, plane, Some(memfd)),
+            refusal(BufferRefusal::NoGpuBuffers)
+        );
+        let buffer = Request::AttachDmabuf {
+            buffer: 1,
+            format: Format::Argb8888,
+            modifier: MODIFIER_LINEAR,
+            extent: Size::new(64, 48),
+            planes: 1,
+        };
+        assert_eq!(
+            compositor.receive_gpu(1, buffer, None),
+            refusal(BufferRefusal::NoGpuBuffers)
+        );
+    }
+
+    #[test]
+    fn each_refused_layout_says_why() {
+        let offered = [LINEAR, TILED];
+        assert_eq!(
+            check_planes(
+                &offered,
+                layout(0x0100_0000_0000_0002, 1),
+                &planes(&[Some(PLANE)])
+            ),
+            Err(BufferRefusal::FormatNotOffered {
+                buffer: 9,
+                format: Format::Argb8888,
+                modifier: 0x0100_0000_0000_0002,
+            })
+        );
+        assert_eq!(
+            check_planes(
+                &offered,
+                layout(MODIFIER_LINEAR, 2),
+                &planes(&[Some(PLANE)])
+            ),
+            Err(BufferRefusal::PlaneCount {
+                buffer: 9,
+                named: 2,
+                wanted: 1,
+            })
+        );
+        assert_eq!(
+            check_planes(&offered, layout(TILED.1, 2), &planes(&[None, Some(PLANE)])),
+            Err(BufferRefusal::MissingPlane {
+                buffer: 9,
+                plane: 0
+            })
+        );
+        assert_eq!(
+            check_planes(
+                &offered,
+                layout(MODIFIER_LINEAR, 1),
+                &planes(&[Some(PLANE), None, Some(PLANE)])
+            ),
+            Err(BufferRefusal::ExtraPlane {
+                buffer: 9,
+                plane: 2
+            })
+        );
+        for outside in [
+            (256 * 47, 0, 256),
+            (256 * 48, 4, 256),
+            (256 * 48, 0, 255),
+            (256 * 48, 0, 128),
+        ] {
+            assert_eq!(
+                check_planes(
+                    &offered,
+                    layout(MODIFIER_LINEAR, 1),
+                    &planes(&[Some(outside)])
+                ),
+                Err(BufferRefusal::PlaneOutside {
+                    buffer: 9,
+                    plane: 0
+                }),
+                "{outside:?}"
+            );
+        }
     }
 }

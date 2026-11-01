@@ -345,6 +345,19 @@ pub enum ImportError {
     Io,
 }
 
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::InvalidLayout => "its layout describes no buffer",
+            Self::NotReadable => "it is open write-only",
+            Self::NotRegularFile => "it is not a regular file",
+            Self::NotSealed => "it is not sealed against shrinking",
+            Self::TooSmall => "it is smaller than its layout",
+            Self::Io => "it could not be examined",
+        })
+    }
+}
+
 /// A validated client buffer in sealed shared memory.
 ///
 /// Like any shared-memory protocol, the client can still write the pages after submitting; it
