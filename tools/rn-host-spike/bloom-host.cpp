@@ -302,8 +302,15 @@ void crashed(int signal, siginfo_t* info, void* context) {
   int count = backtrace(frames, 64);
   char thread[17] = {};
   prctl(PR_GET_NAME, thread, 0, 0, 0);
-  dprintf(2, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
-          info->si_addr, static_cast<int>(gettid()), thread);
+  // A fault the kernel raised has an address (si_code > 0); a signal sent by a process, abort()'s
+  // among them, has its sender in the same storage instead.
+  if (info->si_code > 0 && signal != SIGABRT) {
+    dprintf(2, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
+            info->si_addr, static_cast<int>(gettid()), thread);
+  } else {
+    dprintf(2, "[host] fatal signal %d (code %d) sent by process %d, on thread %d '%s'\n", signal, info->si_code,
+            static_cast<int>(info->si_pid), static_cast<int>(gettid()), thread);
+  }
   const auto& machine = static_cast<const ucontext_t*>(context)->uc_mcontext;
 #if defined(__x86_64__)
   const auto* r = machine.gregs;
