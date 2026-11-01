@@ -54,12 +54,12 @@
       }
     },
     {
-      "name": "An accent colour: the session tells every application, and Bloom's palette follows it at once",
+      "name": "An accent colour, by its name (Blue): the session tells every application, and Bloom's palette follows it at once",
       "do": [
         "a11y-action",
         [
           "activate",
-          "blue"
+          "Blue"
         ]
       ],
       "allow_unchanged": true,
