@@ -1,0 +1,332 @@
+{
+  "about": "Settings' Wi-Fi and Network pages as a Mac's (docs/adr/0038-networks.mdx), Settings granted `settings` and `network` as the image's policy grants it, over a NetworkManager played on the run's own bus (oxyos-fake-networkmanager): LukeSkyRouter joined (WPA2, saved), Café Libre open, Vecinos WPA2 (hunter22!), eduroam 802.1X, an Ethernet port with no cable. Wi-Fi lists the network joined, the known and the other networks (eduroam not supported) and scans; Details says the address, mask, router, DNS, IPv6 and hardware address the daemon has; choosing Vecinos asks its password in the shell's system sheet, never in Settings, and joins, the daemon alone keeping it (it is in no file and no report of Settings'); a known network is forgotten from its menu; Network says Ethernet's cable unplugged, then connected with its speed and address once one is plugged, and that VPNs are not available yet.",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "network"
+    ]
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "network": {
+    "access_points": [
+      {
+        "ssid": "LukeSkyRouter",
+        "strength": 73,
+        "security": "wpa",
+        "password": "correct horse"
+      },
+      {
+        "ssid": "Café Libre",
+        "strength": 55
+      },
+      {
+        "ssid": "eduroam",
+        "strength": 60,
+        "security": "enterprise"
+      },
+      {
+        "ssid": "Vecinos",
+        "strength": 30,
+        "security": "wpa",
+        "password": "hunter22!"
+      }
+    ],
+    "connections": [
+      {
+        "ssid": "LukeSkyRouter",
+        "password": "correct horse"
+      }
+    ],
+    "active": "LukeSkyRouter",
+    "ethernet": "unplugged"
+  },
+  "secrets": [
+    "hunter22!"
+  ],
+  "steps": [
+    {
+      "name": "Settings with the network grant: Wi-Fi and Network in its sidebar, once the session told it the network",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Wi-Fi"
+            },
+            {
+              "role": "Button",
+              "name": "Network"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Wi-Fi: the switch, the network joined, the known networks and the others; it asks the daemon to scan",
+      "do": [
+        "press_named",
+        "Wi-Fi"
+      ],
+      "expect": {
+        "texts": [
+          "LukeSkyRouter",
+          "Connected",
+          "Known Networks",
+          "Other Networks",
+          "Not supported"
+        ],
+        "network": {
+          "scans": 1
+        }
+      }
+    },
+    {
+      "name": "Details of the network joined: its IP address, subnet mask, router, DNS, IPv6 and hardware address, as the daemon has them",
+      "do": [
+        "press_named",
+        "Details of “LukeSkyRouter”"
+      ],
+      "expect": {
+        "texts": [
+          "192.168.8.133",
+          "255.255.255.0",
+          "192.168.8.1",
+          "2001:db8::133",
+          "F4:A4:75:12:34:56"
+        ]
+      }
+    },
+    {
+      "name": "Closed",
+      "do": [
+        "press_named",
+        "OK"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A protected network chosen: the shell's system sheet asks its password; Settings asks nothing",
+      "do": [
+        "press_named",
+        "Vecinos, Secured, Signal 1 of 3"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The sheet's secure field",
+      "do": [
+        "wait_named",
+        [
+          "Contraseña",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "TextInput",
+              "name": "Contraseña"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The password typed into the shell's sheet",
+      "do": [
+        "type",
+        "hunter22!"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Submitted",
+      "do": [
+        "key",
+        28
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Joined: Settings shows it joined; the daemon alone keeps the password",
+      "do": [
+        "wait_named",
+        [
+          "Vecinos, Connected, Secured, Signal 1 of 3",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "active": "Vecinos",
+          "connections": [
+            {
+              "ssid": "LukeSkyRouter"
+            },
+            {
+              "ssid": "Vecinos",
+              "psk": "hunter22!",
+              "key_mgmt": "wpa-psk"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A known network's menu",
+      "do": [
+        "press_named",
+        "More for “LukeSkyRouter”"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Forget This Network…",
+      "do": [
+        "press_named",
+        "Forget This Network…"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Confirmed: forgotten, the daemon no longer has it",
+      "do": [
+        "press_named",
+        "Forget"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Forgotten",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "connections": [
+            {
+              "ssid": "Vecinos"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Network: Ethernet with no cable, and VPN said not available yet",
+      "do": [
+        "press_named",
+        "Network"
+      ],
+      "expect": {
+        "texts": [
+          "Ethernet",
+          "Cable unplugged",
+          "OxyOS can't connect to VPNs yet."
+        ]
+      }
+    },
+    {
+      "name": "A cable plugged in: Ethernet connected, its speed and address",
+      "do": [
+        "network",
+        {
+          "ethernet": "plugged"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Connected",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Connected",
+          "1000 Mb/s",
+          "10.0.0.20",
+          "10.0.0.1"
+        ],
+        "network": {
+          "ethernet": "connected"
+        }
+      }
+    },
+    {
+      "name": "Unplugged",
+      "do": [
+        "network",
+        {
+          "ethernet": "unplugged"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Cable unplugged again",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Cable unplugged"
+        ],
+        "absent": [
+          "10.0.0.20"
+        ],
+        "network": {
+          "ethernet": "unplugged"
+        }
+      }
+    }
+  ]
+}

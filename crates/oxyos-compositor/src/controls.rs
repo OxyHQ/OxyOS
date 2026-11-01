@@ -123,6 +123,12 @@ impl Controls {
             .saturating_duration_since(now)
     }
 
+    /// The battery, the network and Bluetooth looked at now: the network's daemon said it changed
+    /// (docs/adr/0038-networks.mdx), so the top bar follows a cable or a network at once.
+    pub fn refresh_status(&mut self) {
+        self.worker.send(Command::ReadStatus);
+    }
+
     /// One turn: the keys and requests the scene took, the system looked at when it is time,
     /// and the worker's answers told to the scene.
     pub fn serve(&mut self, scene: &mut Scene, now: Instant) {

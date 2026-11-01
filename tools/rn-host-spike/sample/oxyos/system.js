@@ -12,6 +12,14 @@ const native = TurboModuleRegistry.get('OxyOSSystem');
 const waiting = new Map();
 const stateListeners = new Set();
 let lastState = null;
+/** The network as the session last told it (docs/adr/0038-networks.mdx), and who follows it. */
+const networkListeners = new Set();
+let lastNetwork = null;
+
+function toldNetwork(state) {
+  lastNetwork = state;
+  for (const listener of networkListeners) listener(state);
+}
 
 function told(state) {
   lastState = state;
@@ -23,6 +31,7 @@ if (native) {
     // The account's update state, unasked, as it changes.
     if (serial === 0) {
       if (answer && answer.updateState) told(answer.updateState);
+      if (answer && answer.network) toldNetwork(answer.network);
       return;
     }
     const asked = waiting.get(serial);
@@ -33,6 +42,7 @@ if (native) {
     }
     waiting.delete(serial);
     if (answer && answer.updateState) told(answer.updateState);
+    if (answer && answer.network) toldNetwork(answer.network);
     asked.resolve(answer);
   });
 }
@@ -79,6 +89,37 @@ export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
 };
+
+/**
+ * Wi-Fi and networks (docs/adr/0038-networks.mdx): the shell (its `shell` grant) and Settings (the
+ * `network` grant) ask the session, which alone speaks to NetworkManager. The state is told as it
+ * changes; a join is answered once it is done (`{joined}` or `{failed: {reason}}`), a password
+ * asked in the shell's system sheet on the way. Nothing here ever holds a password but the
+ * shell's own answer to that sheet.
+ */
+export const network = {
+  state: () => ask({ networks: {} }),
+  scan: () => ask({ scan: {} }),
+  join: (ssid) => ask({ join: { ssid } }),
+  forget: (id) => ask({ forget: { id } }),
+  setWifi: (enabled) => ask({ wifi: { enabled } }),
+  current: () => lastNetwork,
+  subscribe(listener) {
+    networkListeners.add(listener);
+    return () => networkListeners.delete(listener);
+  },
+};
+
+/** The network as it changes, for a view: asked once, then followed. */
+export function useNetworkState() {
+  const [state, setState] = React.useState(lastNetwork);
+  React.useEffect(() => {
+    const unsubscribe = network.subscribe(setState);
+    network.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
 
 /** The update state as it changes, for a page: asked once, then followed. */
 export function useUpdateState() {
@@ -135,5 +176,12 @@ export function useSystemSheets() {
     native?.answerSheet(sheet, accepted);
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer };
+  // A Wi-Fi password sheet's answer (docs/adr/0038-networks.mdx): the password the person typed,
+  // to the session alone, citing the press or key that submitted it. The session takes it only
+  // from the shell, for a password sheet it shows, and hands it to the network daemon.
+  const answerPassword = React.useCallback((sheet, password) => {
+    native?.request(JSON.stringify({ password: { sheet, password } }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword };
 }

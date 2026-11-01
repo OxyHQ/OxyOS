@@ -19,6 +19,8 @@ oxyos-seat = { path = "../../crates/oxyos-seat" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
+# A played NetworkManager's control interface (`--network-bus`, docs/adr/0038-networks.mdx).
+zbus = "5"
 # The run's home, which a file chooser's answer is checked against (ADR 0029, decision 8).
 oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.

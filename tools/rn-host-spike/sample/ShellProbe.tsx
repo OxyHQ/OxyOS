@@ -9,7 +9,7 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
-import { useSystemSheets } from './oxyos/system';
+import { network, useNetworkState, useSystemSheets } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
@@ -367,7 +367,9 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer } = useSystemSheets();
+  const { sheets, answer, answerPassword } = useSystemSheets();
+  // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
+  const networks = useNetworkState();
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -554,8 +556,19 @@ function SessionShell() {
       setWifi: shell.setWifiEnabled,
       setDark: shell.setAppearance,
       refresh: shell.refreshControls,
+      // Wi-Fi's networks (ADR 0038): the session scans and joins, asking a password or saying what
+      // failed in its own sheets. Settings has no page of its own to open at yet, so Wi-Fi
+      // Settings opens Settings as the Oxy menu does.
+      networks,
+      scanNetworks: () => {
+        network.scan();
+      },
+      joinNetwork: (ssid) => {
+        network.join(ssid);
+      },
+      openWifiSettings: () => act.menuCommand('system.settings'),
     };
-  }, [told, bezel]);
+  }, [told, bezel, networks, act]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;
@@ -600,12 +613,15 @@ function SessionShell() {
     if (!first || !firstText) return undefined;
     const names = Object.fromEntries(registry.map((app) => [app.id, app.name]));
     return {
+      id: first.sheet,
       text: firstText,
       language: 'es' as const,
       names,
       answer: (accepted: boolean) => answer(first.sheet, accepted),
+      // A Wi-Fi password sheet's answer (ADR 0038): to the session alone.
+      answerPassword: (password: string) => answerPassword(first.sheet, password),
     };
-  }, [first, registry, answer]);
+  }, [first, registry, answer, answerPassword]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell

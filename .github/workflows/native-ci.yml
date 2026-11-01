@@ -36,7 +36,8 @@ jobs:
           components: rustfmt, clippy
       # oxyos-input links libinput, libudev and xkbcommon; its tests read the keymaps (xkb-data) and
       # the compose tables the image ships.
-      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers
+      # oxyos-networks' tests run a played NetworkManager on a bus of their own (dbus-daemon).
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon
       - run: cargo fmt --all --check
       - run: cargo test --workspace --locked
         env:

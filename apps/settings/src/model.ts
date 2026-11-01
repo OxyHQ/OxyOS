@@ -1,3 +1,4 @@
+import type { NetworkActions, NetworkState } from "./network";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
 import type { ImageSourcePropType } from "react-native";
 
@@ -88,6 +89,9 @@ export type SettingsSnapshot = {
   updates?: UpdatesSnapshot;
   /** Privacy (decision 8): the installed applications' capabilities; none without `privacy`. */
   privacy?: PrivacyApplication[] | null;
+  /** Wi-Fi and networks (docs/adr/0038-networks.mdx), as the session tells them: none without the
+      platform's `network` grant; null when granted but not told. */
+  network?: NetworkState | null;
 };
 
 /** The keys a change names, as the session's preferences file does. */
@@ -122,6 +126,7 @@ export type SettingsActions = {
   confirmDisplays: (keep: boolean) => void;
   updates?: UpdatesActions;
   privacy?: PrivacyActions;
+  network?: NetworkActions;
 };
 
 /** The resolutions a display offers, the largest first, each once, with whether it is its own. */

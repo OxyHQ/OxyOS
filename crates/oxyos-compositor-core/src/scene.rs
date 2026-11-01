@@ -80,6 +80,18 @@ pub struct Grants {
     /// Settings (ADR 0030, decision 8): see and change the account's decisions on its
     /// applications' capabilities.
     pub privacy: bool,
+    /// Settings (ADR 0038): sees the networks and joins, forgets and turns Wi-Fi on and off
+    /// (`SystemRequest`), as the shell does by its own grant.
+    pub network: bool,
+}
+
+impl Grants {
+    /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
+    /// the store, updates, privacy and networks, and the shell (Control Center's Wi-Fi, the
+    /// password sheet's answer). What each may ask is the program's to decide.
+    pub fn asks_system(&self) -> bool {
+        self.store || self.updates || self.privacy || self.network || self.shell
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1064,6 +1076,7 @@ impl Scene {
             store: granted.store && !held.store,
             updates: granted.updates && !held.updates,
             privacy: granted.privacy && !held.privacy,
+            network: granted.network && !held.network,
         };
         self.check_grants(new)?;
         let grants = self.clients.get_mut(&client).expect("connected");
@@ -1077,6 +1090,7 @@ impl Scene {
         grants.store |= new.store;
         grants.updates |= new.updates;
         grants.privacy |= new.privacy;
+        grants.network |= new.network;
         if new.accessibility {
             self.replay_accessibility(client);
         }
@@ -1186,7 +1200,8 @@ impl Scene {
         grants.store &= !revoked.store;
         grants.updates &= !revoked.updates;
         grants.privacy &= !revoked.privacy;
-        if !(grants.store || grants.updates || grants.privacy) {
+        grants.network &= !revoked.network;
+        if !grants.asks_system() {
             self.forget_system_requests(client);
         }
         if revoked.shell || revoked.shortcuts {

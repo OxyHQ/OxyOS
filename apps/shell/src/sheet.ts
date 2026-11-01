@@ -8,7 +8,14 @@
  *
  * When the person asked for a change and the install service is not running, the session sends a
  * sheet that says so (`unavailable`): one button, nothing to confirm.
+ *
+ * Joining a Wi-Fi network (docs/adr/0038-networks.mdx, decisions 4 and 5), the session asks for its
+ * password (`wifi-password`, again with `incorrect` after a wrong one), says it could not join
+ * (`wifi-failed`) or that OxyOS cannot join such a network (`wifi-unsupported`). The password is
+ * typed into the sheet's own secure field and goes to the session alone; nothing here keeps it.
  */
+
+import type { WifiSecurity } from "./network";
 
 export type Language = "es" | "en";
 
@@ -20,7 +27,12 @@ export type SheetText =
   | { kind: "permission"; id: string; capability: string; name?: string }
   | { kind: "unavailable"; action: "install" | "uninstall" | "update" }
   // The dock's Trash emptied (docs/adr/0034-the-dock.mdx): how many items go for good.
-  | { kind: "empty-trash"; items: number };
+  | { kind: "empty-trash"; items: number }
+  // Wi-Fi (docs/adr/0038-networks.mdx): a network's password, a join that failed, a network
+  // OxyOS cannot join.
+  | { kind: "wifi-password"; ssid: string; security: WifiSecurity; incorrect: boolean }
+  | { kind: "wifi-failed"; ssid: string }
+  | { kind: "wifi-unsupported"; ssid: string; security: WifiSecurity };
 
 export type Plan = {
   id: string;
@@ -55,6 +67,11 @@ export type SheetView = {
   refuse: string;
   /** A removal deletes the account's data: its button says so. */
   destructive: boolean;
+  /** A secure field for a password, whose text is the answer (`accept` enabled once it is a valid
+      Wi-Fi password, Return submitting it); its label, and its reveal button's names. */
+  password?: { label: string; show: string; hide: string };
+  /** What went wrong the last time, said prominently (a password that was not correct). */
+  error?: string;
 };
 
 const words = {
@@ -87,6 +104,17 @@ const words = {
     emptyTrashBody: (items: number) =>
       `${items === 1 ? "Se eliminará 1 ítem" : `Se eliminarán ${items} ítems`}. No puedes deshacer esta acción.`,
     emptyTrashButton: "Vaciar",
+    wifiPassword: (ssid: string, kind: string) => `La red Wi-Fi “${ssid}” requiere una contraseña ${kind}.`,
+    wifiIncorrect: "La contraseña no es correcta. Inténtalo de nuevo.",
+    wifiJoin: "Conectarse",
+    wifiField: "Contraseña",
+    showPassword: "Mostrar contraseña",
+    hidePassword: "Ocultar contraseña",
+    wifiFailed: (ssid: string) => `No se ha podido conectar a la red “${ssid}”.`,
+    wifiUnsupported: (ssid: string) => `OxyOS todavía no puede conectarse a “${ssid}”.`,
+    wifiEnterprise: "Las redes empresariales (802.1X) aún no son compatibles.",
+    wifiWep: "Las redes WEP no son compatibles: no son seguras.",
+    wifiOtherUnsupported: "Esta red aún no es compatible.",
   },
   en: {
     install: (name: string) => `Install ${name}?`,
@@ -117,6 +145,17 @@ const words = {
     emptyTrashBody: (items: number) =>
       `${items === 1 ? "1 item is erased" : `${items} items are erased`}. You can't undo this action.`,
     emptyTrashButton: "Empty",
+    wifiPassword: (ssid: string, kind: string) => `The Wi-Fi network “${ssid}” requires a ${kind} password.`,
+    wifiIncorrect: "The password is incorrect. Try again.",
+    wifiJoin: "Join",
+    wifiField: "Password",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+    wifiFailed: (ssid: string) => `Couldn't join the network “${ssid}”.`,
+    wifiUnsupported: (ssid: string) => `OxyOS can't join “${ssid}” yet.`,
+    wifiEnterprise: "Enterprise (802.1X) networks aren't supported yet.",
+    wifiWep: "WEP networks aren't supported: they aren't secure.",
+    wifiOtherUnsupported: "This network isn't supported yet.",
   },
 };
 
@@ -156,6 +195,24 @@ export function size(bytes: number, language: Language): string {
 export function localized(texts: Record<string, string> | undefined, language: Language, fallback = ""): string {
   if (!texts) return fallback;
   return texts[language] ?? (fallback || texts.en || Object.values(texts)[0] || "");
+}
+
+/** A string's length in UTF-8 bytes, as the network daemon counts a passphrase. */
+function utf8Length(text: string): number {
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/** Whether a WPA password can be one: a passphrase of 8 to 63 bytes, or the key itself, 64
+    hexadecimal digits. The sheet's Join button waits for one. */
+export function validWifiPassword(password: string): boolean {
+  if (/^[0-9a-fA-F]{64}$/.test(password)) return true;
+  const length = utf8Length(password);
+  return length >= 8 && length <= 63;
 }
 
 /** The sheet the session sent, read; null for one the shell does not know (it is refused). */
@@ -237,6 +294,40 @@ export function sheetView(sheet: SheetText, language: Language, names: Record<st
       return {
         title: w.unavailable[sheet.action] ?? w.unavailable.install,
         body: w.unavailableBody,
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+      };
+    case "wifi-password":
+      return {
+        title: w.wifiPassword(sheet.ssid, sheet.security === "wpa3" ? "WPA3" : "WPA2"),
+        body: "",
+        lines: [],
+        accept: w.wifiJoin,
+        refuse: w.cancel,
+        destructive: false,
+        password: { label: w.wifiField, show: w.showPassword, hide: w.hidePassword },
+        error: sheet.incorrect ? w.wifiIncorrect : undefined,
+      };
+    case "wifi-failed":
+      return {
+        title: w.wifiFailed(sheet.ssid),
+        body: "",
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+      };
+    case "wifi-unsupported":
+      return {
+        title: w.wifiUnsupported(sheet.ssid),
+        body:
+          sheet.security === "wep"
+            ? w.wifiWep
+            : sheet.security === "enterprise"
+              ? w.wifiEnterprise
+              : w.wifiOtherUnsupported,
         lines: [],
         accept: w.ok,
         refuse: "",

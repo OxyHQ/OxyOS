@@ -39,6 +39,7 @@ pub mod idle;
 pub mod installs;
 pub mod login;
 pub mod motion;
+pub mod networks;
 pub mod settings;
 pub mod splash;
 pub mod transitions;

@@ -1,0 +1,18 @@
+[package]
+name = "oxyos-networks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# NetworkManager over the system bus, in safe Rust (docs/adr/0038-networks.mdx).
+zbus = "5"
+# Waiting for an activation's outcome with a deadline, on zbus's own executor.
+async-io = "2"
+futures-lite = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

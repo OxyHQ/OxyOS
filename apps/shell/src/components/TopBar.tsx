@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import {
@@ -15,9 +15,11 @@ import {
   MenubarSubContent,
 } from "@oxy.so/bloom/menubar";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
+import { RiArrowLeftRightLine } from "@oxy.so/bloom/icons/RiArrowLeftRightLine";
 
 import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
+import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
@@ -139,15 +141,13 @@ function BatteryIcon({ power }: { power: ShellBattery }) {
 /** Wi-Fi as the session says it is: its signal in arcs; off or not connected, faint. */
 function WifiIcon({ network }: { network: ShellNetwork }) {
   const connected = network.wifi === "connected";
-  const bars = connected ? wifiBars(network.signal) : 0;
-  const arc = (on: boolean) => (on ? "#fff" : "#ffffff59");
   return (
-    <Svg width={14} height={12} viewBox="0 0 20 16">
-      <Path d="M1 5.6a13 13 0 0 1 18 0" stroke={arc(bars >= 3)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M4.2 8.9a8.4 8.4 0 0 1 11.6 0" stroke={arc(bars >= 2)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M7.4 12.1a3.9 3.9 0 0 1 5.2 0" stroke={arc(bars >= 1)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Circle cx="10" cy="14.6" r="1.3" fill={arc(connected || wifiOn(network))} />
-    </Svg>
+    <WifiArcs
+      arcs={connected ? wifiBars(network.signal) : 0}
+      dot={connected || wifiOn(network)}
+      color="#fff"
+      faint="#ffffff59"
+    />
   );
 }
 
@@ -193,13 +193,67 @@ const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }
   );
 });
 
-const WifiItem = memo(function WifiItem({ network }: { network: ShellNetwork }) {
-  const wifi = wifiLabel(network);
-  if (wifi === undefined) return null;
+/** The Ethernet icon, as Bloom's icons are drawn (a Button's `icon`). */
+function EthernetIcon({ width = 15, height = 15, fill = "#fff" }: { width?: number; height?: number; fill?: string }) {
+  return <RiArrowLeftRightLine width={width} height={height} fill={fill} />;
+}
+
+/** Wi-Fi's icons as a Button's `icon`, one per arcs lit and dot, made once each. */
+const wifiIcons = new Map<string, ComponentType>();
+function wifiIcon(arcs: number, dot: boolean): ComponentType {
+  const key = `${arcs}:${dot}`;
+  let icon = wifiIcons.get(key);
+  if (!icon) {
+    icon = function WifiStatusIcon() {
+      return <WifiArcs arcs={arcs} dot={dot} color="#fff" faint="#ffffff59" />;
+    };
+    wifiIcons.set(key, icon);
+  }
+  return icon;
+}
+
+/** A status item's button: the bar's own plain icon button, as the search and the Control Center's,
+    as wide as its icon (the items keep their places) and pressed anywhere over the bar's height
+    around it. */
+const statusStyle = { ...menuStyle, width: 14, paddingLeft: 0, paddingRight: 0 };
+const STATUS_SLOP = { top: 8, bottom: 8, left: 6, right: 6 };
+
+/** The network's status item (docs/adr/0038-networks.mdx, decision 6): Wi-Fi's signal, or the
+    Ethernet icon while only a cable is connected. Pressed, it opens the Control Center at its
+    Wi-Fi view, where the platform gives `onPress`. */
+const NetworkItem = memo(function NetworkItem({
+  network,
+  onPress,
+}: {
+  network: ShellNetwork;
+  onPress?: () => void;
+}) {
+  const ethernet = network.wifi !== "connected" && network.wired;
+  const wifi = ethernet ? undefined : wifiLabel(network);
+  if (!ethernet && wifi === undefined) return null;
+  const label = ethernet ? "Ethernet: conectado" : `Wi-Fi: ${wifi}`;
+  const testID = ethernet ? "shell-ethernet" : "shell-wifi";
+  if (!onPress) {
+    return (
+      <Box testID={testID} accessible accessibilityLabel={label}>
+        {ethernet ? <EthernetIcon /> : <WifiIcon network={network} />}
+      </Box>
+    );
+  }
+  const connected = network.wifi === "connected";
   return (
-    <Box testID="shell-wifi" accessible accessibilityLabel={`Wi-Fi: ${wifi}`}>
-      <WifiIcon network={network} />
-    </Box>
+    <Button
+      iconOnly
+      icon={ethernet ? EthernetIcon : wifiIcon(connected ? wifiBars(network.signal) : 0, connected || wifiOn(network))}
+      iconSize={15}
+      testID={testID}
+      accessibilityLabel={label}
+      appearance="plain"
+      style={statusStyle}
+      colors={TRANSPARENT_WHITE}
+      hitSlop={STATUS_SLOP}
+      onPress={onPress}
+    />
   );
 });
 
@@ -412,6 +466,7 @@ export const TopBar = memo(function TopBar({
   power,
   network,
   controlCenter,
+  networkStatus,
   clock,
   keyboardRequest = 0,
   keyboardLost = 0,
@@ -431,6 +486,8 @@ export const TopBar = memo(function TopBar({
   network?: ShellNetwork;
   /** Opens the Control Center, or closes it. */
   controlCenter: () => void;
+  /** The network's status item pressed: the Control Center at its Wi-Fi view, or closed. */
+  networkStatus?: () => void;
   /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
   clock?: () => void;
   /** Rises at each Super+F2 (docs/adr/0024-system-shortcuts.mdx): the keyboard moves to the
@@ -463,7 +520,7 @@ export const TopBar = memo(function TopBar({
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
           {power && <BatteryItem power={power} />}
-          {network && <WifiItem network={network} />}
+          {network && <NetworkItem network={network} onPress={networkStatus} />}
         </Box>
         <BarButtons launcher={launcher} controlCenter={controlCenter} />
         <Clock now={now} onPress={clock} />

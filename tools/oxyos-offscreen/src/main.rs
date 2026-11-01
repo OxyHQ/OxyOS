@@ -141,6 +141,11 @@ struct Session {
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
     controls: Option<oxyos_controls::Fake>,
+    /// `--network-bus ADDRESS`: the session's networks over a played daemon (ADR 0038), its waker
+    /// among the compositor's, and a connection to the daemon's control interface.
+    networks: Option<oxyos_compositor::networks::Networks>,
+    networks_waker: Option<std::os::fd::RawFd>,
+    network_control: Option<zbus::blocking::Connection>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -243,6 +248,9 @@ impl Session {
             installs_waker: None,
             trash_waker: None,
             controls: None,
+            networks: None,
+            networks_waker: None,
+            network_control: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
@@ -409,12 +417,56 @@ impl Session {
         Ok(())
     }
 
+    /// The played network daemon changes the machine: its control interface's `Act` (ADR 0038).
+    pub fn network_act(&mut self, what: &str) -> Result<()> {
+        let bus = self
+            .network_control
+            .as_ref()
+            .ok_or("a network step needs --network-bus")?;
+        bus.call_method(
+            Some("org.freedesktop.NetworkManager"),
+            "/so/oxy/OxyOS/FakeNetworkManager",
+            Some("so.oxy.OxyOS.FakeNetworkManager"),
+            "Act",
+            &(what,),
+        )?;
+        Ok(())
+    }
+
+    /// What the played network daemon holds (its connections, with their passwords, what was
+    /// tried), for a step's result; `null` without one.
+    pub fn network_state(&self) -> String {
+        let Some(bus) = self.network_control.as_ref() else {
+            return "null".into();
+        };
+        bus.call_method(
+            Some("org.freedesktop.NetworkManager"),
+            "/so/oxy/OxyOS/FakeNetworkManager",
+            Some("so.oxy.OxyOS.FakeNetworkManager"),
+            "State",
+            &(),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<String>().ok())
+        .unwrap_or_else(|| "null".into())
+    }
+
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.serve(&mut self.compositor.scene);
+        }
+        // Wi-Fi and networks (ADR 0038), before the store takes the requests that are its own;
+        // a change of the daemon's has the top bar look again.
+        if let Some(networks) = self.networks.as_mut() {
+            networks.serve(&mut self.compositor.scene);
+            if networks.take_changed() {
+                if let Some(controls) = self.compositor.controls.as_mut() {
+                    controls.refresh_status();
+                }
+            }
         }
         let Some(installs) = self.installs.as_mut() else {
             return;
@@ -495,15 +547,10 @@ impl Session {
                     (launched.id.clone(), launched.grants)
                 }
             };
-            let fixture = fixtures.iter().filter(|(fixed, _)| *fixed == id).fold(
-                oxyos_apps::Grants::default(),
-                |all, (_, g)| oxyos_apps::Grants {
-                    settings: all.settings || g.settings,
-                    store: all.store || g.store,
-                    updates: all.updates || g.updates,
-                    privacy: all.privacy || g.privacy,
-                },
-            );
+            let fixture = fixtures
+                .iter()
+                .filter(|(fixed, _)| *fixed == id)
+                .fold(oxyos_apps::Grants::default(), |all, (_, g)| all.with(*g));
             Some(oxyos_compositor::LaunchRecord {
                 grants: Grants {
                     settings: granted.settings
@@ -512,6 +559,7 @@ impl Session {
                     store: granted.store || fixture.store,
                     updates: granted.updates || fixture.updates,
                     privacy: granted.privacy || fixture.privacy,
+                    network: granted.network || fixture.network,
                     ..Grants::default()
                 },
                 application: id,
@@ -650,6 +698,18 @@ impl Session {
         if stats.surfaces != 0 || stats.clients != 0 || stats.registered_buffers != 0 {
             return Err(format!("scene resources left: {stats:?}").into());
         }
+        // The networks' side, its threads waited for, its waker and its connections given back.
+        self.networks = None;
+        if let Some(bus) = self.network_control.take() {
+            let _ = bus.close();
+        }
+        if let Some(controls) = &self.controls {
+            controls.close_network_bus();
+        }
+        if let Some(waker) = self.networks_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
         // The install service's side, its threads waited for and its waker given back.
         self.installs = None;
         if let Some(waker) = self.installs_waker.take() {
@@ -666,11 +726,23 @@ impl Session {
         self.compositor.withdraw_gpu_buffers();
         // The screenshots' writer, its thread waited for (it has written all it was given).
         self.compositor.screenshots = None;
-        let fds = open_descriptors()?;
+        // A socket closed is let go on the runtime's own thread a moment later (D-Bus's).
+        let mut fds = open_descriptors()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while fds > self.baseline_fds && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            fds = open_descriptors()?;
+        }
         if fds != self.baseline_fds {
+            // What each is, to say what leaked.
+            let open: Vec<String> = fs::read_dir("/proc/self/fd")?
+                .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())
+                .map(|target| target.display().to_string())
+                .collect();
             return Err(format!(
-                "descriptors leaked: {} before, {fds} after",
-                self.baseline_fds
+                "descriptors leaked: {} before, {fds} after ({})",
+                self.baseline_fds,
+                open.join(", ")
             )
             .into());
         }

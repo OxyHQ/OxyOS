@@ -89,7 +89,7 @@ impl Scene {
         // Without a grant that asks, the request is refused and said, not an error: an
         // application cannot know its grants before it asks (Settings run as a development entry,
         // Atlas outside a session), and shows that what it asked is not available here.
-        if !(grants.store || grants.updates || grants.privacy) {
+        if !grants.asks_system() {
             if last {
                 self.refuse_system_request(client, serial);
             }
@@ -155,14 +155,37 @@ impl Scene {
         std::mem::take(&mut self.system.asked)
     }
 
+    /// The requests asked for since the last call that `ours` claims, in order; the others stay
+    /// for whoever takes them (the networks' requests and the store's are each a part of the
+    /// program's, ADR 0038).
+    pub fn take_system_requests_where(
+        &mut self,
+        mut ours: impl FnMut(&SystemRequest) -> bool,
+    ) -> Vec<SystemRequest> {
+        let (taken, kept) = std::mem::take(&mut self.system.asked)
+            .into_iter()
+            .partition(|request| ours(request));
+        self.system.asked = kept;
+        taken
+    }
+
+    /// The clients the network's state is told to (ADR 0038): those holding `network`, and the
+    /// shell.
+    pub fn network_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.network || grants.shell)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// Tells `client` the answer to its request `serial` (0: the update state, unasked), if it
     /// still holds a grant that asks.
     pub fn system_text(&mut self, client: ClientId, serial: u32, text: &str) {
         let Some(grants) = self.clients.get(&client) else {
             return;
         };
-        if !(grants.store || grants.updates || grants.privacy) || text.len() > MAX_SYSTEM_TEXT_BYTES
-        {
+        if !grants.asks_system() || text.len() > MAX_SYSTEM_TEXT_BYTES {
             return;
         }
         let parts = chunks(text);

@@ -83,6 +83,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "width", "height", "alpha" and "pixels" read from the PNG, "x,y" -> "#rrggbb" or "#rrggbbaa"),
   and the screenshots the shell opened ("opened": each the "application" started for it); a step
   that saves one and does not say so fails;
+- network: with the scenario's `network` (a NetworkManager played by oxyos-fake-networkmanager on a
+  bus of the run's own, docs/adr/0038-networks.mdx), what the daemon holds once the step settled
+  (its State: "wifi_enabled", "active", "connections" with each one's "ssid", "psk" and
+  "permissions", "attempts", "scans", "ethernet"), each key given matching: a dict key by key, a
+  list item by item and of the same length;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -565,6 +570,10 @@ def director_args(step, out):
         # The person chooses a command in the session's bar (ADR 0021), by its path:
         # "View > Show Full URL".
         return args + ["--menu", value]
+    if kind == "network":
+        # The played network daemon changes the machine (ADR 0038): {"ethernet": "plugged"},
+        # {"access_point": {...}}, {"remove_access_point": ssid}, {"hardware_enabled": false}.
+        return args + ["--network", json.dumps(value)]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -1973,6 +1982,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         worst = (moved.get("latency_ms") or {}).get("max")
         if "latency_max_ms" in wanted and (worst is None or worst > wanted["latency_max_ms"]):
             fail(f"a frame came {worst} ms after the motion it followed, expected at most {wanted['latency_max_ms']}")
+    if "network" in expect:
+        # What the played network daemon holds once the step settled (ADR 0038): the session's
+        # state, not only what was drawn.
+        held = result.get("network")
+        if held is None:
+            fail("no network daemon's state (the scenario needs `network`)")
+        else:
+            held = json.loads(held) if isinstance(held, str) else held
+            for problem in matches_within(expect["network"], held, "the network daemon's"):
+                fail(problem)
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
@@ -2450,6 +2469,51 @@ def wait_for(path, seconds=10):
         time.sleep(0.05)
 
 
+def matches_within(wanted, got, where):
+    """How `got` differs from `wanted`: each key `wanted` gives (a dict's keys, a list's items, of
+    the same length), compared exactly otherwise."""
+    if isinstance(wanted, dict):
+        if not isinstance(got, dict):
+            return [f"{where} is {got!r}, expected {wanted!r}"]
+        return [problem for key, value in wanted.items()
+                for problem in matches_within(value, got.get(key), f"{where} {key}")]
+    if isinstance(wanted, list):
+        if not isinstance(got, list) or len(got) != len(wanted):
+            return [f"{where} is {got!r}, expected {wanted!r}"]
+        return [problem for index, (value, item) in enumerate(zip(wanted, got))
+                for problem in matches_within(value, item, f"{where} [{index}]")]
+    return [] if got == wanted else [f"{where} is {got!r}, expected {wanted!r}"]
+
+
+def network_daemon(spec, out, offscreen):
+    """A bus of the run's own and a played NetworkManager on it (docs/adr/0038-networks.mdx), the
+    machine `spec` describes (oxyos-fake-networkmanager's: access points with their passwords,
+    saved connections, Ethernet); its address and a function that stops both."""
+    base = out / "network"
+    shutil.rmtree(base, ignore_errors=True)
+    base.mkdir(parents=True)
+    # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
+    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    address = bus.stdout.readline().strip()
+    (base / "machine.json").write_text(json.dumps(spec))
+    fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-networkmanager"
+    log = open(base / "daemon.log", "w")
+    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    wait_for(base / "state.json")
+
+    def stop():
+        for process in (daemon, bus):
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        log.close()
+    return address, stop
+
+
 def install_arguments(scenario, out, machine=None, offscreen=None):
     """System grants (`grants`: {ID: [GRANT, ...]}) as the image's policy gives them, and the
     install service the session asks (`installd`: null for a socket no service is at, or
@@ -2604,6 +2668,12 @@ def main():
     if scenario.get("installed"):
         command += ["--installed-fixture", str(installed_fixture(out / "installed", scenario["installed"],
                                                                   machine, options.offscreen))]
+    stop_network = None
+    if "network" in scenario:
+        # The system's network daemon, played on a bus of the run's own (ADR 0038): the session's
+        # networks and the played machine's Wi-Fi are its, never the developer's machine's.
+        network_address, stop_network = network_daemon(scenario["network"], out, options.offscreen)
+        command += ["--network-bus", network_address]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -2736,7 +2806,11 @@ def main():
         report_path.unlink(missing_ok=True)
         change_home_later(home_root, scenario["home"], report_path)
         recorder = HomeRecorder(home_root)
-    run = subprocess.run(command, env=env, capture_output=True, text=True)
+    try:
+        run = subprocess.run(command, env=env, capture_output=True, text=True)
+    finally:
+        if stop_network is not None:
+            stop_network()
     if recorder is not None:
         recorder.stop()
     (out / "director.log").write_text(run.stdout + run.stderr)
@@ -2818,6 +2892,17 @@ def main():
             failures.append("the password is in the login program's record")
     if "installd_final" in scenario:
         check_installd(scenario["installd_final"], failures)
+    # Secrets typed in the scenario (a Wi-Fi password, ADR 0038) reach the daemon alone: never
+    # the user's preferences or configuration, nor what the application was told or reported.
+    if scenario.get("secrets"):
+        kept = [out / "preferences", report_path]
+        config = pathlib.Path(env.get("XDG_CONFIG_HOME", ""))
+        if config.is_dir() and str(config).startswith(str(out)):
+            kept += [path for path in config.rglob("*") if path.is_file()]
+        for secret in scenario["secrets"]:
+            for path in kept:
+                if path.exists() and secret.encode() in path.read_bytes():
+                    failures.append(f"a secret typed is in {path}")
     if "applications_launched" in scenario and summary.get("applications") != scenario["applications_launched"]:
         failures.append(f"the shell started {summary.get('applications')}, expected exactly "
                         f"{scenario['applications_launched']}")
