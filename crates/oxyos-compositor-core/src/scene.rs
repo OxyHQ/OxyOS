@@ -108,6 +108,11 @@ pub enum Role {
     },
     /// The input method's candidates, next to the caret of the field it serves (ADR 0008).
     Candidates,
+    /// A drag's image (ADR 0035): at the pointer, `hotspot` (surface-local) under it, while the
+    /// drag that names it goes on.
+    DragIcon {
+        hotspot: (i32, i32),
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -118,6 +123,7 @@ enum Layer {
     Overlay,
     Notification,
     Candidates,
+    DragIcon,
     Lock,
 }
 
@@ -506,6 +512,8 @@ pub struct Scene {
     dock: dock::Dock,
     /// The key held and pressed again while it is (ADR 0036).
     key_repeat: key_repeat::KeyRepeat,
+    /// The drag going on, the drops not finished and the shell's files for the Trash (ADR 0035).
+    drags: drag::Drags,
 }
 
 /// The modifier (`MODIFIER_*`) a key is, by its Linux input code; 0 for any other key.
@@ -572,6 +580,7 @@ fn layer_of(role: &Role) -> Layer {
         },
         Role::Lock { .. } => Layer::Lock,
         Role::Candidates => Layer::Candidates,
+        Role::DragIcon { .. } => Layer::DragIcon,
         _ => Layer::Normal,
     }
 }
@@ -709,8 +718,9 @@ impl Scene {
                 Role::Popup(_) | Role::Shell { .. } | Role::Lock { .. } => {
                     self.dismiss(key, DismissReason::OutputRemoved);
                 }
-                // Placed again next to the caret, wherever it is now (below).
-                Role::Candidates => {}
+                // Placed again next to the caret, wherever it is now (below); an icon at the
+                // pointer as it next moves.
+                Role::Candidates | Role::DragIcon { .. } => {}
                 Role::Toplevel | Role::Dialog => {
                     // To the primary; with none left, to the next output added.
                     if let Some(target) = self.outputs.first().copied() {
@@ -1110,6 +1120,7 @@ impl Scene {
         self.forget_preference_changes(client);
         self.forget_display_client(client);
         self.forget_notification_client(client);
+        self.forget_drag_client(client);
         self.key_text.remove(&client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
@@ -1333,6 +1344,51 @@ impl Scene {
                 Ok(())
             }
             Request::GrabPopup { surface, serial } => self.grab_popup(key(surface), serial),
+            Request::CreateDragIcon {
+                surface,
+                size,
+                hotspot_x,
+                hotspot_y,
+            } => self.create_drag_icon(key(surface), size, (hotspot_x, hotspot_y)),
+            Request::DragType { drag, mime } => {
+                self.drag_type(client, drag, mime);
+                Ok(())
+            }
+            Request::StartDrag {
+                drag,
+                surface,
+                icon,
+                serial,
+                actions,
+            } => self.start_drag(client, drag, key(surface), icon, serial, actions),
+            Request::CancelDrag { drag } => {
+                self.cancel_drag_request(client, drag);
+                Ok(())
+            }
+            Request::AcceptDrag {
+                offer,
+                serial,
+                mime,
+                actions,
+                preferred,
+            } => {
+                self.accept_drag(client, offer, serial, mime, actions, preferred);
+                Ok(())
+            }
+            Request::ReceiveDrop { offer, mime } => {
+                self.receive_drop(client, offer, mime);
+                Ok(())
+            }
+            Request::FinishDrop { offer } => {
+                self.finish_drop(client, offer);
+                Ok(())
+            }
+            Request::TrashFiles {
+                input,
+                index,
+                last,
+                text,
+            } => self.trash_files_request(client, input, index, last, text),
             Request::TrackPointer { surface } => {
                 let node = self
                     .nodes
@@ -2893,6 +2949,7 @@ impl Scene {
         self.forget_window_views(key);
         self.forget_screenshot_surface(key);
         self.forget_chooser_surface(key);
+        self.forget_drag_surface(key);
         if self.active == Some(key) {
             self.active = None;
         }
@@ -3142,6 +3199,7 @@ impl Scene {
                     kind: ShellKind::Background,
                     ..
                 } | Role::Candidates
+                    | Role::DragIcon { .. }
             )
     }
 
@@ -3372,6 +3430,7 @@ impl Scene {
         }
         self.locked = true;
         self.stop_key_repeat();
+        self.cancel_drag(oxyos_protocol::DragCancelReason::Locked);
         self.dismiss_grab(DismissReason::Locked);
         self.cancel_switcher();
         self.lock_screenshots();
@@ -3496,6 +3555,10 @@ impl Scene {
     }
 
     fn pointer_target(&self) -> Option<SurfaceKey> {
+        // A drag owns the pointer (ADR 0035): no surface receives its events meanwhile.
+        if self.dragging() {
+            return None;
+        }
         if self.moving.is_some() || self.resizing.is_some() || self.resize_hover.is_some() {
             return None;
         }
@@ -3557,6 +3620,10 @@ impl Scene {
     }
 
     fn refresh_pointer_focus(&mut self) {
+        if self.dragging() {
+            self.refresh_drag_target();
+            return;
+        }
         let target = self.hover_target();
         self.set_pointer_focus(target);
     }
@@ -3564,6 +3631,10 @@ impl Scene {
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
         self.user_input();
         self.pointer = (x, y);
+        if self.dragging() {
+            self.drag_motion();
+            return;
+        }
         self.follow_capture_target();
         if let Some(moving) = self.moving {
             self.move_window(moving, x, y);
@@ -3747,6 +3818,10 @@ impl Scene {
     pub fn pointer_button(&mut self, button: u32, pressed: bool) {
         self.user_input();
         let serial = self.next_serial();
+        if self.dragging() {
+            self.drag_button(serial, pressed);
+            return;
+        }
         if pressed {
             self.buttons_down += 1;
             let hit = self.hit_test(self.pointer.0, self.pointer.1);
@@ -3853,6 +3928,7 @@ impl Scene {
     /// Pointer capture lost (for example a compositor gesture took over): the captured surface
     /// receives Cancel and no later release is delivered as a click.
     pub fn pointer_cancel(&mut self) {
+        self.cancel_drag(oxyos_protocol::DragCancelReason::Cancelled);
         if let Some(target) = self.capture.take() {
             let serial = self.next_serial();
             self.pointer_event(target, serial, PointerKind::Cancel, 0);
@@ -4002,6 +4078,9 @@ impl Scene {
         self.end_repeat_for(key, pressed);
         self.user_input();
         self.hold_modifier(key, pressed);
+        if self.drag_key(key, pressed) {
+            return;
+        }
         if !self.reader_key(key, pressed)
             && !self.hardware_key(key, pressed)
             && !self.system_key(key, pressed)
@@ -4464,7 +4543,9 @@ pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
 mod dock;
+mod drag;
 pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
+pub use drag::{negotiate_action, TrashRequest, DRAG_VERSION, MAX_OPEN_DROPS};
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
 mod system;

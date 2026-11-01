@@ -8,8 +8,8 @@ use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::NotificationField;
 use oxyos_protocol::{
     AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
-    ClientConnection, Event, Format, MenuField, MenuFlags, MenuKind, Politeness, PreeditText, Rect,
-    Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
+    ClientConnection, DragActions, Event, Format, MenuField, MenuFlags, MenuKind, Politeness,
+    PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
     MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES,
     MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES, MAX_NOTIFICATION_BODY_BYTES,
     MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES, MAX_NOTIFICATION_REPLY_BYTES,
@@ -84,6 +84,10 @@ pub struct Client {
     /// latest offers are kept; the clipboard holds at most one of them.
     offers: std::collections::VecDeque<(u32, Offer)>,
     next_offer: u32,
+    /// What this client drags (ADR 0035), by drag: each type's content, kept from StartDrag until
+    /// the drag finishes or is cancelled, for the target dropped on to receive.
+    drags: std::collections::VecDeque<(u32, Offer)>,
+    next_drag: u32,
     text_inputs: text_input::TextInputs,
     /// GPU buffers: the compositor's tables and this connection's timelines (ADR 0031).
     gpu: gpu::Gpu,
@@ -94,6 +98,9 @@ type Offer = Vec<(TextChunk, std::sync::Arc<[u8]>)>;
 
 /// Offers kept for the clipboard: the latest few, of which it holds one.
 const OFFERS_KEPT: usize = 4;
+/// Drags whose content is kept: the one going on and drops not yet finished, as many as the
+/// compositor keeps open (`MAX_OPEN_DROPS`) and the one going on.
+const DRAGS_KEPT: usize = 9;
 
 impl Client {
     /// The protocol version the compositor chose for this connection.
@@ -135,6 +142,8 @@ impl Client {
             descriptor: None,
             offers: std::collections::VecDeque::new(),
             next_offer: 0,
+            drags: std::collections::VecDeque::new(),
+            next_drag: 0,
             text_inputs: text_input::TextInputs::default(),
             gpu: gpu::Gpu::default(),
         })
@@ -681,6 +690,143 @@ impl Client {
         Ok(())
     }
 
+    /// Starts a drag (ADR 0035) from `surface`, with the serial of the pointer press it is still
+    /// holding there, the drag icon `icon` (0: none, else a surface made with
+    /// [`Client::create_drag_icon`]), the actions it allows and `contents` (each media type with
+    /// its bytes, the most faithful first). The client keeps the content and writes it into each
+    /// type the target dropped on receives, from a thread of its own. Returns the drag's number,
+    /// which the compositor's drag events for this source name; the compositor may still refuse it
+    /// (DragCancelled, Refused).
+    pub fn start_drag(
+        &mut self,
+        surface: u32,
+        icon: u32,
+        serial: u64,
+        actions: DragActions,
+        contents: Vec<(TextChunk, Vec<u8>)>,
+    ) -> io::Result<u32> {
+        if contents.is_empty() || contents.len() > oxyos_protocol::MAX_DRAG_TYPES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a drag offers 1 to 16 types",
+            ));
+        }
+        if actions.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a drag allows at least one action",
+            ));
+        }
+        self.next_drag = self.next_drag.wrapping_add(1).max(1);
+        let drag = self.next_drag;
+        for (mime, _) in &contents {
+            self.send(&Request::DragType { drag, mime: *mime })?;
+        }
+        self.send(&Request::StartDrag {
+            drag,
+            surface,
+            icon,
+            serial,
+            actions,
+        })?;
+        let contents = contents
+            .into_iter()
+            .map(|(mime, bytes)| (mime, std::sync::Arc::from(bytes)))
+            .collect();
+        self.drags.push_back((drag, contents));
+        if self.drags.len() > DRAGS_KEPT {
+            self.drags.pop_front();
+        }
+        Ok(drag)
+    }
+
+    /// Ends this client's drag `drag`, going on or dropped and not finished.
+    pub fn cancel_drag(&self, drag: u32) -> io::Result<()> {
+        self.send(&Request::CancelDrag { drag })
+    }
+
+    /// Makes `surface` a drag icon of `size`, its hotspot (surface-local) at the pointer while a
+    /// drag names it; it is configured and drawn as any surface.
+    pub fn create_drag_icon(
+        &self,
+        surface: u32,
+        size: Size,
+        hotspot: (i32, i32),
+    ) -> io::Result<()> {
+        self.send(&Request::CreateDragIcon {
+            surface,
+            size,
+            hotspot_x: hotspot.0,
+            hotspot_y: hotspot.1,
+        })
+    }
+
+    /// A target answers the entering `serial` of the drag `offer` (and each motion): the offered
+    /// type it would take (none: it takes nothing here), the actions it supports and the one it
+    /// prefers (none: no preference).
+    pub fn accept_drag(
+        &self,
+        offer: u32,
+        serial: u64,
+        mime: Option<TextChunk>,
+        actions: DragActions,
+        preferred: DragActions,
+    ) -> io::Result<()> {
+        self.send(&Request::AcceptDrag {
+            offer,
+            serial,
+            mime: mime.map_or_else(PreeditText::default, |mime| {
+                PreeditText::new(mime.as_str()).expect("a chunk fits")
+            }),
+            actions,
+            preferred,
+        })
+    }
+
+    /// The target dropped on receives `mime` of the drop `offer`: the read end of the pipe the
+    /// source writes the content into, which ends when the source is done, or at once if it was
+    /// refused (a type not offered, received already, or a drop not on this client).
+    pub fn receive_drop(&self, offer: u32, mime: TextChunk) -> io::Result<OwnedFd> {
+        let request = Request::ReceiveDrop { offer, mime };
+        if oxyos_protocol::request_since(&request) > self.version {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "the compositor's protocol version has no drag and drop",
+            ));
+        }
+        let (read, write) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
+        self.connection
+            .send_request(&request, Some(write.as_fd()))?;
+        Ok(read)
+    }
+
+    /// The target dropped on is done with the drop `offer`.
+    pub fn finish_drop(&self, offer: u32) -> io::Result<()> {
+        self.send(&Request::FinishDrop { offer })
+    }
+
+    /// The session's shell asks the session to put files in the Trash (ADR 0035, decision 12):
+    /// their `file://` URIs, one a line, citing `input`, the drop on the dock's Trash.
+    pub fn trash_files(&self, input: u64, uris: &str) -> io::Result<()> {
+        if uris.is_empty() || uris.len() > oxyos_protocol::MAX_TRASH_FILES_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the URIs are 1 byte to MAX_TRASH_FILES_BYTES",
+            ));
+        }
+        let chunks = TextChunk::split(uris);
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::TrashFiles {
+                input,
+                index: index as u16,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        Ok(())
+    }
+
     /// Withdraws the request `serial` made with [`Client::choose_files`]: its panel closes.
     pub fn cancel_choose_files(&self, serial: u32) -> io::Result<()> {
         self.send(&Request::CancelChooseFiles { serial })
@@ -1129,6 +1275,33 @@ impl Client {
                             let _ = std::fs::File::from(pipe).write_all(&bytes);
                         });
                 }
+                Ok(event)
+            }
+            // A type of what this client drags, for the target dropped on: written into its pipe
+            // from a thread, as a paste is.
+            Event::DragSend { drag, mime } => {
+                let content = self
+                    .drags
+                    .iter()
+                    .find(|(id, _)| *id == drag)
+                    .and_then(|(_, contents)| contents.iter().find(|(m, _)| *m == mime))
+                    .map(|(_, bytes)| bytes.clone());
+                if let Some((bytes, pipe)) =
+                    content.and_then(|bytes| Some((bytes, self.descriptor.take()?)))
+                {
+                    let _ =
+                        std::thread::Builder::new()
+                            .name("oxyos-drag".into())
+                            .spawn(move || {
+                                use std::io::Write;
+                                let _ = std::fs::File::from(pipe).write_all(&bytes);
+                            });
+                }
+                Ok(event)
+            }
+            // The drag is over: its content is no longer asked for.
+            Event::DragFinished { drag, .. } | Event::DragCancelled { drag, .. } => {
+                self.drags.retain(|(id, _)| *id != drag);
                 Ok(event)
             }
             Event::Released { buffer, .. } => {

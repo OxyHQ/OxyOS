@@ -460,6 +460,42 @@ fn requests() -> Vec<Request> {
             text: PreeditText::new("stash://trash").unwrap(),
         },
         Request::TrackPointer { surface: 2 },
+        Request::CreateDragIcon {
+            surface: 7,
+            size: Size::new(64, 48),
+            hotspot_x: 12,
+            hotspot_y: -3,
+        },
+        Request::DragType {
+            drag: 3,
+            mime: TextChunk::new("text/uri-list").unwrap(),
+        },
+        Request::StartDrag {
+            drag: 3,
+            surface: 1,
+            icon: 7,
+            serial: 41,
+            actions: DragActions::COPY.union(DragActions::MOVE),
+        },
+        Request::CancelDrag { drag: 3 },
+        Request::AcceptDrag {
+            offer: 2,
+            serial: 44,
+            mime: PreeditText::new("text/uri-list").unwrap(),
+            actions: DragActions::MOVE,
+            preferred: DragActions::MOVE,
+        },
+        Request::ReceiveDrop {
+            offer: 2,
+            mime: TextChunk::new("text/uri-list").unwrap(),
+        },
+        Request::FinishDrop { offer: 2 },
+        Request::TrashFiles {
+            input: 45,
+            index: 0,
+            last: true,
+            text: PreeditText::new("file:///home/ana/a.txt").unwrap(),
+        },
     ]
 }
 
@@ -821,6 +857,64 @@ fn events() -> Vec<Event> {
         },
         Event::Ping { serial: 9 },
         Event::TrashItems { items: 3 },
+        Event::DragEnter {
+            surface: 1,
+            offer: 2,
+            serial: 44,
+            x: 2560,
+            y: -256,
+            actions: DragActions::COPY.union(DragActions::LINK),
+            types: 2,
+            modifiers: MODIFIER_ALT,
+        },
+        Event::DragOfferType {
+            offer: 2,
+            mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
+        },
+        Event::DragMotion {
+            surface: 1,
+            offer: 2,
+            x: 2816,
+            y: 512,
+            time_ns: 77,
+            modifiers: 0,
+        },
+        Event::DragLeave {
+            surface: 1,
+            offer: 2,
+        },
+        Event::DragAction {
+            offer: 2,
+            action: DragActions::COPY,
+        },
+        Event::DragDrop {
+            surface: 1,
+            offer: 2,
+            serial: 46,
+            x: 2816,
+            y: 512,
+            action: DragActions::COPY,
+        },
+        Event::DragSourceAction {
+            drag: 3,
+            action: DragActions::NONE,
+        },
+        Event::DragDropped {
+            drag: 3,
+            action: DragActions::MOVE,
+        },
+        Event::DragFinished {
+            drag: 3,
+            action: DragActions::MOVE,
+        },
+        Event::DragCancelled {
+            drag: 3,
+            reason: DragCancelReason::Escape,
+        },
+        Event::DragSend {
+            drag: 3,
+            mime: TextChunk::new("text/uri-list").unwrap(),
+        },
         Event::ApplicationList {
             list: ApplicationListKind::OpenAtLogin,
             chosen: true,
@@ -1690,6 +1784,8 @@ fn file_choosers_are_version_7_and_never_reach_an_older_peer() {
     };
     assert_eq!(request_since(&answer), 7);
     assert_eq!(request_since(&Request::TrackPointer { surface: 2 }), 9);
+    assert_eq!(request_since(&Request::CancelDrag { drag: 1 }), 10);
+    assert_eq!(request_since(&Request::FinishDrop { offer: 1 }), 10);
     assert_eq!(
         request_since(&Request::OpenScreenshot {
             screenshot: 1,
@@ -1832,6 +1928,7 @@ fn buffer_layouts_are_checked_without_overflow() {
             request,
             Request::AttachBuffer { .. }
                 | Request::ClipboardReceive { .. }
+                | Request::ReceiveDrop { .. }
                 | Request::AttachDmabufPlane { .. }
                 | Request::ImportTimeline { .. }
         );
@@ -1895,4 +1992,72 @@ fn an_empty_preedit_ends_the_composition_and_has_one_encoding() {
     let text_at = 4 + 1 + 4 + 8;
     packet[text_at + 5] = b'x';
     assert!(read_event(&mut Cursor::new(packet)).is_err());
+}
+
+#[test]
+fn drag_actions_take_only_their_bits() {
+    assert_eq!(DragActions::new(7).map(DragActions::bits), Some(7));
+    assert!(DragActions::new(8).is_none());
+    assert!(DragActions::MOVE.is_single() && !DragActions::new(3).unwrap().is_single());
+    assert!(!DragActions::NONE.is_single());
+    assert!(DragCancelReason::from_raw(0).is_none());
+    assert!(DragCancelReason::from_raw(7).is_none());
+    let mut bytes = Vec::new();
+    write_event(
+        &mut bytes,
+        &Event::DragAction {
+            offer: 1,
+            action: DragActions::LINK,
+        },
+    )
+    .unwrap();
+    // The action byte follows the 4-byte length, the opcode and the offer.
+    let mut bad = bytes.clone();
+    bad[4 + 1 + 4] = 9;
+    assert!(read_event(&mut Cursor::new(bad)).is_err());
+    assert!(read_event(&mut Cursor::new(bytes)).is_ok());
+}
+
+#[test]
+fn drags_are_version_10_and_never_written_for_version_9() {
+    let enter = Event::DragEnter {
+        surface: 1,
+        offer: 1,
+        serial: 2,
+        x: 0,
+        y: 0,
+        actions: DragActions::COPY,
+        types: 1,
+        modifiers: 0,
+    };
+    assert_eq!(event_since(&enter), 10);
+    let mut bytes = Vec::new();
+    assert!(!write_event_for(&mut bytes, &enter, 9).unwrap());
+    assert!(bytes.is_empty());
+    assert!(write_event_for(&mut bytes, &enter, 10).unwrap());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(bytes.clone()), 10).unwrap(),
+        enter
+    );
+    assert!(read_event_for(&mut Cursor::new(bytes), 9).is_err());
+    let send = Event::DragSend {
+        drag: 1,
+        mime: TextChunk::new("text/plain").unwrap(),
+    };
+    assert!(send.carries_fd());
+    assert!(Request::ReceiveDrop {
+        offer: 1,
+        mime: TextChunk::new("text/plain").unwrap()
+    }
+    .carries_fd());
+    assert!(!Request::FinishDrop { offer: 1 }.carries_fd());
+    assert!(!Event::DragDrop {
+        surface: 1,
+        offer: 1,
+        serial: 1,
+        x: 0,
+        y: 0,
+        action: DragActions::COPY
+    }
+    .carries_fd());
 }

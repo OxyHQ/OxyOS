@@ -3,8 +3,8 @@
 use super::*;
 use oxyos_ipc::{Listener, SharedBuffer};
 use oxyos_protocol::{
-    AccessibleAction, DismissReason, GesturePhase, PointerKind, PreeditText, ScrollSource,
-    ServerConnection, MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
+    AccessibleAction, DismissReason, DragActions, DragCancelReason, GesturePhase, PointerKind,
+    PreeditText, ScrollSource, ServerConnection, MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::mem::{offset_of, size_of};
 
@@ -5106,4 +5106,305 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
         ]
     );
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_drag_abi() {
+    for (name, value) in [
+        ("OXYOS_EVENT_DRAG_ENTER", OXYOS_EVENT_DRAG_ENTER),
+        ("OXYOS_EVENT_DRAG_OFFER_TYPE", OXYOS_EVENT_DRAG_OFFER_TYPE),
+        ("OXYOS_EVENT_DRAG_MOTION", OXYOS_EVENT_DRAG_MOTION),
+        ("OXYOS_EVENT_DRAG_LEAVE", OXYOS_EVENT_DRAG_LEAVE),
+        ("OXYOS_EVENT_DRAG_ACTION", OXYOS_EVENT_DRAG_ACTION),
+        ("OXYOS_EVENT_DRAG_DROP", OXYOS_EVENT_DRAG_DROP),
+        (
+            "OXYOS_EVENT_DRAG_SOURCE_ACTION",
+            OXYOS_EVENT_DRAG_SOURCE_ACTION,
+        ),
+        ("OXYOS_EVENT_DRAG_DROPPED", OXYOS_EVENT_DRAG_DROPPED),
+        ("OXYOS_EVENT_DRAG_FINISHED", OXYOS_EVENT_DRAG_FINISHED),
+        ("OXYOS_EVENT_DRAG_CANCELLED", OXYOS_EVENT_DRAG_CANCELLED),
+        (
+            "OXYOS_DRAG_CANCEL_REFUSED",
+            DragCancelReason::Refused as u32,
+        ),
+        ("OXYOS_DRAG_CANCEL_ESCAPE", DragCancelReason::Escape as u32),
+        (
+            "OXYOS_DRAG_CANCEL_NOT_ACCEPTED",
+            DragCancelReason::NotAccepted as u32,
+        ),
+        (
+            "OXYOS_DRAG_CANCEL_CANCELLED",
+            DragCancelReason::Cancelled as u32,
+        ),
+        ("OXYOS_DRAG_CANCEL_LOCKED", DragCancelReason::Locked as u32),
+        (
+            "OXYOS_DRAG_CANCEL_ABANDONED",
+            DragCancelReason::Abandoned as u32,
+        ),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    assert_eq!(
+        OXYOS_DRAG_CANCEL_ABANDONED,
+        DragCancelReason::Abandoned as u32
+    );
+    for (name, value) in [
+        ("OXYOS_DRAG_COPY", DragActions::COPY),
+        ("OXYOS_DRAG_MOVE", DragActions::MOVE),
+        ("OXYOS_DRAG_LINK", DragActions::LINK),
+    ] {
+        assert_eq!(define(name), i64::from(value.bits()), "{name}");
+    }
+    assert_eq!(OXYOS_DRAG_LINK, DragActions::LINK.bits());
+    for function in [
+        "oxyos_client_create_drag_icon",
+        "oxyos_client_start_drag",
+        "oxyos_client_cancel_drag",
+        "oxyos_client_accept_drag",
+        "oxyos_client_receive_drop",
+        "oxyos_client_finish_drop",
+        "oxyos_client_trash_files",
+    ] {
+        assert!(HEADER.contains(&format!("{function}(")), "{function}");
+    }
+}
+
+/// A connected client against a compositor played on a thread by `play`, after the handshake.
+fn drag_pair<T: Send + 'static>(
+    name: &str,
+    play: impl FnOnce(oxyos_ipc::Connection) -> T + Send + 'static,
+) -> (*mut OxyOSClient, std::thread::JoinHandle<T>) {
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-drag-{name}-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let _ = std::fs::remove_file(&socket);
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        play(server)
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the path is a NUL-terminated string valid for the call.
+    let client = unsafe { oxyos_client_connect(path.as_ptr()) };
+    assert!(!client.is_null());
+    (client, compositor)
+}
+
+/// Polls `client` until an event of `kind`, which it returns.
+///
+/// # Safety
+/// `client` is a live client.
+unsafe fn poll_until(client: *mut OxyOSClient, kind: u32) -> OxyOSEvent {
+    let mut event = OxyOSEvent::default();
+    loop {
+        // SAFETY: forwarded caller contract.
+        match unsafe { oxyos_client_poll(client, &mut event) } {
+            OXYOS_POLL_EVENT if event.kind == kind => return event,
+            OXYOS_POLL_EVENT | OXYOS_POLL_EMPTY => std::thread::yield_now(),
+            other => panic!("poll: {other}"),
+        }
+    }
+}
+
+#[test]
+fn a_source_offers_its_types_and_the_library_writes_the_one_the_target_receives() {
+    let (client, compositor) = drag_pair("source", |server| {
+        let requests: Vec<Request> = (0..4).map(|_| server.recv_request().unwrap().0).collect();
+        let (read, write) = rustix::pipe::pipe().unwrap();
+        server
+            .send_event(
+                &Event::DragSend {
+                    drag: 1,
+                    mime: TextChunk::new("text/uri-list").unwrap(),
+                },
+                Some(write.as_fd()),
+            )
+            .unwrap();
+        drop(write);
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::fs::File::from(read), &mut bytes).unwrap();
+        server
+            .send_event(
+                &Event::DragFinished {
+                    drag: 1,
+                    action: DragActions::MOVE,
+                },
+                None,
+            )
+            .unwrap();
+        (requests, bytes)
+    });
+    let uris = b"file:///home/ana/informe.pdf\r\n";
+    let text = b"/home/ana/informe.pdf";
+    // SAFETY: the client is live until closed at the end; entries point to live locals.
+    unsafe {
+        assert_eq!(oxyos_client_create_drag_icon(client, 9, 48, 48, 24, 24), 0);
+        let entries = [
+            clipboard_entry("text/uri-list", uris),
+            clipboard_entry("text/plain;charset=utf-8", text),
+        ];
+        assert_eq!(
+            oxyos_client_start_drag(client, 1, 9, 77, 0, entries.as_ptr(), 2),
+            i64::from(OXYOS_ERROR),
+            "a drag allowing nothing is refused"
+        );
+        let drag = oxyos_client_start_drag(
+            client,
+            1,
+            9,
+            77,
+            OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE,
+            entries.as_ptr(),
+            2,
+        );
+        assert_eq!(drag, 1);
+        let finished = poll_until(client, OXYOS_EVENT_DRAG_FINISHED);
+        assert_eq!(
+            (finished.code, finished.detail),
+            (1, u32::from(OXYOS_DRAG_MOVE))
+        );
+        let (requests, bytes) = compositor.join().unwrap();
+        let mime = |m: &str| TextChunk::new(m).unwrap();
+        assert_eq!(
+            requests,
+            [
+                Request::CreateDragIcon {
+                    surface: 9,
+                    size: Size::new(48, 48),
+                    hotspot_x: 24,
+                    hotspot_y: 24
+                },
+                Request::DragType {
+                    drag: 1,
+                    mime: mime("text/uri-list")
+                },
+                Request::DragType {
+                    drag: 1,
+                    mime: mime("text/plain;charset=utf-8")
+                },
+                Request::StartDrag {
+                    drag: 1,
+                    surface: 1,
+                    icon: 9,
+                    serial: 77,
+                    actions: DragActions::COPY.union(DragActions::MOVE)
+                },
+            ]
+        );
+        assert_eq!(bytes, uris, "exactly the offered bytes");
+        oxyos_client_close(client);
+    }
+}
+
+#[test]
+fn a_target_is_told_the_drag_answers_it_and_receives_the_drop_through_a_pipe() {
+    let (client, compositor) = drag_pair("target", |server| {
+        let mime = TextChunk::new("text/uri-list").unwrap();
+        for event in [
+            Event::DragEnter {
+                surface: 1,
+                offer: 5,
+                serial: 31,
+                x: 2560,
+                y: 1280,
+                actions: DragActions::COPY.union(DragActions::MOVE),
+                types: 1,
+                modifiers: 0,
+            },
+            Event::DragOfferType { offer: 5, mime },
+        ] {
+            server.send_event(&event, None).unwrap();
+        }
+        let accept = server.recv_request().unwrap().0;
+        server
+            .send_event(
+                &Event::DragDrop {
+                    surface: 1,
+                    offer: 5,
+                    serial: 33,
+                    x: 2560,
+                    y: 1280,
+                    action: DragActions::MOVE,
+                },
+                None,
+            )
+            .unwrap();
+        let (receive, pipe) = server.recv_request().unwrap();
+        std::io::Write::write_all(
+            &mut std::fs::File::from(pipe.unwrap()),
+            b"file:///home/ana/a.txt\r\n",
+        )
+        .unwrap();
+        let finish = server.recv_request().unwrap().0;
+        (accept, receive, finish)
+    });
+    // SAFETY: the client is live until closed at the end; strings point to live locals.
+    unsafe {
+        let enter = poll_until(client, OXYOS_EVENT_DRAG_ENTER);
+        assert_eq!(
+            (
+                enter.surface,
+                enter.serial,
+                enter.code,
+                enter.x,
+                enter.width
+            ),
+            (1, 31, 5, 2560, 1)
+        );
+        assert_eq!(enter.detail, u32::from(OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE));
+        let offered = poll_until(client, OXYOS_EVENT_DRAG_OFFER_TYPE);
+        let text = CStr::from_ptr(offered.text.as_ptr().cast());
+        assert_eq!(text.to_str().unwrap(), "text/uri-list");
+        let mime = "text/uri-list";
+        assert_eq!(
+            oxyos_client_accept_drag(
+                client,
+                5,
+                31,
+                mime.as_ptr().cast(),
+                mime.len(),
+                OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE,
+                OXYOS_DRAG_MOVE
+            ),
+            0
+        );
+        let dropped = poll_until(client, OXYOS_EVENT_DRAG_DROP);
+        assert_eq!((dropped.code, dropped.serial), (5, 33));
+        let pipe = oxyos_client_receive_drop(client, 5, mime.as_ptr().cast(), mime.len());
+        assert!(pipe >= 0);
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::fs::File::from(
+                <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(pipe),
+            ),
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(bytes, b"file:///home/ana/a.txt\r\n");
+        assert_eq!(oxyos_client_finish_drop(client, 5), 0);
+        let (accept, receive, finish) = compositor.join().unwrap();
+        let mime = TextChunk::new(mime).unwrap();
+        assert_eq!(
+            accept,
+            Request::AcceptDrag {
+                offer: 5,
+                serial: 31,
+                mime: PreeditText::new("text/uri-list").unwrap(),
+                actions: DragActions::COPY.union(DragActions::MOVE),
+                preferred: DragActions::MOVE
+            }
+        );
+        assert_eq!(receive, Request::ReceiveDrop { offer: 5, mime });
+        assert_eq!(finish, Request::FinishDrop { offer: 5 });
+        oxyos_client_close(client);
+    }
 }

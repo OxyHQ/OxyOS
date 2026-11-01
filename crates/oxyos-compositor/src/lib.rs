@@ -1239,12 +1239,13 @@ impl Compositor {
         }
         let opcode = request.opcode();
         let fd = match (request, fd) {
-            (Request::ClipboardReceive { .. }, Some(pipe)) => {
+            (Request::ClipboardReceive { .. } | Request::ReceiveDrop { .. }, Some(pipe)) => {
                 if let Err(code) = self.scene.handle(client, request) {
                     return self.refuse(client, opcode, code);
                 }
-                // An allowed paste's pipe goes to the clipboard's owner with its ClipboardSend; a
-                // refused one is closed here, and the receiver reads its end at once.
+                // An allowed paste's pipe goes to the clipboard's owner with its ClipboardSend, an
+                // allowed drop's to the drag's source with its DragSend (ADR 0035); a refused one
+                // is closed here, and the receiver reads its end at once.
                 if let Some(owner) = self.scene.take_transfer() {
                     self.pass_pipe(owner, pipe);
                 }
@@ -4099,6 +4100,15 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         // The person pressed one of its notifications, or an action of one (ADR 0026): of no
         // surface.
         Event::NotificationResponse { .. } => (0, "notification.response"),
+        // Drag and drop (ADR 0035): a target's entering, leaving and drop, and what its source is
+        // told; of no surface for the source.
+        Event::DragEnter { surface, .. } => (surface, "drag.enter"),
+        Event::DragLeave { surface, .. } => (surface, "drag.leave"),
+        Event::DragDrop { surface, .. } => (surface, "drag.drop"),
+        Event::DragSend { .. } => (0, "drag.send"),
+        Event::DragDropped { .. } => (0, "drag.dropped"),
+        Event::DragFinished { .. } => (0, "drag.finished"),
+        Event::DragCancelled { .. } => (0, "drag.cancelled"),
         _ => return None,
     })
 }

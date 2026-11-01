@@ -103,6 +103,11 @@ impl Scene {
         }
     }
 
+    /// The protocol version `client` speaks, if the program said.
+    pub(super) fn version_of(&self, client: ClientId) -> Option<u16> {
+        self.dock.versions.get(&client).copied()
+    }
+
     /// Sends `client` a Ping, unless one to it is unanswered or its version does not answer.
     fn ping(&mut self, client: ClientId) {
         let dock = &mut self.dock;

@@ -33,7 +33,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// and 5; version 7, file choosers (ADR 0029, decision 8), both ways, so the client library never
 /// sends a request a compositor of an older version would close the connection for; version 8,
 /// the dock's application menu (ADR 0034), both ways, `Ping` sent unasked; version 9, a popup's
-/// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001).
+/// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001); version 10,
+/// drag and drop (ADR 0035), both ways, a target's events sent unasked.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -43,6 +44,7 @@ const EVENTS_ADDED: Added = &[
     (6, 210..=212),
     (7, 220..=220),
     (8, 230..=232),
+    (10, 240..=250),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -51,6 +53,7 @@ const REQUESTS_ADDED: Added = &[
     (7, 220..=222),
     (8, 230..=234),
     (9, 235..=235),
+    (10, 240..=247),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

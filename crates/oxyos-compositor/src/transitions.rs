@@ -187,7 +187,7 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
         },
         (Kind::Notification, _) => Motion::faded(motion::NOTIFICATION_FADES_OUT),
         (Kind::Lock, _) => Motion::faded(motion::LOCK_FADES),
-        (Kind::Candidates, _) => Motion::AT_ONCE,
+        (Kind::Candidates | Kind::DragIcon, _) => Motion::AT_ONCE,
     }
 }
 

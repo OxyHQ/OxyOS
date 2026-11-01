@@ -105,6 +105,13 @@ wire_enum! {
     }
 }
 wire_enum! {
+    /// Why a drag ended without a drop (ADR 0035, decision 7): refused at its start, Escape, a
+    /// release over nothing that would take it, the source cancelled it (or destroyed the surface
+    /// it began from), the session locked, or a drop the target never finished pushed out by later
+    /// ones.
+    DragCancelReason: u8 { Refused = 1, Escape = 2, NotAccepted = 3, Cancelled = 4, Locked = 5, Abandoned = 6 }
+}
+wire_enum! {
     PointerKind: u8 { Enter = 1, Leave = 2, Motion = 3, Press = 4, Release = 5, Cancel = 6 }
 }
 wire_enum! {
@@ -498,6 +505,64 @@ impl Wire for MenuFlags {
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
         Self::new(bytes[0]).ok_or_else(|| invalid("unknown menu flags"))
+    }
+}
+
+/// The actions of a drag (ADR 0035), as bits: those a source allows or a target supports, or
+/// the one chosen (one bit; none: nothing would be dropped). Unknown bits are invalid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DragActions(u8);
+
+impl DragActions {
+    pub const NONE: DragActions = DragActions(0);
+    pub const COPY: DragActions = DragActions(1);
+    pub const MOVE: DragActions = DragActions(2);
+    pub const LINK: DragActions = DragActions(4);
+    const ALL: u8 = 7;
+
+    /// The actions with these bits, if every bit is known.
+    pub const fn new(bits: u8) -> Option<Self> {
+        if bits & !Self::ALL == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether every action of `other` is among these (none is among any).
+    pub const fn contains(self, other: DragActions) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    pub const fn intersection(self, other: DragActions) -> DragActions {
+        DragActions(self.0 & other.0)
+    }
+
+    pub const fn union(self, other: DragActions) -> DragActions {
+        DragActions(self.0 | other.0)
+    }
+
+    /// Exactly one action.
+    pub const fn is_single(self) -> bool {
+        self.0 == 1 || self.0 == 2 || self.0 == 4
+    }
+}
+
+impl Wire for DragActions {
+    const SIZE: usize = 1;
+    fn put(&self, out: &mut Vec<u8>) {
+        out.push(self.0);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        Self::new(bytes[0]).ok_or_else(|| invalid("unknown drag actions"))
     }
 }
 
