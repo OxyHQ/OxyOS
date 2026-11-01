@@ -51,7 +51,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut vulkan = None;
     let mut targets = Vec::new();
     if gpu {
-        let mut compositor = oxyos_gpu::VulkanCompositor::new()?;
+        // The card's own GPU, whose buffers it scans out (ADR 0031, decision 14).
+        let mut compositor = match display.card().render_node() {
+            Some(device) => oxyos_gpu::VulkanCompositor::on_device(device)?,
+            None => oxyos_gpu::VulkanCompositor::new()?,
+        };
         for target in compositor.scanout_targets(2, width, height)? {
             use std::os::fd::AsFd;
             targets.push(display.card().import_dmabuf(

@@ -315,6 +315,11 @@ class Window {
   // Whether the GPU's painter has just been put to use (once, when its start is done; its
   // descriptor in `fds` wakes the loop for it): every surface is then drawn whole on it.
   bool painterStarted();
+  // When a painter still starting runs out of time, if one is: the loop wakes then to give up on it.
+  std::optional<std::chrono::steady_clock::time_point> painterDeadline() const {
+    if (!starting_) return std::nullopt;
+    return painterDeadline_;
+  }
 
  private:
   OxyOSClient* client_ = nullptr;

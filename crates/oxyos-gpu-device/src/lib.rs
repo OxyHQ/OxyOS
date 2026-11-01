@@ -364,7 +364,8 @@ pub fn same_device(drm: &vk::PhysicalDeviceDrmPropertiesEXT<'_>, device: u64) ->
 }
 
 /// The DRM cards that drive displays (`/dev/dri/cardN`), from sysfs under `root`: those with a
-/// connector, the firmware's boot display (`boot_vga`) first, then by number. A card with no
+/// connector; those with one connected first (its `status`, the kernel's last answer: reading it
+/// probes nothing), then the firmware's boot display (`boot_vga`), then by number. A card with no
 /// connector drives no display and is never opened to find out.
 pub fn display_cards(root: &Path) -> Vec<PathBuf> {
     let class = root.join("sys/class/drm");
@@ -375,23 +376,31 @@ pub fn display_cards(root: &Path) -> Vec<PathBuf> {
         .flatten()
         .filter_map(|entry| entry.file_name().into_string().ok())
         .collect();
-    let mut cards: Vec<(bool, u32, String)> = names
+    let mut cards: Vec<(bool, bool, u32, String)> = names
         .iter()
         .filter_map(|name| {
             let number: u32 = name.strip_prefix("card")?.parse().ok()?;
             let prefix = format!("{name}-");
-            if !names.iter().any(|other| other.starts_with(&prefix)) {
+            let connectors: Vec<&String> = names
+                .iter()
+                .filter(|other| other.starts_with(&prefix))
+                .collect();
+            if connectors.is_empty() {
                 return None;
             }
+            let connected = connectors.iter().any(|connector| {
+                std::fs::read_to_string(class.join(connector).join("status"))
+                    .is_ok_and(|status| status.trim() == "connected")
+            });
             let boot = std::fs::read_to_string(class.join(name).join("device/boot_vga"))
                 .is_ok_and(|value| value.trim() == "1");
-            Some((!boot, number, name.clone()))
+            Some((!connected, !boot, number, name.clone()))
         })
         .collect();
     cards.sort();
     cards
         .into_iter()
-        .map(|(_, _, name)| Path::new("/dev/dri").join(name))
+        .map(|(_, _, _, name)| Path::new("/dev/dri").join(name))
         .collect()
 }
 

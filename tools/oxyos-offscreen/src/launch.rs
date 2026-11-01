@@ -3952,7 +3952,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.compositor.keep_frame = true;
     }
     if launch.gpu {
-        let compositor = oxyos_gpu::VulkanCompositor::new()?;
+        // On a display, its card's own GPU (its buffers are scanned out there); else the GPU that
+        // drives the displays (ADR 0031, decision 14).
+        let card_gpu = session.compositor.screens[0]
+            .display
+            .as_ref()
+            .and_then(|display| display.card().render_node());
+        let compositor = match card_gpu {
+            Some(device) => oxyos_gpu::VulkanCompositor::on_device(device)?,
+            None => oxyos_gpu::VulkanCompositor::new()?,
+        };
         eprintln!(
             "[gpu] composing on {} ({:?})",
             compositor.device_name(),

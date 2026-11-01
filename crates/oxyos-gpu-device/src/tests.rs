@@ -231,6 +231,26 @@ fn an_unknown_gpu_loads_nothing_rather_than_everything() {
 }
 
 #[test]
+fn a_card_with_a_display_connected_comes_before_the_boot_display() {
+    let machine = Machine::new("connected");
+    machine
+        .gpu("0000:01:00.0", "amdgpu", 0, &["DP-1"], false)
+        .gpu("0000:00:02.0", "i915", 1, &["HDMI-A-1"], true);
+    // The boot card's HDMI is unplugged; a monitor is on the other card's DP.
+    for (connector, status) in [
+        ("card0-DP-1", "connected"),
+        ("card1-HDMI-A-1", "disconnected"),
+    ] {
+        let dir = machine.root.join("sys/class/drm").join(connector);
+        fs::remove_file(&dir).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("status"), format!("{status}\n")).unwrap();
+    }
+    assert_eq!(machine.cards(), ["/dev/dri/card0", "/dev/dri/card1"]);
+    assert_eq!(display_device(&machine.root), makedev(226, 128));
+}
+
+#[test]
 fn the_boot_display_is_tried_first() {
     let machine = Machine::new("two-displays");
     machine
