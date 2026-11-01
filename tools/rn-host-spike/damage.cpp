@@ -222,7 +222,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
   stretched_ = tree.stretches();
   if (same) {
     if (!(edit == edit_)) {
-      std::vector<Tag> changed{edit_.tag, edit.tag};
+      std::vector<Tag> changed{edit_.tag, edit.tag, edit_.dropTag, edit.dropTag};
       // An input whose text scrolled, focused or not (the wheel scrolls any input under it).
       auto scroll = [](const TextInputEdit& edit, Tag tag) {
         auto it = edit.scrolls.find(tag);

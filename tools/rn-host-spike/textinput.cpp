@@ -248,20 +248,28 @@ void TextEditing::command(const ShadowView& view, const std::string& name, const
 }
 
 TextInputEdit TextEditing::edit() const {
-  if (focused_ < 0) return {};
-  return TextInputEdit{.tag = focused_,
-                       .selectionStart = std::min(anchor_, caret_),
-                       .selectionEnd = std::max(anchor_, caret_),
-                       .composeStart = composeStart_,
-                       .composeEnd = composeEnd_,
-                       .segments = segments_,
-                       .scrolls = scrolls_,
-                       .caretLit = caretLit_,
-                       .key = key_,
-                       .dark = dark_};
+  TextInputEdit edit;
+  if (focused_ >= 0) {
+    edit = TextInputEdit{.tag = focused_,
+                         .selectionStart = std::min(anchor_, caret_),
+                         .selectionEnd = std::max(anchor_, caret_),
+                         .composeStart = composeStart_,
+                         .composeEnd = composeEnd_,
+                         .segments = segments_,
+                         .caretLit = caretLit_,
+                         .key = key_,
+                         .dark = dark_};
+  }
+  // Inputs keep their text scrolled without focus, as an EditText does.
+  edit.scrolls = scrolls_;
+  if (dropTag_ >= 0) {
+    edit.dropTag = dropTag_;
+    edit.dropOffset = dropOffset_;
+  }
+  return edit;
 }
 
-void TextEditing::focus(Tag tag) {
+void TextEditing::focus(Tag tag, std::optional<size_t> at) {
   if (tag == focused_) return;
   if (focused_ >= 0) blur();
   auto it = tree_.views().find(tag);
@@ -288,14 +296,17 @@ void TextEditing::focus(Tag tag) {
   anchor_ = caret_ = text_.size();
   auto kept = unfocusedSelections_.find(tag);
   std::optional<size_t> pressed;
-  if (press_ && !contextPress_) pressed = offsetAt(press_->first, press_->second.x, press_->second.y, true);
-  if (contextPress_) {
+  if (press_ && !contextPress_ && !at) pressed = offsetAt(press_->first, press_->second.x, press_->second.y, true);
+  if (at) {
+    // A drop (dropText): the caret where the text goes, the edit telling the selection.
+    anchor_ = caret_ = std::min(*at, text_.size());
+  } else if (contextPress_) {
     // A context click (contextMenu): the word under it, or the caret there off a word.
-    auto [surface, at] = *contextPress_;
-    if (auto word = wordUnder(surface, at.x, at.y)) {
+    auto [surface, point] = *contextPress_;
+    if (auto word = wordUnder(surface, point.x, point.y)) {
       anchor_ = word->first;
       caret_ = word->second;
-    } else if (auto offset = offsetAt(surface, at.x, at.y, false)) {
+    } else if (auto offset = offsetAt(surface, point.x, point.y, false)) {
       anchor_ = caret_ = *offset;
     }
   } else if (props->selectTextOnFocus) {
@@ -319,7 +330,7 @@ void TextEditing::focus(Tag tag) {
   if (kept != unfocusedSelections_.end()) unfocusedSelections_.erase(kept);
   it->second.view.eventEmitter->dispatchEvent("focus", folly::dynamic::object("target", tag));
   Report::get().deliver("focus", 0, it->second.view);
-  selectionChanged();
+  if (!at) selectionChanged();
   if (tracing()) std::cerr << "[text] focus " << tag << " \"" << logged(text_) << "\" caret " << caret_ << "\n";
 }
 
@@ -643,8 +654,14 @@ void TextEditing::key(uint32_t code, uint64_t serial) {
 }
 
 std::optional<size_t> TextEditing::offsetAt(uint32_t surface, float x, float y, bool inside) const {
-  auto it = tree_.views().find(focused_);
-  auto placement = locate_(focused_);
+  return offsetIn(focused_, text_, surface, x, y, inside);
+}
+
+std::optional<size_t> TextEditing::offsetIn(Tag tag, const std::string& value, uint32_t surface, float x, float y,
+                                            bool inside) const {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end()) return std::nullopt;
+  auto placement = locate_(tag);
   if (it == tree_.views().end() || !placement || placement->surface != surface) return std::nullopt;
   const auto& frame = placement->frame;
   if (inside && (x < frame.origin.x || y < frame.origin.y || x >= frame.origin.x + frame.size.width ||
@@ -653,9 +670,38 @@ std::optional<size_t> TextEditing::offsetAt(uint32_t surface, float x, float y, 
   }
   auto content = it->second.view.layoutMetrics.getContentFrame();
   Point scroll{};
-  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
-  return TextInputGeometry(it->second.view, text_)
+  if (auto at = scrolls_.find(tag); at != scrolls_.end()) scroll = at->second;
+  return TextInputGeometry(it->second.view, value)
       .offsetAt(x - frame.origin.x - content.origin.x + scroll.x, y - frame.origin.y - content.origin.y + scroll.y);
+}
+
+std::string TextEditing::valueOf(Tag tag) const {
+  if (tag == focused_) return text_;
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end() || !it->second.view.state) return {};
+  return std::static_pointer_cast<const TextInputState>(it->second.view.state)
+      ->getData()
+      .attributedStringBox.getValue()
+      .getString();
+}
+
+bool TextEditing::onSelection(uint32_t surface, float x, float y) const {
+  auto it = tree_.views().find(focused_);
+  auto placement = locate_(focused_);
+  if (it == tree_.views().end() || !placement || placement->surface != surface || anchor_ == caret_) return false;
+  auto content = it->second.view.layoutMetrics.getContentFrame();
+  Point scroll{};
+  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
+  float px = x - placement->frame.origin.x - content.origin.x + scroll.x;
+  float py = y - placement->frame.origin.y - content.origin.y + scroll.y;
+  TextInputGeometry geometry(it->second.view, text_);
+  for (const auto& rect : geometry.span(std::min(anchor_, caret_), std::max(anchor_, caret_))) {
+    if (px >= rect.origin.x && px < rect.origin.x + rect.size.width && py >= rect.origin.y &&
+        py < rect.origin.y + rect.size.height) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void TextEditing::pointer(const OxyOSEvent& event) {
@@ -678,11 +724,19 @@ void TextEditing::pointer(const OxyOSEvent& event) {
             : taps_ == Taps::Double ? Taps::Triple
                                     : Taps::Single;
     press_ = {event.surface, Point{x, y}};
+    pendingDrag_.reset();
     // A press in the focused input moves its caret (Shift extends the selection) and starts a
     // drag; a double click selects the word under it and a triple click its paragraph, and their
     // drag grows by words or paragraphs. A press in an unfocused input waits for its focus.
     if (focused_ < 0) return;
     if (auto at = offsetAt(event.surface, x, y, true)) {
+      // A press on the selection may drag it, as on a Mac: the caret waits for the release. Never
+      // a password's, as its text is never copied.
+      if (taps_ == Taps::Single && !shift_ && drag_.start && !secure() && composeStart_ == composeEnd_ &&
+          onSelection(event.surface, x, y)) {
+        pendingDrag_ = PendingDrag{.surface = event.surface, .at = Point{x, y}, .offset = *at};
+        return;
+      }
       endComposition();
       if (taps_ == Taps::Single) {
         select(*at, shift_);
@@ -692,6 +746,18 @@ void TextEditing::pointer(const OxyOSEvent& event) {
       }
       dragging_ = true;
     }
+  } else if (event.detail == OXYOS_POINTER_MOTION && pendingDrag_) {
+    if (event.surface != pendingDrag_->surface ||
+        std::hypot(x - pendingDrag_->at.x, y - pendingDrag_->at.y) < kDragThreshold) {
+      return;
+    }
+    auto pressed = *pendingDrag_;
+    pendingDrag_.reset();
+    if (startTextDrag(pressed)) return;
+    // No drag to be had (a compositor without drag and drop): the press selects from where it was.
+    select(pressed.offset, false);
+    dragging_ = true;
+    if (auto at = offsetAt(event.surface, x, y, false)) select(*at, true);
   } else if (event.detail == OXYOS_POINTER_MOTION && dragging_) {
     if (auto at = offsetAt(event.surface, x, y, false)) {
       if (taps_ == Taps::Single) {
@@ -703,8 +769,196 @@ void TextEditing::pointer(const OxyOSEvent& event) {
   } else if ((event.detail == OXYOS_POINTER_RELEASE && event.code == kPrimaryButton) ||
              event.detail == OXYOS_POINTER_CANCEL || event.detail == OXYOS_POINTER_LEAVE) {
     if (event.detail == OXYOS_POINTER_RELEASE) lastRelease_ = eventTimeMs(event);
+    // Released on the selection without dragging it: the caret where it was pressed, as a click.
+    if (event.detail == OXYOS_POINTER_RELEASE && pendingDrag_) select(pendingDrag_->offset, false);
+    pendingDrag_.reset();
     dragging_ = false;
   }
+}
+
+bool TextEditing::startTextDrag(const PendingDrag& pressed) {
+  auto it = tree_.views().find(focused_);
+  auto placement = locate_(focused_);
+  if (it == tree_.views().end() || !placement || !drag_.start) return false;
+  const ShadowView& view = it->second.view;
+  size_t from = std::min(anchor_, caret_), to = std::max(anchor_, caret_);
+  // The image is the selected text as the input draws it, where it shows, three quarters opaque,
+  // the point pressed kept under the pointer.
+  auto content = view.layoutMetrics.getContentFrame();
+  auto size = view.layoutMetrics.frame.size;
+  Point scroll{};
+  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
+  std::optional<Rect> bounds;
+  for (const auto& rect : TextInputGeometry(view, text_).span(from, to)) {
+    float left = std::max(0.0f, content.origin.x + rect.origin.x - scroll.x);
+    float top = std::max(0.0f, content.origin.y + rect.origin.y - scroll.y);
+    float right = std::min(size.width, content.origin.x + rect.origin.x + rect.size.width - scroll.x);
+    float bottom = std::min(size.height, content.origin.y + rect.origin.y + rect.size.height - scroll.y);
+    if (right <= left || bottom <= top) continue;
+    Rect shown{{left, top}, {right - left, bottom - top}};
+    if (!bounds) {
+      bounds = shown;
+    } else {
+      float x0 = std::min(bounds->origin.x, left), y0 = std::min(bounds->origin.y, top);
+      float x1 = std::max(bounds->getMaxX(), right), y1 = std::max(bounds->getMaxY(), bottom);
+      bounds = Rect{{x0, y0}, {x1 - x0, y1 - y0}};
+    }
+  }
+  std::optional<DragImage> image;
+  if (bounds) {
+    Point origin{placement->frame.origin.x + bounds->origin.x, placement->frame.origin.y + bounds->origin.y};
+    image = DragImage{
+        .size = bounds->size,
+        .hotspot = {std::clamp(pressed.at.x - origin.x, 0.0f, bounds->size.width),
+                    std::clamp(pressed.at.y - origin.y, 0.0f, bounds->size.height)},
+        .draw = [view, value = text_, from, to, scroll, bounds = *bounds](const Display& display, Canvas& canvas) {
+          drawTextDragImage(view, value, from, to, scroll, bounds, display, canvas);
+        }};
+  }
+  textDrag_ = TextDrag{.tag = focused_, .text = text_, .from = from, .to = to};
+  return drag_.start(text_.substr(from, to - from), std::move(image),
+                     [this](std::optional<std::string> action) { textDragEnded(action); });
+}
+
+void TextEditing::textDragEnded(const std::optional<std::string>& action) {
+  if (!textDrag_) return;
+  TextDrag drag = std::move(*textDrag_);
+  textDrag_.reset();
+  if (action != "move" || drag.placed) return;
+  // Moved to another target: the source deletes what it dragged, as one edit, while its text is
+  // still what was dragged (typing meanwhile leaves it be).
+  if (drag.tag == focused_) {
+    if (text_ != drag.text) return;
+    endComposition();
+    merging_ = false;
+    replace(drag.from, drag.to, "", "");
+    merging_ = false;
+    return;
+  }
+  // An input that lost focus to the field the text was moved to: its text changes as an edit of
+  // its own, its change told and its undo able to take it back.
+  auto it = tree_.views().find(drag.tag);
+  if (it == tree_.views().end() || !it->second.view.state) return;
+  const auto& view = it->second.view;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  const auto& state = std::static_pointer_cast<const TextInputState>(view.state);
+  auto data = state->getData();
+  if (!props->editable || data.attributedStringBox.getValue().getString() != drag.text) return;
+  std::string text = drag.text.substr(0, drag.from) + drag.text.substr(drag.to);
+  data.attributedStringBox = AttributedStringBox{attributed(*props, text)};
+  int count = static_cast<int>(++data.mostRecentEventCount);
+  state->updateState(std::move(data));
+  int at = utf16Length(text, drag.from);
+  view.eventEmitter->dispatchEvent(
+      "change", folly::dynamic::object("text", text)("eventCount", count)("target", drag.tag)(
+                    "selection", folly::dynamic::object("start", at)("end", at)));
+  Report::get().deliver("change", 0, view, folly::dynamic::object("text", text)("eventCount", count));
+  auto& history = histories_[drag.tag];
+  if (history.text != drag.text) history = History{};
+  history.entries.resize(history.done);
+  history.entries.push_back(
+      {Snapshot{drag.text, drag.from, drag.to}, Snapshot{text, drag.from, drag.from}, Edit::Delete});
+  if (history.entries.size() > kHistoryLimit) history.entries.erase(history.entries.begin());
+  history.done = history.entries.size();
+  history.text = text;
+}
+
+bool TextEditing::takesDrop(Tag tag) const {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end() || !it->second.view.state || !it->second.view.componentName ||
+      std::strcmp(it->second.view.componentName, "AndroidTextInput") != 0) {
+    return false;
+  }
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  return props->editable && !props->secureTextEntry;
+}
+
+std::optional<bool> TextEditing::dragOver(Tag tag, uint32_t surface, float x, float y, bool own) {
+  auto at = takesDrop(tag) ? offsetIn(tag, valueOf(tag), surface, x, y, false) : std::nullopt;
+  bool mine = own && textDrag_ && textDrag_->tag == tag && tag == focused_ && text_ == textDrag_->text;
+  if (!at || (mine && *at > textDrag_->from && *at < textDrag_->to)) {
+    dropTag_ = -1;
+    return std::nullopt;
+  }
+  dropTag_ = tag;
+  dropOffset_ = *at;
+  return mine;
+}
+
+std::string TextEditing::fitted(const AndroidTextInputProps& props, std::string text, int kept) const {
+  if (!props.multiline) {
+    // A line break, CR LF included, is one space.
+    std::string spaced;
+    for (size_t i = 0; i < text.size(); ++i) {
+      if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n') continue;
+      spaced += text[i] == '\n' || text[i] == '\r' ? ' ' : text[i];
+    }
+    text = std::move(spaced);
+  }
+  if (props.maxLength > 0) {
+    int room = std::max(0, props.maxLength - kept);
+    text.resize(byteOffset(text, room));
+    // A character of two UTF-16 units that does not fit is left out whole.
+    if (utf16Length(text) > room) text.resize(previousBoundary(text, text.size()));
+  }
+  return text;
+}
+
+bool TextEditing::dropOwn(Tag tag, uint32_t surface, float x, float y, bool copy) {
+  if (!textDrag_ || textDrag_->tag != tag || tag != focused_ || text_ != textDrag_->text) return false;
+  auto it = tree_.views().find(tag);
+  auto at = offsetAt(surface, x, y, false);
+  if (it == tree_.views().end() || !at) return false;
+  auto& drag = *textDrag_;
+  drag.placed = true;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  std::string dragged = text_.substr(drag.from, drag.to - drag.from);
+  std::string text;
+  size_t start = *at;
+  if (copy) {
+    dragged = fitted(*props, dragged, utf16Length(text_));
+    text = text_.substr(0, start) + dragged + text_.substr(start);
+  } else {
+    if (start > drag.from && start < drag.to) return true;
+    // Where the drop point is once the text has left its place.
+    if (start >= drag.to) start -= drag.to - drag.from;
+    std::string rest = text_.substr(0, drag.from) + text_.substr(drag.to);
+    text = rest.substr(0, start) + dragged + rest.substr(start);
+  }
+  if (dragged.empty()) return true;
+  // One edit, the text taken left selected, as a Mac leaves it.
+  Snapshot before{text_, anchor_, caret_};
+  merging_ = false;
+  update(std::move(text), start, start + dragged.size());
+  record(before, copy ? Edit::Insert : Edit::Replace);
+  merging_ = false;
+  return true;
+}
+
+void TextEditing::dropText(Tag tag, uint32_t surface, float x, float y, std::string text) {
+  if (!takesDrop(tag)) return;
+  auto at = offsetIn(tag, valueOf(tag), surface, x, y, false);
+  if (!at) return;
+  // The input takes focus with its caret at the drop point; the edit tells its selection.
+  bool focusing = tag != focused_;
+  if (focusing) focus(tag, *at);
+  if (tag != focused_) return;
+  endComposition();
+  auto it = tree_.views().find(tag);
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  text = fitted(*props, std::move(text), utf16Length(text_));
+  size_t from = std::min(*at, text_.size());
+  while (continuation(text_, from)) --from;
+  if (text.empty()) {
+    if (focusing) selectionChanged();
+    return;
+  }
+  // One edit of its own, as a paste, the text dropped left selected, as a Mac leaves it.
+  Snapshot before{text_, anchor_, caret_};
+  merging_ = false;
+  update(text_.substr(0, from) + text + text_.substr(from), from, from + text.size());
+  record(before, Edit::Insert);
+  merging_ = false;
 }
 
 std::pair<size_t, size_t> TextEditing::unitAt(size_t offset) const {

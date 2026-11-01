@@ -29,6 +29,7 @@
 #include <include/core/SkM44.h>
 #include <include/core/SkMaskFilter.h>
 #include <include/core/SkPaint.h>
+#include <include/core/SkPathBuilder.h>
 #include <include/core/SkPicture.h>
 #include <include/core/SkPixmap.h>
 #include <include/core/SkRRect.h>
@@ -412,11 +413,18 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, f
         }
       }
     }
-    if (edit->selectionStart == edit->selectionEnd && edit->caretLit && edit->key) {
+    if (edit->selectionStart == edit->selectionEnd && edit->caretLit && edit->key && editing.dropTag != view.tag) {
       auto caret = geometry->caret(edit->selectionEnd);
       SkColor4f color = props->cursorColor ? faded(props->cursorColor, opacity) : ink;
       fillCaret(draw, left + caret.x, boxTop + caret.top, caret.height, color);
     }
+  }
+  // Text dragged over the input: where it would drop, as a caret that does not blink.
+  if (editing.dropTag == view.tag) {
+    auto caret = (geometry ? *geometry : TextInputGeometry(view, value)).caret(editing.dropOffset);
+    SkColor4f ink = faded(textColor, opacity, SkColor4f{0, 0, 0, 1});
+    fillCaret(draw, left + caret.x, boxTop + caret.top, caret.height,
+              props->cursorColor ? faded(props->cursorColor, opacity) : ink);
   }
   canvas.restore();
 }
@@ -1463,6 +1471,34 @@ RenderStats drawDragImage(const ViewTree& tree, Tag view, const Display& display
     Draw draw{&target, display.scale, &stats, &edit};
     draw.placesWindows = false;
     drawView(tree, view, -origin.x, -origin.y, Clip{0, 0, display.width, display.height}, 0.75f, draw);
+  });
+  return stats;
+}
+
+RenderStats drawTextDragImage(const ShadowView& view, const std::string& value, size_t from, size_t to, Point scroll,
+                              Rect bounds, const Display& display, Canvas& canvas) {
+  allocate(canvas, display.pixelWidth(), display.pixelHeight(), 0);
+  RenderStats stats;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  if (!props || props->secureTextEntry || from >= to) return stats;
+  auto content = view.layoutMetrics.getContentFrame();
+  auto layout = layoutInput(*props, inputText(*props, value), content.size.width);
+  TextInputGeometry geometry(view, value);
+  // Where drawTextInput puts the text and the range's rectangles, in the view's coordinates.
+  float left = content.origin.x - scroll.x;
+  float top = content.origin.y - scroll.y + (props->multiline ? 0 : (content.size.height - layout.height) / 2);
+  float boxTop = content.origin.y - scroll.y;
+  TextInputEdit edit;
+  drawOnto(canvas, display.scale, std::nullopt, [&](SkCanvas& target) {
+    Draw draw{&target, display.scale, &stats, &edit};
+    draw.placesWindows = false;
+    target.translate(-bounds.origin.x, -bounds.origin.y);
+    SkPathBuilder within;
+    for (const auto& rect : geometry.span(from, to)) {
+      within.addRect(SkRect::MakeXYWH(left + rect.origin.x, boxTop + rect.origin.y, rect.size.width, rect.size.height));
+    }
+    target.clipPath(within.detach(), true);
+    drawGlyphs(draw, layout, left, top, 0.75f);
   });
   return stats;
 }

@@ -60,7 +60,8 @@ struct Placement {
 // paragraphs), deletion by character, by word (Alt) or to the line's edge (Ctrl), committed text
 // that replaces the selection, an input method's composition (preedit), which is part of the text
 // while it lasts, undo and redo (Ctrl+Z, Ctrl+Shift+Z), copy, cut and paste, text scrolled to
-// keep the caret in view, and the caret's blinking.
+// keep the caret in view, the caret's blinking, and dragging selected text out of an input and
+// dropping text into one (the platform's drag and drop, docs/adr/0035-drag-and-drop.mdx).
 class TextEditing {
  public:
   // `locate` places a view: text, keys and pointer input reach the focused input only on its
@@ -81,6 +82,34 @@ class TextEditing {
   // a popup of it): what a command chosen in the input's context menu cites to copy and paste.
   void useInputSerial(std::function<uint64_t()> serial) { inputSerial_ = std::move(serial); }
 
+  // The platform's drag (drag.h): a drag of `text` from the press held, allowing copy and move,
+  // with `image` under the pointer; `done` receives the action the drop took, or nothing when it
+  // was cancelled. False if it did not start (`done` is then called at once).
+  struct DragAccess {
+    std::function<bool(const std::string& text, std::optional<DragImage> image,
+                       std::function<void(std::optional<std::string>)> done)>
+        start;
+  };
+  void useDrag(DragAccess drag) { drag_ = std::move(drag); }
+
+  // Text dropped into inputs, as an NSTextView takes it (docs/adr/0037-text-editing.mdx). Points
+  // are logical and local to `surface`.
+  // Whether `tag` is an input text can be dropped into: editable and not secure.
+  bool takesDrop(facebook::react::Tag tag) const;
+  // Text dragged over the input `tag`: its drop caret shown where the text would go. Nothing if a
+  // drop there would do nothing (over the very text it drags); else whether it prefers a move:
+  // its own selected text (`own`: the drag is this client's) moves within it, anything else copies.
+  std::optional<bool> dragOver(facebook::react::Tag tag, uint32_t surface, float x, float y, bool own);
+  // The drag left the inputs: no drop caret.
+  void dragLeft() { dropTag_ = -1; }
+  // The input's own dragged text dropped back into it at that point: moved there (copied with
+  // `copy`) as one edit and selected. False if the input drags no text of its own.
+  bool dropOwn(facebook::react::Tag tag, uint32_t surface, float x, float y, bool copy);
+  // Text dropped into the input at that point: inserted there as one edit and selected, the input
+  // taking focus; as a paste, no key press, and a single-line input's line breaks become spaces.
+  // Only what `maxLength` leaves room for goes in, as Android's LengthFilter keeps it.
+  void dropText(facebook::react::Tag tag, uint32_t surface, float x, float y, std::string text);
+
   // `autoFocus`, as Android's ReactEditText takes it: an input inserted with it takes focus once it
   // is attached. `inserted` sees a transaction before it is applied; `attached` focuses after.
   void inserted(const facebook::react::ShadowViewMutationList& mutations);
@@ -99,7 +128,10 @@ class TextEditing {
   // menu, for an input that takes no focus (not editable).
   bool contextMenu(facebook::react::Tag tag, uint32_t surface, float x, float y);
   // A gesture handler took the pointer's gesture (gesture-handler.h): a drag selecting text stops.
-  void releaseDrag() { dragging_ = false; }
+  void releaseDrag() {
+    dragging_ = false;
+    pendingDrag_.reset();
+  }
   // A change from the compositor's text input for the focused input (ADR 0008), applied as one
   // edit, as Android's input connection applies a batch of deleteSurroundingText, commitText and
   // setComposingText. `current`: made for the state last told; if not, its deletion is dropped,
@@ -165,7 +197,8 @@ class TextEditing {
   TextInputEdit edit() const;
 
  private:
-  void focus(facebook::react::Tag tag);
+  // Focuses `tag`; with `at`, its caret there, the selection told by the edit that follows.
+  void focus(facebook::react::Tag tag, std::optional<size_t> at = std::nullopt);
   void blur();
   void key(uint32_t code, uint64_t serial);
   // Ctrl+V's text arriving for the input `tag`: replaces its selection, as one edit.
@@ -194,8 +227,30 @@ class TextEditing {
   void extendByUnit(size_t offset);
   // Selects from `anchor` to `caret` at once (one selection change).
   void selectRange(size_t anchor, size_t caret);
-  // The byte offset under a surface-local x, for the focused input.
+  // The byte offset under a surface-local point, for the focused input; and for any input whose
+  // text is `value`. With `inside`, none outside the input.
   std::optional<size_t> offsetAt(uint32_t surface, float x, float y, bool inside) const;
+  std::optional<size_t> offsetIn(facebook::react::Tag tag, const std::string& value, uint32_t surface, float x,
+                                 float y, bool inside) const;
+  // An input's text, focused or not.
+  std::string valueOf(facebook::react::Tag tag) const;
+  // Whether a surface-local point is on the focused input's selection as drawn.
+  bool onSelection(uint32_t surface, float x, float y) const;
+  // A primary press held on the selection, as NSTextView takes it: moved kDragThreshold it drags
+  // the selected text, released first it places the caret where it was pressed.
+  struct PendingDrag {
+    uint32_t surface = 0;
+    facebook::react::Point at;
+    size_t offset = 0;
+  };
+  static constexpr float kDragThreshold = 4;
+  // Starts the drag of the focused input's selection from `pressed`; false if it did not start.
+  bool startTextDrag(const PendingDrag& pressed);
+  // What came of it: moved to another target, the dragged text is deleted (ADR 0035, decision 6).
+  void textDragEnded(const std::optional<std::string>& action);
+  // `text` made what an input takes: a single-line input's line breaks as spaces, and no more
+  // than `maxLength` leaves room for beside `kept` UTF-16 units.
+  std::string fitted(const facebook::react::AndroidTextInputProps& props, std::string text, int kept) const;
   // Replaces bytes [from, to) with `insert` as the user's edit, the caret after it: new state,
   // then events, the key press (if any) first, and the edit recorded for undo. `composing` keeps
   // the inserted text as the composition.
@@ -275,6 +330,20 @@ class TextEditing {
   // A context click focusing an input (contextMenu): where it was, so focus selects what the click
   // selects rather than placing the caret where the last primary press was.
   std::optional<std::pair<uint32_t, facebook::react::Point>> contextPress_;
+  DragAccess drag_;
+  std::optional<PendingDrag> pendingDrag_;
+  // The text this client drags out of an input: the input, its text and the range dragged then,
+  // and whether it was dropped back into the input, and so placed already.
+  struct TextDrag {
+    facebook::react::Tag tag = -1;
+    std::string text;
+    size_t from = 0, to = 0;
+    bool placed = false;
+  };
+  std::optional<TextDrag> textDrag_;
+  // The input text dragged over would drop into, and where: its drop caret.
+  facebook::react::Tag dropTag_ = -1;
+  size_t dropOffset_ = 0;
   // The latest primary press: a press focuses its input on release (JavaScript sends `focus`),
   // and the caret goes where it was pressed.
   std::optional<std::pair<uint32_t, facebook::react::Point>> press_;

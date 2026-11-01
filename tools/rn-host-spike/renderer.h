@@ -10,6 +10,7 @@
 #include <include/core/SkImage.h>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -226,6 +227,10 @@ struct TextInputEdit {
   // drawn and the selection is macOS's unemphasized one, for the appearance (`dark`).
   bool key = true;
   bool dark = false;
+  // The field text dragged over it would drop into, focused or not, and where: a drop caret drawn
+  // there, steady, in place of the field's own (docs/adr/0037-text-editing.mdx). None if -1.
+  facebook::react::Tag dropTag = -1;
+  size_t dropOffset = 0;
   bool operator==(const TextInputEdit&) const = default;
 };
 
@@ -370,6 +375,20 @@ RenderStats drawRegionDamaged(const ViewTree& tree, facebook::react::Tag region,
 // Draws a view itself, its subtree with it, at the canvas's origin and three quarters opaque onto a
 // transparent canvas of `display`'s size: a drag's image (docs/adr/0035-drag-and-drop.mdx).
 RenderStats drawDragImage(const ViewTree& tree, facebook::react::Tag view, const Display& display, Canvas& canvas);
+// Draws a text input's text [from, to) of `value` (UTF-8 byte offsets) as the input draws it, its
+// text scrolled by `scroll`, three quarters opaque and only within that range's rectangles, onto a
+// transparent canvas of `display`'s size with `bounds` (in the view's own coordinates) at its
+// origin: dragged text's image, as a Mac draws a text view's dragged selection.
+RenderStats drawTextDragImage(const facebook::react::ShadowView& view, const std::string& value, size_t from,
+                              size_t to, facebook::react::Point scroll, facebook::react::Rect bounds,
+                              const Display& display, Canvas& canvas);
+// What a drag shows under the pointer (drag.h): its size in logical pixels, the point of it kept
+// under the pointer, and how it is drawn at the scale of the output it is on.
+struct DragImage {
+  facebook::react::Size size;
+  facebook::react::Point hotspot;
+  std::function<void(const Display&, Canvas&)> draw;
+};
 // A view's frame in its root's coordinates (window-local logical pixels), as drawn: scroll
 // offsets applied. Empty if the view is not in the tree.
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);

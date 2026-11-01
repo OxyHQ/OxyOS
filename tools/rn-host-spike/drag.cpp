@@ -167,16 +167,48 @@ void DragDrop::dispatch(Tag view, const char* name, const folly::dynamic& payloa
   Report::get().deliver(std::string("drag.") + name, offer_ ? offer_->surface : 0, it->second.view, payload);
 }
 
+std::string DragDrop::fieldType() const {
+  if (!offer_) return {};
+  auto offered = [&](const char* type) -> std::optional<std::string> {
+    for (const auto& t : offer_->types) {
+      if (lower(t) == type) return t;
+    }
+    return std::nullopt;
+  };
+  if (offered(kFilesType)) return {};
+  for (const char* type : {"text/plain;charset=utf-8", "text/plain", "text/uri-list"}) {
+    if (auto found = offered(type)) return *found;
+  }
+  return {};
+}
+
 void DragDrop::update() {
   if (!offer_ || offer_->types.size() < offer_->expected) return;
   Tag found = -1;
+  bool field = false;
   std::string mime;
+  uint8_t actions = 0, preferred = 0;
   auto content = surfaces_(offer_->surface);
   if (content) {
     Tag hit = hitTest(tree_, *content, offer_->x, offer_->y);
     auto path = ancestry(tree_, hit);
-    // The innermost drop target that takes a type offered.
+    // The innermost drop target that takes a type offered: a text input that takes text, or a
+    // drop target (Bloom's DropZone).
     for (auto at = path.rbegin(); at != path.rend() && found < 0; ++at) {
+      if (editing_ && editing_->takesDrop(*at)) {
+        std::string type = fieldType();
+        if (type.empty()) continue;
+        found = *at;
+        field = true;
+        // It shows where the text would go; over the very text it drags, it takes nothing. Text
+        // dragged within one field moves, and copies from anywhere else, as an NSTextView's does.
+        if (auto move = editing_->dragOver(found, offer_->surface, offer_->x, offer_->y, offer_->own)) {
+          mime = type;
+          actions = OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE;
+          preferred = *move ? OXYOS_DRAG_MOVE : OXYOS_DRAG_COPY;
+        }
+        break;
+      }
       const auto* props = target(*at);
       if (!props) continue;
       for (const auto& kind : offeredKinds(*props)) {
@@ -193,8 +225,8 @@ void DragDrop::update() {
       if (!mime.empty()) found = *at;
     }
   }
-  uint8_t actions = 0, preferred = 0;
-  if (const auto* props = target(found)) {
+  if (!field && editing_) editing_->dragLeft();
+  if (const auto* props = field ? nullptr : target(found)) {
     for (const auto& action : lines(props->dropActions)) {
       uint8_t bit = actionBit(action);
       if (preferred == 0) preferred = bit;
@@ -210,17 +242,22 @@ void DragDrop::update() {
     offer_->actions = actions;
     offer_->preferred = preferred;
   }
-  if (found != offer_->view) {
-    if (offer_->view >= 0) dispatch(offer_->view, "dragLeave", folly::dynamic::object());
-    offer_->view = found;
-    if (found >= 0) dispatch(found, "dragEnter", event(found));
-  } else if (found >= 0) {
-    dispatch(found, "dragOver", event(found));
+  // JavaScript hears of the drop targets; a text input is the platform's, as an EditText's drags
+  // are its own.
+  Tag was = offer_->field ? -1 : offer_->view, now = field ? -1 : found;
+  offer_->view = found;
+  offer_->field = field;
+  if (now != was) {
+    if (was >= 0) dispatch(was, "dragLeave", folly::dynamic::object());
+    if (now >= 0) dispatch(now, "dragEnter", event(now));
+  } else if (now >= 0) {
+    dispatch(now, "dragOver", event(now));
   }
 }
 
 void DragDrop::leave() {
-  if (offer_ && offer_->view >= 0) dispatch(offer_->view, "dragLeave", folly::dynamic::object());
+  if (offer_ && offer_->view >= 0 && !offer_->field) dispatch(offer_->view, "dragLeave", folly::dynamic::object());
+  if (editing_) editing_->dragLeft();
   offer_.reset();
 }
 
@@ -230,6 +267,27 @@ void DragDrop::drop(const OxyOSEvent& event) {
   offer_->y = event.y / 256.0f;
   offer_->action = static_cast<uint8_t>(event.detail);
   Tag view = offer_->view;
+  if (offer_->field && editing_) {
+    editing_->dragLeft();
+    std::string type = fieldType();
+    // The field's own text dropped back into it is moved (or copied) there at once, as one edit.
+    bool inPlace = offer_->own && editing_->dropOwn(view, offer_->surface, offer_->x, offer_->y,
+                                                    offer_->action == OXYOS_DRAG_COPY);
+    int fd = inPlace || type.empty() || !editing_->takesDrop(view) ? -1 : window_.receiveDrop(offer_->offer, type);
+    if (fd < 0) {
+      window_.finishDrop(offer_->offer);
+      offer_.reset();
+      return;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    Receiving receiving{.offer = offer_->offer, .surface = offer_->surface, .view = view, .field = true,
+                        .x = offer_->x, .y = offer_->y};
+    receiving.started = std::chrono::steady_clock::now();
+    receiving.pipes.push_back(Pipe{.fd = fd, .mime = type});
+    offer_.reset();
+    receiving_.push_back(std::move(receiving));
+    return;
+  }
   const auto* props = target(view);
   if (!props) {
     // Dropped on nothing that takes it (the compositor drops only on an answer, so a target that
@@ -300,6 +358,24 @@ bool DragDrop::deliver() {
       ++it;
       continue;
     }
+    if (it->field) {
+      // A text input takes the text, or a URI list's URIs as text, one a line.
+      if (!failed && editing_ && !it->pipes.empty()) {
+        const auto& pipe = it->pipes.front();
+        std::string text = pipe.bytes;
+        if (lower(pipe.mime) == "text/uri-list") {
+          text.clear();
+          for (const auto& line : lines(pipe.bytes)) {
+            if (line[0] != '#') text += (text.empty() ? "" : "\n") + line;
+          }
+        }
+        if (!text.empty()) editing_->dropText(it->view, it->surface, it->x, it->y, std::move(text));
+      }
+      window_.finishDrop(it->offer);
+      it = receiving_.erase(it);
+      finished = true;
+      continue;
+    }
     folly::dynamic received = folly::dynamic::object();
     if (!failed) {
       for (const auto& pipe : it->pipes) received[pipe.mime] = pipe.bytes;
@@ -358,7 +434,8 @@ void DragDrop::observe(const OxyOSEvent& event) {
                      .sourceActions = static_cast<uint8_t>(event.detail),
                      .expected = event.width,
                      .x = event.x / 256.0f,
-                     .y = event.y / 256.0f};
+                     .y = event.y / 256.0f,
+                     .own = live_ != 0};
       update();
       return;
     case OXYOS_EVENT_DRAG_OFFER_TYPE:
@@ -377,7 +454,7 @@ void DragDrop::observe(const OxyOSEvent& event) {
     case OXYOS_EVENT_DRAG_ACTION:
       if (offer_ && offer_->offer == event.code && offer_->action != event.detail) {
         offer_->action = static_cast<uint8_t>(event.detail);
-        if (offer_->view >= 0) dispatch(offer_->view, "dragOver", this->event(offer_->view));
+        if (offer_->view >= 0 && !offer_->field) dispatch(offer_->view, "dragOver", this->event(offer_->view));
       }
       return;
     case OXYOS_EVENT_DRAG_LEAVE:
@@ -388,6 +465,7 @@ void DragDrop::observe(const OxyOSEvent& event) {
       return;
     case OXYOS_EVENT_DRAG_FINISHED:
     case OXYOS_EVENT_DRAG_CANCELLED: {
+      if (event.code == live_) live_ = 0;
       auto it = drags_.find(event.code);
       if (it == drags_.end()) return;
       auto done = std::move(it->second);
@@ -401,6 +479,7 @@ void DragDrop::observe(const OxyOSEvent& event) {
     }
     case OXYOS_EVENT_DRAG_DROPPED:
       // The target receives what it wants, then finishes: the icon is no longer shown already.
+      if (event.code == live_) live_ = 0;
       endIcon();
       return;
     default:
@@ -412,24 +491,36 @@ bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>&
                      std::function<void(std::optional<std::string>)> done) {
   uint8_t allowed = 0;
   for (const auto& action : actions) allowed |= actionBit(action);
-  auto contents = dragContents(data);
+  std::optional<DragImage> image;
+  if (auto frame = preview >= 0 ? windowFrame(tree_, preview) : std::nullopt;
+      frame && frame->size.width >= 1 && frame->size.height >= 1) {
+    // Where it was pressed stays under the pointer, as a Mac's dragged image keeps its grip.
+    image = DragImage{.size = frame->size,
+                      .hotspot = {std::clamp(pressPoint_.x - frame->origin.x, 0.0f, frame->size.width),
+                                  std::clamp(pressPoint_.y - frame->origin.y, 0.0f, frame->size.height)},
+                      .draw = [this, preview](const Display& display, Canvas& canvas) {
+                        drawDragImage(tree_, preview, display, canvas);
+                      }};
+  }
+  return start(dragContents(data), allowed, std::move(image), std::move(done));
+}
+
+bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,
+                     std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done) {
   if (!available() || pressSerial_ == 0 || allowed == 0 || contents.empty() || contents.size() > 16) {
     done(std::nullopt);
     return false;
   }
   uint32_t icon = 0;
   endIcon();
-  if (auto frame = preview >= 0 ? windowFrame(tree_, preview) : std::nullopt;
-      frame && frame->size.width >= 1 && frame->size.height >= 1) {
+  if (image && image->size.width >= 1 && image->size.height >= 1) {
     icon = window_.allocate();
-    auto width = static_cast<uint32_t>(std::ceil(frame->size.width));
-    auto height = static_cast<uint32_t>(std::ceil(frame->size.height));
-    // Where it was pressed stays under the pointer, as a Mac's dragged image keeps its grip.
-    auto hotspotX = static_cast<int32_t>(std::lround(std::clamp(pressPoint_.x - frame->origin.x, 0.0f, frame->size.width)));
-    auto hotspotY = static_cast<int32_t>(std::lround(std::clamp(pressPoint_.y - frame->origin.y, 0.0f, frame->size.height)));
-    window_.createDragIcon(icon, width, height, hotspotX, hotspotY);
+    auto width = static_cast<uint32_t>(std::ceil(image->size.width));
+    auto height = static_cast<uint32_t>(std::ceil(image->size.height));
+    window_.createDragIcon(icon, width, height, static_cast<int32_t>(std::lround(image->hotspot.x)),
+                           static_cast<int32_t>(std::lround(image->hotspot.y)));
     icon_ = icon;
-    iconView_ = preview;
+    iconDraw_ = std::move(image->draw);
     iconDrawnFor_ = 0;
   }
   uint32_t drag = window_.startDrag(pressSurface_, icon, pressSerial_, allowed, contents);
@@ -442,6 +533,7 @@ bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>&
   for (const auto& [mime, _] : contents) types.push_back(mime);
   Report::get().input("drag.start", pressSurface_, folly::dynamic::object("drag", drag)("types", types)("actions", allowed));
   drags_[drag] = std::move(done);
+  live_ = drag;
   return true;
 }
 
@@ -450,7 +542,7 @@ void DragDrop::present() {
   const auto* surface = window_.surface(icon_);
   if (!surface || surface->configure == iconDrawnFor_) return;
   Canvas canvas;
-  drawDragImage(tree_, iconView_, Display{surface->width, surface->height, surface->scale}, canvas);
+  if (iconDraw_) iconDraw_(Display{surface->width, surface->height, surface->scale}, canvas);
   window_.present(icon_, canvas);
   iconDrawnFor_ = surface->configure;
 }
@@ -459,7 +551,7 @@ void DragDrop::endIcon() {
   if (icon_ == 0) return;
   window_.destroy(icon_);
   icon_ = 0;
-  iconView_ = -1;
+  iconDraw_ = nullptr;
   iconDrawnFor_ = 0;
 }
 
