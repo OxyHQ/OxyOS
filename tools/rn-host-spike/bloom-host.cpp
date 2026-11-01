@@ -903,6 +903,14 @@ int main(int argc, char** argv) {
     gestures->eventTimeMs = [&pointer] { return pointer.eventTimeMs(); };
     gestures->onCancelResponder = [&pointer] { pointer.cancelResponder(); };
     gestures->onIntercept = [&editing] { editing.releaseDrag(); };
+    // Selected text drags out of an input as text, through the platform's drag, and every
+    // editable input takes text dropped on it (docs/adr/0037-text-editing.mdx).
+    editing.useDrag({.start = [&dragDrop](const std::string& text, std::optional<oxyos::DragImage> image,
+                                          std::function<void(std::optional<std::string>)> done) {
+      return dragDrop.start(oxyos::dragContents(folly::dynamic::object("text", text)),
+                            OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE, std::move(image), std::move(done));
+    }});
+    dragDrop.editsText(editing);
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
         .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {

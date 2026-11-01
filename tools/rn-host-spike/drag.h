@@ -9,10 +9,16 @@
 // tells the compositor that type and the target's actions. JavaScript follows: the target's
 // dragEnter, dragOver and dragLeave, and at the drop its drop with the content, received through
 // the pipes the source writes, from the host's loop, once complete.
+//
+// Every editable text input that is not secure is a drop target for text too, as an NSTextView is
+// (docs/adr/0037-text-editing.mdx): TextEditing shows the drop caret and inserts what is dropped.
+// The innermost target under the point takes the drag, so a field inside a drop target takes the
+// text dropped on it, and the drop target around it what the field does not take (files).
 #pragma once
 
 #include "input.h"
 #include "renderer.h"
+#include "textinput.h"
 #include "window.h"
 
 #include <folly/dynamic.h>
@@ -69,6 +75,8 @@ class DragDrop {
   using Surfaces = std::function<std::optional<SurfaceContent>(uint32_t surface)>;
   DragDrop(const ViewTree& tree, Window& window, Surfaces surfaces)
       : tree_(tree), window_(window), surfaces_(std::move(surfaces)) {}
+  // The text inputs, which take text dropped on them.
+  void editsText(TextEditing& editing) { editing_ = &editing; }
 
   // Whether the compositor has drag and drop (protocol version 10).
   bool available() const;
@@ -82,6 +90,10 @@ class DragDrop {
   // nothing to offer). False if it was not started; `done` is then called at once.
   bool start(const folly::dynamic& data, const std::vector<std::string>& actions, facebook::react::Tag preview,
              std::function<void(std::optional<std::string>)> done);
+  // The same with the media types offered and their content, the actions allowed (OXYOS_DRAG_*)
+  // and the drag's image, if any: a text input's selected text (TextEditing).
+  bool start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,
+             std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done);
   // Draws the drag's icon once the compositor configured it.
   void present();
 
@@ -109,6 +121,8 @@ class DragDrop {
     float x = 0, y = 0;  // surface-local, logical
     uint8_t action = 0;  // the action the compositor last told
     facebook::react::Tag view = -1;  // the drop target under the pointer
+    bool field = false;  // that target is a text input
+    bool own = false;    // the drag is this client's: it entered while one of its drags went on
     bool answered = false;
     std::string mime;
     uint8_t actions = 0, preferred = 0;
@@ -123,6 +137,9 @@ class DragDrop {
     uint32_t surface = 0;
     facebook::react::Tag view = -1;
     folly::dynamic event;
+    // A text input dropped on: where (surface-local), its text given it rather than an event.
+    bool field = false;
+    float x = 0, y = 0;
     std::vector<Pipe> pipes;
     std::chrono::steady_clock::time_point started;
   };
@@ -130,6 +147,9 @@ class DragDrop {
   const facebook::react::OxyOSDropTargetViewProps* target(facebook::react::Tag view) const;
   // The kinds of a target that the offer carries, in the target's order.
   std::vector<std::string> offeredKinds(const facebook::react::OxyOSDropTargetViewProps& props) const;
+  // The offered type a text input takes, the most faithful first; empty if none (files are the
+  // drop target's around it, as a web page's input takes no files).
+  std::string fieldType() const;
   // The drop target under the offer's point, the answer to give the compositor, and JavaScript
   // told of a target entered, moved over or left.
   void update();
@@ -149,12 +169,15 @@ class DragDrop {
   uint64_t pressSerial_ = 0;
   uint32_t pressSurface_ = 0;
   facebook::react::Point pressPoint_{};
-  // This client's drags going on or dropped, by number: what each one's caller is told.
+  // This client's drags going on or dropped, by number: what each one's caller is told; and the
+  // one going on, not yet dropped (0: none), the drag over this client's surfaces meanwhile.
   std::map<uint32_t, std::function<void(std::optional<std::string>)>> drags_;
-  // The drag's icon surface and the view it shows, drawn once configured.
+  uint32_t live_ = 0;
+  // The drag's icon surface and how it is drawn, once configured.
   uint32_t icon_ = 0;
-  facebook::react::Tag iconView_ = -1;
+  std::function<void(const Display&, Canvas&)> iconDraw_;
   uint64_t iconDrawnFor_ = 0;
+  TextEditing* editing_ = nullptr;
 };
 
 }  // namespace oxyos

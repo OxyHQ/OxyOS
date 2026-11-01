@@ -1,0 +1,843 @@
+{
+  "about": "Dragging selected text, as on a Mac (docs/adr/0037-text-editing.mdx, decision 9; docs/adr/0035-drag-and-drop.mdx): sample/TextDragProbe.tsx's Bloom fields (a single-line one, a multiline one, and one with maxLength 12 inside a drop target taking text) and sample/TextDragPeer.tsx, another application started beside it (`companion`), with a row of text it drags and two drop targets taking text, one copying unless asked otherwise and one that only moves. A press on the selection released without moving places the caret where it was pressed; moved, it drags the selected text. Within the field the drop moves it (Option copies), one edit that one undo takes back, the text moved left selected. Into another field it copies, that field taking focus with the text selected, focus, change and selectionChange its only events; a field inside a drop target takes the text dropped on it, the drop target hearing only the pointer pass over its own edge. Out to the other application's copying target it arrives once and the field keeps it; to the moving one the field deletes it. Text dragged in from the other application drops into a field; a field keeps only what maxLength leaves room for; Escape cancels with nothing changed. With Command a drag into another field moves: the field it left, no longer focused, deletes the text as an edit of its own, and an undo in the other takes back only its insertion. Each step's React events and deliveries to both applications are exact.",
+  "module": "TextDragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "companion": {
+    "module": "TextDragPeer",
+    "window": [
+      280,
+      240
+    ],
+    "at": [
+      980,
+      200
+    ]
+  },
+  "steps": [
+    {
+      "name": "focus the line, its caret at the end",
+      "do": [
+        "press",
+        [
+          130,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [12,12]"
+        ],
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a double click selects dos",
+      "do": [
+        "double_press",
+        [
+          73,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [4,7]"
+        ],
+        "react": {
+          "touchStart@line": 2,
+          "touchEnd@line": 2,
+          "selectionChange@line": 2
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on the selection released without moving places the caret where it was pressed, as a click",
+      "do": [
+        "press",
+        [
+          76,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [5,5]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "dos selected again",
+      "do": [
+        "double_press",
+        [
+          73,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [4,7]"
+        ],
+        "react": {
+          "touchStart@line": 2,
+          "touchEnd@line": 2,
+          "selectionChange@line": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "dos dragged to the line's start moves there, one change, the text moved selected; the other application told nothing",
+      "do": [
+        "drag_paced",
+        [
+          393,
+          192,
+          357,
+          192,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"dosuno  tres\" [0,3]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 3,
+          "touchCancel@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "one undo takes the move back whole, dos selected where it was",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [4,7]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "with Option, dos dragged to the line's end is copied there, selected",
+      "do": [
+        "drag_paced",
+        [
+          393,
+          192,
+          446,
+          192,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresdos\" [12,15]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 2,
+          "touchCancel@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "one undo takes the copy back",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [4,7]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "dos dragged into the notes is copied there: the notes take focus with dos selected, the line keeps it",
+      "do": [
+        "drag_paced",
+        [
+          393,
+          192,
+          420,
+          250,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tres\" [4,7]",
+          "Notes: \"dos\" [0,3]"
+        ],
+        "focus_input": "notes",
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 2,
+          "touchCancel@line": 1,
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "focus@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "the notes' dos dragged onto the field inside the drop target: the field takes it, the drop target only hears the pointer cross its edge",
+      "do": [
+        "drag_paced",
+        [
+          366,
+          238,
+          420,
+          338,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"dos\" [0,3]",
+          "Inner: \"dos\" [0,3]",
+          "Zone: nothing"
+        ],
+        "focus_input": "inner",
+        "react": {
+          "touchStart@notes": 1,
+          "touchMove@notes": 1,
+          "touchCancel@notes": 1,
+          "drag.dragEnter@zone": 1,
+          "drag.dragOver@zone": [
+            1,
+            10
+          ],
+          "drag.dragLeave@zone": 1,
+          "blur@notes": 1,
+          "endEditing@notes": 1,
+          "focus@inner": 1,
+          "change@inner": 1,
+          "selectionChange@inner": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "dos dragged out to the other application's copying drop target arrives there once as text; the field keeps it",
+      "do": [
+        "drag_paced",
+        [
+          380,
+          338,
+          1120,
+          300,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Inner: \"dos\" [0,3]"
+        ],
+        "react": {
+          "touchStart@inner": 1,
+          "touchMove@inner": 1,
+          "touchCancel@inner": 1,
+          "drag.dragEnter@zone": 1,
+          "drag.dragOver@zone": [
+            1,
+            10
+          ],
+          "drag.dragLeave@zone": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Copied: dos (copy)",
+            "Moved: nothing"
+          ],
+          "react": {
+            "drag.dragEnter@copy-zone": 1,
+            "drag.dragOver@copy-zone": [
+              1,
+              60
+            ],
+            "drag.dragLeave@copy-zone": 1,
+            "drag.drop@copy-zone": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "dos dragged to the other application's moving drop target: moved, the field deletes it as one edit",
+      "do": [
+        "drag_paced",
+        [
+          380,
+          338,
+          1120,
+          376,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Inner: \"\" [0,0]"
+        ],
+        "react": {
+          "touchStart@inner": 1,
+          "touchMove@inner": 1,
+          "touchCancel@inner": 1,
+          "drag.dragEnter@zone": 1,
+          "drag.dragOver@zone": [
+            1,
+            10
+          ],
+          "drag.dragLeave@zone": 1,
+          "change@inner": 1,
+          "selectionChange@inner": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Copied: dos (copy)",
+            "Moved: dos (move)"
+          ],
+          "react": {
+            "drag.dragEnter@move-zone": 1,
+            "drag.dragOver@move-zone": [
+              1,
+              60
+            ],
+            "drag.dragLeave@move-zone": 1,
+            "drag.drop@move-zone": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "text dragged in from the other application drops into the line at the point: focused, the text selected, copied",
+      "do": [
+        "drag_paced",
+        [
+          1050,
+          236,
+          450,
+          192,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresHola OxyOS\" [12,22]"
+        ],
+        "focus_input": "line",
+        "react": {
+          "blur@inner": 1,
+          "endEditing@inner": 1,
+          "focus@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Hola OxyOS: copy"
+          ],
+          "react": {
+            "touchStart@peer-row": 1,
+            "touchMove@peer-row": 1,
+            "touchCancel@peer-row": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the selection dragged over the notes and Escape pressed: nothing dropped, nothing changed",
+      "do": [
+        "drag_paced",
+        [
+          480,
+          192,
+          420,
+          250,
+          20,
+          30,
+          15
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresHola OxyOS\" [12,22]",
+          "Notes: \"dos\" [0,3]"
+        ],
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 2,
+          "touchCancel@line": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Hola OxyOS dragged into the empty field inside the drop target: copied there",
+      "do": [
+        "drag_paced",
+        [
+          480,
+          192,
+          420,
+          338,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresHola OxyOS\" [12,22]",
+          "Inner: \"Hola OxyOS\" [0,10]"
+        ],
+        "focus_input": "inner",
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 1,
+          "touchCancel@line": 1,
+          "drag.dragEnter@zone": 1,
+          "drag.dragOver@zone": [
+            1,
+            10
+          ],
+          "drag.dragLeave@zone": 1,
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "focus@inner": 1,
+          "change@inner": 1,
+          "selectionChange@inner": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "OxyOS selected in the line by a double click",
+      "do": [
+        "double_press",
+        [
+          170,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresHola OxyOS\" [17,22]"
+        ],
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 2,
+          "touchEnd@line": 2,
+          "blur@inner": 1,
+          "endEditing@inner": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 2,
+            "release": 2
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "OxyOS dragged onto the end of that field, whose maxLength is 12: only Ox goes in, selected",
+      "do": [
+        "drag_paced",
+        [
+          490,
+          192,
+          600,
+          338,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresHola OxyOS\" [17,22]",
+          "Inner: \"Hola OxyOSOx\" [10,12]"
+        ],
+        "focus_input": "inner",
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 1,
+          "touchCancel@line": 1,
+          "drag.dragEnter@zone": 1,
+          "drag.dragOver@zone": [
+            1,
+            10
+          ],
+          "drag.dragLeave@zone": 1,
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "focus@inner": 1,
+          "change@inner": 1,
+          "selectionChange@inner": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Command held",
+      "do": [
+        "key_down",
+        [
+          125
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "with Command, Ox dragged into the notes is moved: the notes take it, selected, and the field it left deletes it as an edit of its own",
+      "do": [
+        "drag_paced",
+        [
+          462,
+          338,
+          420,
+          238,
+          20,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"dosOx\" [3,5]",
+          "Inner: \"Hola OxyOS\" [10,12]"
+        ],
+        "focus_input": "notes",
+        "react": {
+          "touchStart@inner": 1,
+          "touchMove@inner": 1,
+          "touchCancel@inner": 1,
+          "drag.dragEnter@zone": 1,
+          "drag.dragOver@zone": [
+            1,
+            10
+          ],
+          "drag.dragLeave@zone": 1,
+          "blur@inner": 1,
+          "endEditing@inner": 1,
+          "focus@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "change@inner": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Command released",
+      "do": [
+        "key_up",
+        [
+          125
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "an undo in the notes takes back only their own edit",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"dos\" [3,3]",
+          "Inner: \"Hola OxyOS\""
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    }
+  ]
+}
