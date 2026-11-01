@@ -145,10 +145,6 @@
           "1": {
             "enter": 1,
             "focus.in": 1
-          },
-          "chooser": {
-            "press": 1,
-            "release": 1
           }
         }
       }
@@ -243,10 +239,6 @@
           "1": {
             "enter": 1,
             "focus.in": 1
-          },
-          "chooser": {
-            "press": 1,
-            "release": 1
           }
         }
       }

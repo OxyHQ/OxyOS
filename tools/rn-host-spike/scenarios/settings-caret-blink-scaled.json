@@ -1,5 +1,5 @@
 {
-  "about": "Settings' \"Prefer non-blinking cursor\" (apps/settings, Accessibility, where macOS 14 places its own; docs/adr/0037-text-editing.mdx, decision 4): the switch is the session's `caret_blink` turned around, off while carets blink (the default). Another application, sample/EditingProbe.tsx started beside Settings (`companion`), has a field focused, whose caret blinks ten times and rests. The switch pressed on: the session keeps `caret_blink = false` and tells every application at once (`Preferences`, protocol version 11), Settings and the other alike; back in the field, a character typed, which lights a blinking caret anew, gives no blink. The switch pressed off: the other application's caret blinks again at once, ten times, and a character typed there blinks ten times again. The switch pressed on once more: the preferences file keeps `caret_blink = false`. The switch is drawn in the accent when on. Each step checks exactly the React events each application received, the input the compositor delivered each, and the blinks the other application's host reported. At scale 1.25.",
+  "about": "Settings' \"Prefer non-blinking cursor\" (apps/settings, Accessibility, where macOS 14 places its own; docs/adr/0037-text-editing.mdx, decision 4): the switch is the session's `caret_blink` turned around, off while carets blink (the default). Another application, sample/EditingProbe.tsx started beside Settings (`companion`), has a field focused, whose caret blinks ten times and rests. The switch pressed on: the session keeps `caret_blink = false` and tells every application at once (`Preferences`, protocol version 11), Settings and the other alike; back in the field, a character typed, which lights a blinking caret anew, gives no blink. The switch pressed off: the other application's caret, out of the key window while Settings is active, is not drawn and does not blink (decision 6); back in its field, its window key again, the caret is lit anew and blinks ten times, and a character typed there blinks ten times again. The switch pressed on once more: the preferences file keeps `caret_blink = false`. The switch is drawn in the accent when on. Each step checks exactly the React events each application received, the input the compositor delivered each, and the blinks the other application's host reported. At scale 1.25.",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -232,7 +232,7 @@
       }
     },
     {
-      "name": "the switch pressed off: the session keeps caret_blink on, and the other application's caret blinks again at once, ten times, then rests",
+      "name": "the switch pressed off: the session keeps caret_blink on; the other application's caret, its window not the key one, is not drawn and does not blink",
       "do": [
         "press",
         [
@@ -276,8 +276,8 @@
             "caretBlink": true
           },
           "host_input": {
-            "caret.dark": 10,
-            "caret.lit": 10
+            "caret.dark": 0,
+            "caret.lit": 0
           }
         },
         "output_pixels": {
@@ -287,7 +287,7 @@
       }
     },
     {
-      "name": "back in the other application's field, its caret resting",
+      "name": "back in the other application's field, its window key again: the caret lit anew blinks ten times, then rests",
       "do": [
         "press_named",
         "Line"
@@ -313,8 +313,8 @@
             "touchEnd@line": 1
           },
           "host_input": {
-            "caret.dark": 0,
-            "caret.lit": 0
+            "caret.dark": 10,
+            "caret.lit": 10
           }
         }
       }
