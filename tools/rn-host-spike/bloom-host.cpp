@@ -273,9 +273,13 @@ class Mounter : public SchedulerDelegate {
     if (onCommand) onCommand(view, name, args);
   }
   // Accessibility events from JavaScript (AccessibilityInfo.sendAccessibilityEvent): moving
-  // accessibility focus, for the host's accessibility state.
+  // accessibility focus, for the host's accessibility state. An event comes after the commits
+  // JavaScript made before it, as Android's mounting layer queues it behind their mount items: a
+  // view made focusable in the commit that asks for its focus (a segmented control's newly
+  // selected segment, its group's one Tab stop) is focusable when the event is handled.
   std::function<void(const ShadowView&, const std::string&)> onAccessibilityEvent;
   void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
+    pull();
     if (onAccessibilityEvent) onAccessibilityEvent(view, type);
   }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
