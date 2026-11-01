@@ -11,7 +11,8 @@
 //! damage, display, flips and pointer.
 
 use oxyos_compositor_core::{
-    physical, ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey, WindowLook,
+    physical, ClientId, Grants, Output, OutputId, Refusal, RenderItem, Scene, SurfaceKey,
+    WindowLook,
 };
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
@@ -834,6 +835,14 @@ fn read_pixels(
     Some((layout.extent, layout.format, pixels.into()))
 }
 
+/// A request's name, for the log.
+fn request_name(opcode: u8) -> &'static str {
+    Request::SCHEMA
+        .iter()
+        .find(|(known, _, _)| *known == opcode)
+        .map_or("an unknown request", |(_, name, _)| *name)
+}
+
 /// What a surface read last showed: its frame (sequence and buffer), its size and format, and its
 /// pixels (`Compositor::frames_read`).
 type FrameRead = ((u64, u64), Size, oxyos_protocol::Format, Rc<Pixels>);
@@ -1153,15 +1162,16 @@ impl Compositor {
         }
     }
 
-    /// A request the scene refused: said in the log by its name, never its fields (a password may
-    /// be one), and the client disconnected.
-    fn refuse(&mut self, client: ClientId, opcode: u8, code: ErrorCode) {
-        let name = Request::SCHEMA
-            .iter()
-            .find(|(known, _, _)| *known == opcode)
-            .map_or("an unknown request", |(_, name, _)| *name);
-        eprintln!("[compositor] client {client:?}: {name} refused: {code:?}");
-        self.fail(client, code);
+    /// A request refused: said in the log by its name and why (ids and sizes only), never its
+    /// other fields (a password may be one), and the client disconnected. The client is told only
+    /// the code: the wire's `ProtocolError` has nothing more.
+    fn refuse(&mut self, client: ClientId, opcode: u8, refusal: impl Into<Refusal>) {
+        let refusal = refusal.into();
+        eprintln!(
+            "[compositor] client {client:?}: {} refused: {refusal}",
+            request_name(opcode)
+        );
+        self.fail(client, refusal.code);
     }
 
     pub fn fail(&mut self, client: ClientId, code: ErrorCode) {
@@ -1240,8 +1250,8 @@ impl Compositor {
         let opcode = request.opcode();
         let fd = match (request, fd) {
             (Request::ClipboardReceive { .. } | Request::ReceiveDrop { .. }, Some(pipe)) => {
-                if let Err(code) = self.scene.handle(client, request) {
-                    return self.refuse(client, opcode, code);
+                if let Err(refusal) = self.scene.handle_explained(client, request) {
+                    return self.refuse(client, opcode, refusal);
                 }
                 // An allowed paste's pipe goes to the clipboard's owner with its ClipboardSend, an
                 // allowed drop's to the drag's source with its DragSend (ADR 0035); a refused one
@@ -1268,7 +1278,7 @@ impl Compositor {
         ) {
             match self.receive_gpu(client, request, fd) {
                 Some(Ok(())) => return self.retire(),
-                Some(Err(code)) => return self.fail(client, code),
+                Some(Err(refusal)) => return self.refuse(client, opcode, refusal),
                 None => None,
             }
         } else {
@@ -1277,11 +1287,19 @@ impl Compositor {
         if let (Some(layout), Some(fd), Request::AttachBuffer { buffer, .. }) =
             (request.buffer_layout(), fd, request)
         {
-            let Ok(shared) = SharedBuffer::import(fd, layout) else {
-                return self.fail(client, ErrorCode::InvalidBuffer);
+            let shared = match SharedBuffer::import(fd, layout) {
+                Ok(shared) => shared,
+                Err(error) => {
+                    eprintln!(
+                        "[compositor] client {client:?}: {} refused: {:?} (buffer {buffer}'s shared memory: {error})",
+                        request_name(opcode),
+                        ErrorCode::InvalidBuffer
+                    );
+                    return self.fail(client, ErrorCode::InvalidBuffer);
+                }
             };
-            if let Err(code) = self.scene.handle(client, request) {
-                return self.refuse(client, opcode, code);
+            if let Err(refusal) = self.scene.handle_explained(client, request) {
+                return self.refuse(client, opcode, refusal);
             }
             self.peers
                 .get_mut(&client)
@@ -1291,8 +1309,8 @@ impl Compositor {
             return;
         }
         let goodbye = matches!(request, Request::Goodbye {});
-        if let Err(code) = self.scene.handle(client, request) {
-            return self.refuse(client, opcode, code);
+        if let Err(refusal) = self.scene.handle_explained(client, request) {
+            return self.refuse(client, opcode, refusal);
         }
         match request {
             Request::Submit {
@@ -1361,8 +1379,8 @@ impl Compositor {
     /// A frame held for its acquire point (docs/adr/0031-gpu-buffers.mdx), now ready: the scene's,
     /// as a `Submit` received now would be.
     pub(crate) fn submit_to_scene(&mut self, client: ClientId, request: Request) {
-        if let Err(code) = self.scene.handle(client, request) {
-            return self.fail(client, code);
+        if let Err(refusal) = self.scene.handle_explained(client, request) {
+            return self.refuse(client, request.opcode(), refusal);
         }
         if let Request::Submit {
             surface, sequence, ..
@@ -1985,7 +2003,7 @@ impl Compositor {
                         surfaces_at
                             .insert(key, (contents.len() - 1, rect, placed, arriving.opacity));
                     }
-                    None => unreadable.push(key.client),
+                    None => unreadable.push((key, frame.buffer)),
                 },
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
                 // A window the shell's surface shows live (ADR 0022): over it, where the shell
@@ -2254,8 +2272,14 @@ impl Compositor {
         });
         // A buffer that could not be read is never reported as presented: its client is
         // disconnected before the frame completes, and its surfaces are not of what is composed.
-        for client in unreadable {
-            self.fail(client, ErrorCode::InvalidBuffer);
+        for (key, buffer) in unreadable {
+            eprintln!(
+                "[compositor] client {:?}: surface {}'s buffer {buffer} could not be read to compose it: {:?}",
+                key.client,
+                key.id,
+                ErrorCode::InvalidBuffer
+            );
+            self.fail(key.client, ErrorCode::InvalidBuffer);
         }
         let composed_list = self.scene.frame_list();
         self.frames += 1;
