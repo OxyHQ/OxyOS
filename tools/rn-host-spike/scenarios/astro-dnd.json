@@ -1,0 +1,130 @@
+{
+  "about": "Drag and drop between Astro and another application (docs/adr/0035-drag-and-drop.mdx, decision 14): Astro's `oxyos` platform speaks protocol 10, and sample/DragProbe.tsx, a second application beside it (`companion`, Stash's stand-in), drags through the platform's drag and takes drops in its drop target. A file of the run's home dragged from the probe onto the page's <input type=\"file\"> reaches it: the page sees a drag of files before the drop (the types alone, `application/x-oxyos-files`), and at the drop the input holds informe.txt, its content read (the zone green). A link dragged out of Astro drops in the probe as its URL; an image dragged out drops as a file, written by Astro to a temporary folder (a file manager takes it as a file). Run with the engine as `--client`; the page (pages/astro-dnd.html) is Astro's tab, 190 px right of the window's edge and 47 px down, the window moved to the output's top left (20, 60) on a 1920x1080 output.",
+  "window": [
+    900,
+    460
+  ],
+  "outputs": "1920x1080",
+  "launch_settle_ms": 3000,
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-dnd.html"
+  ],
+  "companion": {
+    "module": "DragProbe",
+    "window": [
+      640,
+      420
+    ],
+    "at": [
+      1000,
+      60
+    ]
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe"
+    }
+  },
+  "steps": [
+    {
+      "name": "Astro to the output's top left, the probe beside it",
+      "do": [
+        "move-window",
+        [
+          -490,
+          -250
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "a file of the home dragged from the probe onto the page's file input: the input holds it, its content read",
+      "do": [
+        "drag_paced",
+        [
+          1134,
+          142,
+          410,
+          237,
+          40,
+          30
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "450,257": "#2f9e44"
+        },
+        "delivered": {
+          "companion": {
+            "cancel": 1,
+            "drag.dropped": 1,
+            "drag.enter": 1,
+            "drag.finished": 1,
+            "drag.leave": 1,
+            "drag.send": 2,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "1": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Result: copy"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a link dragged out of Astro onto the probe's drop target: it drops as its URL",
+      "do": [
+        "drag_paced",
+        [
+          730,
+          167,
+          1486,
+          164,
+          40,
+          30
+        ]
+      ],
+      "expect": {
+        "in_companion": {
+          "texts": [
+            "Here: https://oxy.so/os (move)"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an image dragged out of Astro onto the probe's drop target: it drops as a file Astro wrote",
+      "do": [
+        "drag_paced",
+        [
+          678,
+          295,
+          1486,
+          164,
+          40,
+          30
+        ]
+      ],
+      "expect": {
+        "in_companion": {
+          "texts": [
+            "Here: download.png (move)"
+          ]
+        }
+      }
+    }
+  ]
+}
