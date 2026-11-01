@@ -1,0 +1,120 @@
+{
+  "about": "Astro's window presenting for seconds, resized, zoomed and restored (ADR 0029): the engine as `--client` (regress.py --client <package>/chrome). The page (pages/astro-window.html) is Astro's tab, 190 px right of the window's edge and 47 px down; it animates a stripe every frame, so the engine presents all along, and paints its background blue up to 1000 px of width, green past it (zoomed to the 1280 px output it is 1083). The window presents for 3 s, its right edge is dragged 100 px out at a hand's pace, Astro's green bubble zooms it to the output and the page turns green, it presents zoomed for 2 s, and the bubble restores it. The engine losing its connection (a frame OxyOS refuses: `InvalidBuffer`), a configure answered by a frame of another size, or a zoom that does not reach the output fails it. With the CPU fixture the engine composites in software; the GPU path's frame rules are ozone_unittests' (OxyOSFrameLedger).",
+  "window": [
+    1000,
+    600
+  ],
+  "launch_settle_ms": 3000,
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-window.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it, blue at its first width",
+      "do": [
+        "press",
+        [
+          900,
+          450
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "pixels": {
+          "900,450": "#1971c2"
+        }
+      }
+    },
+    {
+      "name": "it presents for 3 s, its stripe moving every frame, and keeps its connection",
+      "do": [
+        "wait",
+        3000
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#1971c2"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the right edge resized 100 px out at a hand's pace: every configure answered by a frame of its size",
+      "do": [
+        "drag_paced",
+        [
+          1143,
+          360,
+          1243,
+          360,
+          50,
+          125
+        ]
+      ],
+      "expect": {
+        "drag": {
+          "unanswered_max": 1,
+          "bounded": true,
+          "steady": [
+            "left",
+            "top",
+            "bottom"
+          ],
+          "presented_min": 3
+        },
+        "pixels": {
+          "900,450": "#1971c2"
+        }
+      }
+    },
+    {
+      "name": "Astro's green bubble zooms it to the output: the page turns green",
+      "do": [
+        "press",
+        [
+          71,
+          27
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#2f9e44"
+        }
+      }
+    },
+    {
+      "name": "zoomed, it presents for 2 s and keeps its connection",
+      "do": [
+        "wait",
+        2000
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#2f9e44"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the bubble pressed again restores it: blue again",
+      "do": [
+        "press",
+        [
+          71,
+          27
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#1971c2"
+        }
+      }
+    }
+  ]
+}

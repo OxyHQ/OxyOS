@@ -99,6 +99,7 @@ Astro is Chromium (155, with Helium and Astro's series). On Linux its window is 
 
    *Done* (Astro's `AC_TARGET_PLATFORM=oxyos`, `out/Release_GN_oxyos_x64_dev`, `astro-browser-*-oxyos-x86_64.tar.xz`, entry `so.oxy.astro`), installed on the reference ThinkPad.
 3. **The GPU** (decision 3, [ADR 0031](./0031-gpu-buffers)): formats and modifiers, `AttachDmabuf`, syncobj timelines and Vulkan import in the compositor, tested on the reference GPU (the ThinkPad's Iris Xe) and lavapipe; `GLOzone` in the platform; the Bloom host on the same buffers.
+   - **Frames and buffers:** a buffer the compositor holds (queued, presenting, shown, or its release pending) is never submitted again; it refuses one with `InvalidBuffer` and closes the connection. Chromium's viz presents its last frame's buffer again for an empty swap (nothing redrawn), so Astro's presenter does not send that frame while the buffer is held and completes it as skipped, and completes the others as viz's buffer queue expects (Astro's `OxyOSFrameLedger`, with a simulation of viz against these rules in `ozone_unittests`). **Scenario:** `scenarios/astro-window.json` (`pages/astro-window.html`): the window presents for 3 s, is resized, zoomed by Astro's green bubble and restored, keeping its connection. On the CPU fixture the engine composites in software, so the scenario covers the window's life and the software path; the GPU path's frame rules are the unit tests'.
 4. **The menu bar, text input and the clipboard** (decision 6), each with a scenario.
 
    *The menu bar is done.*
