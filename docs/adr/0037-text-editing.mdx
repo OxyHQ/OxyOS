@@ -44,7 +44,7 @@ What existed before this decision, against the two references (✓ present and t
 | Caret rectangle to the input method | `firstRectForCharacterRange` | `CursorAnchorInfo` | ✓ `TextInputCaret` (request 33, ADR 0008); the candidates popup is placed from it |
 | Screen reader: value, selection | `AXValue`, `AXSelectedTextRange` | node text, selection | ✓ in the tree (ADR 0003) |
 | Screen reader: typing, caret and selection echo | VoiceOver | TalkBack's `TextEventInterpreter` | ✗ the reader ignored selection events |
-| Held keys repeat | the window server's | `KeyEvent.getRepeatCount` | ✗ (ADR 0024, decision 8) |
+| Held keys repeat | the window server's | `KeyEvent.getRepeatCount` | ✗ (ADR 0024, decision 8); built alongside this decision by [ADR 0036](./0036-key-repeat) |
 
 ## Decision
 
