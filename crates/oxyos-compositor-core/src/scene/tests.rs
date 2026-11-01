@@ -7393,6 +7393,7 @@ mod choosers;
 mod controls;
 mod displays;
 mod dock;
+mod drag;
 /// Key repeat (ADR 0036).
 mod key_repeat;
 /// The menu bar (ADR 0021).

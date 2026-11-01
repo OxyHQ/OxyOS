@@ -17,18 +17,19 @@ pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
     Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
-    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, ErrorCode, Format,
-    GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome,
-    Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
-    PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut,
-    TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
+    DragCancelReason, ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind,
+    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
+    SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind,
+    WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 9;
+pub const VERSION: u16 = 10;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The keyboard's modifiers a Pointer event carries (version 8), as bits.
@@ -69,6 +70,11 @@ pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
 pub const MAX_CHOOSER_TEXT_BYTES: usize = 256 * 1024;
 /// Media types a clipboard offer may name (ADR 0007).
 pub const MAX_CLIPBOARD_TYPES: usize = 16;
+/// Media types a drag may offer (ADR 0035).
+pub const MAX_DRAG_TYPES: usize = 16;
+/// The most bytes of `file://` URIs the shell asks the session to put in the Trash at once
+/// (TrashFiles, ADR 0035): room for hundreds of files.
+pub const MAX_TRASH_FILES_BYTES: usize = 256 * 1024;
 /// The longest keyboard layout told to clients, `layout\tvariant\toptions` (ADR 0029).
 pub const MAX_KEYBOARD_LAYOUT_BYTES: usize = 1024;
 /// The largest pointer image a client may set, on either side, in its pixels (ADR 0029): the

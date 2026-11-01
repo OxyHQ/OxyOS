@@ -27,6 +27,8 @@ pub enum Kind {
     Lock,
     /// The input method's candidates: never animated.
     Candidates,
+    /// A drag's image (ADR 0035): shown and gone with its drag, never animated.
+    DragIcon,
 }
 
 /// How a surface came onto the screen or went from it.
@@ -88,6 +90,7 @@ pub(super) fn kind(role: &Role) -> Kind {
         Role::Shell { .. } => Kind::Panel,
         Role::Lock { .. } => Kind::Lock,
         Role::Candidates => Kind::Candidates,
+        Role::DragIcon { .. } => Kind::DragIcon,
     }
 }
 

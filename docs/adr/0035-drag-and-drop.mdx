@@ -6,7 +6,7 @@ order: 44
 
 # ADR 0035: Drag and drop between applications
 
-Status: **accepted**. Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
+Status: **accepted; step 2 implemented** (the protocol, the scene, the compositor, `oxyos-client`, the C ABI and the session's `TrashFiles`; see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
 
 ## Problem
 
@@ -140,6 +140,16 @@ All three agree on what matters here: types and actions are known during the dra
 4. The dock's Trash as a target, with `drag-trash`.
 5. Stash as a source and a target, with `stash-drag`.
 6. Astro's `oxyos` platform as a source and a target, with `astro-drag` extended.
+
+## Results
+
+**Step 2** (the protocol, the scene, the compositor, the client library and the C ABI):
+- Version 10's eight requests and eleven events, in the protocol's table (`docs/native-foundation.mdx`); `DragActions` takes only its three bits; `ReceiveDrop` and `DragSend` carry a pipe, checked as the clipboard's are.
+- The scene's drag (`scene/drag.rs`): a drag only from the source's latest press on that window with its button held, no grab, nothing moving and not locked; the press cancelled for its surface and the pointer the drag's; the target the surface under the pointer, of a client of version 10, told the drag and its types and nothing else; the action negotiated (`negotiate_action`) and told to both sides as it changes, Option and Command held included; the drop a user input of the target's; each type received once by the client dropped on, before it finishes; Escape (its press and release reaching nobody), a release over nothing that takes it, the source's cancel, its window destroyed, the lock, either side leaving; at most eight drops open; the icon at the pointer, above every window, hit by nothing and shown only during its drag.
+- Scene tests (`scene/tests/drag.rs`, 15) cover each of these, a client of version 9 that is no target, and the shell's `TrashFiles` taken with whether it cited its input.
+- The compositor passes an allowed receive's pipe to the source with its `DragSend` and closes a refused one; the session's Trash follower (`trash.rs`) puts each `file://` file the person's scope reaches in the Trash for a request that cited the shell's input, and passes over the rest, said in its log; the development compositor's input log counts a target's enterings, leavings and drops and what its source is told.
+- `oxyos-client` holds what its client drags and writes each `DragSend` from a thread; the C ABI's functions and events are in `oxyos_client.h`.
+- Through real sockets (`tests/drag.rs`): one application drags a URI list from its press to another, which accepts it with a move; dropped, it receives exactly the offered bytes, a second receive of the type reads nothing, and the source hears the action, the drop and the finish (five runs in five). The C ABI's tests play both sides against a compositor, and the Trash follower's test puts a dropped file in the Trash only with the shell's drop.
 
 ## Not in this decision
 

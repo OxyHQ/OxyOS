@@ -269,6 +269,38 @@ pub const OXYOS_LIST_CHOSEN: u8 = 2;
 /// To the session's shell (docs/adr/0034-the-dock.mdx): how many items the user's Trashes hold
 /// (code), when it connects and whenever it changes.
 pub const OXYOS_EVENT_TRASH_ITEMS: u32 = 232;
+/// Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: the drag entered one of its
+/// surfaces (surface; serial: the entering, which oxyos_client_accept_drag cites; code: the offer;
+/// x, y: surface-local, as a POINTER's; detail: the source's actions, OXYOS_DRAG_*; width: how many
+/// DRAG_OFFER_TYPE follow; modifiers); one offered type (code: the offer; text: the type); a
+/// motion over it (surface; code; x, y; time_ns; modifiers); it left (surface; code); the action a
+/// drop would take now (code; detail: one OXYOS_DRAG_* or 0); dropped on it (surface; code; serial,
+/// a user input of its own; x, y; detail: the action).
+pub const OXYOS_EVENT_DRAG_ENTER: u32 = 240;
+pub const OXYOS_EVENT_DRAG_OFFER_TYPE: u32 = 241;
+pub const OXYOS_EVENT_DRAG_MOTION: u32 = 242;
+pub const OXYOS_EVENT_DRAG_LEAVE: u32 = 243;
+pub const OXYOS_EVENT_DRAG_ACTION: u32 = 244;
+pub const OXYOS_EVENT_DRAG_DROP: u32 = 245;
+/// To a source, naming its drag (code, oxyos_client_start_drag's number): the action a release
+/// would take now (detail; 0: nothing would take it); dropped on a target that took it (detail:
+/// the action); the target finished (detail: the action; with a move of data, not files, delete
+/// the original); ended without a drop (detail: OXYOS_DRAG_CANCEL_*).
+pub const OXYOS_EVENT_DRAG_SOURCE_ACTION: u32 = 246;
+pub const OXYOS_EVENT_DRAG_DROPPED: u32 = 247;
+pub const OXYOS_EVENT_DRAG_FINISHED: u32 = 248;
+pub const OXYOS_EVENT_DRAG_CANCELLED: u32 = 249;
+/// A drag's actions, as bits.
+pub const OXYOS_DRAG_COPY: u8 = 1;
+pub const OXYOS_DRAG_MOVE: u8 = 2;
+pub const OXYOS_DRAG_LINK: u8 = 4;
+/// Why a drag ended without a drop (a DRAG_CANCELLED's detail), the protocol's `DragCancelReason`.
+pub const OXYOS_DRAG_CANCEL_REFUSED: u32 = 1;
+pub const OXYOS_DRAG_CANCEL_ESCAPE: u32 = 2;
+pub const OXYOS_DRAG_CANCEL_NOT_ACCEPTED: u32 = 3;
+pub const OXYOS_DRAG_CANCEL_CANCELLED: u32 = 4;
+pub const OXYOS_DRAG_CANCEL_LOCKED: u32 = 5;
+pub const OXYOS_DRAG_CANCEL_ABANDONED: u32 = 6;
 /// A CAPTURE_MODE's `detail`, the protocol's `CaptureMode`.
 pub const OXYOS_CAPTURE_MODE_SELECTION: u32 = 1;
 pub const OXYOS_CAPTURE_MODE_WINDOW: u32 = 2;
@@ -909,6 +941,127 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::ClipboardEmpty {} => out.kind = OXYOS_EVENT_CLIPBOARD_EMPTY,
         // Answered by the client library, which holds what this client copied.
         Event::ClipboardSend { .. } => return None,
+        // Drag and drop (ADR 0035). A DragSend is answered by the client library, which holds
+        // what this client drags.
+        Event::DragEnter {
+            surface,
+            offer,
+            serial,
+            x,
+            y,
+            actions,
+            types,
+            modifiers,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_ENTER,
+                surface,
+                serial,
+                code: offer,
+                x,
+                y,
+                detail: actions.bits().into(),
+                width: types.into(),
+                modifiers,
+                ..out
+            }
+        }
+        Event::DragOfferType { offer, mime } => {
+            let bytes = mime.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_OFFER_TYPE,
+                code: offer,
+                ..out
+            }
+        }
+        Event::DragMotion {
+            surface,
+            offer,
+            x,
+            y,
+            time_ns,
+            modifiers,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_MOTION,
+                surface,
+                code: offer,
+                x,
+                y,
+                time_ns,
+                modifiers,
+                ..out
+            }
+        }
+        Event::DragLeave { surface, offer } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_LEAVE,
+                surface,
+                code: offer,
+                ..out
+            }
+        }
+        Event::DragAction { offer, action } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_ACTION,
+                code: offer,
+                detail: action.bits().into(),
+                ..out
+            }
+        }
+        Event::DragDrop {
+            surface,
+            offer,
+            serial,
+            x,
+            y,
+            action,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_DROP,
+                surface,
+                serial,
+                code: offer,
+                x,
+                y,
+                detail: action.bits().into(),
+                ..out
+            }
+        }
+        Event::DragSourceAction { drag, action } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_SOURCE_ACTION,
+                code: drag,
+                detail: action.bits().into(),
+                ..out
+            }
+        }
+        Event::DragDropped { drag, action } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_DROPPED,
+                code: drag,
+                detail: action.bits().into(),
+                ..out
+            }
+        }
+        Event::DragFinished { drag, action } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_FINISHED,
+                code: drag,
+                detail: action.bits().into(),
+                ..out
+            }
+        }
+        Event::DragCancelled { drag, reason } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_CANCELLED,
+                code: drag,
+                detail: reason as u32,
+                ..out
+            }
+        }
+        Event::DragSend { .. } => return None,
         // A transaction's parts are collected by the client library; its Done completes it.
         Event::TextInputDelete { .. }
         | Event::TextInputCommitText { .. }
@@ -1911,6 +2064,246 @@ pub unsafe extern "C" fn oxyos_client_empty_trash(client: *mut OxyOSClient, inpu
         return fail("null client");
     };
     status(client.send(&Request::EmptyTrash { input }))
+}
+
+/// One media type of a drag (`oxyos_client_start_drag`), as a copy's entry.
+pub type OxyOSDragEntry = OxyOSClipboardEntry;
+
+/// Makes `surface` (a new surface id) a drag icon of `width` x `height` logical pixels, its hotspot
+/// (`hotspot_x`, `hotspot_y`, surface-local) at the pointer while a drag names it
+/// (docs/adr/0035-drag-and-drop.mdx). It is configured and presented as any surface, shown only
+/// during its drag, and takes no input. 0 on success; refused to a compositor of a version before
+/// 10.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_create_drag_icon(
+    client: *mut OxyOSClient,
+    surface: u32,
+    width: u32,
+    height: u32,
+    hotspot_x: i32,
+    hotspot_y: i32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    status(client.create_drag_icon(surface, Size::new(width, height), (hotspot_x, hotspot_y)))
+}
+
+/// Starts a drag from `surface` (docs/adr/0035-drag-and-drop.mdx), citing `serial`, the pointer
+/// press on it the person is still holding, with the drag icon `icon` (0: none), the actions it
+/// allows (OXYOS_DRAG_* bits) and `count` media types (1 to 16, each named once, the most faithful
+/// first). The client library keeps every content and writes the type the target dropped on asks
+/// for itself. Returns the drag's number (the `code` of its source events, above 0), or
+/// OXYOS_ERROR; the compositor may still refuse it (a DRAG_CANCELLED with
+/// OXYOS_DRAG_CANCEL_REFUSED). Refused to a compositor of a version before 10.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `entries` points to `count` readable
+/// entries, each pointing to its readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_start_drag(
+    client: *mut OxyOSClient,
+    surface: u32,
+    icon: u32,
+    serial: u64,
+    actions: u8,
+    entries: *const OxyOSDragEntry,
+    count: usize,
+) -> i64 {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client").into();
+    };
+    let Some(actions) = oxyos_protocol::DragActions::new(actions).filter(|a| !a.is_empty()) else {
+        return fail("a drag allows OXYOS_DRAG_* actions, at least one").into();
+    };
+    if count == 0 || count > oxyos_protocol::MAX_DRAG_TYPES || entries.is_null() {
+        return fail("a drag offers 1 to 16 types").into();
+    }
+    // SAFETY: per the contract, `entries` points to `count` readable entries.
+    let entries = unsafe { std::slice::from_raw_parts(entries, count) };
+    // SAFETY: per the contract, each entry points to its readable bytes.
+    let contents = match unsafe { entry_contents(entries) } {
+        Ok(contents) => contents,
+        Err(reason) => return fail(reason).into(),
+    };
+    match client.start_drag(surface, icon, serial, actions, contents) {
+        Ok(drag) => drag.into(),
+        Err(error) => fail(error).into(),
+    }
+}
+
+/// Each entry's type and content, checked: UTF-8 types of 1 to 32 bytes, each named once.
+///
+/// # Safety
+/// Each entry points to its readable bytes.
+#[allow(unsafe_code)]
+unsafe fn entry_contents(
+    entries: &[OxyOSClipboardEntry],
+) -> Result<Vec<(TextChunk, Vec<u8>)>, &'static str> {
+    let mut contents: Vec<(TextChunk, Vec<u8>)> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if entry.mime.is_null() || (entry.data.is_null() && entry.length > 0) {
+            return Err("null type or content");
+        }
+        // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
+        let name =
+            unsafe { std::slice::from_raw_parts(entry.mime.cast::<u8>(), entry.mime_length) };
+        let Some(mime) = std::str::from_utf8(name).ok().and_then(TextChunk::new) else {
+            return Err("a type is UTF-8 of 1 to 32 bytes");
+        };
+        if contents.iter().any(|(named, _)| *named == mime) {
+            return Err("a type is named twice");
+        }
+        let data = if entry.length == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: per the contract, `data` points to `length` readable bytes.
+            unsafe { std::slice::from_raw_parts(entry.data, entry.length) }.to_vec()
+        };
+        contents.push((mime, data));
+    }
+    Ok(contents)
+}
+
+/// Ends this client's drag `drag`, going on or dropped and not finished. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_cancel_drag(client: *mut OxyOSClient, drag: u32) -> c_int {
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.cancel_drag(drag)),
+        None => fail("null client"),
+    }
+}
+
+/// A target answers the entering `serial` of the drag `offer` (a DRAG_ENTER's), and each motion:
+/// the offered type it would take (`mime`, `mime_length` bytes; null or empty: it takes nothing
+/// here), the actions it supports and the one it prefers (OXYOS_DRAG_* bits; 0: none). 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `mime` is null or points to
+/// `mime_length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_accept_drag(
+    client: *mut OxyOSClient,
+    offer: u32,
+    serial: u64,
+    mime: *const c_char,
+    mime_length: usize,
+    actions: u8,
+    preferred: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    let (Some(actions), Some(preferred)) = (
+        oxyos_protocol::DragActions::new(actions),
+        oxyos_protocol::DragActions::new(preferred),
+    ) else {
+        return fail("actions are OXYOS_DRAG_* bits");
+    };
+    let mime = if mime.is_null() || mime_length == 0 {
+        None
+    } else {
+        // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(mime.cast::<u8>(), mime_length) };
+        match std::str::from_utf8(bytes).ok().and_then(TextChunk::new) {
+            Some(mime) => Some(mime),
+            None => return fail("a type is UTF-8 of 1 to 32 bytes"),
+        }
+    };
+    status(client.accept_drag(offer, serial, mime, actions, preferred))
+}
+
+/// The target dropped on (a DRAG_DROP's) receives `mime` of the drop `offer`: returns the read end
+/// of a pipe the source writes the content into (read it to its end and close it; it ends at once,
+/// empty, if it was refused: a type not offered, received already, or a drop not on this client),
+/// or OXYOS_ERROR.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `mime` points to `mime_length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_receive_drop(
+    client: *mut OxyOSClient,
+    offer: u32,
+    mime: *const c_char,
+    mime_length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if mime.is_null() {
+        return fail("null type");
+    }
+    // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(mime.cast::<u8>(), mime_length) };
+    let Some(mime) = std::str::from_utf8(bytes).ok().and_then(TextChunk::new) else {
+        return fail("a type is UTF-8 of 1 to 32 bytes");
+    };
+    match client.receive_drop(offer, mime) {
+        Ok(pipe) => std::os::fd::IntoRawFd::into_raw_fd(pipe),
+        Err(error) => fail(error),
+    }
+}
+
+/// The target dropped on is done with the drop `offer`: its source is told DRAG_FINISHED. 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_finish_drop(client: *mut OxyOSClient, offer: u32) -> c_int {
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.finish_drop(offer)),
+        None => fail("null client"),
+    }
+}
+
+/// The session's shell asks the session to put files in the Trash (docs/adr/0035-drag-and-drop.mdx,
+/// decision 12): `length` bytes of their `file://` URIs, one a line, citing `input`, an input it
+/// received (the drop on the dock's Trash). 0 on success; refused to a compositor of a version
+/// before 10.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `uris` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_trash_files(
+    client: *mut OxyOSClient,
+    input: u64,
+    uris: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if uris.is_null() || length == 0 || length > oxyos_protocol::MAX_TRASH_FILES_BYTES {
+        return fail("the URIs are 1 byte to MAX_TRASH_FILES_BYTES");
+    }
+    // SAFETY: per the contract, `uris` points to `length` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(uris.cast::<u8>(), length) };
+    let Ok(uris) = std::str::from_utf8(bytes) else {
+        return fail("the URIs are UTF-8");
+    };
+    status(client.trash_files(input, uris))
 }
 
 /// The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
@@ -3462,28 +3855,11 @@ pub unsafe extern "C" fn oxyos_client_copy(
     }
     // SAFETY: per the contract, `entries` points to `count` readable entries.
     let entries = unsafe { std::slice::from_raw_parts(entries, count) };
-    let mut contents: Vec<(TextChunk, Vec<u8>)> = Vec::with_capacity(count);
-    for entry in entries {
-        if entry.mime.is_null() || (entry.data.is_null() && entry.length > 0) {
-            return fail("null type or content");
-        }
-        // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
-        let name =
-            unsafe { std::slice::from_raw_parts(entry.mime.cast::<u8>(), entry.mime_length) };
-        let Some(mime) = std::str::from_utf8(name).ok().and_then(TextChunk::new) else {
-            return fail("a type is UTF-8 of 1 to 32 bytes");
-        };
-        if contents.iter().any(|(named, _)| *named == mime) {
-            return fail("a type is named twice");
-        }
-        let data = if entry.length == 0 {
-            Vec::new()
-        } else {
-            // SAFETY: per the contract, `data` points to `length` readable bytes.
-            unsafe { std::slice::from_raw_parts(entry.data, entry.length) }.to_vec()
-        };
-        contents.push((mime, data));
-    }
+    // SAFETY: per the contract, each entry points to its readable bytes.
+    let contents = match unsafe { entry_contents(entries) } {
+        Ok(contents) => contents,
+        Err(reason) => return fail(reason),
+    };
     status(client.copy(serial, contents))
 }
 

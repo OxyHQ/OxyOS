@@ -5,7 +5,7 @@
 //! platform's: the session empties it; what an application keeps in a Trash of its own (Oxy Files')
 //! is the application's.
 
-use oxyos_compositor_core::Scene;
+use oxyos_compositor_core::{Scene, TrashRequest};
 use oxyos_files::trash;
 use oxyos_files::watch::Watcher;
 use oxyos_files::Scope;
@@ -78,6 +78,9 @@ impl Trash {
         for with_input in scene.take_trash_empties() {
             self.ask(scene, with_input);
         }
+        for request in scene.take_trash_files() {
+            self.put(scene, &request);
+        }
         if let Some(accepted) = self.sheet.and_then(|sheet| scene.take_sheet_answer(sheet)) {
             self.answered(scene, accepted);
         }
@@ -95,6 +98,30 @@ impl Trash {
             return;
         }
         self.sheet = scene.show_sheet(None, &sheet_text(items));
+    }
+
+    /// The shell asked to put files in the Trash, the files dropped on the dock's (ADR 0035,
+    /// decision 12): only with the person's own drop, each `file://` file the person's scope
+    /// reaches, as a file manager's Move to Trash; any other is passed over and said.
+    fn put(&mut self, scene: &mut Scene, request: &TrashRequest) {
+        if !request.with_input {
+            eprintln!("[trash] files not trashed: the request cited no input of the shell's");
+            return;
+        }
+        let mut moved = 0;
+        for uri in &request.uris {
+            let outcome = oxyos_files::uri::path_of(uri)
+                .and_then(|path| self.scope.item(&path))
+                .and_then(|path| trash::trash(&self.scope, &path));
+            match outcome {
+                Ok(_) => moved += 1,
+                Err(error) => eprintln!("[trash] {uri} not trashed: {error:?}"),
+            }
+        }
+        if moved > 0 {
+            eprintln!("[trash] trashed: {moved} items");
+            self.tell(scene);
+        }
     }
 
     /// The person answered the sheet: accepted, every Trash is emptied for good.
@@ -251,6 +278,64 @@ mod tests {
         // An empty Trash asks nothing.
         follower.ask(&mut scene, true);
         assert_eq!(follower.sheet, None);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn files_dropped_on_the_trash_go_into_it_only_with_the_shells_drop() {
+        let home = scratch("drop");
+        let mountinfo = home.join("mountinfo");
+        std::fs::write(&mountinfo, "").unwrap();
+        let scope = Scope::new(
+            &home,
+            &home.join(".local/share"),
+            &home.join(".config"),
+            Vec::new(),
+            mountinfo,
+            rustix::process::getuid().as_raw(),
+        )
+        .unwrap();
+        let mut scene = Scene::new();
+        scene
+            .connect(
+                SHELL,
+                Grants {
+                    shell: true,
+                    ..Grants::default()
+                },
+            )
+            .unwrap();
+        let mut follower = Trash::new(scope.clone()).unwrap();
+        follower.serve(&mut scene);
+        told(&mut scene);
+        let item = home.join("dropped.txt");
+        std::fs::write(&item, "dragged").unwrap();
+        let uri = oxyos_files::uri::of(&item, false);
+        // Without the shell's drop, nothing moves.
+        follower.put(
+            &mut scene,
+            &TrashRequest {
+                uris: vec![uri.clone()],
+                with_input: false,
+            },
+        );
+        assert!(item.exists());
+        // With it, the file is in the Trash and the shell told; a URI out of the scope and one
+        // gone are passed over.
+        follower.put(
+            &mut scene,
+            &TrashRequest {
+                uris: vec![
+                    uri,
+                    "file:///etc/hostname".into(),
+                    oxyos_files::uri::of(&home.join("gone.txt"), false),
+                ],
+                with_input: true,
+            },
+        );
+        assert!(!item.exists());
+        assert_eq!(trash::count(&scope), 1);
+        assert!(told(&mut scene).contains(&Event::TrashItems { items: 1 }));
         let _ = std::fs::remove_dir_all(&home);
     }
 }

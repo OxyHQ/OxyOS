@@ -4,11 +4,11 @@
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
     ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, CaptureDestination,
-    CaptureKind, CaptureMode, Clock, Control, DismissReason, ErrorCode, Format, GesturePhase,
-    MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints,
-    TextPurpose, TouchKind, WifiState, Wire,
+    CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason,
+    ErrorCode, Format, GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size,
+    SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -369,6 +369,34 @@ messages! {
         // bar's titles, which open their menus as the pointer crosses them, as a Mac's bar goes on
         // tracking the pointer with a menu open (ADR 0001). Sent before GrabPopup; a popup only.
         235 => TrackPointer { surface: u32 },
+        // Drag and drop (ADR 0035). A drag's image: a surface of this client the compositor shows
+        // above every window, its hotspot (surface-local) at the pointer, while the drag that
+        // names it goes on; it takes no input.
+        240 => CreateDragIcon { surface: u32, size: Size, hotspot_x: i32, hotspot_y: i32 },
+        // One media type the drag `drag` (the source's number) offers, before its StartDrag, the
+        // most faithful first; at most MAX_DRAG_TYPES. A type for another number begins another.
+        241 => DragType { drag: u32, mime: TextChunk },
+        // Starts the drag `drag` from `surface`, citing `serial`, the latest pointer press of this
+        // client on that window, its button still held, with the drag icon `icon` (0: none) and
+        // the actions it allows. The compositor owns the pointer until the drag ends; refused, the
+        // source is told DragCancelled (Refused).
+        242 => StartDrag { drag: u32, surface: u32, icon: u32, serial: u64, actions: DragActions },
+        // The source ends its drag (going on, or dropped and not yet finished).
+        243 => CancelDrag { drag: u32 },
+        // A target answers an entering (`serial`, DragEnter's) and each motion: the one offered
+        // type it would take (empty: none), the actions it supports and the one it prefers (none:
+        // no preference). An answer to an older entering is ignored.
+        244 => AcceptDrag { offer: u32, serial: u64, mime: PreeditText, actions: DragActions, preferred: DragActions },
+        // The target dropped on asks for one offered type of the drop `offer`, once each, carrying
+        // a pipe's write end, which the source writes the content into (DragSend); refused, the
+        // pipe is closed and its read ends at once, empty.
+        245 => ReceiveDrop { offer: u32, mime: TextChunk },
+        // The target dropped on is done: the source is told DragFinished.
+        246 => FinishDrop { offer: u32 },
+        // The session's shell (its `shell` grant, ADR 0035, decision 12): put files in the Trash,
+        // their `file://` URIs one a line in chunks (`index` 0 begins it, `last` sends it), citing
+        // `input`, an input it received lately (the drop on the dock's Trash).
+        247 => TrashFiles { input: u64, index: u16, last: bool, text: PreeditText },
     }
 }
 
@@ -664,14 +692,39 @@ messages! {
         // shell connects and whenever it changes: the dock's Trash shows it full or empty, and
         // offers emptying it only when it is not.
         232 => TrashItems { items: u32 },
+        // Drag and drop (ADR 0035), to a target: only the surface under the pointer during a drag,
+        // of a client of version 10 or newer. DragEnter as the pointer enters it (`offer`, the
+        // compositor's name for the drag; `actions`, the source's; `serial`, this entering, which
+        // AcceptDrag cites), then its `types` media types one by one (DragOfferType); DragMotion as
+        // it moves over it; DragLeave as it leaves, or the drag ends elsewhere. Points are
+        // surface-local, as a Pointer's.
+        240 => DragEnter { surface: u32, offer: u32, serial: u64, x: i32, y: i32, actions: DragActions, types: u8, modifiers: u8 },
+        241 => DragOfferType { offer: u32, mime: TextChunk },
+        242 => DragMotion { surface: u32, offer: u32, x: i32, y: i32, time_ns: u64, modifiers: u8 },
+        243 => DragLeave { surface: u32, offer: u32 },
+        // The action a drop on the target would take now, whenever it changes (none: nothing).
+        244 => DragAction { offer: u32, action: DragActions },
+        // Dropped on it with `action`: it receives the types it wants (ReceiveDrop), then finishes.
+        // `serial` is a user input of its own, as a press's.
+        245 => DragDrop { surface: u32, offer: u32, serial: u64, x: i32, y: i32, action: DragActions },
+        // To the source of `drag`: the action a release would take now (none: nothing would take
+        // it); the drop happened on a target that accepted it (it keeps its content until the
+        // drag finishes or is cancelled); the target finished (with move, data, not files, is the
+        // source's to delete); the drag ended without a drop; write `mime` into the pipe this
+        // event carries, then close it.
+        246 => DragSourceAction { drag: u32, action: DragActions },
+        247 => DragDropped { drag: u32, action: DragActions },
+        248 => DragFinished { drag: u32, action: DragActions },
+        249 => DragCancelled { drag: u32, reason: DragCancelReason },
+        250 => DragSend { drag: u32, mime: TextChunk },
     }
 }
 
 impl Event {
-    /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's
-    /// content into); every other event carries none.
+    /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's or
+    /// a drag's content into); every other event carries none.
     pub fn carries_fd(&self) -> bool {
-        matches!(self, Event::ClipboardSend { .. })
+        matches!(self, Event::ClipboardSend { .. } | Event::DragSend { .. })
     }
 }
 
@@ -683,6 +736,7 @@ impl Request {
             self,
             Request::AttachBuffer { .. }
                 | Request::ClipboardReceive { .. }
+                | Request::ReceiveDrop { .. }
                 | Request::AttachDmabufPlane { .. }
                 | Request::ImportTimeline { .. }
         )

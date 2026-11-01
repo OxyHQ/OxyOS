@@ -120,6 +120,36 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_LIST_CHOSEN 2
 /* To the shell: how many items the user's Trashes hold (code), when it connects and as it changes. */
 #define OXYOS_EVENT_TRASH_ITEMS 232
+/* Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: DRAG_ENTER (surface; serial: the
+ * entering, which oxyos_client_accept_drag cites; code: the offer; x, y: surface-local, as a
+ * POINTER's; detail: the source's actions, OXYOS_DRAG_* bits; width: how many DRAG_OFFER_TYPE
+ * follow; modifiers), DRAG_OFFER_TYPE (code: the offer; text: one offered type), DRAG_MOTION
+ * (surface; code; x, y; time_ns; modifiers), DRAG_LEAVE (surface; code), DRAG_ACTION (code; detail:
+ * the action a drop would take now, one OXYOS_DRAG_* or 0) and DRAG_DROP (surface; code; serial, a
+ * user input of its own; x, y; detail: the action): receive the types it wants
+ * (oxyos_client_receive_drop), then oxyos_client_finish_drop. To a source, code naming its drag:
+ * DRAG_SOURCE_ACTION (detail: the action a release would take now, 0 for none), DRAG_DROPPED
+ * (detail: the action), DRAG_FINISHED (detail: the action; after a move of data, not files, delete
+ * the original) and DRAG_CANCELLED (detail: OXYOS_DRAG_CANCEL_*). */
+#define OXYOS_EVENT_DRAG_ENTER 240
+#define OXYOS_EVENT_DRAG_OFFER_TYPE 241
+#define OXYOS_EVENT_DRAG_MOTION 242
+#define OXYOS_EVENT_DRAG_LEAVE 243
+#define OXYOS_EVENT_DRAG_ACTION 244
+#define OXYOS_EVENT_DRAG_DROP 245
+#define OXYOS_EVENT_DRAG_SOURCE_ACTION 246
+#define OXYOS_EVENT_DRAG_DROPPED 247
+#define OXYOS_EVENT_DRAG_FINISHED 248
+#define OXYOS_EVENT_DRAG_CANCELLED 249
+#define OXYOS_DRAG_COPY 1
+#define OXYOS_DRAG_MOVE 2
+#define OXYOS_DRAG_LINK 4
+#define OXYOS_DRAG_CANCEL_REFUSED 1
+#define OXYOS_DRAG_CANCEL_ESCAPE 2
+#define OXYOS_DRAG_CANCEL_NOT_ACCEPTED 3
+#define OXYOS_DRAG_CANCEL_CANCELLED 4
+#define OXYOS_DRAG_CANCEL_LOCKED 5
+#define OXYOS_DRAG_CANCEL_ABANDONED 6
 /* A CAPTURE_MODE's detail. */
 #define OXYOS_CAPTURE_MODE_SELECTION 1
 #define OXYOS_CAPTURE_MODE_WINDOW 2
@@ -1041,6 +1071,37 @@ int oxyos_client_clear_clipboard(OxyOSClient* client, uint64_t serial);
  * end and close it; it ends at once, empty, if the paste was refused), or OXYOS_ERROR. */
 int oxyos_client_paste(OxyOSClient* client, uint32_t selection, const char* mime, size_t mime_length,
                        uint64_t serial);
+
+/* Drag and drop (docs/adr/0035-drag-and-drop.mdx); each refused to a compositor of a version before
+ * 10. A drag's image: `surface` (a new id) as a drag icon of width x height, its hotspot
+ * (surface-local) at the pointer while a drag names it; configured and presented as any surface,
+ * shown only during its drag, taking no input. */
+int oxyos_client_create_drag_icon(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height,
+                                  int32_t hotspot_x, int32_t hotspot_y);
+/* One media type of a drag, as a copy's entry. */
+typedef OxyOSClipboardEntry OxyOSDragEntry;
+/* Starts a drag from `surface`, citing `serial`, the pointer press on it still held, with the drag
+ * icon `icon` (0: none), the actions it allows (OXYOS_DRAG_* bits) and `count` types (1 to 16, each
+ * named once, the most faithful first), whose contents the library keeps and writes for the target
+ * dropped on. Returns the drag's number (its source events' code, above 0) or OXYOS_ERROR; the
+ * compositor may still refuse it (DRAG_CANCELLED, OXYOS_DRAG_CANCEL_REFUSED). */
+int64_t oxyos_client_start_drag(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
+                                uint8_t actions, const OxyOSDragEntry* entries, size_t count);
+/* Ends this client's drag, going on or dropped and not finished. */
+int oxyos_client_cancel_drag(OxyOSClient* client, uint32_t drag);
+/* A target answers the entering `serial` of the drag `offer`, and each motion: the offered type it
+ * would take (null or empty: none here), the actions it supports and the one it prefers (0: none). */
+int oxyos_client_accept_drag(OxyOSClient* client, uint32_t offer, uint64_t serial, const char* mime,
+                             size_t mime_length, uint8_t actions, uint8_t preferred);
+/* The target dropped on receives `mime` of the drop `offer`: the read end of a pipe the source
+ * writes it into (read it to its end and close it; it ends at once, empty, if refused), or
+ * OXYOS_ERROR. Each type once. */
+int oxyos_client_receive_drop(OxyOSClient* client, uint32_t offer, const char* mime, size_t mime_length);
+/* The target dropped on is done: its source is told DRAG_FINISHED. */
+int oxyos_client_finish_drop(OxyOSClient* client, uint32_t offer);
+/* The session's shell asks the session to put files in the Trash: `length` bytes of their file://
+ * URIs, one a line, citing `input`, an input it received (the drop on the dock's Trash). */
+int oxyos_client_trash_files(OxyOSClient* client, uint64_t input, const char* uris, size_t length);
 
 /* Text input (docs/adr/0008-input-method.mdx). What a field is for. */
 #define OXYOS_PURPOSE_NORMAL 0
