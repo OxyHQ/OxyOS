@@ -33,6 +33,27 @@ function oxyosVariant(filePath, originModulePath) {
   return fs.existsSync(android) ? android : null;
 }
 
+// Third-party packages' files with an OxyOS variant, as React Native's have: the variant is
+// `oxyos/<package>/<path>.oxyos.js`, used wherever the package's file (any platform's) is resolved.
+// Reanimated's reduced motion follows the session's Reduce Motion as it changes
+// (oxyos/react-native-reanimated/src/ReducedMotion.oxyos.js).
+const VARIANT_PACKAGES = ['react-native-reanimated'];
+const packageVariants = new Map();
+function packageVariant(filePath) {
+  if (!packageVariants.has(filePath)) {
+    let found = null;
+    for (const name of VARIANT_PACKAGES) {
+      const root = path.join(NODE_MODULES, name) + path.sep;
+      if (!filePath.startsWith(root)) continue;
+      const relative = filePath.slice(root.length).replace(/(\.(native|android|ios|web))?\.[cm]?[jt]sx?$/, '');
+      const variant = path.join(OVERRIDES, name, relative + '.oxyos.js');
+      if (fs.existsSync(variant)) found = variant;
+    }
+    packageVariants.set(filePath, found);
+  }
+  return packageVariants.get(filePath);
+}
+
 // `@oxy.so/bloom` always means the Bloom checkout (BLOOM_DIR), never a copy another package
 // installed, resolved through its own `exports` map with the `react-native` condition.
 const BLOOM_PACKAGE = bloomRequire(path.join(BLOOM, 'package.json'));
@@ -326,7 +347,7 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
         throw error;
       }
       if (platform !== PLATFORM || result.type !== 'sourceFile') return result;
-      const variant = oxyosVariant(result.filePath, context.originModulePath);
+      const variant = oxyosVariant(result.filePath, context.originModulePath) ?? packageVariant(result.filePath);
       if (variant) return { type: 'sourceFile', filePath: variant };
       // Packages whose Android native views the host implements as Android does take their
       // Android modules too: expo-blur's blur target is then its own view, never a View that

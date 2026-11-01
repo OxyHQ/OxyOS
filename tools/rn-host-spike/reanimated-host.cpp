@@ -38,10 +38,12 @@ void unsupported(const char* what) {
 ReanimatedHost::ReanimatedHost(
     WorkletsHost& worklets,
     std::function<react::Scheduler*()> scheduler,
-    const DisplayRefresh& refresh)
+    const DisplayRefresh& refresh,
+    std::function<bool()> reducedMotion)
     : worklets_(worklets),
       scheduler_(std::move(scheduler)),
       refresh_(refresh),
+      reducedMotion_(std::move(reducedMotion)),
       renders_(std::make_shared<std::vector<std::function<void(double)>>>()) {}
 
 ReanimatedHost::~ReanimatedHost() = default;
@@ -81,7 +83,7 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
         .platformAnimationFactory = nullptr,
     };
     proxy_ = std::make_shared<reanimated::ReanimatedModuleProxy>(
-        uiRuntime, workletsProxy->getUIScheduler(), rt, invoker, platform, /*isReducedMotion=*/false);
+        uiRuntime, workletsProxy->getUIScheduler(), rt, invoker, platform, reducedMotion_());
     proxy_->init(platform);
     auto* scheduler = scheduler_();
     proxy_->initializeFabric(scheduler->getUIManager());

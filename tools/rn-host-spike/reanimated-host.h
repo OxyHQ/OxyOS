@@ -32,9 +32,12 @@ class WorkletsHost;
 class ReanimatedHost {
  public:
   // `scheduler` returns the Fabric scheduler, which exists before JavaScript installs the module.
-  // Its frames are the display's (`refresh`).
+  // Its frames are the display's (`refresh`). `reducedMotion` says whether the session's Reduce
+  // Motion is on when JavaScript installs the module (`_REANIMATED_IS_REDUCED_MOTION`, as Android's
+  // NativeProxy reads its animator duration scale); its changes reach Reanimated in JavaScript
+  // (sample/oxyos/react-native-reanimated/src/ReducedMotion.oxyos.js).
   ReanimatedHost(WorkletsHost& worklets, std::function<facebook::react::Scheduler*()> scheduler,
-                 const DisplayRefresh& refresh);
+                 const DisplayRefresh& refresh, std::function<bool()> reducedMotion);
   ~ReanimatedHost();
 
   std::shared_ptr<facebook::react::TurboModule> module(
@@ -57,6 +60,7 @@ class ReanimatedHost {
   WorkletsHost& worklets_;
   std::function<facebook::react::Scheduler*()> scheduler_;
   const DisplayRefresh& refresh_;
+  std::function<bool()> reducedMotion_;
   std::shared_ptr<reanimated::ReanimatedModuleProxy> proxy_;
   std::shared_ptr<std::vector<std::function<void(double)>>> renders_;
   double lastFrame_ = 0;
