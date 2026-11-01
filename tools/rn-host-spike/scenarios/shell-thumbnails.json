@@ -12,13 +12,10 @@
   },
   "steps": [
     {
-      "name": "the overview opens: Allo's card shows Allo's own pixels, live",
+      "name": "the dock's overview button (Ver escritorios, wherever the dock's row puts it) opens the overview: Allo's card shows Allo's own pixels, live",
       "do": [
-        "press_output",
-        [
-          593,
-          693
-        ]
+        "press_named",
+        "Ver escritorios"
       ],
       "expect": {
         "window_shown": true,
