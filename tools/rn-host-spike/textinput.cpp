@@ -113,7 +113,7 @@ std::vector<std::pair<size_t, bool>> wordBoundaries(const std::string& text) {
 }
 
 // The end of the word after `offset` (or the text's end), and the start of the word before it
-// (or the text's start): where Ctrl+Right and Ctrl+Left go.
+// (or the text's start): where Alt+Right and Alt+Left go (a Mac's ⌥→ and ⌥←).
 size_t nextWordEnd(const std::string& text, size_t offset) {
   for (const auto& [at, word] : wordBoundaries(text)) {
     if (at > offset && word) return at;
