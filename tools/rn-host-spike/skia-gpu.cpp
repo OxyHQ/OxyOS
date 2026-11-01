@@ -16,6 +16,7 @@
 #include <src/gpu/GpuTypesPriv.h>
 #include <src/gpu/vk/vulkanmemoryallocator/VulkanMemoryAllocatorPriv.h>
 
+#include <cstring>
 #include <iostream>
 
 namespace oxyos {
@@ -35,6 +36,15 @@ Context& context() {
   // Kept for the process, as the painter is: never destroyed, so no canvas outlives it.
   static Context* made = new Context;
   return *made;
+}
+
+// Skia asks the loader for every instance extension, to read their spec versions; the loader then
+// opens every Vulkan driver installed, another GPU's too. The painter's instance has its GPU's
+// drivers alone (docs/adr/0031-gpu-buffers.mdx, decision 14) and Skia is told of no instance
+// extension, so it is answered with none and no driver is opened.
+VKAPI_ATTR VkResult VKAPI_CALL noInstanceExtensions(const char*, uint32_t* count, VkExtensionProperties*) {
+  *count = 0;
+  return VK_SUCCESS;
 }
 
 bool make(Context& made, OxyOSPaint* paint) {
@@ -59,6 +69,8 @@ bool make(Context& made, OxyOSPaint* paint) {
   backend.fMaxAPIVersion = made.vulkan.api_version;
   backend.fGetProc = [&made](const char* name, VkInstance at, VkDevice on) -> PFN_vkVoidFunction {
     if (on != VK_NULL_HANDLE) return made.getDeviceProcAddr(on, name);
+    if (at == VK_NULL_HANDLE && std::strcmp(name, "vkEnumerateInstanceExtensionProperties") == 0)
+      return reinterpret_cast<PFN_vkVoidFunction>(&noInstanceExtensions);
     return made.getInstanceProcAddr(at, name);
   };
   made.extensions.init(backend.fGetProc, instance, physical, static_cast<uint32_t>(made.vulkan.instance_extension_count),
