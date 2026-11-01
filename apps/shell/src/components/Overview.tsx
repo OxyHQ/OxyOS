@@ -106,6 +106,9 @@ function WindowThumbnail({
         }),
     [drag, id, contentHeight],
   );
+  // One button for the window, named by its title, as Mission Control's window is one element:
+  // its title bar and its picture press the same, so they are one control for the keyboard and
+  // the screen reader. Its close button follows it, drawn over the title bar's end.
   const content = (
     <Box
       testID={`overview-window-${window.id}`}
@@ -116,13 +119,13 @@ function WindowThumbnail({
         boxShadow: "0 1px 3px #172e4320",
       }}
     >
-      <Box className="h-6 flex-row items-center bg-[#d0e5f3] pl-2 pr-1">
-        <PressArea
-          accessibilityRole="button"
-          accessibilityLabel={`Ir a ${window.title}`}
-          onPress={focus}
-          className="min-w-0 flex-1 flex-row items-center gap-1.5"
-        >
+      <PressArea
+        testID={`overview-window-${window.id}-focus`}
+        accessibilityRole="button"
+        accessibilityLabel={window.title}
+        onPress={focus}
+      >
+        <Box className="h-6 flex-row items-center gap-1.5 bg-[#d0e5f3] pl-2 pr-7">
           {app && <AppIcon app={app} size={14} circular />}
           <Text
             numberOfLines={1}
@@ -130,55 +133,50 @@ function WindowThumbnail({
           >
             {window.title}
           </Text>
-        </PressArea>
-        <Button
-          iconOnly
-          icon={RiCloseLine}
-          iconSize={15}
-          accessibilityLabel={`Cerrar ${window.title}`}
-          testID={`close-window-${window.id}`}
-          appearance="plain"
-          className="ml-1 h-5 w-5 shrink-0 rounded-full border-0 bg-transparent p-0"
-          colors={{ background: "transparent", foreground: "#82909a" }}
-          onPress={close}
-        />
-      </Box>
-      <PressArea
-        accessibilityRole="button"
-        accessibilityLabel={`Activar ventana ${window.title}`}
-        onPress={focus}
-        className="items-center justify-center"
-        style={{ width, height: contentHeight }}
-      >
-        {WindowView ? (
-          // The window itself, live: the compositor draws it here, its proportions kept, the
-          // card's bottom corners rounded with it.
-          <WindowView
-            windowId={window.id}
-            style={{
-              width,
-              height: contentHeight,
-              borderBottomLeftRadius: 13,
-              borderBottomRightRadius: 13,
-            }}
-            accessibilityLabel={`Ventana ${window.title}`}
-          />
-        ) : window.thumbnail ? (
-          <Image
-            source={window.thumbnail}
-            resizeMode="contain"
-            style={{ width, height: contentHeight }}
-            accessibilityLabel={`Miniatura de ${window.title}`}
-          />
-        ) : (
-          <Box className="items-center gap-3">
-            {app && <AppIcon app={app} size={40} />}
-            <Text className="text-xs text-[#657683]">
-              Vista previa no disponible
-            </Text>
-          </Box>
-        )}
+        </Box>
+        <Box
+          className="items-center justify-center"
+          style={{ width, height: contentHeight }}
+        >
+          {WindowView ? (
+            // The window itself, live: the compositor draws it here, its proportions kept, the
+            // card's bottom corners rounded with it.
+            <WindowView
+              windowId={window.id}
+              style={{
+                width,
+                height: contentHeight,
+                borderBottomLeftRadius: 13,
+                borderBottomRightRadius: 13,
+              }}
+            />
+          ) : window.thumbnail ? (
+            <Image
+              source={window.thumbnail}
+              resizeMode="contain"
+              style={{ width, height: contentHeight }}
+            />
+          ) : (
+            <Box className="items-center gap-3">
+              {app && <AppIcon app={app} size={40} />}
+              <Text className="text-xs text-[#657683]">
+                Vista previa no disponible
+              </Text>
+            </Box>
+          )}
+        </Box>
       </PressArea>
+      <Button
+        iconOnly
+        icon={RiCloseLine}
+        iconSize={15}
+        accessibilityLabel={`Cerrar ${window.title}`}
+        testID={`close-window-${window.id}`}
+        appearance="plain"
+        className="absolute right-1 top-0.5 h-5 w-5 rounded-full border-0 bg-transparent p-0"
+        colors={{ background: "transparent", foreground: "#82909a" }}
+        onPress={close}
+      />
     </Box>
   );
   return drag ? (

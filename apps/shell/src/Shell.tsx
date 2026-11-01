@@ -670,6 +670,7 @@ export const Shell = memo(function Shell({
               Masked={platform.Masked}
               notifications={notifications}
               applications={snapshot.applications}
+              announce={platform.announce}
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />

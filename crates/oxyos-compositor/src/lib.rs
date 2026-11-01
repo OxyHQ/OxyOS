@@ -4149,6 +4149,36 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn super_f5_switches_the_screen_reader_while_locked_and_at_the_login_screen() {
+        // Super+F5 as the seat's keyboard types it, through the keymap: the switch is kept for the
+        // session (or the login screen's session) to start or stop its reader, whatever the scene
+        // shows, as Cmd+F5 turns VoiceOver on at a Mac's lock and login screens (ADR 0014).
+        const SUPER: u32 = 125;
+        const F5: u32 = 63;
+        let typed = |compositor: &mut Compositor| {
+            let mut keyboard =
+                oxyos_input::Keyboard::new(&oxyos_input::Layout::named("us")).unwrap();
+            for (code, pressed) in [(SUPER, true), (F5, true), (F5, false), (SUPER, false)] {
+                for action in keyboard.actions(code, pressed) {
+                    compositor.apply_input(action);
+                }
+            }
+        };
+        for login in [false, true] {
+            let mut compositor = Compositor::new(Scene::new(), 0);
+            compositor.login = login;
+            compositor.scene.lock();
+            assert!(compositor.scene.is_locked());
+            typed(&mut compositor);
+            assert!(compositor.take_reader_toggle(), "login: {login}");
+            // Taken once: the next turn has no switch to act on.
+            assert!(!compositor.take_reader_toggle());
+            typed(&mut compositor);
+            assert!(compositor.take_reader_toggle());
+        }
+    }
+
     fn screen(rect: Rect, scale_120: u32) -> Screen {
         Screen::new(
             &Output {

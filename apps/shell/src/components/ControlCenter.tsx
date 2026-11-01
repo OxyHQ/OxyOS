@@ -132,7 +132,6 @@ function LevelCard({
   if (!level?.available) return null;
   const Glyph = icon;
   const quiet = mute && silent(level);
-  const shown = level.muted ? 0 : percent(level.level);
   return (
     <Box style={card}>
       <Text style={{ color: INK, fontSize: 13, fontWeight: "600", marginBottom: 6 }}>{title}</Text>
@@ -153,27 +152,20 @@ function LevelCard({
         ) : (
           <Glyph width={16} height={16} fill={INK} />
         )}
-        {/* One element for the assistive technology: the level as its value, a step up or down
-            (a sixteenth, as the keys) as its actions. */}
-        <Box
-          className="flex-1"
-          testID={`control-${control}`}
-          accessible
-          accessibilityRole="adjustable"
-          accessibilityLabel={title}
-          accessibilityValue={{ min: 0, max: 100, now: shown, text: `${shown} %` }}
-          accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
-          onAccessibilityAction={({ nativeEvent }) => {
-            const step = nativeEvent.actionName === "increment" ? 1 / 16 : -1 / 16;
-            controls.setLevel?.(control, Math.min(1, Math.max(0, level.level + step)));
-          }}
-        >
+        {/* One element for the assistive technology, Bloom's slider: the level as its value
+            ("50 %"), a sixteenth up or down (as the keys) as its increment and decrement, which
+            the arrows step with the keyboard on it. A drag lands on the keys' finest step, a
+            quarter of a sixteenth. */}
+        <Box className="flex-1">
           <Slider
-            value={shown}
+            testID={`control-${control}`}
+            value={level.muted ? 0 : level.level * 100}
             min={0}
             max={100}
-            step={1}
+            step={100 / 64}
+            keyboardStep={100 / 16}
             showTooltip={false}
+            formatValue={(value) => `${percent(value / 100)} %`}
             accessibilityLabel={title}
             minimumTrackTintColor={ACCENT}
             onValueChange={(value) => controls.setLevel?.(control, value / 100)}

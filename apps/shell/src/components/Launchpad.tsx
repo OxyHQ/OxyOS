@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState, type ComponentRef } from "react";
 import {
+  AccessibilityInfo,
   StyleSheet,
   View,
   useColorScheme,
@@ -42,6 +43,16 @@ const SEARCH_TOKENS = {
   primary: "#ffffff66",
   border: "#ffffff33",
 };
+
+/** Moves the screen reader's focus to `view` (React Native's accessibility focus). */
+function focusForAccessibility(view: ComponentRef<typeof View> | null | undefined) {
+  if (view) {
+    AccessibilityInfo.sendAccessibilityEvent(
+      view as Parameters<typeof AccessibilityInfo.sendAccessibilityEvent>[0],
+      "focus",
+    );
+  }
+}
 
 const LABEL_SHADOW = {
   textShadowColor: "#00000059",
@@ -97,7 +108,10 @@ export const LaunchpadBackdrop = memo(function LaunchpadBackdrop({
  * Launchpad, as a Mac's: the applications in pages of a grid over the blurred desktop, the
  * search above, the pages' dots below. Typing searches (the field takes the keyboard as it
  * opens); the arrows move a highlight through the icons and Return opens it; Escape clears the
- * search, then closes; a press outside the icons, or opening one, closes it. It opens and closes
+ * search, then closes; a press outside the icons, or opening one, closes it. The highlight is the
+ * screen reader's focus, as VoiceOver's cursor is Launchpad's selection: each icon the arrows reach
+ * is said once by its name; typing again gives the search its focus back. An open folder is modal:
+ * only it is read and reached with Tab, as VoiceOver reads only an open Launchpad folder. It opens and closes
  * by the compositor's motion (its icons settle from larger over a fading backdrop,
  * docs/adr/0011-transitions.mdx), on the display's time, not React's.
  */
@@ -131,6 +145,13 @@ export const Launchpad = memo(function Launchpad({
   // The icon highlighted by the arrows (an index into every entry), none until one is pressed;
   // with a search, its first result.
   const [selected, setSelected] = useState<number | null>(null);
+  // The icons on the page, by entry, and the folder's panel: where the screen reader's focus goes.
+  const icons = useRef(new Map<string, ComponentRef<typeof View>>());
+  const folderPanel = useRef<ComponentRef<typeof View>>(null);
+  // Whether the arrows moved the screen reader's focus off the search, to give it back on typing.
+  const arrowed = useRef(false);
+  // The arrows asked for the highlight to take the screen reader's focus.
+  const [focusRequest, setFocusRequest] = useState(0);
   const { width, height } = useWindowDimensions();
   const layout = launcherLayout(width, height);
   const { columns, rows, gridWidth, iconSize, rowHeight, labelSize } = layout;
@@ -146,6 +167,8 @@ export const Launchpad = memo(function Launchpad({
   if (!query) entries.push(...folders.map((group) => ({ folder: group })));
   const pageCount = Math.max(1, Math.ceil(entries.length / capacity));
   const currentPage = Math.min(page, pageCount - 1);
+  const keyOf = (entry: Entry) =>
+    "app" in entry ? entry.app.id : `folder-${entry.folder.id}`;
   const openEntry = (entry: Entry | undefined) => {
     if (!entry) return;
     if ("app" in entry) launch(entry.app.id);
@@ -153,6 +176,12 @@ export const Launchpad = memo(function Launchpad({
   };
 
   const search = (value: string) => {
+    // Typing after the arrows: the search has the screen reader's focus again, so what is typed
+    // is echoed, as VoiceOver goes back to the field.
+    if (arrowed.current) {
+      arrowed.current = false;
+      focusForAccessibility(field.current as unknown as ComponentRef<typeof View>);
+    }
     setQuery(value);
     setPage(0);
     setSelected(value ? 0 : null);
@@ -189,7 +218,11 @@ export const Launchpad = memo(function Launchpad({
         currentPage,
       );
       setSelected(next);
-      if (next !== null) setPage(pageOf(next, columns, rows));
+      if (next !== null) {
+        setPage(pageOf(next, columns, rows));
+        arrowed.current = true;
+        setFocusRequest((request) => request + 1);
+      }
       return true;
     }
     return false;
@@ -213,6 +246,26 @@ export const Launchpad = memo(function Launchpad({
     lastEscape.current = escapeRequest;
   }, [escapeRequest, open]);
   const field = useRef<React.ComponentRef<typeof Search>>(null);
+  // The icon the arrows reached takes the screen reader's focus once it is drawn (its page may be
+  // another), which says it.
+  const highlighted = selected === null ? undefined : entries[selected];
+  const highlightedKey = highlighted ? keyOf(highlighted) : undefined;
+  useEffect(() => {
+    if (!open || focusRequest === 0 || !highlightedKey) return;
+    focusForAccessibility(icons.current.get(highlightedKey));
+  }, [focusRequest]);
+  // A folder opened takes the screen reader into it, at its name; closed, the reader is back on
+  // its icon where the arrows had brought it.
+  const lastFolder = useRef<ShellFolder | null>(null);
+  useEffect(() => {
+    const closed = lastFolder.current;
+    lastFolder.current = folder;
+    if (!open) return;
+    if (folder) focusForAccessibility(folderPanel.current);
+    else if (closed && arrowed.current) {
+      focusForAccessibility(icons.current.get(`folder-${closed.id}`));
+    }
+  }, [folder, open]);
   const lastSearch = useRef(searchRequest);
   // Shown, the search takes what is typed, as Launchpad's does; Super+Space asks again.
   useEffect(() => {
@@ -231,6 +284,7 @@ export const Launchpad = memo(function Launchpad({
     setFolder(null);
     setPage(0);
     setSelected(null);
+    arrowed.current = false;
   }, [open]);
   const folderWidth = Math.min(640, width - 64);
   const folderColumns = width >= 700 ? 5 : 3;
@@ -244,7 +298,13 @@ export const Launchpad = memo(function Launchpad({
       className="absolute inset-0 items-center overflow-hidden"
       style={{ zIndex: 20, display: open ? "flex" : "none" }}
     >
-      {/* Outside the icons: a press closes it. */}
+      {/* Outside the icons: a press closes it. Behind an open folder, nothing of the grid is read
+          or reached (the folder is modal for assistive technologies). */}
+      <Box
+        className="absolute inset-0 items-center"
+        importantForAccessibility={folder ? "no-hide-descendants" : "auto"}
+        accessibilityElementsHidden={!!folder}
+      >
       <PressArea
         accessibilityRole="button"
         accessibilityLabel="Cerrar aplicaciones"
@@ -311,14 +371,15 @@ export const Launchpad = memo(function Launchpad({
                 style={{ width: cellWidth, height: rowHeight }}
               >
                 <Button
+                  ref={(node) => {
+                    if (node) icons.current.set(keyOf(entry), node);
+                    else icons.current.delete(keyOf(entry));
+                  }}
                   testID={
                     app ? `launcher-${app.id}` : `launcher-folder-${group!.id}`
                   }
-                  accessibilityLabel={
-                    app
-                      ? `Abrir ${app.name} desde aplicaciones`
-                      : `Abrir carpeta ${group!.name}`
-                  }
+                  // Its name, as VoiceOver says a Launchpad icon; a folder says it is one.
+                  accessibilityLabel={app ? app.name : `Carpeta ${group!.name}`}
                   pressed={highlighted}
                   appearance="plain"
                   className="flex-col items-center justify-start rounded-[18px] border-0 p-0"
@@ -402,19 +463,23 @@ export const Launchpad = memo(function Launchpad({
           ))}
         </Box>
       )}
+      </Box>
       {folder && (
         <Box
           testID="launcher-folder"
+          accessibilityViewIsModal
           className="absolute inset-0 items-center justify-center bg-black/20"
         >
+          {/* Outside the folder: a press closes it, as Escape does; no stop of the keyboard's or
+              the screen reader's, as a panel's backdrop is not. */}
           <PressArea
-            accessibilityRole="button"
-            accessibilityLabel={`Cerrar carpeta ${folder.name}`}
+            accessible={false}
             className="absolute inset-0 h-full w-full rounded-none border-0 bg-transparent p-0"
             onPress={() => setFolder(null)}
           />
-          <Box style={{ width: folderWidth }}>
+          <Box ref={folderPanel} style={{ width: folderWidth }}>
             <Text
+              accessibilityRole="header"
               className="mb-5 text-center text-[24px] font-normal text-white"
               style={LABEL_SHADOW}
             >
@@ -429,7 +494,7 @@ export const Launchpad = memo(function Launchpad({
               {folderApps.map((app) => (
                 <Button
                   key={app.id}
-                  accessibilityLabel={`Abrir ${app.name} desde ${folder.name}`}
+                  accessibilityLabel={app.name}
                   appearance="plain"
                   className="items-center justify-center rounded-[18px] border-0 bg-transparent p-0"
                   style={{

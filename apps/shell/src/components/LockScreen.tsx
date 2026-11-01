@@ -63,6 +63,7 @@ export const LockScreen = memo(function LockScreen({
   Masked,
   notifications,
   applications = [],
+  announce,
 }: {
   lock: ShellLock;
   wallpaper: ImageSourcePropType;
@@ -73,6 +74,8 @@ export const LockScreen = memo(function LockScreen({
       application has, and what its newest says only where the preferences allow previews. */
   notifications?: ShellNotifications;
   applications?: readonly ShellApplication[];
+  /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
+  announce?: (text: string, polite: boolean) => void;
 }) {
   const name = lock.user.fullName || lock.user.name;
   const summary = notifications
@@ -122,6 +125,7 @@ export const LockScreen = memo(function LockScreen({
         authenticate={lock.authenticate}
         answer={lock.answer}
         capsLock={lock.capsLock}
+        announce={announce}
       />
     </LockBackdrop>
   );
