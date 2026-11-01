@@ -21,6 +21,7 @@
 #include "modal.h"
 #include "network.h"
 #include "popup.h"
+#include "drag.h"
 #include "safe-area.h"
 #include "notifications.h"
 #include "system.h"
@@ -555,6 +556,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyOSDropTargetViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
@@ -640,6 +642,8 @@ int main(int argc, char** argv) {
       services.applicationWindow = !shellMode;
       if (!shellMode) services.files = &files;
       services.shellWindow = shellMode;
+      // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): protocol version 10.
+      services.drag.available = window->protocolVersion() >= 10;
       // A file chooser the session started (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): what
       // it shows, known before JavaScript starts, so Bloom's adapter is the chooser's from the start.
       if (const char* request = shellMode ? nullptr : std::getenv("OXYOS_FILE_CHOOSER")) {
@@ -768,6 +772,13 @@ int main(int argc, char** argv) {
       return popups.content(surface);
     });
     pointer.takesPointerModifiers(window->protocolVersion() >= 8);
+    // Drags over this client's surfaces reach the drop targets under them, and its own drags start
+    // from the press it holds (drag.h).
+    oxyos::DragDrop dragDrop(tree, *window, [&](uint32_t surface) -> std::optional<oxyos::SurfaceContent> {
+      if (surface == oxyos::Window::kToplevel) return oxyos::SurfaceContent{.surface = surface, .view = tree.root()};
+      if (auto content = shellSurfaces.content(surface)) return content;
+      return popups.content(surface);
+    });
     // While a popup is open, the pointer over the surface it hangs from reaches only the views it
     // tracks: a menu bar's titles (popup.h).
     pointer.admitsHover([&](uint32_t surface, facebook::react::Tag view) { return popups.tracks(surface, view); });
@@ -886,6 +897,10 @@ int main(int argc, char** argv) {
     // expo-clipboard's reads and writes carry the serial of the latest key or press the app
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
+    services.drag.start = [&dragDrop](const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
+                                      std::function<void(std::optional<std::string>)> done) {
+      dragDrop.start(data, actions, preview, std::move(done));
+    };
     services.clipboard = {
         .copy = [&window, &lastPress](const std::string& text) { return window->copyText(lastPress, text); },
         .paste = [&window, &lastPress](std::function<void(std::string)> done) {
@@ -1086,6 +1101,13 @@ int main(int argc, char** argv) {
           .emptyTrash = [&window, &lastPress] {
             bool sent = window->emptyTrash(lastPress);
             oxyos::Report::get().input("trash.empty", 0, folly::dynamic::object("sent", sent));
+            return sent;
+          },
+          .trashFiles = [&window, &lastPress](const std::vector<std::string>& uris) {
+            std::string list;
+            for (const auto& uri : uris) list += uri + "\n";
+            bool sent = window->trashFiles(lastPress, list);
+            oxyos::Report::get().input("trash.files", 0, folly::dynamic::object("count", uris.size())("sent", sent));
             return sent;
           },
       };
@@ -1304,6 +1326,7 @@ int main(int argc, char** argv) {
         }
         bool arrived = networking.deliver();
         arrived |= files.deliver();
+        arrived |= dragDrop.deliver();
         arrived |= deliverApplication(services);
         if (arrived) diagnostics.trigger("data arriving");
         busy |= arrived;
@@ -1434,7 +1457,9 @@ int main(int argc, char** argv) {
                   // And the screenshot interface opened or changed by the keyboard.
                   event.kind == OXYOS_EVENT_CAPTURE_MODE ||
                   // And a notification the person pressed (ADR 0026): its response may copy.
-                  event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE) {
+                  event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE ||
+                  // And a drop (ADR 0035): the dock's Trash cites it to put the files in the Trash.
+                  event.kind == OXYOS_EVENT_DRAG_DROP) {
                 lastPress = event.serial;
               }
               report(event);
@@ -1468,6 +1493,7 @@ int main(int argc, char** argv) {
                   editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
                 }
               }
+              dragDrop.observe(event);
               pointer.handle(event);
               editing.handle(event);
             });
@@ -1968,6 +1994,7 @@ int main(int argc, char** argv) {
         {
           Scope drawing(Part::Draw);
           popups.present(drawn, focusName());
+          dragDrop.present();
           shellSurfaces.present(drawn, focusName());
         }
         // What the turn did may change what worklets' and Reanimated's next frames act on
@@ -1990,7 +2017,7 @@ int main(int argc, char** argv) {
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
-          for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(),
+          for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(), dragDrop.nextDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
@@ -1999,6 +2026,7 @@ int main(int argc, char** argv) {
           }
           std::vector<pollfd> fds;
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
+          for (int fd : dragDrop.fds()) fds.push_back({fd, POLLIN, 0});
           // The file service's is -1 until an application asks it something: poll ignores it.
           for (int fd : {networking.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
           for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});

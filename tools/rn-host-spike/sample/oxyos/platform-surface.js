@@ -347,6 +347,128 @@ function createFiles() {
 
 const files = filesAvailable ? createFiles() : undefined;
 
+// Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): the drop target the host
+// answers the compositor for from its props (drag.h), and the application's own drags from the
+// press it holds. The protocol's version 10 has it; an older compositor none, and Bloom's DropZone
+// is then a view that takes nothing.
+const nativeDrag = TurboModuleRegistry.get('OxyOSDrag');
+const dragAvailable = Boolean(nativeDrag?.getConstants()?.available);
+
+const OxyOSDropTargetView = NativeComponentRegistry.get('OxyOSDropTargetView', () => ({
+  uiViewClassName: 'OxyOSDropTargetView',
+  validAttributes: { acceptKinds: true, dropActions: true, disabled: true },
+  directEventTypes: {
+    topDragEnter: { registrationName: 'onNativeDragEnter' },
+    topDragOver: { registrationName: 'onNativeDragOver' },
+    topDragLeave: { registrationName: 'onNativeDragLeave' },
+    topDrop: { registrationName: 'onNativeDrop' },
+  },
+}));
+
+/** The URIs of a `text/uri-list`: one a line, `#` lines comments. */
+function uriList(text) {
+  return (text ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+}
+
+/** A `file://` URI's file, named by its path's last part. */
+function fileOfUri(uri) {
+  const path = uri.replace(/^file:\/\/[^/]*/, '').replace(/\/+$/, '');
+  const last = path.slice(path.lastIndexOf('/') + 1);
+  let name = last;
+  try {
+    name = decodeURIComponent(last);
+  } catch {
+    // A malformed escape keeps the name as written.
+  }
+  return { name, uri };
+}
+
+const KIND_TYPES = {
+  files: ['text/uri-list'],
+  url: ['text/uri-list', 'text/x-moz-url'],
+  text: ['text/plain;charset=utf-8', 'text/plain'],
+  html: ['text/html'],
+};
+
+/** Bloom's DropData of what each type the host received holds, of the kinds the target takes. */
+function dropData(accept, received) {
+  const uris = uriList(received['text/uri-list'] ?? (received['text/x-moz-url'] ?? '').split('\n')[0]);
+  const fileUris = uris.filter((uri) => uri.toLowerCase().startsWith('file:'));
+  const urls = uris.filter((uri) => !uri.toLowerCase().startsWith('file:'));
+  const text = received['text/plain;charset=utf-8'] ?? received['text/plain'];
+  const html = received['text/html'];
+  const other = {};
+  for (const kind of accept) {
+    if (kind in KIND_TYPES) continue;
+    if (received[kind] !== undefined) other[kind] = received[kind];
+  }
+  return {
+    files: accept.includes('files') ? fileUris.map(fileOfUri) : [],
+    urls: accept.includes('url') ? urls : [],
+    ...(accept.includes('text') && text !== undefined ? { text } : {}),
+    ...(accept.includes('html') && html !== undefined ? { html } : {}),
+    other,
+  };
+}
+
+function dragEvent(nativeEvent) {
+  return {
+    x: nativeEvent.x,
+    y: nativeEvent.y,
+    action: nativeEvent.action ?? null,
+    kinds: nativeEvent.kinds ?? [],
+  };
+}
+
+function DropTarget({
+  accept,
+  actions,
+  disabled,
+  onDragEnter,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  style,
+  testID,
+  children,
+}) {
+  return (
+    <OxyOSDropTargetView
+      acceptKinds={accept.join('\n')}
+      dropActions={actions.join('\n')}
+      disabled={Boolean(disabled)}
+      style={style}
+      testID={testID}
+      onNativeDragEnter={(event) => onDragEnter?.(dragEvent(event.nativeEvent))}
+      onNativeDragOver={(event) => onDragOver?.(dragEvent(event.nativeEvent))}
+      onNativeDragLeave={() => onDragLeave?.()}
+      onNativeDrop={(event) => {
+        const { nativeEvent } = event;
+        if (!nativeEvent.action) return;
+        onDrop({
+          ...dragEvent(nativeEvent),
+          action: nativeEvent.action,
+          data: dropData(accept, nativeEvent.received ?? {}),
+        });
+      }}
+    >
+      {children}
+    </OxyOSDropTargetView>
+  );
+}
+
+const drag = dragAvailable
+  ? {
+      start({ data, actions, previewRef }) {
+        const preview = previewRef?.current ? findNodeHandle(previewRef.current) : null;
+        return nativeDrag.start(data, [...actions], preview ?? -1);
+      },
+    }
+  : undefined;
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set([
@@ -357,6 +479,7 @@ export const oxyosSurfaces = {
     ...(window ? ['window'] : []),
     ...(menuBar ? ['menu-bar'] : []),
     ...(appearance ? ['appearance'] : []),
+    ...(drag ? ['drag-and-drop'] : []),
   ]),
   PopupSurface,
   window,
@@ -364,4 +487,5 @@ export const oxyosSurfaces = {
   keyboard,
   appearance,
   files,
+  ...(drag ? { DropTarget, drag } : {}),
 };

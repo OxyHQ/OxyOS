@@ -1,0 +1,176 @@
+{
+  "about": "Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): sample/DragProbe.tsx drags through the platform's drag (the OxyOS adapter's, Bloom's usePlatformDrag) once a pressed pointer moved 4 pixels, and sample/DropProbe.tsx, a second application started beside it (`companion`), takes drops in a drop target filling its window (the adapter's DropTarget, Bloom's DropZone), copying unless asked otherwise. A file of the run's home dragged onto the companion reaches it once, both types it takes received exactly once (the source asked for each, `drag.send` 2), and the source learns the copy; no pointer event reaches anyone while the drag goes on. Text dragged onto the probe's own drop target drops there with a move, and the companion, which the pointer never crosses, is told nothing of it. A drag held over the companion and cancelled with Escape drops nothing there: it is told the drag entered and left, nothing is received, the source learns nothing was dropped, and the release that follows clicks nothing. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
+  "module": "DragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "companion": {
+    "module": "DropProbe",
+    "window": [
+      260,
+      180
+    ],
+    "at": [
+      980,
+      200
+    ]
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe"
+    }
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "a file of the home dragged onto the other application: it receives it once, the source learns the copy",
+      "do": [
+        "drag_paced",
+        [
+          454,
+          272,
+          1110,
+          290,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: copy"
+        ],
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 2
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Drops: 1"
+          ],
+          "react": {
+            "drag.dragEnter@drop-zone": 1,
+            "drag.dragOver@drop-zone": [
+              1,
+              60
+            ],
+            "drag.dragLeave@drop-zone": 1,
+            "drag.drop@drop-zone": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "text dragged onto the probe's own drop target: dropped there with a move, the other application told nothing",
+      "do": [
+        "drag_paced",
+        [
+          454,
+          356,
+          806,
+          294,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: move",
+          "Here: Hola OxyOS (move)"
+        ],
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 2,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Drops: 1"
+          ],
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "the file dragged over the other application and Escape pressed there: nothing dropped, nothing received, no click",
+      "do": [
+        "drag_paced",
+        [
+          454,
+          272,
+          1110,
+          290,
+          30,
+          30,
+          28
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: none"
+        ],
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Drops: 1"
+          ],
+          "react": {
+            "drag.dragEnter@drop-zone": 1,
+            "drag.dragOver@drop-zone": [
+              1,
+              60
+            ],
+            "drag.dragLeave@drop-zone": 1
+          }
+        }
+      }
+    }
+  ]
+}

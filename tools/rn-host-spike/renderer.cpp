@@ -1428,6 +1428,22 @@ RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const 
   return stats;
 }
 
+RenderStats drawDragImage(const ViewTree& tree, Tag view, const Display& display, Canvas& canvas) {
+  allocate(canvas, display.pixelWidth(), display.pixelHeight(), 0);
+  RenderStats stats;
+  auto it = tree.views().find(view);
+  if (it == tree.views().end()) return stats;
+  // The view at the canvas's origin, translucent, as a Mac draws a dragged item's image.
+  const auto& origin = it->second.view.layoutMetrics.frame.origin;
+  TextInputEdit edit;
+  drawOnto(canvas, display.scale, std::nullopt, [&](SkCanvas& target) {
+    Draw draw{&target, display.scale, &stats, &edit};
+    draw.placesWindows = false;
+    drawView(tree, view, -origin.x, -origin.y, Clip{0, 0, display.width, display.height}, 0.75f, draw);
+  });
+  return stats;
+}
+
 std::vector<Tag> ancestry(const ViewTree& tree, Tag tag) { return tree.path(tag); }
 
 std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
