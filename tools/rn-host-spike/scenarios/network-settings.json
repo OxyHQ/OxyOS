@@ -159,7 +159,7 @@
         "at": {
           "shell": [
             {
-              "role": "TextField",
+              "role": "TextInput",
               "name": "Contraseña"
             }
           ]

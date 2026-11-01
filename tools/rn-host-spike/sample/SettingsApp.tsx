@@ -130,7 +130,7 @@ const NETWORK_FIXTURE: NetworkState = {
     enabled: true,
     hardwareBlocked: false,
     state: 'connected',
-    current: 'LukeSkyRouter',
+    current: { ssid: 'LukeSkyRouter', signal: 73, security: 'wpa', known: true, current: true, supported: true },
     networks: [
       { ssid: 'LukeSkyRouter', signal: 73, security: 'wpa', known: true, current: true, supported: true },
       { ssid: 'eduroam', signal: 64, security: 'enterprise', known: false, current: false, supported: false },
@@ -339,31 +339,34 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
         if (!target.supported) return { failed: { reason: 'unsupported' } };
         setFixture((state) => ({ ...state, joining: ssid }));
         await new Promise((resolve) => setTimeout(resolve, 1500));
-        setFixture((state) => ({
+        setFixture((state) => {
+          const networks = state.wifi.networks.map((n) => ({
+            ...n,
+            current: n.ssid === ssid,
+            known: n.known || n.ssid === ssid,
+          }));
+          return {
           ...state,
           joining: null,
           wifi: {
             ...state.wifi,
             state: 'connected',
-            current: ssid,
+            current: networks.find((n) => n.ssid === ssid) ?? null,
             details: NETWORK_FIXTURE.wifi.details,
-            networks: state.wifi.networks.map((n) => ({
-              ...n,
-              current: n.ssid === ssid,
-              known: n.known || n.ssid === ssid,
-            })),
+            networks,
             known: state.wifi.known.some((k) => k.ssid === ssid)
               ? state.wifi.known
               : [...state.wifi.known, { id: `fixture-${ssid}`, ssid, autoJoin: true }],
           },
-        }));
+          };
+        });
         return { joined: { ssid } };
       },
       forget: async (id) => {
         const known = current.current.wifi.known.find((k) => k.id === id);
         if (!known) return { failed: { reason: 'notFound' } };
         setFixture((state) => {
-          const joined = state.wifi.current === known.ssid;
+          const joined = state.wifi.current?.ssid === known.ssid;
           return {
             ...state,
             wifi: {

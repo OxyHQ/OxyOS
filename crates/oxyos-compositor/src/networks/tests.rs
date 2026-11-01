@@ -153,9 +153,12 @@ impl Reach for Played {
         Ok(Box::new(self.clone()))
     }
 
-    fn watch(&self, changed: &mut dyn FnMut() -> bool) -> io::Result<()> {
+    fn watch(&self, stop: &dyn Fn() -> bool, changed: &mut dyn FnMut() -> bool) -> io::Result<()> {
         let mut seen = None;
         loop {
+            if stop() {
+                return Ok(());
+            }
             let version = self.0.lock().unwrap().version;
             if seen != Some(version) {
                 seen = Some(version);
@@ -410,6 +413,14 @@ fn a_protected_network_asks_the_shell_and_the_password_reaches_the_daemon_alone(
         text,
         json!({"kind": "wifi-password", "ssid": "Home", "security": "wpa", "incorrect": false})
     );
+    // Nothing connects while the person is asked: not told joining meanwhile.
+    s.until(|s| {
+        s.told(SETTINGS)
+            .iter()
+            .rev()
+            .find(|t| t.starts_with("0:"))
+            .is_some_and(|t| t.contains(r#""joining":null"#))
+    });
     // Only the shell answers a password sheet, citing an input.
     let password = |sheet: u32, password: &str| {
         json!({"password": {"sheet": sheet, "password": password}}).to_string()

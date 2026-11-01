@@ -46,7 +46,8 @@ pub struct Fake {
     /// The network from a NetworkManager on this bus instead (a played one, docs/adr/0038-
     /// networks.mdx), so the top bar and Control Center's switch follow the daemon the session's
     /// network requests change.
-    network_bus: Option<zbus::blocking::Connection>,
+    /// Clones share it, so it is closed once for all of them.
+    network_bus: Arc<Mutex<Option<zbus::blocking::Connection>>>,
 }
 
 fn index(control: Control) -> usize {
@@ -149,13 +150,21 @@ fn bluetooth_name(state: BluetoothState) -> &'static str {
 impl Fake {
     /// Its network read from, and Wi-Fi turned on and off on, the NetworkManager on the bus at
     /// `address`, as a session's is on the system bus.
-    pub fn with_network_bus(mut self, address: &str) -> io::Result<Self> {
+    pub fn with_network_bus(self, address: &str) -> io::Result<Self> {
         let bus = zbus::blocking::connection::Builder::address(address)
             .map_err(crate::bus::failed)?
             .build()
             .map_err(crate::bus::failed)?;
-        self.network_bus = Some(bus);
+        *self.network_bus.lock().expect("the fake's bus") = Some(bus);
         Ok(self)
+    }
+
+    /// Its connection to the network's bus closed (the development compositor finishing): the
+    /// network is then the one last read.
+    pub fn close_network_bus(&self) {
+        if let Some(bus) = self.network_bus.lock().expect("the fake's bus").take() {
+            let _ = bus.close();
+        }
     }
 
     /// A machine described by `key = value` lines; what they leave out it does not have.
@@ -212,7 +221,7 @@ impl Fake {
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
             file: None,
-            network_bus: None,
+            network_bus: Arc::default(),
         })
     }
 
@@ -380,7 +389,8 @@ impl System for Fake {
     }
 
     fn network(&mut self) -> io::Result<Network> {
-        if let Some(bus) = &self.network_bus {
+        let bus = self.network_bus.lock().expect("the fake's bus").clone();
+        if let Some(bus) = &bus {
             let network = crate::network::read(bus)?;
             self.state.lock().expect("the fake's state").network = network.clone();
             return Ok(network);
@@ -389,7 +399,8 @@ impl System for Fake {
     }
 
     fn set_wifi(&mut self, enabled: bool) -> io::Result<()> {
-        if let Some(bus) = &self.network_bus {
+        let bus = self.network_bus.lock().expect("the fake's bus").clone();
+        if let Some(bus) = &bus {
             return crate::network::set_wifi(bus, enabled);
         }
         {

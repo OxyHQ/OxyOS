@@ -107,16 +107,16 @@ test("emptying the Trash says how many items go for good, and its button is dest
 
 test("a Wi-Fi network's password sheet names it and its kind, with a password field and Join", () => {
   const es = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: false }, "es");
-  assert.equal(es.title, 'La red Wi-Fi "Casa" requiere una contraseña WPA2.');
+  assert.equal(es.title, 'La red Wi-Fi “Casa” requiere una contraseña WPA2.');
   assert.equal(es.error, undefined);
   assert.equal(es.accept, "Conectarse");
   assert.equal(es.refuse, "Cancelar");
   assert.deepEqual(es.password, { label: "Contraseña", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
   const wpa3 = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa3", incorrect: true }, "es");
-  assert.equal(wpa3.title, 'La red Wi-Fi "Casa" requiere una contraseña WPA3.');
+  assert.equal(wpa3.title, 'La red Wi-Fi “Casa” requiere una contraseña WPA3.');
   assert.equal(wpa3.error, "La contraseña no es correcta. Inténtalo de nuevo.");
   const en = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: true }, "en");
-  assert.equal(en.title, 'The Wi-Fi network "Casa" requires a WPA2 password.');
+  assert.equal(en.title, 'The Wi-Fi network “Casa” requires a WPA2 password.');
   assert.equal(en.error, "The password is incorrect. Try again.");
   assert.equal(en.accept, "Join");
   assert.equal(en.refuse, "Cancel");
@@ -124,20 +124,20 @@ test("a Wi-Fi network's password sheet names it and its kind, with a password fi
 
 test("a join that failed, and a network OxyOS cannot join, only tell, with one button", () => {
   const failed = sheetView({ kind: "wifi-failed", ssid: "Casa" }, "es");
-  assert.equal(failed.title, 'No se ha podido conectar a la red "Casa".');
+  assert.equal(failed.title, 'No se ha podido conectar a la red “Casa”.');
   assert.equal(failed.accept, "Aceptar");
   assert.equal(failed.refuse, "");
   assert.equal(failed.password, undefined);
-  assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, "en").title, 'Couldn\'t join the network "Casa".');
+  assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, "en").title, 'Couldn\'t join the network “Casa”.');
   const enterprise = sheetView({ kind: "wifi-unsupported", ssid: "Oficina", security: "enterprise" }, "es");
-  assert.equal(enterprise.title, 'OxyOS todavía no puede conectarse a "Oficina".');
+  assert.equal(enterprise.title, 'OxyOS todavía no puede conectarse a “Oficina”.');
   assert.equal(enterprise.body, "Las redes empresariales (802.1X) aún no son compatibles.");
   assert.equal(enterprise.accept, "Aceptar");
   assert.equal(enterprise.refuse, "");
   const wep = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, "es");
   assert.equal(wep.body, "Las redes WEP no son compatibles: no son seguras.");
   const en = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, "en");
-  assert.equal(en.title, 'OxyOS can\'t join "Antiguo" yet.');
+  assert.equal(en.title, 'OxyOS can\'t join “Antiguo” yet.');
   assert.equal(en.body, "WEP networks aren't supported: they aren't secure.");
 });
 

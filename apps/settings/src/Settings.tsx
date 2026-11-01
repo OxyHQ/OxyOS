@@ -999,7 +999,7 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
   const wifi = state.wifi;
   if (!wifi.device) return <Notice title={words.noDevice} testID="wifi-no-device" />;
   const current = currentNetwork(wifi);
-  const currentName = wifi.current ?? current?.ssid ?? null;
+  const currentName = current?.ssid ?? null;
   const currentState = wifi.state === "connecting" ? words.connecting : words.connected;
   const nearby = (ssid: string) => wifi.networks.find((network) => network.ssid === ssid);
   const others = otherNetworks(wifi.networks);

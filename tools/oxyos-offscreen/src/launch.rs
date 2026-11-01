@@ -3722,6 +3722,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             "--displays plays the session's displays: no --outputs or --kms with it".into(),
         );
     }
+    if let Some(address) = &launch.network_bus {
+        // D-Bus's runtime (zbus's, on async-io) keeps a reactor for the life of the process (its
+        // poller, its wake and its timer): started now, a connection made and gone, it is the
+        // process's before the session counts its descriptors, as the session's own would be.
+        drop(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
     let mut session = match launch.outputs.as_slice() {
         // The displays are shown below, as the preferences keep them.
         [] if launch.displays.is_some() => Session::with_outputs(&[])?,

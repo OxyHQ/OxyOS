@@ -534,6 +534,14 @@ impl NetworkManager {
     }
 }
 
+impl Drop for NetworkManager {
+    /// Its connection closed as it goes: zbus closes a dropped connection's socket only once its
+    /// reader notices, which may be never on a quiet bus.
+    fn drop(&mut self) {
+        let _ = self.bus.clone().close();
+    }
+}
+
 /// A saved connection's entry if it is Wi-Fi.
 fn known_of(settings: &Settings) -> Option<Known> {
     let connection = settings.get("connection")?;
@@ -666,13 +674,21 @@ fn wait(
 }
 
 /// Follows the daemon: calls `changed` once it is seen, and again after each change it signals
-/// (a property of any of its objects, a device's state), until `changed` returns false. Changes
-/// that come together are one call, `settle` after the first. Without the bus, returns the error.
+/// (a property of any of its objects, a device's state, its name's owner), until `changed`
+/// returns false or `stop` does true (looked at every quarter of a second). Changes that come
+/// together are one call, `settle` after the first. Without the bus, returns the error.
 pub fn watch(
     address: Option<&str>,
     settle: Duration,
+    stop: &dyn Fn() -> bool,
     mut changed: impl FnMut() -> bool,
 ) -> io::Result<()> {
+    enum Next {
+        Signal,
+        Ended,
+        Tick,
+    }
+    const TICK: Duration = Duration::from_millis(250);
     let manager = NetworkManager::connect(address)?;
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
@@ -696,33 +712,52 @@ pub fn watch(
     let mut owners =
         async_io::block_on(zbus::MessageStream::for_match_rule(owner, &inner, Some(16)))
             .map_err(failed)?;
-    if !changed() {
+    if stop() || !changed() {
         return Ok(());
     }
     loop {
-        let ended = async_io::block_on(async {
-            let next = futures_lite::future::or(async { signals.next().await.is_none() }, async {
-                owners.next().await.is_none()
-            })
-            .await;
-            if next {
-                return true;
-            }
-            // What follows at once is the same change.
-            let until = Instant::now() + settle;
-            loop {
-                let more = futures_lite::future::or(async { Some(signals.next().await) }, async {
-                    async_io::Timer::at(until).await;
-                    None
-                })
-                .await;
-                if more.is_none() {
-                    return false;
+        let next = async_io::block_on(futures_lite::future::or(
+            async {
+                match signals.next().await {
+                    Some(_) => Next::Signal,
+                    None => Next::Ended,
+                }
+            },
+            futures_lite::future::or(
+                async {
+                    match owners.next().await {
+                        Some(_) => Next::Signal,
+                        None => Next::Ended,
+                    }
+                },
+                async {
+                    async_io::Timer::after(TICK).await;
+                    Next::Tick
+                },
+            ),
+        ));
+        match next {
+            Next::Ended => return Ok(()),
+            Next::Tick if stop() => return Ok(()),
+            Next::Tick => continue,
+            Next::Signal => {
+                // What follows at once is the same change.
+                let until = Instant::now() + settle;
+                async_io::block_on(async {
+                    while futures_lite::future::or(
+                        async { signals.next().await.is_some() },
+                        async {
+                            async_io::Timer::at(until).await;
+                            false
+                        },
+                    )
+                    .await
+                    {}
+                });
+                if stop() || !changed() {
+                    return Ok(());
                 }
             }
-        });
-        if ended || !changed() {
-            return Ok(());
         }
     }
 }

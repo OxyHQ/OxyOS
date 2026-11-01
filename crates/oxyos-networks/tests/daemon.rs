@@ -326,7 +326,7 @@ fn scans_and_watching_the_daemon() {
     let (told, seen) = std::sync::mpsc::channel();
     let address = daemon.address.clone();
     std::thread::spawn(move || {
-        oxyos_networks::watch(Some(&address), Duration::from_millis(30), || {
+        oxyos_networks::watch(Some(&address), Duration::from_millis(30), &|| false, || {
             told.send(()).is_ok()
         })
     });

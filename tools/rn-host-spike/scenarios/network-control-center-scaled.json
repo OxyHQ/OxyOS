@@ -104,7 +104,7 @@
               ]
             },
             {
-              "role": "Header",
+              "role": "Heading",
               "name": "Redes conocidas"
             },
             {
@@ -112,7 +112,7 @@
               "name": "LukeSkyRouter, conectada, protegida, señal 3 de 3"
             },
             {
-              "role": "Header",
+              "role": "Heading",
               "name": "Otras redes"
             },
             {
@@ -192,7 +192,7 @@
         "at": {
           "shell": [
             {
-              "role": "TextField",
+              "role": "TextInput",
               "name": "Contraseña"
             }
           ]
@@ -209,7 +209,7 @@
       "expect": {}
     },
     {
-      "name": "Submitted: the daemon refuses it, keeps nothing, and the sheet asks again saying so",
+      "name": "Submitted: the daemon leaves Café Libre to try it, refuses it, keeps nothing, and the sheet asks again saying so",
       "do": [
         "key",
         28
@@ -229,7 +229,7 @@
       "allow_unchanged": true,
       "expect": {
         "network": {
-          "active": "Café Libre",
+          "active": null,
           "connections": [
             {
               "ssid": "LukeSkyRouter"
@@ -338,8 +338,11 @@
     {
       "name": "Wi-Fi off from its switch: the daemon's Wi-Fi off, the list gone",
       "do": [
-        "press_named",
-        "Wi-Fi"
+        "press_output",
+        [
+          1240,
+          60
+        ]
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -364,7 +367,7 @@
     {
       "name": "A press outside closes Control Center",
       "do": [
-        "press",
+        "press_output",
         [
           300,
           300

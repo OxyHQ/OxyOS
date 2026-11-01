@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import {
@@ -18,7 +18,7 @@ import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
 import { RiArrowLeftRightLine } from "@oxy.so/bloom/icons/RiArrowLeftRightLine";
 
 import Svg, { Rect, Circle, Path } from "react-native-svg";
-import { Box, PressArea } from "../primitives";
+import { Box } from "../primitives";
 import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
@@ -193,8 +193,27 @@ const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }
   );
 });
 
-/** A status item is pressed anywhere over the bar's height around its icon. */
-const STATUS_SLOP = { top: 8, bottom: 8, left: 6, right: 6 };
+/** The Ethernet icon, as Bloom's icons are drawn (a Button's `icon`). */
+function EthernetIcon({ width = 15, height = 15, fill = "#fff" }: { width?: number; height?: number; fill?: string }) {
+  return <RiArrowLeftRightLine width={width} height={height} fill={fill} />;
+}
+
+/** Wi-Fi's icons as a Button's `icon`, one per arcs lit and dot, made once each. */
+const wifiIcons = new Map<string, ComponentType>();
+function wifiIcon(arcs: number, dot: boolean): ComponentType {
+  const key = `${arcs}:${dot}`;
+  let icon = wifiIcons.get(key);
+  if (!icon) {
+    icon = function WifiStatusIcon() {
+      return <WifiArcs arcs={arcs} dot={dot} color="#fff" faint="#ffffff59" />;
+    };
+    wifiIcons.set(key, icon);
+  }
+  return icon;
+}
+
+/** A status item's button: the bar's own plain icon button, as the search and the Control Center's. */
+const statusStyle = { ...menuStyle, width: 22, paddingHorizontal: 0 };
 
 /** The network's status item (docs/adr/0038-networks.mdx, decision 6): Wi-Fi's signal, or the
     Ethernet icon while only a cable is connected. Pressed, it opens the Control Center at its
@@ -206,40 +225,31 @@ const NetworkItem = memo(function NetworkItem({
   network: ShellNetwork;
   onPress?: () => void;
 }) {
-  if (network.wifi !== "connected" && network.wired) {
-    const face = <RiArrowLeftRightLine width={15} height={15} fill="#fff" />;
-    return onPress ? (
-      <PressArea
-        testID="shell-ethernet"
-        accessibilityRole="button"
-        accessibilityLabel="Ethernet: conectado"
-        hitSlop={STATUS_SLOP}
-        onPress={onPress}
-      >
-        {face}
-      </PressArea>
-    ) : (
-      <Box testID="shell-ethernet" accessible accessibilityLabel="Ethernet: conectado">
-        {face}
+  const ethernet = network.wifi !== "connected" && network.wired;
+  const wifi = ethernet ? undefined : wifiLabel(network);
+  if (!ethernet && wifi === undefined) return null;
+  const label = ethernet ? "Ethernet: conectado" : `Wi-Fi: ${wifi}`;
+  const testID = ethernet ? "shell-ethernet" : "shell-wifi";
+  if (!onPress) {
+    return (
+      <Box testID={testID} accessible accessibilityLabel={label}>
+        {ethernet ? <EthernetIcon /> : <WifiIcon network={network} />}
       </Box>
     );
   }
-  const wifi = wifiLabel(network);
-  if (wifi === undefined) return null;
-  return onPress ? (
-    <PressArea
-      testID="shell-wifi"
-      accessibilityRole="button"
-      accessibilityLabel={`Wi-Fi: ${wifi}`}
-      hitSlop={STATUS_SLOP}
+  const connected = network.wifi === "connected";
+  return (
+    <Button
+      iconOnly
+      icon={ethernet ? EthernetIcon : wifiIcon(connected ? wifiBars(network.signal) : 0, connected || wifiOn(network))}
+      iconSize={15}
+      testID={testID}
+      accessibilityLabel={label}
+      appearance="plain"
+      style={statusStyle}
+      colors={TRANSPARENT_WHITE}
       onPress={onPress}
-    >
-      <WifiIcon network={network} />
-    </PressArea>
-  ) : (
-    <Box testID="shell-wifi" accessible accessibilityLabel={`Wi-Fi: ${wifi}`}>
-      <WifiIcon network={network} />
-    </Box>
+    />
   );
 });
 

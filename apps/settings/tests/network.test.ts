@@ -27,7 +27,7 @@ const nearby = (ssid: string, signal: number, extra: Partial<NearbyNetwork> = {}
   ...extra,
 });
 
-const wifi = (networks: NearbyNetwork[], current: string | null): WifiState => ({
+const wifi = (networks: NearbyNetwork[], current: NearbyNetwork | null): WifiState => ({
   device: true,
   enabled: true,
   hardwareBlocked: false,
@@ -55,13 +55,12 @@ test("other networks: the joined one left out, the known first, each by signal",
   assert.equal(networks[0].ssid, "LukeSkyRouter");
 });
 
-test("the network joined: marked current, or named by the state when not marked", () => {
+test("the network joined: marked current among those nearby, else the state's", () => {
   const joined = nearby("LukeSkyRouter", 73, { current: true });
-  assert.equal(currentNetwork(wifi([nearby("Bar", 20), joined], "LukeSkyRouter")), joined);
-  const unmarked = nearby("LukeSkyRouter", 73);
-  assert.equal(currentNetwork(wifi([unmarked], "LukeSkyRouter")), unmarked);
-  assert.equal(currentNetwork(wifi([unmarked], null)), null);
-  assert.equal(currentNetwork(wifi([], "LukeSkyRouter")), null);
+  assert.equal(currentNetwork(wifi([nearby("Bar", 20), joined], joined)), joined);
+  const told = nearby("LukeSkyRouter", 73, { current: true });
+  assert.equal(currentNetwork(wifi([], told)), told);
+  assert.equal(currentNetwork(wifi([nearby("Bar", 20)], null)), null);
 });
 
 test("signal in three arcs, as the top bar draws it", () => {

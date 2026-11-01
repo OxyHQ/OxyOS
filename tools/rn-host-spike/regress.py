@@ -2492,8 +2492,9 @@ def network_daemon(spec, out, offscreen):
     base = out / "network"
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
+    # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
     bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            f"--address=unix:path={base / 'bus'}"], stdout=subprocess.PIPE, text=True)
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-networkmanager"

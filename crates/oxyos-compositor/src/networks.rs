@@ -40,9 +40,9 @@ pub trait Daemon {
 /// How the session reaches the daemon: a connection for each call, and the daemon followed.
 pub trait Reach: Send + Sync {
     fn connect(&self) -> io::Result<Box<dyn Daemon>>;
-    /// Calls `changed` once, then after each change of the daemon's, until it returns false or
-    /// the daemon cannot be followed.
-    fn watch(&self, changed: &mut dyn FnMut() -> bool) -> io::Result<()>;
+    /// Calls `changed` once, then after each change of the daemon's, until it returns false,
+    /// `stop` returns true (looked at often), or the daemon cannot be followed.
+    fn watch(&self, stop: &dyn Fn() -> bool, changed: &mut dyn FnMut() -> bool) -> io::Result<()>;
 }
 
 impl Daemon for oxyos_networks::NetworkManager {
@@ -79,8 +79,13 @@ impl Reach for Bus {
         )?))
     }
 
-    fn watch(&self, changed: &mut dyn FnMut() -> bool) -> io::Result<()> {
-        oxyos_networks::watch(self.address.as_deref(), Duration::from_millis(100), changed)
+    fn watch(&self, stop: &dyn Fn() -> bool, changed: &mut dyn FnMut() -> bool) -> io::Result<()> {
+        oxyos_networks::watch(
+            self.address.as_deref(),
+            Duration::from_millis(100),
+            stop,
+            changed,
+        )
     }
 }
 
@@ -159,10 +164,15 @@ pub struct Networks {
     state: Option<State>,
     told: Option<String>,
     joining: Option<String>,
+    /// A join's password is being asked: it is not told joining meanwhile (nothing connects until
+    /// the person answers), though another join still waits for it.
+    asking: bool,
     sheets: BTreeMap<u32, Sheet>,
     watching: bool,
     changed: bool,
     stop: Arc<AtomicBool>,
+    /// The threads running, waited for when it goes, so their connections to the daemon go too.
+    threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Networks {
@@ -182,10 +192,12 @@ impl Networks {
             state: None,
             told: None,
             joining: None,
+            asking: false,
             sheets: BTreeMap::new(),
             watching: false,
             changed: false,
             stop: Arc::new(AtomicBool::new(false)),
+            threads: Vec::new(),
         })
     }
 
@@ -210,9 +222,9 @@ impl Networks {
         self.state.as_ref()
     }
 
-    fn spawn(&self, work: impl FnOnce(&dyn Daemon, &Back) + Send + 'static) {
+    fn spawn(&mut self, work: impl FnOnce(&dyn Daemon, &Back) + Send + 'static) {
         let (reach, back) = (self.reach.clone(), self.back.clone());
-        let _ = std::thread::Builder::new()
+        if let Ok(thread) = std::thread::Builder::new()
             .name("networks".into())
             .spawn(move || match reach.connect() {
                 Ok(daemon) => work(daemon.as_ref(), &back),
@@ -220,7 +232,10 @@ impl Networks {
                     eprintln!("[networks] the daemon: {error}");
                     work(&Absent, &back)
                 }
-            });
+            })
+        {
+            self.threads.push(thread);
+        }
     }
 
     /// A turn: the scene's requests that are this part's, the sheets answered, and what the
@@ -228,12 +243,16 @@ impl Networks {
     pub fn serve(&mut self, scene: &mut Scene) {
         let mut buffer = [0u8; 64];
         while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
+        self.threads.retain(|thread| !thread.is_finished());
         if !self.watching {
             self.watching = true;
             let (reach, back, stop) = (self.reach.clone(), self.back.clone(), self.stop.clone());
-            let _ = std::thread::Builder::new()
+            if let Ok(thread) = std::thread::Builder::new()
                 .name("networks-watch".into())
-                .spawn(move || watch(reach.as_ref(), &back, &stop));
+                .spawn(move || watch(reach.as_ref(), &back, &stop))
+            {
+                self.threads.push(thread);
+            }
         }
         for request in scene.take_system_requests_where(|request| ours(&request.text)) {
             self.handle(scene, request);
@@ -245,6 +264,7 @@ impl Networks {
             if scene.take_sheet_answer(sheet).is_some() {
                 if let Some(Sheet::Password(reply)) = self.sheets.remove(&sheet) {
                     let _ = reply.send(None);
+                    self.asking = false;
                 }
             }
         }
@@ -261,6 +281,7 @@ impl Networks {
                 }
                 Done::Joining(joining) => {
                     self.joining = joining;
+                    self.asking = false;
                     self.tell(scene);
                 }
                 Done::AskPassword {
@@ -278,6 +299,8 @@ impl Networks {
                     match scene.show_sheet(Some(client), &text) {
                         Some(sheet) => {
                             self.sheets.insert(sheet, Sheet::Password(reply));
+                            self.asking = true;
+                            self.tell(scene);
                         }
                         None => {
                             let _ = reply.send(None);
@@ -332,7 +355,7 @@ impl Networks {
             return;
         };
         let mut state = state.clone();
-        state.joining = self.joining.clone();
+        state.joining = self.told_joining();
         let text = json!({ "network": state }).to_string();
         if self.told.as_deref() == Some(text.as_str()) {
             return;
@@ -344,9 +367,13 @@ impl Networks {
         self.told = Some(text);
     }
 
+    fn told_joining(&self) -> Option<String> {
+        self.joining.clone().filter(|_| !self.asking)
+    }
+
     fn current_text(&self) -> Option<String> {
         let mut state = self.state.clone()?;
-        state.joining = self.joining.clone();
+        state.joining = self.told_joining();
         Some(json!({ "network": state }).to_string())
     }
 
@@ -427,6 +454,8 @@ impl Networks {
                     Some(Sheet::Password(reply)) => {
                         scene.dismiss_sheet(sheet);
                         let _ = reply.send(Some(password));
+                        self.asking = false;
+                        self.tell(scene);
                     }
                     other => {
                         if let Some(other) = other {
@@ -443,6 +472,11 @@ impl Networks {
 impl Drop for Networks {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        // A join waiting for its password is cancelled.
+        self.sheets.clear();
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -487,7 +521,8 @@ impl Daemon for Absent {
 fn watch(reach: &dyn Reach, back: &Back, stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
         let mut daemon: Option<Box<dyn Daemon>> = None;
-        let result = reach.watch(&mut || {
+        let stopped = || stop.load(Ordering::Relaxed);
+        let result = reach.watch(&stopped, &mut || {
             if stop.load(Ordering::Relaxed) {
                 return false;
             }
@@ -505,11 +540,11 @@ fn watch(reach: &dyn Reach, back: &Back, stop: &AtomicBool) {
             eprintln!("[networks] following the daemon: {error}");
             back.send(Done::State(Box::new(State::unavailable())));
         }
-        for _ in 0..50 {
+        for _ in 0..20 {
             if stop.load(Ordering::Relaxed) {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(250));
         }
     }
 }

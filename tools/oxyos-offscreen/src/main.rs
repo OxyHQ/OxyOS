@@ -698,8 +698,14 @@ impl Session {
         if stats.surfaces != 0 || stats.clients != 0 || stats.registered_buffers != 0 {
             return Err(format!("scene resources left: {stats:?}").into());
         }
-        // The networks' side, its waker given back.
+        // The networks' side, its threads waited for, its waker and its connections given back.
         self.networks = None;
+        if let Some(bus) = self.network_control.take() {
+            let _ = bus.close();
+        }
+        if let Some(controls) = &self.controls {
+            controls.close_network_bus();
+        }
         if let Some(waker) = self.networks_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
@@ -720,11 +726,23 @@ impl Session {
         self.compositor.withdraw_gpu_buffers();
         // The screenshots' writer, its thread waited for (it has written all it was given).
         self.compositor.screenshots = None;
-        let fds = open_descriptors()?;
+        // A socket closed is let go on the runtime's own thread a moment later (D-Bus's).
+        let mut fds = open_descriptors()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while fds > self.baseline_fds && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            fds = open_descriptors()?;
+        }
         if fds != self.baseline_fds {
+            // What each is, to say what leaked.
+            let open: Vec<String> = fs::read_dir("/proc/self/fd")?
+                .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())
+                .map(|target| target.display().to_string())
+                .collect();
             return Err(format!(
-                "descriptors leaked: {} before, {fds} after",
-                self.baseline_fds
+                "descriptors leaked: {} before, {fds} after ({})",
+                self.baseline_fds,
+                open.join(", ")
             )
             .into());
         }

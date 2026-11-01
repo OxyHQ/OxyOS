@@ -42,8 +42,8 @@ export type WifiState = {
   /** Its hardware switch turns it off. */
   hardwareBlocked: boolean;
   state: "unavailable" | "off" | "disconnected" | "connecting" | "connected";
-  /** The name of the network joined, or null. */
-  current: string | null;
+  /** The network joined (or being joined by the daemon), or null. */
+  current: NearbyNetwork | null;
   /** Nearby, strongest first. */
   networks: NearbyNetwork[];
   known: KnownNetwork[];
@@ -116,8 +116,7 @@ export function otherNetworks(networks: readonly NearbyNetwork[]): NearbyNetwork
 /** The network joined, among those nearby. */
 export function currentNetwork(state: WifiState): NearbyNetwork | null {
   return (
-    state.networks.find((network) => network.current) ??
-    (state.current ? (state.networks.find((network) => network.ssid === state.current) ?? null) : null)
+    state.networks.find((network) => network.current) ?? state.current
   );
 }
 
