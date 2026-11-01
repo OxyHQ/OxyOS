@@ -252,7 +252,9 @@ class Window {
   void reposition(uint32_t id, const OxyOSPositioner& positioner);
   void destroy(uint32_t id);
   // Publishes a surface's accessibility snapshot (ADR 0003). Throws on failure.
-  void publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes);
+  // Each node's details (its hint, its place in its collection) beside it, of the same index.
+  void publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes,
+                            const std::vector<OxyOSAccessibleDetail>& details);
   // The window's menus (docs/adr/0021-menu-bar.mdx), entries in order, as the commit `serial`, above
   // the last; a MENU_ITEM_ACTIVATED names it and the chosen entry's index. Throws on failure.
   void setMenus(uint32_t serial, const std::vector<OxyOSMenuItem>& items);

@@ -354,6 +354,10 @@ struct RuntimeFacts {
   int api = 0;
   std::string framework;
   std::string frameworkURL;
+  // The keyboard's focus ring's colour for each of Bloom's accents, light and dark (0xRRGGBB): its
+  // `ring` token, as the framework's build took it from Bloom (`framework/focus-rings.json`). Empty
+  // for a framework built before it had them.
+  std::map<std::string, std::pair<uint32_t, uint32_t>> focusRings;
 };
 
 RuntimeFacts runtimeFacts() {
@@ -375,6 +379,23 @@ RuntimeFacts runtimeFacts() {
   facts.frameworkURL = "file://" + directory + "/framework/framework.js";
   if (!std::ifstream(facts.framework).good()) {
     throw std::runtime_error("runtime " + std::to_string(facts.abi) + " has no framework: " + facts.framework);
+  }
+  if (std::ifstream rings(directory + "/framework/focus-rings.json"); rings) {
+    std::stringstream json;
+    json << rings.rdbuf();
+    auto hex = [](const folly::dynamic& value) -> std::optional<uint32_t> {
+      if (!value.isString() || value.asString().size() != 7 || value.asString()[0] != '#') return std::nullopt;
+      return static_cast<uint32_t>(std::stoul(value.asString().substr(1), nullptr, 16));
+    };
+    try {
+      for (const auto& [name, schemes] : folly::parseJson(json.str()).items()) {
+        auto light = schemes.isObject() ? hex(schemes.getDefault("light")) : std::nullopt;
+        auto dark = schemes.isObject() ? hex(schemes.getDefault("dark")) : std::nullopt;
+        if (name.isString() && light && dark) facts.focusRings[name.asString()] = {*light, *dark};
+      }
+    } catch (const std::exception& error) {
+      std::cerr << "[host] the framework's focus rings: " << error.what() << "\n";
+    }
   }
   return facts;
 }
@@ -1465,12 +1486,27 @@ int main(int argc, char** argv) {
       }
       keyboardFocus.prune();
     };
-    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement };
+    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement, ContextMenu };
+    // The view whose context menu the keyboard opens from the focused control: the control, or its
+    // nearest ancestor within `scope` that declares React Native's `longpress` accessibility action
+    // (Bloom's context menu trigger, TalkBack's long press); -1 for none.
+    auto contextMenuOf = [&](facebook::react::Tag focused, facebook::react::Tag scope) -> facebook::react::Tag {
+      auto path = oxyos::ancestry(tree, focused);
+      for (auto at = path.rbegin(); at != path.rend(); ++at) {
+        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
+        if (props && std::any_of(props->accessibilityActions.begin(), props->accessibilityActions.end(),
+                                 [](const auto& declared) { return declared.name == "longpress"; })) {
+          return *at;
+        }
+        if (*at == scope) break;
+      }
+      return -1;
+    };
     // What a key press is to the keyboard's navigation, if anything.
     auto navigationKey = [&](const OxyOSEvent& event) -> std::optional<NavigationKey> {
       if (event.kind != OXYOS_EVENT_KEY || !event.flag || heldCtrl || heldAlt || heldMeta) return std::nullopt;
       constexpr uint32_t kTab = 15, kSpace = 57, kReturn = 28, kNumpadEnter = 96, kUp = 103, kLeft = 105,
-                         kRight = 106, kDown = 108;
+                         kRight = 106, kDown = 108, kF10 = 68, kMenu = 127;
       auto scope = navigationScope(event.surface);
       if (scope < 0) return std::nullopt;
       if (event.code == kTab) return heldShift ? NavigationKey::Previous : NavigationKey::Next;
@@ -1482,6 +1518,13 @@ int main(int argc, char** argv) {
       }
       if (!heldShift && (event.code == kSpace || event.code == kReturn || event.code == kNumpadEnter)) {
         return NavigationKey::Activate;
+      }
+      // The Menu key and Shift+F10 open the focused control's context menu, as a PC keyboard's do
+      // (a Mac's Control-Return with Full Keyboard Access): one the application declares, else the
+      // key is the application's.
+      if (((event.code == kMenu && !heldShift) || (event.code == kF10 && heldShift)) &&
+          contextMenuOf(focused, scope) >= 0) {
+        return NavigationKey::ContextMenu;
       }
       if (event.code == kUp || event.code == kDown || event.code == kLeft || event.code == kRight) {
         auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(focused).view.props);
@@ -1510,10 +1553,16 @@ int main(int argc, char** argv) {
         oxyos::Report::get().deliver("click", event.surface, shadow, folly::dynamic::object("key", event.code));
         return;
       }
-      std::string action = key == NavigationKey::Increment ? "increment" : "decrement";
-      if (auto emitter = std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(shadow.eventEmitter)) {
+      std::string action = key == NavigationKey::Increment   ? "increment"
+                           : key == NavigationKey::Decrement ? "decrement"
+                                                             : "longpress";
+      // The context menu's view: the focused control's or an ancestor's (`contextMenuOf`).
+      const auto& target = key == NavigationKey::ContextMenu
+                               ? tree.views().at(contextMenuOf(keyboardFocus.focused(), navigationScope(event.surface))).view
+                               : shadow;
+      if (auto emitter = std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(target.eventEmitter)) {
         emitter->onAccessibilityAction(action);
-        oxyos::Report::get().deliver("accessibilityAction", event.surface, shadow,
+        oxyos::Report::get().deliver("accessibilityAction", event.surface, target,
                                      folly::dynamic::object("actionName", action));
       }
     };
@@ -2164,6 +2213,13 @@ int main(int argc, char** argv) {
                         (popups.content(keyboardSurface) ||
                          insideOf(keyboardFocus.focused(), navigationScope(keyboardSurface)));
         shownEdit.focusRing = ringHere ? keyboardFocus.focused() : -1;
+        // In the session's accent, light or dark, as a Mac draws its ring in the accent colour.
+        if (window) {
+          auto ring = runtimeOf.focusRings.find(window->drawing().accent);
+          if (ring != runtimeOf.focusRings.end()) {
+            shownEdit.focusRingColor = window->drawing().dark ? ring->second.second : ring->second.first;
+          }
+        }
         bool edited = shownEdit != drawn;
         if (edited) {
           drawn = std::move(shownEdit);

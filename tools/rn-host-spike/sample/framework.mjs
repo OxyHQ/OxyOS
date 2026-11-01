@@ -156,6 +156,16 @@ if (previousManifest) {
   }
 }
 fs.writeFileSync(path.join(out, 'framework.json'), JSON.stringify({ runtime: { abi: level.abi, api: level.api }, ...manifest }));
+// The keyboard's focus ring in each of Bloom's accents (docs/adr/0039-keyboard-access.mdx): the host
+// draws it, as a Mac draws its ring in the accent colour, in the `ring` token of the session's
+// accent, light or dark, as Bloom's own design tokens resolve it (W3C design tokens,
+// color.<preset>.<scheme>.ring): Bloom's colours, never a copy of them.
+const tokens = JSON.parse(fs.readFileSync(path.join(bloom, 'src', 'design-tokens', 'tokens.json'), 'utf8'));
+const rings = Object.fromEntries(Object.entries(tokens.color)
+  .filter(([preset, schemes]) => !preset.startsWith('$') && schemes.light?.ring && schemes.dark?.ring)
+  .map(([preset, schemes]) => [preset, { light: schemes.light.ring.$value, dark: schemes.dark.ring.$value }]));
+if (Object.keys(rings).length === 0) throw new Error('Bloom\'s design tokens name no focus ring');
+fs.writeFileSync(path.join(out, 'focus-rings.json'), JSON.stringify(rings));
 fs.rmSync(path.join(runtime, 'framework'), { recursive: true, force: true });
 fs.renameSync(out, path.join(runtime, 'framework'));
 const bytes = fs.readFileSync(path.join(runtime, 'framework', 'framework.hbc'));

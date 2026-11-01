@@ -130,7 +130,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Stash",
+       "name": "Stash",
        "state": [
         "collapsed",
         "focused"
@@ -169,7 +169,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Atlas",
+       "name": "Atlas",
        "state": [
         "collapsed",
         "focused"
@@ -208,7 +208,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Inbox",
+       "name": "Inbox",
        "state": [
         "collapsed",
         "focused"
@@ -460,7 +460,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Inbox",
+       "name": "Inbox",
        "state": [
         "collapsed",
         "focused"

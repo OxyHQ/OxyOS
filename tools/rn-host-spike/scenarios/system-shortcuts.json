@@ -16,7 +16,7 @@
     },
     {
       "name": "Inbox from the dock: its window comes over Allo's, the active one, and the dock marks it running",
-      "do": ["press_named", "Abrir Inbox"],
+      "do": ["press_named", "Inbox"],
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1, "leave": 1}},
@@ -169,7 +169,7 @@
     },
     {
       "name": "Allo in the dock restores it",
-      "do": ["press_named", "Abrir Allo"],
+      "do": ["press_named", "Allo"],
       "expect": {
         "react": {},
         "window_shown": true,

@@ -236,8 +236,10 @@ struct TextInputEdit {
   facebook::react::Tag dropTag = -1;
   size_t dropOffset = 0;
   // The control the keyboard focused (keyboard-focus.h), drawn with a ring around it as a Mac draws
-  // its keyboard focus ring; -1 for none.
+  // its keyboard focus ring; -1 for none. Its colour (0xRRGGBB), the session's accent's (Bloom's
+  // `ring` token); the system blue where the accent has none.
   facebook::react::Tag focusRing = -1;
+  uint32_t focusRingColor = 0x007AFF;
   bool operator==(const TextInputEdit&) const = default;
 };
 

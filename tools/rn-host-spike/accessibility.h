@@ -43,6 +43,13 @@ struct AccessibleNode {
   bool activateAction = false;
   // A focused, editable, non-secure text input's selection, in bytes of its text.
   std::optional<std::pair<size_t, size_t>> selection;
+  // `accessibilityHint`: what activating it does, when its name does not say.
+  std::string hint;
+  // Its place among its collection's items, 1-based, and their count; 0 for none.
+  uint32_t position = 0, count = 0;
+  // A collection's rows and columns, an item's row and column in one (Android's
+  // `accessibilityCollection`, `accessibilityCollectionItem`); -1 for none.
+  int collectionRows = -1, collectionColumns = -1, itemRow = -1, itemColumn = -1;
 };
 
 // What the host does for an assistive technology's actions beyond activation and focus, and
@@ -68,6 +75,10 @@ struct AccessibilityHooks {
 // subtree. Popup views are left out: their content belongs to the popup's surface (`root` is
 // then the popup view). The node with accessibility focus has "focused" in its state: the view
 // `focus` if it is a node, else the first node inside it (as VoiceOver moves into a container).
+// An item of a collection has its place in it: by the collection's and the item's own
+// `accessibilityCollection` and `accessibilityCollectionItem` (a list showing only some of its
+// items says where each is among them all), else a `listitem` among the `listitem`s of its
+// nearest `list`, as VoiceOver and TalkBack say a row ("3 of 21").
 std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, facebook::react::Tag root,
                                              facebook::react::Tag focus = -1,
                                              const AccessibilityHooks* hooks = nullptr);

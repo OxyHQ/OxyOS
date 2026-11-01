@@ -16,7 +16,7 @@
       "do": [
         "hold_named",
         [
-          "Abrir Allo",
+          "Allo",
           650
         ]
       ],
@@ -157,7 +157,7 @@
       "do": [
         "hold_named",
         [
-          "Abrir Allo",
+          "Allo",
           650
         ]
       ],
@@ -295,7 +295,7 @@
       "do": [
         "hold_named",
         [
-          "Abrir Inbox",
+          "Inbox",
           650
         ]
       ],
@@ -385,7 +385,7 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Inbox"
+              "name": "Inbox"
             }
           ]
         },
@@ -393,11 +393,11 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Stash"
+              "name": "Stash"
             },
             {
               "role": "Button",
-              "name": "Abrir Allo"
+              "name": "Allo"
             }
           ]
         }

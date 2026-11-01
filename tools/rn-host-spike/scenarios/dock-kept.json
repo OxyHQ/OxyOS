@@ -32,15 +32,15 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Allo"
+              "name": "Allo"
             },
             {
               "role": "Button",
-              "name": "Abrir Stash"
+              "name": "Stash"
             },
             {
               "role": "Button",
-              "name": "Abrir Inbox"
+              "name": "Inbox"
             }
           ]
         },

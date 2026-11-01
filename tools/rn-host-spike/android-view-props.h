@@ -2,7 +2,8 @@
 // which only Android's platform props parse (HostPlatformViewProps): `elevation` (the shadow Android
 // casts under a view raised off its parent) and `needsOffscreenAlphaCompositing` (whether its
 // opacity is a layer, ReactViewGroup.hasOverlappingRendering) and `focusable` (whether the keyboard
-// focuses it, View.setFocusable, keyboard-focus.h). The host's View descriptor keeps
+// focuses it, View.setFocusable, keyboard-focus.h) and the collection a view is or is an item of
+// (`accessibilityCollection`, `accessibilityCollectionItem`, accessibility.h). The host's View descriptor keeps
 // them beside each props as Fabric makes them, as the ScrollView's keeps `overScrollMode`
 // (overscroll.h).
 #pragma once
@@ -15,6 +16,12 @@ struct AndroidViewProps {
   float elevation = 0;
   bool needsOffscreenAlphaCompositing = false;
   bool focusable = false;
+  // `accessibilityCollection` and `accessibilityCollectionItem`, as Android's node info takes them
+  // (CollectionInfo, CollectionItemInfo): a collection's rows and columns, an item's row and column
+  // in it; -1 for none. What a list that shows only some of its items (a virtualized one) says of
+  // where an item is among them all.
+  int collectionRows = -1, collectionColumns = -1;
+  int itemRow = -1, itemColumn = -1;
   bool operator==(const AndroidViewProps&) const = default;
 };
 

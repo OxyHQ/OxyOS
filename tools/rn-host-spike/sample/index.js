@@ -42,6 +42,7 @@ import ReducedMotionProbe from './ReducedMotionProbe';
 import DragProbe from './DragProbe';
 import DropProbe from './DropProbe';
 import TextMenuProbe from './TextMenuProbe';
+import PopoverProbe from './PopoverProbe';
 import TextDragProbe from './TextDragProbe';
 import TextDragPeer from './TextDragPeer';
 
@@ -54,6 +55,7 @@ AppRegistry.registerComponent('ClipboardProbe', () => ClipboardProbe);
 AppRegistry.registerComponent('DragProbe', () => DragProbe);
 AppRegistry.registerComponent('DropProbe', () => DropProbe);
 AppRegistry.registerComponent('TextMenuProbe', () => TextMenuProbe);
+AppRegistry.registerComponent('PopoverProbe', () => PopoverProbe);
 AppRegistry.registerComponent('TextDragProbe', () => TextDragProbe);
 AppRegistry.registerComponent('TextDragPeer', () => TextDragPeer);
 AppRegistry.registerComponent('FileSystemProbe', () => FileSystemProbe);

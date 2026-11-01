@@ -1,5 +1,6 @@
 #include "accessibility.h"
 
+#include "android-view-props.h"
 #include "keyboard-focus.h"
 
 #include "report.h"
@@ -176,6 +177,13 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
     if (scrolls && role.empty()) role = "scrollview";
     AccessibleNode node{.role = role, .name = props->accessibilityLabel, .id = props->testId,
                         .state = stateOf(*props)};
+    node.hint = props->accessibilityHint;
+    std::replace(node.hint.begin(), node.hint.end(), '\n', ' ');
+    auto android = androidViewPropsOf(*props);
+    node.collectionRows = android.collectionRows;
+    node.collectionColumns = android.collectionColumns;
+    node.itemRow = android.itemRow;
+    node.itemColumn = android.itemColumn;
     if (props->accessibilityLiveRegion == AccessibilityLiveRegion::Polite) node.state["live"] = "polite";
     if (props->accessibilityLiveRegion == AccessibilityLiveRegion::Assertive) node.state["live"] = "assertive";
     declaredActions(*props, node);
@@ -285,6 +293,47 @@ folly::dynamic offeredNames(uint16_t actions) {
   return names;
 }
 
+// Each item's place in its collection (accessibility.h): the collection it declares it is in, by
+// row and column (Android's CollectionItemInfo in its CollectionInfo), else a list's rows among the
+// list's own (a list within a row is another collection).
+void placeItems(std::vector<AccessibleNode>& nodes) {
+  auto nearest = [&](size_t index, auto&& is) -> int {
+    for (int at = nodes[index].parent; at >= 0; at = nodes[at].parent) {
+      if (is(nodes[at])) return at;
+    }
+    return -1;
+  };
+  std::map<int, std::vector<size_t>> rows;  // a list's listitems, by the list's index
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    auto& node = nodes[i];
+    if (node.itemRow >= 0) {
+      int collection = nearest(i, [](const AccessibleNode& n) { return n.collectionRows >= 0; });
+      if (collection >= 0) {
+        int columns = std::max(1, nodes[collection].collectionColumns);
+        long position = static_cast<long>(node.itemRow) * columns + std::max(0, node.itemColumn) + 1;
+        long count = static_cast<long>(nodes[collection].collectionRows) * columns;
+        if (position <= count) {
+          node.position = static_cast<uint32_t>(position);
+          node.count = static_cast<uint32_t>(count);
+          continue;
+        }
+      }
+    }
+    if (node.role == "listitem") {
+      int list = nearest(i, [](const AccessibleNode& n) { return n.role == "list" || n.role == "listitem"; });
+      if (list >= 0 && nodes[list].role == "list") rows[list].push_back(i);
+    }
+  }
+  for (const auto& [list, items] : rows) {
+    for (size_t at = 0; at < items.size(); ++at) {
+      auto& node = nodes[items[at]];
+      if (node.count) continue;
+      node.position = static_cast<uint32_t>(at + 1);
+      node.count = static_cast<uint32_t>(items.size());
+    }
+  }
+}
+
 }  // namespace
 
 std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Tag focus,
@@ -301,6 +350,7 @@ std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Ta
   }
   start = navigationRoot(tree, start);
   walk(w, start, start == root, false, -1, 0);
+  placeItems(w.out);
   return std::move(w.out);
 }
 
@@ -353,6 +403,8 @@ folly::dynamic toDynamic(const std::vector<AccessibleNode>& nodes) {
       entry["custom"] = folly::dynamic::array(node.customLabels.begin(), node.customLabels.end());
     }
     if (node.selection) entry["selection"] = folly::dynamic::array(node.selection->first, node.selection->second);
+    if (!node.hint.empty()) entry["hint"] = node.hint;
+    if (node.count) entry["position"] = folly::dynamic::array(node.position, node.count);
     list.push_back(std::move(entry));
   }
   return list;
@@ -377,6 +429,7 @@ void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
   Report::get().accessibility(surface, reported);
 
   std::vector<OxyOSAccessibleNode> wire;
+  std::vector<OxyOSAccessibleDetail> details;
   std::vector<Published> published;
   // The custom actions' labels, one per line, alive until the snapshot is sent.
   std::vector<std::string> labels;
@@ -406,10 +459,11 @@ void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
         .selection_start = static_cast<uint32_t>(node.selection ? node.selection->first : 0),
         .selection_end = static_cast<uint32_t>(node.selection ? node.selection->second : 0),
     });
+    details.push_back(OxyOSAccessibleDetail{.hint = node.hint.c_str(), .position = node.position, .count = node.count});
     published.push_back(Published{.tag = node.tag, .customNames = node.customNames,
                                   .activateAction = node.activateAction});
   }
-  window_.publishAccessibility(surface, wire);
+  window_.publishAccessibility(surface, wire, details);
   nodes_[surface] = std::move(published);
 }
 

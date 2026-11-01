@@ -24,7 +24,7 @@
         "drag_paced_named",
         [
           "informe.txt",
-          "Abrir Papelera",
+          "Papelera",
           30,
           30
         ]
@@ -67,7 +67,7 @@
         "drag_paced_named",
         [
           "Hola OxyOS",
-          "Abrir Papelera",
+          "Papelera",
           30,
           30
         ]

@@ -49,6 +49,22 @@ Props::Shared ViewComponentDescriptor::cloneProps(const PropsParserContext& cont
       if (auto it = raw.find("focusable"); it != raw.items().end()) {
         values.focusable = it->second.isBool() && it->second.asBool();
       }
+      // A whole number of a map's, or -1.
+      auto count = [](const folly::dynamic& map, const char* key) {
+        if (!map.isObject()) return -1;
+        auto at = map.find(key);
+        return at != map.items().end() && at->second.isNumber() && at->second.asDouble() >= 0
+                   ? static_cast<int>(at->second.asDouble())
+                   : -1;
+      };
+      if (auto it = raw.find("accessibilityCollection"); it != raw.items().end()) {
+        values.collectionRows = count(it->second, "rowCount");
+        values.collectionColumns = count(it->second, "columnCount");
+      }
+      if (auto it = raw.find("accessibilityCollectionItem"); it != raw.items().end()) {
+        values.itemRow = count(it->second, "rowIndex");
+        values.itemColumn = count(it->second, "columnIndex");
+      }
     }
   }
   auto made = facebook::react::ViewComponentDescriptor::cloneProps(context, props, std::move(rawProps));

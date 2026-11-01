@@ -46,7 +46,7 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Allo"
+              "name": "Allo"
             }
           ]
         }
@@ -82,7 +82,7 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Allo"
+              "name": "Allo"
             }
           ]
         }
@@ -92,7 +92,7 @@
       "name": "its application in the dock brings it back: the shell asks the compositor to focus its newest window",
       "do": [
         "press_named",
-        "Abrir Allo"
+        "Allo"
       ],
       "expect": {
         "window_shown": true,

@@ -23,7 +23,7 @@
       "do": [
         "hold_named",
         [
-          "Abrir Papelera",
+          "Papelera",
           650
         ]
       ],
@@ -144,7 +144,7 @@
       "do": [
         "hold_named",
         [
-          "Abrir Papelera",
+          "Papelera",
           650
         ]
       ],
@@ -196,7 +196,7 @@
       "name": "a click on the Trash: the session opens stash://trash in Stash, whose entry declares its scheme",
       "do": [
         "press_named",
-        "Abrir Papelera"
+        "Papelera"
       ],
       "expect": {
         "react": {},

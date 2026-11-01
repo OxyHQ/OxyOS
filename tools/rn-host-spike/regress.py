@@ -53,7 +53,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   them), "launched" (the applications the session launched, docs/adr/0039-keyboard-access.mdx)
   or the application's popups, each node matching the keys given ({} matches any): role,
   name, value, state, actions (what it offers beyond activate and focus), custom (its custom
-  actions' labels), selection;
+  actions' labels), selection, hint (what activating it does, ADR 0039) and position ([place,
+  count] among its collection's items, a list's row; null for none);
 - at_group: groups in the window's tree as the assistive technology received it, nested as the
   application nested it (each node's parent): each {"group": node, "items": [node, ...]} has
   exactly one node matching "group", and each item matches exactly one node in the whole window,
@@ -240,7 +241,7 @@ A step may aim at what is on screen by its accessible name instead of a point: `
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
-(`Abrir Inbox`), so a change of the dock's row moves no scenario's press; `drag_paced_named`
+(`Inbox`), so a change of the dock's row moves no scenario's press; `drag_paced_named`
 ([from, to, motions, hz] and optionally the motion Escape follows) is a paced drag from one node
 to another (a file onto the dock's Trash, ADR 0035). A `wait_named` step
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
