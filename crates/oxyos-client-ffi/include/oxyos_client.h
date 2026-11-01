@@ -259,6 +259,8 @@ typedef struct OxyOSClient OxyOSClient;
  *   KEY         serial; code: key (Linux input code); flag: pressed; text: with key text
  *               (oxyos_client_set_key_text), what the session's layout typed with it, NUL-terminated
  *               (empty for a modifier, an editing key, a control character or a dead key).
+ *               A press of a key already held, no release between, is the compositor's repeat
+ *               of it (docs/adr/0036-key-repeat.mdx); a client never repeats keys itself.
  *   FOCUS       flag: focused.
  *   TOUCH       serial; x, y as POINTER; detail: touch kind; code: touch id.
  *   FEEDBACK    serial: frame sequence; detail: outcome.

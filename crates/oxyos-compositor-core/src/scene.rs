@@ -504,6 +504,8 @@ pub struct Scene {
     clock: std::time::Duration,
     /// Pings, force quits, the person's lists of applications and URLs the shell opens (ADR 0034).
     dock: dock::Dock,
+    /// The key held and pressed again while it is (ADR 0036).
+    key_repeat: key_repeat::KeyRepeat,
 }
 
 /// The modifier (`MODIFIER_*`) a key is, by its Linux input code; 0 for any other key.
@@ -3147,6 +3149,7 @@ impl Scene {
         if self.focus == key {
             return;
         }
+        self.focus_moved_for_repeat();
         // The input method stops serving the field before focus leaves it.
         self.deactivate_input_method();
         if let Some(old) = self.focus.take() {
@@ -3368,6 +3371,7 @@ impl Scene {
             return;
         }
         self.locked = true;
+        self.stop_key_repeat();
         self.dismiss_grab(DismissReason::Locked);
         self.cancel_switcher();
         self.lock_screenshots();
@@ -3995,6 +3999,7 @@ impl Scene {
     /// A key from the keyboard: the screen reader's first (ADR 0014), then the hardware keys
     /// (ADR 0025), then the system shortcuts (ADR 0024), then the focused surface.
     pub fn key(&mut self, key: u32, pressed: bool) {
+        self.end_repeat_for(key, pressed);
         self.user_input();
         self.hold_modifier(key, pressed);
         if !self.reader_key(key, pressed)
@@ -4483,6 +4488,8 @@ mod menus;
 mod window_views;
 pub use window_views::fitted;
 mod controls;
+/// Key repeat (docs/adr/0036-key-repeat.mdx).
+mod key_repeat;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
 /// Screenshots (ADR 0024, decision 10).
@@ -4492,6 +4499,7 @@ mod shortcuts;
 pub use controls::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
 };
+pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};

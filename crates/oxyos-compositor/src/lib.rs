@@ -2906,6 +2906,7 @@ impl Compositor {
                     }
                     // libinput released what was still down: applications hear it now.
                     self.read_input();
+                    self.scene.stop_key_repeat();
                     self.away = true;
                     if let Some(terminal) = &self.terminal {
                         terminal.release()?;
@@ -2952,6 +2953,7 @@ impl Compositor {
                         }
                         // libinput released what was still down: applications hear it now.
                         self.read_input();
+                        self.scene.stop_key_repeat();
                         self.away = true;
                     }
                     if pause == oxyos_seat::Pause::Pause {
@@ -3028,6 +3030,8 @@ impl Compositor {
         };
         let (dx, dy) = self.display_offset;
         let trace = std::env::var_os("OXYOS_INPUT_TRACE").is_some();
+        // A key held repeats from when it was read (ADR 0036).
+        self.scene.set_clock(self.now());
         for oxyos_input::Timed { time_ns, action } in actions {
             if trace {
                 eprintln!(
@@ -3037,6 +3041,18 @@ impl Compositor {
             }
             // What it makes reaches the clients with when its device registered it.
             self.scene.set_input_time(time_ns);
+            // A press the scene never sees as a key (a dead key, the keymap's own) ends a key's
+            // repeat, as any press does (ADR 0036).
+            if matches!(
+                action,
+                oxyos_input::Action::Compose { .. }
+                    | oxyos_input::Action::SwitchTerminal(_)
+                    | oxyos_input::Action::Terminate
+                    | oxyos_input::Action::Lock
+                    | oxyos_input::Action::ToggleReader
+            ) {
+                self.scene.stop_key_repeat();
+            }
             match action {
                 oxyos_input::Action::Motion { x, y } => {
                     let (x, y) = (x.round() as i32 - dx, y.round() as i32 - dy);
@@ -3090,7 +3106,10 @@ impl Compositor {
                     code,
                     pressed,
                     text,
-                } => self.scene.keyboard(code, pressed, text.as_deref()),
+                    repeats,
+                } => self
+                    .scene
+                    .keyboard_repeating(code, pressed, text.as_deref(), repeats),
                 oxyos_input::Action::Terminate => self.ending = true,
                 oxyos_input::Action::Lock => self.scene.lock(),
                 oxyos_input::Action::ToggleReader => self.reader_toggled = true,
@@ -3329,7 +3348,8 @@ impl Compositor {
     }
 
     /// How long a turn may wait: until the animated pointer's next step, the first connection
-    /// still without its Hello reaches its deadline, the idle lock's deadline, a transition's next
+    /// still without its Hello reaches its deadline, the idle lock's deadline, a key held's next
+    /// repeat, a transition's next
     /// frame, a paced screen's next vblank, or `idle_wait`, whichever is soonest.
     fn next_wake(&self) -> Duration {
         let mut wait = self.idle_wait;
@@ -3349,6 +3369,10 @@ impl Compositor {
         // An unanswered ping becomes late: the shell is told its windows are not responding.
         if let Some(late) = self.scene.next_ping_deadline() {
             wait = wait.min(late);
+        }
+        // A key held is pressed again (ADR 0036).
+        if let Some(repeat) = self.scene.next_repeat() {
+            wait = wait.min(repeat.saturating_sub(self.now()));
         }
         if let Some(controls) = &self.controls {
             wait = wait.min(controls.next_wake(Instant::now()));
@@ -3552,6 +3576,11 @@ impl Compositor {
         // Clients that did not answer a ping in time are not responding (ADR 0034).
         self.scene.set_clock(self.now());
         self.scene.check_responding();
+        // A key held is pressed again when its time comes, never while the seat is another
+        // session's (ADR 0036).
+        if !self.away {
+            self.scene.repeat_keys();
+        }
         // A turn that waited until the deadline locks now, and composes the lock.
         self.follow_idle();
         self.authenticate();
@@ -4269,6 +4298,31 @@ mod tests {
         assert_eq!((same.x, same.y, same.radius), (600, 10, 6));
         assert!(matches!(same.paint, oxyos_gpu::Paint::Shadow(_, at) if at == shadow));
         assert!(left.layer(&oxyos_gpu::Layer { x: 640, ..layer }).is_none());
+    }
+
+    #[test]
+    fn a_turn_waits_for_a_held_keys_next_repeat_and_not_once_it_is_released() {
+        let mut compositor = Compositor::new(Scene::new(), 0);
+        let hour = Duration::from_secs(3600);
+        compositor.idle_wait = hour;
+        let start = Duration::from_secs(600);
+        compositor.clock = Some(start);
+        compositor.scene.set_clock(start);
+        // Volume up, a hardware key's step, repeats with no window (ADR 0025).
+        const KEY_VOLUMEUP: u32 = 115;
+        compositor
+            .scene
+            .keyboard_repeating(KEY_VOLUMEUP, true, None, true);
+        assert_eq!(compositor.next_wake(), oxyos_compositor_core::REPEAT_DELAY);
+        compositor.clock = Some(start + Duration::from_millis(200));
+        assert_eq!(
+            compositor.next_wake(),
+            oxyos_compositor_core::REPEAT_DELAY - Duration::from_millis(200)
+        );
+        compositor
+            .scene
+            .keyboard_repeating(KEY_VOLUMEUP, false, None, false);
+        assert_eq!(compositor.next_wake(), hour);
     }
 
     #[test]

@@ -386,6 +386,9 @@ messages! {
         // keyboard, as X11's and macOS's pointer events carry them: a Control-click or an
         // Option-click on a surface that does not have the keyboard (the dock).
         4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32, time_ns: u64, modifiers: u8 },
+        // A press of a key already held, with no release between, is a repeat: the compositor
+        // repeats a held key itself, after a delay and at a rate (docs/adr/0036-key-repeat.mdx),
+        // and a client never times repeats of its own. KeyText and InputMethodKey alike.
         5 => Key { surface: u32, serial: u64, key: u32, pressed: bool, time_ns: u64 },
         6 => Focus { surface: u32, focused: bool },
         7 => Touch { surface: u32, serial: u64, kind: TouchKind, id: u32, x: i32, y: i32, time_ns: u64 },

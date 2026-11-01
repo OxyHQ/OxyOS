@@ -95,6 +95,27 @@ fn modifiers_and_editing_keys_type_nothing() {
 }
 
 #[test]
+fn the_keymap_repeats_keys_and_never_modifiers_or_locks() {
+    // Linux input codes: the arrows, Tab, Caps Lock and Num Lock; then right Shift, Ctrl, Alt,
+    // AltGr and Super.
+    let (left, right, tab, caps_lock, num_lock) = (105, 106, 15, 58, 69);
+    for layout in ["us", "es"] {
+        let keyboard = composing(layout);
+        for code in [A, O, ONE, SPACE, ENTER, BACKSPACE, left, right, tab] {
+            assert!(keyboard.repeats(code), "{layout}: {code} repeats");
+        }
+        for code in [SHIFT, 54, 29, 97, 56, 100, 125, 126, caps_lock, num_lock] {
+            assert!(!keyboard.repeats(code), "{layout}: {code} never repeats");
+        }
+    }
+    // A dead key is the compose table's, never a key for the scene, so it never repeats however
+    // the keymap marks it.
+    let mut es = composing("es");
+    assert!(matches!(es.key(APOSTROPHE, true), Typed::Compose { .. }));
+    assert_eq!(es.key(APOSTROPHE, false), Typed::Nothing);
+}
+
+#[test]
 fn a_dead_key_composes_with_the_next_key() {
     let mut es = composing("es");
     // The dead key types nothing; the vowel types the composed character.

@@ -40,10 +40,14 @@ pub enum Action {
         source: ScrollSource,
         stop: bool,
     },
+    /// A key for the scene, with the text its press types. `repeats`: a press of a key the keymap
+    /// repeats while it is held (`xkb_keymap_key_repeats`: never a modifier or a lock), which the
+    /// scene presses again while it is (docs/adr/0036-key-repeat.mdx); false for every release.
     Key {
         code: u32,
         pressed: bool,
         text: Option<String>,
+        repeats: bool,
     },
     /// A key the compose table took (a dead key, or a key of a sequence), which no
     /// application sees as a key: `composition` is the sequence so far as it is shown (empty
@@ -385,6 +389,14 @@ impl Keyboard {
         self.compose.is_some()
     }
 
+    /// Whether the keymap repeats a key (Linux input code) while it is held: letters, digits,
+    /// editing keys and arrows do; modifiers and locks (Caps Lock, Num Lock) never.
+    pub fn repeats(&self, code: u32) -> bool {
+        self.state
+            .get_keymap()
+            .key_repeats(xkb::Keycode::new(code + 8))
+    }
+
     /// Updates the state with a key (Linux input code) and says what it does. A press types
     /// its text: none for modifiers, editing keys and control characters. With a compose
     /// table, a key that starts or continues a sequence types nothing, the key that ends it
@@ -682,6 +694,7 @@ impl Input {
                             code: key.key(),
                             pressed,
                             text,
+                            repeats: pressed && self.keyboard.repeats(key.key()),
                         }),
                         Typed::Compose { composition, text } => {
                             actions.push(Action::Compose { composition, text })
