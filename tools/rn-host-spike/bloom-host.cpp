@@ -491,7 +491,11 @@ int main(int argc, char** argv) {
   services.runtime = {runtimeOf.abi, runtimeOf.api, runtimeOf.frameworkURL};
   oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;
-  oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); }, refresh);
+  // Reduce motion as the session last told it (its first events, before the window's configure),
+  // read when JavaScript installs Reanimated, as Android's NativeProxy reads its animator scale.
+  oxyos::ReanimatedHost reanimated(
+      worklets, [&scheduler] { return scheduler.get(); }, refresh,
+      [&services] { return services.settings.drawing && services.settings.drawing()["reduceMotion"].asBool(); });
   // Animated's native driver (native-animated.h).
   oxyos::NativeAnimatedHost animated(refresh);
   // react-native-gesture-handler (gesture-handler.h), made once the view tree exists.

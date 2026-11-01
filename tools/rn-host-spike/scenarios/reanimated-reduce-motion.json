@@ -1,0 +1,123 @@
+{
+  "about": "Reanimated with the session's Reduce Motion (docs/adr/0019-settings.mdx), changed while the application runs (sample/ReducedMotionProbe.tsx). With it on from the start, Reanimated's useReducedMotion() is true and a 3 s withTiming with ReduceMotion.System (Reanimated's default) jumps to its end at once, as on Android. Turned off from the application (granted `settings`, as the session grants Settings), the session tells every application: useReducedMotion() renders false at once and the next animation takes its 3 s; turned on again, true again and the next animation ends at once. With the host telling Reanimated reduce motion is off, the first animation takes its duration and it fails; with Reanimated reading the setting only at start, the hook stays on and the second animation still ends at once, and it fails.",
+  "module": "ReducedMotionProbe",
+  "window": [
+    400,
+    220
+  ],
+  "app": {
+    "id": "so.oxy.reducedmotionprobe",
+    "title": "Reduced Motion"
+  },
+  "settings": {
+    "app": "so.oxy.reducedmotionprobe",
+    "preferences": {
+      "reduce_motion": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "Reduce Motion on from the start: useReducedMotion() is true, and Animate's 3 s animation ends at once at its end",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Reduced motion: on",
+          "Run 1: ended at once"
+        ],
+        "pixels": {
+          "230,160": "#d03030",
+          "40,160": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "Toggle: the session turns Reduce Motion off and tells the application; useReducedMotion() renders false",
+      "do": [
+        "press",
+        [
+          250,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Reduced motion: off",
+          "Run 1: ended at once"
+        ],
+        "preferences": {
+          "reduceMotion": false
+        }
+      }
+    },
+    {
+      "name": "Animate with Reduce Motion off: the box moves back over its 3 s",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Reduced motion: off",
+          "Run 2: ended after its duration"
+        ],
+        "pixels": {
+          "40,160": "#d03030",
+          "230,160": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "Toggle: Reduce Motion on again; useReducedMotion() renders true",
+      "do": [
+        "press",
+        [
+          250,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Reduced motion: on",
+          "Run 2: ended after its duration"
+        ],
+        "preferences": {
+          "reduceMotion": true
+        }
+      }
+    },
+    {
+      "name": "Animate with Reduce Motion on again: it ends at once at its end",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Reduced motion: on",
+          "Run 3: ended at once"
+        ],
+        "pixels": {
+          "230,160": "#d03030",
+          "40,160": "#ffffff"
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "reduce_motion": "true"
+    }
+  }
+}

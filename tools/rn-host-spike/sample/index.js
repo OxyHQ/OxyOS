@@ -38,6 +38,7 @@ import PanelProbe from './PanelProbe';
 import FileChooserProbe from './FileChooserProbe';
 import FileChooserFixture from './FileChooserFixture';
 import ExpoPickerProbe from './ExpoPickerProbe';
+import ReducedMotionProbe from './ReducedMotionProbe';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -75,3 +76,4 @@ AppRegistry.registerComponent('PanelProbe', () => PanelProbe);
 AppRegistry.registerComponent('FileChooserProbe', () => FileChooserProbe);
 AppRegistry.registerComponent('FileChooserFixture', () => FileChooserFixture);
 AppRegistry.registerComponent('ExpoPickerProbe', () => ExpoPickerProbe);
+AppRegistry.registerComponent('ReducedMotionProbe', () => ReducedMotionProbe);
