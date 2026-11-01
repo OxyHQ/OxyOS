@@ -376,8 +376,13 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, f
   float boxTop = y + content.origin.y - scroll.y;
 
   if (edit && edit->selectionStart != edit->selectionEnd) {
-    SkColor4f selection = props->selectionColor ? faded(props->selectionColor, opacity)
-                                                : SkColor4f{0.25f, 0.45f, 1.0f, 0.3f * opacity};
+    // In a window that is not key, macOS's unemphasizedSelectedTextBackgroundColor (#dcdcdc light,
+    // #464646 dark), whatever `selectionColor` asks: NSTextView applies its selected-text
+    // attributes only in the key window.
+    float unemphasized = edit->dark ? 70 / 255.0f : 220 / 255.0f;
+    SkColor4f selection = !edit->key             ? SkColor4f{unemphasized, unemphasized, unemphasized, opacity}
+                          : props->selectionColor ? faded(props->selectionColor, opacity)
+                                                  : SkColor4f{0.25f, 0.45f, 1.0f, 0.3f * opacity};
     for (const auto& rect : geometry->span(edit->selectionStart, edit->selectionEnd)) {
       fillRect(draw, left + rect.origin.x, boxTop + rect.origin.y, rect.size.width, rect.size.height, selection);
     }
@@ -407,7 +412,7 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, f
         }
       }
     }
-    if (edit->selectionStart == edit->selectionEnd && edit->caretLit) {
+    if (edit->selectionStart == edit->selectionEnd && edit->caretLit && edit->key) {
       auto caret = geometry->caret(edit->selectionEnd);
       SkColor4f color = props->cursorColor ? faded(props->cursorColor, opacity) : ink;
       fillCaret(draw, left + caret.x, boxTop + caret.top, caret.height, color);

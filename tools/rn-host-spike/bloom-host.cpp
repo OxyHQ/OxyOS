@@ -1244,11 +1244,19 @@ int main(int argc, char** argv) {
     // the session requires.
     oxyos::ChunkTexts chosenTexts;
     uint32_t chooserSerial = 0;
-    services.fileChooser.choose = [&window, &lastPress, &chooserSerial](const std::string& text) -> uint32_t {
+    // The requests not answered yet: while one is, its sheet over the window is what takes the
+    // window's keyboard (the window's text fields, ADR 0037).
+    std::set<uint32_t> choosing;
+    services.fileChooser.choose = [&window, &lastPress, &chooserSerial, &choosing](const std::string& text) -> uint32_t {
       ++chooserSerial;
-      return window->chooseFiles(chooserSerial, lastPress, text) ? chooserSerial : 0;
+      if (!window->chooseFiles(chooserSerial, lastPress, text)) return 0;
+      choosing.insert(chooserSerial);
+      return chooserSerial;
     };
-    services.fileChooser.cancel = [&window](uint32_t serial) { window->cancelChooseFiles(serial); };
+    services.fileChooser.cancel = [&window, &choosing](uint32_t serial) {
+      window->cancelChooseFiles(serial);
+      choosing.erase(serial);
+    };
     services.fileChooser.answer = [&window, &lastPress](const std::string& text) {
       // A choice cites the press or key that made it; a cancellation cites nothing.
       folly::dynamic answer;
@@ -1439,6 +1447,7 @@ int main(int argc, char** argv) {
               }
               if (event.kind == OXYOS_EVENT_SHEET_DISMISSED) sheetsGone.push_back(event);
               if (event.kind == OXYOS_EVENT_FILES_CHOSEN) {
+                if (event.flag) choosing.erase(event.code);
                 if (auto text = chosenTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
                   filesChosen.emplace_back(event.code, std::move(*text));
                 }
@@ -1856,6 +1865,25 @@ int main(int argc, char** argv) {
         // Focus, caret and selection moves draw even when the tree did not change, and so does the
         // caret's blink.
         if (window) editing.setCaretBlinks(window->drawing().caretBlink);
+        // Whether the focused field's window is the key window, the one the person's keys are for
+        // (docs/adr/0037-text-editing.mdx): out of it, no caret and a grey selection. An
+        // application's window is key while the compositor says it is the active one (ACTIVATED):
+        // the keyboard on its own surfaces or its popups (a menu, which leaves a Mac's key window
+        // key), or on the shell's bar and its menus acting for it; not while a file chooser's
+        // sheet it asked for has the keyboard, which is then the key window though the window
+        // stays active, as a Mac's sheet is key over its main window; not while another window,
+        // the launcher, an overlay of the shell or the lock screen has it, all of which leave no
+        // window or another one active. The shell has no window: its field is key while the
+        // keyboard is on the region it is drawn in or on one of the shell's popups.
+        if (window) {
+          bool key = window->active() && (keyboardSurface != 0 || choosing.empty());
+          if (shellMode) {
+            auto field = editing.field();
+            key = !field || (keyboardSurface != 0 &&
+                             (field->surface == keyboardSurface || popups.content(keyboardSurface).has_value()));
+          }
+          editing.setWindow(key, window->drawing().dark);
+        }
         editing.tick(std::chrono::steady_clock::now());
         bool edited = editing.edit() != drawn;
         if (edited) {

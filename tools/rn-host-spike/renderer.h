@@ -222,6 +222,10 @@ struct TextInputEdit {
   std::map<facebook::react::Tag, facebook::react::Point> scrolls;
   // Whether the caret is lit: it blinks while the field waits for typing (textinput.h).
   bool caretLit = true;
+  // Whether the input's window is the key window (TextEditing::setWindow): if not, no caret is
+  // drawn and the selection is macOS's unemphasized one, for the appearance (`dark`).
+  bool key = true;
+  bool dark = false;
   bool operator==(const TextInputEdit&) const = default;
 };
 

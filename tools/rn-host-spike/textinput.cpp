@@ -256,7 +256,9 @@ TextInputEdit TextEditing::edit() const {
                        .composeEnd = composeEnd_,
                        .segments = segments_,
                        .scrolls = scrolls_,
-                       .caretLit = caretLit_};
+                       .caretLit = caretLit_,
+                       .key = key_,
+                       .dark = dark_};
 }
 
 void TextEditing::focus(Tag tag) {
@@ -1136,7 +1138,17 @@ void TextEditing::setCaretBlinks(bool blinks) {
   blinkFrom_ = std::chrono::steady_clock::now();
 }
 
+void TextEditing::setWindow(bool key, bool dark) {
+  dark_ = dark;
+  if (key == key_) return;
+  key_ = key;
+  // Back in the key window the caret is lit anew, as at any change (tick).
+  if (key) blinkFrom_ = std::chrono::steady_clock::now();
+}
+
 void TextEditing::tick(std::chrono::steady_clock::time_point now) {
+  // Out of the key window no caret is drawn: it neither blinks nor wakes the host.
+  if (!key_) return;
   bool lit = true;
   if (focused_ >= 0) {
     auto essentials = std::make_tuple(focused_, text_, anchor_, caret_, composeStart_, composeEnd_);
@@ -1159,7 +1171,7 @@ void TextEditing::tick(std::chrono::steady_clock::time_point now) {
 
 std::optional<std::chrono::steady_clock::time_point> TextEditing::nextBlink() const {
   // Only a caret blinks: a selection is drawn still.
-  if (!blinks_ || focused_ < 0 || anchor_ != caret_) return std::nullopt;
+  if (!blinks_ || !key_ || focused_ < 0 || anchor_ != caret_) return std::nullopt;
   auto waited = std::chrono::steady_clock::now() - blinkFrom_;
   if (waited >= kBlinkTimeout) return std::nullopt;
   return blinkFrom_ + kBlinkPeriod * (waited / kBlinkPeriod + 1);
