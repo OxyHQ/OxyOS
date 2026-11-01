@@ -27,8 +27,16 @@ namespace oxyos {
 
 namespace {
 
-// Linux input code of the primary (left) button.
+// Linux input codes of the primary (left) and secondary (right) buttons.
 constexpr uint32_t kPrimaryButton = 272;
+constexpr uint32_t kSecondaryButton = 273;
+
+// Whether the view is a text input (React Native's Android TextInput, textinput.h).
+bool isTextInput(const ViewTree& tree, Tag tag) {
+  auto it = tree.views().find(tag);
+  return it != tree.views().end() && it->second.view.componentName &&
+         std::string(it->second.view.componentName) == "AndroidTextInput";
+}
 
 // A Linux button code as W3C's `button` (0 primary, 1 auxiliary, 2 secondary, 3 back, 4 forward)
 // and its bit in `buttons`; -1 for one W3C does not name.
@@ -346,8 +354,25 @@ void PointerInput::handle(const OxyOSEvent& event) {
   y_ = y;
   if (event.detail == OXYOS_POINTER_ENTER || event.detail == OXYOS_POINTER_MOTION) hover(*content, x, y);
   if (event.detail == OXYOS_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
+  // A Control-click on a text input is its secondary click, as a Mac takes one: its button is the
+  // secondary one to JavaScript, it is no touch, and it opens the input's context menu. Elsewhere a
+  // Control-click is the application's (the dock opens its menu, a list adds to its selection).
+  if (event.detail == OXYOS_POINTER_PRESS && event.code == kPrimaryButton && !down_ && !controlClick_) {
+    controlClick_ = ctrl_ && textMenu_ && isTextInput(tree_, hitTest(tree_, *content, x, y));
+  }
+  bool primaryAsSecondary = controlClick_ && event.code == kPrimaryButton;
   if (event.detail == OXYOS_POINTER_PRESS || event.detail == OXYOS_POINTER_RELEASE) {
-    pointerButton(*content, event.code, event.detail == OXYOS_POINTER_PRESS, x, y);
+    uint32_t button = primaryAsSecondary ? kSecondaryButton : event.code;
+    pointerButton(*content, button, event.detail == OXYOS_POINTER_PRESS, x, y);
+    if (event.detail == OXYOS_POINTER_PRESS && button == kSecondaryButton && textMenu_) {
+      Tag target = hitTest(tree_, *content, x, y);
+      if (isTextInput(tree_, target)) textMenu_(target, content->surface, x, y);
+    }
+  }
+  if (event.detail == OXYOS_POINTER_LEAVE || event.detail == OXYOS_POINTER_CANCEL) controlClick_ = false;
+  if (primaryAsSecondary) {
+    if (event.detail == OXYOS_POINTER_RELEASE) controlClick_ = false;
+    if (event.detail == OXYOS_POINTER_PRESS || event.detail == OXYOS_POINTER_RELEASE) return;
   }
   switch (event.detail) {
     case OXYOS_POINTER_PRESS:

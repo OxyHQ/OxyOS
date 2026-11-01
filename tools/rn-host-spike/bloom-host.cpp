@@ -908,6 +908,11 @@ int main(int argc, char** argv) {
         .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {
           window->pasteText(serial, std::move(done));
         },
+        .hasText = [&window] { return window->clipboardHasText(); },
+    });
+    // A secondary click or a Control-click on a text input: its context menu (ADR 0037).
+    pointer.opensTextMenus([&editing](facebook::react::Tag view, uint32_t surface, float x, float y) {
+      editing.contextMenu(view, surface, x, y);
     });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
@@ -944,6 +949,8 @@ int main(int argc, char** argv) {
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
+    // A command chosen in a text input's context menu cites the row's press or key.
+    editing.useInputSerial([&lastPress] { return lastPress; });
     // The surface with the compositor's keyboard focus (0: none of this client's), and the text
     // field a shell region's surface was last asked to take it for (docs/adr/0024-system-shortcuts.mdx).
     uint32_t keyboardSurface = 0;

@@ -6,11 +6,20 @@
  * JavaScript. On OxyOS every mouse button's press and release is a pointer event (input.h,
  * docs/react-native-android-adaptation.mdx): a secondary press opens a context menu, and a click's
  * modifiers (Shift, Ctrl) select as a desktop's list does.
+ *
+ * And `oxyosTextMenu`, a bubbling event: a text input asking for its context menu
+ * (docs/adr/0037-text-editing.mdx), which the runtime's root hears from any input (text-menu.js).
  */
 import Android from 'react-native/Libraries/NativeComponent/BaseViewConfig.android';
 
 const BaseViewConfigOxyOS = {
   ...Android,
+  bubblingEventTypes: {
+    ...Android.bubblingEventTypes,
+    topOxyosTextMenu: {
+      phasedRegistrationNames: { bubbled: 'onOxyOSTextMenu', captured: 'onOxyOSTextMenuCapture' },
+    },
+  },
   validAttributes: {
     ...Android.validAttributes,
     onPointerDown: true,

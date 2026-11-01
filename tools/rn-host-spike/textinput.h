@@ -73,8 +73,13 @@ class TextEditing {
   struct ClipboardAccess {
     std::function<void(uint64_t serial, const std::string& text)> copy;
     std::function<void(uint64_t serial, std::function<void(std::string)> done)> paste;
+    // Whether the clipboard holds text: Paste in the context menu is enabled only then.
+    std::function<bool()> hasText;
   };
   void useClipboard(ClipboardAccess clipboard) { clipboard_ = std::move(clipboard); }
+  // The serial of the person's latest input to the application (a key, a press, in the window or
+  // a popup of it): what a command chosen in the input's context menu cites to copy and paste.
+  void useInputSerial(std::function<uint64_t()> serial) { inputSerial_ = std::move(serial); }
 
   // `autoFocus`, as Android's ReactEditText takes it: an input inserted with it takes focus once it
   // is attached. `inserted` sees a transaction before it is applied; `attached` focuses after.
@@ -84,6 +89,15 @@ class TextEditing {
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
   void handle(const OxyOSEvent& event);
+  // A secondary click, or a Control-click (input.h), on the input `tag` at (x, y) of `surface`:
+  // its context menu, as a Mac's text field opens one (docs/adr/0037-text-editing.mdx). The input
+  // takes focus if it has not; unless the press is within the selection, the word under the
+  // pointer is selected (off a word, or in a secure field, the caret goes there); then JavaScript
+  // is asked to show the menu: `oxyosTextMenu`, a bubbling event of the input's
+  // (sample/oxyos/text-menu.js draws it with Bloom's ContextMenu in a popup), with the point in
+  // the input and which of Undo, Redo, Cut, Copy, Paste and Select All apply now. False, and no
+  // menu, for an input that takes no focus (not editable).
+  bool contextMenu(facebook::react::Tag tag, uint32_t surface, float x, float y);
   // A gesture handler took the pointer's gesture (gesture-handler.h): a drag selecting text stops.
   void releaseDrag() { dragging_ = false; }
   // A change from the compositor's text input for the focused input (ADR 0008), applied as one
@@ -149,6 +163,20 @@ class TextEditing {
   void key(uint32_t code, uint64_t serial);
   // Ctrl+V's text arriving for the input `tag`: replaces its selection, as one edit.
   void pasted(facebook::react::Tag tag, std::string text);
+  // The focused input's editing commands, from their keys (Ctrl+C, X, V, A, Z, Shift+Z) or its
+  // context menu (`oxyosEdit`): `copy`, `cut`, `paste`, `selectAll`, `undo`, `redo`. `serial` is
+  // the input that asked, which the clipboard cites. One that does not apply does nothing.
+  void perform(const std::string& command, uint64_t serial);
+  // What the context menu's commands may do now, as its rows are enabled (NSTextView's
+  // validateMenuItem:).
+  struct Commands {
+    bool undo = false, redo = false, cut = false, copy = false, paste = false, selectAll = false;
+  };
+  Commands commands() const;
+  // What a context click at the surface point (x, y) selects in the focused input: the word whose
+  // character is under it, as [start, end) in bytes; none off a word (a space, punctuation, past a
+  // line's end) or in a secure field.
+  std::optional<std::pair<size_t, size_t>> wordUnder(uint32_t surface, float x, float y) const;
   void pointer(const OxyOSEvent& event);
   // What a double click (a word) or a triple click (a paragraph) at `offset` selects, as Android's
   // Editor selects it (selectCurrentWord, selectCurrentParagraph): [start, end) in bytes.
@@ -236,6 +264,10 @@ class TextEditing {
   // How far each input's text is scrolled (TextInputEdit::scrolls); none if not at all.
   std::map<facebook::react::Tag, facebook::react::Point> scrolls_;
   ClipboardAccess clipboard_;
+  std::function<uint64_t()> inputSerial_;
+  // A context click focusing an input (contextMenu): where it was, so focus selects what the click
+  // selects rather than placing the caret where the last primary press was.
+  std::optional<std::pair<uint32_t, facebook::react::Point>> contextPress_;
   // The latest primary press: a press focuses its input on release (JavaScript sends `focus`),
   // and the caret goes where it was pressed.
   std::optional<std::pair<uint32_t, facebook::react::Point>> press_;
