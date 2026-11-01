@@ -47,7 +47,8 @@
         ],
         "react": {
           "change@line": 1,
-          "selectionChange@line": 1
+          "selectionChange@line": 1,
+          "keyPress@line": 1
         },
         "host_input": {
           "caret.dark": 10,
