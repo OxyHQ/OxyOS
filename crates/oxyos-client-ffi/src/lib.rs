@@ -106,7 +106,7 @@ pub const OXYOS_EVENT_PREFERENCES: u32 = 53;
 pub const OXYOS_EVENT_PREFERENCE: u32 = 54;
 /// A PREFERENCES event's `flag` bits: dark (an automatic appearance resolved), every transition
 /// takes no time, glass is drawn opaque, a text field's caret stays lit instead of blinking (ADR
-/// 0035; never set by a compositor of protocol version 9 or older, whose carets blink).
+/// 0037; never set by a compositor of protocol version 9 or older, whose carets blink).
 pub const OXYOS_PREFERENCES_DARK: u8 = 1;
 pub const OXYOS_PREFERENCES_REDUCE_MOTION: u8 = 2;
 pub const OXYOS_PREFERENCES_REDUCE_TRANSPARENCY: u8 = 4;

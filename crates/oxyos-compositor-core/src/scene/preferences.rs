@@ -21,7 +21,7 @@ pub struct DrawingPreferences {
     pub reduce_transparency: bool,
     /// Bloom's accent colour, by name: one chunk.
     pub accent: PreeditText,
-    /// A text field's caret blinks (docs/adr/0035-text-editing.mdx).
+    /// A text field's caret blinks (docs/adr/0037-text-editing.mdx).
     pub caret_blink: bool,
 }
 

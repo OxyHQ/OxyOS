@@ -1592,7 +1592,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
             responding: true,
         }
     );
-    // Preferences from a compositor of version 9 say that a caret blinks (ADR 0035).
+    // Preferences from a compositor of version 9 say that a caret blinks (ADR 0037).
     let preferences = |caret_blink| Event::Preferences {
         dark: true,
         reduce_motion: false,

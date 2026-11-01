@@ -76,7 +76,7 @@ pub struct Preferences {
     pub reduce_motion: bool,
     /// Glass is drawn opaque.
     pub reduce_transparency: bool,
-    /// A text field's caret blinks; off, it stays lit (docs/adr/0035-text-editing.mdx).
+    /// A text field's caret blinks; off, it stays lit (docs/adr/0037-text-editing.mdx).
     pub caret_blink: bool,
     /// The wallpaper: a folder under the wallpapers' directory; none is the session's own.
     pub wallpaper: Option<String>,

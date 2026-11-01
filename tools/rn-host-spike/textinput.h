@@ -51,7 +51,7 @@ struct Placement {
 };
 
 // The editing a focused input receives, as Android's EditText does it with a Mac's keys
-// (docs/adr/0035-text-editing.mdx; Ctrl is the applications' ⌘ on OxyOS, ADR 0024, and Alt is ⌥):
+// (docs/adr/0037-text-editing.mdx; Ctrl is the applications' ⌘ on OxyOS, ADR 0024, and Alt is ⌥):
 // a caret and selection (arrows; by word with Alt; to the line's edge with Ctrl+Left and
 // Ctrl+Right, Home and End; to the text's with Ctrl+Up and Ctrl+Down, Ctrl+Home and Ctrl+End; to
 // the paragraph's with Alt+Up and Alt+Down; Up and Down across lines keeping their column, Page Up
@@ -129,7 +129,7 @@ class TextEditing {
   // lit at every change of the focused input's text, selection or composition, and rests lit once
   // the field has waited kBlinkTimeout (GTK's cursor-blink-timeout, which Chromium on Linux
   // follows: no wake-ups twice a second on an idle machine) or while the session's `caret_blink`
-  // preference is off (ADR 0035).
+  // preference is off (ADR 0037).
   static constexpr std::chrono::milliseconds kBlinkPeriod{500};
   static constexpr std::chrono::milliseconds kBlinkTimeout{10'000};
   void setCaretBlinks(bool blinks);

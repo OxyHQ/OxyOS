@@ -526,7 +526,7 @@ void TextEditing::key(uint32_t code, uint64_t serial) {
   bool modifier = code == kLeftShift || code == kRightShift || code == kLeftCtrl || code == kRightCtrl ||
                   code == kLeftAlt || code == kRightAlt;
   if (!modifier) endComposition();
-  // A Mac's keys (ADR 0035): Alt (⌥) moves and deletes by word, Ctrl (⌘, the applications' on
+  // A Mac's keys (ADR 0037): Alt (⌥) moves and deletes by word, Ctrl (⌘, the applications' on
   // OxyOS) to the line's edge, or with Up and Down to the text's. A secure field is one word, as
   // its characters are hidden.
   bool secure = props->secureTextEntry;
