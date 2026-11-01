@@ -43,10 +43,10 @@ unsafe fn painter<'a>(paint: *mut OxyOSPaint) -> Option<&'a mut OxyOSPaint> {
 }
 
 /// A painter on the GPU whose render node is `device` (the compositor's, from
-/// `oxyos_client_gpu_device`), else on any Vulkan device (its frames then in linear buffers, or
-/// none it can export); 0 for any. It touches no client, so it can be started on a thread of its
-/// own (opening a device takes long). NULL with oxyos_last_error() (of the calling thread) when
-/// there is no Vulkan device.
+/// `oxyos_client_gpu_device`), its drivers alone loaded (decision 14); for 0, on Vulkan on the
+/// CPU. No other GPU is opened or chosen. It touches no client, so it can be started on a thread
+/// of its own (opening a device takes long). NULL with oxyos_last_error() (of the calling thread)
+/// when that device has no Vulkan driver or device.
 #[allow(unsafe_code)]
 #[no_mangle]
 pub extern "C" fn oxyos_paint_new(device: u64) -> *mut OxyOSPaint {
@@ -264,4 +264,34 @@ pub unsafe extern "C" fn oxyos_paint_forget_surface(
     if let (Some(paint), Some(client)) = unsafe { (painter(paint), connection(client)) } {
         paint.paint.forget_surface(client, surface);
     }
+}
+
+/// The Vulkan drivers of the GPU whose DRM node is `device` (`oxyos_client_gpu_device`'s; 0: the
+/// CPU's alone), as `VK_DRIVER_FILES` takes them: their manifests' paths, `:`-separated, written
+/// NUL-terminated at `out` (`capacity` bytes). Returns the length without the NUL, 0 when no
+/// installed driver drives it (load none, then, rather than every one), or -1 when it does not
+/// fit (nothing written) or `out` is null with a capacity. For a client whose Vulkan instances are
+/// not its own to create (a browser's GPU process), set before any of them is.
+///
+/// # Safety
+/// `out` is null or has `capacity` writable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_gpu_vulkan_driver_files(
+    device: u64,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    let files = oxyos_gpu_device::Drivers::for_device(device).driver_files();
+    let bytes = files.as_bytes();
+    if out.is_null() || bytes.len() >= capacity || bytes.contains(&0) {
+        return -1;
+    }
+    // SAFETY: `out` has `capacity` writable bytes (the caller's contract), more than the bytes and
+    // their NUL; the source is this function's own string.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.cast::<u8>(), bytes.len());
+        *out.add(bytes.len()) = 0;
+    }
+    bytes.len() as i64
 }

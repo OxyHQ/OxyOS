@@ -8,6 +8,8 @@ publish.workspace = true
 [dependencies]
 # Vulkan, loaded at run time: no link-time dependency on a driver (docs/adr/0004).
 ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+# Only the displays' GPU's drivers loaded, its device chosen by its DRM node.
+oxyos-gpu-device = { path = "../oxyos-gpu-device" }
 
 [dev-dependencies]
 # Polls a frame's completion as a sync file in the tests.

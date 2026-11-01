@@ -92,7 +92,7 @@ use rustix::fd::BorrowedFd;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -290,8 +290,15 @@ fn main() -> Result<()> {
     }
     compositor.card_device = Some(oxyos_seat::Device::of(&card_path)?);
     compositor.seat = Some(seat.clone());
-    // On the GPU straight into the displays' buffers where the device exports them.
-    match oxyos_gpu::VulkanCompositor::new() {
+    // On the GPU straight into the displays' buffers where the device exports them: the card's
+    // own GPU, its drivers alone loaded (no other GPU is opened or woken).
+    let device = card.render_node().unwrap_or(0);
+    let gpu = if device == 0 {
+        Err(format!("{} has no render node", card_path.display()))
+    } else {
+        oxyos_gpu::VulkanCompositor::on_device(device).map_err(|error| error.to_string())
+    };
+    match gpu {
         Ok(gpu) if gpu.exports_dma_buf() => {
             eprintln!(
                 "[session] composing on {} ({:?}) into the displays' buffers, {}",
@@ -1176,17 +1183,11 @@ fn end(application: &mut std::process::Child) -> Result<()> {
     Ok(())
 }
 
-/// The first card with a connected output, opened through the seat, and its path.
+/// The first card with a connected output, opened through the seat, and its path. Only cards
+/// with connectors are tried (sysfs, the boot display first): a GPU that drives no display (a
+/// laptop's discrete GPU) is never opened, which would wake it.
 fn open_card(seat: &oxyos_seat::Seat) -> Result<(Rc<oxyos_kms::Card>, PathBuf)> {
-    let mut cards: Vec<PathBuf> = std::fs::read_dir("/dev/dri")?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("card"))
-        })
-        .collect();
-    cards.sort();
+    let cards = oxyos_gpu_device::display_cards(Path::new(oxyos_gpu_device::SYSTEM_ROOT));
     let mut last = None;
     for path in cards {
         let opened = seat.open(&path).and_then(|(fd, inactive)| {

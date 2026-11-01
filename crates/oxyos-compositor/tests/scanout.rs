@@ -15,18 +15,10 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-/// A display of the first card that has one and can be ours.
+/// A display of the first card that has one and can be ours (only cards that drive displays are
+/// opened: ADR 0031, decision 14).
 fn display() -> Option<oxyos_kms::Display> {
-    let mut cards: Vec<_> = std::fs::read_dir("/dev/dri")
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with("card"))
-        })
-        .collect();
-    cards.sort();
+    let cards = oxyos_gpu_device::display_cards(Path::new(oxyos_gpu_device::SYSTEM_ROOT));
     cards.into_iter().find_map(|path| {
         let card = oxyos_kms::Card::open(&path).ok()?;
         oxyos_kms::Display::open(card).ok()

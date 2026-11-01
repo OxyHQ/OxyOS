@@ -74,21 +74,29 @@ fn name(raw: &[std::ffi::c_char]) -> String {
 }
 
 impl Gpu {
-    /// The device whose render node is `device` (a dev_t), else the first that exports DMA-BUF.
+    /// The device whose render node is `device` (a dev_t; 0: Vulkan on the CPU), its drivers
+    /// alone loaded (docs/adr/0031-gpu-buffers.mdx, decision 14): no other GPU is opened.
     pub fn open(device: u64) -> Result<Self, String> {
+        let drivers = oxyos_gpu_device::Drivers::for_device(device);
+        let loaded = drivers.load().map_err(|error| error.to_string())?;
         // SAFETY: loading the system's Vulkan loader; nothing else in this process races with it.
         let entry = unsafe { ash::Entry::load() }.map_err(|error| format!("no Vulkan: {error}"))?;
         let app = vk::ApplicationInfo::default()
             .application_name(c"oxyos-gpu-client")
             .api_version(vk::API_VERSION_1_1);
-        // SAFETY: the create info outlives the call.
+        let names = [oxyos_gpu_device::Loaded::EXTENSION.as_ptr()];
+        let mut only = loaded.list();
+        // SAFETY: the create info, the names and the driver list outlive the call.
         let instance = unsafe {
             entry.create_instance(
-                &vk::InstanceCreateInfo::default().application_info(&app),
+                &vk::InstanceCreateInfo::default()
+                    .application_info(&app)
+                    .enabled_extension_names(&names)
+                    .push_next(&mut only),
                 None,
             )
         }
-        .map_err(|error| format!("Vulkan instance: {error}"))?;
+        .map_err(|error| format!("Vulkan instance with {}: {error}", drivers.describe()))?;
         let wanted = [
             ash::khr::external_memory_fd::NAME,
             ash::ext::external_memory_dma_buf::NAME,
@@ -120,20 +128,14 @@ impl Gpu {
                 unsafe { instance.get_physical_device_properties2(physical, &mut properties) };
                 label = name(&properties.properties.device_name);
             }
-            let render = (drm.has_render == vk::TRUE)
-                .then(|| rustix::fs::makedev(drm.render_major as u32, drm.render_minor as u32));
+            let same = oxyos_gpu_device::same_device(&drm, device);
+            if device != 0 && !same {
+                continue;
+            }
             let foreign = has(ash::ext::queue_family_foreign::NAME);
             let semaphore = has(ash::khr::external_semaphore_fd::NAME);
-            candidates.push((
-                physical,
-                render == Some(device) && device != 0,
-                label,
-                foreign,
-                semaphore,
-            ));
+            candidates.push((physical, same, label, foreign, semaphore));
         }
-        // The compositor's device first, then any.
-        candidates.sort_by_key(|candidate| !candidate.1);
         let (physical, same_device, label, foreign, semaphore) = candidates
             .into_iter()
             .next()

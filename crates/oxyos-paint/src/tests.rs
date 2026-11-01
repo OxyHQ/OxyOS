@@ -12,8 +12,12 @@ use std::collections::VecDeque;
 use std::os::fd::OwnedFd;
 use std::sync::Arc;
 
+/// The painter on the GPU that drives the displays, as a compositor would name it (Vulkan on the
+/// CPU where none does).
 fn paint() -> Option<Paint> {
-    match Paint::new(0) {
+    let device =
+        oxyos_gpu_device::display_device(std::path::Path::new(oxyos_gpu_device::SYSTEM_ROOT));
+    match Paint::new(device) {
         Ok(paint) => Some(paint),
         Err(error) => {
             eprintln!("no Vulkan device, skipped: {error}");
@@ -648,4 +652,24 @@ fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacke
         ));
     }
     drawer.finish();
+}
+
+#[test]
+fn only_the_compositors_device_is_chosen() {
+    use present::chosen;
+    let (gpu, cpu) = (
+        vk::PhysicalDeviceType::DISCRETE_GPU,
+        vk::PhysicalDeviceType::CPU,
+    );
+    let intel = vk::PhysicalDeviceType::INTEGRATED_GPU;
+    let compositor = 0xe281;
+    // The compositor's GPU, and no other: never a discrete GPU for being one.
+    assert!(chosen(compositor, true, intel, vk::API_VERSION_1_3));
+    assert!(!chosen(compositor, false, gpu, vk::API_VERSION_1_3));
+    assert!(!chosen(compositor, false, cpu, vk::API_VERSION_1_3));
+    // Vulkan 1.1 at least.
+    assert!(!chosen(compositor, true, intel, vk::API_VERSION_1_0));
+    // A compositor without a GPU node: Vulkan on the CPU alone.
+    assert!(chosen(0, false, cpu, vk::API_VERSION_1_3));
+    assert!(!chosen(0, false, gpu, vk::API_VERSION_1_3));
 }

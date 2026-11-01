@@ -4314,6 +4314,9 @@ fn the_painters_abi_matches_the_header() {
         declaration("oxyos_paint_new"),
         format!("unsafe {}", type_of(new))
     );
+    let files: unsafe extern "C" fn(u64, *mut std::ffi::c_char, usize) -> i64 =
+        crate::paint::oxyos_gpu_vulkan_driver_files;
+    assert_eq!(declaration("oxyos_gpu_vulkan_driver_files"), type_of(files));
     for (name, rust) in [
         ("oxyos_paint_vulkan", type_of(vulkan)),
         ("oxyos_paint_present", type_of(present)),
@@ -4321,6 +4324,39 @@ fn the_painters_abi_matches_the_header() {
     ] {
         assert_eq!(declaration(name), rust, "{name}");
     }
+}
+
+/// The drivers of no GPU (the CPU's Vulkan alone, where installed) through the C ABI: written
+/// NUL-terminated, refused when they do not fit.
+#[test]
+#[allow(unsafe_code)]
+fn the_vulkan_driver_files_come_through_the_c_abi() {
+    use crate::paint::oxyos_gpu_vulkan_driver_files;
+    let mut out = [0x7f as std::ffi::c_char; 4096];
+    // SAFETY: `out` has `out.len()` writable bytes (none for a capacity of 0; null is refused).
+    let call = |out: *mut std::ffi::c_char, capacity| unsafe {
+        oxyos_gpu_vulkan_driver_files(0, out, capacity)
+    };
+    let length = call(out.as_mut_ptr(), out.len());
+    assert!(length >= 0);
+    // SAFETY: written NUL-terminated within `out`.
+    let files = unsafe { std::ffi::CStr::from_ptr(out.as_ptr()) }
+        .to_str()
+        .unwrap();
+    assert_eq!(files.len() as i64, length);
+    assert_eq!(
+        files,
+        oxyos_gpu_device::Drivers::for_device(0).driver_files()
+    );
+    assert!(files
+        .split(':')
+        .all(|file| file.is_empty() || file.ends_with(".json")));
+    assert!(
+        !files.contains("nouveau") && !files.contains("intel"),
+        "{files}"
+    );
+    assert_eq!(call(out.as_mut_ptr(), 0), -1);
+    assert_eq!(call(std::ptr::null_mut(), 16), -1);
 }
 
 /// A painter through the C ABI: its Vulkan objects as Skia is given them, and a present without a

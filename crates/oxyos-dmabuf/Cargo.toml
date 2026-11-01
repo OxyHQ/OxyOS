@@ -9,6 +9,8 @@ publish.workspace = true
 # DRM syncobj timelines on a render node (docs/adr/0031-gpu-buffers.mdx, decision 6).
 drm = "0.15"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "mm", "event"] }
+# The one GPU whose node may be opened: the compositor's, or the displays' (ADR 0031, decision 14).
+oxyos-gpu-device = { path = "../oxyos-gpu-device" }
 
 [dev-dependencies]
 rustix = { version = "1.1.6", default-features = false, features = ["pipe"] }

@@ -3,21 +3,16 @@
 //! Read-only: it needs no DRM master and leaves the running session alone.
 //!
 //!     cargo run -p oxyos-kms-probe [-- /dev/dri/cardN ...]
+//!
+//! Without cards named, the cards that drive displays (sysfs: those with connectors); a GPU that
+//! drives none is not opened, which would wake it (docs/adr/0031-gpu-buffers.mdx, decision 14).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let mut paths: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     if paths.is_empty() {
-        let mut cards: Vec<PathBuf> = std::fs::read_dir("/dev/dri")
-            .map(|dir| dir.filter_map(Result::ok).map(|e| e.path()).collect())
-            .unwrap_or_default();
-        cards.retain(|p| {
-            p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with("card"))
-        });
-        cards.sort();
-        paths = cards;
+        paths = oxyos_gpu_device::display_cards(Path::new(oxyos_gpu_device::SYSTEM_ROOT));
     }
     let mut reports = Vec::new();
     for path in &paths {

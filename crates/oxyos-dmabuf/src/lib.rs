@@ -421,29 +421,22 @@ impl RenderNode {
         paths
     }
 
-    /// The render node of device `dev` if it has timelines, else the first that has them.
+    /// The render node of device `dev` (the compositor's), or, for none, of the GPU that drives
+    /// the displays, if it has timelines. No other node is opened: opening another GPU's node
+    /// wakes it, and a GPU that fails to wake can hang the machine (docs/adr/0031-gpu-buffers.mdx,
+    /// decision 14). Found by its number, from the nodes' metadata, without opening the others.
     pub fn with_timelines(dev: Option<u64>) -> Option<Self> {
-        // The device's node, found by its number without opening the others (opening a
-        // discrete GPU's node can wake it from its sleep).
-        if let Some(dev) = dev {
-            let own = Self::paths().into_iter().find(|path| {
-                std::fs::metadata(path)
-                    .is_ok_and(|metadata| std::os::unix::fs::MetadataExt::rdev(&metadata) == dev)
-            });
-            if let Some(node) = own
-                .and_then(|path| Self::open(&path).ok())
-                .filter(Self::has_timelines)
-            {
-                return Some(node);
-            }
+        let dev = dev.filter(|&dev| dev != 0).unwrap_or_else(|| {
+            oxyos_gpu_device::display_device(Path::new(oxyos_gpu_device::SYSTEM_ROOT))
+        });
+        if dev == 0 {
+            return None;
         }
-        let nodes: Vec<Self> = Self::paths()
-            .iter()
-            .filter_map(|path| Self::open(path).ok())
-            .filter(Self::has_timelines)
-            .collect();
-        let preferred = dev.and_then(|dev| nodes.iter().position(|node| node.dev == dev));
-        nodes.into_iter().nth(preferred.unwrap_or(0))
+        let own = Self::paths().into_iter().find(|path| {
+            std::fs::metadata(path)
+                .is_ok_and(|metadata| std::os::unix::fs::MetadataExt::rdev(&metadata) == dev)
+        })?;
+        Self::open(&own).ok().filter(Self::has_timelines)
     }
 }
 

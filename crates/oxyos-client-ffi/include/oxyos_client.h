@@ -1621,12 +1621,20 @@ int64_t oxyos_intl_resolve_number(const char* locale, size_t locale_length, cons
  * (DMA-BUFs, explicit synchronization). Used by one thread at a time. */
 typedef struct OxyOSPaint OxyOSPaint;
 
-/* new: on the GPU whose render node is `device` (the compositor's, oxyos_client_gpu_device), else
- * any Vulkan 1.1 device; 0 for any. It touches no client, so it may be started on a thread of its
- * own (opening the device takes long); NULL with oxyos_last_error() of that thread when there is no
- * device. device_name: valid while it lives. exports: whether it can present (it exports
+/* new: on the GPU whose render node is `device` (the compositor's, oxyos_client_gpu_device), its
+ * Vulkan drivers alone loaded and no other GPU opened or chosen (decision 14); 0: Vulkan on the
+ * CPU. It touches no client, so it may be started on a thread of its own (opening the device takes
+ * long); NULL with oxyos_last_error() of that thread when that device has no driver or device. device_name: valid while it lives. exports: whether it can present (it exports
  * DMA-BUFs). Skia's context is destroyed before oxyos_paint_free. */
 OxyOSPaint* oxyos_paint_new(uint64_t device);
+
+/* The Vulkan drivers of the GPU whose DRM node is `device` (oxyos_client_gpu_device's; 0: the
+ * CPU's alone), found by its kernel driver in sysfs (docs/adr/0031-gpu-buffers.mdx, decision 14):
+ * their manifests' paths, ':'-separated, as VK_DRIVER_FILES takes them, written NUL-terminated at
+ * `out` (`capacity` bytes). Returns the length without the NUL; 0 when no installed driver drives
+ * that GPU (then load no driver, never every one); -1 when it does not fit. For a client whose
+ * Vulkan instances are not its own to create (a browser's GPU process): set before any is. */
+int64_t oxyos_gpu_vulkan_driver_files(uint64_t device, char* out, size_t capacity);
 void oxyos_paint_free(OxyOSPaint* paint);
 const char* oxyos_paint_device_name(OxyOSPaint* paint);
 bool oxyos_paint_exports(OxyOSPaint* paint);
