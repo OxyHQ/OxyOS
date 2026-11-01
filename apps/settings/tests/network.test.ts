@@ -38,7 +38,7 @@ const wifi = (networks: NearbyNetwork[], current: NearbyNetwork | null): WifiSta
   details: null,
 });
 
-test("other networks: the joined one left out, the known first, each by signal", () => {
+test("other networks: the joined and the known left out (Known Networks has them), each by signal", () => {
   const networks = [
     nearby("LukeSkyRouter", 73, { known: true, current: true }),
     nearby("Vecinos", 90),
@@ -49,7 +49,7 @@ test("other networks: the joined one left out, the known first, each by signal",
   ];
   assert.deepEqual(
     otherNetworks(networks).map((n) => n.ssid),
-    ["Casa", "Oficina", "Vecinos", "Bar", "Café Libre"],
+    ["Vecinos", "Bar", "Café Libre"],
   );
   // The list given is not reordered.
   assert.equal(networks[0].ssid, "LukeSkyRouter");

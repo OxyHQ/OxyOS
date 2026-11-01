@@ -243,6 +243,12 @@ fn a_known_network_joins_as_saved_and_takes_a_new_password() {
         1,
         "kept"
     );
+    // A mistyped replacement does not take the saved password's place.
+    assert_eq!(
+        manager.join("LukeSkyRouter", Some(&Secret::new("mistyped123".into()))),
+        Err(Failure::WrongPassword)
+    );
+    assert_eq!(daemon.held()["connections"][0]["psk"], "old password");
     manager
         .join("LukeSkyRouter", Some(&Secret::new("correct horse".into())))
         .unwrap();

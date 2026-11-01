@@ -1055,37 +1055,53 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
       </GroupedSection>
       {wifi.enabled && wifi.known.length > 0 ? (
         <GroupedSection title={words.known}>
-          {wifi.known.map((known) => (
-            <GroupedSectionItem
-              key={known.id}
-              title={known.ssid}
-              testID={`wifi-known-${known.ssid}`}
-              accessibilityLabel={networkLabel(known.ssid, nearby(known.ssid), words)}
-              rightElement={
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                  <NetworkGlyphs network={nearby(known.ssid)} />
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="sm"
-                        appearance="plain"
-                        tone="neutral"
-                        iconOnly
-                        icon={RiMoreLine}
-                        accessibilityLabel={words.more(known.ssid)}
-                        testID={`wifi-known-${known.ssid}-more`}
-                      />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent label={words.more(known.ssid)} align="end" size="sm">
-                      <DropdownMenuItem testID={`wifi-forget-${known.ssid}`} onPress={() => askForget(known)}>
-                        {words.forgetItem}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </View>
-              }
-            />
-          ))}
+          {wifi.known.map((known) => {
+            // One nearby and not joined is joined by choosing it, as a Mac's list joins it; the
+            // session has its password.
+            const there = nearby(known.ssid);
+            const joinable = !!there && !there.current;
+            const joining = state.joining === known.ssid;
+            return (
+              <GroupedSectionItem
+                key={known.id}
+                title={known.ssid}
+                testID={`wifi-known-${known.ssid}`}
+                accessibilityLabel={networkLabel(known.ssid, there, words, joining ? words.connecting : null)}
+                accessibilityState={{ busy: joining }}
+                showChevron={false}
+                onPress={
+                  joinable
+                    ? () => {
+                        void join(known.ssid);
+                      }
+                    : undefined
+                }
+                rightElement={
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <NetworkGlyphs network={nearby(known.ssid)} />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          appearance="plain"
+                          tone="neutral"
+                          iconOnly
+                          icon={RiMoreLine}
+                          accessibilityLabel={words.more(known.ssid)}
+                          testID={`wifi-known-${known.ssid}-more`}
+                        />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent label={words.more(known.ssid)} align="end" size="sm">
+                        <DropdownMenuItem testID={`wifi-forget-${known.ssid}`} onPress={() => askForget(known)}>
+                          {words.forgetItem}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </View>
+                }
+              />
+            );
+          })}
         </GroupedSection>
       ) : null}
       {wifi.enabled ? (

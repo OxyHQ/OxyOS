@@ -16,12 +16,12 @@ impl Secret {
         &self.0
     }
 
-    /// A WPA passphrase as NetworkManager accepts one: 8 to 63 characters, or 64 hexadecimal
-    /// digits (the key itself).
+    /// A WPA passphrase as NetworkManager accepts one, and as the shell's sheet counts it: 8 to
+    /// 63 bytes of UTF-8, or 64 hexadecimal digits (the key itself).
     pub fn valid_wpa(&self) -> bool {
-        let length = self.0.chars().count();
+        let length = self.0.len();
         (8..=63).contains(&length)
-            || (self.0.len() == 64 && self.0.bytes().all(|b| b.is_ascii_hexdigit()))
+            || (length == 64 && self.0.bytes().all(|b| b.is_ascii_hexdigit()))
     }
 }
 

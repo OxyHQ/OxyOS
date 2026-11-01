@@ -521,6 +521,27 @@ impl SettingsConnection {
         Ok(settings)
     }
 
+    /// Its secrets, to whoever may change it (polkit's `settings.modify.*`).
+    fn get_secrets(&self, setting: String) -> Result<Settings, NmError> {
+        let m = self.model.lock().unwrap();
+        let c = m
+            .connections
+            .iter()
+            .find(|c| c.number == self.number)
+            .ok_or_else(|| NmError::UnknownConnection(self.number.to_string()))?;
+        if m.deny_system && c.permissions.is_empty() {
+            return Err(NmError::PermissionDenied("settings.modify.system".into()));
+        }
+        let mut secrets: Settings = HashMap::new();
+        if let (true, Some(psk)) = (setting == "802-11-wireless-security", &c.psk) {
+            secrets.insert(
+                setting,
+                HashMap::from([("psk".to_string(), owned(Value::from(psk.clone())))]),
+            );
+        }
+        Ok(secrets)
+    }
+
     fn update(&self, settings: Settings) -> Result<(), NmError> {
         let mut m = self.model.lock().unwrap();
         let denied = m.deny_system;

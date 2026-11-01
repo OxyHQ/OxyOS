@@ -130,6 +130,9 @@ fn a_secret_says_nothing_and_checks_wpa_lengths() {
     assert!(secret.valid_wpa());
     assert!(!Secret::new("short".into()).valid_wpa());
     assert!(Secret::new("a".repeat(63)).valid_wpa());
+    // Bytes of UTF-8, as WPA and the sheet count them: four characters, eight bytes.
+    assert!(Secret::new("ññññ".into()).valid_wpa());
+    assert!(!Secret::new("ñ".repeat(32)).valid_wpa());
     assert!(!Secret::new("g".repeat(64)).valid_wpa());
     assert!(Secret::new("0123456789abcdef".repeat(4)).valid_wpa());
     let mut text = String::from("hunter22");

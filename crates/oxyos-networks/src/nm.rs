@@ -443,12 +443,18 @@ impl NetworkManager {
         let known = self.known().map_err(failure)?;
         let saved = known.iter().find(|(_, k)| k.ssid == ssid).map(|(p, _)| p);
         let nm = self.proxy(NM_PATH, NM).map_err(failure)?;
+        // A saved connection whose password is replaced keeps the one it had until the new one
+        // joins: the daemon may have refused the old one for a moment's failure, not for being
+        // wrong, and a mistyped replacement must not take its place.
+        let mut restore: Option<(OwnedObjectPath, &str, Option<Secret>)> = None;
         let added = match saved {
             Some(connection) => {
                 if let (Some(password), Some(key_mgmt)) =
                     (password, security.and_then(|s| s.key_mgmt()))
                 {
-                    self.update_password(connection, key_mgmt, password)?;
+                    let previous = self.saved_password(connection);
+                    self.set_password(connection, key_mgmt, Some(password))?;
+                    restore = Some((connection.clone(), key_mgmt, previous));
                 }
                 nm.call::<_, _, OwnedObjectPath>(
                     "ActivateConnection",
@@ -483,16 +489,31 @@ impl NetworkManager {
                     .proxy(&added, CONNECTION)
                     .and_then(|connection| connection.call::<_, _, ()>("Delete", &()));
             }
+            if let Some((connection, key_mgmt, previous)) = restore {
+                let _ = self.set_password(&connection, key_mgmt, previous.as_ref());
+            }
         }
         outcome
     }
 
-    /// Replaces a saved connection's password with `password`.
-    fn update_password(
+    /// The password a saved connection has, as the daemon gives it to whoever may change the
+    /// connection (`GetSecrets`); none if it keeps none or does not say.
+    fn saved_password(&self, connection: &OwnedObjectPath) -> Option<Secret> {
+        let secrets: Settings = self
+            .proxy(connection, CONNECTION)
+            .ok()?
+            .call("GetSecrets", &("802-11-wireless-security",))
+            .ok()?;
+        let psk = secrets.get("802-11-wireless-security")?.get("psk")?;
+        Some(Secret::new(String::try_from(psk.try_clone().ok()?).ok()?))
+    }
+
+    /// Sets a saved connection's password to `password`, or to none.
+    fn set_password(
         &self,
         connection: &OwnedObjectPath,
         key_mgmt: &str,
-        password: &Secret,
+        password: Option<&Secret>,
     ) -> Result<(), Failure> {
         let proxy = self.proxy(connection, CONNECTION).map_err(failure)?;
         let saved: Settings = proxy.call("GetSettings", &()).map_err(failure)?;
@@ -508,11 +529,18 @@ impl NetworkManager {
             .entry("802-11-wireless-security".to_string())
             .or_default();
         security.insert("key-mgmt".to_string(), Value::from(key_mgmt.to_string()));
-        security.insert(
-            "psk".to_string(),
-            Value::from(password.expose().to_string()),
-        );
-        security.insert("psk-flags".to_string(), Value::from(0u32));
+        match password {
+            Some(password) => {
+                security.insert(
+                    "psk".to_string(),
+                    Value::from(password.expose().to_string()),
+                );
+                security.insert("psk-flags".to_string(), Value::from(0u32));
+            }
+            None => {
+                security.remove("psk");
+            }
+        }
         proxy
             .call::<_, _, ()>("Update", &(settings,))
             .map_err(failure)

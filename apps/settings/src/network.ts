@@ -106,7 +106,7 @@ export const SCAN_INTERVAL_MS = 10_000;
     the others, each by its signal, strongest first (the name breaking a tie). */
 export function otherNetworks(networks: readonly NearbyNetwork[]): NearbyNetwork[] {
   return networks
-    .filter((network) => !network.current)
+    .filter((network) => !network.current && !network.known)
     .sort(
       (a, b) =>
         Number(b.known) - Number(a.known) || b.signal - a.signal || a.ssid.localeCompare(b.ssid),
