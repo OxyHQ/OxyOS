@@ -6,7 +6,7 @@ order: 44
 
 # ADR 0035: Drag and drop between applications
 
-Status: **accepted; steps 2 to 5 implemented** (the protocol, the scene, the compositor, `oxyos-client`, the C ABI and the session's `TrashFiles`; Bloom's `DropZone` and drag, OxyHQ/Bloom#578, and the Bloom host's, the dock's Trash and Stash, OxyHQ/Stash#9; see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
+Status: **accepted; implemented** (the protocol, the scene, the compositor, `oxyos-client`, the C ABI and the session's `TrashFiles`; Bloom's `DropZone` and drag, OxyHQ/Bloom#578, and the Bloom host's, the dock's Trash, Stash (OxyHQ/Stash#9) and Astro (OxyHQ/Astro#87); see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
 
 ## Problem
 
@@ -168,6 +168,11 @@ All three agree on what matters here: types and actions are known during the dra
 - Stash's own drag of items becomes the platform's drag where there is one (`usePlatformDrag()`), of the selected items of this device as `file://` URIs, with an image of the first and how many go; its items' area is a Bloom `DropZone` taking files into the folder dropped on, else the folder shown, moved, or copied with Option; nothing of OxyOS is imported.
 - A drag of files offers `application/x-oxyos-files` beside its URI list (decision 4), so a target that sees only types (a web page) tells files from links.
 - `stash-drag.json` and `stash-drag-scaled.json`: two Stash windows side by side (the second the `companion`); notes.txt dragged from one onto Documents in the other moves into it; plan.txt dragged onto the dock's Trash goes into the home's Trash; Pictures dragged onto Documents with Option held is copied, the original kept; exact deliveries. They need Stash with OxyHQ/Stash#9 built in.
+
+**Step 6** (Astro, OxyHQ/Astro#87):
+- Its `oxyos` platform speaks version 10: Chromium's drags offered as media types (an image's contents written to a temporary file and offered as that file), its drag image in a drag icon, its window's drop handler given the kinds alone before the drop (a placeholder file for files marked so, so `<input type="file">` takes the drag) and the content at the drop, the drop following once the page answered for it. Against an older compositor it keeps its drag inside its window.
+- The development compositor runs a `companion` beside a native client too.
+- `astro-dnd.json`: a file of the run's home dragged from a Bloom probe (Stash's stand-in, `sample/DragProbe.tsx`) onto the page's `<input type="file">` reaches it with its content; a link dragged out of Astro drops in the probe as its URL; an image dragged out drops as a file Astro wrote. On the engine before Astro#87 the first drag fails. `astro-drag.json` still passes.
 
 ## Not in this decision
 

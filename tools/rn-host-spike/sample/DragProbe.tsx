@@ -3,7 +3,7 @@
  * a file of the scenario's home and of text, dragged through the platform's drag (the OxyOS
  * adapter's `drag`, Bloom's usePlatformDrag) once a pressed pointer moves 4 pixels, as a file
  * manager starts its drags; what the drop took is shown ("Result: ..."). A drop target of its own
- * (the adapter's DropTarget, Bloom's DropZone) takes files and text dropped on its right side.
+ * (the adapter's DropTarget, Bloom's DropZone) takes files, links and text dropped on its right side.
  */
 import * as React from 'react';
 import { Text, View } from 'react-native';
@@ -77,12 +77,14 @@ function LocalZone() {
   return (
     <DropTarget
       testID="local-zone"
-      accept={['files', 'text']}
+      accept={['files', 'url', 'text']}
       actions={['move', 'copy']}
       onDragEnter={() => setOver(true)}
       onDragLeave={() => setOver(false)}
       onDrop={({ action, data }: any) =>
-        setDropped(`${data.files.map((file: any) => file.name).join(', ') || data.text} (${action})`)
+        setDropped(
+          `${data.files.map((file: any) => file.name).join(', ') || data.urls.join(', ') || data.text} (${action})`,
+        )
       }
     >
       {zone}

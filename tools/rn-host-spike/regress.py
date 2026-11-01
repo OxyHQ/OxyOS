@@ -2492,8 +2492,8 @@ def main():
     elif not options.runtimes or not options.packages:
         raise SystemExit("--runtimes and --packages are needed: the runtimes and the applications")
     # A native client's scenario runs no Bloom application but its file chooser's (ADR 0029,
-    # decision 8), which needs the runtimes and packages too.
-    if "client" not in scenario or scenario.get("file_chooser"):
+    # decision 8) or a companion (ADR 0035), which need the runtimes and packages too.
+    if "client" not in scenario or scenario.get("file_chooser") or scenario.get("companion"):
         if not options.runtimes or not options.packages:
             raise SystemExit("--runtimes and --packages are needed: the file chooser is a Bloom application")
         machine = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages))
@@ -2620,10 +2620,10 @@ def main():
     # destroying JavaScript's pending timers after its runtime crashed one exit in tens, and with
     # this every exit that does it.
     env["MALLOC_PERTURB_"] = "165"
-    if "client" not in scenario:
+    if "client" not in scenario or scenario.get("companion"):
         # The runtimes the applications' entries name (ADR 0030), the scenario's in place of the image's.
         command[2:2] = ["--runtimes", str(machine.runtimes)]
-        if login is None:
+        if login is None and "client" not in scenario:
             env["OXYOS_SCRIPT_URL"] = f"file://{app_script}"
     # The GPU driver's shader cache is the machine's, as a session's is: kept across launches, not
     # made afresh with the run's cache below, or every application would compile the GPU painter's

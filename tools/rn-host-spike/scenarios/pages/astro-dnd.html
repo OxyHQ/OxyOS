@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS drag and drop between applications</title>
+<style>
+html, body { margin: 0; height: 100%; }
+body { background: #2d6cdf; font: 24px sans-serif; caret-color: transparent; }
+#zone { position: absolute; left: 20px; top: 20px; width: 360px; height: 220px; background: #ffffff; }
+#zone input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
+#link { position: absolute; left: 420px; top: 20px; width: 200px; height: 80px; line-height: 80px; text-align: center; background: #ffffff; color: #1c7ed6; }
+#image { position: absolute; left: 420px; top: 140px; width: 96px; height: 96px; }
+</style>
+</head>
+<body>
+<div id="zone"><input id="files" type="file"></div>
+<a id="link" href="https://oxy.so/os">OxyOS</a>
+<img id="image" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAApElEQVR4nO3QQQ0AIBDAsHOECXSiFQd82aPJBCyddbYezfeDeIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQIDCAQIECBCgcIAAAQIEKBwgQIAAAQoHCBAgQD+7I75mOzO1SvYAAAAASUVORK5CYII=" alt="gato">
+<script>
+const paint = (element, color) => { element.style.background = color; };
+files.addEventListener("dragenter", () => paint(zone, "#fab005"));
+files.addEventListener("dragleave", () => paint(zone, "#ffffff"));
+files.addEventListener("change", () => {
+  const [file] = files.files;
+  if (!file || files.files.length !== 1) {
+    paint(zone, "#e8590c");
+    return;
+  }
+  if (file.name !== "informe.txt") {
+    paint(zone, "#7048e8");
+    return;
+  }
+  file.text().then((text) => paint(zone, text === "un informe" ? "#2f9e44" : "#e03131"), () => paint(zone, "#000000"));
+});
+</script>
+</body>
+</html>
