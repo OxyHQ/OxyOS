@@ -1,0 +1,64 @@
+---
+title: "ADR 0036: Key repeat"
+description: A key held repeats as on a Mac — the compositor presses it again after a delay and at a rate, through the path its press took, with its text; only keys the keymap repeats, only where a press moves or types, and never into another window, another chord or the lock.
+order: 45
+---
+
+# ADR 0036: Key repeat
+
+Status: **accepted; implemented** (the keymap's flag, the scene, the compositor's turn and the session). Amends [ADR 0024](./0024-system-shortcuts), decision 8, and the hardware keys left out of [ADR 0025](./0025-hardware-keys-and-control-center). Builds on [ADR 0008](./0008-input-method) (the input method's keyboard grab), [ADR 0010](./0010-lock-screen), [ADR 0014](./0014-screen-reader) (the reader's keys) and [ADR 0029](./0029-chromium-on-oxyos) (key text, Astro's keyboard).
+
+## Problem
+
+A key held did nothing after its first press. libinput reports a press and a release and nothing between, the scene sent what it was given, and ADR 0024 put it off: "The compositor sends no repeats … When key repeat comes, Tab and \` in the switcher and Super+\` repeat while held." Holding Backspace deleted one character, an arrow moved the caret once, a letter typed once. On a Mac, and on every desktop, a held key repeats.
+
+## What others do
+
+- **macOS**: the window server repeats. A key held past the delay ("Delay until repeat") is sent again at the rate ("Key repeat rate") as `keyDown` events with `isARepeat`, carrying the characters of the first press; a modifier never repeats; the repeat stops at the key's release or when another key is pressed, which repeats instead. Applications never time repeats.
+- **X11**: the server repeats (`XkbSetControls` `RepeatKeys`, per-key flags in the keymap), sending another `KeyPress` without the release between (with detectable auto-repeat). Defaults 660 ms and 25 a second; desktops set their own.
+- **Wayland**: the compositor only tells the delay and the rate (`wl_keyboard.repeat_info`), and every client repeats by itself, with its own timer, on the keymap's per-key flag. An input method's keyboard grab is told them too and repeats inside the input method.
+- **Chromium**: on Wayland it repeats itself (`EventAutoRepeatHandler`); on its evdev platform (`KeyboardEvdev`) too, 500 ms and 50 ms. On X11 it takes the server's repeats.
+- **Defaults**: GNOME 500 ms and an interval of 30 ms (33 a second); Windows' default delay 1 (about 500 ms) and speed 31 (about 30 a second); Weston 400 ms and 40 a second; macOS's own are set by the "Key repeat rate" and "Delay until repeat" sliders.
+
+## Decision
+
+1. **The compositor repeats, as a Mac's window server does.** A key held is pressed again by the scene, not by applications. Reasons:
+   - **Astro already reads it that way.** Its OxyOS Ozone platform (OxyHQ/Astro, `engine/oxyos/src/ui/ozone/platform/oxyos/oxyos_keyboard.cc`, `OxyOSKeyboard::OnKey`) keeps the keys held and marks a press of a held key `EF_IS_REPEAT`; it has no timer of its own (no `EventAutoRepeatHandler`, no `KeyboardEvdev`), so nothing doubles. The Bloom host does the same (`key-chords.cpp`: a press without its release is a W3C `repeat: true`; the focused field applies each press).
+   - **Where a key goes is the compositor's.** The system's keys, the reader's, the hardware keys and the input method all take keys before an application; whether a repeat may act (the switcher's Tab yes, Super+W never) is decided where the press is, and client-side repeat could not keep a repeated Super+\` from reaching an application.
+   - **The text is the compositor's.** The scene sends each key's text (ADR 0029 decision 2, ADR 0008); a repeat types what its press typed. A client repeating by itself would need the keymap and the compose state to know what to type.
+   - **Nothing in the protocol changes.** A repeat is a press of a key already held: `Key` (or `KeyText`) with `pressed` set, then its text as a press's, with a new serial and its own `time_ns`. Every version's `Key` already says that; no field or message is added and no version is bumped ([ADR 0033](./0033-protocol-versions)). A client never repeats keys itself, and knows a repeat as a press of a key it holds.
+
+2. **Only keys the keymap repeats.** `oxyos-input` tells, with each press, whether its keymap repeats the key (`Keyboard::repeats`, `xkb_keymap_key_repeats`; `Action::Key`'s `repeats`): letters, digits, editing keys and arrows do; modifiers, Caps Lock and Num Lock never, and the scene refuses a modifier whatever it is told. Keys the scene never sees as keys never repeat: a dead key or a key of a compose sequence (`Action::Compose`), the keymap's own (a terminal switch, the end of the session, the lock's Ctrl+Super+Q, the reader's Super+F5).
+
+3. **Only where a press moves or types.** The press is repeated through the path a press takes (`Scene::keyboard`), so each repeat is what a press would be, and the scene starts repeating only where that is a key's movement or typing:
+   - **The focused surface**, with the input method between when it serves the field: the repeat reaches the input method as a press (`InputMethodKey`), which uses it or gives it back as it does any press (ADR 0008's grab); a key given back reaches the field with its text, as `Text`, a text input transaction or `KeyText`. A key going to no surface does not repeat.
+   - **The system's keys** (amending ADR 0024, decision 8): in the application switcher Tab, \`, ← and → (each with Shift too) move on while held, and so Super+Tab held goes through the applications, as ⌘Tab held does; Super+\` (Super+Shift+\`) goes through the active application's windows. What acts never repeats: Super+W, Q, M, H, Space, F2, Ctrl+F, the screenshots, the switcher's Q, H and Esc, and the screenshot interface's keys.
+   - **The screen reader's** Next and Previous (Ctrl+Alt+→, ←) move on while held; Activate (Space) never.
+   - **The hardware keys** (amending ADR 0025): volume, display brightness and keyboard light up and down step again while held, as a Mac's do; Mute, the microphone's mute and the keyboard light's switch never.
+
+4. **When it repeats.** After **500 ms** held, then **30 times a second**: GNOME's and Windows' defaults (GNOME's interval is 30 ms), which most people at a PC already have in their fingers, and within the range a Mac's sliders give. Each repeat's events carry the time it was due (`time_ns`), on the clock the program tells the scene (`set_clock`, CLOCK_MONOTONIC in a session), as a press carries its device's. A turn late by more than an interval sends one repeat, not the ones it missed, so a stall never deletes a burst of characters. A preference for the delay and the rate (a Mac's two sliders, and Off) is not in this decision; when it comes it is a key of `oxyos-preferences` the compositor's settings apply like the others.
+
+5. **What ends it.**
+   - **Another key pressed**: it repeats instead (if it repeats), as on a Mac; releasing the first key leaves it repeating.
+   - **The key's release.**
+   - **A modifier pressed or released.** The press was a chord of the modifiers held then; a repeat never becomes another one. Super released while Tab repeats in the switcher activates the choice, and Tab never starts reaching the application.
+   - **Keyboard focus moving** while it repeated into a surface: a repeat never reaches a window its press did not (a dialog opened by Return, a window activated by a press). The system's repeats go on: Super+\` moves focus itself.
+   - **The lock.** Locked, the lock screen's own keys repeat (Backspace in the password); no system shortcut does (ADR 0024, decision 7).
+   - **The seat going away**: a terminal switch or logind pausing the session; the compositor stops it and presses nothing while away.
+   - **A repeat that would go elsewhere than its press went** ends instead of going there: the reader gone, the switcher closed under it (its shell gone).
+
+6. **The turn wakes for it.** The scene keeps the key repeating and when it is next due (`Scene::next_repeat`); the compositor's turn waits no longer than that (`next_wake`, as for the idle lock's deadline), tells the scene the time and lets it press (`repeat_keys`) every turn. Nothing busy-loops: a turn with no key held waits as before.
+
+## Results
+
+- **`oxyos-input`:** `Keyboard::repeats(code)`; `Action::Key { code, pressed, text, repeats }`, `repeats` set on a press the keymap repeats.
+- **The scene** (`scene/key_repeat.rs`): `Scene::keyboard_repeating(key, pressed, text, repeats)`, the keyboard's path for keys that may repeat (`keyboard` is it with `repeats` false); `repeat_keys`, `next_repeat`, `stop_key_repeat` and `repeating_key`; `REPEAT_DELAY` and `REPEAT_INTERVAL`. Each press, release and repeat decides where it goes the way `keyboard` takes keys (`reader_repeats`, `HardwareKey::repeats`, `system_repeats`, else the focused surface). `set_focus` ends a repeat into a surface, `lock` any.
+- **The compositor:** `read_input` tells the scene the time before the keys it read and passes each press's `repeats`; a dead key and the keymap's own presses end a repeat; a terminal switch and logind's pause end it; every turn not away presses a key due again, and `next_wake` waits for it. The session and the development compositor with `--input` or `--uinput` repeat through it. The development compositor's scripted keys (not through the devices) never repeat.
+- **The protocol:** no message, field or version; `Key`'s schema comment and the C header's `KEY` say that a press of a key held is the compositor's repeat.
+- **Applications:** nothing to change. Astro marks a press of a held key as a repeat (`EF_IS_REPEAT`); the Bloom host gives Bloom `repeat: true` and its fields apply each press.
+
+## Tests
+
+- **Input:** the keymap repeats letters, digits, Space, Return, Backspace, Tab and the arrows and never the modifiers, Caps Lock or Num Lock, on the US and Spanish layouts; a dead key is the compose table's, never a key.
+- **Scene** (`scene/tests/key_repeat.rs`): nothing before 500 ms, then a press with its text once a turn at 30 a second, each carrying the time it was due, a late turn sending one, the release once and nothing after; a field with text input gets each repeat's text in a transaction and Backspace's repeats alone; a client with key text (Astro) gets each repeat as a `KeyText` press with its text and a new serial, never a `Text`; modifiers, Caps Lock and keys through `keyboard` or `key` never; a dead key's stop; another key taking over, A's release leaving B, Shift ending it and Shift+→ repeating until Shift's release; focus moving to another window ending it with nothing for that window, and a key with no focus not repeating; the lock ending it, Backspace repeating in the lock screen, Super+\` locked never; the input method receiving each repeat as a press and the field each given back with its text; Super+\` held going through three windows, Super+W asking once, Super+Tab held opening the switcher and moving twice, Q once, Tab held when Super is released never reaching the application; Tab's repeat ending, sending nothing, when the shell goes; the reader's Next repeating and Activate not; volume up stepping twice and Mute once.
+- **Compositor:** a turn waits for the held key's next repeat and not once it is released (`next_wake`); through real sockets (`tests/key_repeat.rs`), a window's client receives the press, a repeat at the delay and another an interval later with their times, nothing before the delay, and the release with nothing after.

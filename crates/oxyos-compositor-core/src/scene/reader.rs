@@ -40,6 +40,17 @@ impl Scene {
             .map(|(client, _)| *client)
     }
 
+    /// Whether a press of `key` now would be the screen reader's and, if so, whether it repeats
+    /// while held (docs/adr/0036-key-repeat.mdx): moving (Right, Left) does, activating never.
+    pub(super) fn reader_repeats(&self, key: u32) -> Option<bool> {
+        let repeats = match key {
+            RIGHT | LEFT => true,
+            SPACE => false,
+            _ => return None,
+        };
+        (self.reader_keys.chord() && self.screen_reader().is_some()).then_some(repeats)
+    }
+
     /// Whether a key from the keyboard is the screen reader's: then it went to the reader, as a
     /// command for a press, and nothing else sees it.
     pub(super) fn reader_key(&mut self, key: u32, pressed: bool) -> bool {

@@ -257,8 +257,30 @@ impl Scene {
     /// A key from the keyboard, with what the layout types with it. The screen reader's keys, the
     /// hardware keys (ADR 0025) and the system shortcuts (ADR 0024) come first, the text of a key they take with it; then,
     /// while the input method serves a field, it receives the key and the key waits for its
-    /// answer; otherwise the key, then its text, go to the focused surface.
+    /// answer; otherwise the key, then its text, go to the focused surface. It never repeats.
     pub fn keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
+        self.keyboard_repeating(key, pressed, text, false);
+    }
+
+    /// The same, for a key the keymap repeats while held when `repeats` is set (a press: never a
+    /// modifier, a lock or a dead key): where its press went to something keys repeat into, it is
+    /// pressed again while held, with the same text (docs/adr/0036-key-repeat.mdx).
+    pub fn keyboard_repeating(
+        &mut self,
+        key: u32,
+        pressed: bool,
+        text: Option<&str>,
+        repeats: bool,
+    ) {
+        self.end_repeat_for(key, pressed);
+        self.route_keyboard(key, pressed, text);
+        if pressed && repeats {
+            self.start_repeat(key, text);
+        }
+    }
+
+    /// A key from the keyboard, or a repeat of the held one, where it goes.
+    pub(super) fn route_keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
         self.user_input();
         self.hold_modifier(key, pressed);
         if self.reader_key(key, pressed)

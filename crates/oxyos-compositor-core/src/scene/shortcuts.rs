@@ -146,6 +146,30 @@ impl Scene {
         true
     }
 
+    /// Whether a press of `key` now would be the system's, as `system_key` decides, and if so
+    /// whether it repeats while held (decision 8, docs/adr/0036-key-repeat.mdx): what moves does
+    /// (the switcher's Tab, \`, ← and →; Super+\` through the active application's windows), what
+    /// acts never (closing, quitting, hiding, searching, a screenshot, the switcher's Q, H and Esc,
+    /// any key while locked or while the screenshot interface is open).
+    pub(super) fn system_repeats(&self, key: u32) -> Option<bool> {
+        let keys = &self.system_keys;
+        if is_super(key) {
+            return Some(false);
+        }
+        if !keys.holds([LEFT_SUPER, RIGHT_SUPER]) {
+            return self.capturing().then_some(false);
+        }
+        if self.locked || self.capturing() || is_modifier(key) {
+            return Some(false);
+        }
+        let ctrl = keys.holds([LEFT_CTRL, RIGHT_CTRL]);
+        let alt = keys.holds([LEFT_ALT, RIGHT_ALT]);
+        Some(match keys.switcher {
+            Some(_) => matches!(key, TAB | GRAVE | LEFT | RIGHT),
+            None => key == GRAVE && !ctrl && !alt,
+        })
+    }
+
     /// Whether Shift and Alt are held: a hardware key moves a quarter of a step (ADR 0025).
     pub(super) fn fine_step(&self) -> bool {
         let keys = &self.system_keys;

@@ -73,6 +73,12 @@ impl HardwareKey {
         })
     }
 
+    /// Whether it acts again while held (docs/adr/0036-key-repeat.mdx): a step up or down does, as
+    /// a Mac's volume and brightness keys do; a switch (mute, the keyboard's light) never.
+    pub fn repeats(self) -> bool {
+        !matches!(self, Self::Mute | Self::MicMute | Self::KeyboardToggle)
+    }
+
     /// The level it acts on.
     pub fn control(self) -> Control {
         match self {
