@@ -15,7 +15,7 @@
       "updates"
     ]
   },
-  "about": "Installing from the store through the system's sheet (docs/adr/0030-installing-applications.mdx, decisions 5, 7 and 9), with a real oxyos-installd (its development mode) and a repository where oxyos-pack published Inbox's package as the store would. The store asks and waits; the shell shows the sheet; Cancelar installs nothing; Instalar installs it (fetched, compiled on the machine, the account's entry written, progress told); the store opens the installed version, given no system grant. At 1.25 on the ThinkPad's display (1600x1000).",
+  "about": "Installing from the store through the system's sheet (docs/adr/0030-installing-applications.mdx, decisions 5, 7 and 9), with a real oxyos-installd (its development mode) and a repository where oxyos-pack published Inbox's package as the store would. The store asks and waits; the shell shows the sheet; Cancelar installs nothing; Instalar installs it (fetched, compiled on the machine, the account's entry written, progress told), waited for until the store says so, however long compiling takes, never for a set time; a status asked then says version 1; the store opens the installed version, given no system grant. At 1.25 on the ThinkPad's display (1600x1000).",
   "installd": {
     "publish": [
       "so.oxy.inbox"
@@ -105,7 +105,26 @@
       }
     },
     {
-      "name": "Status: installed, version 1, its progress told",
+      "name": "The install runs to its end (fetched, compiled on the machine, the account's entry written), its progress told: waited for until the store says so, however long compiling takes",
+      "do": [
+        "wait_named",
+        [
+          "Install: installed v1 · Uninstall: - · Open: -",
+          120000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Install: installed v1 · Uninstall: - · Open: -"
+        ],
+        "absent": [
+          "Progress: 0"
+        ]
+      }
+    },
+    {
+      "name": "Status, once installed: installed, version 1",
       "do": [
         "press",
         [
@@ -115,7 +134,7 @@
       ],
       "expect": {
         "texts": [
-          "Install: installed v1 · Uninstall: - · Open: -",
+          "Check: - · UpdateAll: - · Status: status v1",
           "Asked: 3"
         ]
       }

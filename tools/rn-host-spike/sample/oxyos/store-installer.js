@@ -82,6 +82,9 @@ export function storeInstaller(StoreInstallerError) {
 
   function stateOf(entry) {
     if (installing.has(entry.listing)) return { state: 'installing', fraction: installing.get(entry.listing) };
+    // An install the session has under way that this store did not ask for, or asked for before
+    // it was opened again: installing, as far along as the session last heard.
+    if (entry.installing) return { state: 'installing', fraction: fractionOf(entry.installing.progress) };
     if (!entry.id) return { state: 'unavailable' };
     if (!entry.installed) return { state: 'notInstalled' };
     const update = entry.update;
@@ -126,9 +129,14 @@ export function storeInstaller(StoreInstallerError) {
     return id;
   }
 
-  function progressed(slug, progress) {
+  /** How far along an install's progress is, 0 to 1; null when it cannot say (compiling). */
+  function fractionOf(progress) {
     const fetching = progress && typeof progress === 'object' ? progress.fetching : null;
-    const fraction = fetching && fetching.total > 0 ? Math.min(1, fetching.done / fetching.total) : null;
+    return fetching && fetching.total > 0 ? Math.min(1, fetching.done / fetching.total) : null;
+  }
+
+  function progressed(slug, progress) {
+    const fraction = fractionOf(progress);
     installing.set(slug, fraction);
     tell(slug, { state: 'installing', fraction });
   }
