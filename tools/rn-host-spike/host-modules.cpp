@@ -396,7 +396,7 @@ std::shared_ptr<TurboModule> createHostModule(
       throw jsi::JSError(rt, "OxyOS has no Android ID");
     });
   } else if (name == "DeviceInfo") {
-    module->constants(folly::dynamic::object("Dimensions", deviceDimensions(display)));
+    module->constants([&display] { return folly::dynamic::object("Dimensions", deviceDimensions(display)); });
   } else if (name == "OxyOSRuntime") {
     // The runtime's numbers (an application's package names the ones it was built for) and its
     // framework's URL, which the framework's assets are resolved beside (oxyos/framework-init.js).
@@ -1052,10 +1052,12 @@ std::shared_ptr<TurboModule> createHostModule(
   } else if (name == "RNCSafeAreaContext") {
     // An OxyOS window has no system insets.
     folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);
-    module->constants(folly::dynamic::object(
-        "initialWindowMetrics", folly::dynamic::object("insets", zero)(
-                                    "frame", folly::dynamic::object("x", 0)("y", 0)("width", display.width)(
-                                                 "height", display.height))));
+    module->constants([&display, zero] {
+      return folly::dynamic::object(
+          "initialWindowMetrics", folly::dynamic::object("insets", zero)(
+                                      "frame", folly::dynamic::object("x", 0)("y", 0)("width", display.width)(
+                                                   "height", display.height)));
+    });
   } else if (name == "Networking") {
     // React Native's Android networking (XMLHttpRequest, so fetch and axios): network.h.
     module->method("sendRequest", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
