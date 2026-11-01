@@ -62,6 +62,7 @@ import {
   formatSize,
   looksLike,
   LOCK_AFTER_CHOICES,
+  prefersSteadyCaret,
   refreshRates,
   resolutions,
   type Appearance,
@@ -732,6 +733,13 @@ function AccessibilityPage({ snapshot, actions, strings }: PageProps) {
         value={preferences.reduceTransparency}
         onChange={toggle("reduceTransparency")}
         testID="reduce-transparency"
+      />
+      <ToggleItem
+        title={words.steadyCaret}
+        description={words.steadyCaretDescription}
+        value={prefersSteadyCaret(preferences)}
+        onChange={(on) => actions.setPreference("caretBlink", !on)}
+        testID="steady-caret"
       />
     </GroupedSection>
   );

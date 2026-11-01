@@ -84,6 +84,8 @@ const en = {
     reduceMotionDescription: "Windows, menus and the lock screen appear and go at once.",
     reduceTransparency: "Reduce transparency",
     reduceTransparencyDescription: "Glass is drawn opaque.",
+    steadyCaret: "Prefer non-blinking cursor",
+    steadyCaretDescription: "The cursor in text fields stays lit instead of blinking.",
   },
   about: {
     name: "Name",
@@ -273,6 +275,8 @@ const es: Strings = {
     reduceMotionDescription: "Las ventanas, los menús y la pantalla de bloqueo aparecen y se van al instante.",
     reduceTransparency: "Reducir transparencia",
     reduceTransparencyDescription: "El cristal se dibuja opaco.",
+    steadyCaret: "Preferir cursor sin parpadeo",
+    steadyCaretDescription: "El cursor de los campos de texto se queda fijo en vez de parpadear.",
   },
   about: {
     name: "Nombre",
