@@ -51,7 +51,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
    - **Everyone else.** Every client is told the preferences that change how it draws; none can change them, and a client that asks without the grant is closed.
 
    This is the first grant given by a launch record, as ADR 0013 left for its own decision.
-4. **Every application follows them at once.** The compositor tells every client the preferences that change how it draws: `appearance` (resolved to light or dark), `accent`, `reduce_motion`, `reduce_transparency` and, since protocol version 10, `caret_blink` ([ADR 0037](./0037-text-editing)). It tells them when the client connects and whenever they change (`Preferences`, an event). The Bloom host gives them to React Native's own APIs, which Bloom and applications already follow:
+4. **Every application follows them at once.** The compositor tells every client the preferences that change how it draws: `appearance` (resolved to light or dark), `accent`, `reduce_motion`, `reduce_transparency` and, since protocol version 11, `caret_blink` ([ADR 0037](./0037-text-editing)). It tells them when the client connects and whenever they change (`Preferences`, an event). The Bloom host gives them to React Native's own APIs, which Bloom and applications already follow:
    - `Appearance` and `useColorScheme` (with its change event);
    - `AccessibilityInfo.isReduceMotionEnabled` and `isReduceTransparencyEnabled` (with theirs);
    - the accent, through Bloom's platform adapter, as the seed of Bloom's palette.

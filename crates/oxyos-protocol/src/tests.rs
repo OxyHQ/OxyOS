@@ -1592,7 +1592,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
             responding: true,
         }
     );
-    // Preferences from a compositor of version 9 say that a caret blinks (ADR 0037).
+    // Preferences from a compositor of version 10 say that a caret blinks (ADR 0037).
     let preferences = |caret_blink| Event::Preferences {
         dark: true,
         reduce_motion: false,
@@ -1600,18 +1600,18 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         accent: PreeditText::new("oxy").unwrap(),
         caret_blink,
     };
+    let mut v11 = Vec::new();
+    write_event_for(&mut v11, &preferences(false), 11).unwrap();
     let mut v10 = Vec::new();
     write_event_for(&mut v10, &preferences(false), 10).unwrap();
-    let mut v9 = Vec::new();
-    write_event_for(&mut v9, &preferences(false), 9).unwrap();
-    assert_eq!(v9.len() + 1, v10.len());
-    assert_eq!(&v9[4..], &v10[4..v10.len() - 1]);
+    assert_eq!(v10.len() + 1, v11.len());
+    assert_eq!(&v10[4..], &v11[4..v11.len() - 1]);
     assert_eq!(
-        read_event_for(&mut Cursor::new(&v10), 10).unwrap(),
+        read_event_for(&mut Cursor::new(&v11), 11).unwrap(),
         preferences(false)
     );
     assert_eq!(
-        read_event_for(&mut Cursor::new(&v9), 9).unwrap(),
+        read_event_for(&mut Cursor::new(&v10), 10).unwrap(),
         preferences(true)
     );
     // The dock's messages (ADR 0034) are version 8's: a Ping is never sent to version 7.

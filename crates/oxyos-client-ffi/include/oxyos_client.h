@@ -238,7 +238,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_PREFERENCES_REDUCE_MOTION 2
 #define OXYOS_PREFERENCES_REDUCE_TRANSPARENCY 4
 /* The caret stays lit instead of blinking (docs/adr/0037-text-editing.mdx); never set by a
- * compositor of protocol version 9 or older. */
+ * compositor of protocol version 10 or older. */
 #define OXYOS_PREFERENCES_STEADY_CARET 8
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
