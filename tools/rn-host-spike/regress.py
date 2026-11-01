@@ -2679,9 +2679,19 @@ def main():
         login[0].wait(timeout=20)
         recorded = login[2].read_text().splitlines() if login[2].exists() else []
         shutil.rmtree(login[4][1], ignore_errors=True)
+    # A host that crashed (bloom-host.cpp's handler: "[host] fatal signal N" and its backtrace),
+    # at any time, even as the run ended and whatever the steps said, fails the run, its backtrace
+    # said: a crash is never a pass, and the run that saw it is the one that can say where.
+    logged = run.stderr.splitlines()
+    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")]
+    for at in crashes:
+        print(f"FAIL: a host crashed; see {out / 'director.log'}")
+        print("\n".join(logged[at:at + 24]))
     if run.returncode != 0:
         print(f"FAIL: the director failed ({run.returncode}); see {out / 'director.log'}")
         print("\n".join(run.stderr.strip().splitlines()[-5:]))
+        return 1
+    if crashes:
         return 1
     summary = json.loads(next(line for line in run.stdout.splitlines() if line.startswith('{"mode"')))
     # A login screen has no application, and so no application's report.
