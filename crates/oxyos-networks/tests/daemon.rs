@@ -279,7 +279,6 @@ fn refused_for_every_user_it_is_added_for_this_user() {
         "{permissions}"
     );
     // Forgetting a connection every user has needs an administrator.
-    let id = manager.state().unwrap().wifi.known[0].id.clone();
     let lukes = manager
         .state()
         .unwrap()
@@ -289,7 +288,6 @@ fn refused_for_every_user_it_is_added_for_this_user() {
         .find(|k| k.ssid == "LukeSkyRouter")
         .unwrap();
     assert_eq!(manager.forget(&lukes.id), Err(Failure::NotPermitted));
-    let _ = id;
 }
 
 #[test]

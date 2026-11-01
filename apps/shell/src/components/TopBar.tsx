@@ -212,8 +212,11 @@ function wifiIcon(arcs: number, dot: boolean): ComponentType {
   return icon;
 }
 
-/** A status item's button: the bar's own plain icon button, as the search and the Control Center's. */
-const statusStyle = { ...menuStyle, width: 22, paddingHorizontal: 0 };
+/** A status item's button: the bar's own plain icon button, as the search and the Control Center's,
+    as wide as its icon (the items keep their places) and pressed anywhere over the bar's height
+    around it. */
+const statusStyle = { ...menuStyle, width: 14, paddingLeft: 0, paddingRight: 0 };
+const STATUS_SLOP = { top: 8, bottom: 8, left: 6, right: 6 };
 
 /** The network's status item (docs/adr/0038-networks.mdx, decision 6): Wi-Fi's signal, or the
     Ethernet icon while only a cable is connected. Pressed, it opens the Control Center at its
@@ -248,6 +251,7 @@ const NetworkItem = memo(function NetworkItem({
       appearance="plain"
       style={statusStyle}
       colors={TRANSPARENT_WHITE}
+      hitSlop={STATUS_SLOP}
       onPress={onPress}
     />
   );
