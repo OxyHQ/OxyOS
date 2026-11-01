@@ -35,6 +35,8 @@ namespace oxyos {
 
 namespace {
 
+constexpr char kFilesType[] = "application/x-oxyos-files";
+
 std::vector<std::string> lines(const std::string& text) {
   std::vector<std::string> out;
   std::istringstream in(text);
@@ -96,6 +98,7 @@ std::vector<std::pair<std::string, std::string>> dragContents(const folly::dynam
       plain += (plain.empty() ? "" : "\n") + file.asString();
     }
   }
+  const bool files = !uris.empty();
   auto url = text("url");
   if (url && uris.empty()) {
     uris = *url + "\r\n";
@@ -104,6 +107,9 @@ std::vector<std::pair<std::string, std::string>> dragContents(const folly::dynam
   // A URI list first (what file managers and browsers take), then a link as Firefox and Chromium
   // name it, the HTML, and text: the URIs or links when nothing else was given as text.
   if (!uris.empty()) out.emplace_back("text/uri-list", uris);
+  // Files are said to be files before the drop, where a target sees only the types (a web page's
+  // `Files`, docs/adr/0035-drag-and-drop.mdx, decision 4).
+  if (files) out.emplace_back(kFilesType, uris);
   if (url) out.emplace_back("text/x-moz-url", *url);
   if (auto html = text("html")) out.emplace_back("text/html", *html);
   if (auto given = text("text")) plain = *given;

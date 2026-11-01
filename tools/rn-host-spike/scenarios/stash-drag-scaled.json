@@ -1,0 +1,190 @@
+{
+  "about": "Stash (OxyHQ/Stash) drags its items to other applications and takes files dropped from them (docs/adr/0035-drag-and-drop.mdx, decision 13), through Bloom's API alone: its own drag of items becomes the platform's drag, and its items' area is a DropZone. Two Stash windows on a home of the run's own, side by side (the second started as the `companion`): notes.txt dragged from the first onto Documents in the second moves into it; plan.txt dragged onto the dock's Trash goes to the home's Trash; Pictures dragged onto Documents within the second window with Option held is copied there, the original kept. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
+  "module": "Stash",
+  "window": [
+    580,
+    460
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.stash",
+    "title": "Stash"
+  },
+  "companion": {
+    "module": "Stash",
+    "window": [
+      640,
+      460
+    ],
+    "at": [
+      610,
+      80
+    ]
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/report.txt": "r",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "plan.txt": "p"
+    }
+  },
+  "steps": [
+    {
+      "name": "the first window beside the second",
+      "do": [
+        "move-window",
+        [
+          -340,
+          0
+        ]
+      ],
+      "allow_unchanged": false,
+      "expect": {
+        "texts": [
+          "notes.txt",
+          "plan.txt"
+        ],
+        "in_companion": {
+          "texts": [
+            "notes.txt",
+            "plan.txt"
+          ]
+        }
+      }
+    },
+    {
+      "name": "notes.txt dragged from the first window onto Documents in the second: it moves into it",
+      "do": [
+        "drag_paced",
+        [
+          436,
+          265,
+          907,
+          190,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Documents/notes.txt": "hello",
+          "notes.txt": false,
+          "Documents/report.txt": "r"
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "plan.txt dragged from the first window onto the dock's Trash: it is in the home's Trash",
+      "do": [
+        "drag_paced_named",
+        [
+          "plan.txt",
+          "Abrir Papelera",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "plan.txt": false,
+          "trash": [
+            "plan.txt"
+          ]
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Pictures (in notes.txt's place now) dragged onto Documents in the second window with Option held: copied, the original kept",
+      "do": [
+        "drag_paced",
+        [
+          1036,
+          190,
+          907,
+          190,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Pictures": true,
+          "Documents/Pictures": true
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.dropped": 1,
+            "drag.enter": 1,
+            "drag.finished": 1,
+            "drag.send": 1,
+            "enter": 2,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

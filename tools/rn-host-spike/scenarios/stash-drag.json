@@ -1,276 +1,189 @@
 {
- "about": "Stash on OxyOS: a rubber band from the background selects the icons and names it touches, and dragging the selection onto a folder moves it there on the disk.",
- "module": "Stash",
- "window": [
-  1280,
-  800
- ],
- "app": {
-  "id": "so.oxy.stash",
-  "title": "Stash"
- },
- "home": {
-  "items": {
-   "Clarity/": "",
-   "Desktop/": "",
-   "Documents/": "",
-   "Downloads/": "",
-   "installd-try/": "",
-   "Music/": "",
-   "node_modules/": "",
-   "Oxy/": "",
-   "oxyos-validation/": "",
-   "Pictures/": "",
-   "Public/": "",
-   "servers/": "",
-   "Templates/": "",
-   "Videos/": "",
-   "website/": "",
-   "claude-setup-prompt.md": {
-    "bytes": 7000
-   },
-   "minecraft-bot.js": {
-    "bytes": 2000
-   },
-   "package.json": "{}",
-   "package-lock.json": "{}",
-   "probar-oxyos.sh": "#!/bin/sh",
-   "valdoria-house-map.png": {
-    "png": [
-     1024,
-     768,
-     "#4a7a3a"
-    ]
-   },
-   ".bashrc": "x",
-   ".profile": "x",
-   ".face": {
-    "png": [
-     96,
-     96,
-     "#aa5500"
-    ]
-   },
-   "Downloads/127.0.0.1_8080_(Nest Hub Max).png": {
-    "png": [
-     1280,
-     800,
-     "#3060c0"
-    ]
-   },
-   "Downloads/astro-browser_0.1.0_amd64.deb": {
-    "bytes": 300000
-   },
-   "Downloads/bedrock-server-1.26.44.3/": "",
-   "Downloads/bedrock-server-1.26.44.3.zip": {
-    "bytes": 200000
-   },
-   "Downloads/blur-my-shellaunetx.v70.shell-extension/": "",
-   "Downloads/blur-my-shellaunetx.v70.shell-extension.zip": {
-    "bytes": 3000
-   },
-   "Downloads/cgqzbklp_400x400.jpg": {
-    "png": [
-     400,
-     400,
-     "#c03060"
-    ]
-   },
-   "Downloads/code_1.115.0-1775600353_amd64.deb": {
-    "bytes": 100000
-   },
-   "Downloads/faircoin-v3.0.3-linux-x86_64/": "",
-   "Downloads/faircoin-v3.0.3-linux-x86_64.tar.gz": {
-    "bytes": 5000
-   },
-   "Downloads/Gmail - 493145959.pdf": "%PDF",
-   "Downloads/I'm The Problem.mp3": {
-    "bytes": 7000
-   },
-   "Downloads/macOS-Tahoe-v0.6.1.zip": {
-    "bytes": 600
-   },
-   "Downloads/MacTahoe-icon-theme/": "",
-   "Downloads/NPCEnch2.0.mcaddon": "x",
-   "Downloads/OTG Backpack v1.0.8 - Native Display_Bedrock Reimagine.mcaddon": "x",
-   "Downloads/photo_2026-08-16_20-57-49.jpg": {
-    "png": [
-     1600,
-     1200,
-     "#70a0d0"
-    ]
-   },
-   "Downloads/src/": "",
-   "Downloads/src.zip": {
-    "bytes": 900
-   },
-   "Downloads/Telegram Desktop/": "",
-   "Downloads/Tierras de Valdoria (1).png": {
-    "png": [
-     900,
-     900,
-     "#558833"
-    ]
-   },
-   "Downloads/Tierras_de_Valdoria__1_-removebg-preview.png": {
-    "png": [
-     600,
-     600,
-     "#aa8844"
-    ]
-   },
-   "Downloads/Tierras de Valdoria.png": {
-    "png": [
-     900,
-     900,
-     "#336655"
-    ]
-   },
-   "Downloads/track 3.mp3": {
-    "bytes": 7000
-   },
-   "Downloads/tsetup.6.7.2.tar.xz": {
-    "bytes": 6000
-   },
-   "Downloads/ulauncher_5.15.15_all.deb": {
-    "bytes": 1800
-   },
-   "Downloads/ulauncher-liquid-glass-v1.0.2/": "",
-   "Documents/note 1.txt": "n",
-   "Documents/note 2.txt": "n",
-   "Documents/note 3.txt": "n",
-   "Documents/note 4.txt": "n",
-   "Documents/note 5.txt": "n",
-   "Documents/note 6.txt": "n",
-   "Documents/note 7.txt": "n",
-   "Documents/note 8.txt": "n",
-   "Documents/note 9.txt": "n",
-   "Documents/note 10.txt": "n",
-   "Documents/note 11.txt": "n",
-   "Documents/note 12.txt": "n"
-  }
- },
- "outputs": "1920x1200",
- "steps": [
-  {
-   "name": "The home, first",
-   "do": [
-    "wait",
-    2500
-   ],
-   "expect": {
-    "texts": [
-     "21 items"
-    ]
-   },
-   "allow_unchanged": true
+  "about": "Stash (OxyHQ/Stash) drags its items to other applications and takes files dropped from them (docs/adr/0035-drag-and-drop.mdx, decision 13), through Bloom's API alone: its own drag of items becomes the platform's drag, and its items' area is a DropZone. Two Stash windows on a home of the run's own, side by side (the second started as the `companion`): notes.txt dragged from the first onto Documents in the second moves into it; plan.txt dragged onto the dock's Trash goes to the home's Trash; Pictures dragged onto Documents within the second window with Option held is copied there, the original kept.",
+  "module": "Stash",
+  "window": [
+    580,
+    460
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.stash",
+    "title": "Stash"
   },
-  {
-   "name": "A rubber band from the background selects the icons and names it crosses",
-   "do": [
-    "drag",
-    [
-     905,
-     584,
-     605,
-     234
-    ]
-   ],
-   "expect": {
-    "texts": [
-     "3 of 21 selected"
+  "companion": {
+    "module": "Stash",
+    "window": [
+      640,
+      460
     ],
-    "at": {
-     "window": [
-      {
-       "role": "ListItem",
-       "name": "package.json",
-       "state": [
-        "selected"
-       ]
-      },
-      {
-       "role": "ListItem",
-       "name": "Pictures",
-       "state": [
-        "selected"
-       ]
-      },
-      {
-       "role": "ListItem",
-       "name": "probar-oxyos.sh",
-       "state": [
-        "selected"
-       ]
-      },
-      {
-       "role": "ListItem",
-       "name": "package-lock.json",
-       "state": []
-      },
-      {
-       "role": "ListItem",
-       "name": "Downloads",
-       "state": []
-      }
-     ]
-    }
-   }
-  },
-  {
-   "name": "Dragging one of them onto Documents moves all three there",
-   "do": [
-    "drag",
-    [
-     746,
-     226,
-     633,
-     114
+    "at": [
+      610,
+      80
     ]
-   ],
-   "expect": {
-    "home": {
-     "Documents/package.json": true,
-     "Documents/Pictures": true,
-     "Documents/probar-oxyos.sh": true,
-     "package.json": false,
-     "Pictures": false,
-     "probar-oxyos.sh": false
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/report.txt": "r",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "plan.txt": "p"
+    }
+  },
+  "steps": [
+    {
+      "name": "the first window beside the second",
+      "do": [
+        "move-window",
+        [
+          -340,
+          0
+        ]
+      ],
+      "allow_unchanged": false,
+      "expect": {
+        "texts": [
+          "notes.txt",
+          "plan.txt"
+        ],
+        "in_companion": {
+          "texts": [
+            "notes.txt",
+            "plan.txt"
+          ]
+        }
+      }
     },
-    "texts": [
-     "18 items"
-    ],
-    "at_absent": {
-     "window": [
-      {
-       "name": "package.json"
+    {
+      "name": "notes.txt dragged from the first window onto Documents in the second: it moves into it",
+      "do": [
+        "drag_paced",
+        [
+          436,
+          225,
+          907,
+          190,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Documents/notes.txt": "hello",
+          "notes.txt": false,
+          "Documents/report.txt": "r"
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
       }
-     ]
-    }
-   }
-  },
-  {
-   "name": "A press on Clarity selects it alone",
-   "do": [
-    "press",
-    [
-     294,
-     114
-    ]
-   ],
-   "expect": {
-    "at": {
-     "window": [
-      {
-       "role": "ListItem",
-       "name": "Clarity",
-       "state": [
-        "selected"
-       ]
+    },
+    {
+      "name": "plan.txt dragged from the first window onto the dock's Trash: it is in the home's Trash",
+      "do": [
+        "drag_paced_named",
+        [
+          "plan.txt",
+          "Abrir Papelera",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "plan.txt": false,
+          "trash": [
+            "plan.txt"
+          ]
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
       }
-     ]
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Pictures (in notes.txt's place now) dragged onto Documents in the second window with Option held: copied, the original kept",
+      "do": [
+        "drag_paced",
+        [
+          1036,
+          190,
+          907,
+          190,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Pictures": true,
+          "Documents/Pictures": true
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.dropped": 1,
+            "drag.enter": 1,
+            "drag.finished": 1,
+            "drag.send": 1,
+            "enter": 2,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     }
-   }
-  }
- ]
+  ]
 }

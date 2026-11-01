@@ -6,7 +6,7 @@ order: 44
 
 # ADR 0035: Drag and drop between applications
 
-Status: **accepted; steps 2 to 4 implemented** (the protocol, the scene, the compositor, `oxyos-client`, the C ABI and the session's `TrashFiles`; Bloom's `DropZone` and drag, OxyHQ/Bloom#578, and the Bloom host's, and the dock's Trash; see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
+Status: **accepted; steps 2 to 5 implemented** (the protocol, the scene, the compositor, `oxyos-client`, the C ABI and the session's `TrashFiles`; Bloom's `DropZone` and drag, OxyHQ/Bloom#578, and the Bloom host's, the dock's Trash and Stash, OxyHQ/Stash#9; see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
 
 ## Problem
 
@@ -43,6 +43,8 @@ All three agree on what matters here: types and actions are known during the dra
    - `DragMotion { surface, offer, x, y, time_ns, modifiers }` as the pointer moves over it.
    - `DragLeave { surface, offer }` when the pointer leaves it, the drag ends without dropping on it, or the source goes.
    
+   A drag of files offers, beside `text/uri-list`, `application/x-oxyos-files` with the same URIs: before the drop a target sees only the types, and this one says the URIs are files rather than links, as the web's `Files` type does (a page's `<input type="file">` takes a drag only when it carries files).
+
    A surface the pointer never enters during the drag learns nothing of it: no other window, no other client, receives a drag event. A client of an older version is never sent one, and its surfaces are no target: a drag over them can drop nothing. The source, when its own surface is under the pointer, is that surface's target like any other: a drag inside one window goes the same way as between two.
 
 5. **The action is negotiated, as Wayland's and a Mac's are.** The target answers each entering and motion with what it would do: `AcceptDrag { offer, serial, mime, actions, preferred }`, citing the entering's `serial` (an answer to an older entering is ignored), the one offered type it would take (empty: none) and the actions it supports and prefers. The compositor chooses the action from the source's actions (S), the target's (T) and the modifiers held, as a Mac does:
@@ -161,6 +163,11 @@ All three agree on what matters here: types and actions are known during the dra
 - The shell's Trash is a Bloom `DropZone` taking files with a move alone (`apps/shell/src/components/Dock.tsx`), its row darkened while a drag it would take is over it; a drop puts the dropped `file://` files in the Trash (`trashedByDrop`, `ShellActions.trashFiles`), the shell asking the session with the drop's serial. The shell needs Bloom 15.88.0.
 - The development compositor drags between two named nodes (`drag_paced_named`), so a scenario aims at the dock's Trash wherever its row places it.
 - `drag-trash.json` and `drag-trash-scaled.json`: a file of the run's home dragged from Allo onto the Trash is in the home's Trash afterwards and gone from the home, the source learning the move; text dragged onto it drops nothing; only the source and the shell's surfaces under the pointer (its desktop, then its dock) are told of each drag. `dock-trash` and `dock-menu` pass as before.
+
+**Step 5** (Stash, OxyHQ/Stash#9):
+- Stash's own drag of items becomes the platform's drag where there is one (`usePlatformDrag()`), of the selected items of this device as `file://` URIs, with an image of the first and how many go; its items' area is a Bloom `DropZone` taking files into the folder dropped on, else the folder shown, moved, or copied with Option; nothing of OxyOS is imported.
+- A drag of files offers `application/x-oxyos-files` beside its URI list (decision 4), so a target that sees only types (a web page) tells files from links.
+- `stash-drag.json` and `stash-drag-scaled.json`: two Stash windows side by side (the second the `companion`); notes.txt dragged from one onto Documents in the other moves into it; plan.txt dragged onto the dock's Trash goes into the home's Trash; Pictures dragged onto Documents with Option held is copied, the original kept; exact deliveries. They need Stash with OxyHQ/Stash#9 built in.
 
 ## Not in this decision
 
