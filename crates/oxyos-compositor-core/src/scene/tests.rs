@@ -6232,6 +6232,7 @@ fn drawing(dark: bool, accent: &str) -> DrawingPreferences {
         reduce_motion: false,
         reduce_transparency: true,
         accent: PreeditText::new(accent).unwrap(),
+        caret_blink: false,
     }
 }
 
@@ -6408,6 +6409,7 @@ fn every_client_is_told_the_preferences_it_draws_with_and_settings_every_one() {
         reduce_motion: false,
         reduce_transparency: true,
         accent: PreeditText::new("jade").unwrap(),
+        caret_blink: false,
     };
     for client in [APP, OTHER, SHELL, LOCKER] {
         assert_eq!(h.events_for(client), vec![preferences], "{client}");
@@ -6462,6 +6464,7 @@ fn every_client_is_told_the_preferences_it_draws_with_and_settings_every_one() {
         reduce_motion: false,
         reduce_transparency: true,
         accent: PreeditText::new("jade").unwrap(),
+        caret_blink: false,
     };
     for client in [APP, OTHER, SHELL, LOCKER, SETTINGS] {
         assert_eq!(h.events_for(client), vec![dark], "{client}");

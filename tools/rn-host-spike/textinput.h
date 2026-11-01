@@ -15,11 +15,13 @@
 
 #include <folly/dynamic.h>
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace oxyos {
@@ -48,14 +50,17 @@ struct Placement {
   facebook::react::Rect frame{};
 };
 
-// The editing a focused input receives, as Android's EditText does it: a caret and selection
-// (arrows, by word with Ctrl, Up and Down across lines, Page Up and Page Down, Home and End,
-// Shift to extend, Ctrl+A, the pointer: a press, a drag, Shift and a press, a double click
-// selecting a word and a triple click a paragraph, either dragged on by words or by paragraphs),
-// deletion by character or word, committed text that
-// replaces the selection, an input method's composition (preedit), which is part of the text
-// while it lasts, undo and redo (Ctrl+Z, Ctrl+Shift+Z), and text scrolled to keep the caret in
-// view.
+// The editing a focused input receives, as Android's EditText does it with a Mac's keys
+// (docs/adr/0037-text-editing.mdx; Ctrl is the applications' ⌘ on OxyOS, ADR 0024, and Alt is ⌥):
+// a caret and selection (arrows; by word with Alt; to the line's edge with Ctrl+Left and
+// Ctrl+Right, Home and End; to the text's with Ctrl+Up and Ctrl+Down, Ctrl+Home and Ctrl+End; to
+// the paragraph's with Alt+Up and Alt+Down; Up and Down across lines keeping their column, Page Up
+// and Page Down; Shift to extend; Ctrl+A; the pointer: a press, a drag, Shift and a press, a
+// double click selecting a word and a triple click a paragraph, either dragged on by words or by
+// paragraphs), deletion by character, by word (Alt) or to the line's edge (Ctrl), committed text
+// that replaces the selection, an input method's composition (preedit), which is part of the text
+// while it lasts, undo and redo (Ctrl+Z, Ctrl+Shift+Z), copy, cut and paste, text scrolled to
+// keep the caret in view, and the caret's blinking.
 class TextEditing {
  public:
   // `locate` places a view: text, keys and pointer input reach the focused input only on its
@@ -119,6 +124,19 @@ class TextEditing {
   // The focused input's selection, in bytes of its text, for its accessibility node; none for an
   // unfocused or a secure input (whose caret would tell how long the password is).
   std::optional<std::pair<size_t, size_t>> selection(facebook::react::Tag tag) const;
+
+  // The caret blinks as Android's Editor blinks it, lit and dark for kBlinkPeriod each, starting
+  // lit at every change of the focused input's text, selection or composition, and rests lit once
+  // the field has waited kBlinkTimeout (GTK's cursor-blink-timeout, which Chromium on Linux
+  // follows: no wake-ups twice a second on an idle machine) or while the session's `caret_blink`
+  // preference is off (ADR 0037).
+  static constexpr std::chrono::milliseconds kBlinkPeriod{500};
+  static constexpr std::chrono::milliseconds kBlinkTimeout{10'000};
+  void setCaretBlinks(bool blinks);
+  // Brings the blink to `now`.
+  void tick(std::chrono::steady_clock::time_point now);
+  // When the caret is next lit or darkened, if it blinks.
+  std::optional<std::chrono::steady_clock::time_point> nextBlink() const;
 
   // The input that has focus, -1 if none.
   facebook::react::Tag focused() const { return focused_; }
@@ -206,7 +224,7 @@ class TextEditing {
   // Its styled segments (OXYOS_PREEDIT_*), as offsets into the text, from the transaction that
   // made it; none for a composition from Preedit.
   std::vector<TextInputEdit::Segment> segments_;
-  bool shift_ = false, ctrl_ = false;
+  bool shift_ = false, ctrl_ = false, alt_ = false;
   bool dragging_ = false;
   // The x that consecutive Up and Down moves keep, from where they began.
   std::optional<float> column_;
@@ -231,6 +249,12 @@ class TextEditing {
   // What the double or triple click being dragged selected, [start, end) in bytes.
   std::pair<size_t, size_t> unit_{0, 0};
   int eventCount_ = 0;
+  // The blink (tick): whether carets blink, when the caret was last lit anew, whether it is lit,
+  // and what it was lit anew for (the input, its text, selection and composition).
+  bool blinks_ = true;
+  std::chrono::steady_clock::time_point blinkFrom_{};
+  bool caretLit_ = true;
+  std::tuple<facebook::react::Tag, std::string, size_t, size_t, size_t, size_t> blinkedFor_{-1, {}, 0, 0, 0, 0};
 };
 
 }  // namespace oxyos

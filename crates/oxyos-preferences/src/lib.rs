@@ -76,6 +76,8 @@ pub struct Preferences {
     pub reduce_motion: bool,
     /// Glass is drawn opaque.
     pub reduce_transparency: bool,
+    /// A text field's caret blinks; off, it stays lit (docs/adr/0037-text-editing.mdx).
+    pub caret_blink: bool,
     /// The wallpaper: a folder under the wallpapers' directory; none is the session's own.
     pub wallpaper: Option<String>,
     /// Minutes idle before the session locks; 0, never.
@@ -106,6 +108,7 @@ impl Default for Preferences {
             accent: "oxy".to_owned(),
             reduce_motion: false,
             reduce_transparency: false,
+            caret_blink: true,
             wallpaper: None,
             lock_after: 5,
             screen_reader: false,
@@ -189,6 +192,7 @@ pub const KEYS: &[&str] = &[
     "accent",
     "reduce_motion",
     "reduce_transparency",
+    "caret_blink",
     "wallpaper",
     "lock_after",
     "screen_reader",
@@ -234,6 +238,7 @@ impl Preferences {
             "accent" => self.accent = name(value, MAX_ACCENT_BYTES)?,
             "reduce_motion" => self.reduce_motion = boolean(value)?,
             "reduce_transparency" => self.reduce_transparency = boolean(value)?,
+            "caret_blink" => self.caret_blink = boolean(value)?,
             "wallpaper" => {
                 self.wallpaper = if value.is_empty() {
                     None
@@ -271,6 +276,7 @@ impl Preferences {
             "accent" => self.accent.clone(),
             "reduce_motion" => self.reduce_motion.to_string(),
             "reduce_transparency" => self.reduce_transparency.to_string(),
+            "caret_blink" => self.caret_blink.to_string(),
             "wallpaper" => self.wallpaper.clone().unwrap_or_default(),
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),

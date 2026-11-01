@@ -36,7 +36,8 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - `lock_after` (minutes idle before the session locks; 0 never);
      - `screen_reader` (on at login);
      - `clock_24h`;
-     - `do_not_disturb` and `notification_previews` (`always`, `unlocked`), added by [ADR 0026](./0026-notifications).
+     - `do_not_disturb` and `notification_previews` (`always`, `unlocked`), added by [ADR 0026](./0026-notifications);
+     - `caret_blink` (a text field's caret blinks; on by default), added by [ADR 0037](./0037-text-editing).
 2. **The system's settings stay the system's.** The time zone and automatic time (systemd-timedated), the keyboard layout (systemd-localed, which writes `/etc/default/keyboard`) and the computer's name (systemd-hostnamed) are changed through those services, as their own command-line tools change them. The session calls them over the system bus as the user, and polkit decides. A change that needs an administrator is asked for by the session's own authentication dialog, never by the application. Until that dialog exists ([Not in this decision](#not-in-this-decision)), Settings shows these settings and their current values and says they cannot be changed yet. The session follows a change it learns of (the keyboard layout of new strokes; the time zone of the clock and the wallpaper).
 3. **Only Settings may change them, by its launch record.** A new grant, `settings`:
    - **Who gets it.** The session gives it to a client whose process it launched ([ADR 0013](./0013-launching-applications)) as the system application the **image's policy** names for it: `/usr/share/oxyos/system-apps.json`, in `/usr`, which is the image's (read-only on a published install, [ADR 0023](./0023-installing-oxyos)). The policy names each system application's id, its entry, what it runs (an absolute program, or a Bloom host and bundle) and its grants. It is the one source of system grants ([ADR 0030](./0030-installing-applications), decision 7, which amends this decision).
@@ -50,7 +51,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
    - **Everyone else.** Every client is told the preferences that change how it draws; none can change them, and a client that asks without the grant is closed.
 
    This is the first grant given by a launch record, as ADR 0013 left for its own decision.
-4. **Every application follows them at once.** The compositor tells every client the preferences that change how it draws: `appearance` (resolved to light or dark), `accent`, `reduce_motion` and `reduce_transparency`. It tells them when the client connects and whenever they change (`Preferences`, an event). The Bloom host gives them to React Native's own APIs, which Bloom and applications already follow:
+4. **Every application follows them at once.** The compositor tells every client the preferences that change how it draws: `appearance` (resolved to light or dark), `accent`, `reduce_motion`, `reduce_transparency` and, since protocol version 11, `caret_blink` ([ADR 0037](./0037-text-editing)). It tells them when the client connects and whenever they change (`Preferences`, an event). The Bloom host gives them to React Native's own APIs, which Bloom and applications already follow:
    - `Appearance` and `useColorScheme` (with its change event);
    - `AccessibilityInfo.isReduceMotionEnabled` and `isReduceTransparencyEnabled` (with theirs);
    - the accent, through Bloom's platform adapter, as the seed of Bloom's palette.

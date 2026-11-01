@@ -105,10 +105,12 @@ pub const OXYOS_EVENT_PREFERENCES: u32 = 53;
 /// index (0 begins it); flag, whether it is the last; text, the chunk.
 pub const OXYOS_EVENT_PREFERENCE: u32 = 54;
 /// A PREFERENCES event's `flag` bits: dark (an automatic appearance resolved), every transition
-/// takes no time, glass is drawn opaque.
+/// takes no time, glass is drawn opaque, a text field's caret stays lit instead of blinking (ADR
+/// 0037; never set by a compositor of protocol version 10 or older, whose carets blink).
 pub const OXYOS_PREFERENCES_DARK: u8 = 1;
 pub const OXYOS_PREFERENCES_REDUCE_MOTION: u8 = 2;
 pub const OXYOS_PREFERENCES_REDUCE_TRANSPARENCY: u8 = 4;
+pub const OXYOS_PREFERENCES_STEADY_CARET: u8 = 8;
 /// To the session's shell (ADR 0021): the active window's menus, begun, entry by entry, text by
 /// text, then committed.
 pub const OXYOS_EVENT_MENU_BAR: u32 = 70;
@@ -1568,6 +1570,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             reduce_motion,
             reduce_transparency,
             accent,
+            caret_blink,
         } => {
             let bytes = accent.as_str().as_bytes();
             out.text[..bytes.len()].copy_from_slice(bytes);
@@ -1575,7 +1578,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_PREFERENCES,
                 flag: u8::from(dark) * OXYOS_PREFERENCES_DARK
                     + u8::from(reduce_motion) * OXYOS_PREFERENCES_REDUCE_MOTION
-                    + u8::from(reduce_transparency) * OXYOS_PREFERENCES_REDUCE_TRANSPARENCY,
+                    + u8::from(reduce_transparency) * OXYOS_PREFERENCES_REDUCE_TRANSPARENCY
+                    + u8::from(!caret_blink) * OXYOS_PREFERENCES_STEADY_CARET,
                 ..out
             }
         }

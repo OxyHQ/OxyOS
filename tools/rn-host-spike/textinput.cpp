@@ -3,7 +3,6 @@
 #include <folly/json.h>
 
 #include "input.h"
-#include "input.h"
 #include "report.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
@@ -35,6 +34,7 @@ constexpr uint32_t kKeypadEnter = 96;
 constexpr uint32_t kA = 30, kZ = 44, kX = 45, kC = 46, kV = 47;
 constexpr uint32_t kLeftCtrl = 29, kRightCtrl = 97;
 constexpr uint32_t kLeftShift = 42, kRightShift = 54;
+constexpr uint32_t kLeftAlt = 56, kRightAlt = 100;
 constexpr uint32_t kHome = 102, kUp = 103, kPageUp = 104, kLeft = 105, kRight = 106, kEnd = 107, kDown = 108,
                    kPageDown = 109, kDelete = 111;
 constexpr uint32_t kPrimaryButton = 272;
@@ -113,7 +113,7 @@ std::vector<std::pair<size_t, bool>> wordBoundaries(const std::string& text) {
 }
 
 // The end of the word after `offset` (or the text's end), and the start of the word before it
-// (or the text's start): where Ctrl+Right and Ctrl+Left go.
+// (or the text's start): where Alt+Right and Alt+Left go (a Mac's ⌥→ and ⌥←).
 size_t nextWordEnd(const std::string& text, size_t offset) {
   for (const auto& [at, word] : wordBoundaries(text)) {
     if (at > offset && word) return at;
@@ -251,7 +251,8 @@ TextInputEdit TextEditing::edit() const {
                        .composeStart = composeStart_,
                        .composeEnd = composeEnd_,
                        .segments = segments_,
-                       .scrolls = scrolls_};
+                       .scrolls = scrolls_,
+                       .caretLit = caretLit_};
 }
 
 void TextEditing::focus(Tag tag) {
@@ -331,7 +332,8 @@ void TextEditing::handle(const OxyOSEvent& event) {
   if (event.kind == OXYOS_EVENT_POINTER) return pointer(event);
   if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftShift || event.code == kRightShift)) shift_ = event.flag;
   if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftCtrl || event.code == kRightCtrl)) ctrl_ = event.flag;
-  if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) shift_ = ctrl_ = false;
+  if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftAlt || event.code == kRightAlt)) alt_ = event.flag;
+  if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) shift_ = ctrl_ = alt_ = false;
   if (focused_ < 0) return;
   if (event.kind != OXYOS_EVENT_TEXT && event.kind != OXYOS_EVENT_KEY && event.kind != OXYOS_EVENT_PREEDIT) return;
   auto placement = locate_(focused_);
@@ -521,31 +523,71 @@ void TextEditing::key(uint32_t code, uint64_t serial) {
   size_t from = std::min(anchor_, caret_), to = std::max(anchor_, caret_);
   bool selected = from != to;
   // Editing keys end a composition first, keeping its text.
-  if (code != kLeftShift && code != kRightShift && code != kLeftCtrl && code != kRightCtrl) endComposition();
-  // Ctrl moves and deletes by word; a secure field is one word, as its characters are hidden.
+  bool modifier = code == kLeftShift || code == kRightShift || code == kLeftCtrl || code == kRightCtrl ||
+                  code == kLeftAlt || code == kRightAlt;
+  if (!modifier) endComposition();
+  // A Mac's keys (ADR 0037): Alt (⌥) moves and deletes by word, Ctrl (⌘, the applications' on
+  // OxyOS) to the line's edge, or with Up and Down to the text's. A secure field is one word, as
+  // its characters are hidden.
   bool secure = props->secureTextEntry;
   auto wordBefore = [&](size_t at) { return secure ? 0 : previousWordStart(text_, at); };
   auto wordAfter = [&](size_t at) { return secure ? text_.size() : nextWordEnd(text_, at); };
+  auto lineEdge = [&](size_t at, bool end) {
+    TextInputGeometry geometry(it->second.view, text_);
+    auto [first, last] = geometry.lineEdges(geometry.caret(at).line);
+    return end ? last : first;
+  };
+  // Where a move by word or to the line's edge starts: the caret when extending, else the
+  // selection's side it moves towards.
+  size_t leftFrom = shift_ || !selected ? caret_ : from, rightFrom = shift_ || !selected ? caret_ : to;
   switch (code) {
-    case kBackspace:
+    case kBackspace: {
       if (selected) return replace(from, to, "", "Backspace");
-      return replace(ctrl_ ? wordBefore(caret_) : previousBoundary(text_, caret_), caret_, "", "Backspace");
-    case kDelete:
+      size_t start = alt_ ? wordBefore(caret_) : ctrl_ ? lineEdge(caret_, false) : previousBoundary(text_, caret_);
+      // At the line's start, ⌘⌫ joins it to the line before, as a Backspace.
+      if (start == caret_) start = previousBoundary(text_, caret_);
+      return replace(start, caret_, "", "Backspace");
+    }
+    case kDelete: {
       // A forward delete is no key press on Android (its input connection reports only
       // Backspace, Enter and digits).
       if (selected) return replace(from, to, "", "");
-      return replace(caret_, ctrl_ ? wordAfter(caret_) : nextBoundary(text_, caret_), "", "");
+      size_t end = alt_ ? wordAfter(caret_) : ctrl_ ? lineEdge(caret_, true) : nextBoundary(text_, caret_);
+      if (end == caret_) end = nextBoundary(text_, caret_);
+      return replace(caret_, end, "", "");
+    }
     case kLeft:
+      if (alt_) return select(wordBefore(leftFrom), shift_);
+      if (ctrl_) return select(lineEdge(leftFrom, false), shift_);
       // Without Shift, a selection collapses to its start.
-      if (ctrl_) return select(wordBefore(caret_), shift_);
       return select(shift_ ? previousBoundary(text_, caret_) : selected ? from : previousBoundary(text_, caret_),
                     shift_);
     case kRight:
-      if (ctrl_) return select(wordAfter(caret_), shift_);
+      if (alt_) return select(wordAfter(rightFrom), shift_);
+      if (ctrl_) return select(lineEdge(rightFrom, true), shift_);
       return select(shift_ ? nextBoundary(text_, caret_) : selected ? to : nextBoundary(text_, caret_), shift_);
     case kUp:
-    case kDown:
+    case kDown: {
+      if (ctrl_) return select(code == kUp ? 0 : text_.size(), shift_);
+      if (alt_) {
+        // ⌥↑ and ⌥↓: the paragraph's start or end, or the one before's start or the one after's
+        // end when already there.
+        size_t at = code == kUp ? leftFrom : rightFrom;
+        if (code == kUp) {
+          size_t start = at == 0 ? 0 : text_.rfind('\n', at - 1);
+          start = start == std::string::npos ? 0 : start + 1;
+          if (start == at && at > 0) {
+            size_t before = at - 1 == 0 ? std::string::npos : text_.rfind('\n', at - 2);
+            start = before == std::string::npos ? 0 : before + 1;
+          }
+          return select(start, shift_);
+        }
+        size_t end = text_.find('\n', at);
+        if (end == at) end = text_.find('\n', at + 1);
+        return select(end == std::string::npos ? text_.size() : end, shift_);
+      }
       return vertical(code == kUp, false);
+    }
     case kPageUp:
     case kPageDown:
       return vertical(code == kPageUp, true);
@@ -967,6 +1009,41 @@ void TextEditing::keyPress(const std::string& key) {
                                               RawEvent::Category::Unspecified, eventTime_);
   bool named = key == "Backspace" || key == "Enter";
   Report::get().deliver("keyPress", 0, it->second.view, folly::dynamic::object("key", named ? key : logged(key)));
+}
+
+void TextEditing::setCaretBlinks(bool blinks) {
+  if (blinks == blinks_) return;
+  blinks_ = blinks;
+  blinkFrom_ = std::chrono::steady_clock::now();
+}
+
+void TextEditing::tick(std::chrono::steady_clock::time_point now) {
+  bool lit = true;
+  if (focused_ >= 0) {
+    auto essentials = std::make_tuple(focused_, text_, anchor_, caret_, composeStart_, composeEnd_);
+    if (essentials != blinkedFor_) {
+      blinkedFor_ = std::move(essentials);
+      blinkFrom_ = now;
+    }
+    auto waited = now - blinkFrom_;
+    if (blinks_ && waited < kBlinkTimeout) lit = (waited / kBlinkPeriod) % 2 == 0;
+  } else {
+    std::get<0>(blinkedFor_) = -1;
+  }
+  if (lit == caretLit_) return;
+  caretLit_ = lit;
+  if (auto it = tree_.views().find(focused_); it != tree_.views().end()) {
+    auto placement = locate_(focused_);
+    Report::get().input(lit ? "caret.lit" : "caret.dark", placement ? placement->surface : 0);
+  }
+}
+
+std::optional<std::chrono::steady_clock::time_point> TextEditing::nextBlink() const {
+  // Only a caret blinks: a selection is drawn still.
+  if (!blinks_ || focused_ < 0 || anchor_ != caret_) return std::nullopt;
+  auto waited = std::chrono::steady_clock::now() - blinkFrom_;
+  if (waited >= kBlinkTimeout) return std::nullopt;
+  return blinkFrom_ + kBlinkPeriod * (waited / kBlinkPeriod + 1);
 }
 
 bool TextEditing::secure() const {

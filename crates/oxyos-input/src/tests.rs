@@ -40,6 +40,14 @@ fn tap(keyboard: &mut Keyboard, code: u32) -> Option<String> {
             );
             text
         }
+        Typed::Interrupted { accents, text } => {
+            assert_eq!(
+                released,
+                Typed::Key(None),
+                "its release is the application's"
+            );
+            Some(accents + text.as_deref().unwrap_or(""))
+        }
         Typed::SwitchTerminal(number) => panic!("a terminal switch to {number}, not text"),
         Typed::Terminate => panic!("the end of the session, not text"),
         Typed::Lock => panic!("the lock, not text"),
@@ -134,13 +142,98 @@ fn a_dead_key_composes_with_the_next_key() {
 }
 
 #[test]
-fn a_sequence_that_composes_nothing_types_nothing() {
+fn a_key_that_composes_nothing_with_a_dead_key_types_the_accent_then_itself() {
     let mut es = composing("es");
-    assert_eq!(tap(&mut es, APOSTROPHE), None);
-    // ´ and x compose nothing: the sequence is cancelled, and x is not typed with it.
-    assert_eq!(tap(&mut es, X), None);
+    let interrupted = |accents: &str, text: Option<&str>| Typed::Interrupted {
+        accents: accents.to_string(),
+        text: text.map(str::to_string),
+    };
+    // ´ and x compose nothing: the accent is typed as itself, then x, as on a Mac ("´x"); x is
+    // the application's key, press and release.
+    assert_eq!(press(&mut es, APOSTROPHE), compose_shown("´"));
+    assert_eq!(es.key(X, true), interrupted("´", Some("x")));
+    assert_eq!(es.key(X, false), Typed::Key(None));
     // The keyboard is back to plain keys.
     assert_eq!(tap(&mut es, X).as_deref(), Some("x"));
+    // A key that types nothing (an arrow) gets the accent typed, then moves.
+    const LEFT: u32 = 105;
+    assert_eq!(press(&mut es, APOSTROPHE), compose_shown("´"));
+    assert_eq!(es.key(LEFT, true), interrupted("´", None));
+    assert_eq!(es.key(LEFT, false), Typed::Key(None));
+}
+
+#[test]
+fn escape_and_backspace_cancel_a_dead_key() {
+    const ESCAPE: u32 = 1;
+    let mut es = composing("es");
+    let cancelled = Typed::Compose {
+        composition: String::new(),
+        text: None,
+    };
+    // The composition goes, and the key is the table's: the application sees neither.
+    assert_eq!(press(&mut es, APOSTROPHE), compose_shown("´"));
+    assert_eq!(es.key(ESCAPE, true), cancelled);
+    assert_eq!(es.key(ESCAPE, false), Typed::Nothing);
+    assert_eq!(press(&mut es, APOSTROPHE), compose_shown("´"));
+    assert_eq!(es.key(BACKSPACE, true), cancelled);
+    assert_eq!(es.key(BACKSPACE, false), Typed::Nothing);
+    assert_eq!(tap(&mut es, O).as_deref(), Some("o"));
+}
+
+#[test]
+fn a_compose_key_sequence_that_composes_nothing_types_nothing() {
+    // The compose key (Multi_key, here on the right Alt with `compose:ralt`) shows as a middle
+    // dot, never typed: a sequence it began that composes nothing is cancelled, as GTK's is.
+    const RIGHT_ALT: u32 = 100;
+    let layout = Layout {
+        layout: "us".into(),
+        variant: String::new(),
+        options: "compose:ralt".into(),
+    };
+    let mut us = Keyboard::with_locale(&layout, OsStr::new("en_US.UTF-8")).unwrap();
+    assert!(us.composes());
+    assert_eq!(press(&mut us, RIGHT_ALT), compose_shown("·"));
+    assert_eq!(
+        us.key(ONE, true),
+        Typed::Compose {
+            composition: "·1".into(),
+            text: None
+        }
+    );
+    us.key(ONE, false);
+    // Compose 1 2 is ½.
+    assert_eq!(
+        us.key(2 + 1, true),
+        Typed::Compose {
+            composition: String::new(),
+            text: Some("½".into())
+        }
+    );
+    us.key(2 + 1, false);
+    assert_eq!(press(&mut us, RIGHT_ALT), compose_shown("·"));
+    assert_eq!(
+        us.key(X, true),
+        Typed::Compose {
+            composition: "·x".into(),
+            text: None
+        }
+    );
+    us.key(X, false);
+    assert_eq!(
+        us.key(SEMICOLON, true),
+        Typed::Compose {
+            composition: String::new(),
+            text: None
+        }
+    );
+}
+
+/// What a composition under way shows, nothing typed yet.
+fn compose_shown(composition: &str) -> Typed {
+    Typed::Compose {
+        composition: composition.to_string(),
+        text: None,
+    }
 }
 
 #[test]
@@ -202,9 +295,15 @@ fn a_composition_shows_its_sequence_and_its_keys_are_no_applications() {
     // The dead key shows as its accent; the vowel ends the composition with what it composed.
     assert_eq!(press(&mut es, APOSTROPHE), compose("´", None));
     assert_eq!(press(&mut es, O), compose("", Some("ó")));
-    // A cancelled sequence ends the composition with nothing.
+    // A key that composes nothing with it types the accent, then itself.
     assert_eq!(press(&mut es, APOSTROPHE), compose("´", None));
-    assert_eq!(press(&mut es, X), compose("", None));
+    assert_eq!(
+        press(&mut es, X),
+        Typed::Interrupted {
+            accents: "´".to_string(),
+            text: Some("x".to_string())
+        }
+    );
     // Shift held for a capital stays the application's key; the vowel is the table's.
     assert_eq!(press(&mut es, APOSTROPHE), compose("´", None));
     assert_eq!(es.key(SHIFT, true), Typed::Key(None));

@@ -208,6 +208,12 @@ it settles once the session has a sheet waiting and the shell shows a surface it
 the step, however long after the step's first answer that is (an update is staged, downloaded and
 verified, before its consent is asked), never after a set time.
 
+A `strokes` step types keys as a person does on the session's keyboard (a list of codes or chords,
+[40, 18] being ´ then e on the Spanish layout): through the session's keymap (the scenario's
+`layout`) and compose table (the image's, `config/`), so a dead key composes as on the machine.
+A step's `host_input` expectation counts what the host reported handling in it, by name
+({"caret.dark": 10}).
+
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
 notch at a time: what React and the client receive is then counted per key and per notch. A
@@ -275,7 +281,9 @@ A scenario with `reader` ({"locale": LOCALE}) runs the session's screen reader (
 beside the offscreen compositor unless `--reader` names it) in that locale, its voice a record of
 what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
 
-Every scenario runs with a preferences file of its own, light unless it says otherwise. A scenario
+Every scenario runs with a preferences file of its own, light and with carets that do not blink
+unless it says otherwise (`caret_blink`, ADR 0037): a scenario's `preferences` ({KEY: VALUE}) are
+written in it, with no grant given. A scenario
 with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
 `settings` as a session grants the system application the image's policy names. A step's `preferences` expectation checks
 what the session last told the application of how to draw (dark, reduceMotion,
@@ -458,6 +466,12 @@ def director_args(step, out):
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
+    if kind == "strokes":
+        # Keys typed on the session's keymap and compose table (the scenario's `layout`), one
+        # after the other: each a code or a chord (a list of codes pressed in order), [40, 18]
+        # being ´ then e on the Spanish layout.
+        return args + ["--strokes", " ".join("+".join(map(str, c)) if isinstance(c, list) else str(c)
+                                             for c in value)]
     if kind in ("key", "key_down", "key_up"):
         # A code, or a chord as a list of codes pressed in order (Shift+Right is [42, 106]);
         # `key_down` holds them pressed (Super through the application switcher, ADR 0024) until
@@ -1683,6 +1697,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
         if offsets != expect["scroll_offset"]:
             fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+    if "host_input" in expect:
+        # What the host reported handling in this step (Report::input), counted by name, exactly.
+        counts = {}
+        for line in report:
+            if line["kind"] == "input" and start <= line["t"] <= end and line.get("event") in expect["host_input"]:
+                counts[line["event"]] = counts.get(line["event"], 0) + 1
+        wanted = {name: count for name, count in expect["host_input"].items() if count}
+        if counts != wanted:
+            fail(f"the host handled {counts}, expected exactly {wanted}")
     if "text_scroll" in expect:
         # How far each text input's text was scrolled in this step, by testID: the last value.
         scrolls = {}
@@ -2562,7 +2585,10 @@ def main():
     # otherwise, so what a scenario sees never depends on the time of day it runs at (an automatic
     # appearance follows the sun). With `settings`, the application the session would grant it to.
     preferences = out / "preferences"
-    given = {"appearance": "light", **scenario.get("settings", {}).get("preferences", {})}
+    # Carets stay lit unless the scenario turns blinking on (ADR 0037): a blinking caret never lets
+    # a step's frames settle.
+    given = {"appearance": "light", "caret_blink": "false", **scenario.get("preferences", {}),
+             **scenario.get("settings", {}).get("preferences", {})}
     preferences.write_text("".join(f"{key} = {value}\n" for key, value in given.items()))
     command += ["--preferences", str(preferences)]
     if "settings" in scenario:
@@ -2699,6 +2725,10 @@ def main():
             (directory / name).write_text(json.dumps(content))
     if "locale" in scenario:
         env["LANG"] = env["LC_ALL"] = scenario["locale"]
+    # The session's keyboard composes with the image's compose tables (config/, as CI's tests do),
+    # never the developer's machine's.
+    env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /
+                                     "config/includes.chroot_after_packages/usr/share/X11/locale"))
     if "tz" in scenario:
         env["TZ"] = scenario["tz"]
     recorder = None

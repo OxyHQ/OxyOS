@@ -1,0 +1,82 @@
+{
+  "about": "The caret's blink (docs/adr/0037-text-editing.mdx) with the session's `caret_blink` on, in a Bloom field (sample/EditingProbe.tsx): focused, the caret is lit, then dark and lit again every 500 ms, as Android's Editor blinks it, ten times, and rests lit once the field has waited 10 s (GTK's cursor-blink-timeout); a character typed lights it anew and it blinks ten times again; a selection does not blink. Each step counts exactly the host's blinks, and the step settles only once the caret rests. With the preference off (every other scenario), the host reports no blink at all.",
+  "module": "EditingProbe",
+  "window": [
+    800,
+    480
+  ],
+  "preferences": {
+    "caret_blink": "true"
+  },
+  "steps": [
+    {
+      "name": "focus the line: the caret blinks ten times, then rests lit",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "host_input": {
+          "caret.dark": 10,
+          "caret.lit": 10
+        }
+      }
+    },
+    {
+      "name": "a character typed lights it anew: ten blinks again",
+      "do": [
+        "type",
+        "a"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"a\" [1,1]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "host_input": {
+          "caret.dark": 10,
+          "caret.lit": 10
+        }
+      }
+    },
+    {
+      "name": "a selection is drawn still: no blink",
+      "do": [
+        "key",
+        [
+          42,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"a\" [0,1]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        },
+        "host_input": {
+          "caret.dark": 0,
+          "caret.lit": 0
+        }
+      }
+    }
+  ]
+}

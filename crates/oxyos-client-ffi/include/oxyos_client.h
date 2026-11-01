@@ -237,6 +237,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_PREFERENCES_DARK 1
 #define OXYOS_PREFERENCES_REDUCE_MOTION 2
 #define OXYOS_PREFERENCES_REDUCE_TRANSPARENCY 4
+/* The caret stays lit instead of blinking (docs/adr/0037-text-editing.mdx); never set by a
+ * compositor of protocol version 10 or older. */
+#define OXYOS_PREFERENCES_STEADY_CARET 8
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
 #define OXYOS_POINTER_ENTER 1
@@ -399,7 +402,8 @@ typedef struct OxyOSClient OxyOSClient;
  *   The user's preferences (docs/adr/0019-settings.mdx):
  *   PREFERENCES  to every client, when it connects and whenever they change: flag,
  *               OXYOS_PREFERENCES_* bits (dark: the appearance, an automatic one resolved by the
- *               session; reduce motion; reduce transparency); text: Bloom's accent colour, by name,
+ *               session; reduce motion; reduce transparency; a steady caret); text: Bloom's
+ *               accent colour, by name,
  *               NUL-terminated.
  *   To Settings (the `settings` grant, given by its launch record):
  *   PREFERENCE  a chunk of one preference as kept, `key=value`, all of them when the grant is

@@ -516,8 +516,9 @@ messages! {
         // To every client, when it connects and whenever they change (ADR 0019): the preferences
         // that change how it draws. `dark`, the appearance (an automatic one resolved by the
         // session: dark while the sun is down where the system's time zone is); every transition
-        // takes no time; glass is drawn opaque; Bloom's accent colour, by name.
-        53 => Preferences { dark: bool, reduce_motion: bool, reduce_transparency: bool, accent: PreeditText },
+        // takes no time; glass is drawn opaque; Bloom's accent colour, by name; since version 11,
+        // whether a text field's caret blinks (ADR 0037; a version 10 reader reads that it does).
+        53 => Preferences { dark: bool, reduce_motion: bool, reduce_transparency: bool, accent: PreeditText, caret_blink: bool },
         // To clients with the `settings` grant (ADR 0019): each of the user's preferences as it is
         // kept, `key=value` in chunks as WindowTitle's, all of them when the grant is given and
         // each one that changes.

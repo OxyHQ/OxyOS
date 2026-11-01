@@ -61,9 +61,12 @@ const native = [
   'react-native-worklets/package.json',
 ];
 // Bloom (and what its stylesheet compiles to at run time), every export an application may import
-// but those that are not code (its Tailwind preset, its CSS and token files).
+// but those that are not code an application runs (its Tailwind preset, its CSS and token files,
+// and its Expo config plugin, `app.plugin.js`, which Expo's prebuild runs under Node and which
+// needs Node's modules, as `assert`).
 const bloomManifest = JSON.parse(fs.readFileSync(path.join(bloom, 'package.json'), 'utf8'));
-const notCode = new Set(['./package.json', './tailwind-preset', './design-tokens/theme.css', './design-tokens/tokens.json']);
+const notCode = new Set(['./package.json', './tailwind-preset', './design-tokens/theme.css', './design-tokens/tokens.json',
+  './app.plugin.js']);
 const bloomExports = [];
 for (const subpath of Object.keys(bloomManifest.exports)) {
   if (notCode.has(subpath)) continue;
