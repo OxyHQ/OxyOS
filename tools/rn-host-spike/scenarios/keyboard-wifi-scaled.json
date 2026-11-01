@@ -1,0 +1,504 @@
+{
+ "about": "A Wi-Fi network joined through Control Center with the keyboard alone (docs/adr/0039-keyboard-access.mdx, ADR 0038), over a played NetworkManager: Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F8 puts the keyboard on the top bar's network item, as a Mac's Control-F8; Space opens Control Center at Wi-Fi's view on its first control; Tab goes through its switch and networks, each said once with its state, lock and signal; Space on Vecinos asks its password in the system sheet, which takes the keyboard and says itself; Tab goes round the sheet's controls and never out of it; Return in its field joins, and its joining is said once; Escape closes Control Center, the keyboard back on the status item, and Escape gives Allo the keyboard back. At 1.25 (1600 × 1000).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   },
+   {
+    "ssid": "Vecinos",
+    "strength": 30,
+    "security": "wpa",
+    "password": "hunter22!"
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "secrets": [
+  "hunter22!"
+ ],
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Allo's window; the top bar's network item shows Wi-Fi joined; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "network": {
+     "active": "LukeSkyRouter"
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F8 puts the keyboard on the top bar's first status item, the network's, its ring around it, said once; Allo hears nothing",
+   "do": [
+    "key",
+    [
+     125,
+     66
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Wi-Fi: LukeSkyRouter",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi: LukeSkyRouter, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Control Center at Wi-Fi's view, which takes the keyboard on its first control",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-back",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Volver al centro de control",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Volver al centro de control, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Wi-Fi's switch, on, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-switch",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the network joined, with its state, lock and signal, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-network-LukeSkyRouter",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "LukeSkyRouter, conectada, protegida, señal 3 de 3, seleccionado, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: an open network, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-network-Café Libre",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Café Libre, señal 2 de 3, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Vecinos, protected, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-network-Vecinos",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Vecinos, protegida, señal 1 de 3, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space joins Vecinos: its password sheet takes the keyboard, its field focused, and says itself once",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2."
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2.",
+      "live": false
+     }
+    ],
+    "spoken": [
+     {
+      "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2.",
+      "interrupting": true
+     }
+    ]
+   },
+   "until_sheet": true
+  },
+  {
+   "name": "The password typed goes to the sheet's field alone",
+   "do": [
+    "type",
+    "hunter22!"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab in the sheet: its field's reveal button; the sheet holds the keyboard, nothing behind it is reached",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "Mostrar contraseña, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Cancel",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "system-sheet-refuse",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Cancelar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Join, enabled now the password can be one",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "system-sheet-accept",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Conectarse, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab goes round to the field, never out of the sheet: its text selected, its value never said",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "system-sheet-password",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Return joins: the sheet goes, the daemon holds Vecinos, and its joining is said once",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "network": {
+     "active": "Vecinos"
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-back",
+      "ring": true
+     }
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Conectado a Vecinos",
+      "live": false
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Volver al centro de control, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Conectado a Vecinos",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "Escape closes Control Center: the keyboard back on the status item",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi: Vecinos, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape leaves the status items: the keyboard back with Allo, no ring left",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "at_absent": {
+     "shell": [
+      {
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

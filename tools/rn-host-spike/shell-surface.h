@@ -42,6 +42,10 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // Whether the region asks for the keyboard (the top bar from the keyboard, docs/adr/0024-system-
   // shortcuts.mdx): the host asks the compositor for its surface's focus, citing the latest input.
   bool keyboard{false};
+  // Where the keyboard's focus goes once the region has the keyboard (keyboard-focus.h): "first",
+  // its first control, or the testID of one; each new `focusRequest` asks again.
+  std::string focusTarget{};
+  int focusRequest{0};
   // Whether its surface is left out of every screenshot (the screenshot interface itself and its
   // thumbnail, docs/adr/0024-system-shortcuts.mdx, decision 10).
   bool excludeFromCapture{false};
@@ -93,6 +97,14 @@ class ShellSurfaceHost {
   std::optional<uint32_t> lockSurface() const;
   // The surface of the region asking for the keyboard (its `keyboard` prop), once it is open.
   std::optional<uint32_t> keyboardRegion() const;
+  // The keyboard region's request for the keyboard's focus (its `focusTarget`, `focusRequest`).
+  struct FocusRequest {
+    uint32_t surface = 0;
+    facebook::react::Tag region = -1;
+    std::string target;
+    int request = 0;
+  };
+  std::optional<FocusRequest> focusRequest() const;
   // What a region's surface shows, for input; nullopt for any other surface.
   std::optional<SurfaceContent> content(uint32_t surface) const;
 
@@ -122,6 +134,8 @@ class ShellSurfaceHost {
     // Whether the compositor was told to leave its surface out of captures (ADR 0024).
     bool excluded = false;
   };
+  // The region asking for the keyboard: of several, the newest.
+  std::optional<facebook::react::Tag> keyboardTag() const;
   // Tells the compositor a region's `excludeFromCapture` when it differs from what it was told.
   void exclude(Region& region, const facebook::react::OxyOSShellSurfaceProps& props);
   // Sends a region's windows shown live if they changed since last sent; true if they did.

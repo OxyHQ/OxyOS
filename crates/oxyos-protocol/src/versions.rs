@@ -5,6 +5,7 @@
 //! it, and refused from it.
 
 use crate::schema::{Event, Request};
+use crate::wire::SystemShortcut;
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io::{self, Read, Write};
 
@@ -65,8 +66,18 @@ fn since(added: Added, opcode: u8) -> u16 {
         .map_or(2, |(version, _)| *version)
 }
 
-/// The version that introduced an event: it is never sent to a connection of an older one.
+/// The version that introduced an event: it is never sent to a connection of an older one. An
+/// event an older version had, carrying a value that version lacks, is the newer version's too:
+/// version 12's system shortcuts to the dock and to the status items (ADR 0039), which a version 11
+/// reader would refuse as a value outside its set.
 pub fn event_since(event: &Event) -> u16 {
+    if let Event::SystemShortcut {
+        shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
+        ..
+    } = event
+    {
+        return 12;
+    }
     since(EVENTS_ADDED, event.opcode())
 }
 

@@ -759,6 +759,34 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   }
 
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  // The keyboard's focus ring (keyboard-focus.h), drawn once the view and its subtree are, over
+  // them and outside the view, within what clips the view: a band of the system's blue, half
+  // opaque, a pixel off the view's edge and following its corners, as a Mac draws its keyboard
+  // focus ring around a control.
+  struct FocusRing {
+    SkCanvas* canvas = nullptr;
+    SkRRect box;
+    ~FocusRing() {
+      if (!canvas) return;
+      SkPaint paint(SkColor4f{0.0f, 0.478f, 1.0f, 0.55f});
+      paint.setAntiAlias(true);
+      paint.setStyle(SkPaint::kStroke_Style);
+      paint.setStrokeWidth(3);
+      canvas->drawRRect(box, paint);
+    }
+  } ring;
+  if (draw.edit && draw.edit->focusRing == tag && w > 0 && h > 0 &&
+      touches(draw, x - kFocusRingReach, y - kFocusRingReach, w + 2 * kFocusRingReach, h + 2 * kFocusRingReach)) {
+    auto border = props ? props->resolveBorderMetrics(view.layoutMetrics) : BorderMetrics{};
+    // The band's middle 2.5 pixels outside the edge: from 1 to 4 pixels off it.
+    constexpr float kOff = 2.5f;
+    SkVector radii[4] = {{border.borderRadii.topLeft.horizontal + kOff, border.borderRadii.topLeft.vertical + kOff},
+                         {border.borderRadii.topRight.horizontal + kOff, border.borderRadii.topRight.vertical + kOff},
+                         {border.borderRadii.bottomRight.horizontal + kOff, border.borderRadii.bottomRight.vertical + kOff},
+                         {border.borderRadii.bottomLeft.horizontal + kOff, border.borderRadii.bottomLeft.vertical + kOff}};
+    ring.box.setRectRadii(SkRect::MakeXYWH(x - kOff, y - kOff, w + 2 * kOff, h + 2 * kOff), radii);
+    ring.canvas = draw.canvas;
+  }
   // Debug aid: OXYOS_HOST_DUMP=1 prints every drawn view, indented by depth.
   static const bool dump = std::getenv("OXYOS_HOST_DUMP") != nullptr;
   static int depth = 0;

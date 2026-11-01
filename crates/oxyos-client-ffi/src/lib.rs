@@ -244,6 +244,8 @@ pub const OXYOS_SHORTCUT_SWITCHER_DONE: u32 = 5;
 pub const OXYOS_SHORTCUT_SWITCHER_CANCEL: u32 = 6;
 pub const OXYOS_SHORTCUT_SEARCH: u32 = 7;
 pub const OXYOS_SHORTCUT_MENU_BAR: u32 = 8;
+pub const OXYOS_SHORTCUT_DOCK: u32 = 9;
+pub const OXYOS_SHORTCUT_STATUS_MENUS: u32 = 10;
 /// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
 /// screenshot interface to show or change (serial: a user input of its own, the same until the
 /// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:

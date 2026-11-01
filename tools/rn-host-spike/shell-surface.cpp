@@ -31,6 +31,8 @@ OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context
       edge(convertRawProp(context, rawProps, "edge", sourceProps.edge, std::string("top"))),
       exclusive(convertRawProp(context, rawProps, "exclusive", sourceProps.exclusive, false)),
       keyboard(convertRawProp(context, rawProps, "keyboard", sourceProps.keyboard, false)),
+      focusTarget(convertRawProp(context, rawProps, "focusTarget", sourceProps.focusTarget, std::string())),
+      focusRequest(convertRawProp(context, rawProps, "focusRequest", sourceProps.focusRequest, 0)),
       excludeFromCapture(
           convertRawProp(context, rawProps, "excludeFromCapture", sourceProps.excludeFromCapture, false)) {}
 
@@ -366,13 +368,32 @@ std::optional<uint32_t> ShellSurfaceHost::surfaceOf(Tag view) const {
 }
 
 std::optional<uint32_t> ShellSurfaceHost::keyboardRegion() const {
+  auto asking = keyboardTag();
+  if (!asking) return std::nullopt;
+  return regions_.at(*asking).surface;
+}
+
+std::optional<Tag> ShellSurfaceHost::keyboardTag() const {
+  // Of several regions asking, the one shown last (a sheet over the Control Center that asked
+  // first): the newest region has the highest tag.
+  std::optional<Tag> asking;
   for (const auto& [tag, region] : regions_) {
     auto view = tree_.views().find(tag);
     if (view == tree_.views().end() || region.surface == 0) continue;
     auto props = std::dynamic_pointer_cast<const facebook::react::OxyOSShellSurfaceProps>(view->second.view.props);
-    if (props && props->keyboard) return region.surface;
+    if (props && props->keyboard) asking = tag;
   }
-  return std::nullopt;
+  return asking;
+}
+
+std::optional<ShellSurfaceHost::FocusRequest> ShellSurfaceHost::focusRequest() const {
+  auto asking = keyboardTag();
+  if (!asking) return std::nullopt;
+  auto props = std::dynamic_pointer_cast<const facebook::react::OxyOSShellSurfaceProps>(
+      tree_.views().at(*asking).view.props);
+  if (!props || props->focusTarget.empty()) return std::nullopt;
+  return FocusRequest{.surface = regions_.at(*asking).surface, .region = *asking, .target = props->focusTarget,
+                      .request = props->focusRequest};
 }
 
 std::optional<uint32_t> ShellSurfaceHost::lockSurface() const {

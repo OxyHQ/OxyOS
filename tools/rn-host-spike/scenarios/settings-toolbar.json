@@ -51,7 +51,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -185,7 +185,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -301,7 +301,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -415,7 +415,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -531,7 +531,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -645,7 +645,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -761,7 +761,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -875,7 +875,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [
@@ -991,7 +991,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Settings"
       },
       "items": [

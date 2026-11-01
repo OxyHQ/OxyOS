@@ -1191,9 +1191,14 @@ fn menu_kinds_fields_and_flags_are_closed_sets() {
 #[test]
 fn system_shortcuts_are_a_closed_set() {
     assert!(SystemShortcut::from_raw(0).is_none());
-    assert!(SystemShortcut::from_raw(9).is_none());
+    assert!(SystemShortcut::from_raw(11).is_none());
     assert_eq!(SystemShortcut::from_raw(7), Some(SystemShortcut::Search));
     assert_eq!(SystemShortcut::from_raw(8), Some(SystemShortcut::MenuBar));
+    assert_eq!(SystemShortcut::from_raw(9), Some(SystemShortcut::Dock));
+    assert_eq!(
+        SystemShortcut::from_raw(10),
+        Some(SystemShortcut::StatusMenus)
+    );
     let mut bytes = Vec::new();
     write_event(
         &mut bytes,
@@ -2083,4 +2088,35 @@ fn drags_are_version_10_and_never_written_for_version_9() {
         action: DragActions::COPY
     }
     .carries_fd());
+}
+
+#[test]
+fn version_12_shortcuts_are_never_sent_to_an_older_client() {
+    for shortcut in [SystemShortcut::Dock, SystemShortcut::StatusMenus] {
+        let event = Event::SystemShortcut {
+            shortcut,
+            serial: 3,
+            output: 1,
+        };
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 11).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 12).unwrap());
+        assert_eq!(
+            read_event_for(&mut Cursor::new(new.clone()), 12).unwrap(),
+            event
+        );
+        // A version 11 reader refuses it.
+        assert!(read_event_for(&mut Cursor::new(new), 11).is_err());
+    }
+    // The shortcuts version 11 had are still sent to it.
+    let menu_bar = Event::SystemShortcut {
+        shortcut: SystemShortcut::MenuBar,
+        serial: 3,
+        output: 1,
+    };
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &menu_bar, 11).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(old), 11).unwrap(), menu_bar);
 }

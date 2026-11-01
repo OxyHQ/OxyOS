@@ -334,6 +334,15 @@ void TextEditing::focus(Tag tag, std::optional<size_t> at) {
   if (tracing()) std::cerr << "[text] focus " << tag << " \"" << logged(text_) << "\" caret " << caret_ << "\n";
 }
 
+void TextEditing::focusFromKeyboard(Tag tag) {
+  press_.reset();
+  focus(tag);
+  if (focused_ != tag || (anchor_ == 0 && caret_ == text_.size())) return;
+  anchor_ = 0;
+  caret_ = text_.size();
+  selectionChanged();
+}
+
 void TextEditing::blur() {
   auto it = tree_.views().find(focused_);
   Tag tag = focused_;

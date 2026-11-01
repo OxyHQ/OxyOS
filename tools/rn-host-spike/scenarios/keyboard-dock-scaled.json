@@ -1,0 +1,513 @@
+{
+ "about": "Full Keyboard Access to the dock (docs/adr/0039-keyboard-access.mdx), as a Mac's Control-F3: Allo (sample/EditingProbe.tsx) with the shell and the development registry, the screen reader on in Spanish. Super+F3 puts the keyboard on the dock's first icon with its ring; → goes along it; Space opens Inbox; Super+F3 again and → reach it, ↑ opens its menu, End and Return quit it; Escape gives Allo the keyboard back. Every step checks the keyboard's focus, what the assistive technology holds, what the screen reader says (each icon once) and what is announced. At 1.25 (1600 × 1000).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Allo's window, its field without focus; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F3 puts the keyboard on the dock's first icon, its ring around it, said once; Allo hears nothing of the keys",
+   "do": [
+    "key",
+    [
+     125,
+     61
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-launcher",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir aplicaciones",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Abrir aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ goes along the dock to escritorios",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-overview",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Ver escritorios",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Ver escritorios, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ goes along the dock to Stash",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.stash",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir Stash",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Abrir Stash, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ goes along the dock to Atlas",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.atlas",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir Atlas",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Abrir Atlas, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ goes along the dock to Inbox",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.inbox",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir Inbox",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Abrir Inbox, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Inbox: the session starts it, its window takes the keyboard, the dock lets it go",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F3 again: the keyboard on the dock's first icon",
+   "do": [
+    "key",
+    [
+     125,
+     61
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-launcher",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Abrir aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ to escritorios",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-overview",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Ver escritorios, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ to Stash",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.stash",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Abrir Stash, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ to Atlas",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.atlas",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Abrir Atlas, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ to Inbox",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.inbox",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Abrir Inbox, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "↑ opens Inbox's menu above its icon, as a Mac's Dock: named Inbox and said as a menu",
+   "do": [
+    "key",
+    [
+     103
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Menu",
+       "name": "Inbox"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Inbox, menú",
+      "interrupting": true
+     },
+     {
+      "text": "Inbox, marcada, casilla",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "End goes to its last row, Quit",
+   "do": [
+    "key",
+    [
+     107
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "MenuItem",
+       "name": "Salir",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Salir, elemento de menú",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Return quits Inbox: it is asked to close; the menu goes and the keyboard is back on its icon",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {
+     "launched": {
+      "close.requested": 1
+     }
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-so.oxy.inbox",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir Inbox",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Abrir Inbox, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape leaves the dock: the keyboard back with Allo, no ring left in the dock",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "at_absent": {
+     "shell": [
+      {
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

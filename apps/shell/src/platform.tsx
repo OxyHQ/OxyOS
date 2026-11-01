@@ -23,6 +23,11 @@ export type ShellSurfaceProps = {
   /** Whether the region asks for the keyboard (the top bar driven from the keyboard): the
       platform gives it, citing the person's latest input. */
   keyboard?: boolean;
+  /** Where the keyboard's focus goes once the region has the keyboard: "first", its first
+      control, or a control's testID (docs/adr/0039-keyboard-access.mdx). */
+  focusTarget?: string;
+  /** Each new value puts the keyboard's focus on `focusTarget` again. */
+  focusRequest?: number;
   /** The keyboard, once the region had it, went elsewhere (a press in a window). */
   onKeyboardLost?: () => void;
   /** Whether no screenshot captures the region (the screenshot interface itself, its thumbnail,

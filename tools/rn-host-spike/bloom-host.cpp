@@ -14,6 +14,7 @@
 #include "host-modules.h"
 #include "turbo-module-cache.h"
 #include "key-chords.h"
+#include "keyboard-focus.h"
 #include "images.h"
 #include "input.h"
 #include "android-view-props.h"
@@ -52,6 +53,7 @@
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
 #include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/components/root/RootComponentDescriptor.h>
+#include <react/renderer/components/view/BaseViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
@@ -1323,6 +1325,198 @@ int main(int argc, char** argv) {
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
+    // Keyboard focus beyond text fields (keyboard-focus.h, docs/adr/0039-keyboard-access.mdx): the
+    // control Tab reached, its ring, and where it goes back to when a modal leaves.
+    oxyos::KeyboardFocus keyboardFocus(tree);
+    // The modifiers held on the keyboard, for its navigation keys.
+    bool heldShift = false, heldCtrl = false, heldAlt = false, heldMeta = false;
+    // The view the keyboard navigates in a surface: the window's (its topmost modal while one is
+    // shown) or a shell region's, either narrowed to a view marked modal; none in a popup, whose
+    // keys are its own (Bloom's popup navigation).
+    auto navigationScope = [&](uint32_t surface) -> facebook::react::Tag {
+      if (surface == 0) return -1;
+      if (shellMode) {
+        auto content = shellSurfaces.content(surface);
+        return content ? oxyos::navigationRoot(tree, content->view) : -1;
+      }
+      if (surface != oxyos::Window::kToplevel || tree.root() < 0) return -1;
+      auto shown = oxyos::modals(tree);
+      return oxyos::navigationRoot(tree, shown.empty() ? tree.root() : shown.back());
+    };
+    auto insideOf = [&](facebook::react::Tag tag, facebook::react::Tag root) {
+      auto path = oxyos::ancestry(tree, tag);
+      return std::find(path.begin(), path.end(), root) != path.end();
+    };
+    // The scroll views around a focused control bring it into view, as Android's requestFocus asks
+    // its parents to (ScrollView.requestChildFocus).
+    auto reveal = [&](facebook::react::Tag tag, uint32_t surface) {
+      auto frame = oxyos::windowFrame(tree, tag);
+      if (!frame) return;
+      auto path = oxyos::ancestry(tree, tag);
+      for (auto at = path.rbegin() + 1; at < path.rend(); ++at) {
+        const auto& view = tree.views().at(*at).view;
+        if (std::string(view.componentName ? view.componentName : "") != "ScrollView") continue;
+        auto box = oxyos::windowFrame(tree, *at);
+        if (!box) continue;
+        constexpr float kMargin = 8;
+        float dy = 0, dx = 0;
+        if (frame->origin.y < box->origin.y) dy = frame->origin.y - box->origin.y - kMargin;
+        else if (frame->getMaxY() > box->getMaxY()) dy = frame->getMaxY() - box->getMaxY() + kMargin;
+        if (frame->origin.x < box->origin.x) dx = frame->origin.x - box->origin.x - kMargin;
+        else if (frame->getMaxX() > box->getMaxX()) dx = frame->getMaxX() - box->getMaxX() + kMargin;
+        if (dx != 0 || dy != 0) pointer.scrollView(*at, dx, dy, surface);
+        return;
+      }
+    };
+    auto redrawFocus = [&] {
+      dirty = true;
+      popups.changed();
+      shellSurfaces.changed();
+    };
+    // Keyboard focus to `target` (-1: none), its ring shown if the keyboard moved it: the control
+    // left is told it blurred and the one reached that it is focused (React Native's onBlur and
+    // onFocus, Pressability's), a text input through the text editing; the assistive technology's
+    // focus follows, as VoiceOver's cursor follows the keyboard's.
+    auto moveKeyboardFocus = [&](facebook::react::Tag target, bool ring, uint32_t surface) {
+      auto previous = keyboardFocus.focused();
+      if (previous == target) {
+        if (ring != keyboardFocus.ringShown()) redrawFocus();
+        keyboardFocus.set(target, ring);
+        return;
+      }
+      auto emitterOf = [&](facebook::react::Tag tag) -> std::shared_ptr<const facebook::react::BaseViewEventEmitter> {
+        auto it = tree.views().find(tag);
+        if (it == tree.views().end()) return nullptr;
+        return std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(it->second.view.eventEmitter);
+      };
+      if (previous >= 0 && !oxyos::editableInput(tree, previous)) {
+        if (auto emitter = emitterOf(previous)) {
+          emitter->onBlur();
+          oxyos::Report::get().deliver("blur", surface, tree.views().at(previous).view);
+        }
+      }
+      keyboardFocus.set(target, ring);
+      if (target >= 0 && oxyos::editableInput(tree, target)) {
+        editing.focusFromKeyboard(target);
+      } else {
+        // The field left is blurred only when the keyboard moved off it within its surface (Tab
+        // from a field to a button), never a field another surface focused meanwhile (a sheet's
+        // password field, focused as it appears).
+        auto field = editing.focused();
+        if (field >= 0 && (field == previous || (target >= 0 && insideOf(field, navigationScope(surface))))) {
+          editing.unfocus();
+        }
+        if (auto emitter = target >= 0 ? emitterOf(target) : nullptr) {
+          emitter->onFocus();
+          oxyos::Report::get().deliver("focus", surface, tree.views().at(target).view);
+        }
+      }
+      if (target >= 0) {
+        accessibility.focus(target);
+        reveal(target, surface);
+      }
+      oxyos::Report::get().input("keyboard.focus", surface,
+                                 folly::dynamic::object("ring", ring)(
+                                     "target", target >= 0 ? oxyos::Report::name(tree.views().at(target).view) : ""));
+      redrawFocus();
+    };
+    // The navigation's view as last seen for the surface with the keyboard: a modal coming takes the
+    // keyboard to its first control and remembers where it was; one going gives it back there.
+    facebook::react::Tag lastScope = -1;
+    uint32_t lastScopeSurface = 0;
+    // Each shell region's focus request last carried out, while it holds the keyboard.
+    std::map<facebook::react::Tag, std::optional<int>> focusRequestsApplied;
+    auto followScope = [&] {
+      auto scope = navigationScope(keyboardSurface);
+      if (scope == lastScope && keyboardSurface == lastScopeSurface) {
+        keyboardFocus.prune();
+        return;
+      }
+      auto was = lastScope;
+      bool sameSurface = keyboardSurface == lastScopeSurface;
+      lastScope = scope;
+      lastScopeSurface = keyboardSurface;
+      if (!sameSurface || scope < 0) {
+        keyboardFocus.prune();
+        // The keyboard went to another surface of this client's: focus left behind in a surface
+        // that no longer has it goes (the dock left for the window), unless the keyboard went to a
+        // popup, which gives it back (a menu opened from a focused button).
+        auto focused = keyboardFocus.focused();
+        if (scope >= 0 && focused >= 0 && !insideOf(focused, scope) && !oxyos::editableInput(tree, focused)) {
+          moveKeyboardFocus(-1, false, lastScopeSurface);
+        }
+        return;
+      }
+      bool ring = keyboardFocus.ringShown();
+      if (was >= 0 && tree.views().count(was) && insideOf(scope, was) && scope != was) {
+        // A modal came over what had the keyboard.
+        keyboardFocus.remember(scope, keyboardFocus.focused());
+        if (ring) {
+          auto first = oxyos::focusables(tree, scope);
+          moveKeyboardFocus(first.empty() ? -1 : first.front(), true, keyboardSurface);
+        }
+      } else if (was >= 0) {
+        // The modal went: the keyboard back where it was before it.
+        auto back = keyboardFocus.recall(was);
+        keyboardFocus.prune();
+        if (back >= 0 && oxyos::focusable(tree, back) && insideOf(back, scope)) {
+          moveKeyboardFocus(back, ring, keyboardSurface);
+        }
+      }
+      keyboardFocus.prune();
+    };
+    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement };
+    // What a key press is to the keyboard's navigation, if anything.
+    auto navigationKey = [&](const OxyOSEvent& event) -> std::optional<NavigationKey> {
+      if (event.kind != OXYOS_EVENT_KEY || !event.flag || heldCtrl || heldAlt || heldMeta) return std::nullopt;
+      constexpr uint32_t kTab = 15, kSpace = 57, kReturn = 28, kNumpadEnter = 96, kUp = 103, kLeft = 105,
+                         kRight = 106, kDown = 108;
+      auto scope = navigationScope(event.surface);
+      if (scope < 0) return std::nullopt;
+      if (event.code == kTab) return heldShift ? NavigationKey::Previous : NavigationKey::Next;
+      // A field the person focused with a press is where Tab goes on from, and keeps its keys.
+      auto focused = editing.focused() >= 0 ? editing.focused() : keyboardFocus.focused();
+      if (focused < 0 || !insideOf(focused, scope) || oxyos::editableInput(tree, focused) ||
+          !oxyos::focusable(tree, focused) || !keyboardFocus.ringShown()) {
+        return std::nullopt;
+      }
+      if (!heldShift && (event.code == kSpace || event.code == kReturn || event.code == kNumpadEnter)) {
+        return NavigationKey::Activate;
+      }
+      if (event.code == kUp || event.code == kDown || event.code == kLeft || event.code == kRight) {
+        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(focused).view.props);
+        bool up = event.code == kUp || event.code == kRight;
+        std::string action = up ? "increment" : "decrement";
+        bool offers = props && std::any_of(props->accessibilityActions.begin(), props->accessibilityActions.end(),
+                                           [&](const auto& declared) { return declared.name == action; });
+        if (offers) return up ? NavigationKey::Increment : NavigationKey::Decrement;
+      }
+      return std::nullopt;
+    };
+    auto navigate = [&](const OxyOSEvent& event, NavigationKey key) {
+      if (key == NavigationKey::Next || key == NavigationKey::Previous) {
+        if (editing.focused() >= 0 && keyboardFocus.focused() != editing.focused()) {
+          keyboardFocus.set(editing.focused(), false);
+        }
+        auto target = keyboardFocus.next(navigationScope(event.surface), key == NavigationKey::Previous);
+        if (target >= 0) moveKeyboardFocus(target, true, event.surface);
+        return;
+      }
+      const auto& shadow = tree.views().at(keyboardFocus.focused()).view;
+      if (key == NavigationKey::Activate) {
+        // As an assistive technology's activation: React Native's click, which Pressability
+        // answers with onPress.
+        shadow.eventEmitter->dispatchEvent("click", folly::dynamic::object());
+        oxyos::Report::get().deliver("click", event.surface, shadow, folly::dynamic::object("key", event.code));
+        return;
+      }
+      std::string action = key == NavigationKey::Increment ? "increment" : "decrement";
+      if (auto emitter = std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(shadow.eventEmitter)) {
+        emitter->onAccessibilityAction(action);
+        oxyos::Report::get().deliver("accessibilityAction", event.surface, shadow,
+                                     folly::dynamic::object("actionName", action));
+      }
+    };
     // Accessibility focus, as Android's accessibility focus (separate from input focus): the
     // view a screen reader would be on. No assistive technology reads it yet; the tree marks it.
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
@@ -1350,6 +1544,13 @@ int main(int argc, char** argv) {
         dirty = true;
         popups.changed();
         shellSurfaces.changed();
+        // While the keyboard is navigating, the application's focus moves (Bloom giving a closed
+        // menu's or dialog's trigger the focus back) take the keyboard's with them.
+        auto scope = navigationScope(keyboardSurface);
+        if (keyboardFocus.ringShown() && scope >= 0 && view.tag != keyboardFocus.focused() &&
+            oxyos::focusable(tree, view.tag) && insideOf(view.tag, scope)) {
+          moveKeyboardFocus(view.tag, true, keyboardSurface);
+        }
       }
     };
     int idleTurns = 0;  // turns in a row that found nothing to do
@@ -1511,10 +1712,38 @@ int main(int argc, char** argv) {
                 diagnostics.closeAsked("the session");
                 oxyos::Report::get().input("close.requested", event.surface);
               }
+              if (event.kind == OXYOS_EVENT_KEY) {
+                bool down = event.flag != 0;
+                switch (event.code) {
+                  case 42: case 54: heldShift = down; break;
+                  case 29: case 97: heldCtrl = down; break;
+                  case 56: case 100: heldAlt = down; break;
+                  case 125: case 126: heldMeta = down; break;
+                  default: break;
+                }
+              }
+              if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) heldShift = heldCtrl = heldAlt = heldMeta = false;
+              // A press of the pointer hides the keyboard's ring, as Android's touch mode does, and
+              // takes focus off a control that is no text input (a press focuses inputs itself).
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && keyboardFocus.focused() >= 0) {
+                if (oxyos::editableInput(tree, keyboardFocus.focused())) {
+                  if (keyboardFocus.ringShown()) redrawFocus();
+                  keyboardFocus.pressed();
+                } else {
+                  moveKeyboardFocus(-1, false, event.surface);
+                }
+              }
               // A key press is offered to JavaScript first (Bloom's menu shortcuts, ADR 0021); one
               // it takes, and that key's release, go no further.
+              // Full Keyboard Access (keyboard-focus.h): Tab and Shift+Tab move through the controls
+              // of the surface with the keyboard; Space and Return activate the focused control and
+              // the arrows step an adjustable one, as a Mac's do with Full Keyboard Access on. The
+              // focused control has these keys before the application's own (a Mac's first
+              // responder before the window's key handling), so a list's Space never takes a
+              // toolbar button's.
+              auto platformKey = navigationKey(event);
               bool keyTaken = false;
-              if (event.kind == OXYOS_EVENT_KEY && services.keyboard.listener) {
+              if (event.kind == OXYOS_EVENT_KEY && services.keyboard.listener && !platformKey) {
                 if (keyChords.swallow(event)) {
                   keyTaken = true;
                 } else if (auto offered = keyChords.press(event)) {
@@ -1558,6 +1787,11 @@ int main(int argc, char** argv) {
                 shellSurfaces.changed();
               }
               if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
+              // Full Keyboard Access: the key the platform took acts now, its press recorded.
+              if (platformKey) {
+                navigate(event, *platformKey);
+                return;
+              }
               // Escape is the desktop's back: the topmost modal is asked to close, as Android's
               // back asks a modal's window.
               constexpr uint32_t kEscape = 1;
@@ -1744,8 +1978,10 @@ int main(int argc, char** argv) {
                                           "switcher-done",
                                           "switcher-cancel",
                                           "search",
-                                          "menu-bar"};
-          const char* action = shortcut.detail <= OXYOS_SHORTCUT_MENU_BAR ? actions[shortcut.detail] : "";
+                                          "menu-bar",
+                                          "dock",
+                                          "status-menus"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_STATUS_MENUS ? actions[shortcut.detail] : "";
           folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
@@ -1893,9 +2129,44 @@ int main(int argc, char** argv) {
           editing.setWindow(key, window->drawing().dark);
         }
         editing.tick(std::chrono::steady_clock::now());
-        bool edited = editing.edit() != drawn;
+        // The keyboard's navigation follows a modal coming and going; its ring is drawn with the
+        // focused control.
+        followScope();
+        // A shell region given the keyboard puts its focus where it asks (its `focusTarget`).
+        if (shellMode) {
+          if (auto asked = shellSurfaces.focusRequest(); asked && keyboardSurface == asked->surface) {
+            auto& applied = focusRequestsApplied[asked->region];
+            if (!applied || *applied != asked->request) {
+              applied = asked->request;
+              auto root = oxyos::navigationRoot(tree, asked->region);
+              auto all = oxyos::focusables(tree, root);
+              facebook::react::Tag target = -1;
+              for (auto tag : all) {
+                auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(tag).view.props);
+                if (asked->target == "first" || (props && props->testId == asked->target)) {
+                  target = tag;
+                  break;
+                }
+              }
+              if (target >= 0) moveKeyboardFocus(target, true, asked->surface);
+            }
+          }
+          for (auto it = focusRequestsApplied.begin(); it != focusRequestsApplied.end();) {
+            auto asked = shellSurfaces.focusRequest();
+            bool holding = asked && asked->region == it->first && keyboardSurface == asked->surface;
+            it = holding ? std::next(it) : focusRequestsApplied.erase(it);
+          }
+        }
+        auto shownEdit = editing.edit();
+        // The ring shows while the surface the keyboard focused has the keyboard (or a popup of its
+        // own, a menu opened from it): never in a window or a panel the keyboard left.
+        bool ringHere = keyboardFocus.ringShown() && keyboardSurface != 0 &&
+                        (popups.content(keyboardSurface) ||
+                         insideOf(keyboardFocus.focused(), navigationScope(keyboardSurface)));
+        shownEdit.focusRing = ringHere ? keyboardFocus.focused() : -1;
+        bool edited = shownEdit != drawn;
         if (edited) {
-          drawn = editing.edit();
+          drawn = std::move(shownEdit);
           dirty = true;
           popups.changed();
           shellSurfaces.changed();

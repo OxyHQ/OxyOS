@@ -185,7 +185,11 @@ export type ShellCommand = {
     | "switcher-done"
     | "switcher-cancel"
     // Super+F2: the keyboard to the top bar's menus, as a Mac's Control-F2.
-    | "menu-bar";
+    | "menu-bar"
+    // Super+F3 and Super+F8: the keyboard to the dock and to the status items, as a Mac's
+    // Control-F3 and Control-F8 (docs/adr/0039-keyboard-access.mdx).
+    | "dock"
+    | "status-menus";
 };
 
 /** Whether `window` is the application `appId`'s: its id, given by the session's launch record

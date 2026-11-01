@@ -1,0 +1,446 @@
+{
+ "about": "Full Keyboard Access in Stash (docs/adr/0039-keyboard-access.mdx): Tab goes through its sidebar's rows, its items (one stop) and its toolbar in reading order, each control focused with its ring, told to React (focus and blur) and said once by the screen reader; Shift+Tab goes back; Space presses the focused toolbar button before Stash's own Space. At 1.25 (1600 × 1000).",
+ "module": "Stash",
+ "window": [
+  1024,
+  680
+ ],
+ "app": {
+  "id": "so.oxy.stash",
+  "title": "Stash"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Pictures/": "",
+   "notes.txt": "hello",
+   "Documents/report.txt": "r",
+   "Pictures/photo.jpg": "x"
+  }
+ },
+ "reader": {
+  "locale": "en_US.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Stash's home; the reader on; nothing has the keyboard's focus",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the sidebar's first row, Home, selected, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@home": 1
+    },
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "home, selected, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Documents, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@Documents": 1,
+     "blur@home": 1
+    },
+    "keyboard_focus": {
+     "target": "Documents",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Documents, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Pictures, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@Pictures": 1,
+     "blur@Documents": 1
+    },
+    "keyboard_focus": {
+     "target": "Pictures",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Pictures, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Oxy Files, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@Oxy Files": 1,
+     "blur@Pictures": 1
+    },
+    "keyboard_focus": {
+     "target": "Oxy Files",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Oxy Files, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Photos, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@Photos": 1,
+     "blur@Oxy Files": 1
+    },
+    "keyboard_focus": {
+     "target": "Photos",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Photos, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Trash, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@Trash": 1,
+     "blur@Photos": 1
+    },
+    "keyboard_focus": {
+     "target": "Trash",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Trash, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the sidebar's Stash button, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@sidebar-logo": 1,
+     "blur@Trash": 1
+    },
+    "keyboard_focus": {
+     "target": "sidebar-logo",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Stash, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the items, one stop: the list of the folder shown, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@home": 1,
+     "blur@sidebar-logo": 1
+    },
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "home, list",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the toolbar's first control, Hide Sidebar, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@sidebar-toggle": 1,
+     "blur@home": 1
+    },
+    "keyboard_focus": {
+     "target": "sidebar-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Hide Sidebar, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: as Icons, the view shown, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@view-icons": 1,
+     "blur@sidebar-toggle": 1
+    },
+    "keyboard_focus": {
+     "target": "view-icons",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "as Icons, selected, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: as List, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@view-list": 1,
+     "blur@view-icons": 1
+    },
+    "keyboard_focus": {
+     "target": "view-list",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "as List, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Show Preview, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@preview-toggle": 1,
+     "blur@view-list": 1
+    },
+    "keyboard_focus": {
+     "target": "preview-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Show Preview, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the search field, focused as a field, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@search": 1,
+     "blur@preview-toggle": 1,
+     "selectionChange@search": 1
+    },
+    "keyboard_focus": {
+     "target": "search",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Search, search field",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab goes back to Show Preview: the field it leaves ends its editing",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@search": 1,
+     "endEditing@search": 1,
+     "focus@preview-toggle": 1
+    },
+    "keyboard_focus": {
+     "target": "preview-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Show Preview, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space presses it: the preview shows and the button, now Hide Preview, is said; the list's own Space (Quick Look) never takes the key",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "click@preview-toggle": 1
+    },
+    "keyboard_focus": {
+     "target": "preview-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Hide Preview, selected, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}

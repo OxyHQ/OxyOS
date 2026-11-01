@@ -4,7 +4,7 @@
  * OxyOS, natively and in the browser: only the model differs (docs/adr/0015-application-model.mdx).
  */
 import * as React from "react";
-import { PanResponder, Pressable, View } from "react-native";
+import { AccessibilityInfo, PanResponder, Pressable, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { Dialog } from "@oxy.so/bloom/dialog";
@@ -199,7 +199,9 @@ function AppearancePage({ snapshot, actions, strings }: PageProps) {
                     key={name}
                     testID={`accent-${name}`}
                     accessibilityRole="radio"
-                    accessibilityLabel={preset.label ?? name}
+                    // By its colour's name in the session's language (Bloom's `label` is the colour of
+                    // the text on the accent, not its name).
+                    accessibilityLabel={words.accents[name] ?? name}
                     accessibilityState={{ checked: chosen }}
                     onPress={() => actions.setPreference("accent", name)}
                     style={{
@@ -833,6 +835,8 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
                   appearance="outline"
                   tone="neutral"
                   testID={`software-update-${row.id}-update`}
+                  // Each row's button names its application: several say "Update" on screen.
+                  accessibilityLabel={words.updateLabel(row.name)}
                   onPress={() => act.update(row.id)}
                 >
                   {words.update}
@@ -1003,6 +1007,16 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
     const timer = setInterval(act.scan, SCAN_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [scanning, act]);
+  // A network joined is said once, as it connects, as VoiceOver hears a Mac's Wi-Fi join: the
+  // row it was joined from goes, so nothing focused would say it.
+  const joinedName =
+    state?.available && state.wifi.device && state.wifi.state === "connected" ? currentNetwork(state.wifi)?.ssid ?? "" : "";
+  const saidJoined = React.useRef(joinedName);
+  React.useEffect(() => {
+    if (joinedName === saidJoined.current) return;
+    saidJoined.current = joinedName;
+    if (joinedName) AccessibilityInfo.announceForAccessibility(words.joined(joinedName));
+  }, [joinedName]);
   if (!state || !act || !state.available) return <Notice title={words.unavailable} testID="wifi-unavailable" />;
   const wifi = state.wifi;
   if (!wifi.device) return <Notice title={words.noDevice} testID="wifi-no-device" />;
@@ -1013,8 +1027,12 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
   const others = otherNetworks(wifi.networks);
   const join = async (ssid: string) => {
     const reason = failureOf(await act.join(ssid));
-    if (joinFailureNeedsNote(reason))
-      showNote({ title: words.couldNotJoin(ssid), description: failureLabel(reason, words.failures, "join") });
+    if (joinFailureNeedsNote(reason)) {
+      const note = { title: words.couldNotJoin(ssid), description: failureLabel(reason, words.failures, "join") };
+      showNote(note);
+      // Said as it shows: the note's dialog does not take the screen reader's focus.
+      AccessibilityInfo.announceForAccessibility(`${note.title}. ${note.description}`);
+    }
   };
   const forget = async (known: KnownNetwork) => {
     const reason = failureOf(await act.forget(known.id));

@@ -23,6 +23,7 @@ import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
+import type { ShellKeyboard } from "../platform";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
     and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
@@ -221,12 +222,34 @@ const STATUS_SLOP = { top: 8, bottom: 8, left: 6, right: 6 };
 /** The network's status item (docs/adr/0038-networks.mdx, decision 6): Wi-Fi's signal, or the
     Ethernet icon while only a cable is connected. Pressed, it opens the Control Center at its
     Wi-Fi view, where the platform gives `onPress`. */
+/** The network item's testID where it is a button, as `NetworkItem` names it; none where it
+    shows nothing. */
+function networkItem(network: ShellNetwork | undefined): string | undefined {
+  if (!network) return undefined;
+  const ethernet = network.wifi !== "connected" && network.wired;
+  if (ethernet) return "shell-ethernet";
+  return wifiLabel(network) === undefined ? undefined : "shell-wifi";
+}
+
+/** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx). */
+function statusItems(network: ShellNetwork | undefined): string[] {
+  const first = networkItem(network);
+  return [...(first ? [first] : []), "shell-search", "shell-control-center", "shell-clock"];
+}
+
+/** The status item Super+F8 puts the keyboard on, as a Mac's Control-F8 its first status menu. */
+export function firstStatusItem(network: ShellNetwork | undefined): string {
+  return statusItems(network)[0];
+}
+
 const NetworkItem = memo(function NetworkItem({
   network,
   onPress,
+  onItemFocus,
 }: {
   network: ShellNetwork;
   onPress?: () => void;
+  onItemFocus?: (testID: string) => void;
 }) {
   const ethernet = network.wifi !== "connected" && network.wired;
   const wifi = ethernet ? undefined : wifiLabel(network);
@@ -253,6 +276,7 @@ const NetworkItem = memo(function NetworkItem({
       colors={TRANSPARENT_WHITE}
       hitSlop={STATUS_SLOP}
       onPress={onPress}
+      onFocus={() => onItemFocus?.(testID)}
     />
   );
 });
@@ -268,21 +292,25 @@ const TIME_FORMAT = { hour: "2-digit", minute: "2-digit" } as const;
 const BarButtons = memo(function BarButtons({
   launcher,
   controlCenter,
+  onItemFocus,
 }: {
   launcher: () => void;
   controlCenter: () => void;
+  onItemFocus?: (testID: string) => void;
 }) {
   return (
     <>
       <Button
         iconOnly
         icon={RiSearchLine}
+        testID="shell-search"
         accessibilityLabel="Buscar aplicaciones"
         appearance="plain"
         style={searchStyle}
         iconSize={13}
         colors={TRANSPARENT_WHITE}
         onPress={launcher}
+        onFocus={() => onItemFocus?.("shell-search")}
       />
       <Button
         iconOnly
@@ -294,24 +322,36 @@ const BarButtons = memo(function BarButtons({
         className="h-7 w-[22px] border-0 bg-transparent p-0"
         colors={TRANSPARENT_WHITE}
         onPress={controlCenter}
+        onFocus={() => onItemFocus?.("shell-control-center")}
       />
     </>
   );
 });
 
 /** The clock: the date and the time, which open the Notification Center. */
-const Clock = memo(function Clock({ now, onPress }: { now: Date; onPress?: () => void }) {
+const Clock = memo(function Clock({
+  now,
+  onPress,
+  onItemFocus,
+}: {
+  now: Date;
+  onPress?: () => void;
+  onItemFocus?: (testID: string) => void;
+}) {
+  const date = now.toLocaleDateString("es", DATE_FORMAT);
+  const time = now.toLocaleTimeString("es", TIME_FORMAT);
   return (
     <Button
       testID="shell-clock"
       appearance="plain"
       accessibilityLabel="Centro de notificaciones"
+      onFocus={() => onItemFocus?.("shell-clock")}
       // Where the clock's text always was (its old `ml-1`), now pressable.
       style={clockStyle}
       onPress={onPress}
     >
       <Text className="text-[12px] leading-4 font-normal text-white">
-        {now.toLocaleDateString("es", DATE_FORMAT)} {now.toLocaleTimeString("es", TIME_FORMAT)}
+        {date} {time}
       </Text>
     </Button>
   );
@@ -472,6 +512,9 @@ export const TopBar = memo(function TopBar({
   keyboardLost = 0,
   onKeyboard,
   returnKeyboard,
+  statusKeys,
+  moveStatusFocus,
+  leaveStatus,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
@@ -499,7 +542,40 @@ export const TopBar = memo(function TopBar({
   onKeyboard?: (wanted: boolean) => void;
   /** Gives the keyboard back to the window that had it (the active one), as the bar is left. */
   returnKeyboard?: () => void;
+  /** The bar's keys while the keyboard is on its status items (Super+F8): ← → go along them,
+      Escape leaves them; Tab and Space are the platform's. */
+  statusKeys?: ShellKeyboard;
+  moveStatusFocus?: (testID: string) => void;
+  leaveStatus?: () => void;
 }) {
+  // The status item the keyboard is on, as the platform focuses it.
+  const focusedItem = useRef<string | null>(null);
+  const items = statusItems(network);
+  const latestItems = useRef(items);
+  latestItems.current = items;
+  useEffect(() => {
+    if (!statusKeys) {
+      focusedItem.current = null;
+      return undefined;
+    }
+    return statusKeys.subscribe((event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+      if (event.key === "Escape") {
+        leaveStatus?.();
+        return true;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
+      const all = latestItems.current;
+      const at = focusedItem.current ? all.indexOf(focusedItem.current) : -1;
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      const next = all[(Math.max(at, 0) + step + all.length) % all.length];
+      if (next) moveStatusFocus?.(next);
+      return true;
+    });
+  }, [statusKeys, moveStatusFocus, leaveStatus]);
+  const onItemFocus = useCallback((testID: string) => {
+    focusedItem.current = testID;
+  }, []);
   return (
     <Box
       testID="shell-topbar"
@@ -520,10 +596,10 @@ export const TopBar = memo(function TopBar({
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
           {power && <BatteryItem power={power} />}
-          {network && <NetworkItem network={network} onPress={networkStatus} />}
+          {network && <NetworkItem network={network} onPress={networkStatus} onItemFocus={onItemFocus} />}
         </Box>
-        <BarButtons launcher={launcher} controlCenter={controlCenter} />
-        <Clock now={now} onPress={clock} />
+        <BarButtons launcher={launcher} controlCenter={controlCenter} onItemFocus={onItemFocus} />
+        <Clock now={now} onPress={clock} onItemFocus={onItemFocus} />
       </Box>
     </Box>
   );
