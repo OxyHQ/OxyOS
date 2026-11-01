@@ -106,6 +106,9 @@ export type ShellActions = {
   /** The Trash: shown in the file manager, and emptied (the platform asks the person first). */
   openTrash?: () => void;
   emptyTrash?: () => void;
+  /** Files dropped on the dock's Trash (`file://` URIs), put in it by the platform, citing the drop
+      (docs/adr/0035-drag-and-drop.mdx). */
+  trashFiles?: (uris: readonly string[]) => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is

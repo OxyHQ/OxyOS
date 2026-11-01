@@ -1,0 +1,105 @@
+{
+  "about": "The dock's Trash takes files dropped on it (docs/adr/0035-drag-and-drop.mdx, decision 12): sample/DragProbe.tsx (Allo) drags a file of the run's home through the platform's drag onto the Trash at the dock's end, Bloom's DropZone there taking files with a move alone, as a Mac's; the shell asks the session with the drop's serial (TrashFiles) and the file is in the home's Trash, gone from the home, the source learning the move; only the source and the shell's surfaces under the pointer (its desktop, then its dock) were told of the drag. Text dragged onto the Trash is no file: the Trash takes nothing, the drag ends with nothing dropped, the home as it was. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
+  "module": "DragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe",
+      "notes.txt": "keep me"
+    }
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "a file dragged onto the Trash: it is in the home's Trash, the source learns the move",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Abrir Papelera",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: move"
+        ],
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "shell_drags": {
+            "drag.drop": 1,
+            "drag.enter": 2,
+            "drag.leave": 1
+          }
+        },
+        "home": {
+          "notes.txt": "keep me",
+          "trash": [
+            "informe.txt"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text dragged onto the Trash: it takes nothing, nothing is dropped",
+      "do": [
+        "drag_paced_named",
+        [
+          "Hola OxyOS",
+          "Abrir Papelera",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: none"
+        ],
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "shell_drags": {
+            "drag.enter": 2,
+            "drag.leave": 2
+          }
+        },
+        "home": {
+          "notes.txt": "keep me",
+          "trash": [
+            "informe.txt"
+          ]
+        }
+      }
+    }
+  ]
+}

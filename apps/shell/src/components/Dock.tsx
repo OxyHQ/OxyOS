@@ -14,6 +14,7 @@ import {
   ContextMenuTrigger,
 } from "@oxy.so/bloom/context-menu";
 import { Tooltip, TooltipTextBubble, TooltipTrigger } from "@oxy.so/bloom/tooltip";
+import { DropZone, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
 import { Box, Scroll } from "../primitives";
 import { AppIcon } from "../apps";
@@ -26,6 +27,7 @@ import {
   keepInDock,
   openAtLogin,
   trashMenu,
+  trashedByDrop,
   type DockAbilities,
   type DockCommand,
   type DockMenuItem,
@@ -266,6 +268,42 @@ const DockIcon = memo(function DockIcon({
   );
 });
 
+const TRASH_ACCEPT = ["files"] as const;
+const TRASH_ACTIONS = ["move"] as const;
+const TRASH_TARGETED = { backgroundColor: "rgba(0, 0, 0, 0.22)" } as const;
+
+/**
+ * The Trash as a drop target (docs/adr/0035-drag-and-drop.mdx): files dragged from any
+ * application onto it, with a move alone (a Mac's Trash), are put in it by the platform; while a
+ * drag it would take is over it, its row darkens, as a Mac's Dock marks the Trash it is over.
+ */
+const TrashDrop = memo(function TrashDrop({
+  trashFiles,
+  children,
+}: {
+  trashFiles: (uris: readonly string[]) => void;
+  children: React.ReactNode;
+}) {
+  const [targeted, setTargeted] = useState(false);
+  const enter = useCallback(() => setTargeted(true), []);
+  const leave = useCallback(() => setTargeted(false), []);
+  const drop = useCallback(
+    ({ data }: DropTargetDropEvent) => {
+      setTargeted(false);
+      const uris = trashedByDrop(data.files);
+      if (uris.length > 0) trashFiles(uris);
+    },
+    [trashFiles],
+  );
+  return (
+    <DropZone testID="dock-trash-drop" accept={TRASH_ACCEPT} actions={TRASH_ACTIONS} onDragEnter={enter} onDragLeave={leave} onDrop={drop}>
+      <Box testID={targeted ? "dock-trash-targeted" : undefined} className="rounded-full" style={targeted ? TRASH_TARGETED : undefined}>
+        {children}
+      </Box>
+    </DropZone>
+  );
+});
+
 /** The applications with a window, in the registry's order, as one string: the same while the
     same applications run, whatever else changes of their windows (a size, a title). */
 function runningKey(applications: readonly ShellApplication[], windows: readonly ShellWindow[]): string {
@@ -380,6 +418,7 @@ export const Dock = memo(function Dock({
     return <MenuRows items={items} run={(command) => run(menu.id, command)} />;
   }, [menu, applications, windows, activeAppId, atLogin, abilities, trash, actions, run]);
   const openTrash = useCallback(() => actions.openTrash?.(), [actions]);
+  const trashFiles = actions.trashFiles;
   const shelfStyle = useMemo(
     () => ({
       backgroundColor: colors.shelf,
@@ -445,21 +484,36 @@ export const Dock = memo(function Dock({
           <>
             {/* The Trash sits past a divider at the dock's end, as a Mac's. */}
             <Box style={dividerStyle} />
-            <DockIcon
-              id={TRASH}
-              name="Papelera"
-              testID="dock-trash"
-              label="Abrir Papelera"
-              menu={menu?.id === TRASH ? menu : null}
-              setMenu={setMenu}
-              activate={openTrash}
-              rows={menu?.id === TRASH ? rows : null}
-            />
+            {trashFiles ? (
+              <TrashDrop trashFiles={trashFiles}>
+                <DockIcon
+                  id={TRASH}
+                  name="Papelera"
+                  testID="dock-trash"
+                  label="Abrir Papelera"
+                  menu={menu?.id === TRASH ? menu : null}
+                  setMenu={setMenu}
+                  activate={openTrash}
+                  rows={menu?.id === TRASH ? rows : null}
+                />
+              </TrashDrop>
+            ) : (
+              <DockIcon
+                id={TRASH}
+                name="Papelera"
+                testID="dock-trash"
+                label="Abrir Papelera"
+                menu={menu?.id === TRASH ? menu : null}
+                setMenu={setMenu}
+                activate={openTrash}
+                rows={menu?.id === TRASH ? rows : null}
+              />
+            )}
           </>
         )}
       </Scroll>
     ),
-    [apps, running, colors, view, menu, rows, trash, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle],
+    [apps, running, colors, view, menu, rows, trash, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle],
   );
   return (
     <Box

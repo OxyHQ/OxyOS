@@ -226,7 +226,9 @@ A step may aim at what is on screen by its accessible name instead of a point: `
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
-(`Abrir Inbox`), so a change of the dock's row moves no scenario's press. A `wait_named` step
+(`Abrir Inbox`), so a change of the dock's row moves no scenario's press; `drag_paced_named`
+([from, to, motions, hz] and optionally the motion Escape follows) is a paced drag from one node
+to another (a file onto the dock's Trash, ADR 0035). A `wait_named` step
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
 named on a shown surface, and fails if none is within `ms`: an answer that comes on the application's
 own clock (a store that is down, asked again until the application says so) is waited for as it
@@ -375,7 +377,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu"}
 
@@ -472,6 +474,10 @@ def director_args(step, out):
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
         return args + ["--scroll-paced", ",".join(map(str, value))]
+    if kind == "drag_paced_named":
+        # A paced drag from the node of one accessible name to the node of another (a file onto the
+        # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035).
+        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
     if kind in ("press_named", "press_secondary_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
         # its label), wherever it is when the step runs.

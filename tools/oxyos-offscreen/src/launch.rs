@@ -59,6 +59,17 @@ pub enum Step {
         name: String,
         ms: u32,
     },
+    /// A paced drag (`DragPaced`) from the middle of the node named `from` to the middle of the
+    /// node named `to`, as the assistive technology holds them: a file dragged onto the dock's
+    /// Trash, wherever the dock's row places it (docs/adr/0035-drag-and-drop.mdx). Resolved to a
+    /// `DragPaced` as it is run.
+    DragPacedNamed {
+        from: String,
+        to: String,
+        motions: u32,
+        hz: u32,
+        escape_after: Option<u32>,
+    },
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
     DoublePress { x: i32, y: i32 },
@@ -252,6 +263,13 @@ impl Step {
                 format!("press at ({x}, {y}) on the output held {ms} ms")
             }
             Step::Named { kind, name, ms } => format!("{kind:?} at {name:?} ({ms} ms)"),
+            Step::DragPacedNamed {
+                from,
+                to,
+                motions,
+                hz,
+                ..
+            } => format!("drag from {from:?} to {to:?} in {motions} motions at {hz} Hz"),
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
             Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
             Step::DoubleDrag { from, to } => format!("double press at {from:?} dragged to {to:?}"),
@@ -356,6 +374,18 @@ impl Step {
             Step::Named { kind, name, ms } => {
                 format!("\"named\":[\"{kind:?}\",{},{ms}]", json_string(name))
             }
+            Step::DragPacedNamed {
+                from,
+                to,
+                motions,
+                hz,
+                escape_after,
+            } => format!(
+                "\"drag_paced_named\":[{},{},{motions},{hz}{}]",
+                json_string(from),
+                json_string(to),
+                escape_after.map_or(String::new(), |at| format!(",{at}"))
+            ),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
             Step::DoubleDrag { from, to } => {
@@ -956,6 +986,27 @@ impl Launch {
                         kind,
                         name: name.to_string(),
                         ms,
+                    }
+                }
+                Some("--drag-paced-named") => {
+                    let value = args.next();
+                    let given = value
+                        .and_then(|v| v.to_str())
+                        .map_or(0, |v| v.split(',').count());
+                    let n = numbers(value, if given == 3 { 3 } else { 2 })?;
+                    if n[0] < 1 || n[1] < 1 {
+                        return Err(
+                            "--drag-paced-named needs at least one motion at 1 Hz or more".into(),
+                        );
+                    }
+                    let from = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    let to = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    Step::DragPacedNamed {
+                        from: from.to_string(),
+                        to: to.to_string(),
+                        motions: n[0] as u32,
+                        hz: n[1] as u32,
+                        escape_after: n.get(2).map(|at| *at as u32),
                     }
                 }
                 Some("--hold-output") => {
@@ -2236,6 +2287,26 @@ fn act(
 /// named so on the topmost shown surface that has one, as the assistive technology holds it (its
 /// rectangle in global coordinates, ADR 0003). Any other step as it is.
 fn named_step(session: &Session, step: &Step) -> Result<Step> {
+    if let Step::DragPacedNamed {
+        from,
+        to,
+        motions,
+        hz,
+        escape_after,
+    } = step
+    {
+        let at = |name: &str| {
+            named_point(session, name)
+                .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))
+        };
+        return Ok(Step::DragPaced {
+            from: at(from)?,
+            to: at(to)?,
+            motions: *motions,
+            hz: *hz,
+            escape_after: *escape_after,
+        });
+    }
     let Step::Named { kind, name, ms } = step else {
         return Ok(step.clone());
     };
@@ -2817,8 +2888,8 @@ fn drag_paced(
     hz: u32,
     escape_after: Option<u32>,
 ) -> Result<String> {
-    inside_output(from)?;
-    inside_output(to)?;
+    inside_output(&session.compositor, from)?;
+    inside_output(&session.compositor, to)?;
     let key = SurfaceKey {
         client: CLIENT,
         id: WINDOW,
@@ -3333,11 +3404,16 @@ fn press_paced(
     Ok(())
 }
 
-fn inside_output((x, y): (i32, i32)) -> Result<()> {
-    if OUTPUT.contains_point(x, y) {
+/// A point on one of the session's outputs (a scaled one's logical pixels).
+fn inside_output(compositor: &Compositor, (x, y): (i32, i32)) -> Result<()> {
+    if compositor
+        .screens
+        .iter()
+        .any(|screen| screen.rect.contains_point(x, y))
+    {
         Ok(())
     } else {
-        Err(format!("({x}, {y}) is outside the output {OUTPUT:?}").into())
+        Err(format!("({x}, {y}) is outside every output").into())
     }
 }
 
@@ -3565,7 +3641,9 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
         // Resolved to the output's step before it is run (`named_step`).
-        Step::Named { .. } => return Err("a named step is resolved before it is run".into()),
+        Step::Named { .. } | Step::DragPacedNamed { .. } => {
+            return Err("a named step is resolved before it is run".into())
+        }
     }
     Ok(())
 }
