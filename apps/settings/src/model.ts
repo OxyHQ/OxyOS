@@ -18,6 +18,8 @@ export type Preferences = {
   accent: string;
   reduceMotion: boolean;
   reduceTransparency: boolean;
+  /** A text field's caret blinks (docs/adr/0037-text-editing.mdx); off, it stays lit. */
+  caretBlink: boolean;
   /** The wallpaper's folder; null is the session's own. */
   wallpaper: string | null;
   /** Minutes idle before the session locks; 0 never. */
@@ -100,6 +102,7 @@ export const PREFERENCE_KEYS = {
   accent: "accent",
   reduceMotion: "reduce_motion",
   reduceTransparency: "reduce_transparency",
+  caretBlink: "caret_blink",
   wallpaper: "wallpaper",
   lockAfter: "lock_after",
   screenReader: "screen_reader",
@@ -202,6 +205,12 @@ export function besideOthers(
 export function preferenceText<K extends keyof Preferences>(value: Preferences[K]): string {
   if (value === null) return "";
   return String(value);
+}
+
+/** Accessibility's "Prefer non-blinking cursor", as macOS names and places it: on is the session's
+    `caret_blink` off, so every text field's caret stays lit. */
+export function prefersSteadyCaret(preferences: Pick<Preferences, "caretBlink">): boolean {
+  return !preferences.caretBlink;
 }
 
 /** The choices of how long before the session locks, in minutes (0: never). */

@@ -9,6 +9,7 @@ import {
   looksLike,
   PREFERENCE_KEYS,
   preferenceText,
+  prefersSteadyCaret,
   refreshRates,
   resolutions,
   type Display,
@@ -19,6 +20,7 @@ test("preferences are named as the session's file names them", () => {
   assert.deepEqual(Object.values(PREFERENCE_KEYS).sort(), [
     "accent",
     "appearance",
+    "caret_blink",
     "clock_24h",
     "do_not_disturb",
     "lock_after",
@@ -33,6 +35,20 @@ test("preferences are named as the session's file names them", () => {
   assert.equal(preferenceText<"lockAfter">(15), "15");
   assert.equal(preferenceText<"notificationPreviews">("always"), "always");
   assert.equal(preferenceText<"doNotDisturb">(false), "false");
+});
+
+test("Prefer non-blinking cursor is the session's caret_blink turned around", () => {
+  assert.equal(PREFERENCE_KEYS.caretBlink, "caret_blink");
+  // Carets blink by default (crates/oxyos-preferences): the switch is off.
+  assert.equal(prefersSteadyCaret({ caretBlink: true }), false);
+  assert.equal(prefersSteadyCaret({ caretBlink: false }), true);
+  // As the session's file writes it.
+  assert.equal(preferenceText<"caretBlink">(false), "false");
+  assert.equal(preferenceText<"caretBlink">(true), "true");
+  // Named as macOS names it, in Accessibility, in both languages.
+  assert.equal(stringsFor("en").accessibility.steadyCaret, "Prefer non-blinking cursor");
+  assert.equal(stringsFor("es").accessibility.steadyCaret, "Preferir cursor sin parpadeo");
+  assert.ok(stringsFor("es").accessibility.steadyCaretDescription.length > 0);
 });
 
 test("lock after offers never, and a day at most", () => {

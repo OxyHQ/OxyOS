@@ -530,6 +530,16 @@ impl Session {
         }
     }
 
+    /// The companion application's client (`--companion`), once it has connected.
+    fn companion_client(&self) -> Option<ClientId> {
+        let pid = self.companion?;
+        self.compositor
+            .peers
+            .iter()
+            .find(|(_, peer)| peer.pid as u32 == pid)
+            .map(|(client, _)| *client)
+    }
+
     /// Starts the applications the shell asked for that the registry lists, and answers it;
     /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {

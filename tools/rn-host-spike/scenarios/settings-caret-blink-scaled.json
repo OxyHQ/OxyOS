@@ -1,0 +1,417 @@
+{
+  "about": "Settings' \"Prefer non-blinking cursor\" (apps/settings, Accessibility, where macOS 14 places its own; docs/adr/0037-text-editing.mdx, decision 4): the switch is the session's `caret_blink` turned around, off while carets blink (the default). Another application, sample/EditingProbe.tsx started beside Settings (`companion`), has a field focused, whose caret blinks ten times and rests. The switch pressed on: the session keeps `caret_blink = false` and tells every application at once (`Preferences`, protocol version 11), Settings and the other alike; back in the field, a character typed, which lights a blinking caret anew, gives no blink. The switch pressed off: the other application's caret blinks again at once, ten times, and a character typed there blinks ten times again. The switch pressed on once more: the preferences file keeps `caret_blink = false`. The switch is drawn in the accent when on. Each step checks exactly the React events each application received, the input the compositor delivered each, and the blinks the other application's host reported. At scale 1.25.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "outputs": "2400x1350@1.25",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy",
+      "caret_blink": "true"
+    }
+  },
+  "companion": {
+    "module": "EditingProbe",
+    "window": [
+      440,
+      320
+    ],
+    "at": [
+      1460,
+      120
+    ]
+  },
+  "steps": [
+    {
+      "name": "another application's field focused (sample/EditingProbe.tsx, the companion): its caret blinks ten times, as Android's Editor blinks it, then rests lit; Settings receives nothing",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@line": 1,
+            "touchEnd@line": 1,
+            "focus@line": 1,
+            "selectionChange@line": 1
+          },
+          "host_input": {
+            "caret.dark": 10,
+            "caret.lit": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "Accessibility: \"Prefer non-blinking cursor\" is off, as the session keeps carets blinking; its switch is what a press there lands on",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Accessibility"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Prefer non-blinking cursor",
+          "The cursor in text fields stays lit instead of blinking."
+        ],
+        "react": {
+          "click@settings-nav-accessibility": 1
+        },
+        "delivered": {
+          "companion": {}
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": []
+            }
+          ]
+        },
+        "at_hit": {
+          "890,291": {
+            "role": "Switch",
+            "name": "Prefer non-blinking cursor"
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        },
+        "output_pixels": {
+          "1690,665": "#e9dce3",
+          "1730,665": "#8c798d"
+        }
+      }
+    },
+    {
+      "name": "the switch pressed on: the session keeps caret_blink off and tells every application at once, Settings and the other alike",
+      "do": [
+        "press",
+        [
+          890,
+          291
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "caretBlink": false
+        },
+        "react": {
+          "touchStart@steady-caret-switch": 1,
+          "touchEnd@steady-caret-switch": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "in_companion": {
+          "react": {},
+          "preferences": {
+            "caretBlink": false
+          },
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        },
+        "output_pixels": {
+          "1690,665": "#9422ae",
+          "1730,665": "#ffeefc"
+        }
+      }
+    },
+    {
+      "name": "back in the other application's field: the caret stays lit",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@line": 1,
+            "touchEnd@line": 1
+          },
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "a character typed there, which lights a blinking caret anew: no blink",
+      "do": [
+        "type",
+        "a"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "text_input": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Line: \"a\" [1,1]"
+          ],
+          "react": {
+            "keyPress@line": 1,
+            "change@line": 1,
+            "selectionChange@line": 1
+          },
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "the switch pressed off: the session keeps caret_blink on, and the other application's caret blinks again at once, ten times, then rests",
+      "do": [
+        "press",
+        [
+          890,
+          291
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "caretBlink": true
+        },
+        "react": {
+          "touchStart@steady-caret-switch": 1,
+          "touchEnd@steady-caret-switch": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": []
+            }
+          ]
+        },
+        "in_companion": {
+          "react": {},
+          "preferences": {
+            "caretBlink": true
+          },
+          "host_input": {
+            "caret.dark": 10,
+            "caret.lit": 10
+          }
+        },
+        "output_pixels": {
+          "1690,665": "#e9dce3",
+          "1730,665": "#8c798d"
+        }
+      }
+    },
+    {
+      "name": "back in the other application's field, its caret resting",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@line": 1,
+            "touchEnd@line": 1
+          },
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "a character typed there lights it anew: ten blinks",
+      "do": [
+        "type",
+        "b"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "text_input": 1
+          }
+        },
+        "in_companion": {
+          "texts": [
+            "Line: \"ab\" [2,2]"
+          ],
+          "react": {
+            "keyPress@line": 1,
+            "change@line": 1,
+            "selectionChange@line": 1
+          },
+          "host_input": {
+            "caret.dark": 10,
+            "caret.lit": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "the switch pressed on again: kept, and told to both",
+      "do": [
+        "press",
+        [
+          890,
+          291
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "caretBlink": false
+        },
+        "react": {
+          "touchStart@steady-caret-switch": 1,
+          "touchEnd@steady-caret-switch": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "in_companion": {
+          "react": {},
+          "preferences": {
+            "caretBlink": false
+          },
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        },
+        "output_pixels": {
+          "1690,665": "#9422ae",
+          "1730,665": "#ffeefc"
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "caret_blink": "false",
+      "reduce_motion": "false",
+      "reduce_transparency": "false"
+    }
+  }
+}

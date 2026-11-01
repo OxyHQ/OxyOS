@@ -66,7 +66,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - **Displays:** as a Mac's, each display the session shows: their arrangement (dragged, or moved to a side by its accessible actions) and the main display, and for the one chosen in it its scale ("Larger text" to "More space", each choice what the display looks like then), resolution and refresh rate, a resolution kept only once confirmed ("Keep these display settings?"). Changed through the session, which applies them live and keeps them by each display's identity ([ADR 0018](./0018-several-displays), decision 10); not preferences of this file's keys;
      - **Keyboard:** the layout;
      - **Date and time:** the time zone, automatic time, the 24-hour clock;
-     - **Accessibility:** the screen reader, reduce motion, reduce transparency;
+     - **Accessibility:** the screen reader, reduce motion, reduce transparency, and "Prefer non-blinking cursor" (`caret_blink` off, as macOS names and places it, [ADR 0037](./0037-text-editing));
      - **About:** the computer's name, OxyOS's version from `os-release`, the processor, memory and display.
    - **Its model.** Like the shell, it reads its state and sends its changes through a model of its own (`SettingsSnapshot` and its actions):
      - on OxyOS, the host module `OxyOSSettings`, which only a client with the grant has;

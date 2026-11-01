@@ -246,9 +246,10 @@ own clock (a store that is down, asked again until the application says so) is w
 shows, never for a set time it might outlast.
 
 A step settles once what the session shows stops changing: the director's application's frames,
-the shell's, and the windows of the applications the session launched (their place and size, and
-a frame for their latest configure, as a zoom from their title bar gives them), not each of their
-frames, which may animate for as long as they like (a storefront's skeleton while it loads).
+the companion's, the shell's, and the windows of the applications the session launched (their place
+and size, and a frame for their latest configure, as a zoom from their title bar gives them), not
+each of their frames, which may animate for as long as they like (a storefront's skeleton while it
+loads).
 
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in

@@ -1461,6 +1461,25 @@ fn launched_windows(session: &Session) -> Vec<(SurfaceKey, Rect, u64)> {
         .collect()
 }
 
+/// The companion application's surfaces (`--companion`), bottom to top, with their frames.
+fn companion_frames(session: &Session) -> Vec<(SurfaceKey, u64, Rect)> {
+    let Some(client) = session.companion_client() else {
+        return Vec::new();
+    };
+    session
+        .compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, rect, frame } if key.client == client => {
+                Some((key, frame.sequence, rect))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Starts the shell on a socket of its own, granting `shell`, one on each output as a session
 /// starts them (docs/adr/0018-several-displays.mdx), and serves the session until their panels have
 /// set every output's work area (as `oxyos-session` waits for them) and their surfaces are then
@@ -1590,12 +1609,7 @@ fn start_companion(
             return Err("deadline exceeded waiting for the companion's window".into());
         }
         session.compositor.serve(&session.listener)?;
-        let client = session
-            .compositor
-            .peers
-            .iter()
-            .find(|(_, peer)| peer.pid as u32 == pid)
-            .map(|(client, _)| *client);
+        let client = session.companion_client();
         let shown =
             client.is_some_and(|client| {
                 session.compositor.scene.render_list().iter().any(
@@ -1776,6 +1790,9 @@ fn settle(
     // the director's application nor the shell, and would otherwise settle only on something
     // else changing (the menu bar's clock turning a minute).
     let mut launched_last = launched_windows(session);
+    // The companion's frames count as the application's do: it is an application the person
+    // opened, and what it shows (a caret blinking in its field) answers a step as much.
+    let mut companion_last = companion_frames(session);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -1806,7 +1823,10 @@ fn settle(
         let launched_now = launched_windows(session);
         let launched_changed = launched_now != launched_last;
         launched_last = launched_now;
-        let shell_changed = shell_now != shell_last || launched_changed;
+        let companion_now = companion_frames(session);
+        let companion_changed = companion_now != companion_last;
+        companion_last = companion_now;
+        let shell_changed = shell_now != shell_last || launched_changed || companion_changed;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -1947,13 +1967,7 @@ fn delivered_json(session: &Session) -> String {
     let mut chooser: std::collections::BTreeMap<&str, usize> = Default::default();
     let mut companion: std::collections::BTreeMap<&str, usize> = Default::default();
     let mut shell_drags: std::collections::BTreeMap<&str, usize> = Default::default();
-    let companion_client = session.companion.and_then(|pid| {
-        compositor
-            .peers
-            .iter()
-            .find(|(_, peer)| peer.pid as u32 == pid)
-            .map(|(client, _)| *client)
-    });
+    let companion_client = session.companion_client();
     let (mut shell, mut leaked) = (0, 0);
     for &(client, surface, kind) in &compositor.input_log {
         if client == CLIENT {

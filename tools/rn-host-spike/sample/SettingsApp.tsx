@@ -54,6 +54,7 @@ const FIXTURE: SettingsSnapshot = {
     accent: 'oxy',
     reduceMotion: false,
     reduceTransparency: false,
+    caretBlink: true,
     wallpaper: 'solar-gradients',
     lockAfter: 5,
     screenReader: false,
@@ -164,6 +165,8 @@ function preferencesOf(values: Record<string, string>): Preferences {
     accent: values[PREFERENCE_KEYS.accent] ?? 'oxy',
     reduceMotion: flag(PREFERENCE_KEYS.reduceMotion),
     reduceTransparency: flag(PREFERENCE_KEYS.reduceTransparency),
+    // On unless the session keeps it off (crates/oxyos-preferences).
+    caretBlink: values[PREFERENCE_KEYS.caretBlink] !== 'false',
     wallpaper: values[PREFERENCE_KEYS.wallpaper] || null,
     lockAfter: Number(values[PREFERENCE_KEYS.lockAfter] ?? 5),
     screenReader: flag(PREFERENCE_KEYS.screenReader),
