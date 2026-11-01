@@ -10,7 +10,9 @@
 
 #include <cstdint>
 #include <functional>
-#include <future>
+#include <chrono>
+#include <memory>
+#include <mutex>
 #include <map>
 #include <optional>
 #include <string>
@@ -313,6 +315,11 @@ class Window {
   // Whether the GPU's painter has just been put to use (once, when its start is done; its
   // descriptor in `fds` wakes the loop for it): every surface is then drawn whole on it.
   bool painterStarted();
+  // When a painter still starting runs out of time, if one is: the loop wakes then to give up on it.
+  std::optional<std::chrono::steady_clock::time_point> painterDeadline() const {
+    if (!starting_) return std::nullopt;
+    return painterDeadline_;
+  }
 
  private:
   OxyOSClient* client_ = nullptr;
@@ -324,9 +331,24 @@ class Window {
     OxyOSPaint* paint;
     std::string why;
   };
-  std::future<StartedPaint> starting_;
-  // Readable once the painter's start is done.
+  // What the window and the thread starting the painter share. A GPU can take long to open, or
+  // never return (a driver hung in the kernel): the window waits for it until a deadline and no
+  // longer (kPainterDeadline), drawing on the CPU meanwhile and after; the thread, never joined,
+  // frees a painter that comes too late. Its eventfd is closed with the last owner.
+  struct PainterStart {
+    std::mutex lock;
+    bool done = false;
+    bool abandoned = false;
+    StartedPaint result{nullptr, ""};
+    int ready = -1;  // readable once done
+    ~PainterStart();
+  };
+  std::shared_ptr<PainterStart> starting_;
+  std::chrono::steady_clock::time_point painterDeadline_;
+  // Readable once the painter's start is done (starting_'s eventfd, while it is shared).
   int painterReady_ = -1;
+  // Stops waiting for a painter still starting: it is freed when (if) its start returns.
+  void abandonPainter();
   bool painterForced_ = false;
   void usePainter(StartedPaint started);
   // Whether the compositor closed the connection.

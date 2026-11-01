@@ -1644,6 +1644,7 @@ dependencies = [
  "oxyos-dmabuf",
  "oxyos-files",
  "oxyos-gestures",
+ "oxyos-gpu-device",
  "oxyos-image",
  "oxyos-intl",
  "oxyos-ipc",
@@ -1669,6 +1670,7 @@ dependencies = [
  "oxyos-dmabuf",
  "oxyos-files",
  "oxyos-gpu",
+ "oxyos-gpu-device",
  "oxyos-input",
  "oxyos-install",
  "oxyos-ipc",
@@ -1707,6 +1709,7 @@ name = "oxyos-dmabuf"
 version = "0.1.0"
 dependencies = [
  "drm",
+ "oxyos-gpu-device",
  "rustix",
 ]
 
@@ -1737,6 +1740,7 @@ dependencies = [
  "ash",
  "naga",
  "oxyos-dmabuf",
+ "oxyos-gpu-device",
  "rustix",
 ]
 
@@ -1747,9 +1751,19 @@ dependencies = [
  "ash",
  "oxyos-client",
  "oxyos-dmabuf",
+ "oxyos-gpu-device",
  "oxyos-ipc",
  "oxyos-protocol",
  "rustix",
+]
+
+[[package]]
+name = "oxyos-gpu-device"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "libloading",
+ "serde_json",
 ]
 
 [[package]]
@@ -1835,6 +1849,7 @@ dependencies = [
 name = "oxyos-kms-probe"
 version = "0.1.0"
 dependencies = [
+ "oxyos-gpu-device",
  "oxyos-kms",
 ]
 
@@ -1918,6 +1933,8 @@ dependencies = [
  "ash",
  "oxyos-client",
  "oxyos-dmabuf",
+ "oxyos-gpu",
+ "oxyos-gpu-device",
  "oxyos-ipc",
  "oxyos-protocol",
  "rustix",
@@ -1968,6 +1985,7 @@ dependencies = [
  "oxyos-controls",
  "oxyos-files",
  "oxyos-gpu",
+ "oxyos-gpu-device",
  "oxyos-input",
  "oxyos-install",
  "oxyos-ipc",

@@ -1,0 +1,25 @@
+[package]
+name = "oxyos-gpu-device"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Vulkan's types, for the loader's direct driver loading (VK_LUNARG_direct_driver_loading).
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+# The drivers' libraries, opened once and kept for the process (as ash opens the loader).
+libloading = "0.8"
+# The loader's driver manifests (ICD JSON).
+serde_json = "1"
+
+# The workspace forbids `unsafe`. Opening a driver's library needs it, so this crate denies it
+# instead and allows it where the library is opened; every unsafe block states why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

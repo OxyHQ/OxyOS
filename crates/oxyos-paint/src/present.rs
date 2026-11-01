@@ -58,6 +58,22 @@ pub(crate) struct Gpu {
     features: Box<vk::PhysicalDeviceFeatures2<'static>>,
 }
 
+/// Whether the painter may open a physical device: the compositor's own (`device`), or, for a
+/// compositor without a GPU node (`0`), a CPU implementation of Vulkan; with Vulkan 1.1.
+pub(crate) fn chosen(
+    device: u64,
+    same_device: bool,
+    kind: vk::PhysicalDeviceType,
+    api_version: u32,
+) -> bool {
+    let compositors = if device == 0 {
+        kind == vk::PhysicalDeviceType::CPU
+    } else {
+        same_device
+    };
+    compositors && api_version >= API_VERSION
+}
+
 /// A physical device the painter may open.
 struct Candidate {
     physical: vk::PhysicalDevice,
@@ -80,30 +96,35 @@ impl Candidate {
 }
 
 impl Gpu {
-    /// The device whose render node is `device`, else the first that exports DMA-BUF with
-    /// modifiers, else any; each with Vulkan 1.1.
+    /// The device whose DRM node is `device` (the compositor's), with Vulkan 1.1; for `0` (a
+    /// compositor without a GPU node), Vulkan on the CPU. Only that device's drivers are loaded
+    /// (`oxyos_gpu_device`): no other GPU is opened, woken or enumerated, and none but this one is
+    /// ever chosen.
     pub(crate) fn open(device: u64) -> Result<Self> {
+        let drivers = oxyos_gpu_device::Drivers::for_device(device);
+        let loaded = drivers.load().map_err(|error| Error(error.to_string()))?;
         let entry =
             // SAFETY: loading the system's Vulkan loader; nothing else in this process races with it.
             unsafe { ash::Entry::load() }.map_err(|error| Error(format!("no Vulkan: {error}")))?;
         let app = vk::ApplicationInfo::default()
             .application_name(c"oxyos-paint")
             .api_version(API_VERSION);
-        // No instance extension: what the painter and Skia query of the device is core in 1.1.
+        // No instance extension Skia is told of: what the painter and Skia query of the device is
+        // core in 1.1. The loader's own, for its drivers, is the instance's alone.
         let instance_extensions: Vec<&'static CStr> = Vec::new();
-        let names: Vec<*const std::ffi::c_char> = instance_extensions
-            .iter()
-            .map(|name| name.as_ptr())
-            .collect();
-        // SAFETY: the create info and the names outlive the call.
+        let names = [oxyos_gpu_device::Loaded::EXTENSION.as_ptr()];
+        let mut only = loaded.list();
+        // SAFETY: the create info, the names and the driver list outlive the call.
         let instance = unsafe {
             entry.create_instance(
                 &vk::InstanceCreateInfo::default()
                     .application_info(&app)
-                    .enabled_extension_names(&names),
+                    .enabled_extension_names(&names)
+                    .push_next(&mut only),
                 None,
             )
-        }?;
+        }
+        .map_err(|error| Error(format!("Vulkan with {}: {error}", drivers.describe())))?;
         // SAFETY: the instance is live.
         let physicals = unsafe { instance.enumerate_physical_devices() }.unwrap_or_default();
         let mut candidates = Vec::new();
@@ -119,7 +140,7 @@ impl Gpu {
                 available,
             };
             let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
-            {
+            let kind = {
                 let mut properties = vk::PhysicalDeviceProperties2::default();
                 if candidate.has(ash::ext::physical_device_drm::NAME) {
                     properties = properties.push_next(&mut drm);
@@ -128,20 +149,22 @@ impl Gpu {
                 unsafe { instance.get_physical_device_properties2(physical, &mut properties) };
                 candidate.name = name(&properties.properties.device_name);
                 candidate.api_version = properties.properties.api_version;
-            }
-            let render = (drm.has_render == vk::TRUE)
-                .then(|| rustix::fs::makedev(drm.render_major as u32, drm.render_minor as u32));
-            candidate.same_device = render == Some(device) && device != 0;
-            if candidate.api_version >= API_VERSION {
+                properties.properties.device_type
+            };
+            candidate.same_device = oxyos_gpu_device::same_device(&drm, device);
+            if chosen(device, candidate.same_device, kind, candidate.api_version) {
                 candidates.push(candidate);
             }
         }
-        // The compositor's device first, then one that exports, then any.
-        candidates.sort_by_key(|candidate| (!candidate.same_device, !candidate.exports()));
+        // The one that exports first (one device, several drivers' views of it at most).
+        candidates.sort_by_key(|candidate| !candidate.exports());
         let Some(chosen) = candidates.into_iter().next() else {
             // SAFETY: nothing was made from the instance.
             unsafe { instance.destroy_instance(None) };
-            return Err(Error("no Vulkan 1.1 device".into()));
+            return Err(Error(format!(
+                "no Vulkan 1.1 device is the compositor's ({})",
+                drivers.describe()
+            )));
         };
         match Self::open_device(&instance, &chosen) {
             Ok(opened) => Ok(Self::with_device(

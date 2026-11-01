@@ -2078,7 +2078,8 @@ int main(int argc, char** argv) {
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
-          for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(), dragDrop.nextDeadline(),
+          for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
+                           dragDrop.nextDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),

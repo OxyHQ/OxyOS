@@ -9,6 +9,8 @@ publish.workspace = true
 # Vulkan, loaded at run time, as oxyos-gpu does (docs/adr/0031-gpu-buffers.mdx, decision 12).
 ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
 oxyos-client = { path = "../oxyos-client" }
+# Only the compositor's GPU's drivers loaded, its device chosen by its DRM node.
+oxyos-gpu-device = { path = "../oxyos-gpu-device" }
 oxyos-protocol = { path = "../oxyos-protocol" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "fs"] }
 
@@ -16,6 +18,8 @@ rustix = { version = "1.1.6", default-features = false, features = ["std", "even
 # The present test plays the compositor: the connection, the DMA-BUF read and the timeline.
 oxyos-ipc = { path = "../oxyos-ipc" }
 oxyos-dmabuf = { path = "../oxyos-dmabuf" }
+# The compositors-gpu example opens the compositor's device as the session does.
+oxyos-gpu = { path = "../oxyos-gpu" }
 
 # The workspace forbids `unsafe`. Vulkan needs it, so this crate denies it instead and allows it
 # where Vulkan is called; every unsafe block states why it is sound.

@@ -400,8 +400,21 @@ pub struct Handovers {
 }
 
 impl VulkanCompositor {
-    /// Opens the best Vulkan device (a GPU before a CPU implementation) with a compute queue.
+    /// Opens the GPU that drives the displays (the firmware's boot display first, from sysfs:
+    /// `oxyos_gpu_device::display_device`), or Vulkan on the CPU where none does, as
+    /// [`Self::on_device`]. A session gives its own card's node to [`Self::on_device`] instead.
     pub fn new() -> Result<Self, Error> {
+        Self::on_device(oxyos_gpu_device::display_device(std::path::Path::new(
+            oxyos_gpu_device::SYSTEM_ROOT,
+        )))
+    }
+
+    /// Opens the Vulkan device whose DRM node (render or primary) is `device`, with a compute
+    /// queue; for `0`, Vulkan on the CPU. Only that GPU's drivers are loaded: no other GPU is
+    /// opened, woken or enumerated, and no other is ever chosen.
+    pub fn on_device(device: u64) -> Result<Self, Error> {
+        let drivers = oxyos_gpu_device::Drivers::for_device(device);
+        let loaded = drivers.load().map_err(|error| Error(error.to_string()))?;
         // SAFETY: loading the system's Vulkan loader runs its initialization; nothing else in
         // this process races with it.
         let entry = unsafe { ash::Entry::load() }
@@ -409,14 +422,20 @@ impl VulkanCompositor {
         let app = vk::ApplicationInfo::default()
             .application_name(c"oxyos-gpu")
             .api_version(vk::API_VERSION_1_2);
+        let names = [oxyos_gpu_device::Loaded::EXTENSION.as_ptr()];
+        let mut only = loaded.list();
         // SAFETY: the create info and what it points to outlive the call.
         let instance = unsafe {
             entry.create_instance(
-                &vk::InstanceCreateInfo::default().application_info(&app),
+                &vk::InstanceCreateInfo::default()
+                    .application_info(&app)
+                    .enabled_extension_names(&names)
+                    .push_next(&mut only),
                 None,
             )
-        }?;
-        let opened = match Self::open(&instance) {
+        }
+        .map_err(|error| Error(format!("Vulkan with {}: {error}", drivers.describe())))?;
+        let opened = match Self::open(&instance, device) {
             Ok(opened) => opened,
             Err(error) => {
                 // SAFETY: nothing was created from the instance.
@@ -522,38 +541,58 @@ impl VulkanCompositor {
         exported.map_err(Error::from)
     }
 
-    /// The best device with a compute queue, and that queue.
-    fn open(instance: &ash::Instance) -> Result<Opened, Error> {
+    /// The device whose DRM node is `device` (for `0`, a CPU implementation) with a compute
+    /// queue, and that queue.
+    fn open(instance: &ash::Instance, device: u64) -> Result<Opened, Error> {
         // SAFETY: the instance is live.
         let physicals = unsafe { instance.enumerate_physical_devices() }?;
-        let rank = |kind: DeviceKind| match kind {
-            DeviceKind::Discrete => 0,
-            DeviceKind::Integrated => 1,
-            DeviceKind::Virtual => 2,
-            DeviceKind::Other => 3,
-            DeviceKind::Cpu => 4,
-        };
         let (physical, family, timestamp_bits, properties) = physicals
             .into_iter()
             .filter_map(|physical| {
                 // SAFETY: `physical` was enumerated from this live instance.
+                let available = unsafe { instance.enumerate_device_extension_properties(physical) }
+                    .unwrap_or_default();
+                let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
+                let mut properties = vk::PhysicalDeviceProperties2::default();
+                if available.iter().any(|extension| {
+                    extension.extension_name_as_c_str() == Ok(ash::ext::physical_device_drm::NAME)
+                }) {
+                    properties = properties.push_next(&mut drm);
+                }
+                // SAFETY: `physical` is live; the chain outlives the call.
+                unsafe { instance.get_physical_device_properties2(physical, &mut properties) };
+                let properties = properties.properties;
+                let wanted = if device == 0 {
+                    properties.device_type == vk::PhysicalDeviceType::CPU
+                } else {
+                    oxyos_gpu_device::same_device(&drm, device)
+                };
+                if !wanted {
+                    return None;
+                }
+                // SAFETY: as above.
                 let families =
                     unsafe { instance.get_physical_device_queue_family_properties(physical) };
-                let (family, properties) = families
+                let (family, family_properties) = families
                     .iter()
                     .enumerate()
                     .find(|(_, family)| family.queue_flags.contains(vk::QueueFlags::COMPUTE))?;
-                // SAFETY: as above.
-                let device = unsafe { instance.get_physical_device_properties(physical) };
                 Some((
                     physical,
                     family as u32,
-                    properties.timestamp_valid_bits,
-                    device,
+                    family_properties.timestamp_valid_bits,
+                    properties,
                 ))
             })
-            .min_by_key(|(_, _, _, properties)| rank(properties.device_type.into()))
-            .ok_or_else(|| Error("no Vulkan device with a compute queue".into()))?;
+            .next()
+            .ok_or_else(|| {
+                let (major, minor) = oxyos_gpu_device::major_minor(device);
+                Error(if device == 0 {
+                    "no CPU Vulkan device with a compute queue".into()
+                } else {
+                    format!("no Vulkan device {major}:{minor} with a compute queue")
+                })
+            })?;
         let priorities = [1.0];
         let queues = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)

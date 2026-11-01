@@ -10,6 +10,7 @@ oxyos-protocol = { path = "../../crates/oxyos-protocol" }
 oxyos-compositor-core = { path = "../../crates/oxyos-compositor-core" }
 oxyos-ipc = { path = "../../crates/oxyos-ipc" }
 oxyos-gpu = { path = "../../crates/oxyos-gpu" }
+oxyos-gpu-device = { path = "../../crates/oxyos-gpu-device" }
 oxyos-kms = { path = "../../crates/oxyos-kms" }
 oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }

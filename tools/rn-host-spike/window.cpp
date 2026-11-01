@@ -9,7 +9,9 @@
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
+#include <cerrno>
 #include <cstdlib>
+#include <thread>
 #include <iostream>
 #include <stdexcept>
 
@@ -50,7 +52,32 @@ Window::Window(const std::string& socket, Shell shell) : shell_(shell) {
   surfaces_[kToplevel] = Surface{};
 }
 
-Window::~Window() { oxyos_client_close(client_); }
+Window::~Window() {
+  abandonPainter();
+  oxyos_client_close(client_);
+}
+
+namespace {
+// How long a GPU's painter may take to start (opening the device, Skia's context on it: seconds
+// on lavapipe) before the window gives up on it and draws on the CPU.
+constexpr std::chrono::seconds kPainterDeadline{20};
+}  // namespace
+
+Window::PainterStart::~PainterStart() {
+  if (ready >= 0) close(ready);
+}
+
+void Window::abandonPainter() {
+  if (!starting_) return;
+  {
+    std::lock_guard<std::mutex> hold(starting_->lock);
+    starting_->abandoned = true;
+    if (starting_->done && starting_->result.paint) oxyos_paint_free(starting_->result.paint);
+    starting_->result.paint = nullptr;
+  }
+  starting_.reset();
+  painterReady_ = -1;
+}
 
 Window::Surface* Window::surface(uint32_t id) {
   auto it = surfaces_.find(id);
@@ -210,41 +237,62 @@ void Window::choosePainter() {
   }
   // Opening the device and making Skia's context on it take long (seconds on lavapipe): they are
   // done on a thread of its own, so this one keeps answering the application, and the frames until
-  // they are ready are drawn on the CPU.
-  painterReady_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-  if (painterReady_ < 0) failed("eventfd");
-  starting_ = std::async(std::launch::async, [device, ready = painterReady_] {
-    auto started = [&](StartedPaint result) {
-      uint64_t one = 1;
-      if (write(ready, &one, sizeof one) < 0) std::cerr << "[window] the painter's start not told\n";
-      return result;
-    };
+  // they are ready are drawn on the CPU. The thread is never waited for past kPainterDeadline.
+  auto start = std::make_shared<PainterStart>();
+  start->ready = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+  if (start->ready < 0) failed("eventfd");
+  starting_ = start;
+  painterReady_ = start->ready;
+  painterDeadline_ = std::chrono::steady_clock::now() + kPainterDeadline;
+  std::thread([device, start] {
+    StartedPaint result{nullptr, ""};
     OxyOSPaint* paint = oxyos_paint_new(device);
-    if (!paint) return started(StartedPaint{nullptr, oxyos_last_error()});
-    std::string why;
-    if (!oxyos_paint_exports(paint)) {
-      why = std::string(oxyos_paint_device_name(paint)) + " exports no DMA-BUF";
+    if (!paint) {
+      result.why = oxyos_last_error();
+    } else if (!oxyos_paint_exports(paint)) {
+      result.why = std::string(oxyos_paint_device_name(paint)) + " exports no DMA-BUF";
     } else if (!skiaContext(paint)) {
-      why = std::string("Skia cannot draw on ") + oxyos_paint_device_name(paint);
+      result.why = std::string("Skia cannot draw on ") + oxyos_paint_device_name(paint);
     } else {
-      return started(StartedPaint{paint, ""});
+      result.paint = paint;
     }
-    oxyos_paint_free(paint);
-    return started(StartedPaint{nullptr, why});
-  });
+    if (!result.paint && paint) oxyos_paint_free(paint);
+    std::lock_guard<std::mutex> hold(start->lock);
+    if (start->abandoned) {
+      if (result.paint) oxyos_paint_free(result.paint);
+      return;
+    }
+    start->result = std::move(result);
+    start->done = true;
+    uint64_t one = 1;
+    if (write(start->ready, &one, sizeof one) < 0) std::cerr << "[window] the painter's start not told\n";
+  }).detach();
   // Forced (the regression on the GPU's painter), every frame is drawn on it: it is waited for,
   // here, before the application starts, so its start delays no timer of the application's.
   if (painterForced_) {
-    starting_.wait();
-    painterStarted();
+    pollfd ready{painterReady_, POLLIN, 0};
+    auto left = std::chrono::duration_cast<std::chrono::milliseconds>(kPainterDeadline).count();
+    while (poll(&ready, 1, static_cast<int>(left)) < 0 && errno == EINTR) {
+    }
+    if (!painterStarted()) failed("OXYOS_HOST_RENDERER=gpu, but the GPU painter did not start in time");
   }
 }
 
 bool Window::painterStarted() {
-  if (!starting_.valid() || starting_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
-  close(painterReady_);
-  painterReady_ = -1;
-  usePainter(starting_.get());
+  if (!starting_) return false;
+  StartedPaint result{nullptr, ""};
+  {
+    std::lock_guard<std::mutex> hold(starting_->lock);
+    if (!starting_->done) {
+      if (std::chrono::steady_clock::now() < painterDeadline_) return false;
+      result.why = "the GPU did not open in " + std::to_string(kPainterDeadline.count()) + " s";
+    } else {
+      result = starting_->result;
+      starting_->result.paint = nullptr;
+    }
+  }
+  abandonPainter();
+  usePainter(result);
   return gpuPaint() != nullptr;
 }
 
