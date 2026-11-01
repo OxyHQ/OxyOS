@@ -6,6 +6,7 @@ import {
   keepInDock,
   openAtLogin,
   trashMenu,
+  trashedByDrop,
   type DockAbilities,
   type DockMenuItem,
 } from "../src/dock.ts";
@@ -135,4 +136,18 @@ test("the Trash offers emptying only while it holds anything", () => {
     trashMenu(3, false).map((entry) => entry.id),
     ["open"],
   );
+});
+
+test("a drop on the Trash puts in it the dropped files with a file URI, once each", () => {
+  assert.deepEqual(
+    trashedByDrop([
+      { uri: "file:///home/ana/informe.txt" },
+      { uri: "file:///home/ana/informe.txt" },
+      { uri: "https://oxy.so/os" },
+      {},
+      { uri: "FILE:///home/ana/Fotos/" },
+    ]),
+    ["file:///home/ana/informe.txt", "FILE:///home/ana/Fotos/"],
+  );
+  assert.deepEqual(trashedByDrop([]), []);
 });

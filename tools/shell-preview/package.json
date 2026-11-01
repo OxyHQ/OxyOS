@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@oxy.so/bloom": "15.80.0",
+    "@oxy.so/bloom": "15.88.0",
     "expo": "~58.0.14",
     "expo-blur": "~58.0.4",
     "expo-font": "~58.0.8",

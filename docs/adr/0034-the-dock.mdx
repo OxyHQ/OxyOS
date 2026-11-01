@@ -42,6 +42,7 @@ OxyOS's dock (`apps/shell/src/components/Dock.tsx`) had no menu at all. The plat
 
 7. **The Trash sits at the dock's end, past a divider.** Its icon is the bin the platform's author gave (`apps/shell/assets/trash.png`), the same full or empty. It is the platform's Trash, freedesktop.org's (ADR 0028, decision 5), which every file manager shares:
    - **A click opens it in the file manager.** The shell asks the session to open a URL (`OpenUrl`, citing the press), the platform's launch with a URL: the session starts the application whose entry declares the URL's scheme (`MimeType=x-scheme-handler/…`, as freedesktop.org's entries declare the schemes they open; an installed package's `opens.schemes` are written so) with the URL as React Native's `Linking` initial URL and expo-linking's linking URL (`OXYOS_LAUNCH_URL`), and answers with `LaunchResult`. The OxyOS platform's shell opens `stash://trash`: Stash (`so.oxy.stash`, the file manager) declares its own `stash:` scheme, and Expo Router opens the URL at its route `app/(browser)/trash.tsx`, nothing of Stash in the OS. An application already running is started again with the URL, a window of its own, as Finder opens another window on its Trash. A `file:` URL is not opened this way (a file opens by its type), nor one no entry declares.
+   - **Files dropped on it** from any application go into it ([ADR 0035](./0035-drag-and-drop), decision 12): a move, the shell asking the session with the drop's serial.
    - **Its menu:** Open, and Empty Trash while it holds anything. The session tells the shell how many items the user's Trashes hold (`TrashItems`), following them as they change (inotify, through `oxyos-files`' watcher, and the mount table for volumes' Trashes).
    - **Emptying asks through a system sheet.** The shell asks (`EmptyTrash`, citing the press); the session asks the person in a system sheet (ADR 0030, decision 9: *¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?*, how many go, *Vaciar Papelera* destructive, *Cancelar* first) and empties every Trash of the user's (`oxyos_files::trash::empty`) only once they accept, citing their own press. The OS empties only its own Trash: what an application keeps in a Trash of its own (Oxy Files' in Stash) is the application's.
 
@@ -76,7 +77,6 @@ OxyOS's dock (`apps/shell/src/components/Dock.tsx`) had no menu at all. The plat
 ## Not in this decision
 
 - **Dragging icons:** reordering the dock and dragging an icon out to unkeep it, as a Mac's. The lists are sent whole for it; the drag is to come.
-- **Dropping files on the Trash** to move them to it: decided with drag and drop between applications in [ADR 0035](./0035-drag-and-drop), decision 12.
 - **Show in Finder (Stash):** an OxyOS application is a package the install service keeps (ADR 0030), not a file in the person's folders, and Stash opens no folder by URL yet; there is nothing to show.
 - **Option pressed while the menu is open:** a Mac turns Quit into Force Quit live; the popup is told key presses, not releases, so Option counts as the menu opens.
 - **A full Trash icon:** one icon was given; the dock shows it in both states.

@@ -482,6 +482,10 @@ function SessionShell() {
       emptyTrash: () => {
         shell.emptyTrash();
       },
+      // Files dropped on the dock's Trash (ADR 0035): put in it by the session, citing the drop.
+      trashFiles: (uris) => {
+        shell.trashFiles(uris);
+      },
       focusWindow: (id) => shell.focusWindow(Number(id)),
       // The top bar left from the keyboard (ADR 0024): the keyboard back with the window whose
       // menus the bar shows, the active one.

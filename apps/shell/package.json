@@ -1,8 +1,8 @@
 {
   "name": "@oxyos/shell",
   "private": true,
-  "description": "OxyOS's shell (docs/adr/0009-session-shell.mdx). Its build takes Bloom from BLOOM_DIR, which must be a version this accepts: the top bar is Bloom's Menubar, its menus desktop menus in the platform's popups with submenus beside their rows, driven from the keyboard by its focusValue (15.80.0) and following the pointer across its titles with a menu open (15.83.0); the dock's names Bloom's tooltip in the platform's popup (15.84.0).",
+  "description": "OxyOS's shell (docs/adr/0009-session-shell.mdx). Its build takes Bloom from BLOOM_DIR, which must be a version this accepts: the top bar is Bloom's Menubar, its menus desktop menus in the platform's popups with submenus beside their rows, driven from the keyboard by its focusValue (15.80.0) and following the pointer across its titles with a menu open (15.83.0); the dock's names Bloom's tooltip in the platform's popup (15.84.0); the dock's Trash Bloom's DropZone (15.88.0).",
   "dependencies": {
-    "@oxy.so/bloom": ">=15.84.0"
+    "@oxy.so/bloom": ">=15.88.0"
   }
 }

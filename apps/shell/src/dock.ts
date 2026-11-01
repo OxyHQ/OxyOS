@@ -175,6 +175,12 @@ export function dockMenu(
   return items;
 }
 
+/** What a drop on the Trash puts in it: the dropped files that have a `file://` URI, once each. */
+export function trashedByDrop(files: readonly { uri?: string }[]): string[] {
+  const uris = files.flatMap((file) => (file.uri?.toLowerCase().startsWith("file:") ? [file.uri] : []));
+  return [...new Set(uris)];
+}
+
 /** The Trash's menu: Open, and Empty Trash while it holds anything (and the platform can). */
 export type TrashCommand = "open" | "empty";
 export function trashMenu(
