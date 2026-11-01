@@ -1,0 +1,300 @@
+{
+  "about": "A text field out of the key window (docs/adr/0037-text-editing.mdx, decision 6), as NSTextView draws it: PressProbe (sample/PressProbe.tsx) holds a selection in its field and EditingProbe, a second application beside it (`companion`), a caret in its line. Whichever window is not the active one keeps its field focused but draws no caret, or its selection in macOS's unemphasized grey (#dcdcdc), whatever was asked; the active one draws its caret or its selection in the accent colour. A press in the other application's field activates it, as a click does on a Mac; the shell's Super+Tab brings PressProbe back. Each step checks the pixels of both fields, exactly what each application's React tree received (the window left hears nothing: no blur, no focus), what each client was delivered, which input each holds focused, and the field the compositor holds, the active application's. PressProbe's own context menu, open in a popup with the keyboard, leaves its window the key one: its selection stays in the accent colour. With fields drawn the same in every window, the grey and the hidden caret fail.",
+  "module": "PressProbe",
+  "window": [
+    460,
+    300
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "EditingProbe",
+    "window": [
+      360,
+      200
+    ],
+    "at": [
+      890,
+      120
+    ]
+  },
+  "steps": [
+    {
+      "name": "the companion's line takes the keyboard: its caret is drawn",
+      "do": [
+        "press_output",
+        [
+          1070,
+          162
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "focus_input": "line",
+          "react": {
+            "touchStart@line": 1,
+            "touchEnd@line": 1,
+            "focus@line": 1,
+            "selectionChange@line": 1
+          }
+        },
+        "output_pixels": {
+          "926,161": "#2a1132"
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "PressProbe's field takes the keyboard: its window is active, the companion's caret is hidden, its line still focused and told nothing",
+      "do": [
+        "press",
+        [
+          116,
+          224
+        ]
+      ],
+      "expect": {
+        "focus_input": "field",
+        "react": {
+          "touchStart@field": 1,
+          "touchEnd@field": 1,
+          "focus@field": 1,
+          "selectionChange@field": 1
+        },
+        "in_companion": {
+          "focus_input": "line",
+          "react": {}
+        },
+        "output_pixels": {
+          "926,161": "#e9dce3"
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "JavaScript selects world: drawn in the accent colour",
+      "do": [
+        "press",
+        [
+          281,
+          224
+        ]
+      ],
+      "expect": {
+        "focus_input": "field",
+        "react": {
+          "touchStart@select": 1,
+          "touchEnd@select": 1,
+          "selectionChange@field": 1
+        },
+        "in_companion": {
+          "react": {}
+        },
+        "pixels": {
+          "80,223": "#c5d5ff"
+        },
+        "output_pixels": {
+          "926,161": "#e9dce3"
+        },
+        "field": {
+          "text": "hello world",
+          "anchor": 6,
+          "cursor": 11
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "a press in the companion's line activates it: its caret is drawn again; PressProbe's selection turns grey, its field still focused and told nothing",
+      "do": [
+        "press_output",
+        [
+          1070,
+          162
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "field",
+        "react": {},
+        "in_companion": {
+          "focus_input": "line",
+          "react": {
+            "touchStart@line": 1,
+            "touchEnd@line": 1
+          }
+        },
+        "pixels": {
+          "80,223": "#dcdcdc"
+        },
+        "output_pixels": {
+          "926,161": "#2a1132"
+        },
+        "field": null,
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+Tab brings PressProbe back: its selection in the accent colour again, the companion's caret hidden; neither React tree hears anything",
+      "do": [
+        "key",
+        [
+          125,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "field",
+        "react": {},
+        "in_companion": {
+          "focus_input": "line",
+          "react": {}
+        },
+        "pixels": {
+          "80,223": "#c5d5ff"
+        },
+        "output_pixels": {
+          "926,161": "#e9dce3"
+        },
+        "field": {
+          "text": "hello world",
+          "anchor": 6,
+          "cursor": 11
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "PressProbe's context menu, open with the keyboard in a popup: its window stays the key one, the selection in the accent colour",
+      "do": [
+        "press_secondary",
+        [
+          150,
+          76
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Rename",
+          "Duplicate"
+        ],
+        "focus_input": "field",
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "pixels": {
+          "80,223": "#c5d5ff"
+        },
+        "output_pixels": {
+          "926,161": "#e9dce3"
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "2": {
+            "focus.in": 1
+          },
+          "companion": {
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape closes the menu, the field untouched",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_input": "field",
+        "react": {
+          "key@Context menu": 1
+        },
+        "in_companion": {
+          "react": {}
+        },
+        "pixels": {
+          "80,223": "#c5d5ff"
+        },
+        "output_pixels": {
+          "926,161": "#e9dce3"
+        },
+        "field": {
+          "text": "hello world",
+          "anchor": 6,
+          "cursor": 11
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "2": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    }
+  ]
+}

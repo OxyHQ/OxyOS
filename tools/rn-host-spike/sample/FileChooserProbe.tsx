@@ -3,10 +3,11 @@
  * each button asks the session through the host's `OxyOSFileChooser`, citing its press, for one
  * image, several, a folder or a file to save, or asks and withdraws; the answer is said as text.
  * The panel is the system's (the file manager in its picker mode, a sheet of this window), never
- * this application's.
+ * this application's. A text field below the sheet shows what the sheet's keyboard does to the
+ * window's field (scenarios/text-inactive-sheet.json).
  */
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { chooseFiles } from './oxyos/file-chooser';
 
 /** A chosen URI's last name, decoded; a folder's ends with `/`. */
@@ -50,6 +51,7 @@ function Button({ label, y, onPress }: { label: string; y: number; onPress: () =
 export default function FileChooserProbe() {
   const [asked, setAsked] = React.useState(0);
   const [answer, setAnswer] = React.useState('none yet');
+  const [note, setNote] = React.useState('');
   const ask = (request: object, withdrawAfter?: number) => {
     setAsked((n) => n + 1);
     const controller = new AbortController();
@@ -65,6 +67,12 @@ export default function FileChooserProbe() {
       <Button label="Withdraw" y={340} onPress={() => ask({ open: {} }, 600)} />
       <Text style={{ position: 'absolute', left: 200, top: 545 }}>{`Asked: ${asked}`}</Text>
       <Text style={{ position: 'absolute', left: 200, top: 565 }}>{`Answer: ${answer}`}</Text>
+      <TextInput
+        testID="note"
+        value={note}
+        onChangeText={setNote}
+        style={{ position: 'absolute', left: 560, bottom: 12, width: 200, height: 36, borderWidth: 1, borderColor: '#8a94a6', borderRadius: 8, paddingHorizontal: 8 }}
+      />
     </View>
   );
 }

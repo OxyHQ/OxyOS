@@ -151,6 +151,13 @@ class TextEditing {
   void tick(std::chrono::steady_clock::time_point now);
   // When the caret is next lit or darkened, if it blinks.
   std::optional<std::chrono::steady_clock::time_point> nextBlink() const;
+  // Whether the focused input's window is the key window, the one the person's keys are for, and
+  // whether the system's appearance is dark (ADR 0037). Out of the key window the caret is hidden
+  // and does not blink, and a selection is drawn in the unemphasized colour of the appearance, as
+  // NSTextView draws it; back in it the caret is lit anew. The input keeps its focus throughout,
+  // as an NSTextView stays its window's first responder and Android's EditText keeps focus when
+  // its window loses it: JavaScript hears nothing.
+  void setWindow(bool key, bool dark);
 
   // The input that has focus, -1 if none.
   facebook::react::Tag focused() const { return focused_; }
@@ -286,6 +293,8 @@ class TextEditing {
   bool blinks_ = true;
   std::chrono::steady_clock::time_point blinkFrom_{};
   bool caretLit_ = true;
+  // The window (setWindow): key, and its appearance dark.
+  bool key_ = true, dark_ = false;
   std::tuple<facebook::react::Tag, std::string, size_t, size_t, size_t, size_t> blinkedFor_{-1, {}, 0, 0, 0, 0};
 };
 

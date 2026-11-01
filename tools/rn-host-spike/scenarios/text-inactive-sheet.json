@@ -1,0 +1,247 @@
+{
+  "about": "A file chooser's sheet (docs/adr/0029-chromium-on-oxyos.mdx, decision 8) over the window that asked for it (sample/FileChooserProbe.tsx, sample/FileChooserFixture.tsx as the chooser) takes the window's keyboard while the window stays the active one, as a Mac's sheet is the key window over its main window (docs/adr/0037-text-editing.mdx, decision 6): the window's field, focused below the sheet, keeps its focus and hears nothing, but draws its selection in macOS's unemphasized grey and no caret until the sheet goes, when the accent colour and the caret come back. With the window's field drawn as the key window's while its sheet has the keyboard, it fails.",
+  "module": "FileChooserProbe",
+  "window": [
+    800,
+    700
+  ],
+  "app": {
+    "id": "so.oxy.chooserprobe",
+    "title": "File Chooser Probe"
+  },
+  "file_chooser": "FileChooserFixture",
+  "home": {
+    "items": {
+      "Pictures/a.png": "an image"
+    }
+  },
+  "steps": [
+    {
+      "name": "the field below takes the keyboard",
+      "do": [
+        "press",
+        [
+          660,
+          670
+        ]
+      ],
+      "expect": {
+        "focus_input": "note",
+        "react": {
+          "touchStart@note": 1,
+          "touchEnd@note": 1,
+          "focus@note": 1,
+          "selectionChange@note": 1
+        }
+      }
+    },
+    {
+      "name": "hola typed",
+      "do": [
+        "type",
+        "hola"
+      ],
+      "expect": {
+        "focus_input": "note",
+        "react": {
+          "change@note": 1,
+          "selectionChange@note": 1
+        },
+        "field": {
+          "text": "hola",
+          "anchor": 4,
+          "cursor": 4
+        }
+      }
+    },
+    {
+      "name": "all of it selected: in the accent colour",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {
+          "selectionChange@note": 1
+        },
+        "pixels": {
+          "572,670": "#c5d5ff"
+        },
+        "field": {
+          "text": "hola",
+          "anchor": 0,
+          "cursor": 4
+        }
+      }
+    },
+    {
+      "name": "Open: the sheet takes the keyboard, the window still active; the field keeps its focus and hears nothing, its selection grey",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 1"
+        ],
+        "focus_input": "note",
+        "react": {
+          "touchStart@open": 1,
+          "touchEnd@open": 1
+        },
+        "chooser": {
+          "focused": true,
+          "window_active": true
+        },
+        "pixels": {
+          "572,670": "#dcdcdc"
+        },
+        "field": null,
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "chooser": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Cancel in the sheet: it goes, the keyboard back on the window, the selection in the accent colour again",
+      "do": [
+        "press",
+        [
+          144,
+          320
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: cancelled"
+        ],
+        "focus_input": "note",
+        "react": {},
+        "chooser": null,
+        "pixels": {
+          "572,670": "#c5d5ff"
+        },
+        "field": {
+          "text": "hola",
+          "anchor": 0,
+          "cursor": 4
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Right: a caret at the end",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "expect": {
+        "react": {
+          "selectionChange@note": 1
+        },
+        "field": {
+          "text": "hola",
+          "anchor": 4,
+          "cursor": 4
+        },
+        "pixels": {
+          "599,670": "#000000"
+        }
+      }
+    },
+    {
+      "name": "Open again: no caret while the sheet has the keyboard",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 2"
+        ],
+        "focus_input": "note",
+        "react": {
+          "touchStart@open": 1,
+          "touchEnd@open": 1
+        },
+        "chooser": {
+          "focused": true,
+          "window_active": true
+        },
+        "field": null,
+        "pixels": {
+          "599,670": "#ffffff"
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "chooser": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Cancel: the caret lit again",
+      "do": [
+        "press",
+        [
+          144,
+          320
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: cancelled"
+        ],
+        "focus_input": "note",
+        "react": {},
+        "chooser": null,
+        "field": {
+          "text": "hola",
+          "anchor": 4,
+          "cursor": 4
+        },
+        "pixels": {
+          "599,670": "#000000"
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    }
+  ]
+}
