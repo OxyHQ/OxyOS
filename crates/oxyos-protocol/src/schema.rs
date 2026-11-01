@@ -270,8 +270,8 @@ messages! {
         // keydown has its `key`). That text is then never sent again as Text or in a text input
         // transaction; text no key typed (an input method's) still comes as before.
         150 => SetKeyText { enabled: bool },
-        // Installing applications (ADR 0030). A client with the `store`, `updates` or `privacy`
-        // grant asks the session: one request of the session's vocabulary as JSON text in chunks
+        // Installing applications (ADR 0030) and networks (ADR 0038). A client with the `store`,
+        // `updates`, `privacy` or `network` grant, or the shell, asks the session: one request of the session's vocabulary as JSON text in chunks
         // (`index` 0 begins it, `last` completes it), citing `input`, the serial of a user input
         // it received (0 for none): the session refuses what changes anything without one. The
         // answers come as SystemText naming `serial`; without one of those grants, the answer is
@@ -620,9 +620,9 @@ messages! {
         // session's layout typed with it (its compose sequences included; empty for a modifier, an
         // editing key, a control character or a dead key).
         150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText, time_ns: u64 },
-        // To a client with the `store`, `updates` or `privacy` grant: the session's answer to its
-        // SystemRequest `serial`, JSON text in chunks; `serial` 0 is the account's update state as
-        // it changes, unasked.
+        // To a client with the `store`, `updates`, `privacy` or `network` grant, or the shell: the
+        // session's answer to its SystemRequest `serial`, JSON text in chunks; `serial` 0 is told
+        // unasked as it changes: the account's update state, or the network's.
         160 => SystemText { serial: u32, index: u16, last: bool, text: PreeditText },
         // To the session's shell: a system sheet to show (install, remove, consent, permission),
         // JSON text in chunks; `last` shows it. Only the shell sees it, and only a SheetAnswer

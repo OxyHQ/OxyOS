@@ -1,0 +1,444 @@
+{
+  "about": "Wi-Fi in Control Center as a Mac's (docs/adr/0038-networks.mdx), over a NetworkManager played on the run's own bus (oxyos-fake-networkmanager): LukeSkyRouter joined (WPA2, saved), Café Libre open, Vecinos WPA2 (hunter22!), eduroam 802.1X, an Ethernet port with no cable. The top bar's Wi-Fi opens Control Center at its Wi-Fi view, which scans; an open network joins with nothing asked; a protected one asks its password in the shell's system sheet, a wrong one is refused by the daemon, kept nowhere and asked again saying so, the right one joins and the daemon alone keeps it; the enterprise network says it is not supported; Wi-Fi's switch turns the daemon's Wi-Fi off; a cable plugged shows Ethernet in the top bar, unplugged it goes. Every step checks what the daemon holds.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "network": {
+    "access_points": [
+      {
+        "ssid": "LukeSkyRouter",
+        "strength": 73,
+        "security": "wpa",
+        "password": "correct horse"
+      },
+      {
+        "ssid": "Café Libre",
+        "strength": 55
+      },
+      {
+        "ssid": "eduroam",
+        "strength": 60,
+        "security": "enterprise"
+      },
+      {
+        "ssid": "Vecinos",
+        "strength": 30,
+        "security": "wpa",
+        "password": "hunter22!"
+      }
+    ],
+    "connections": [
+      {
+        "ssid": "LukeSkyRouter",
+        "password": "correct horse"
+      }
+    ],
+    "active": "LukeSkyRouter",
+    "ethernet": "unplugged"
+  },
+  "secrets": [
+    "hunter22!",
+    "wrong pass"
+  ],
+  "steps": [
+    {
+      "name": "The top bar shows Wi-Fi's signal as the daemon has it, a button that opens Control Center at its Wi-Fi view",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Wi-Fi: LukeSkyRouter"
+            }
+          ]
+        },
+        "network": {
+          "active": "LukeSkyRouter",
+          "wifi_enabled": true
+        }
+      }
+    },
+    {
+      "name": "Pressed, Control Center opens at Wi-Fi: its switch, the network joined first among the known, then the others with their signal and lock, the enterprise one not supported; it asks the daemon to scan",
+      "do": [
+        "press_named",
+        "Wi-Fi: LukeSkyRouter"
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "Wi-Fi",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Header",
+              "name": "Redes conocidas"
+            },
+            {
+              "role": "Button",
+              "name": "LukeSkyRouter, conectada, protegida, señal 3 de 3"
+            },
+            {
+              "role": "Header",
+              "name": "Otras redes"
+            },
+            {
+              "role": "Button",
+              "name": "eduroam, protegida, no compatible, señal 2 de 3"
+            },
+            {
+              "role": "Button",
+              "name": "Café Libre, señal 2 de 3"
+            },
+            {
+              "role": "Button",
+              "name": "Vecinos, protegida, señal 1 de 3"
+            }
+          ]
+        },
+        "network": {
+          "scans": 1
+        }
+      }
+    },
+    {
+      "name": "An open network: joined with nothing asked, the daemon holding a connection with no password",
+      "do": [
+        "press_named",
+        "Café Libre, señal 2 de 3"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Joined: it is the known network joined",
+      "do": [
+        "wait_named",
+        [
+          "Café Libre, conectada, señal 2 de 3",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "active": "Café Libre",
+          "connections": [
+            {
+              "ssid": "LukeSkyRouter"
+            },
+            {
+              "ssid": "Café Libre",
+              "psk": null,
+              "permissions": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A protected network: the shell's system sheet asks its password",
+      "do": [
+        "press_named",
+        "Vecinos, protegida, señal 1 de 3"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The sheet, its secure field focused",
+      "do": [
+        "wait_named",
+        [
+          "Contraseña",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "TextField",
+              "name": "Contraseña"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A wrong password typed",
+      "do": [
+        "type",
+        "wrong pass"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Submitted: the daemon refuses it, keeps nothing, and the sheet asks again saying so",
+      "do": [
+        "key",
+        28
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Asked again, saying the password was incorrect",
+      "do": [
+        "wait_named",
+        [
+          "La contraseña no es correcta. Inténtalo de nuevo.",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "active": "Café Libre",
+          "connections": [
+            {
+              "ssid": "LukeSkyRouter"
+            },
+            {
+              "ssid": "Café Libre"
+            }
+          ],
+          "attempts": [
+            {
+              "ssid": "Café Libre"
+            },
+            {
+              "ssid": "Vecinos",
+              "psk": "wrong pass"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The right password typed",
+      "do": [
+        "type",
+        "hunter22!"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Submitted: joined; the daemon keeps the password, OxyOS does not",
+      "do": [
+        "key",
+        28
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Vecinos joined",
+      "do": [
+        "wait_named",
+        [
+          "Vecinos, conectada, protegida, señal 1 de 3",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "active": "Vecinos",
+          "connections": [
+            {
+              "ssid": "LukeSkyRouter"
+            },
+            {
+              "ssid": "Café Libre"
+            },
+            {
+              "ssid": "Vecinos",
+              "psk": "hunter22!",
+              "key_mgmt": "wpa-psk"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The enterprise network says it is not supported, and nothing is tried",
+      "do": [
+        "press_named",
+        "eduroam, protegida, no compatible, señal 2 de 3"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The sheet says so",
+      "do": [
+        "wait_named",
+        [
+          "Aceptar",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "attempts": [
+            {},
+            {},
+            {}
+          ]
+        }
+      }
+    },
+    {
+      "name": "Read and closed",
+      "do": [
+        "press_named",
+        "Aceptar"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Wi-Fi off from its switch: the daemon's Wi-Fi off, the list gone",
+      "do": [
+        "press_named",
+        "Wi-Fi"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Off",
+      "do": [
+        "wait_named",
+        [
+          "Wi-Fi desactivada",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "wifi_enabled": false,
+          "active": null
+        }
+      }
+    },
+    {
+      "name": "A press outside closes Control Center",
+      "do": [
+        "press",
+        [
+          300,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A cable plugged in: the top bar shows Ethernet",
+      "do": [
+        "network",
+        {
+          "ethernet": "plugged"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Ethernet in the top bar",
+      "do": [
+        "wait_named",
+        [
+          "Ethernet: conectado",
+          8000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "ethernet": "connected"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Ethernet: conectado"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Unplugged: Ethernet leaves the top bar",
+      "do": [
+        "network",
+        {
+          "ethernet": "unplugged"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Gone",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "network": {
+          "ethernet": "unplugged"
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Ethernet: conectado"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

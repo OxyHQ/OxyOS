@@ -11,7 +11,9 @@ import { RiVolumeMuteLine } from "@oxy.so/bloom/icons/RiVolumeMuteLine";
 import { RiKeyboardLine } from "@oxy.so/bloom/icons/RiKeyboardLine";
 import { RiBatteryLine } from "@oxy.so/bloom/icons/RiBatteryLine";
 import { RiNotificationOffFill } from "@oxy.so/bloom/icons/RiNotificationOffFill";
+import { RiArrowRightSLine } from "@oxy.so/bloom/icons/RiArrowRightSLine";
 import { Box, PressArea } from "../primitives";
+import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
 import {
   batteryLabel,
   bluetoothLabel,
@@ -21,27 +23,26 @@ import {
   wifiOn,
 } from "../controls";
 import type { ShellControl, ShellControls } from "../model";
+import { hasWifiView } from "../network";
+import { WifiPanel } from "./WifiPanel";
+
+/** What the Control Center shows: its modules, or Wi-Fi's view (docs/adr/0038-networks.mdx). */
+export type ControlCenterPage = "modules" | "wifi";
 
 export const CONTROL_CENTER_WIDTH = 320;
 /** One of Bloom's icons. */
 type Icon = typeof RiWifiLine;
-const INK = "#1d2430";
-const QUIET = "#5b6472";
-const ACCENT = "#2f6fe4";
-const card = {
-  backgroundColor: "#ffffffb3",
-  borderRadius: 16,
-  padding: 12,
-} as const;
 
 /** A round button with a title and what it is, as a Mac's Control Center modules: on, it is
-    the accent's. `onPress` absent, it only says (Bluetooth, which the session only looks at). */
+    the accent's. `onPress` absent, it only says (Bluetooth, which the session only looks at).
+    `more`: its title and a chevron open its view (Wi-Fi's networks), a button of its own. */
 function Module({
   icon,
   title,
   status,
   on,
   onPress,
+  more,
   testID,
 }: {
   icon: Icon;
@@ -49,13 +50,14 @@ function Module({
   status: string;
   on: boolean;
   onPress?: () => void;
+  more?: { label: string; open: () => void };
   testID: string;
 }) {
   const Glyph = icon;
   const face = (
     <Box
       className="items-center justify-center rounded-full"
-      style={{ width: 32, height: 32, backgroundColor: on ? ACCENT : "#0b183a1a" }}
+      style={{ width: 32, height: 32, backgroundColor: on ? ACCENT : FACE }}
     >
       <Glyph width={17} height={17} fill={on ? "#ffffff" : INK} />
     </Box>
@@ -75,18 +77,38 @@ function Module({
       ) : (
         face
       )}
-      <Box
-        className="min-w-0 flex-1"
-        accessible={!onPress}
-        accessibilityLabel={onPress ? undefined : `${title}: ${status}`}
-      >
-        <Text numberOfLines={1} style={{ color: INK, fontSize: 13, fontWeight: "600" }}>
-          {title}
-        </Text>
-        <Text numberOfLines={1} style={{ color: QUIET, fontSize: 11 }}>
-          {status}
-        </Text>
-      </Box>
+      {more ? (
+        <PressArea
+          testID={`${testID}-more`}
+          className="min-w-0 flex-1 flex-row items-center"
+          accessibilityRole="button"
+          accessibilityLabel={more.label}
+          onPress={more.open}
+        >
+          <Box className="min-w-0 flex-1">
+            <Text numberOfLines={1} style={{ color: INK, fontSize: 13, fontWeight: "600" }}>
+              {title}
+            </Text>
+            <Text numberOfLines={1} style={{ color: QUIET, fontSize: 11 }}>
+              {status}
+            </Text>
+          </Box>
+          <RiArrowRightSLine width={16} height={16} fill={QUIET} />
+        </PressArea>
+      ) : (
+        <Box
+          className="min-w-0 flex-1"
+          accessible={!onPress}
+          accessibilityLabel={onPress ? undefined : `${title}: ${status}`}
+        >
+          <Text numberOfLines={1} style={{ color: INK, fontSize: 13, fontWeight: "600" }}>
+            {title}
+          </Text>
+          <Text numberOfLines={1} style={{ color: QUIET, fontSize: 11 }}>
+            {status}
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -168,7 +190,8 @@ function LevelCard({
  * and the keyboard's brightness, the sound, and the battery. What the session has not said, or
  * the machine has not, is left out. A press outside it closes it. Do Not Disturb
  * (docs/adr/0026-notifications.mdx) is a module of its own below them, where the session has
- * notifications.
+ * notifications. Wi-Fi's module opens Wi-Fi's view in its place (docs/adr/0038-networks.mdx), as
+ * the top bar's network item does, where the session told the networks and the machine has Wi-Fi.
  */
 export const ControlCenter = memo(function ControlCenter({
   controls,
@@ -176,11 +199,16 @@ export const ControlCenter = memo(function ControlCenter({
   close,
   openSettings,
   doNotDisturb,
+  page = "modules",
+  showPage,
 }: {
   controls: ShellControls;
   dark: boolean;
   close: () => void;
   openSettings: () => void;
+  /** What it shows, and how it moves between its modules and Wi-Fi's view. */
+  page?: ControlCenterPage;
+  showPage?: (page: ControlCenterPage) => void;
   /** Do Not Disturb as the session says it is, and its switch (a change of the preference). */
   doNotDisturb?: { on: boolean; set: (enabled: boolean) => void };
 }) {
@@ -191,6 +219,8 @@ export const ControlCenter = memo(function ControlCenter({
   const wifi = wifiLabel(controls.network);
   const bluetooth = bluetoothLabel(controls.bluetooth);
   const battery = batteryLabel(controls.power);
+  const networks = controls.networks;
+  const wifiView = hasWifiView(networks) && !!showPage;
   return (
     <Box className="absolute inset-0">
       <PressArea
@@ -215,76 +245,83 @@ export const ControlCenter = memo(function ControlCenter({
           boxShadow: "0 22px 70px #0b183a40, 0 0 0 .5px #0b183a1f",
         }}
       >
-        <Box style={{ ...card, gap: 4 }}>
-          {wifi !== undefined && (
-            <Module
-              testID="control-wifi"
-              icon={RiWifiLine}
-              title="Wi-Fi"
-              status={wifi}
-              on={wifiOn(controls.network)}
-              onPress={() => controls.setWifi?.(!wifiOn(controls.network))}
-            />
-          )}
-          {bluetooth !== undefined && (
-            <Module
-              testID="control-bluetooth"
-              icon={RiBluetoothLine}
-              title="Bluetooth"
-              status={bluetooth}
-              on={controls.bluetooth?.state === "on"}
-            />
-          )}
-          <Module
-            testID="control-appearance"
-            icon={dark ? RiMoonLine : RiSunLine}
-            title="Modo oscuro"
-            status={dark ? "Activado" : "Desactivado"}
-            on={dark}
-            onPress={() => controls.setDark?.(!dark)}
-          />
-        </Box>
-        <LevelCard control="display" title="Pantalla" icon={RiSunLine} controls={controls} />
-        <LevelCard control="keyboard" title="Teclado" icon={RiKeyboardLine} controls={controls} />
-        <LevelCard control="output" title="Sonido" icon={RiVolumeUpLine} controls={controls} mute />
-        {battery !== undefined && (
-          <Box
-            style={card}
-            className="flex-row items-center"
-            accessible
-            accessibilityLabel={`Batería: ${battery}`}
-          >
-            <RiBatteryLine width={16} height={16} fill={INK} />
-            <Text style={{ color: INK, fontSize: 13, marginLeft: 8 }}>Batería</Text>
-            <Text testID="control-battery" style={{ color: QUIET, fontSize: 12, marginLeft: "auto" }}>
-              {battery}
-            </Text>
-          </Box>
+        {wifiView && page === "wifi" ? (
+          <WifiPanel state={networks} controls={controls} back={() => showPage?.("modules")} close={close} />
+        ) : (
+          <>
+            <Box style={{ ...card, gap: 4 }}>
+              {wifi !== undefined && (
+                <Module
+                  testID="control-wifi"
+                  icon={RiWifiLine}
+                  title="Wi-Fi"
+                  status={wifi}
+                  on={wifiOn(controls.network)}
+                  onPress={() => controls.setWifi?.(!wifiOn(controls.network))}
+                  more={wifiView ? { label: "Redes Wi-Fi", open: () => showPage?.("wifi") } : undefined}
+                />
+              )}
+              {bluetooth !== undefined && (
+                <Module
+                  testID="control-bluetooth"
+                  icon={RiBluetoothLine}
+                  title="Bluetooth"
+                  status={bluetooth}
+                  on={controls.bluetooth?.state === "on"}
+                />
+              )}
+              <Module
+                testID="control-appearance"
+                icon={dark ? RiMoonLine : RiSunLine}
+                title="Modo oscuro"
+                status={dark ? "Activado" : "Desactivado"}
+                on={dark}
+                onPress={() => controls.setDark?.(!dark)}
+              />
+            </Box>
+            <LevelCard control="display" title="Pantalla" icon={RiSunLine} controls={controls} />
+            <LevelCard control="keyboard" title="Teclado" icon={RiKeyboardLine} controls={controls} />
+            <LevelCard control="output" title="Sonido" icon={RiVolumeUpLine} controls={controls} mute />
+            {battery !== undefined && (
+              <Box
+                style={card}
+                className="flex-row items-center"
+                accessible
+                accessibilityLabel={`Batería: ${battery}`}
+              >
+                <RiBatteryLine width={16} height={16} fill={INK} />
+                <Text style={{ color: INK, fontSize: 13, marginLeft: 8 }}>Batería</Text>
+                <Text testID="control-battery" style={{ color: QUIET, fontSize: 12, marginLeft: "auto" }}>
+                  {battery}
+                </Text>
+              </Box>
+            )}
+            {doNotDisturb && (
+              <Box style={card}>
+                <Module
+                  testID="control-do-not-disturb"
+                  icon={RiNotificationOffFill}
+                  title="No molestar"
+                  status={doNotDisturb.on ? "Activado" : "Desactivado"}
+                  on={doNotDisturb.on}
+                  onPress={() => doNotDisturb.set(!doNotDisturb.on)}
+                />
+              </Box>
+            )}
+            <Button
+              appearance="plain"
+              className="border-0"
+              style={{ alignSelf: "flex-start", paddingHorizontal: 6, height: 26 }}
+              colors={{ background: "transparent", foreground: INK }}
+              onPress={() => {
+                close();
+                openSettings();
+              }}
+            >
+              <Text style={{ color: INK, fontSize: 12 }}>Ajustes del sistema…</Text>
+            </Button>
+          </>
         )}
-        {doNotDisturb && (
-          <Box style={card}>
-            <Module
-              testID="control-do-not-disturb"
-              icon={RiNotificationOffFill}
-              title="No molestar"
-              status={doNotDisturb.on ? "Activado" : "Desactivado"}
-              on={doNotDisturb.on}
-              onPress={() => doNotDisturb.set(!doNotDisturb.on)}
-            />
-          </Box>
-        )}
-        <Button
-          appearance="plain"
-          className="border-0"
-          style={{ alignSelf: "flex-start", paddingHorizontal: 6, height: 26 }}
-          colors={{ background: "transparent", foreground: INK }}
-          onPress={() => {
-            close();
-            openSettings();
-          }}
-        >
-          <Text style={{ color: INK, fontSize: 12 }}>Ajustes del sistema…</Text>
-        </Button>
       </Box>
     </Box>
   );

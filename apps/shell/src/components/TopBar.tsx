@@ -15,9 +15,11 @@ import {
   MenubarSubContent,
 } from "@oxy.so/bloom/menubar";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
+import { RiArrowLeftRightLine } from "@oxy.so/bloom/icons/RiArrowLeftRightLine";
 
 import Svg, { Rect, Circle, Path } from "react-native-svg";
-import { Box } from "../primitives";
+import { Box, PressArea } from "../primitives";
+import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
@@ -139,15 +141,13 @@ function BatteryIcon({ power }: { power: ShellBattery }) {
 /** Wi-Fi as the session says it is: its signal in arcs; off or not connected, faint. */
 function WifiIcon({ network }: { network: ShellNetwork }) {
   const connected = network.wifi === "connected";
-  const bars = connected ? wifiBars(network.signal) : 0;
-  const arc = (on: boolean) => (on ? "#fff" : "#ffffff59");
   return (
-    <Svg width={14} height={12} viewBox="0 0 20 16">
-      <Path d="M1 5.6a13 13 0 0 1 18 0" stroke={arc(bars >= 3)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M4.2 8.9a8.4 8.4 0 0 1 11.6 0" stroke={arc(bars >= 2)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M7.4 12.1a3.9 3.9 0 0 1 5.2 0" stroke={arc(bars >= 1)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Circle cx="10" cy="14.6" r="1.3" fill={arc(connected || wifiOn(network))} />
-    </Svg>
+    <WifiArcs
+      arcs={connected ? wifiBars(network.signal) : 0}
+      dot={connected || wifiOn(network)}
+      color="#fff"
+      faint="#ffffff59"
+    />
   );
 }
 
@@ -193,10 +193,50 @@ const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }
   );
 });
 
-const WifiItem = memo(function WifiItem({ network }: { network: ShellNetwork }) {
+/** A status item is pressed anywhere over the bar's height around its icon. */
+const STATUS_SLOP = { top: 8, bottom: 8, left: 6, right: 6 };
+
+/** The network's status item (docs/adr/0038-networks.mdx, decision 6): Wi-Fi's signal, or the
+    Ethernet icon while only a cable is connected. Pressed, it opens the Control Center at its
+    Wi-Fi view, where the platform gives `onPress`. */
+const NetworkItem = memo(function NetworkItem({
+  network,
+  onPress,
+}: {
+  network: ShellNetwork;
+  onPress?: () => void;
+}) {
+  if (network.wifi !== "connected" && network.wired) {
+    const face = <RiArrowLeftRightLine width={15} height={15} fill="#fff" />;
+    return onPress ? (
+      <PressArea
+        testID="shell-ethernet"
+        accessibilityRole="button"
+        accessibilityLabel="Ethernet: conectado"
+        hitSlop={STATUS_SLOP}
+        onPress={onPress}
+      >
+        {face}
+      </PressArea>
+    ) : (
+      <Box testID="shell-ethernet" accessible accessibilityLabel="Ethernet: conectado">
+        {face}
+      </Box>
+    );
+  }
   const wifi = wifiLabel(network);
   if (wifi === undefined) return null;
-  return (
+  return onPress ? (
+    <PressArea
+      testID="shell-wifi"
+      accessibilityRole="button"
+      accessibilityLabel={`Wi-Fi: ${wifi}`}
+      hitSlop={STATUS_SLOP}
+      onPress={onPress}
+    >
+      <WifiIcon network={network} />
+    </PressArea>
+  ) : (
     <Box testID="shell-wifi" accessible accessibilityLabel={`Wi-Fi: ${wifi}`}>
       <WifiIcon network={network} />
     </Box>
@@ -412,6 +452,7 @@ export const TopBar = memo(function TopBar({
   power,
   network,
   controlCenter,
+  networkStatus,
   clock,
   keyboardRequest = 0,
   keyboardLost = 0,
@@ -431,6 +472,8 @@ export const TopBar = memo(function TopBar({
   network?: ShellNetwork;
   /** Opens the Control Center, or closes it. */
   controlCenter: () => void;
+  /** The network's status item pressed: the Control Center at its Wi-Fi view, or closed. */
+  networkStatus?: () => void;
   /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
   clock?: () => void;
   /** Rises at each Super+F2 (docs/adr/0024-system-shortcuts.mdx): the keyboard moves to the
@@ -463,7 +506,7 @@ export const TopBar = memo(function TopBar({
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
           {power && <BatteryItem power={power} />}
-          {network && <WifiItem network={network} />}
+          {network && <NetworkItem network={network} onPress={networkStatus} />}
         </Box>
         <BarButtons launcher={launcher} controlCenter={controlCenter} />
         <Clock now={now} onPress={clock} />

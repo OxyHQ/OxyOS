@@ -36,6 +36,9 @@ pub struct Grants {
     /// `privacy`: it sees and changes the account's decisions on its applications' capabilities
     /// (Settings; decision 8).
     pub privacy: bool,
+    /// `network`: it sees the networks and joins and forgets them (Settings; docs/adr/0038-
+    /// networks.mdx, decision 3).
+    pub network: bool,
 }
 
 impl Grants {
@@ -49,6 +52,7 @@ impl Grants {
                 "store" => &mut grants.store,
                 "updates" => &mut grants.updates,
                 "privacy" => &mut grants.privacy,
+                "network" => &mut grants.network,
                 other => return Err(Error(format!("{other:?} is not a system grant"))),
             };
             if *grant {
@@ -69,6 +73,7 @@ impl Grants {
             ("store", self.store),
             ("updates", self.updates),
             ("privacy", self.privacy),
+            ("network", self.network),
         ]
         .into_iter()
         .filter(|(_, granted)| *granted)
@@ -84,6 +89,7 @@ impl Grants {
             store: self.store || other.store,
             updates: self.updates || other.updates,
             privacy: self.privacy || other.privacy,
+            network: self.network || other.network,
         }
     }
 }

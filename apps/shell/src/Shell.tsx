@@ -20,12 +20,13 @@ import { Launchpad, LaunchpadBackdrop } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
 import { Bezel } from "./components/Bezel";
-import { ControlCenter } from "./components/ControlCenter";
+import { ControlCenter, type ControlCenterPage } from "./components/ControlCenter";
 import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
 import type { Language, SheetText } from "./sheet";
+import { hasWifiView } from "./network";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -116,10 +117,16 @@ export const Shell = memo(function Shell({
   banners?: boolean;
   /** The session's system sheet to show now (ADR 0030): the first waiting, and its answer. */
   sheet?: {
+    /** The session's number for it: a sheet asked again (a Wi-Fi password that was wrong) is a
+        new one, its field empty. */
+    id?: number;
     text: SheetText;
     language?: Language;
     names?: Record<string, string>;
     answer: (accepted: boolean) => void;
+    /** A Wi-Fi password sheet's answer (docs/adr/0038-networks.mdx): the password, to the
+        session alone. Without it such a sheet cannot be answered but by Cancel. */
+    answerPassword?: (password: string) => void;
   };
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
@@ -127,11 +134,12 @@ export const Shell = memo(function Shell({
 }) {
   const { Surface } = platform;
   const dark = useColorScheme() === "dark";
-  const [controlCenter, setControlCenter] = useState(false);
+  // The Control Center, open at its modules or at Wi-Fi's view (docs/adr/0038-networks.mdx).
+  const [controlCenter, setControlCenter] = useState<ControlCenterPage | null>(null);
   const shownControls: ShellControls = controls ?? NO_LEVELS;
   // The lock closes it, as it closes every other panel.
   useEffect(() => {
-    if (lock?.locked) setControlCenter(false);
+    if (lock?.locked) setControlCenter(null);
   }, [lock?.locked]);
   // The Notification Center, from the clock (docs/adr/0026-notifications.mdx).
   const [center, setCenter] = useState(false);
@@ -314,20 +322,27 @@ export const Shell = memo(function Shell({
   // One of the two at a time, as a Mac's Control Center and Notification Center.
   const toggleControlCenter = useCallback(() => {
     setCenter(false);
-    setControlCenter((open) => !open);
+    setControlCenter((open) => (open ? null : "modules"));
   }, []);
+  // The top bar's network item opens it at Wi-Fi's view, or closes it, as a Mac's Wi-Fi menu;
+  // where there is no Wi-Fi view (no networks told, no Wi-Fi device), at its modules.
+  const wifiView = hasWifiView(controls?.networks);
+  const openNetworkStatus = useCallback(() => {
+    setCenter(false);
+    setControlCenter((open) => (open ? null : wifiView ? "wifi" : "modules"));
+  }, [wifiView]);
   const hasNotifications = !!notifications;
   const toggleCenter = useMemo(
     () =>
       hasNotifications
         ? () => {
-            setControlCenter(false);
+            setControlCenter(null);
             setCenter((open) => !open);
           }
         : undefined,
     [hasNotifications],
   );
-  const closeControlCenter = useCallback(() => setControlCenter(false), []);
+  const closeControlCenter = useCallback(() => setControlCenter(null), []);
   const openSettings = useCallback(() => menuCommand("system.settings"), [menuCommand]);
   const setDoNotDisturb = notifications?.setDoNotDisturb;
   const doNotDisturbOn = !!notifications?.doNotDisturb;
@@ -381,6 +396,7 @@ export const Shell = memo(function Shell({
             power={controls?.power}
             network={controls?.network}
             controlCenter={toggleControlCenter}
+            networkStatus={openNetworkStatus}
             clock={toggleCenter}
           />
         </Surface>
@@ -440,6 +456,8 @@ export const Shell = memo(function Shell({
               close={closeControlCenter}
               openSettings={openSettings}
               doNotDisturb={doNotDisturb}
+              page={controlCenter}
+              showPage={setControlCenter}
             />
           </Surface>
         )}
@@ -515,10 +533,12 @@ export const Shell = memo(function Shell({
         {sheet && !lock?.locked && (
           <Surface kind="overlay" style={WHOLE} keyboard>
             <SystemSheet
+              key={sheet.id}
               text={sheet.text}
               language={sheet.language}
               names={sheet.names}
               answer={sheet.answer}
+              answerPassword={sheet.answerPassword}
               keyboard={platform.keyboard}
             />
           </Surface>

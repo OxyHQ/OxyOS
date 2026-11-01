@@ -1675,6 +1675,7 @@ dependencies = [
  "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-networks",
  "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
@@ -1886,6 +1887,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-networks"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "futures-lite",
+ "serde",
+ "serde_json",
+ "zbus",
+]
+
+[[package]]
 name = "oxyos-offscreen"
 version = "0.1.0"
 dependencies = [
@@ -1905,6 +1917,7 @@ dependencies = [
  "oxyos-seat",
  "oxyos-vt",
  "rustix",
+ "zbus",
 ]
 
 [[package]]

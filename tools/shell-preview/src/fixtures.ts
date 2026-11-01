@@ -4,6 +4,7 @@ import type {
   ShellSnapshot,
   ShellMenu,
 } from "../../../apps/shell/src/model";
+import type { NetworkState } from "../../../apps/shell/src/network";
 import astro from "../assets/apps/astro.png";
 import inbox from "../assets/apps/inbox.png";
 import mention from "../assets/apps/mention.png";
@@ -150,4 +151,41 @@ export const previewSnapshot: ShellSnapshot = {
   ],
   workspaceId: "1",
   menus,
+};
+
+/** A played machine's networks (docs/adr/0038-networks.mdx), so the Control Center's Wi-Fi view
+    can be tried in the browser: one joined, two more known, and others nearby. */
+export const previewNetworks: NetworkState = {
+  available: true,
+  wifi: {
+    device: true,
+    enabled: true,
+    hardwareBlocked: false,
+    state: "connected",
+    current: { ssid: "Oxy", signal: 73, security: "wpa", known: true, current: true, supported: true },
+    networks: [
+      { ssid: "Oxy", signal: 73, security: "wpa", known: true, current: true, supported: true },
+      { ssid: "Vecinos 5G", signal: 81, security: "wpa3", known: false, current: false, supported: true },
+      { ssid: "Casa", signal: 58, security: "wpa", known: true, current: false, supported: true },
+      { ssid: "Café Central", signal: 45, security: "open", known: false, current: false, supported: true },
+      { ssid: "Oficina", signal: 38, security: "enterprise", known: false, current: false, supported: false },
+      { ssid: "Biblioteca", signal: 22, security: "owe", known: true, current: false, supported: true },
+      { ssid: "Antiguo", signal: 12, security: "wep", known: false, current: false, supported: false },
+    ],
+    known: [
+      { id: "1d0e3f7a-0000-4000-8000-000000000001", ssid: "Oxy", autoJoin: true },
+      { id: "1d0e3f7a-0000-4000-8000-000000000002", ssid: "Casa", autoJoin: true },
+      { id: "1d0e3f7a-0000-4000-8000-000000000003", ssid: "Biblioteca", autoJoin: false },
+    ],
+    details: {
+      interface: "wlp0s20f3",
+      hardwareAddress: "3C:A9:F4:12:34:56",
+      ipv4: { address: "192.168.1.42", prefix: 24, subnetMask: "255.255.255.0" },
+      router: "192.168.1.1",
+      dns: ["192.168.1.1"],
+      ipv6: [],
+    },
+  },
+  ethernet: { device: true, state: "unplugged", speed: 0, details: null },
+  joining: null,
 };

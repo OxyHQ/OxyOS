@@ -228,6 +228,9 @@ pub enum Step {
     /// Another application copies these types with their contents (pasteboard.rs): the
     /// clipboard holds them, for the application to paste (ADR 0007).
     Clipboard(Vec<(TextChunk, Vec<u8>)>),
+    /// The played network daemon changes the machine (`--network-bus`, docs/adr/0038-networks.mdx):
+    /// its control interface's `Act`, a cable plugged or an access point appearing.
+    Network(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -365,6 +368,7 @@ impl Step {
             Step::Wait(ms) => format!("{ms} ms waited"),
             Step::WaitNamed { name, ms } => format!("waiting for {name:?} (at most {ms} ms)"),
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
+            Step::Network(what) => format!("the network daemon: {what}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -529,6 +533,7 @@ impl Step {
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
+            Step::Network(what) => format!("\"network\":{}", json_string(what)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -688,6 +693,11 @@ pub struct Launch {
     /// result says it (`controls`). Without it the keys act on nothing and the shell is told
     /// nothing of the machine.
     pub controls: Option<PathBuf>,
+    /// `--network-bus ADDRESS`: the session's networks (docs/adr/0038-networks.mdx) are the
+    /// NetworkManager on this bus, a played one (`oxyos-fake-networkmanager`), never the system's;
+    /// the played machine's network (`--controls`) follows it too, and each step's result says
+    /// what the daemon holds (`network`).
+    pub network_bus: Option<String>,
     /// `--outputs WxH[@SCALE][:HZ],...`: the session's outputs, of these pixels at these scales,
     /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
@@ -706,7 +716,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -793,6 +803,7 @@ impl Launch {
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
+        let mut network_bus = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
         let mut runtimes = None;
@@ -879,6 +890,11 @@ impl Launch {
                 }
                 Some("--controls") => {
                     controls = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--network-bus") => {
+                    let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    network_bus = Some(address.to_string());
                     continue;
                 }
                 Some("--installed-fixture") => {
@@ -1216,6 +1232,10 @@ impl Launch {
                     let path = args.next().and_then(|p| p.to_str()).ok_or(USAGE)?;
                     Step::Menu(path.to_string())
                 }
+                Some("--network") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Network(what.to_string())
+                }
                 Some("--clipboard") => {
                     let list = args.next().ok_or(USAGE)?;
                     let mut contents = Vec::new();
@@ -1377,6 +1397,7 @@ impl Launch {
                 installed_fixture,
                 screenshots,
                 controls,
+                network_bus,
                 outputs: screens,
                 displays,
                 login,
@@ -3662,6 +3683,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Wait(_)
         | Step::WaitNamed { .. }
         | Step::Clipboard(_)
+        | Step::Network(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -3750,9 +3772,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None,
         )?);
     }
+    if let Some(address) = &launch.network_bus {
+        // The session's networks, over the played daemon on the run's own bus.
+        let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
+        let waker = networks.wake_fd()?;
+        session.networks_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.networks = Some(networks);
+        session.network_control =
+            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
-        let fake = oxyos_controls::Fake::from_file(file.clone())?;
+        let mut fake = oxyos_controls::Fake::from_file(file.clone())?;
+        if let Some(address) = &launch.network_bus {
+            fake = fake.with_network_bus(address)?;
+        }
         session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
             oxyos_controls::Worker::inline(Box::new(fake.clone())),
             Instant::now(),
@@ -4207,6 +4242,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Network(_)) => {
+                if let Step::Network(what) = step {
+                    session.network_act(what)?;
+                }
+                0
+            }
             _ if matches!(step, Step::Clipboard(_)) => {
                 if let (Step::Clipboard(contents), Some(pasteboard)) =
                     (step, session.pasteboard.as_mut())
@@ -4372,7 +4413,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4391,6 +4432,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
+            session.network_state(),
             menus_json(&session.compositor),
             chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),

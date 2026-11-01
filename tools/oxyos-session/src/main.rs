@@ -471,6 +471,15 @@ fn main() -> Result<()> {
         compositor.wakers.push(installs.wake_fd()?);
         Some(installs)
     };
+    // Wi-Fi and networks (ADR 0038): the shell's and Settings' requests, over the system's
+    // NetworkManager, as the session's user (polkit decides). The login screen has none yet.
+    let mut networks = if greeter {
+        None
+    } else {
+        let networks = oxyos_compositor::networks::Networks::on_bus(None)?;
+        compositor.wakers.push(networks.wake_fd()?);
+        Some(networks)
+    };
     let mut versions = Versions::default();
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): any application asks, the
     // file manager answers in its picker mode, as a sheet of the asking window; answers are
@@ -554,6 +563,15 @@ fn main() -> Result<()> {
         }
         if let Some(trash) = trash.as_mut() {
             trash.serve(&mut compositor.scene);
+        }
+        // Before the store, which takes the requests left.
+        if let Some(networks) = networks.as_mut() {
+            networks.serve(&mut compositor.scene);
+            if networks.take_changed() {
+                if let Some(controls) = compositor.controls.as_mut() {
+                    controls.refresh_status();
+                }
+            }
         }
         if let Some(installs) = installs.as_mut() {
             let askers: std::collections::BTreeMap<_, _> = compositor
@@ -771,6 +789,7 @@ fn main() -> Result<()> {
                     store: launched.grants.store,
                     updates: launched.grants.updates,
                     privacy: launched.grants.privacy,
+                    network: launched.grants.network,
                     ..Grants::default()
                 },
             })

@@ -59,7 +59,7 @@
               "name": "Batería: 64 %, 3 h 20 min restantes"
             },
             {
-              "role": "Generic",
+              "role": "Button",
               "name": "Wi-Fi: LukeSkyRouter"
             },
             {

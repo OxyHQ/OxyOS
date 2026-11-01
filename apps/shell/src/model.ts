@@ -1,4 +1,5 @@
 import type { ImageSourcePropType } from "react-native";
+import type { NetworkState } from "./network";
 
 /** Data supplied by the OxyOS application registry and compositor, never invented by the UI. */
 export type ShellApplication = {
@@ -233,6 +234,16 @@ export type ShellControls = {
   setDark?: (dark: boolean) => void;
   /** The Control Center opened: the session looks at the machine again. */
   refresh?: () => void;
+  /** The networks as the session tells them (docs/adr/0038-networks.mdx): the Control Center's
+      Wi-Fi view. Absent or null, the Wi-Fi module only turns Wi-Fi on and off. */
+  networks?: NetworkState | null;
+  /** The Wi-Fi view asks the session to scan: as it opens, and every ten seconds while open. */
+  scanNetworks?: () => void;
+  /** A network chosen: the session joins it, asking its password in a system sheet if it needs
+      one, and says what failed in another. */
+  joinNetwork?: (ssid: string) => void;
+  /** The Wi-Fi view's "Ajustes de Wi-Fi…": Settings, at its Wi-Fi page where it can be. */
+  openWifiSettings?: () => void;
 };
 
 /** A screenshot the session saved (docs/adr/0024-system-shortcuts.mdx, decision 10): the session's

@@ -1,0 +1,82 @@
+---
+title: "ADR 0038: Wi-Fi and networks"
+description: How a person sees and joins networks on OxyOS as on a Mac — Control Center's Wi-Fi list, the password sheet, Settings' Wi-Fi and Network pages — through NetworkManager, the system's network daemon, which the session alone speaks to; where passwords live, what polkit allows, and what is not supported.
+order: 47
+---
+
+# ADR 0038: Wi-Fi and networks
+
+Status: **accepted; implemented** (the session's side, the shell's Control Center and password sheet, Settings' Wi-Fi and Network pages, scenarios over a played daemon). Amends [ADR 0025](./0025-hardware-keys-and-control-center), which left "choosing a Wi-Fi network, passwords, VPNs" out, and [ADR 0019](./0019-settings), which left networks to their own decision. Builds on [ADR 0030](./0030-installing-applications) (system grants of the image's policy, the session's vocabulary over `SystemRequest`, system sheets).
+
+## Problem
+
+An OxyOS session had no way to see or join a network ("no hay forma de ver wifis/ethernet/redes"). The top bar showed Wi-Fi's signal and Control Center turned Wi-Fi on and off (ADR 0025), but nothing listed the networks nearby, joined one, asked for its password, forgot one, or said what the wired connection was. A Mac does all of it from two places:
+
+- **Control Center's Wi-Fi module**: on and off, the network joined, and its detail view: the known networks nearby, then the others, each with its signal and a lock when it has a password; choosing one joins it, asking its password in a sheet when it needs one. The menu bar's status item shows Wi-Fi's signal.
+- **System Settings › Wi-Fi** (on and off, the network joined and its details: IP address, router, DNS; known networks, each forgotten from its menu; the networks nearby) and **› Network** (Ethernet's state and details, VPN).
+
+## What the machines have
+
+- **The image** already installs NetworkManager (`network-manager` in `config/package-lists/live.list.chroot`, with `wpasupplicant` as its dependency), as Debian's desktop tasks do. No other daemon (iwd, ConnMan, systemd-networkd) is installed or enabled.
+- **The reference ThinkPad** (Debian trixie) runs NetworkManager 1.52.1 with wpa_supplicant (`org.freedesktop.NetworkManager` and `fi.w1.wpa_supplicant1` on the system bus; `systemd-networkd` only activatable, inactive; no iwd): `wlp0s20f3` connected to LukeSkyRouter, `enp0s31f6` (Ethernet) unavailable with no cable, nine saved Wi-Fi connections in `/etc/NetworkManager/system-connections/`.
+- **polkit** (NetworkManager's own policy, and the rule Debian's `network-manager` ships in `/usr/share/polkit-1/rules.d/org.freedesktop.NetworkManager.rules`):
+
+  | Action | The active local session | Others |
+  | --- | --- | --- |
+  | `network-control` (activate, deactivate) | yes | `auth_admin` |
+  | `wifi.scan` | yes | `auth_admin` |
+  | `enable-disable-wifi` | yes | no |
+  | `settings.modify.own` (a connection only the user may use) | yes | `auth_self_keep` |
+  | `settings.modify.system` (a connection for every user) | yes for members of `sudo` or `netdev` (Debian's rule) | `auth_admin_keep` |
+
+## Decision
+
+1. **NetworkManager is the network daemon; nothing is added to the image.** It is what the image installs, what the reference machine runs, what Debian's and most desktops use, and its D-Bus API is stable and documented (`org.freedesktop.NetworkManager`, since 1.0). The session must speak to the daemon the machine already runs, never install a second one beside it: two daemons managing one interface fight over it. iwd with systemd-networkd is leaner, but would replace the machine's daemon and its saved networks, and gains nothing a person sees. No GUI toolkit, applet or `nmcli` is used: the session speaks D-Bus (`zbus`, as UPower and BlueZ are read, ADR 0025).
+
+2. **The session alone speaks to the daemon.** `crates/oxyos-networks` is NetworkManager's client: it reads the state (devices, access points, saved connections, IP configuration), scans, joins, forgets and turns Wi-Fi on and off, on the system bus as the session's user, and polkit decides each call as the table above says. It follows the daemon's changes (`PropertiesChanged` and `StateChanged` from `org.freedesktop.NetworkManager`), so a cable plugged or a network appearing is told within a moment, not at the next poll. No application talks to D-Bus; Settings and the shell ask the session.
+
+3. **Who may ask: the shell, and a new system grant `network`.** The image's policy gives `network` to Settings ([ADR 0030](./0030-installing-applications), decision 7: system grants come from the policy alone). The shell has it by its `shell` grant (it draws Control Center and the password sheet). They ask in the session's vocabulary over `SystemRequest` (request 160), as Settings asks for updates: one JSON object, read strictly, answered by `SystemText` naming its serial. Anything that changes the machine (joining, forgetting, Wi-Fi on or off) must cite an input the asker received. The network's state is also told unasked, as it changes, to every client holding `network` or `shell` (`SystemText` with serial 0, `{"network": …}`). No protocol message is added.
+
+   | Request | Grant | Input | Answer |
+   | --- | --- | --- | --- |
+   | `{"networks":{}}` | `network` or `shell` | no | `{"network": State}` |
+   | `{"scan":{}}` | `network` or `shell` | no | `{"scanned":{}}`, then the state as it changes |
+   | `{"join":{"ssid":"…"}}` | `network` or `shell` | yes | `{"joined":{"ssid"}}` or `{"failed":{"reason"}}` once it is done |
+   | `{"forget":{"id":"…"}}` | `network` or `shell` | yes | `{"forgotten":{}}` or `{"failed":{"reason"}}` |
+   | `{"wifi":{"enabled":bool}}` | `network` or `shell` | yes | `{"network": State}` |
+   | `{"password":{"sheet":n,"password":"…"}}` | `shell` | yes | none: the join the sheet belongs to answers |
+
+   `State` is `{available, wifi, ethernet, joining}`:
+   - `available`: whether the daemon answers;
+   - `wifi`: `device` (a Wi-Fi device exists), `enabled`, `hardwareBlocked` (its switch), `state` (`unavailable`, `off`, `disconnected`, `connecting`, `connected`), `current` (the network joined, or null), `networks` (nearby, strongest first, one per name: `ssid`, `signal` 0–100, `security` `open`, `owe`, `wpa`, `wpa3`, `wep` or `enterprise`, `known`, `current`, `supported`), `known` (saved Wi-Fi connections: `id`, the connection's UUID, `ssid`, `autoJoin`) and `details` (of the network joined: below);
+   - `ethernet`: `device`, `state` (`unavailable`, `unplugged`, `disconnected`, `connecting`, `connected`), `speed` (Mb/s, 0 unknown), `details`;
+   - `details`: `interface`, `hardwareAddress`, `ipv4` (`address`, `prefix`, `subnetMask`) or null, `router`, `dns` (addresses), `ipv6` (addresses);
+   - `joining`: the name being joined, or null.
+
+   A failure's `reason` is `cancelled` (the person cancelled the password sheet), `unsupported`, `notFound`, `notPermitted`, `unavailable` (no daemon, no Wi-Fi device, or Wi-Fi off), `timeout`, `busy` (another join is under way: one at a time) or `failed`. A refusal (`{"refused":{"reason"}}`) is a request the session did not take: `notPermitted`, `needsInput`, `invalidRequest`, `locked` or `noSuchSheet`.
+
+4. **Joining, as a Mac does.** The session finds the network by its name among those the Wi-Fi device sees (the strongest access point of that name):
+   - **Known** (a saved connection with its SSID): activated as saved (`ActivateConnection`); the daemon has its password.
+   - **Open** (or OWE): added and activated (`AddAndActivateConnection`) with no password.
+   - **WPA, WPA2 or WPA3 Personal**: the session asks for the password in a **system sheet** (below), then adds and activates the connection with it (`802-11-wireless-security`: `key-mgmt` `wpa-psk`, or `sae` for a WPA3-only network, and `psk`).
+   - **Wrong password.** The daemon fails the activation for want of secrets (`NO_SECRETS`, or the supplicant's disconnect or timeout during the handshake). The connection just added is deleted, so a wrong password is never kept, and the sheet is shown again saying the password was incorrect, as a Mac's does. Cancelling it ends the join (`cancelled`).
+   - **A known network whose password changed** fails the same way: the sheet asks for the new one, and the saved connection is updated with it (`Update`), not duplicated.
+   - **Another failure** (no IP address, a timeout of 45 seconds) says so in a sheet ("Couldn't join …") and ends the join (`failed` or `timeout`).
+   - **Not supported** (below): the sheet says so, and nothing is tried.
+   - **Who may use it.** A connection is added for every user of the machine (`settings.modify.system`, which Debian's rule gives administrators and `netdev`); refused by polkit, it is added again for this user alone (`connection.permissions` `user:NAME`, `settings.modify.own`), as GNOME does for a user who is not an administrator. Forgetting a connection someone else may use needs the same: refused, the reason is `notPermitted` and Settings says only an administrator can forget it.
+
+5. **Passwords belong to the daemon.** The password sheet is a system sheet ([ADR 0030](./0030-installing-applications)'s `SheetText`, kind `wifi-password`), sent to the shell alone and drawn over everything but the lock screen. The person types into the shell's own secure field. The shell sends the password to the session with `{"password":…}`, citing the input that submitted it; the session accepts it only from the shell, only for a password sheet it is showing, never while locked, and hands it to NetworkManager in the connection's settings, which keeps it in its root-only `/etc/NetworkManager/system-connections/` (secret flags 0, the daemon's to keep). The session holds it only as long as the call takes (`oxyos_networks::Secret`, which never prints and overwrites its bytes when dropped; the request's text it arrived in is overwritten as soon as it is read). It is never written to OxyOS's preferences file, never logged, and never told to anyone: the application that asked to join (Settings) learns only `joined` or `failed`. No secret agent is registered: a network that later needs a new password is joined again, from Control Center or Settings, and asks.
+
+6. **Control Center's Wi-Fi.** The Wi-Fi module of [ADR 0025](./0025-hardware-keys-and-control-center) gains its detail view, as a Mac's: its switch, then the known networks nearby with the joined one first (its icon filled), then **Other Networks**, each with its signal in arcs and a lock when it has a password; a network being joined shows its progress; choosing one joins it; **Wi-Fi Settings…** opens Settings at its Wi-Fi page. The view asks the session to scan when it opens and every ten seconds while it is open (NetworkManager refuses scans more often). The top bar's status item shows Wi-Fi's signal when Wi-Fi is joined and Ethernet's icon when only a cable is connected, and opens Control Center at its Wi-Fi view.
+
+7. **Settings' Wi-Fi and Network pages.**
+   - **Wi-Fi**: the switch; the network joined with its signal, lock, and **Details…** (IP address, subnet mask, router, DNS servers, IPv6 address, the hardware address); **Known Networks**, each with a menu to forget it (confirmed: "Forget Wi-Fi network …?"); **Other Networks** nearby, chosen to join. A network that is not supported says so in place of joining.
+   - **Network**: **Ethernet**: its state (connected, cable unplugged, not connected; none without a device) and the same details; **VPN**: "OxyOS can't connect to VPNs yet." VPN is a placeholder because nothing exists: no VPN plugin is in the image and nothing in OxyOS configures one.
+
+8. **What is not supported, said where it is met.** Enterprise networks (802.1X: `key-mgmt` `wpa-eap`) need certificates and identities the session does not ask for; WEP is broken and Debian's wpa_supplicant builds may refuse it; both are listed with their lock and say "isn't supported yet" when chosen. Hidden networks (no SSID broadcast) are not listed and cannot be joined by name yet. Captive portals are not detected or opened. VPNs, proxies, a manual IP configuration and editing a connection are not offered. A Mac's "Ask to join networks", Personal Hotspot and Wi-Fi's location-based ordering are not offered.
+
+## Not in this decision
+
+- Bluetooth (on and off, pairing): its own decision, as Control Center's module already only says what it is.
+- A secret agent (NetworkManager asking the session for a password it lacks when it autoconnects), enterprise networks, hidden networks, captive portals, VPNs, proxies, metered connections (ADR 0030's downloads read NetworkManager's `Metered`), a manual IP configuration.
+- Setup's network step ([ADR 0023](./0023-installing-oxyos)), which will use the same requests.
