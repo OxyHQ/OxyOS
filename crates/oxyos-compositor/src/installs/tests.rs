@@ -153,11 +153,23 @@ fn run(
     request: Ask,
     accepting: bool,
 ) -> (Vec<String>, Vec<Value>) {
+    run_beside(&Installing::default(), socket, home, request, accepting)
+}
+
+/// The same beside other flows: the installs under way are `installing`, theirs too.
+fn run_beside(
+    installing: &Installing,
+    socket: &Path,
+    home: Option<&Path>,
+    request: Ask,
+    accepting: bool,
+) -> (Vec<String>, Vec<Value>) {
     let (done, received) = mpsc::channel();
     let (wake, _woken) = UnixStream::pair().unwrap();
     let back = Back {
         done,
         wake: Arc::new(wake),
+        installing: installing.clone(),
     };
     let (socket, home) = (socket.to_path_buf(), home.map(Path::to_path_buf));
     let worker = std::thread::spawn(move || flow(&socket, home.as_deref(), &back, 9, 1, request));
@@ -454,9 +466,103 @@ fn a_listing_is_resolved_by_the_service_then_installed_or_said_to_have_no_releas
     assert_eq!(
         answers[0]["status"],
         json!([
-            {"id": "so.oxy.notes", "listing": "notes", "installed": false, "version": null,
-             "versionCode": null, "update": null},
+            {"id": "so.oxy.notes", "listing": "notes", "installed": false, "installing": null,
+             "version": null, "versionCode": null, "update": null},
             {"listing": "mention", "id": null},
         ])
     );
+}
+
+#[test]
+fn a_status_asked_while_an_install_is_under_way_says_so_until_it_ends() {
+    // The service compiles until the test lets it finish, as a slow machine would.
+    let (finish, finished) = mpsc::channel::<()>();
+    let finished = Mutex::new(finished);
+    let (socket, _) = service("under-way", move |request| match request {
+        Request::Prepare { .. } => vec![Answer::Plan(plan())],
+        Request::Commit { .. } => {
+            finished.lock().unwrap().recv().unwrap();
+            vec![
+                Answer::Progress(oxyos_install::install::Progress::Compiling),
+                Answer::Committed(Committed {
+                    id: "so.oxy.notes".into(),
+                    version_code: 12,
+                    switched: true,
+                    at_next_launch: false,
+                }),
+            ]
+        }
+        Request::List { .. } => vec![Answer::Applications(Vec::new())],
+        Request::UpdateState { .. } => vec![Answer::UpdateState(UpdateState {
+            checking: false,
+            checked_at: None,
+            check_failed: None,
+            automatic: true,
+            updates: Vec::new(),
+        })],
+        _ => vec![Answer::refused(oxyos_install::ipc::Reason::InvalidRequest)],
+    });
+    let installing = Installing::default();
+    let status = || {
+        let (_, answers) = run_beside(
+            &installing,
+            &socket,
+            None,
+            Ask::Status {
+                ids: vec!["so.oxy.notes".into()],
+                listings: vec![],
+            },
+            true,
+        );
+        answers[0]["status"][0].clone()
+    };
+    // Before the person confirms anything, nothing is under way.
+    assert_eq!(status()["installing"], Value::Null);
+    let install = {
+        let (installing, socket) = (installing.clone(), socket.clone());
+        std::thread::spawn(move || {
+            run_beside(
+                &installing,
+                &socket,
+                None,
+                Ask::Install {
+                    id: Some("so.oxy.notes".into()),
+                    listing: None,
+                },
+                true,
+            )
+        })
+    };
+    // Confirmed and compiling: a status asked now (a store opened meanwhile) says it is
+    // installing, not that it is not installed.
+    while installing.of("so.oxy.notes").is_null() {
+        std::thread::yield_now();
+    }
+    let during = status();
+    assert_eq!(
+        (&during["installed"], &during["installing"]),
+        (&json!(false), &json!({"progress": null}))
+    );
+    finish.send(()).unwrap();
+    let (_, answers) = install.join().unwrap();
+    assert_eq!(answers[0], json!({"progress": "compiling"}));
+    assert_eq!(answers[1]["installed"]["versionCode"], 12);
+    // Ended by the time it is said to have: nothing under way.
+    assert_eq!(status()["installing"], Value::Null);
+}
+
+#[test]
+fn an_install_under_way_keeps_its_latest_progress_and_ends_however_its_flow_ends() {
+    let installing = Installing::default();
+    {
+        let under_way = installing.begin("so.oxy.notes");
+        assert_eq!(installing.of("so.oxy.notes"), json!({"progress": null}));
+        under_way.progressed(json!({"fetching": {"done": 1, "total": 4}}));
+        assert_eq!(
+            installing.of("so.oxy.notes"),
+            json!({"progress": {"fetching": {"done": 1, "total": 4}}})
+        );
+        assert_eq!(installing.of("so.oxy.inbox"), Value::Null);
+    }
+    assert_eq!(installing.of("so.oxy.notes"), Value::Null);
 }

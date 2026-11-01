@@ -12,7 +12,9 @@
 //! until the shell answers it citing an input it received, and no password is asked (the
 //! platform's author's decision). The account's update state is watched on one connection and told
 //! to every client with `store` or `updates` as it changes: Atlas's Updates and Settings' Software
-//! Update show one state and never check on their own.
+//! Update show one state and never check on their own. An install the person confirmed is the
+//! session's until it ends, whoever asked for it: a status asked meanwhile, by the store that asked
+//! or by one opened since, says it is installing and how far along, never that it is not installed.
 //!
 //! The store names an application by its package id or by its store listing (a slug), which the
 //! install service resolves from the store's signed metadata (decision 12; oxy ADR 0053): the
@@ -183,6 +185,55 @@ enum Done {
 struct Back {
     done: mpsc::Sender<Done>,
     wake: std::sync::Arc<UnixStream>,
+    /// The installs under way, shared by every flow.
+    installing: Installing,
+}
+
+/// The applications being installed, by id, each with its latest progress (null before the
+/// first): from the person's confirmation to the install's end, however it ends.
+#[derive(Clone, Default)]
+struct Installing(std::sync::Arc<std::sync::Mutex<BTreeMap<String, Value>>>);
+
+impl Installing {
+    fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Value>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// `id` under way until the guard goes, whatever ends the flow.
+    fn begin(&self, id: &str) -> InstallUnderWay {
+        self.lock().insert(id.to_string(), Value::Null);
+        InstallUnderWay {
+            installing: self.clone(),
+            id: id.to_string(),
+        }
+    }
+
+    /// `id`'s install, as a status tells it: its latest progress, or null when none is under way.
+    fn of(&self, id: &str) -> Value {
+        self.lock()
+            .get(id)
+            .map_or(Value::Null, |progress| json!({ "progress": progress }))
+    }
+}
+
+/// An install under way: its progress as it comes; it ends when this goes.
+struct InstallUnderWay {
+    installing: Installing,
+    id: String,
+}
+
+impl InstallUnderWay {
+    fn progressed(&self, progress: Value) {
+        self.installing.lock().insert(self.id.clone(), progress);
+    }
+}
+
+impl Drop for InstallUnderWay {
+    fn drop(&mut self) {
+        self.installing.lock().remove(&self.id);
+    }
 }
 
 impl Back {
@@ -257,6 +308,7 @@ impl Installs {
             back: Back {
                 done,
                 wake: std::sync::Arc::new(wake),
+                installing: Installing::default(),
             },
             done: received,
             woken,
@@ -545,6 +597,8 @@ fn flow(
                     json!({
                         "id": id,
                         "installed": installed.is_some(),
+                        // An install under way (the person confirmed it, it has not ended).
+                        "installing": back.installing.of(id),
                         "version": installed.map(|l| l.version.clone()),
                         "versionCode": installed.map(|l| l.version_code),
                         "update": update.map(|u| json!({
@@ -602,21 +656,29 @@ fn flow(
                         return Ok(());
                     }
                 }
+                // Under way from here to its end, for every status asked meanwhile.
+                let under_way = back.installing.begin(&plan.plan.id);
                 connection.send(&Request::Commit {
                     plan_id: plan.plan_id,
                 })?;
-                loop {
+                let ended = loop {
                     match connection.receive::<Answer>()? {
                         Some(Some(Answer::Progress(progress))) => {
+                            let progress = json!(progress);
+                            under_way.progressed(progress.clone());
                             answer(json!({ "progress": progress }))
                         }
                         Some(Some(Answer::Committed(committed))) => {
-                            break answer(json!({ "installed": committed }))
+                            break json!({ "installed": committed })
                         }
-                        Some(Some(other)) => break answer(to_json(&other)),
-                        _ => break answer(failed("the install service closed the connection")),
+                        Some(Some(other)) => break to_json(&other),
+                        _ => break failed("the install service closed the connection"),
                     }
-                }
+                };
+                // Ended before it is said to have: a status the store asks on hearing it never
+                // finds it still under way.
+                drop(under_way);
+                answer(ended);
             }
             Ask::Uninstall { id } => {
                 let listed = match ask(&connection, &Request::List { uid: None })? {
