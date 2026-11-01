@@ -1,0 +1,693 @@
+{
+  "about": "",
+  "module": "EditingProbe",
+  "window": [
+    800,
+    480
+  ],
+  "layout": "es",
+  "locale": "es_ES.UTF-8",
+  "final": {
+    "focus_input": "notes"
+  },
+  "steps": [
+    {
+      "name": "focus the line: the field tells the compositor its caret, at the start of its content box",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "type a phrase",
+      "do": [
+        "type",
+        "Hola caf"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola caf\" [8,8]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "field": {
+          "text": "Hola caf",
+          "anchor": 8,
+          "cursor": 8,
+          "caret": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "the Spanish keyboard's dead acute (the key right of Ñ) composes: ´ is shown as the composition, part of the text as on Android, and the compositor is told the text without it",
+      "do": [
+        "strokes",
+        [
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola caf´\" [9,9]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "field": {
+          "text": "Hola caf",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "e composes é with it: the composition is replaced by the committed é",
+      "do": [
+        "strokes",
+        [
+          18
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café\" [9,9]"
+        ],
+        "react": {
+          "change@line": 1,
+          "keyPress@line": 1
+        },
+        "field": {
+          "text": "Hola café",
+          "anchor": 10,
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "´ again",
+      "do": [
+        "strokes",
+        [
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café´\" [10,10]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        }
+      }
+    },
+    {
+      "name": "x composes nothing with it: the accent is typed as itself, then x, as on a Mac",
+      "do": [
+        "strokes",
+        [
+          45
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café´x\" [11,11]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 2
+        }
+      }
+    },
+    {
+      "name": "´ and Escape: the composition is cancelled, the text as it was, and Escape reaches no one",
+      "do": [
+        "strokes",
+        [
+          40,
+          1
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café´x\" [11,11]"
+        ],
+        "react": {
+          "change@line": 2,
+          "selectionChange@line": 2,
+          "keyPress@line": 2
+        }
+      }
+    },
+    {
+      "name": "Backspace twice",
+      "do": [
+        "strokes",
+        [
+          14,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café\" [9,9]"
+        ],
+        "react": {
+          "change@line": 2,
+          "selectionChange@line": 2,
+          "keyPress@line": 2
+        }
+      }
+    },
+    {
+      "name": "Shift+Alt+Left selects the word before the caret, as ⇧⌥← on a Mac",
+      "do": [
+        "key",
+        [
+          42,
+          56,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café\" [5,9]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "typing replaces the selection",
+      "do": [
+        "type",
+        "té"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [7,7]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z (⌘Z) undoes the typing, the selection back",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola café\" [5,9]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Z (⇧⌘Z) redoes it",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [7,7]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Left (⌘←) goes to the line's start",
+      "do": [
+        "key",
+        [
+          29,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        },
+        "field": {
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "Alt+Right (⌥→) to the end of the word",
+      "do": [
+        "key",
+        [
+          56,
+          106
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [4,4]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Right (⇧⌘→) selects to the line's end",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          106
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [4,7]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+C copies it: nothing changes in the app",
+      "do": [
+        "key",
+        [
+          29,
+          46
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [4,7]"
+        ],
+        "react": {}
+      }
+    },
+    {
+      "name": "Right collapses the selection at its end",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té\" [7,7]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+V pastes the copied text at the caret, through the compositor's clipboard",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té té\" [10,10]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Alt+Backspace (⌥⌫) deletes the word before the caret",
+      "do": [
+        "key",
+        [
+          56,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té \" [8,8]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Backspace (⌘⌫) deletes to the line's start",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z undoes it",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té \" [8,8]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A selects everything, and typing replaces it",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Hola té \" [0,8]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "type three words",
+      "do": [
+        "type",
+        "hola mundo bonito"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [17,17]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "a double click on mundo selects it",
+      "do": [
+        "double_press",
+        [
+          94,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [5,10]"
+        ],
+        "react": {
+          "touchStart@line": 2,
+          "touchEnd@line": 2,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "a while later",
+      "do": [
+        "wait",
+        400
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "a triple click selects the line",
+      "do": [
+        "triple_press",
+        [
+          60,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [0,17]"
+        ],
+        "react": {
+          "touchStart@line": 3,
+          "touchEnd@line": 3,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "a while later, before dragging",
+      "do": [
+        "wait",
+        400
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "a drag from hola into bonito selects what it covers",
+      "do": [
+        "drag",
+        [
+          50,
+          42,
+          140,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [0,0]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchMove@line": 2,
+          "touchEnd@line": 1,
+          "selectionChange@line": 2
+        }
+      }
+    },
+    {
+      "name": "focus the notes",
+      "do": [
+        "press",
+        [
+          154,
+          130
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"\" [0,0]"
+        ],
+        "react": {
+          "touchStart@notes": 1,
+          "touchEnd@notes": 1,
+          "focus@notes": 1,
+          "selectionChange@notes": 1,
+          "blur@line": 1,
+          "endEditing@line": 1
+        },
+        "focus_input": "notes"
+      }
+    },
+    {
+      "name": "type two paragraphs",
+      "do": [
+        "type",
+        "uno dos\ntres cuatro"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno dos\\ntres cuatro\" [19,19]"
+        ],
+        "react": {}
+      }
+    },
+    {
+      "name": "Alt+Up (⌥↑) goes to the start of the paragraph",
+      "do": [
+        "key",
+        [
+          56,
+          103
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno dos\\ntres cuatro\" [8,8]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "again, to the start of the paragraph before",
+      "do": [
+        "key",
+        [
+          56,
+          103
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno dos\\ntres cuatro\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Alt+Down (⌥↓) to the end of the paragraph",
+      "do": [
+        "key",
+        [
+          56,
+          108
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno dos\\ntres cuatro\" [7,7]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Down (⌘↓) to the end of the text",
+      "do": [
+        "key",
+        [
+          29,
+          108
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno dos\\ntres cuatro\" [19,19]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Up (⇧⌘↑) selects to its start",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          103
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno dos\\ntres cuatro\" [0,19]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    }
+  ]
+}

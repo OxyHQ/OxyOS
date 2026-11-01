@@ -1,5 +1,5 @@
 {
-  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own. Through the virtual devices (`--uinput`) each character is typed as a key: React then receives a key press, a change and a selection change for each, as from Android's keyboard.",
+  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Alt, a Mac's ⌥ (ICU's word boundaries, as Android; ADR 0037), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own. Through the virtual devices (`--uinput`) each character is typed as a key: React then receives a key press, a change and a selection change for each, as from Android's keyboard.",
   "module": "EditingProbe",
   "window": [
     800,
@@ -52,11 +52,11 @@
       }
     },
     {
-      "name": "Ctrl+Left goes to the start of the last word",
+      "name": "Alt+Left goes to the start of the last word",
       "do": [
         "key",
         [
-          29,
+          56,
           105
         ]
       ],
@@ -74,7 +74,7 @@
       "do": [
         "key",
         [
-          29,
+          56,
           105
         ]
       ],
@@ -88,11 +88,11 @@
       }
     },
     {
-      "name": "Ctrl+Right goes to the end of the word",
+      "name": "Alt+Right goes to the end of the word",
       "do": [
         "key",
         [
-          29,
+          56,
           106
         ]
       ],
@@ -106,11 +106,11 @@
       }
     },
     {
-      "name": "Ctrl+Shift+Right selects to the end of the next word",
+      "name": "Alt+Shift+Right selects to the end of the next word",
       "do": [
         "key",
         [
-          29,
+          56,
           42,
           106
         ]
@@ -140,11 +140,11 @@
       }
     },
     {
-      "name": "Ctrl+Backspace deletes the word before the caret",
+      "name": "Alt+Backspace deletes the word before the caret",
       "do": [
         "key",
         [
-          29,
+          56,
           14
         ]
       ],
@@ -160,11 +160,11 @@
       }
     },
     {
-      "name": "Ctrl+Left, to the start of the second word",
+      "name": "Alt+Left, to the start of the second word",
       "do": [
         "key",
         [
-          29,
+          56,
           105
         ]
       ],
@@ -178,11 +178,11 @@
       }
     },
     {
-      "name": "Ctrl+Delete deletes the word after the caret",
+      "name": "Alt+Delete deletes the word after the caret",
       "do": [
         "key",
         [
-          29,
+          56,
           111
         ]
       ],
@@ -1281,11 +1281,11 @@
       }
     },
     {
-      "name": "Ctrl+Shift+Right selects its first word",
+      "name": "Alt+Shift+Right selects its first word",
       "do": [
         "key",
         [
-          29,
+          56,
           42,
           106
         ]
@@ -1379,11 +1379,11 @@
       }
     },
     {
-      "name": "Ctrl+Shift+Left selects the word before the caret",
+      "name": "Alt+Shift+Left selects the word before the caret",
       "do": [
         "key",
         [
-          29,
+          56,
           42,
           105
         ]
