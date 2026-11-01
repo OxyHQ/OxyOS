@@ -85,6 +85,8 @@
 #include <thread>
 #include <csignal>
 #include <execinfo.h>
+#include <sys/prctl.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 using namespace facebook;
@@ -291,12 +293,54 @@ class Mounter : public SchedulerDelegate {
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
-void crashed(int signal) {
+// A fatal signal's report in the session's log: the signal and, for a bad access, the address it
+// touched; the thread it hit (by name: the JavaScript thread is the main one, Hermes' collector
+// is `hades`); the registers at the fault, which tell a bad pointer from a bad index; and the
+// stack, its frames' offsets to symbolise against the build's unstripped objects.
+void crashed(int signal, siginfo_t* info, void* context) {
   void* frames[64];
   int count = backtrace(frames, 64);
-  dprintf(2, "[host] fatal signal %d\n", signal);
+  char thread[17] = {};
+  prctl(PR_GET_NAME, thread, 0, 0, 0);
+  // A fault the kernel raised has an address (si_code > 0); a signal sent by a process, abort()'s
+  // among them, has its sender in the same storage instead.
+  if (info->si_code > 0 && signal != SIGABRT) {
+    dprintf(2, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
+            info->si_addr, static_cast<int>(gettid()), thread);
+  } else {
+    dprintf(2, "[host] fatal signal %d (code %d) sent by process %d, on thread %d '%s'\n", signal, info->si_code,
+            static_cast<int>(info->si_pid), static_cast<int>(gettid()), thread);
+  }
+  const auto& machine = static_cast<const ucontext_t*>(context)->uc_mcontext;
+#if defined(__x86_64__)
+  const auto* r = machine.gregs;
+  dprintf(2,
+          "[host] rip %llx rsp %llx rbp %llx rax %llx rbx %llx rcx %llx rdx %llx rsi %llx rdi %llx r8 %llx r9 %llx "
+          "r10 %llx r11 %llx r12 %llx r13 %llx r14 %llx r15 %llx\n",
+          r[REG_RIP], r[REG_RSP], r[REG_RBP], r[REG_RAX], r[REG_RBX], r[REG_RCX], r[REG_RDX], r[REG_RSI], r[REG_RDI],
+          r[REG_R8], r[REG_R9], r[REG_R10], r[REG_R11], r[REG_R12], r[REG_R13], r[REG_R14], r[REG_R15]);
+#elif defined(__aarch64__)
+  dprintf(2, "[host] pc %llx sp %llx", machine.pc, machine.sp);
+  for (int i = 0; i < 31; ++i) dprintf(2, " x%d %llx", i, machine.regs[i]);
+  dprintf(2, "\n");
+#endif
   backtrace_symbols_fd(frames, count, 2);
   _exit(128 + signal);
+}
+
+// The report above, installed on the JavaScript thread, also for a crash that overflowed its stack:
+// the handler runs on a stack of its own.
+void reportFatalSignals() {
+  static std::vector<char> stack(std::max<size_t>(SIGSTKSZ, 64 * 1024));
+  stack_t alternate{};
+  alternate.ss_sp = stack.data();
+  alternate.ss_size = stack.size();
+  sigaltstack(&alternate, nullptr);
+  struct sigaction action {};
+  action.sa_sigaction = crashed;
+  action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+  sigemptyset(&action.sa_mask);
+  for (int signal : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(signal, &action, nullptr);
 }
 
 // The runtime this host is (docs/adr/0030-installing-applications.mdx, decisions 2 and 17): the
@@ -366,8 +410,7 @@ int main(int argc, char** argv) {
                  "            output's background, its OxyOSShellSurface regions panels and overlays\n";
     return 2;
   }
-  std::signal(SIGSEGV, crashed);
-  std::signal(SIGABRT, crashed);
+  reportFatalSignals();
   // The application this process runs, as its report and the session's log name it: the id the
   // session launched it with, else its module (the shell's always: an id in its environment is
   // whatever started it passing its own on).
@@ -432,8 +475,22 @@ int main(int argc, char** argv) {
     hermesRoot->disableSamplingProfiler();
     hermesRoot = nullptr;
   };
-  auto runtime = std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(
-      ::hermes::vm::RuntimeConfig::Builder().withMicrotaskQueue(true).withEnableSampleProfiling(jsProfile != nullptr).build()));
+  // OXYOS_HOST_GC_SANITIZE=RATE: with a Hermes built with HERMESVM_SANITIZE_HANDLES (its own build
+  // directory, docs/bloom-host-sanitizers.mdx), each allocation collects the young generation and
+  // moves every object in it, with probability RATE (0 to 1): a value held past a collection
+  // without a root, or freed while it is still reachable, then fails at once instead of rarely.
+  // Any other Hermes ignores it.
+  auto runtimeConfig =
+      ::hermes::vm::RuntimeConfig::Builder().withMicrotaskQueue(true).withEnableSampleProfiling(jsProfile != nullptr);
+  if (const char* rate = std::getenv("OXYOS_HOST_GC_SANITIZE"); rate && std::atof(rate) > 0) {
+    runtimeConfig.withGCConfig(
+        ::hermes::vm::GCConfig::Builder()
+            .withSanitizeConfig(
+                ::hermes::vm::GCSanitizeConfig::Builder().withSanitizeRate(std::min(std::atof(rate), 1.0)).build())
+            .build());
+  }
+  auto runtime =
+      std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(runtimeConfig.build()));
   int jsErrors = 0;
   auto instance = std::make_unique<ReactInstance>(
       std::move(runtime), loop, std::move(ownedTimerManager),
