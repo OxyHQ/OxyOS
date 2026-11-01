@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useRef, useState } from "react";
+import { AccessibilityInfo } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
@@ -19,7 +20,10 @@ const ERROR = "#d93025";
  * A system sheet (docs/adr/0030-installing-applications.mdx, decision 9): the session's question
  * to the person, over everything but the lock screen, in a shell surface no application draws,
  * covers or presses. Its answer is the shell's alone; Cancel is its first, safest button, and
- * Escape is Cancel, as on a Mac. No key accepts it: only a press on its answer does. A sheet
+ * Escape is Cancel, as on a Mac. No key accepts it by default (Return is no answer): only its
+ * answer's button does, pressed, or reached with Tab and activated with Space as any control is
+ * with Full Keyboard Access (docs/adr/0039-keyboard-access.mdx). It is said as it appears, as
+ * VoiceOver says a Mac's alert: its title, what went wrong, and what it says. A sheet
  * that only tells (the install service is not running) has its one button, in the answer's place.
  *
  * A Wi-Fi password sheet (docs/adr/0038-networks.mdx) has a secure field, focused at once: its
@@ -33,6 +37,7 @@ export const SystemSheet = memo(function SystemSheet({
   answer,
   answerPassword,
   keyboard,
+  announce,
 }: {
   text: SheetText;
   language?: Language;
@@ -43,6 +48,8 @@ export const SystemSheet = memo(function SystemSheet({
   answerPassword?: (password: string) => void;
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
+  /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
+  announce?: (text: string, polite: boolean) => void;
 }) {
   const view = sheetView(text, language, names);
   const [password, setPassword] = useState("");
@@ -54,6 +61,13 @@ export const SystemSheet = memo(function SystemSheet({
     setPassword("");
     answerPassword(typed);
   };
+  // Said once as it appears (each sheet is a new one, keyed by the session's number): a live
+  // region would not speak what a new surface shows at once.
+  useEffect(() => {
+    const said = [view.title, view.error, view.body].filter(Boolean).join(". ");
+    if (announce) announce(said, false);
+    else AccessibilityInfo.announceForAccessibility(said);
+  }, []);
   const latestAnswer = useRef(answer);
   latestAnswer.current = answer;
   useEffect(() => {
@@ -82,7 +96,7 @@ export const SystemSheet = memo(function SystemSheet({
       <Box
         testID="system-sheet"
         accessibilityViewIsModal
-        accessibilityRole="alert"
+        accessibilityRole="alertdialog"
         accessibilityLabel={view.title}
         style={{
           width: SHEET_WIDTH,
@@ -94,12 +108,15 @@ export const SystemSheet = memo(function SystemSheet({
         }}
       >
         <Box style={{ flex: 1, gap: 12, overflow: "hidden" }}>
-        <Text style={{ fontSize: 17, fontWeight: "600", color: INK }}>{view.title}</Text>
+        {/* The sheet is named by its title: the title is not read again as text. */}
+        <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 17, fontWeight: "600", color: INK }}>
+          {view.title}
+        </Text>
         {view.error ? (
           <Text
             testID="system-sheet-error"
+            // Said with the sheet as it appears, once: no live region says it again.
             accessibilityRole="alert"
-            accessibilityLiveRegion="assertive"
             style={{ fontSize: 13, fontWeight: "600", color: ERROR }}
           >
             {view.error}

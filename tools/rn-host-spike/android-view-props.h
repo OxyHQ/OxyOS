@@ -1,7 +1,8 @@
 // What a View draws with beyond the portable C++ props: React Native's Android-only view props,
 // which only Android's platform props parse (HostPlatformViewProps): `elevation` (the shadow Android
 // casts under a view raised off its parent) and `needsOffscreenAlphaCompositing` (whether its
-// opacity is a layer, ReactViewGroup.hasOverlappingRendering). The host's View descriptor keeps
+// opacity is a layer, ReactViewGroup.hasOverlappingRendering) and `focusable` (whether the keyboard
+// focuses it, View.setFocusable, keyboard-focus.h). The host's View descriptor keeps
 // them beside each props as Fabric makes them, as the ScrollView's keeps `overScrollMode`
 // (overscroll.h).
 #pragma once
@@ -13,6 +14,7 @@ namespace oxyos {
 struct AndroidViewProps {
   float elevation = 0;
   bool needsOffscreenAlphaCompositing = false;
+  bool focusable = false;
   bool operator==(const AndroidViewProps&) const = default;
 };
 

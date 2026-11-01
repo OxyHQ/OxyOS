@@ -206,6 +206,10 @@ FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<
 
 // The focused text input's editing state, drawn over its text (textinput.h owns it). Offsets
 // are UTF-8 byte offsets into the input's text.
+// How far outside its control the keyboard's focus ring reaches, in logical pixels: a band 3 wide
+// a pixel off the control's edge, and a pixel more for its antialiasing.
+constexpr float kFocusRingReach = 5;
+
 struct TextInputEdit {
   facebook::react::Tag tag = -1;
   size_t selectionStart = 0, selectionEnd = 0;  // the caret when equal
@@ -231,6 +235,9 @@ struct TextInputEdit {
   // there, steady, in place of the field's own (docs/adr/0037-text-editing.mdx). None if -1.
   facebook::react::Tag dropTag = -1;
   size_t dropOffset = 0;
+  // The control the keyboard focused (keyboard-focus.h), drawn with a ring around it as a Mac draws
+  // its keyboard focus ring; -1 for none.
+  facebook::react::Tag focusRing = -1;
   bool operator==(const TextInputEdit&) const = default;
 };
 

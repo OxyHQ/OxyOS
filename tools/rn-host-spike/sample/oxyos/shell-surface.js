@@ -19,6 +19,8 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
     edge: true,
     exclusive: true,
     keyboard: true,
+    focusTarget: true,
+    focusRequest: true,
     excludeFromCapture: true,
   },
 }));
@@ -27,7 +29,20 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
 // once it had it, `onKeyboardLost` hears that it went elsewhere (OxyOSShellKeyboardLost).
 // A region left out of screenshots (`excludeFromCapture`: the screenshot interface, its thumbnail)
 // is never in one (docs/adr/0024-system-shortcuts.mdx, decision 10).
-function Surface({ kind, edge, exclusive, keyboard, excludeFromCapture, onKeyboardLost, style, children }) {
+// Once it has the keyboard, the host puts the keyboard's focus on `focusTarget` ("first", its first
+// control, or a control's testID), again for each new `focusRequest` (docs/adr/0039-keyboard-access.mdx).
+function Surface({
+  kind,
+  edge,
+  exclusive,
+  keyboard,
+  focusTarget,
+  focusRequest,
+  excludeFromCapture,
+  onKeyboardLost,
+  style,
+  children,
+}) {
   const lost = React.useRef(onKeyboardLost);
   lost.current = onKeyboardLost;
   React.useEffect(() => {
@@ -42,6 +57,8 @@ function Surface({ kind, edge, exclusive, keyboard, excludeFromCapture, onKeyboa
       edge={edge ?? 'top'}
       exclusive={!!exclusive}
       keyboard={!!keyboard}
+      focusTarget={focusTarget ?? ''}
+      focusRequest={focusRequest ?? 0}
       excludeFromCapture={!!excludeFromCapture}
       style={style}
       collapsable={false}

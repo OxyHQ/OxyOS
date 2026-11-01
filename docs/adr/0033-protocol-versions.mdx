@@ -6,7 +6,7 @@ order: 42
 
 # ADR 0033: Protocol versions and compatibility
 
-Status: **accepted; implemented** (versions 2 to 11). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
+Status: **accepted; implemented** (versions 2 to 12). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
 
 ## Problem
 
@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 11). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 12). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -50,6 +50,7 @@ A platform cannot break installed applications on every change of its protocol. 
    | 9 | `TrackPointer` (request 235, [ADR 0001](./0001-native-platform-boundaries#input-focus-and-grabs)): a popup's parent goes on receiving the pointer's movement while the popup is the first of the grab chain (a menu bar's titles). The library refuses it to a compositor of an older version (8 or less), and the host goes on without it: a bar there switches menus by press. |
    | 10 | Drag and drop between applications ([ADR 0035](./0035-drag-and-drop)): `CreateDragIcon`, `DragType`, `StartDrag`, `CancelDrag`, `AcceptDrag`, `ReceiveDrop` (with a pipe), `FinishDrop` and the shell's `TrashFiles` (requests 240 to 247); `DragEnter`, `DragOfferType`, `DragMotion`, `DragLeave`, `DragAction`, `DragDrop`, `DragSourceAction`, `DragDropped`, `DragFinished`, `DragCancelled` and `DragSend` (with a pipe; events 240 to 250). A target's events are sent unasked, so never to a client of version 9 or older, whose surfaces are no target; the library refuses the requests to a compositor of version 9 or older, and an application there drags only within itself. |
    | 11 | `caret_blink` at the end of `Preferences` ([ADR 0037](./0037-text-editing)): whether a text field's caret blinks. A version 10 reader reads that it does, which is what every version before meant; the C ABI's `OXYOS_PREFERENCES_STEADY_CARET` is never set from an older compositor (10 or less). |
+   | 12 | `SystemShortcut::Dock` (9) and `StatusMenus` (10), Super+F3 and Super+F8 ([ADR 0039](./0039-keyboard-access)): values an older version's `SystemShortcut` lacks, so the event carrying them is the newer version's (`event_since`) and never sent to a shell of version 11 or older, whose reader would refuse it; the shortcuts version 11 had are still sent to it. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

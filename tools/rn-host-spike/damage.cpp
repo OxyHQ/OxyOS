@@ -237,6 +237,28 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
         if (auto it = now.find(tag); it != now.end()) damage.push_back(it->second.at);
         if (auto it = seen_.find(tag); it != seen_.end()) damage.push_back(it->second.at);
       }
+      // The keyboard's focus ring, around its control.
+      auto ringed = [](Rect at) {
+        return Rect{{at.origin.x - kFocusRingReach, at.origin.y - kFocusRingReach},
+                    {at.size.width + 2 * kFocusRingReach, at.size.height + 2 * kFocusRingReach}};
+      };
+      if (edit_.focusRing != edit.focusRing) {
+        for (Tag tag : {edit_.focusRing, edit.focusRing}) {
+          if (auto it = now.find(tag); it != now.end()) damage.push_back(ringed(it->second.at));
+          if (auto it = seen_.find(tag); it != seen_.end()) damage.push_back(ringed(it->second.at));
+        }
+      }
+    }
+  }
+  // A ring around a control that moved, or whose drawing changed, goes with it.
+  if (same && edit.focusRing >= 0 && edit.focusRing == edit_.focusRing) {
+    auto now_ = now.find(edit.focusRing);
+    auto then = seen_.find(edit.focusRing);
+    if (now_ != now.end() && then != seen_.end() && !(now_->second.at == then->second.at)) {
+      for (Rect at : {now_->second.at, then->second.at}) {
+        damage.push_back(Rect{{at.origin.x - kFocusRingReach, at.origin.y - kFocusRingReach},
+                              {at.size.width + 2 * kFocusRingReach, at.size.height + 2 * kFocusRingReach}});
+      }
     }
   }
   if (same) {

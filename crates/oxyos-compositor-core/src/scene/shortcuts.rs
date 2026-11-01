@@ -51,6 +51,8 @@ const GRAVE: u32 = 41;
 const M: u32 = 50;
 const SPACE: u32 = 57;
 const F2: u32 = 60;
+const F3: u32 = 61;
+const F8: u32 = 66;
 const LEFT: u32 = 105;
 const RIGHT: u32 = 106;
 
@@ -241,11 +243,18 @@ impl Scene {
             }
             // The keyboard to the top bar's menus, as a Mac's Control-F2: the shell takes it with
             // `FocusShellSurface`, citing this shortcut. A menu open in a window closes first.
-            (F2, false, false) => {
+            (F2 | F3 | F8, false, false) => {
                 self.dismiss_grab(DismissReason::OutsidePress);
                 let output = self.shortcut_output();
                 if let Some(client) = self.shortcut_shell(output) {
-                    self.tell_shortcut(client, output, SystemShortcut::MenuBar);
+                    // The dock, as a Mac's Control-F3, and the top bar's status items, as its
+                    // Control-F8 (ADR 0039): the shell takes the keyboard as for the menus.
+                    let shortcut = match key {
+                        F2 => SystemShortcut::MenuBar,
+                        F3 => SystemShortcut::Dock,
+                        _ => SystemShortcut::StatusMenus,
+                    };
+                    self.tell_shortcut(client, output, shortcut);
                 }
                 return;
             }

@@ -8,6 +8,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   window and popups (each surface's latest presented frame);
 - focus_input: the text input holding focus (null for none), from the latest frame;
 - focus_surface: the application surface with the compositor's keyboard focus;
+- keyboard_focus: the control the keyboard's navigation focused (Tab, docs/adr/0039-keyboard-access.mdx)
+  as the host last moved it: null for none, else {"target": testID, "ring": whether its ring shows};
 - react: the exact events delivered to React during the step, as "event@name" -> count, where
   name is the target's testID or the nearest ancestor's (`within`). Any delivered event the step
   does not list fails it, which catches duplicated and leaked events; a count may be [least, most]
@@ -48,7 +50,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   session is "locked" (ADR 0010);
 - at / at_absent: nodes the session's assistive technology holds (or must not), as it received
   the trees (ADR 0003): by "window", "shell" (the shell's surfaces, the lock screen's among
-  them) or the application's popups, each node matching the keys given ({} matches any): role,
+  them), "launched" (the applications the session launched, docs/adr/0039-keyboard-access.mdx)
+  or the application's popups, each node matching the keys given ({} matches any): role,
   name, value, state, actions (what it offers beyond activate and focus), custom (its custom
   actions' labels), selection;
 - at_group: groups in the window's tree as the assistive technology received it, nested as the
@@ -1401,6 +1404,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"text {text!r} is shown but must not be")
     if "focus_input" in expect and window.get("focus") != expect["focus_input"]:
         fail(f"focused input is {window.get('focus')!r}, expected {expect['focus_input']!r}")
+    if "keyboard_focus" in expect:
+        # The control the keyboard's navigation focused (docs/adr/0039-keyboard-access.mdx), as the
+        # host last moved it by the step's end: null for none, else its testID (or nearest
+        # ancestor's) and whether its ring shows ({"target", "ring"}, each key given matching).
+        moves = [line for line in report
+                 if line["kind"] == "input" and line["event"] == "keyboard.focus" and line["t"] <= end]
+        got = None
+        if moves and moves[-1].get("target"):
+            got = {"target": moves[-1]["target"], "ring": moves[-1].get("ring")}
+        wanted = expect["keyboard_focus"]
+        if (wanted is None) != (got is None) or (wanted and any(got.get(k) != v for k, v in wanted.items())):
+            fail(f"keyboard focus is {got}, expected {wanted}")
     if "focus_surface" in expect and result.get("focus") != expect["focus_surface"]:
         fail(f"compositor focus is on surface {result.get('focus')}, expected {expect['focus_surface']}")
     if "react" in expect:
@@ -1756,11 +1771,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                     break
     # What the assistive technology holds, as it received the trees (ADR 0003), by where they
     # are: "window" the application's window, "shell" the session's shell's surfaces (the lock
-    # screen's among them), anything else the application's popups.
+    # screen's among them), "launched" the surfaces of the applications the session launched
+    # (Settings opened from the Oxy menu, their popups among them), anything else the
+    # application's popups.
     def held_nodes(role):
         def place(surface):
-            return "window" if surface == "1" else "shell" if surface.startswith("shell-") else "popup"
-        wanted = role if role in ("window", "shell") else "popup"
+            if surface == "1":
+                return "window"
+            if surface.startswith("shell-"):
+                return "shell"
+            return "launched" if "-" in surface else "popup"
+        wanted = role if role in ("window", "shell", "launched") else "popup"
         return [n for s, tree in result.get("a11y", {}).items() if place(s) == wanted for n in tree]
     def matches(n, node):
         return all(n.get(k) == v for k, v in node.items())

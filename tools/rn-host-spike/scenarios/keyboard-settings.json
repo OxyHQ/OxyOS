@@ -1,0 +1,508 @@
+{
+ "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on System Settings and Return opens Settings; Tab goes down its sidebar, each row said once with its ring; Space opens Accessibility; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "Allo's window, its field without focus; the reader on, nothing focused",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F2: the keyboard on the Oxy menu, said once (ADR 0024, decision 9)",
+   "do": [
+    "key",
+    [
+     125,
+     60
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Menú de Oxy",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Menú de Oxy, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Return opens it on its first row, said after the menu's name",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "MenuItem",
+       "name": "Ajustes del sistema",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Oxy, menú",
+      "interrupting": true
+     },
+     {
+      "text": "Ajustes del sistema, elemento de menú",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Return chooses System Settings: the session starts Settings, whose window takes the keyboard; nothing of it is focused yet",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the keyboard on the sidebar's first row, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-appearance",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Appearance",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Appearance, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Wallpaper, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-wallpaper",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Wallpaper",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Wallpaper, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Notifications, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-notifications",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Notifications",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Notifications, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Lock Screen, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-lock-screen",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Lock Screen",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Lock Screen, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Displays, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-displays",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Displays",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Displays, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Accessibility, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-accessibility",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Accessibility",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Accessibility, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Accessibility, as a press would; the keyboard stays where it is",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "texts": [
+      "Reduce motion"
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the page's first control, the screen reader's switch, with its state",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "screen-reader-switch",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Switch",
+       "name": "Screen reader",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Screen reader, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Reduce motion's switch",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "reduce-motion-switch",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Switch",
+       "name": "Reduce motion",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Reduce motion, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space turns Reduce motion on: the session's preference changes, every application is told, and the switch says its new state once",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "preferences": {
+     "reduceMotion": true
+    },
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "reduce-motion-switch",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Switch",
+       "name": "Reduce motion",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "activado",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab goes back to the screen reader's switch",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "screen-reader-switch",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Screen reader, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}

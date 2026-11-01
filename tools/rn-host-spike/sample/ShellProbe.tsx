@@ -493,7 +493,14 @@ function SessionShell() {
       // menus the bar shows, the active one.
       returnKeyboard: () => {
         const window = latest.current.bar?.window;
-        if (window) shell.focusWindow(window);
+        if (window) return shell.focusWindow(window);
+        // None active (the one that was quit from the dock's menu while the dock had the keyboard,
+        // docs/adr/0039-keyboard-access.mdx): the window used last that is shown, as a Mac makes
+        // the next application active when the frontmost one quits.
+        const next = latest.current.toldWindows
+          .filter((told) => !told.minimized && !told.hidden)
+          .sort((a, b) => b.used - a.used || b.id - a.id)[0];
+        if (next) shell.focusWindow(next.id);
       },
       closeWindow: (id) => shell.closeWindow(Number(id)),
       activateWorkspace: (id) => shell.activateWorkspace(Number(id)),

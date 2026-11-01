@@ -223,3 +223,43 @@ fn a_missing_voice_is_an_error_not_silence() {
     assert!(voice.say("hello", false).is_err());
     assert!(!voice.speaking());
 }
+
+#[test]
+fn a_focused_element_changed_in_place_says_its_new_state() {
+    let on = state(AccessibleState::CHECKED | AccessibleState::FOCUSED);
+    let off = state(AccessibleState::FOCUSED);
+    assert_eq!(
+        describe_state_change(Language::Spanish, AccessibleRole::Switch, off, on).as_deref(),
+        Some("activado")
+    );
+    assert_eq!(
+        describe_state_change(Language::English, AccessibleRole::Switch, on, off).as_deref(),
+        Some("off")
+    );
+    assert_eq!(
+        describe_state_change(Language::Spanish, AccessibleRole::CheckBox, off, on).as_deref(),
+        Some("marcada")
+    );
+    let collapsed = state(AccessibleState::COLLAPSED);
+    let expanded = state(AccessibleState::EXPANDED);
+    // A trigger opening its menu is said by the menu, not as "expanded".
+    assert_eq!(
+        describe_state_change(
+            Language::English,
+            AccessibleRole::Button,
+            collapsed,
+            expanded
+        ),
+        None
+    );
+    // Busy or dimmed alone changing says nothing; nor does nothing changing.
+    let busy = state(AccessibleState::BUSY | AccessibleState::FOCUSED);
+    assert_eq!(
+        describe_state_change(Language::English, AccessibleRole::Button, off, busy),
+        None
+    );
+    assert_eq!(
+        describe_state_change(Language::English, AccessibleRole::Switch, on, on),
+        None
+    );
+}

@@ -195,6 +195,13 @@ class TextEditing {
   facebook::react::Tag focused() const { return focused_; }
   // What the renderer draws for the focused input: its selection (or caret) and composition.
   TextInputEdit edit() const;
+  // Focus moved onto an input by the keyboard (Tab, keyboard-focus.h): its whole text selected, as
+  // a Mac's field is when Tab reaches it.
+  void focusFromKeyboard(facebook::react::Tag tag);
+  // Focus moved off the focused input by the keyboard, onto a control that is no input.
+  void unfocus() {
+    if (focused_ >= 0) blur();
+  }
 
  private:
   // Focuses `tag`; with `at`, its caret there, the selection told by the edit that follows.

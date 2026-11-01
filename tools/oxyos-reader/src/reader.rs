@@ -7,7 +7,7 @@ use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Event, Politeness,
     ReaderCommand, Request,
 };
-use oxyos_speech::{describe, describe_change, Language};
+use oxyos_speech::{describe, describe_change, describe_state_change, Language};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A surface, by its client and its id, as the compositor names it.
@@ -284,6 +284,7 @@ impl Reader {
         let first = before.is_none();
         self.live_changes(key, before.as_deref());
         self.text_changes(key, before.as_deref());
+        self.state_changes(key, before.as_deref());
         // A popup that appears is said by its title, as TalkBack says the pane title of a window
         // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
         // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
@@ -375,6 +376,39 @@ impl Reader {
         };
         if let Some(change) = editing::change((&old.value, was), (&new.value, is)) {
             let text = describe_change(self.language, &change);
+            self.say(text, Politeness::Assertive);
+        }
+    }
+
+    /// The focused element changed in place since the surface's previous tree, as VoiceOver says
+    /// it: a switch turned on or off by the keyboard or a press ("activado"), a box checked, a
+    /// disclosure opened, by its new state; a slider stepped by the arrows, by its new value. Only
+    /// for the same element focused in both trees (its role and name the same): a newly focused
+    /// one is said by its focus, and a text field's edits are its echo.
+    fn state_changes(&mut self, key: Surface, before: Option<&[Node]>) {
+        let Some((surface, index)) = self.focused else {
+            return;
+        };
+        if surface != key {
+            return;
+        }
+        let (Some(old), Some(new)) = (
+            before.and_then(|nodes| nodes.get(index)),
+            self.trees[&key].get(index),
+        ) else {
+            return;
+        };
+        let focused = |node: &Node| node.state.contains(AccessibleState::FOCUSED);
+        if !focused(old) || !focused(new) || old.role != new.role || old.name != new.name {
+            return;
+        }
+        let state = describe_state_change(self.language, new.role, old.state, new.state);
+        let value = (old.selection.is_none()
+            && new.selection.is_none()
+            && old.value != new.value
+            && !new.value.trim().is_empty())
+        .then(|| new.value.trim().to_string());
+        for text in state.into_iter().chain(value) {
             self.say(text, Politeness::Assertive);
         }
     }

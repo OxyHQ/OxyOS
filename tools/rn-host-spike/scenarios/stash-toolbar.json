@@ -89,7 +89,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -110,7 +110,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -127,7 +127,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -236,7 +236,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -257,7 +257,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -274,7 +274,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -373,7 +373,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -394,7 +394,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -411,7 +411,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -508,7 +508,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -529,7 +529,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -546,7 +546,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -645,7 +645,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -666,7 +666,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -683,7 +683,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -780,7 +780,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -801,7 +801,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -818,7 +818,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -917,7 +917,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -938,7 +938,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -955,7 +955,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [
@@ -1052,7 +1052,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Favourites"
       },
       "items": [
@@ -1073,7 +1073,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Oxy"
       },
       "items": [
@@ -1090,7 +1090,7 @@
      },
      {
       "group": {
-       "role": "Generic",
+       "role": "Group",
        "name": "Locations"
       },
       "items": [

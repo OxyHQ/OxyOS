@@ -637,3 +637,47 @@ fn a_field_newly_focused_is_said_and_not_echoed() {
     );
     assert_eq!(feed(&mut reader, &typing("holas!?", 7, 7)), ["?"]);
 }
+
+#[test]
+fn the_focused_element_changed_in_place_says_its_new_state_or_value_once() {
+    let mut reader = Reader::new(Language::Spanish);
+    let checked = AccessibleState::CHECKED;
+    let window = |motion: u16, level: &str| {
+        tree(
+            WINDOW,
+            &[
+                (R::Generic, 0, "", ""),
+                (R::Switch, FOCUSED | motion, "Reducir movimiento", ""),
+                (R::Slider, 0, "Volumen", level),
+            ],
+        )
+    };
+    assert_eq!(
+        feed(&mut reader, &window(0, "5")),
+        ["Reducir movimiento, desactivado, interruptor"]
+    );
+    // Space turns it on: its new state, once, not its whole description again.
+    assert_eq!(feed(&mut reader, &window(checked, "5")), ["activado"]);
+    assert_eq!(
+        feed(&mut reader, &window(checked, "5")),
+        Vec::<String>::new()
+    );
+    // Another element's value changing is not the focused one's: nothing.
+    assert_eq!(
+        feed(&mut reader, &window(checked, "6")),
+        Vec::<String>::new()
+    );
+    // A slider stepped by the arrows while focused says its new value.
+    let slider = |level: &str| {
+        tree(
+            WINDOW,
+            &[
+                (R::Generic, 0, "", ""),
+                (R::Switch, checked, "Reducir movimiento", ""),
+                (R::Slider, FOCUSED, "Volumen", level),
+            ],
+        )
+    };
+    assert_eq!(feed(&mut reader, &slider("6")), ["Volumen, 6, regulador"]);
+    assert_eq!(feed(&mut reader, &slider("7")), ["7"]);
+}

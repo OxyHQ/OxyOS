@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, useColorScheme, type PointerEvent, type View } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import {
@@ -17,6 +17,7 @@ import { Tooltip, TooltipTextBubble, TooltipTrigger } from "@oxy.so/bloom/toolti
 import { DropZone, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
 import { Box, Scroll } from "../primitives";
+import type { ShellKeyboard } from "../platform";
 import { AppIcon } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
@@ -153,6 +154,8 @@ const DockIcon = memo(function DockIcon({
   runningColor,
   rows,
   app,
+  register,
+  onFocusIcon,
 }: {
   id: string;
   name: string;
@@ -168,6 +171,10 @@ const DockIcon = memo(function DockIcon({
   rows: React.ReactNode;
   /** The application whose artwork it shows; none, the Trash's bin. */
   app?: ShellApplication;
+  /** Hands the dock what opens this icon's menu from the keyboard (↑, as a Mac's Dock). */
+  register?: (id: string, open: (() => void) | null) => void;
+  /** The keyboard's focus reached the icon. */
+  onFocusIcon?: (testID: string) => void;
 }) {
   const box = useRef<React.ComponentRef<typeof View>>(null);
   const [hovered, setHovered] = useState(false);
@@ -193,6 +200,11 @@ const DockIcon = memo(function DockIcon({
     },
     [openMenu],
   );
+  useEffect(() => {
+    register?.(id, () => openMenu(false));
+    return () => register?.(id, null);
+  }, [register, id, openMenu]);
+  const onFocus = useCallback(() => onFocusIcon?.(testID), [onFocusIcon, testID]);
   const onAnchorChange = useCallback(
     (anchor: unknown) => {
       if (anchor) openMenu(option.current);
@@ -224,6 +236,7 @@ const DockIcon = memo(function DockIcon({
           onPressIn={pressIn}
           onHoverIn={hoverIn}
           onHoverOut={hoverOut}
+          onFocus={onFocus}
           className="h-[42px] w-[42px] overflow-visible rounded-full border-0 bg-transparent p-0"
         >
           {app ? (
@@ -236,7 +249,7 @@ const DockIcon = memo(function DockIcon({
         </Button>
       </ContextMenuTrigger>
     ),
-    [testID, label, press, pressIn, hoverIn, hoverOut, app],
+    [testID, label, press, pressIn, hoverIn, hoverOut, onFocus, app],
   );
   // Its menu's panel, made again only as the menu opens, closes or changes.
   const content = useMemo(
@@ -325,6 +338,9 @@ export const Dock = memo(function Dock({
   showAllWindows,
   toggleLauncher,
   toggleOverview,
+  keys,
+  moveFocus,
+  leave,
 }: {
   applications: readonly ShellApplication[];
   windows: readonly ShellWindow[];
@@ -340,6 +356,14 @@ export const Dock = memo(function Dock({
   showAllWindows?: (id: string) => void;
   toggleLauncher: () => void;
   toggleOverview: () => void;
+  /** The dock's keys while it has the keyboard (Super+F3, docs/adr/0039-keyboard-access.mdx): ← →
+      go along it, ↑ opens the focused icon's menu, Escape leaves it; Tab, Space and Return are the
+      platform's. */
+  keys?: ShellKeyboard;
+  /** Puts the keyboard's focus on the icon of that testID. */
+  moveFocus?: (testID: string) => void;
+  /** Leaves the dock, the keyboard back with the window. */
+  leave?: () => void;
 }) {
   const colors = DOCK_COLORS[useColorScheme() === "dark" ? "dark" : "light"];
   const [menu, setMenu] = useState<OpenMenu | null>(null);
@@ -418,6 +442,53 @@ export const Dock = memo(function Dock({
     return <MenuRows items={items} run={(command) => run(menu.id, command)} />;
   }, [menu, applications, windows, activeAppId, atLogin, abilities, trash, actions, run]);
   const openTrash = useCallback(() => actions.openTrash?.(), [actions]);
+  // The keyboard along the dock: the icon its focus is on, and each icon's menu opener.
+  const focusedIcon = useRef<string | null>(null);
+  const onFocusIcon = useCallback((testID: string) => {
+    focusedIcon.current = testID;
+  }, []);
+  const openers = useRef(new Map<string, () => void>());
+  const register = useCallback((id: string, open: (() => void) | null) => {
+    if (open) openers.current.set(id, open);
+    else openers.current.delete(id);
+  }, []);
+  const order = useMemo(
+    () => ["dock-launcher", "dock-overview", ...apps.map((app) => `dock-${app.id}`), ...(trash ? ["dock-trash"] : [])],
+    [apps, trash],
+  );
+  const latestOrder = useRef(order);
+  latestOrder.current = order;
+  useEffect(() => {
+    // An open menu's keys are its own.
+    if (!keys || menu) return undefined;
+    return keys.subscribe((event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+      const all = latestOrder.current;
+      const at = focusedIcon.current ? all.indexOf(focusedIcon.current) : -1;
+      switch (event.key) {
+        case "Escape":
+          leave?.();
+          return true;
+        case "ArrowLeft":
+        case "ArrowRight": {
+          const step = event.key === "ArrowRight" ? 1 : -1;
+          const next = all[Math.min(all.length - 1, Math.max(0, at + step))];
+          if (next) moveFocus?.(next);
+          return true;
+        }
+        case "ArrowUp": {
+          const icon = focusedIcon.current;
+          const id = icon === "dock-trash" ? TRASH : icon?.startsWith("dock-") ? icon.slice(5) : null;
+          const open = id ? openers.current.get(id) : undefined;
+          if (!open) return false;
+          open();
+          return true;
+        }
+        default:
+          return false;
+      }
+    });
+  }, [keys, menu, moveFocus, leave]);
   const trashFiles = actions.trashFiles;
   const shelfStyle = useMemo(
     () => ({
@@ -448,6 +519,7 @@ export const Dock = memo(function Dock({
           accessibilityLabel="Abrir aplicaciones"
           appearance="plain"
           onPress={toggleLauncher}
+          onFocus={() => onFocusIcon("dock-launcher")}
           pressed={view === "launcher"}
           className="h-10 w-16 rounded-full border-0 p-0"
           iconSize={25}
@@ -460,6 +532,7 @@ export const Dock = memo(function Dock({
           accessibilityLabel="Ver escritorios"
           appearance="plain"
           onPress={toggleOverview}
+          onFocus={() => onFocusIcon("dock-overview")}
           pressed={view === "overview"}
           className="h-[42px] w-[42px] rounded-full border-0 p-0"
           iconSize={22}
@@ -478,6 +551,8 @@ export const Dock = memo(function Dock({
             runningColor={running.has(app.id) ? colors.running : undefined}
             rows={menu?.id === app.id ? rows : null}
             app={app}
+            register={register}
+            onFocusIcon={onFocusIcon}
           />
         ))}
         {trash && (
@@ -495,6 +570,8 @@ export const Dock = memo(function Dock({
                   setMenu={setMenu}
                   activate={openTrash}
                   rows={menu?.id === TRASH ? rows : null}
+                  register={register}
+                  onFocusIcon={onFocusIcon}
                 />
               </TrashDrop>
             ) : (
@@ -507,13 +584,15 @@ export const Dock = memo(function Dock({
                 setMenu={setMenu}
                 activate={openTrash}
                 rows={menu?.id === TRASH ? rows : null}
+                register={register}
+                onFocusIcon={onFocusIcon}
               />
             )}
           </>
         )}
       </Scroll>
     ),
-    [apps, running, colors, view, menu, rows, trash, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle],
+    [apps, running, colors, view, menu, rows, trash, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon],
   );
   return (
     <Box

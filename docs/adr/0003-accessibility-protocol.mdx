@@ -34,6 +34,7 @@ The display protocol carries accessibility, as it carries buffers. The composito
    - Rectangles are surface-local and logical.
    - The node with the application's accessibility focus carries the `focused` state.
    - A live region (Android's `accessibilityLiveRegion`) carries `live-polite` or `live-assertive`: an assistive technology announces what changes in it.
+   - While a modal is shown, the window's snapshot is the topmost modal's alone, and a view marked modal for assistive technologies (`accessibilityViewIsModal`) is all of its surface's snapshot ([ADR 0039](./0039-keyboard-access), decision 2): what a modal covers cannot be reached.
 
    Limits:
    - 4096 nodes per surface;

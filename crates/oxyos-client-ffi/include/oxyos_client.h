@@ -103,6 +103,8 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_SWITCHER_CANCEL 6
 #define OXYOS_SHORTCUT_SEARCH 7
 #define OXYOS_SHORTCUT_MENU_BAR 8
+#define OXYOS_SHORTCUT_DOCK 9
+#define OXYOS_SHORTCUT_STATUS_MENUS 10
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211

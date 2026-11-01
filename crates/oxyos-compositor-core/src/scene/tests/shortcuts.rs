@@ -899,3 +899,58 @@ fn the_shell_hides_and_quits_applications_by_a_window_and_is_told_their_use() {
     h.request(APP, Request::Destroy { surface: 2 }).unwrap();
     assert_eq!(h.scene.window_use(second), (0, false));
 }
+
+#[test]
+fn super_f3_and_super_f8_move_the_keyboard_to_the_dock_and_the_status_items() {
+    const F3: u32 = 61;
+    const F8: u32 = 66;
+    const CTRL: u32 = 29;
+    let mut h = Harness::new();
+    dock(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let at = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (at.x + 100, at.y + 100),
+        menu(Rect::new(90, 90, 20, 20), 200, 200),
+    );
+    logged(&mut h);
+    // Super+F3, as a Mac's Control-F3: a menu open in the window closes, the shell is told the
+    // dock, and the application hears nothing of the keys.
+    chord(&mut h, &[F3]);
+    let events = logged(&mut h);
+    assert!(to(&events, APP).contains(&Event::PopupDone {
+        surface: popup.id,
+        reason: DismissReason::OutsidePress,
+    }));
+    assert_eq!(input_to(&events, APP), []);
+    assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Dock, 1)]);
+    let serial = to(&events, SHELL)
+        .iter()
+        .find_map(|event| match event {
+            Event::SystemShortcut { serial, .. } => Some(*serial),
+            _ => None,
+        })
+        .unwrap();
+    // The shell may take the keyboard for its dock citing it; the window stays the active one.
+    h.request(SHELL, Request::FocusShellSurface { surface: 1, serial })
+        .unwrap();
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 1)));
+    assert_eq!(h.scene.active_window(), Some(window));
+    // Super+F8, as a Mac's Control-F8: the status items.
+    chord(&mut h, &[F8]);
+    let events = logged(&mut h);
+    assert_eq!(
+        shortcuts_to(&events, SHELL),
+        [(SystemShortcut::StatusMenus, 1)]
+    );
+    assert_eq!(input_to(&events, APP), []);
+    // With other modifiers, neither is a shortcut, and they reach nobody.
+    chord(&mut h, &[CTRL, F3]);
+    chord(&mut h, &[SHIFT, F8]);
+    let events = logged(&mut h);
+    assert!(shortcuts_to(&events, SHELL).is_empty());
+    assert_eq!(input_to(&events, APP), []);
+}

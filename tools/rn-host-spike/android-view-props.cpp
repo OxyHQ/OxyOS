@@ -46,6 +46,9 @@ Props::Shared ViewComponentDescriptor::cloneProps(const PropsParserContext& cont
       if (auto it = raw.find("needsOffscreenAlphaCompositing"); it != raw.items().end()) {
         values.needsOffscreenAlphaCompositing = it->second.isBool() && it->second.asBool();
       }
+      if (auto it = raw.find("focusable"); it != raw.items().end()) {
+        values.focusable = it->second.isBool() && it->second.asBool();
+      }
     }
   }
   auto made = facebook::react::ViewComponentDescriptor::cloneProps(context, props, std::move(rawProps));

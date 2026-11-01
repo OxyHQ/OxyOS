@@ -27,6 +27,7 @@ import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
 import type { Language, SheetText } from "./sheet";
 import { hasWifiView } from "./network";
+import { firstStatusItem } from "./components/TopBar";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -178,17 +179,25 @@ export const Shell = memo(function Shell({
     "desktop",
   );
   const [escapeRequest, setEscapeRequest] = useState(0);
+  const statusKeyboardLostRef = useRef(() => {});
   const [searchRequest, setSearchRequest] = useState(0);
   // The top bar from the keyboard (Super+F2, docs/adr/0024-system-shortcuts.mdx): each request,
   // whether its surface wants the keyboard, and each time the keyboard left it.
   const [barRequest, setBarRequest] = useState(0);
   const [barKeyboard, setBarKeyboard] = useState(false);
   const [barLost, setBarLost] = useState(0);
+  // Full Keyboard Access (docs/adr/0039-keyboard-access.mdx): the dock (Super+F3, a Mac's
+  // Control-F3) and the top bar's status items (Super+F8, its Control-F8) with the keyboard, each
+  // the control its focus goes to and a request that rises each time it is asked again; the
+  // Control Center's, its first control once it opened from the keyboard.
+  const [dockKeys, setDockKeys] = useState<{ target: string; request: number } | null>(null);
+  const [statusKeys, setStatusKeys] = useState<{ target: string; request: number } | null>(null);
+  const [controlKeys, setControlKeys] = useState(0);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
-  const latest = useRef({ snapshot, actions, switcher, view });
-  latest.current = { snapshot, actions, switcher, view };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys };
   // The application whose windows the overview shows alone (the dock menu's Show All Windows, as
   // a Mac's App Exposé, docs/adr/0034-the-dock.mdx); none, every window.
   const [overviewApp, setOverviewApp] = useState<string | null>(null);
@@ -249,7 +258,27 @@ export const Shell = memo(function Shell({
         // press on the bar closes it.
         case "menu-bar":
           view = "desktop";
+          setDockKeys(null);
+          setStatusKeys(null);
           setBarRequest((value) => value + 1);
+          break;
+        // Super+F3: the keyboard to the dock's first icon; ← → go along it, ↑ opens an icon's
+        // menu, Space and Return open it, Escape gives the window the keyboard back.
+        case "dock":
+          view = "desktop";
+          setStatusKeys(null);
+          setDockKeys((keys) => ({ target: "first", request: (keys?.request ?? 0) + 1 }));
+          break;
+        // Super+F8: the keyboard to the top bar's first status item; Space opens it.
+        case "status-menus":
+          view = "desktop";
+          setDockKeys(null);
+          setControlCenter(null);
+          setCenter(false);
+          setStatusKeys((keys) => ({
+            target: firstStatusItem(now.controls?.network),
+            request: (keys?.request ?? 0) + 1,
+          }));
           break;
         case "switcher-next":
         case "switcher-previous": {
@@ -318,10 +347,19 @@ export const Shell = memo(function Shell({
     },
     [lockSession],
   );
-  const keyboardLost = useCallback(() => setBarLost((value) => value + 1), []);
+  const keyboardLost = useCallback(() => {
+    setBarLost((value) => value + 1);
+    statusKeyboardLostRef.current();
+  }, []);
   // One of the two at a time, as a Mac's Control Center and Notification Center.
+  // Opened while the keyboard is on the status items, the Control Center takes it on its first
+  // control, as a Mac's status menu opened from Control-F8 does.
+  const fromKeyboard = () => {
+    if (latest.current.statusKeys) setControlKeys((value) => value + 1);
+  };
   const toggleControlCenter = useCallback(() => {
     setCenter(false);
+    fromKeyboard();
     setControlCenter((open) => (open ? null : "modules"));
   }, []);
   // The top bar's network item opens it at Wi-Fi's view, or closes it, as a Mac's Wi-Fi menu;
@@ -329,6 +367,7 @@ export const Shell = memo(function Shell({
   const wifiView = hasWifiView(controls?.networks);
   const openNetworkStatus = useCallback(() => {
     setCenter(false);
+    fromKeyboard();
     setControlCenter((open) => (open ? null : wifiView ? "wifi" : "modules"));
   }, [wifiView]);
   const hasNotifications = !!notifications;
@@ -343,6 +382,91 @@ export const Shell = memo(function Shell({
     [hasNotifications],
   );
   const closeControlCenter = useCallback(() => setControlCenter(null), []);
+  // Moving between its modules and Wi-Fi's view from the keyboard keeps the keyboard in it, on
+  // the new page's first control (the control it was on is gone).
+  const showControlPage = useCallback((page: ControlCenterPage | null) => {
+    setControlKeys((value) => (value > 0 ? value + 1 : value));
+    setControlCenter(page);
+  }, []);
+  useEffect(() => {
+    if (!controlCenter) setControlKeys(0);
+  }, [controlCenter]);
+  // The top bar, the dock and the overlays with the keyboard hear Escape and their own keys
+  // (docs/adr/0039-keyboard-access.mdx): an overlay closes, the dock and the status items give
+  // the window back the keyboard. A sheet over them takes its own keys.
+  const keyboard = platform.keyboard;
+  const keys = useRef({ controlCenter, center, view, statusKeys, dockKeys, sheet: !!sheet });
+  keys.current = { controlCenter, center, view, statusKeys, dockKeys, sheet: !!sheet };
+  useEffect(() => {
+    if (!keyboard) return undefined;
+    return keyboard.subscribe((event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+      const now = keys.current;
+      if (now.sheet || event.key !== "Escape") return false;
+      if (now.controlCenter) {
+        setControlCenter(null);
+        return true;
+      }
+      if (now.center) {
+        setCenter(false);
+        return true;
+      }
+      if (now.view === "overview") {
+        dismiss();
+        return true;
+      }
+      if (now.statusKeys) {
+        setStatusKeys(null);
+        latest.current.actions.returnKeyboard?.();
+        return true;
+      }
+      return false;
+    });
+  }, [keyboard, dismiss]);
+  // An overlay that had the keyboard closing, however it closes (Escape, a press outside it, a
+  // choice in it), gives it back to the window, or to the status items it opened from.
+  const overlayOpen = !!controlCenter || center || view === "overview";
+  const wasOpen = useRef(overlayOpen);
+  useEffect(() => {
+    const closed = wasOpen.current && !overlayOpen;
+    wasOpen.current = overlayOpen;
+    if (closed && !keys.current.statusKeys && !keys.current.sheet && keys.current.view !== "launcher") {
+      latest.current.actions.returnKeyboard?.();
+    }
+  }, [overlayOpen]);
+  const leaveDock = useCallback(() => {
+    setDockKeys(null);
+    latest.current.actions.returnKeyboard?.();
+  }, []);
+  const dockKeyboardLost = useCallback(() => setDockKeys(null), []);
+  const moveDockFocus = useCallback(
+    (target: string) => setDockKeys((keys) => (keys ? { target, request: keys.request + 1 } : keys)),
+    [],
+  );
+  const moveStatusFocus = useCallback(
+    (target: string) => setStatusKeys((keys) => (keys ? { target, request: keys.request + 1 } : keys)),
+    [],
+  );
+  const leaveStatus = useCallback(() => {
+    setStatusKeys(null);
+    latest.current.actions.returnKeyboard?.();
+  }, []);
+  statusKeyboardLostRef.current = () => {
+    // The keyboard went to the Control Center the status items opened: they keep their place.
+    if (!keys.current.controlCenter) setStatusKeys(null);
+  };
+  // Wi-Fi joined is said, as VoiceOver hears a Mac's Wi-Fi menu join: once, as it connects.
+  const network = controls?.network;
+  const joined = network?.wifi === "connected" ? network.ssid : "";
+  const saidJoined = useRef(joined);
+  useEffect(() => {
+    if (joined === saidJoined.current) return;
+    saidJoined.current = joined;
+    if (!joined) return;
+    const said = `Conectado a ${joined}`;
+    if (platform.announce) platform.announce(said, true);
+    else AccessibilityInfo.announceForAccessibility(said);
+  }, [joined]);
   const openSettings = useCallback(() => menuCommand("system.settings"), [menuCommand]);
   const setDoNotDisturb = notifications?.setDoNotDisturb;
   const doNotDisturbOn = !!notifications?.doNotDisturb;
@@ -379,7 +503,9 @@ export const Shell = memo(function Shell({
           kind="panel"
           edge="top"
           exclusive
-          keyboard={barKeyboard}
+          keyboard={barKeyboard || (!!statusKeys && !controlCenter && !center && !sheet)}
+          focusTarget={statusKeys?.target}
+          focusRequest={statusKeys?.request}
           onKeyboardLost={keyboardLost}
         >
           <TopBar
@@ -398,6 +524,9 @@ export const Shell = memo(function Shell({
             controlCenter={toggleControlCenter}
             networkStatus={openNetworkStatus}
             clock={toggleCenter}
+            statusKeys={statusKeys && !controlCenter && !center && !sheet ? keyboard : undefined}
+            moveStatusFocus={moveStatusFocus}
+            leaveStatus={leaveStatus}
           />
         </Surface>
         <Box
@@ -405,7 +534,7 @@ export const Shell = memo(function Shell({
           pointerEvents={view === "desktop" ? "box-none" : "auto"}
         >
           {view === "overview" && (
-            <Surface kind="overlay" style={WHOLE}>
+            <Surface kind="overlay" style={WHOLE} keyboard={!sheet}>
               <Overview
                 snapshot={overviewSnapshot}
                 actions={actions}
@@ -449,7 +578,15 @@ export const Shell = memo(function Shell({
         {/* The Control Center, from the top bar's button: over everything but the top bar,
             closed by a press outside it. */}
         {controlCenter && !lock?.locked && (
-          <Surface kind="overlay" style={WHOLE}>
+          // It has the keyboard while open, as a Mac's status menu does: Escape closes it, and Tab
+          // goes through its controls.
+          <Surface
+            kind="overlay"
+            style={WHOLE}
+            keyboard={!sheet}
+            focusTarget={controlKeys > 0 ? "first" : undefined}
+            focusRequest={controlKeys}
+          >
             <ControlCenter
               controls={shownControls}
               dark={dark}
@@ -457,7 +594,7 @@ export const Shell = memo(function Shell({
               openSettings={openSettings}
               doNotDisturb={doNotDisturb}
               page={controlCenter}
-              showPage={setControlCenter}
+              showPage={showControlPage}
             />
           </Surface>
         )}
@@ -484,7 +621,7 @@ export const Shell = memo(function Shell({
           </Surface>
         )}
         {notifications && center && !lock?.locked && (
-          <Surface kind="overlay" style={WHOLE}>
+          <Surface kind="overlay" style={WHOLE} keyboard={!sheet}>
             <NotificationCenter
               notifications={notifications}
               applications={snapshot.applications}
@@ -495,7 +632,15 @@ export const Shell = memo(function Shell({
           </Surface>
         )}
         {dock && (
-          <Surface kind="panel" edge="bottom" exclusive>
+          <Surface
+            kind="panel"
+            edge="bottom"
+            exclusive
+            keyboard={!!dockKeys && !sheet}
+            focusTarget={dockKeys?.target}
+            focusRequest={dockKeys?.request}
+            onKeyboardLost={dockKeyboardLost}
+          >
             <Dock
               applications={snapshot.applications}
               windows={snapshot.windows}
@@ -508,6 +653,9 @@ export const Shell = memo(function Shell({
               showAllWindows={showAllWindows}
               toggleLauncher={toggleLauncher}
               toggleOverview={toggleOverview}
+              keys={dockKeys && !sheet ? keyboard : undefined}
+              moveFocus={moveDockFocus}
+              leave={leaveDock}
             />
           </Surface>
         )}
@@ -540,6 +688,7 @@ export const Shell = memo(function Shell({
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
               keyboard={platform.keyboard}
+              announce={platform.announce}
             />
           </Surface>
         )}

@@ -1,5 +1,7 @@
 #include "accessibility.h"
 
+#include "keyboard-focus.h"
+
 #include "report.h"
 #include "window.h"
 
@@ -241,6 +243,9 @@ uint8_t protocolRole(const std::string& role) {
       {"slider", OXYOS_ROLE_SLIDER},         {"toolbar", OXYOS_ROLE_TOOLBAR},
       {"menubar", OXYOS_ROLE_TOOLBAR},       {"scrollview", OXYOS_ROLE_SCROLL_VIEW},
       {"group", OXYOS_ROLE_GROUP},           {"radiogroup", OXYOS_ROLE_GROUP},
+      // A landmark the protocol does not name is the group of controls it holds (a sidebar's
+      // sections), as VoiceOver reads a navigation landmark.
+      {"navigation", OXYOS_ROLE_GROUP},
       {"combobox", OXYOS_ROLE_COMBO_BOX},    {"summary", OXYOS_ROLE_SUMMARY},
       {"grid", OXYOS_ROLE_GRID},
   };
@@ -285,7 +290,17 @@ folly::dynamic offeredNames(uint16_t actions) {
 std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Tag focus,
                                              const AccessibilityHooks* hooks) {
   Walk w{.tree = tree, .origin = windowFrame(tree, root).value_or(Rect{}), .focus = focus, .hooks = hooks};
-  walk(w, root, true, false, -1, 0);
+  // While a modal is shown, the window's tree is the topmost modal's alone, as Android's dialog
+  // window is all TalkBack reads of the screen beneath; and a view marked modal for assistive
+  // technologies (`accessibilityViewIsModal`, a Bloom overlay's root) is all of its surface's, as
+  // VoiceOver reads it: what is behind a modal sheet cannot be reached.
+  Tag start = root;
+  if (root == tree.root()) {
+    auto shown = modals(tree);
+    if (!shown.empty()) start = shown.back();
+  }
+  start = navigationRoot(tree, start);
+  walk(w, start, start == root, false, -1, 0);
   return std::move(w.out);
 }
 

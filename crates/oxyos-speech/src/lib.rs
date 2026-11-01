@@ -157,6 +157,31 @@ pub fn describe(
     parts.join(", ")
 }
 
+/// What the reader says when the focused element's state changes in place, as VoiceOver says a
+/// switch turned on ("activado") or a box checked: the states that tell its checked and selected
+/// state as they are now, if either changed. Expanded, busy and dimmed say nothing as they change.
+/// None when nothing it would say changed.
+pub fn describe_state_change(
+    language: Language,
+    role: AccessibleRole,
+    before: AccessibleState,
+    after: AccessibleState,
+) -> Option<String> {
+    let said = AccessibleState::CHECKED | AccessibleState::MIXED | AccessibleState::SELECTED;
+    if before.bits() & said == after.bits() & said {
+        return None;
+    }
+    // A trigger's expanded state is said by what it opens (a menu by its title, ADR 0014), never
+    // as a word before it.
+    let quiet = AccessibleState::BUSY
+        | AccessibleState::DISABLED
+        | AccessibleState::EXPANDED
+        | AccessibleState::COLLAPSED;
+    let now = AccessibleState::new(after.bits() & !quiet)?;
+    let words = states(language, role, now);
+    (!words.is_empty()).then(|| words.join(", "))
+}
+
 /// What changed in the focused text field, as the reader echoes it (TalkBack's text events,
 /// VoiceOver's typing echo).
 #[derive(Clone, Debug, PartialEq, Eq)]
