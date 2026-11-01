@@ -17,6 +17,8 @@ use oxyos_protocol::{
 
 /// Time the application's frames must stay unchanged to count as settled.
 const SETTLE: Duration = Duration::from_millis(750);
+/// Escape's Linux input code: what cancels a drag (`Step::DragPaced`'s `escape_after`).
+const KEY_ESCAPE: u32 = 1;
 /// The application starts its runtime and loads its bundle inside this budget.
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(60);
 /// Each step's answer must settle inside this budget.
@@ -116,12 +118,14 @@ pub enum Step {
     /// A press on the output held and moved to `to` in `motions` even steps, `hz` of them a
     /// second, the compositor serving the application between them, then the release: a hand
     /// dragging (a window's edge) at a mouse's pace. What the window showed meanwhile is measured
-    /// (`drag_paced`).
+    /// (`drag_paced`). With `escape_after`, Escape is pressed and released after that motion and
+    /// the drag goes on: a drag between applications cancelled (docs/adr/0035-drag-and-drop.mdx).
     DragPaced {
         from: (i32, i32),
         to: (i32, i32),
         motions: u32,
         hz: u32,
+        escape_after: Option<u32>,
     },
     /// The pointer at a window-local point scrolling by `dy` in `events` even steps, `hz` of them a
     /// second, the compositor serving the application between them: a touchpad's two fingers
@@ -289,7 +293,11 @@ impl Step {
                 to,
                 motions,
                 hz,
-            } => format!("drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz"),
+                escape_after,
+            } => format!(
+                "drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz{}",
+                escape_after.map_or(String::new(), |at| format!(", Escape after motion {at}"))
+            ),
             Step::ScrollPaced {
                 at,
                 dy,
@@ -418,9 +426,14 @@ impl Step {
                 to,
                 motions,
                 hz,
+                escape_after,
             } => format!(
-                "\"drag_paced\":[{},{},{},{},{motions},{hz}]",
-                from.0, from.1, to.0, to.1
+                "\"drag_paced\":[{},{},{},{},{motions},{hz}{}]",
+                from.0,
+                from.1,
+                to.0,
+                to.1,
+                escape_after.map_or(String::new(), |at| format!(",{at}"))
             ),
             Step::ScrollPaced {
                 at,
@@ -583,6 +596,14 @@ pub struct Launch {
     /// W H` and told what to show in `OXYOS_FILE_CHOOSER`, as the file manager is in a session.
     /// Without it, the shell's registry's file manager (with `--shell`), else none.
     pub file_chooser: Option<Vec<std::ffi::OsString>>,
+    /// `--companion PROGRAM,ARG...`: a second application, started once the first's window is
+    /// shown, on its socket, its report the application's with ".companion": the other side of a
+    /// drag between applications (docs/adr/0035-drag-and-drop.mdx). What it is delivered is
+    /// counted as the companion's.
+    pub companion: Option<Vec<std::ffi::OsString>>,
+    /// `--companion-at X,Y`: where the companion's window is moved once shown (output
+    /// coordinates), beside the application's rather than centred over it.
+    pub companion_at: Option<(i32, i32)>,
     /// `--lock-password PASSWORD`: the lock screen's password unlocks when it is this one, the
     /// development compositor's fixture in place of the session's PAM (lock.rs).
     pub lock_password: Option<String>,
@@ -645,7 +666,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -727,6 +748,8 @@ impl Launch {
         let (mut seat, mut input_method) = (false, false);
         let mut shell = None;
         let mut file_chooser = None;
+        let mut companion = None;
+        let mut companion_at = None;
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
@@ -785,6 +808,16 @@ impl Launch {
                 Some("--file-chooser") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     file_chooser = Some(value.split(',').map(Into::into).collect());
+                    continue;
+                }
+                Some("--companion") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    companion = Some(value.split(',').map(Into::into).collect());
+                    continue;
+                }
+                Some("--companion-at") => {
+                    let n = numbers(args.next(), 2)?;
+                    companion_at = Some((n[0], n[1]));
                     continue;
                 }
                 Some("--reader") => {
@@ -1006,7 +1039,11 @@ impl Launch {
                     }
                 }
                 Some("--drag-paced") => {
-                    let n = numbers(args.next(), 6)?;
+                    let value = args.next();
+                    let given = value
+                        .and_then(|v| v.to_str())
+                        .map_or(0, |v| v.split(',').count());
+                    let n = numbers(value, if given == 7 { 7 } else { 6 })?;
                     if n[4] < 1 || n[5] < 1 {
                         return Err("--drag-paced needs at least one motion at 1 Hz or more".into());
                     }
@@ -1015,6 +1052,7 @@ impl Launch {
                         to: (n[2], n[3]),
                         motions: n[4] as u32,
                         hz: n[5] as u32,
+                        escape_after: n.get(6).map(|at| *at as u32),
                     }
                 }
                 Some("--scroll-paced") => {
@@ -1254,6 +1292,8 @@ impl Launch {
                 input_method,
                 shell,
                 file_chooser,
+                companion,
+                companion_at,
                 lock_password,
                 reader,
                 reader_locale,
@@ -1413,6 +1453,81 @@ fn start_shell(
         } else if reserved && last.1.elapsed() >= SETTLE {
             eprintln!("[shell] {} surfaces shown", last.0.len());
             return Ok(children);
+        }
+    }
+}
+
+/// Starts the companion application (`--companion`) on the application's socket, as a second
+/// application the person opened, and serves the session until its window is shown and nothing
+/// has changed for SETTLE.
+fn start_companion(
+    session: &mut Session,
+    children: &mut Children,
+    command: &[std::ffi::OsString],
+    at: Option<(i32, i32)>,
+) -> Result<()> {
+    let mut companion = Command::new(command.first().ok_or(USAGE)?);
+    companion
+        .args(&command[1..])
+        .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
+        .env("OXYOS_APP_ID", "so.oxy.companion")
+        .env("OXYOS_APP_TITLE", "Companion")
+        .env("OXYOS_APP_UNRECORDED", "1")
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY");
+    if let Some(bundle) = command
+        .get(1)
+        .map(std::path::Path::new)
+        .filter(|b| b.is_file())
+    {
+        let url = oxyos_apps::script_url(bundle);
+        companion.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
+    }
+    if let Some(mut report) = std::env::var_os("OXYOS_HOST_REPORT") {
+        report.push(".companion");
+        companion.env("OXYOS_HOST_REPORT", report);
+    }
+    let child = companion.spawn()?;
+    let pid = child.id();
+    session.companion = Some(pid);
+    children.0.push(child);
+    let deadline = Instant::now() + LAUNCH_DEADLINE;
+    let mut last = (Vec::new(), Instant::now());
+    loop {
+        if Instant::now() > deadline {
+            return Err("deadline exceeded waiting for the companion's window".into());
+        }
+        session.compositor.serve(&session.listener)?;
+        let client = session
+            .compositor
+            .peers
+            .iter()
+            .find(|(_, peer)| peer.pid as u32 == pid)
+            .map(|(client, _)| *client);
+        let shown =
+            client.is_some_and(|client| {
+                session.compositor.scene.render_list().iter().any(
+                    |item| matches!(item, RenderItem::Surface { key, .. } if key.client == client),
+                )
+            });
+        if let (true, Some(at), Some(client)) = (shown, at, client) {
+            let key = SurfaceKey { client, id: WINDOW };
+            if session
+                .compositor
+                .scene
+                .global_rect(key)
+                .map(|r| (r.x, r.y))
+                != Some(at)
+            {
+                session.compositor.scene.move_window_to(key, at);
+            }
+        }
+        let now = composed(&session.compositor);
+        if now != last.0 {
+            last = (now, Instant::now());
+        } else if shown && last.1.elapsed() >= SETTLE {
+            eprintln!("[companion] shown");
+            return Ok(());
         }
     }
 }
@@ -1738,12 +1853,27 @@ fn delivered_json(session: &Session) -> String {
         Default::default();
     let mut launched: std::collections::BTreeMap<&str, usize> = Default::default();
     let mut chooser: std::collections::BTreeMap<&str, usize> = Default::default();
+    let mut companion: std::collections::BTreeMap<&str, usize> = Default::default();
+    let mut shell_drags: std::collections::BTreeMap<&str, usize> = Default::default();
+    let companion_client = session.companion.and_then(|pid| {
+        compositor
+            .peers
+            .iter()
+            .find(|(_, peer)| peer.pid as u32 == pid)
+            .map(|(client, _)| *client)
+    });
     let (mut shell, mut leaked) = (0, 0);
     for &(client, surface, kind) in &compositor.input_log {
         if client == CLIENT {
             *counts.entry(surface).or_default().entry(kind).or_default() += 1;
+        } else if Some(client) == companion_client {
+            *companion.entry(kind).or_default() += 1;
         } else if client > ClientId::MAX / 2 && client < crate::pasteboard::PASTEBOARD {
             shell += 1;
+            // A drag's events, which the shell's dock may be the target of (ADR 0035), by kind.
+            if kind.starts_with("drag.") {
+                *shell_drags.entry(kind).or_default() += 1;
+            }
         } else if session.chooser_clients.contains(&client) {
             *chooser.entry(kind).or_default() += 1;
         } else if session.launched_clients.contains(&client) {
@@ -1777,6 +1907,13 @@ fn delivered_json(session: &Session) -> String {
             .map(|(k, n)| format!("\"{k}\":{n}"))
             .collect();
         fields.push(format!("\"chooser\":{{{}}}", kinds.join(",")));
+    }
+    // What the companion received (ADR 0035), and the drag events the shell's surfaces did.
+    for (name, kinds) in [("companion", &companion), ("shell_drags", &shell_drags)] {
+        if !kinds.is_empty() {
+            let kinds: Vec<String> = kinds.iter().map(|(k, n)| format!("\"{k}\":{n}")).collect();
+            fields.push(format!("\"{name}\":{{{}}}", kinds.join(",")));
+        }
     }
     fields.push(format!("\"leaked\":{leaked}"));
     format!("{{{}}}", fields.join(","))
@@ -2678,6 +2815,7 @@ fn drag_paced(
     to: (i32, i32),
     motions: u32,
     hz: u32,
+    escape_after: Option<u32>,
 ) -> Result<String> {
     inside_output(from)?;
     inside_output(to)?;
@@ -2786,6 +2924,11 @@ fn drag_paced(
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
+        if escape_after == Some(i as u32) {
+            session.compositor.scene.key(KEY_ESCAPE, true);
+            session.compositor.scene.key(KEY_ESCAPE, false);
+            session.compositor.serve(&session.listener)?;
+        }
     }
     session.compositor.idle_wait = idle_wait;
     let due = interval * (motions + 1);
@@ -3809,6 +3952,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
     };
     let mut window = first.window;
+    if let Some(command) = &launch.companion {
+        start_companion(&mut session, &mut children, command, launch.companion_at)?;
+    }
     if !login
         && (window.y..window.bottom() as i32).all(|y| {
             (window.x..window.right() as i32).all(|x| session.compositor.pixel(x, y) == DESKTOP)
@@ -3960,9 +4106,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     to,
                     motions,
                     hz,
+                    escape_after,
                 } = step
                 {
-                    dragged = Some(drag_paced(&mut session, *from, *to, *motions, *hz)?);
+                    dragged = Some(drag_paced(
+                        &mut session,
+                        *from,
+                        *to,
+                        *motions,
+                        *hz,
+                        *escape_after,
+                    )?);
                 }
                 0
             }

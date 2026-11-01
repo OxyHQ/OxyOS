@@ -204,6 +204,22 @@ class Window {
   bool forceQuitApplication(uint32_t window);
   // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
   bool emptyTrash(uint64_t input);
+  // Puts files in the Trash (`file://` URIs, one a line), citing `input` (the drop on the dock's
+  // Trash, docs/adr/0035-drag-and-drop.mdx); false if it was not sent.
+  bool trashFiles(uint64_t input, const std::string& uris);
+  // Drag and drop (docs/adr/0035-drag-and-drop.mdx), protocol version 10. A drag icon surface `id`
+  // of the given logical size, its hotspot at the pointer while its drag goes on (throws on
+  // failure); a drag from `surface` citing the press `serial` held, with that icon (0: none), the
+  // OXYOS_DRAG_* actions it allows and each type's content, whose number it returns (0: not sent);
+  // a target's answer to an entering, a drop's type received (a pipe's read end, -1 on failure)
+  // and the drop finished.
+  void createDragIcon(uint32_t id, uint32_t width, uint32_t height, int32_t hotspotX, int32_t hotspotY);
+  uint32_t startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uint8_t actions,
+                     const std::vector<std::pair<std::string, std::string>>& contents);
+  void cancelDrag(uint32_t drag);
+  void acceptDrag(uint32_t offer, uint64_t serial, const std::string& mime, uint8_t actions, uint8_t preferred);
+  int receiveDrop(uint32_t offer, const std::string& mime);
+  void finishDrop(uint32_t offer);
   // The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx).
   uint16_t protocolVersion() const;
   // The password for `account` (a login screen's; empty: the session's own user).

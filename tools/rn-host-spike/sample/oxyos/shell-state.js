@@ -69,7 +69,8 @@
  * `setApplicationList('dock' | 'openAtLogin', ids)` replaces one of the lists; `openUrl(url)` opens
  * a URL in the application that opens its scheme, citing the latest input (its serial; 0 not sent;
  * `OxyOSShellLaunch` answers); `emptyTrash()` asks the session to empty the Trash, which asks the
- * person first.
+ * person first; `trashFiles(uris)` has it put the files (`file://` URIs) in the Trash, citing the
+ * latest input: the drop on the dock's Trash (docs/adr/0035-drag-and-drop.mdx).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -120,6 +121,7 @@ const actions = {
   setApplicationList: (list, ids) => native?.setApplicationList(list, [...ids]) ?? false,
   openUrl: (url) => native?.openUrl(url) ?? 0,
   emptyTrash: () => native?.emptyTrash() ?? false,
+  trashFiles: (uris) => native?.trashFiles?.(uris) ?? false,
   moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
   activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
   addWorkspace: () => native?.addWorkspace(),

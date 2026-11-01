@@ -174,6 +174,8 @@ struct Session {
     /// The clients that served as a file chooser: what they are delivered is counted as the
     /// chooser's (`delivered_json`), even once they are gone.
     chooser_clients: std::collections::BTreeSet<ClientId>,
+    /// The companion application's process (`--companion`, docs/adr/0035-drag-and-drop.mdx).
+    pub companion: Option<u32>,
 }
 
 impl Session {
@@ -252,6 +254,7 @@ impl Session {
             chooser_children: Vec::new(),
             choosers_started: 0,
             chooser_clients: Default::default(),
+            companion: None,
         })
     }
 

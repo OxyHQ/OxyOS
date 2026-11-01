@@ -560,6 +560,19 @@ std::shared_ptr<TurboModule> createHostModule(
       ready(rt);
       return jsi::Value(services.shell.emptyTrash());
     });
+    module->method("trashFiles", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isArray(rt)) {
+        throw jsi::JSError(rt, "OxyOSShell.trashFiles: the files' file:// URIs");
+      }
+      auto array = args[0].asObject(rt).asArray(rt);
+      std::vector<std::string> uris;
+      for (size_t i = 0; i < array.size(rt); ++i) {
+        auto uri = array.getValueAtIndex(rt, i);
+        if (uri.isString()) uris.push_back(uri.asString(rt).utf8(rt));
+      }
+      return jsi::Value(services.shell.trashFiles && services.shell.trashFiles(uris));
+    });
     module->method("openUrl", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.openUrl: a URL");
@@ -945,6 +958,40 @@ std::shared_ptr<TurboModule> createHostModule(
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });
+  } else if (name == "OxyOSDrag") {
+    // Dragging the application's content to another application (sample/oxyos/platform-surface.js,
+    // Bloom's usePlatformDrag; docs/adr/0035-drag-and-drop.mdx): from the press it holds, the
+    // promise settling with the action the drop took, or null.
+    module->constants(folly::dynamic::object("available", services.drag.available));
+    module->method("start", [&services, invoker](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (!services.drag.start) return rejected(rt, "OxyOSDrag: dragging needs a window on OxyOS");
+      if (count < 2 || !args[0].isObject() || !args[1].isObject() || !args[1].asObject(rt).isArray(rt)) {
+        return rejected(rt, "OxyOSDrag.start: the data and the actions");
+      }
+      auto data = jsi::dynamicFromValue(rt, args[0]);
+      std::vector<std::string> actions;
+      auto array = args[1].asObject(rt).asArray(rt);
+      for (size_t i = 0; i < array.size(rt); ++i) {
+        auto action = array.getValueAtIndex(rt, i);
+        if (action.isString()) actions.push_back(action.asString(rt).utf8(rt));
+      }
+      int preview = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : -1;
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "drag"), 2,
+          [&services, invoker, data = std::move(data), actions = std::move(actions), preview](
+              jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            services.drag.start(data, actions, preview, [invoker, resolve](std::optional<std::string> action) {
+              invoker->invokeAsync([resolve, action = std::move(action)](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(
+                    rt, action ? jsi::Value(jsi::String::createFromUtf8(rt, *action)) : jsi::Value::null());
+              });
+            });
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
+    });
+    module->listeners();
   } else if (name == "OxyOSClipboard") {
     // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the
     // latest key or press the app received: the compositor refuses it unless the app has keyboard

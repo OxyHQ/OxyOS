@@ -38,6 +38,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ("sheet": [x, y, width, height] on the output, "focused": it has the keyboard, "window_active":
   the application's window is the active one); `in_chooser` checks its own texts and React
   deliveries, as `in_shell` the shell's, and `delivered`'s "chooser" what it was delivered;
+- companion: with the scenario's `companion` ({"module", "window"}) started as a second application
+  once the first's window is shown (ADR 0035, the other side of a drag between applications),
+  `in_companion` checks its own texts and React deliveries, `delivered`'s "companion" what the
+  compositor delivered it, and "shell_drags" the drag events the shell's surfaces received;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
   they leave on the primary and "work_areas" on every output (by id), exactly, and whether the
@@ -1598,6 +1602,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             for key, value in wanted.items():
                 if got.get(key) != value:
                     fail(f"the file chooser's sheet has {key} {got.get(key)}, expected {value}")
+    if "in_companion" in expect and screenshot is not None:
+        # The companion application (ADR 0035), from its own report beside the director's
+        # (`.companion`): its texts and React deliveries.
+        path = pathlib.Path(screenshot).parent / "host-report.jsonl.companion"
+        companion = ([json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+                     if path.exists() else [])
+        companion_step = {"name": f"{step.get('name', step['do'][0])}, in the companion",
+                          "do": step["do"], "expect": expect["in_companion"]}
+        check_step(index, companion_step, result, companion, start, failures, refresh_hz=refresh_hz)
     if "in_launched" in expect and screenshot is not None:
         # An application the session launched (a store's open, the shell's dock), from its own
         # report beside the director's (`.launched`): its texts and React deliveries.
@@ -1625,7 +1638,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         launched = delivered.pop("launched", {})
         # The file chooser (ADR 0029, decision 8): checked, exactly, only when the step says.
         chooser = delivered.pop("chooser", {})
+        # The companion application, and the drag events the shell's surfaces received (ADR 0035):
+        # checked, exactly, only when the step says.
+        companion = delivered.pop("companion", {})
+        shell_drags = delivered.pop("shell_drags", {})
         wanted = dict(expect["delivered"])
+        if "companion" in wanted and companion != wanted.pop("companion"):
+            fail(f"the companion was delivered {companion}, expected exactly {expect['delivered']['companion']}")
+        if "shell_drags" in wanted and shell_drags != wanted.pop("shell_drags"):
+            fail(f"the shell was delivered drag events {shell_drags}, expected exactly {expect['delivered']['shell_drags']}")
         if "launched" in wanted and launched != wanted.pop("launched"):
             fail(f"the launched applications were delivered {launched}, expected exactly {expect['delivered']['launched']}")
         if "chooser" in wanted and chooser != wanted.pop("chooser"):
@@ -2515,6 +2536,16 @@ def main():
         # follows the user's (ADR 0034); never the developer's.
         if "home" in scenario:
             command += ["--trash"]
+    if scenario.get("companion"):
+        # A second application started once the first's window is shown (ADR 0035): the other side
+        # of a drag between applications, its report the application's with ".companion".
+        companion = scenario["companion"]
+        companion_host, companion_bundle, _ = machine.run(companion["module"])
+        companion_width, companion_height = companion.get("window", [320, 200])
+        command += ["--companion", f"{companion_host},{companion_bundle},{companion['module']},--window,"
+                    f"{companion_width},{companion_height}"]
+        if "at" in companion:
+            command += ["--companion-at", ",".join(map(str, companion["at"]))]
     if scenario.get("file_chooser"):
         # The file chooser the session starts for the application's requests (ADR 0029, decision
         # 8): the module run as the file manager is, in its picker mode, its report the

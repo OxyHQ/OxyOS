@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -150,6 +151,9 @@ struct ShellService {
   std::function<uint32_t(const std::string& url)> openUrl;
   // The Trash emptied, citing the latest input: the session asks the person first.
   std::function<bool()> emptyTrash;
+  // Files put in the Trash (file:// URIs), citing the latest input: the drop on the dock's Trash
+  // (docs/adr/0035-drag-and-drop.mdx). False if not sent.
+  std::function<bool(const std::vector<std::string>& uris)> trashFiles;
 };
 
 // An application's notifications (docs/adr/0026-notifications.mdx), for expo-notifications' API
@@ -238,6 +242,18 @@ struct FileChooserService {
   std::function<bool(const std::string& text)> answer;
 };
 
+// Dragging between applications (docs/adr/0035-drag-and-drop.mdx), for Bloom's `drag-and-drop`
+// capability: whether the compositor has it (known before JavaScript starts), and a drag of the
+// application's content (Bloom's DragData) from the press it holds, allowing the actions named,
+// with a view's image (-1: none); `done` receives the action the drop took, or nothing. Unset
+// without a window.
+struct DragService {
+  bool available = false;
+  std::function<void(const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
+                     std::function<void(std::optional<std::string>)> done)>
+      start;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
@@ -256,6 +272,7 @@ struct HostServices {
   FileChooserService fileChooser{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};
+  DragService drag{};
   // The user's files (files.h, docs/adr/0028-file-access.mdx): set for an application's window,
   // never for the shell or the login screen, whose expo-file-system and Bloom adapter have none.
   Files* files = nullptr;

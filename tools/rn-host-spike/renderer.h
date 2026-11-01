@@ -361,6 +361,9 @@ RenderStats drawRegion(const ViewTree& tree, facebook::react::Tag region, facebo
 RenderStats drawRegionDamaged(const ViewTree& tree, facebook::react::Tag region, facebook::react::Point at,
                               const Display& display, Canvas& canvas, const TextInputEdit& edit,
                               const std::vector<facebook::react::Rect>& damage);
+// Draws a view itself, its subtree with it, at the canvas's origin and three quarters opaque onto a
+// transparent canvas of `display`'s size: a drag's image (docs/adr/0035-drag-and-drop.mdx).
+RenderStats drawDragImage(const ViewTree& tree, facebook::react::Tag view, const Display& display, Canvas& canvas);
 // A view's frame in its root's coordinates (window-local logical pixels), as drawn: scroll
 // offsets applied. Empty if the view is not in the tree.
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);
