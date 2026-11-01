@@ -3053,7 +3053,6 @@ impl Compositor {
                 return;
             }
         };
-        let (dx, dy) = self.display_offset;
         let trace = std::env::var_os("OXYOS_INPUT_TRACE").is_some();
         // A key held repeats from when it was read (ADR 0036).
         self.scene.set_clock(self.now());
@@ -3066,103 +3065,110 @@ impl Compositor {
             }
             // What it makes reaches the clients with when its device registered it.
             self.scene.set_input_time(time_ns);
-            // A press the scene never sees as a key (a dead key, the keymap's own) ends a key's
-            // repeat, as any press does (ADR 0036).
-            if matches!(
-                action,
-                oxyos_input::Action::Compose { .. }
-                    | oxyos_input::Action::SwitchTerminal(_)
-                    | oxyos_input::Action::Terminate
-                    | oxyos_input::Action::Lock
-                    | oxyos_input::Action::ToggleReader
-            ) {
-                self.scene.stop_key_repeat();
+            self.apply_input(action);
+        }
+    }
+
+    /// Applies what an input device did to the scene, as the seat's devices do it: the
+    /// development compositor also types a keymap's keys through here (`Keyboard::actions`).
+    pub fn apply_input(&mut self, action: oxyos_input::Action) {
+        let (dx, dy) = self.display_offset;
+        // A press the scene never sees as a key (a dead key, the keymap's own) ends a key's
+        // repeat, as any press does (ADR 0036).
+        if matches!(
+            action,
+            oxyos_input::Action::Compose { .. }
+                | oxyos_input::Action::SwitchTerminal(_)
+                | oxyos_input::Action::Terminate
+                | oxyos_input::Action::Lock
+                | oxyos_input::Action::ToggleReader
+        ) {
+            self.scene.stop_key_repeat();
+        }
+        match action {
+            oxyos_input::Action::Motion { x, y } => {
+                let (x, y) = (x.round() as i32 - dx, y.round() as i32 - dy);
+                self.pointer = Some((x, y));
+                self.scene.pointer_motion(x, y)
             }
-            match action {
-                oxyos_input::Action::Motion { x, y } => {
-                    let (x, y) = (x.round() as i32 - dx, y.round() as i32 - dy);
-                    self.pointer = Some((x, y));
-                    self.scene.pointer_motion(x, y)
-                }
-                oxyos_input::Action::Button { code, pressed } => {
-                    self.scene.pointer_button(code, pressed)
-                }
-                // libinput's units are logical pixels; the protocol's are 1/256 of one.
-                oxyos_input::Action::Scroll {
-                    dx,
-                    dy,
-                    source,
-                    stop,
-                } => self.scene.pointer_scroll(
-                    (dx * 256.0).round() as i32,
-                    (dy * 256.0).round() as i32,
-                    match source {
-                        oxyos_input::ScrollSource::Wheel => ScrollSource::Wheel,
-                        oxyos_input::ScrollSource::Finger => ScrollSource::Finger,
-                        oxyos_input::ScrollSource::Continuous => ScrollSource::Continuous,
-                    },
-                    stop,
-                ),
-                // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
-                oxyos_input::Action::Pinch {
-                    phase,
-                    scale,
-                    rotation,
-                } => self.scene.pointer_pinch(
-                    match phase {
-                        oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
-                        oxyos_input::GesturePhase::Update => GesturePhase::Update,
-                        oxyos_input::GesturePhase::End => GesturePhase::End,
-                        oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
-                    },
-                    (scale.max(0.0) * 65536.0).round() as u32,
-                    (rotation * 256.0).round() as i32,
-                ),
-                oxyos_input::Action::Hold { phase, fingers } => self.scene.pointer_hold(
-                    match phase {
-                        oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
-                        oxyos_input::GesturePhase::Update => GesturePhase::Update,
-                        oxyos_input::GesturePhase::End => GesturePhase::End,
-                        oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
-                    },
-                    u8::try_from(fingers).unwrap_or(u8::MAX),
-                ),
-                oxyos_input::Action::Key {
-                    code,
-                    pressed,
-                    text,
-                    repeats,
-                } => self
-                    .scene
-                    .keyboard_repeating(code, pressed, text.as_deref(), repeats),
-                oxyos_input::Action::Terminate => self.ending = true,
-                oxyos_input::Action::Lock => self.scene.lock(),
-                oxyos_input::Action::ToggleReader => self.reader_toggled = true,
-                oxyos_input::Action::CapsLock(on) => self.scene.set_caps_lock(on),
-                oxyos_input::Action::SwitchTerminal(number) => {
-                    if let Some(seat) = &self.seat {
-                        if Some(u32::from(number)) != seat.vt() {
-                            if let Err(error) = seat.switch_to(u32::from(number)) {
-                                eprintln!("[seat] switching to {number}: {error}");
-                            }
-                        }
-                    }
-                    if let Some(terminal) = &self.terminal {
-                        if number != terminal.number() {
-                            if let Err(error) = terminal.activate(number) {
-                                eprintln!("[vt] switching to {number}: {error}");
-                            }
-                        }
-                    }
-                }
-                // What a sequence composes replaces its composition when committed.
-                oxyos_input::Action::Compose { composition, text } => match text {
-                    Some(text) => self.scene.text(&text),
-                    None => {
-                        self.scene.preedit(&composition, composition.len());
-                    }
+            oxyos_input::Action::Button { code, pressed } => {
+                self.scene.pointer_button(code, pressed)
+            }
+            // libinput's units are logical pixels; the protocol's are 1/256 of one.
+            oxyos_input::Action::Scroll {
+                dx,
+                dy,
+                source,
+                stop,
+            } => self.scene.pointer_scroll(
+                (dx * 256.0).round() as i32,
+                (dy * 256.0).round() as i32,
+                match source {
+                    oxyos_input::ScrollSource::Wheel => ScrollSource::Wheel,
+                    oxyos_input::ScrollSource::Finger => ScrollSource::Finger,
+                    oxyos_input::ScrollSource::Continuous => ScrollSource::Continuous,
                 },
+                stop,
+            ),
+            // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
+            oxyos_input::Action::Pinch {
+                phase,
+                scale,
+                rotation,
+            } => self.scene.pointer_pinch(
+                match phase {
+                    oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
+                    oxyos_input::GesturePhase::Update => GesturePhase::Update,
+                    oxyos_input::GesturePhase::End => GesturePhase::End,
+                    oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
+                },
+                (scale.max(0.0) * 65536.0).round() as u32,
+                (rotation * 256.0).round() as i32,
+            ),
+            oxyos_input::Action::Hold { phase, fingers } => self.scene.pointer_hold(
+                match phase {
+                    oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
+                    oxyos_input::GesturePhase::Update => GesturePhase::Update,
+                    oxyos_input::GesturePhase::End => GesturePhase::End,
+                    oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
+                },
+                u8::try_from(fingers).unwrap_or(u8::MAX),
+            ),
+            oxyos_input::Action::Key {
+                code,
+                pressed,
+                text,
+                repeats,
+            } => self
+                .scene
+                .keyboard_repeating(code, pressed, text.as_deref(), repeats),
+            oxyos_input::Action::Terminate => self.ending = true,
+            oxyos_input::Action::Lock => self.scene.lock(),
+            oxyos_input::Action::ToggleReader => self.reader_toggled = true,
+            oxyos_input::Action::CapsLock(on) => self.scene.set_caps_lock(on),
+            oxyos_input::Action::SwitchTerminal(number) => {
+                if let Some(seat) = &self.seat {
+                    if Some(u32::from(number)) != seat.vt() {
+                        if let Err(error) = seat.switch_to(u32::from(number)) {
+                            eprintln!("[seat] switching to {number}: {error}");
+                        }
+                    }
+                }
+                if let Some(terminal) = &self.terminal {
+                    if number != terminal.number() {
+                        if let Err(error) = terminal.activate(number) {
+                            eprintln!("[vt] switching to {number}: {error}");
+                        }
+                    }
+                }
             }
+            // What a sequence composes replaces its composition when committed.
+            oxyos_input::Action::Compose { composition, text } => match text {
+                Some(text) => self.scene.text(&text),
+                None => {
+                    self.scene.preedit(&composition, composition.len());
+                }
+            },
         }
     }
 

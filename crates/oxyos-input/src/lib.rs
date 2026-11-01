@@ -127,6 +127,14 @@ pub enum Typed {
         composition: String,
         text: Option<String>,
     },
+    /// A press that ends a sequence of dead keys it composes nothing with: the accents typed so
+    /// far are committed as themselves (`accents`), then the key is the application's with the
+    /// text it types, as a Mac, Windows and GTK type ´ then x as "´x" and ´ then an arrow as
+    /// "´" and the arrow's move. Its release is the application's too.
+    Interrupted {
+        accents: String,
+        text: Option<String>,
+    },
     /// A press of the keymap's terminal switch (see [`Action::SwitchTerminal`]).
     SwitchTerminal(u16),
     /// A press of the keymap's end of the session (see [`Action::Terminate`]).
@@ -180,6 +188,9 @@ pub struct Keyboard {
     compose: Option<compose::State>,
     /// The sequence so far, as it is shown.
     composition: String,
+    /// Whether the sequence so far is dead keys only (no compose key), whose accents a key that
+    /// composes nothing with them types as themselves.
+    dead_only: bool,
     /// Keys whose press the compose table or a terminal switch took, so their release is no
     /// application's either.
     taken: Vec<u32>,
@@ -352,6 +363,7 @@ impl Keyboard {
             state: xkb::State::new(&keymap),
             compose,
             composition: String::new(),
+            dead_only: true,
             taken: Vec::new(),
         })
     }
@@ -440,21 +452,44 @@ impl Keyboard {
                     Some((compose::FeedResult::Accepted, compose))
                         if compose.status() != compose::Status::Nothing =>
                     {
-                        self.taken.push(code);
-                        let text = match compose.status() {
+                        let status = compose.status();
+                        let accents = std::mem::take(&mut self.composition);
+                        let dead_only = std::mem::replace(&mut self.dead_only, true);
+                        let text = match status {
                             compose::Status::Composing => {
-                                self.composition.push_str(&shown(keysym));
+                                self.composition = accents + &shown(keysym);
+                                self.dead_only =
+                                    dead_only && xkb::keysym_get_name(keysym).starts_with("dead_");
                                 None
                             }
                             status => {
-                                self.composition.clear();
                                 let text = (status == compose::Status::Composed)
                                     .then(|| compose.utf8())
                                     .flatten();
                                 compose.reset();
+                                // Escape and Backspace cancel a sequence; any other key that
+                                // composes nothing with dead keys types their accents, then
+                                // itself.
+                                let cancels = matches!(
+                                    xkb::keysym_get_name(keysym).as_str(),
+                                    "Escape" | "BackSpace"
+                                );
+                                if status == compose::Status::Cancelled
+                                    && dead_only
+                                    && !accents.is_empty()
+                                    && !cancels
+                                {
+                                    let text = self.state.key_get_utf8(keycode);
+                                    self.state.update_key(keycode, xkb::KeyDirection::Down);
+                                    return Typed::Interrupted {
+                                        accents,
+                                        text: Some(text).filter(|text| typable(text)),
+                                    };
+                                }
                                 text
                             }
                         };
+                        self.taken.push(code);
                         Typed::Compose {
                             composition: self.composition.clone(),
                             text: text.filter(|text| typable(text)),
@@ -477,6 +512,45 @@ impl Keyboard {
 }
 
 impl Keyboard {
+    /// What a key (Linux input code) does, as actions: what [`key`](Self::key) says, and Caps
+    /// Lock coming on or going off after it.
+    pub fn actions(&mut self, code: u32, pressed: bool) -> Vec<Action> {
+        let caps = self.caps_locked();
+        let mut actions = Vec::new();
+        match self.key(code, pressed) {
+            Typed::Key(text) => actions.push(Action::Key {
+                code,
+                pressed,
+                text,
+                repeats: pressed && self.repeats(code),
+            }),
+            Typed::Compose { composition, text } => {
+                actions.push(Action::Compose { composition, text })
+            }
+            Typed::Interrupted { accents, text } => {
+                actions.push(Action::Compose {
+                    composition: String::new(),
+                    text: Some(accents),
+                });
+                actions.push(Action::Key {
+                    code,
+                    pressed,
+                    text,
+                    repeats: pressed && self.repeats(code),
+                });
+            }
+            Typed::SwitchTerminal(number) => actions.push(Action::SwitchTerminal(number)),
+            Typed::Terminate => actions.push(Action::Terminate),
+            Typed::Lock => actions.push(Action::Lock),
+            Typed::ToggleReader => actions.push(Action::ToggleReader),
+            Typed::Nothing => {}
+        }
+        if self.caps_locked() != caps {
+            actions.push(Action::CapsLock(!caps));
+        }
+        actions
+    }
+
     /// The keys that type `character` on this layout: one key, or a dead key and the key it
     /// composes with. `None` if neither does (or there is no compose table and it needs one).
     pub fn key_for(&self, character: char) -> Option<Vec<Stroke>> {
@@ -688,28 +762,7 @@ impl Input {
                 }
                 input::Event::Keyboard(KeyboardEvent::Key(key)) => {
                     let pressed = key.key_state() == KeyState::Pressed;
-                    let caps = self.keyboard.caps_locked();
-                    match self.keyboard.key(key.key(), pressed) {
-                        Typed::Key(text) => actions.push(Action::Key {
-                            code: key.key(),
-                            pressed,
-                            text,
-                            repeats: pressed && self.keyboard.repeats(key.key()),
-                        }),
-                        Typed::Compose { composition, text } => {
-                            actions.push(Action::Compose { composition, text })
-                        }
-                        Typed::SwitchTerminal(number) => {
-                            actions.push(Action::SwitchTerminal(number))
-                        }
-                        Typed::Terminate => actions.push(Action::Terminate),
-                        Typed::Lock => actions.push(Action::Lock),
-                        Typed::ToggleReader => actions.push(Action::ToggleReader),
-                        Typed::Nothing => {}
-                    }
-                    if self.keyboard.caps_locked() != caps {
-                        actions.push(Action::CapsLock(!caps));
-                    }
+                    actions.extend(self.keyboard.actions(key.key(), pressed));
                 }
                 _ => {}
             }

@@ -109,6 +109,7 @@ fn what_is_written_reads_back_the_same() {
         ("accent", "jade"),
         ("reduce_motion", "true"),
         ("reduce_transparency", "true"),
+        ("caret_blink", "false"),
         ("wallpaper", "solar-gradients"),
         ("lock_after", "15"),
         ("screen_reader", "true"),

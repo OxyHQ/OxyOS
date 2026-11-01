@@ -170,6 +170,9 @@ struct Session {
     pub chooser_command: Option<Vec<std::ffi::OsString>>,
     /// The choosers `--file-chooser` started, until they exit, and how many it started.
     chooser_children: Vec<Child>,
+    /// The keymap and compose table `Strokes` steps type with when there are no devices, as the
+    /// session's keyboard types (made at the first such step).
+    keyboard: Option<std::io::Result<oxyos_input::Keyboard>>,
     choosers_started: usize,
     /// The clients that served as a file chooser: what they are delivered is counted as the
     /// chooser's (`delivered_json`), even once they are gone.
@@ -252,6 +255,7 @@ impl Session {
             ),
             chooser_command: None,
             chooser_children: Vec::new(),
+            keyboard: None,
             choosers_started: 0,
             chooser_clients: Default::default(),
             companion: None,

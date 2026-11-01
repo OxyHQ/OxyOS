@@ -116,6 +116,8 @@ class Window {
   struct Drawing {
     bool dark = false, reduceMotion = false, reduceTransparency = false;
     std::string accent;
+    // A text field's caret blinks (the session's `caret_blink`, docs/adr/0035-text-editing.mdx).
+    bool caretBlink = true;
     bool operator==(const Drawing&) const = default;
   };
   const Drawing& drawing() const { return drawing_; }

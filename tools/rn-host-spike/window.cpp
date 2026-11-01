@@ -108,7 +108,8 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       drawing_ = Drawing{.dark = (event.flag & OXYOS_PREFERENCES_DARK) != 0,
                          .reduceMotion = (event.flag & OXYOS_PREFERENCES_REDUCE_MOTION) != 0,
                          .reduceTransparency = (event.flag & OXYOS_PREFERENCES_REDUCE_TRANSPARENCY) != 0,
-                         .accent = event.text};
+                         .accent = event.text,
+                         .caretBlink = (event.flag & OXYOS_PREFERENCES_STEADY_CARET) == 0};
       input(event);
     } else if (event.kind == OXYOS_EVENT_PREFERENCE) {
       if (event.detail == 0) receiving_.clear();

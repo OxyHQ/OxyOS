@@ -21,6 +21,8 @@ pub struct DrawingPreferences {
     pub reduce_transparency: bool,
     /// Bloom's accent colour, by name: one chunk.
     pub accent: PreeditText,
+    /// A text field's caret blinks (docs/adr/0035-text-editing.mdx).
+    pub caret_blink: bool,
 }
 
 /// A change Settings asked for: whose request (`serial`), the preference and its new value's text.
@@ -153,6 +155,7 @@ impl Scene {
                     reduce_motion: drawing.reduce_motion,
                     reduce_transparency: drawing.reduce_transparency,
                     accent: drawing.accent,
+                    caret_blink: drawing.caret_blink,
                 },
             );
         }

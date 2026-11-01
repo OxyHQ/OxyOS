@@ -3103,6 +3103,7 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
                 reduce_motion: true,
                 reduce_transparency: true,
                 accent,
+                caret_blink: true,
             },
             OXYOS_EVENT_PREFERENCES,
         ),
@@ -3131,12 +3132,15 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
         reduce_motion: false,
         reduce_transparency: true,
         accent,
+        caret_blink: false,
     })
     .unwrap();
     assert_eq!(preferences.kind, OXYOS_EVENT_PREFERENCES);
     assert_eq!(
         preferences.flag,
-        OXYOS_PREFERENCES_DARK | OXYOS_PREFERENCES_REDUCE_TRANSPARENCY
+        OXYOS_PREFERENCES_DARK
+            | OXYOS_PREFERENCES_REDUCE_TRANSPARENCY
+            | OXYOS_PREFERENCES_STEADY_CARET
     );
     assert_eq!(
         CStr::from_bytes_until_nul(&preferences.text).unwrap(),

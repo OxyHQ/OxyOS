@@ -313,6 +313,24 @@ void fillRect(const Draw& draw, float x, float y, float w, float h, SkColor4f co
   draw.canvas->drawRect(SkRect::MakeXYWH(x, y, w, h), paint);
 }
 
+// The caret, a bar kCaretWidth wide whose left edge is at x, on whole device pixels at the
+// canvas's scale (1.25 included) as a Mac's and Android's carets are drawn: crisp, its left edge
+// at the device pixel nearest x, at least one device pixel wide.
+void fillCaret(const Draw& draw, float x, float y, float h, SkColor4f color) {
+  if (color.fA <= 0) return;
+  const SkMatrix& matrix = draw.canvas->getTotalMatrix();
+  SkRect rect = SkRect::MakeXYWH(x, y, kCaretWidth, h);
+  SkMatrix inverse;
+  if (matrix.isScaleTranslate() && matrix.invert(&inverse)) {
+    SkRect device = matrix.mapRect(rect);
+    float left = std::round(device.left());
+    float width = std::max(1.0f, std::round(kCaretWidth * matrix.getScaleX()));
+    rect = inverse.mapRect(SkRect::MakeLTRB(left, std::round(device.top()), left + width, std::round(device.bottom())));
+  }
+  SkPaint paint(color);
+  draw.canvas->drawRect(rect, paint);
+}
+
 // A text input's text, or its placeholder when empty. When it has focus (`edit`): the selection
 // behind the text, the composition underlined, and the caret. A single-line input centres its
 // line vertically, as Android's EditText does.
@@ -389,10 +407,10 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, f
         }
       }
     }
-    if (edit->selectionStart == edit->selectionEnd) {
+    if (edit->selectionStart == edit->selectionEnd && edit->caretLit) {
       auto caret = geometry->caret(edit->selectionEnd);
       SkColor4f color = props->cursorColor ? faded(props->cursorColor, opacity) : ink;
-      fillRect(draw, left + caret.x, boxTop + caret.top, kCaretWidth, caret.height, color);
+      fillCaret(draw, left + caret.x, boxTop + caret.top, caret.height, color);
     }
   }
   canvas.restore();

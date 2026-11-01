@@ -175,6 +175,11 @@ pub enum Step {
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
+    /// Keys typed as a person types them on the session's keyboard: each chord pressed in order
+    /// and released in reverse, one after the other, through the session's keymap (`--layout`) and
+    /// compose table, as its devices' keys are (`Keyboard::actions`): a dead key's composition, the
+    /// text a key types on that layout, Caps Lock. Through the virtual devices, the same keys.
+    Strokes(Vec<Vec<u32>>),
     /// Keys pressed in order and held, as a hand holds Super through the application switcher
     /// (ADR 0024), until a `KeyUp` releases them.
     KeyDown(Vec<u32>),
@@ -342,6 +347,10 @@ impl Step {
                 interval_ms,
             } => format!("{count} presses at {at:?}, {interval_ms} ms apart"),
             Step::Key(codes) => format!("key {}", chord(codes)),
+            Step::Strokes(chords) => format!(
+                "keys {} on the keymap",
+                chords.iter().map(|codes| chord(codes)).collect::<Vec<_>>().join(", ")
+            ),
             Step::KeyDown(codes) => format!("key {} held", chord(codes)),
             Step::KeyUp(codes) => format!("key {} released", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
@@ -504,6 +513,7 @@ impl Step {
                 interval_ms,
             } => format!("\"press_paced\":[{},{},{count},{interval_ms}]", at.0, at.1),
             Step::Key(codes) => format!("\"key\":{codes:?}"),
+            Step::Strokes(chords) => format!("\"strokes\":{chords:?}"),
             Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
             Step::KeyUp(codes) => format!("\"key_up\":{codes:?}"),
             Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
@@ -1055,6 +1065,16 @@ impl Launch {
                 Some("--type") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Type(text.to_string())
+                }
+                Some("--strokes") => {
+                    // Chords separated by spaces, each its codes joined by `+`: "40 18" is ´ then e.
+                    let chords = args.next().and_then(|c| c.to_str()).ok_or(USAGE)?;
+                    Step::Strokes(
+                        chords
+                            .split_whitespace()
+                            .map(|chord| chord.split('+').map(str::parse).collect())
+                            .collect::<std::result::Result<_, _>>()?,
+                    )
                 }
                 Some(flag @ ("--key" | "--key-down" | "--key-up")) => {
                     let codes = args.next().and_then(|c| c.to_str()).ok_or(USAGE)?;
@@ -2677,6 +2697,18 @@ fn inject_through(
                 compositor.read_input();
             }
         }
+        Step::Strokes(chords) => {
+            for codes in chords {
+                for code in codes {
+                    devices.key(*code as u16, true)?;
+                    compositor.read_input();
+                }
+                for code in codes.iter().rev() {
+                    devices.key(*code as u16, false)?;
+                    compositor.read_input();
+                }
+            }
+        }
         Step::KeyDown(codes) | Step::KeyUp(codes) => {
             let pressed = matches!(step, Step::KeyDown(_));
             for code in codes {
@@ -3598,6 +3630,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 compositor.scene.key(*code, pressed);
             }
         }
+        // Typed through the session's keymap, which the director holds (`Session::keyboard`).
+        Step::Strokes(_) => return Err("keys on the keymap are typed by the session".into()),
         Step::MoveWindow { dx, dy } => compositor.scene.move_window_to(
             SurfaceKey {
                 client: CLIENT,
@@ -4246,6 +4280,26 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 } = step
                 {
                     moved = Some(move_paced(&mut session, window, *from, *to, *motions, *hz)?);
+                }
+                0
+            }
+            None if matches!(step, Step::Strokes(_)) => {
+                if let Step::Strokes(chords) = step {
+                    let keyboard = session.keyboard.get_or_insert_with(|| {
+                        oxyos_input::Keyboard::new(&oxyos_input::Layout::named(&launch.layout))
+                    });
+                    let keyboard = keyboard
+                        .as_mut()
+                        .map_err(|error| format!("the {} keymap: {error}", launch.layout))?;
+                    for codes in chords {
+                        let presses = codes.iter().map(|code| (*code, true));
+                        let releases = codes.iter().rev().map(|code| (*code, false));
+                        for (code, pressed) in presses.chain(releases) {
+                            for action in keyboard.actions(code, pressed) {
+                                session.compositor.apply_input(action);
+                            }
+                        }
+                    }
                 }
                 0
             }

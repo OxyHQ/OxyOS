@@ -654,7 +654,8 @@ int main(int argc, char** argv) {
           .drawing = [&window] {
             const auto& drawing = window->drawing();
             return folly::dynamic::object("dark", drawing.dark)("reduceMotion", drawing.reduceMotion)(
-                "reduceTransparency", drawing.reduceTransparency)("accent", drawing.accent);
+                "reduceTransparency", drawing.reduceTransparency)("accent", drawing.accent)("caretBlink",
+                                                                                          drawing.caretBlink);
           },
           .values = [&window]() -> folly::dynamic {
             if (!window->settingsGranted()) return nullptr;
@@ -1784,7 +1785,10 @@ int main(int argc, char** argv) {
               folly::dynamic::array("OxyOSShellAuthentication",
                                     folly::dynamic::object("outcome", outcome)("wait", authenticated->code)));
         }
-        // Focus, caret and selection moves draw even when the tree did not change.
+        // Focus, caret and selection moves draw even when the tree did not change, and so does the
+        // caret's blink.
+        if (window) editing.setCaretBlinks(window->drawing().caretBlink);
+        editing.tick(std::chrono::steady_clock::now());
         bool edited = editing.edit() != drawn;
         if (edited) {
           drawn = editing.edit();
@@ -2021,7 +2025,8 @@ int main(int argc, char** argv) {
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
-                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline()}) {
+                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
+                           editing.nextBlink()}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;

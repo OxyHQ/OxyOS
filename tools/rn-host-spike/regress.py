@@ -458,6 +458,12 @@ def director_args(step, out):
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
+    if kind == "strokes":
+        # Keys typed on the session's keymap and compose table (the scenario's `layout`), one
+        # after the other: each a code or a chord (a list of codes pressed in order), [40, 18]
+        # being ´ then e on the Spanish layout.
+        return args + ["--strokes", " ".join("+".join(map(str, c)) if isinstance(c, list) else str(c)
+                                             for c in value)]
     if kind in ("key", "key_down", "key_up"):
         # A code, or a chord as a list of codes pressed in order (Shift+Right is [42, 106]);
         # `key_down` holds them pressed (Super through the application switcher, ADR 0024) until
@@ -2699,6 +2705,10 @@ def main():
             (directory / name).write_text(json.dumps(content))
     if "locale" in scenario:
         env["LANG"] = env["LC_ALL"] = scenario["locale"]
+    # The session's keyboard composes with the image's compose tables (config/, as CI's tests do),
+    # never the developer's machine's.
+    env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /
+                                     "config/includes.chroot_after_packages/usr/share/X11/locale"))
     if "tz" in scenario:
         env["TZ"] = scenario["tz"]
     recorder = None

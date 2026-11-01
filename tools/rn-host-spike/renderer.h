@@ -220,6 +220,8 @@ struct TextInputEdit {
   // How far each input's text is scrolled within its content box: across for a single-line input,
   // down for a multiline one. An input keeps it when it loses focus, as an EditText does.
   std::map<facebook::react::Tag, facebook::react::Point> scrolls;
+  // Whether the caret is lit: it blinks while the field waits for typing (textinput.h).
+  bool caretLit = true;
   bool operator==(const TextInputEdit&) const = default;
 };
 

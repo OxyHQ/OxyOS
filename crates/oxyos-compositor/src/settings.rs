@@ -110,6 +110,7 @@ impl Settings {
             reduce_motion: preferences.reduce_motion,
             reduce_transparency: preferences.reduce_transparency,
             accent: PreeditText::new(&preferences.accent).expect("an accent is one chunk"),
+            caret_blink: preferences.caret_blink,
         };
         let values: Vec<(String, String)> = KEYS
             .iter()
