@@ -29,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 12;
+pub const VERSION: u16 = 13;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The keyboard's modifiers a Pointer event carries (version 8), as bits.

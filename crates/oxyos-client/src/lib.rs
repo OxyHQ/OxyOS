@@ -1023,7 +1023,9 @@ impl Client {
 
     /// Publishes a surface's accessibility snapshot (ADR 0003), replacing the previous one:
     /// nodes in reading order, each parent before its children. Text longer than the protocol
-    /// allows is cut at a character boundary; more nodes than it allows is an error.
+    /// allows is cut at a character boundary; more nodes than it allows is an error. A node's hint
+    /// and its place in its collection are left out for a compositor of version 12 or older, which
+    /// has neither; a place outside its count is left out too.
     pub fn publish_accessibility(&self, surface: u32, nodes: &[Accessible<'_>]) -> io::Result<()> {
         let count = u32::try_from(nodes.len())
             .ok()
@@ -1046,6 +1048,12 @@ impl Client {
                 rect: node.rect,
             })?;
             let value = truncate(node.value, MAX_ACCESSIBLE_TEXT_BYTES);
+            let described = self.version >= 13;
+            let hint = if described {
+                truncate(node.hint, MAX_ACCESSIBLE_TEXT_BYTES)
+            } else {
+                ""
+            };
             for (field, text) in [
                 (
                     AccessibleField::Name,
@@ -1053,6 +1061,7 @@ impl Client {
                 ),
                 (AccessibleField::Value, value),
                 (AccessibleField::Actions, custom_labels(node.custom)),
+                (AccessibleField::Hint, hint),
             ] {
                 for text in TextChunk::split(text) {
                     self.send(&Request::AccessibleText {
@@ -1077,6 +1086,17 @@ impl Client {
                     index,
                     start: within(start.min(end)),
                     end: within(end.max(start)),
+                })?;
+            }
+            if let Some((position, count)) = node
+                .position
+                .filter(|(position, count)| described && (1..=*count).contains(position))
+            {
+                self.send(&Request::AccessiblePosition {
+                    surface,
+                    index,
+                    position,
+                    count,
                 })?;
             }
         }
@@ -1369,6 +1389,12 @@ pub struct Accessible<'a> {
     pub custom: &'a str,
     /// A text field's selection, in bytes of its value; never a secure field's.
     pub selection: Option<(u32, u32)>,
+    /// What activating it does, when its name does not say; empty for none. Sent only to a
+    /// compositor of version 13 or newer.
+    pub hint: &'a str,
+    /// Its place among its collection's items, 1-based, and their count. Sent only to a
+    /// compositor of version 13 or newer.
+    pub position: Option<(u32, u32)>,
 }
 
 /// A notification an application posts (ADR 0026); empty texts are none.

@@ -5,7 +5,7 @@
 //! it, and refused from it.
 
 use crate::schema::{Event, Request};
-use crate::wire::SystemShortcut;
+use crate::wire::{AccessibleField, SystemShortcut};
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io::{self, Read, Write};
 
@@ -37,7 +37,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// sends a request a compositor of an older version would close the connection for; version 8,
 /// the dock's application menu (ADR 0034), both ways, `Ping` sent unasked; version 9, a popup's
 /// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001); version 10,
-/// drag and drop (ADR 0035), both ways, a target's events sent unasked.
+/// drag and drop (ADR 0035), both ways, a target's events sent unasked; version 13, a node's place
+/// in its collection (`AccessiblePosition`, ADR 0039), both ways, sent with every snapshot.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -48,6 +49,7 @@ const EVENTS_ADDED: Added = &[
     (7, 220..=220),
     (8, 230..=232),
     (10, 240..=250),
+    (13, 251..=251),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -57,6 +59,7 @@ const REQUESTS_ADDED: Added = &[
     (8, 230..=234),
     (9, 235..=235),
     (10, 240..=247),
+    (13, 251..=251),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -69,22 +72,33 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// The version that introduced an event: it is never sent to a connection of an older one. An
 /// event an older version had, carrying a value that version lacks, is the newer version's too:
 /// version 12's system shortcuts to the dock and to the status items (ADR 0039), which a version 11
-/// reader would refuse as a value outside its set.
+/// reader would refuse as a value outside its set; version 13's hint of an accessible node
+/// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way.
 pub fn event_since(event: &Event) -> u16 {
-    if let Event::SystemShortcut {
-        shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
-        ..
-    } = event
-    {
-        return 12;
+    match event {
+        Event::SystemShortcut {
+            shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
+            ..
+        } => 12,
+        Event::AccessibleText {
+            field: AccessibleField::Hint,
+            ..
+        } => 13,
+        _ => since(EVENTS_ADDED, event.opcode()),
     }
-    since(EVENTS_ADDED, event.opcode())
 }
 
 /// The version that introduced a request: a compositor refuses it from a connection of an older
-/// one.
+/// one. A request an older version had, carrying a value that version lacks, is the newer
+/// version's: a node's hint (version 13), which a compositor of version 12 would refuse.
 pub fn request_since(request: &Request) -> u16 {
-    since(REQUESTS_ADDED, request.opcode())
+    match request {
+        Request::AccessibleText {
+            field: AccessibleField::Hint,
+            ..
+        } => 13,
+        _ => since(REQUESTS_ADDED, request.opcode()),
+    }
 }
 
 /// The bytes versions newer than `version` added to the end of the event `opcode`, in order: what

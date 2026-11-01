@@ -252,6 +252,12 @@ fn requests() -> Vec<Request> {
             start: 3,
             end: 7,
         },
+        Request::AccessiblePosition {
+            surface: 1,
+            index: 2,
+            position: 3,
+            count: 21,
+        },
         Request::AccessibilityAnnounce {
             surface: 1,
             index: 0,
@@ -615,6 +621,13 @@ fn events() -> Vec<Event> {
             index: 1,
             start: 3,
             end: 7,
+        },
+        Event::AccessiblePosition {
+            client: 3,
+            surface: 2,
+            index: 2,
+            position: 3,
+            count: 21,
         },
         Event::AccessibilityAnnouncement {
             client: 3,
@@ -2119,4 +2132,70 @@ fn version_12_shortcuts_are_never_sent_to_an_older_client() {
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &menu_bar, 11).unwrap());
     assert_eq!(read_event_for(&mut Cursor::new(old), 11).unwrap(), menu_bar);
+}
+
+#[test]
+fn version_13_hints_and_positions_are_never_sent_to_an_older_peer() {
+    let hint = Event::AccessibleText {
+        client: 3,
+        surface: 2,
+        index: 1,
+        field: AccessibleField::Hint,
+        text: TextChunk::new("Abre su menú").unwrap(),
+    };
+    let position = Event::AccessiblePosition {
+        client: 3,
+        surface: 2,
+        index: 1,
+        position: 3,
+        count: 21,
+    };
+    for event in [hint, position] {
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 12).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 13).unwrap());
+        assert_eq!(
+            read_event_for(&mut Cursor::new(new.clone()), 13).unwrap(),
+            event
+        );
+        // A version 12 reader refuses it.
+        assert!(read_event_for(&mut Cursor::new(new), 12).is_err());
+    }
+    // The fields version 12 had are still sent to it.
+    let name = Event::AccessibleText {
+        client: 3,
+        surface: 2,
+        index: 1,
+        field: AccessibleField::Name,
+        text: TextChunk::new("Stash").unwrap(),
+    };
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &name, 12).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(old), 12).unwrap(), name);
+    // A client never sends a compositor of version 12 a hint or a position.
+    let hint = Request::AccessibleText {
+        surface: 2,
+        index: 1,
+        field: AccessibleField::Hint,
+        text: TextChunk::new("Abre su menú").unwrap(),
+    };
+    let position = Request::AccessiblePosition {
+        surface: 2,
+        index: 1,
+        position: 3,
+        count: 21,
+    };
+    assert_eq!(request_since(&hint), 13);
+    assert_eq!(request_since(&position), 13);
+    assert_eq!(
+        request_since(&Request::AccessibleText {
+            surface: 2,
+            index: 1,
+            field: AccessibleField::Value,
+            text: TextChunk::new("5").unwrap(),
+        }),
+        2
+    );
 }

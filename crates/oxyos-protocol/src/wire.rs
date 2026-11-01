@@ -152,9 +152,11 @@ wire_enum! {
     }
 }
 wire_enum! {
-    /// Which text of an accessible node a chunk belongs to: its name, its value, or the labels
-    /// of its custom actions (one per line, in order: `Custom` action `n` is line `n`).
-    AccessibleField: u8 { Name = 1, Value = 2, Actions = 3 }
+    /// Which text of an accessible node a chunk belongs to: its name, its value, the labels of
+    /// its custom actions (one per line, in order: `Custom` action `n` is line `n`), or its hint,
+    /// what activating it does when its name does not say (version 13; React Native's
+    /// `accessibilityHint`, VoiceOver's help).
+    AccessibleField: u8 { Name = 1, Value = 2, Actions = 3, Hint = 4 }
 }
 wire_enum! {
     /// What an assistive technology asks an application to do with a node, as Android's

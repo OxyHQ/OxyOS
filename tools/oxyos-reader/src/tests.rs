@@ -681,3 +681,73 @@ fn the_focused_element_changed_in_place_says_its_new_state_or_value_once() {
     assert_eq!(feed(&mut reader, &slider("6")), ["Volumen, 6, regulador"]);
     assert_eq!(feed(&mut reader, &slider("7")), ["7"]);
 }
+
+/// A list of three files with the second focused, each row's place in it and the list's hint
+/// added to the tree's events as a version 13 compositor sends them.
+fn files(focused: usize) -> Vec<Event> {
+    let mut nodes = vec![
+        (R::List, 0, "Documentos", ""),
+        (R::ListItem, 0, "notas.txt", ""),
+        (R::ListItem, 0, "foto.png", ""),
+        (R::ListItem, 0, "informe.pdf", ""),
+    ];
+    nodes[focused].1 |= FOCUSED | AccessibleState::SELECTED;
+    let mut events = tree(WINDOW, &nodes);
+    let commit = events.pop().unwrap();
+    for index in 1..4 {
+        events.push(Event::AccessiblePosition {
+            client: APP,
+            surface: WINDOW,
+            index,
+            position: index,
+            count: 3,
+        });
+    }
+    events.push(Event::AccessibleText {
+        client: APP,
+        surface: WINDOW,
+        index: 2,
+        field: AccessibleField::Hint,
+        text: TextChunk::new("Abre el archivo").unwrap(),
+    });
+    events.push(commit);
+    events
+}
+
+#[test]
+fn an_item_says_its_place_and_then_its_hint() {
+    let mut reader = Reader::new(Language::Spanish);
+    // The focused row: its description with its place, at once; its hint after it.
+    assert_eq!(
+        feed(&mut reader, &files(1)),
+        ["notas.txt, seleccionado, 1 de 3"]
+    );
+    reader.receive(&files(2)[0]);
+    let mut said = Vec::new();
+    for event in &files(2)[1..] {
+        reader.receive(event);
+    }
+    said.extend(reader.take_said());
+    assert_eq!(
+        said,
+        [
+            Utterance {
+                text: "foto.png, seleccionado, 2 de 3".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Abre el archivo".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    // The reader's own keys say the same, the hint after the place.
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["informe.pdf, 3 de 3"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Previous),
+        ["foto.png, seleccionado, 2 de 3", "Abre el archivo"]
+    );
+}

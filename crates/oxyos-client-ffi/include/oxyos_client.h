@@ -614,6 +614,17 @@ typedef struct OxyOSAccessibleNode {
   uint32_t selection_end;
 } OxyOSAccessibleNode;
 
+/* What a node says beyond its name and value (protocol version 13), beside the node of the same
+ * index (`oxyos_client_publish_accessibility_detailed`): its hint, what activating it does when
+ * its name does not say (UTF-8, NULL or empty for none); its place among its collection's items,
+ * 1-based, and their count (0 for none: a list's row "3 of 21"). A separate array, so
+ * OxyOSAccessibleNode stays as applications built against it have it. */
+typedef struct OxyOSAccessibleDetail {
+  const char* hint;
+  uint32_t position;
+  uint32_t count;
+} OxyOSAccessibleDetail;
+
 /* The menu bar (docs/adr/0021-menu-bar.mdx). What a menu entry is, its state bits, which of its
  * texts a MENU_BAR_TEXT carries, and the parent of a menu of the bar. */
 #define OXYOS_MENU_MENU 1
@@ -892,6 +903,11 @@ int oxyos_client_reposition(OxyOSClient* client, uint32_t surface, const OxyOSPo
  * text longer than the protocol allows is cut at a character boundary. 0 on success. */
 int oxyos_client_publish_accessibility(OxyOSClient* client, uint32_t surface, const OxyOSAccessibleNode* nodes,
                                      size_t count);
+/* The same with each node's details, `details[i]` node `i`'s (NULL for none). A compositor older
+ * than protocol version 13 is sent the nodes without them. */
+int oxyos_client_publish_accessibility_detailed(OxyOSClient* client, uint32_t surface,
+                                              const OxyOSAccessibleNode* nodes,
+                                              const OxyOSAccessibleDetail* details, size_t count);
 /* Declares a toplevel's menus, replacing its last: `count` entries (at most 256, nested at most 4
  * deep) in order, as the commit `serial`, above every earlier one of the window. A
  * MENU_ITEM_ACTIVATED names the commit and the chosen entry's index, so the caller keeps its own

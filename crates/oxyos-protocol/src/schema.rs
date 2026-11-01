@@ -397,6 +397,10 @@ messages! {
         // their `file://` URIs one a line in chunks (`index` 0 begins it, `last` sends it), citing
         // `input`, an input it received lately (the drop on the dock's Trash).
         247 => TrashFiles { input: u64, index: u16, last: bool, text: PreeditText },
+        // Accessibility (ADR 0003, version 13): a node's place among the items of its collection
+        // in a snapshot being sent, 1-based of `count` (a list's row: "3 of 21"), as Android's
+        // CollectionItemInfo and VoiceOver say it.
+        251 => AccessiblePosition { surface: u32, index: u32, position: u32, count: u32 },
     }
 }
 
@@ -718,6 +722,9 @@ messages! {
         248 => DragFinished { drag: u32, action: DragActions },
         249 => DragCancelled { drag: u32, reason: DragCancelReason },
         250 => DragSend { drag: u32, mime: TextChunk },
+        // To an assistive technology only (ADR 0003, version 13): a node's place among the items
+        // of its collection in the snapshot being sent, 1-based of `count`.
+        251 => AccessiblePosition { client: u32, surface: u32, index: u32, position: u32, count: u32 },
     }
 }
 

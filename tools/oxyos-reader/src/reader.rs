@@ -7,7 +7,7 @@ use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Event, Politeness,
     ReaderCommand, Request,
 };
-use oxyos_speech::{describe, describe_change, describe_state_change, Language};
+use oxyos_speech::{describe_change, describe_item, describe_state_change, Language};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A surface, by its client and its id, as the compositor names it.
@@ -21,9 +21,25 @@ pub struct Node {
     pub value: String,
     /// A text field's selection in bytes of its value (never a secure field's).
     pub selection: Option<(u32, u32)>,
+    /// What activating it does, when its name does not say (version 13).
+    pub hint: String,
+    /// Its place among its collection's items, 1-based, and their count (version 13).
+    pub position: Option<(u32, u32)>,
 }
 
 impl Node {
+    fn empty(role: AccessibleRole, state: AccessibleState) -> Self {
+        Self {
+            role,
+            state,
+            name: String::new(),
+            value: String::new(),
+            selection: None,
+            hint: String::new(),
+            position: None,
+        }
+    }
+
     fn live(&self) -> Option<Politeness> {
         if self.state.contains(AccessibleState::LIVE_ASSERTIVE) {
             Some(Politeness::Assertive)
@@ -110,14 +126,32 @@ impl Reader {
             .get(&surface)
             .and_then(|nodes| nodes.get(index))
             .map_or_else(String::new, |node| {
-                describe(
+                describe_item(
                     self.language,
                     node.role,
                     node.state,
                     &node.name,
                     &node.value,
+                    node.position,
                 )
             })
+    }
+
+    /// The element the cursor reached, said; then its hint, if it has one, after it (VoiceOver's
+    /// hint, said after a pause and cut off by moving on), as TalkBack says a node's hint text.
+    fn say_reached(&mut self, at: (Surface, usize), politeness: Politeness) {
+        let text = self.describe(at);
+        if text.is_empty() {
+            return;
+        }
+        self.say(text, politeness);
+        let hint = self
+            .trees
+            .get(&at.0)
+            .and_then(|nodes| nodes.get(at.1))
+            .map(|node| node.hint.trim().to_string())
+            .unwrap_or_default();
+        self.say(hint, Politeness::Polite);
     }
 
     /// Whether the cursor stops at an element: it has something to say, and it is not a
@@ -167,13 +201,7 @@ impl Reader {
                 ..
             } => {
                 if let Some(slot) = self.slot((client, surface), index) {
-                    *slot = Some(Node {
-                        role,
-                        state,
-                        name: String::new(),
-                        value: String::new(),
-                        selection: None,
-                    });
+                    *slot = Some(Node::empty(role, state));
                 }
             }
             Event::AccessibleSelection {
@@ -185,6 +213,17 @@ impl Reader {
             } => {
                 if let Some(Some(node)) = self.slot((client, surface), index) {
                     node.selection = Some((start, end));
+                }
+            }
+            Event::AccessiblePosition {
+                client,
+                surface,
+                index,
+                position,
+                count,
+            } => {
+                if let Some(Some(node)) = self.slot((client, surface), index) {
+                    node.position = Some((position, count));
                 }
             }
             Event::AccessibleText {
@@ -199,6 +238,7 @@ impl Reader {
                         AccessibleField::Name => node.name.push_str(text.as_str()),
                         AccessibleField::Value => node.value.push_str(text.as_str()),
                         AccessibleField::Actions => {}
+                        AccessibleField::Hint => node.hint.push_str(text.as_str()),
                     }
                 }
             }
@@ -210,12 +250,8 @@ impl Reader {
                     let nodes: Vec<Node> = nodes
                         .into_iter()
                         .map(|node| {
-                            node.unwrap_or(Node {
-                                role: AccessibleRole::Generic,
-                                state: AccessibleState::default(),
-                                name: String::new(),
-                                value: String::new(),
-                                selection: None,
+                            node.unwrap_or_else(|| {
+                                Node::empty(AccessibleRole::Generic, AccessibleState::default())
                             })
                         })
                         .collect();
@@ -315,8 +351,7 @@ impl Reader {
                 };
                 if self.cursor != Some(at) {
                     self.cursor = Some(at);
-                    let text = self.describe(at);
-                    self.say(text, focus);
+                    self.say_reached(at, focus);
                 }
             }
             None if self.focused.is_some_and(|(surface, _)| surface == key) => {
@@ -446,8 +481,7 @@ impl Reader {
                 let at = *next?;
                 self.titled = None;
                 self.cursor = Some(at);
-                let text = self.describe(at);
-                self.say(text, Politeness::Assertive);
+                self.say_reached(at, Politeness::Assertive);
                 None
             }
             ReaderCommand::Activate => {

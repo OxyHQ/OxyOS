@@ -2485,12 +2485,16 @@ fn accessibility_json(reader: &crate::reader::Reader) -> String {
                     let parent = node
                         .parent
                         .map_or("null".to_string(), |index| index.to_string());
+                    let position = node
+                        .position
+                        .map_or("null".to_string(), |(at, count)| format!("[{at},{count}]"));
                     let (x, y, width, height) = node.rect;
                     format!(
-                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"state\":[{}],\"actions\":[{}],\"custom\":[{}],\"selection\":{selection},\"parent\":{parent},\"rect\":[{x},{y},{width},{height}]}}",
+                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"hint\":{},\"position\":{position},\"state\":[{}],\"actions\":[{}],\"custom\":[{}],\"selection\":{selection},\"parent\":{parent},\"rect\":[{x},{y},{width},{height}]}}",
                         node.role,
                         json_string(&node.name),
                         json_string(&node.value),
+                        json_string(&node.hint),
                         state.join(","),
                         actions.join(","),
                         custom.join(",")

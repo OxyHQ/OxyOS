@@ -157,6 +157,31 @@ pub fn describe(
     parts.join(", ")
 }
 
+/// An item's place in its collection as said, after the rest of what is said of it, as TalkBack and
+/// VoiceOver say a list's row: "3 of 21" ("3 de 21").
+pub fn describe_position(language: Language, position: u32, count: u32) -> String {
+    format!("{position} {} {count}", language.pick("of", "de"))
+}
+
+/// What the reader says of an element that may be an item of a collection: [`describe`], then its
+/// place in it ("notas.txt, seleccionado, 3 de 21"). Empty for an element with nothing to say.
+pub fn describe_item(
+    language: Language,
+    role: AccessibleRole,
+    state: AccessibleState,
+    name: &str,
+    value: &str,
+    position: Option<(u32, u32)>,
+) -> String {
+    let said = describe(language, role, state, name, value);
+    match position {
+        Some((position, count)) if !said.is_empty() => {
+            format!("{said}, {}", describe_position(language, position, count))
+        }
+        _ => said,
+    }
+}
+
 /// What the reader says when the focused element's state changes in place, as VoiceOver says a
 /// switch turned on ("activado") or a box checked: the states that tell its checked and selected
 /// state as they are now, if either changed. Expanded, busy and dimmed say nothing as they change.

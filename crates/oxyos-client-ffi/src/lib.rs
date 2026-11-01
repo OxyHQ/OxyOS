@@ -501,6 +501,17 @@ pub struct OxyOSAccessibleNode {
     pub selection_end: u32,
 }
 
+/// What a node says beyond its name and value (protocol version 13), beside the node of the same
+/// index, as `oxyos_client_publish_accessibility_detailed` takes it: its hint (NULL or empty for
+/// none) and its place among its collection's items, 1-based, of `count` (0 for none).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSAccessibleDetail {
+    pub hint: *const c_char,
+    pub position: u32,
+    pub count: u32,
+}
+
 /// One of a notification's actions, as `oxyos_client_post_notification` takes it (ADR 0026).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -906,6 +917,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibleNode { .. }
         | Event::AccessibleText { .. }
         | Event::AccessibleSelection { .. }
+        | Event::AccessiblePosition { .. }
         | Event::AccessibilityAnnouncement { .. }
         | Event::AccessibilityCommitted { .. }
         | Event::AccessibilityRemoved { .. }
@@ -2934,6 +2946,27 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
     nodes: *const OxyOSAccessibleNode,
     count: usize,
 ) -> c_int {
+    // SAFETY: forwarded caller contract, with no details.
+    unsafe {
+        oxyos_client_publish_accessibility_detailed(client, surface, nodes, std::ptr::null(), count)
+    }
+}
+
+/// Publishes a surface's accessibility snapshot with each node's details (protocol version 13):
+/// `details[i]` is node `i`'s, or NULL for none. 0 on success.
+///
+/// # Safety
+/// As `oxyos_client_publish_accessibility`; `details` is NULL or points to `count` details, whose
+/// `hint` is NULL or a NUL-terminated string.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_publish_accessibility_detailed(
+    client: *mut OxyOSClient,
+    surface: u32,
+    nodes: *const OxyOSAccessibleNode,
+    details: *const OxyOSAccessibleDetail,
+    count: usize,
+) -> c_int {
     let nodes: &[OxyOSAccessibleNode] = if count == 0 {
         &[]
     } else if nodes.is_null() {
@@ -2941,6 +2974,12 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
     } else {
         // SAFETY: the caller passes `count` valid nodes.
         unsafe { std::slice::from_raw_parts(nodes, count) }
+    };
+    let details: &[OxyOSAccessibleDetail] = if count == 0 || details.is_null() {
+        &[]
+    } else {
+        // SAFETY: the caller passes NULL or `count` valid details.
+        unsafe { std::slice::from_raw_parts(details, count) }
     };
     let text = |pointer: *const c_char| -> Option<&str> {
         if pointer.is_null() {
@@ -2951,15 +2990,26 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
         }
     };
     let mut accessible = Vec::with_capacity(nodes.len());
-    for node in nodes {
-        let (Some(role), Some(state), Some(actions), Some(name), Some(value), Some(custom)) = (
+    for (index, node) in nodes.iter().enumerate() {
+        let detail = details.get(index);
+        let (
+            Some(role),
+            Some(state),
+            Some(actions),
+            Some(name),
+            Some(value),
+            Some(custom),
+            Some(hint),
+        ) = (
             AccessibleRole::from_raw(node.role),
             AccessibleState::new(node.state),
             AccessibleActions::new(node.actions),
             text(node.name),
             text(node.value),
             text(node.custom_actions),
-        ) else {
+            text(detail.map_or(std::ptr::null(), |detail| detail.hint)),
+        )
+        else {
             return fail("invalid accessible node");
         };
         accessible.push(Accessible {
@@ -2973,6 +3023,10 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
             custom,
             selection: (node.has_selection != 0)
                 .then_some((node.selection_start, node.selection_end)),
+            hint,
+            position: detail
+                .filter(|detail| detail.count > 0)
+                .map(|detail| (detail.position, detail.count)),
         });
     }
     // SAFETY: forwarded caller contract.
