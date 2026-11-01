@@ -49,6 +49,15 @@ class HostModule : public TurboModule {
     });
   }
 
+  // Constants read when JavaScript asks for them, for those that change while the module lives
+  // (the runtime keeps one module per name, turbo-module-cache.h): as Android's modules answer
+  // getConstants with what holds at the call.
+  HostModule& constants(std::function<folly::dynamic()> value) {
+    return method("getConstants", [value = std::move(value)](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return jsi::valueFromDynamic(rt, value());
+    });
+  }
+
   // Listener bookkeeping for NativeEventEmitter: the host emits its events whether or not anything
   // listens, so there is nothing to count.
   HostModule& listeners() {

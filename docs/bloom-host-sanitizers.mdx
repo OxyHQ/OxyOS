@@ -31,41 +31,28 @@ either in a register at the fault names the bug's kind. The handler runs on a st
 so a stack overflow on the JavaScript thread is reported too.
 
 The frames are offsets into the runtime's objects. The host and `libreactnative.so` of a deploy
-run are its build directory's (`$W/<host dir>`); `libhermesvm.so` is `$W/hermes-build`'s,
-stripped of line tables. Its function names come from its symbol table:
+run are its build directory's (`$W/<host dir>`); `libhermesvm.so` is `$W/hermes-build`'s, built
+with its debug information as React Native's Android build builds it
+(`tools/rn-host-spike/build-hermes.sh`, run by `build.sh`); the runtime's copy is the same library
+stripped of it. Functions and lines come from the build's:
 
 ```sh
-addr2line -f -C -e $W/hermes-build/lib/libhermesvm.so 0x3180c9
-```
-
-Lines come from the same Hermes built again with `-g` (GCC emits the same code with or without
-it; the exported symbols' addresses confirm the match):
-
-```sh
-cmake -S $W/hermes -B $W/hermes-build-g -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_FLAGS=-g -DCMAKE_C_FLAGS=-g -DICU_ROOT=$W/icu/usr \
-  -DICU_INCLUDE_DIR=$W/icu/usr/include \
-  -DICU_UC_LIBRARY_RELEASE=$W/icu/usr/lib/x86_64-linux-gnu/libicuuc.so \
-  -DICU_I18N_LIBRARY_RELEASE=$W/icu/usr/lib/x86_64-linux-gnu/libicui18n.so \
-  -DICU_DATA_LIBRARY_RELEASE=$W/icu/usr/lib/x86_64-linux-gnu/libicudata.so
-ninja -C $W/hermes-build-g hermesvm
-addr2line -f -C -i -e $W/hermes-build-g/lib/libhermesvm.so 0x3180c9
+addr2line -f -C -i -e $W/hermes-build/lib/libhermesvm.so 0x3180c9
 ```
 
 ## Sanitizers
 
 `OXYOS_SANITIZE=address`, `thread` or `undefined` instruments everything the host's CMake builds:
 the host, React Native, folly, glog, the worklets, Reanimated, the SVG and gesture handler cores.
-Hermes is built apart, with its own option, and with the same compiler as the host (Clang 19 from
-the toolchain) for AddressSanitizer and ThreadSanitizer, whose runtime the two must share. The
-sanitizer runtimes and `llvm-symbolizer` are Debian's `libclang-rt-19-dev` and `llvm-19`,
-unpacked into `$W/clang` (`apt-get download`, `dpkg-deb -x`).
+Hermes is built apart, by `build-hermes.sh` into a build directory of its own with its own
+option, and with the same compiler as the host (Clang 19 from the toolchain), whose sanitizer
+runtime the two must share. The sanitizer runtimes and `llvm-symbolizer` are Debian's
+`libclang-rt-19-dev` and `llvm-19`, unpacked into `$W/clang` (`apt-get download`, `dpkg-deb -x`).
 
 ```sh
 . ~/oxyos-build/stab/env.sh; export PATH=$W/tools/bin:$PATH
-CC=$W/clang/usr/bin/clang-19 CXX=$W/clang/usr/bin/clang++-19 cmake -S $W/hermes -B $W/hermes-build-tsan \
-  -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-g -DHERMES_ENABLE_THREAD_SANITIZER=ON <ICU as above>
-ninja -C $W/hermes-build-tsan hermesvm
+tools/rn-host-spike/build-hermes.sh ~/Oxy/Bloom/node_modules/react-native $W hermes-build-tsan \
+  -DHERMES_ENABLE_THREAD_SANITIZER=ON
 args=$(sed "s|^OXYOS_CLIENT_LIB=.*|OXYOS_CLIENT_LIB=$PWD/target/release/liboxyos_client_ffi.a|; \
   s|^HERMES_BUILD=.*|HERMES_BUILD=$W/hermes-build-tsan|; s|^|-D|" ~/oxyos-build/stab/cmake-vars.txt | tr '\n' ' ')
 CC=$W/clang/usr/bin/clang-19 CXX=$W/clang/usr/bin/clang++-19 cmake -S tools/rn-host-spike -B $W/host-tsan \
@@ -76,9 +63,13 @@ cp -a WORK/runtimes/1/framework WORK/runtimes/1/runtime.json RUNTIMES/1/   # the
 ```
 
 For AddressSanitizer, `-DHERMES_ENABLE_ADDRESS_SANITIZER=ON` and `-DOXYOS_SANITIZE=address`; for
-UndefinedBehaviorSanitizer, a GCC-built Hermes with `-fsanitize=undefined -fno-sanitize=vptr` in
-its flags is a drop-in `libhermesvm.so` for the ordinary host (`libubsan` is shared). The
-scenarios then run on `RUNTIMES` with the sanitizer's options in the environment, which the
+UndefinedBehaviorSanitizer, `HERMES_EXTRA_FLAGS="-fsanitize=undefined -fno-sanitize=vptr"` and
+`-DOXYOS_SANITIZE=undefined`. A host built with AddressSanitizer also builds
+`oxyos-turbo-module-cache-test`, which keeps a C++ TurboModule's method past a collection of its
+module's object (`$W/host-asan/oxyos-turbo-module-cache-test`; `--uncached` shows the use after
+free the runtime's module cache prevents, `turbo-module-cache.h`).
+
+The scenarios then run on `RUNTIMES` with the sanitizer's options in the environment, which the
 compositor passes to every host:
 
 ```sh
@@ -100,7 +91,7 @@ TSAN_OPTIONS="report_signal_unsafe=0 log_path=LOGS/tsan" \
 
 `OXYOS_HOST_GC_SANITIZE=RATE` makes each allocation collect the young generation and move every
 object in it, with probability `RATE` (0 to 1), in a Hermes built with
-`-DHERMESVM_SANITIZE_HANDLES=ON` (and `-DCMAKE_BUILD_TYPE=Debug` for its assertions and heap
+`build-hermes.sh` and `-DHERMESVM_SANITIZE_HANDLES=ON` (and `-DCMAKE_BUILD_TYPE=Debug` for its assertions and heap
 checks): a value held across a collection without a root, or freed while reachable, then fails at
 the first use instead of rarely. Any other Hermes ignores it. A host at 0.01 takes about ten
 seconds for its first frame, beyond the compositor's launch deadline: rates of 0.001 to 0.005

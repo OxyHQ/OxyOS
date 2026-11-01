@@ -12,6 +12,7 @@
 #include "masked-view.h"
 #include "gesture-handler.h"
 #include "host-modules.h"
+#include "turbo-module-cache.h"
 #include "key-chords.h"
 #include "images.h"
 #include "input.h"
@@ -577,17 +578,20 @@ int main(int argc, char** argv) {
     if (oxyos::Report::get().enabled()) oxyos::Report::get().watchReactCommits(rt);
     // In place of React Native's, which runs callbacks as a zero-delay timer.
     animationFrames.install(rt);
+    // Each module made once for the runtime and kept with it, as React Native's platforms keep
+    // them (turbo-module-cache.h).
     TurboModuleBinding::install(
-        rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
-          if (name == "WorkletsModule") return worklets.module(runtime, invoker);
-          if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
-          if (name == "NativeAnimatedModule") return animated.module(invoker);
-          if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
-          if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
-          if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
-          std::cerr << "[host] TurboModule unavailable: " << name << "\n";
-          return nullptr;
-        });
+        rt, oxyos::cachedTurboModules(
+                [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
+                  if (name == "WorkletsModule") return worklets.module(runtime, invoker);
+                  if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
+                  if (name == "NativeAnimatedModule") return animated.module(invoker);
+                  if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
+                  if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
+                  if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
+                  std::cerr << "[host] TurboModule unavailable: " << name << "\n";
+                  return nullptr;
+                }));
   });
 
   auto context = std::make_shared<ContextContainer>();

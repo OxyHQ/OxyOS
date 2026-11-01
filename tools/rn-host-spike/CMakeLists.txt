@@ -250,6 +250,14 @@ target_include_directories(oxyos-bloom-host PRIVATE ${ICU_SYSROOT}/include)
 target_link_libraries(oxyos-bloom-host ${ICU_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libicuuc.so)
 target_compile_options(oxyos-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
+# The runtime's TurboModules, one per name for its life (turbo-module-cache.h), tested on Hermes
+# (not installed): a method kept after its module's object is collected still works. Built with the
+# host, so a host built with OXYOS_SANITIZE=address builds it with AddressSanitizer.
+add_executable(oxyos-turbo-module-cache-test turbo-module-cache-test.cpp)
+target_link_libraries(oxyos-turbo-module-cache-test reactnative)
+target_compile_options(oxyos-turbo-module-cache-test PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1
+  -DHERMES_V1_ENABLED=1)
+
 # ---- Skia -------------------------------------------------------------------------------------
 # build.sh builds it from SKIA_DIR (its checkout, the include root) into SKIA_BUILD: static
 # libraries, Ganesh on Vulkan, against the system's FreeType, HarfBuzz and ICU above, so the process
@@ -301,4 +309,12 @@ install(TARGETS oxyos-bloom-host RUNTIME DESTINATION .)
 install(TARGETS reactnative jsi LIBRARY DESTINATION lib)
 install(FILES ${HERMES_BUILD}/lib/libhermesvm.so DESTINATION lib)
 install(PROGRAMS ${HERMES_BUILD}/bin/hermesc DESTINATION .)
+# Hermes is built with its debug information (build-hermes.sh), which addr2line reads from the
+# build's copy; the runtime's leave it out, as the Android Gradle plugin strips an application's
+# libraries. A sanitized runtime keeps it for its reports' lines.
+if(NOT OXYOS_SANITIZE)
+  install(CODE "execute_process(COMMAND ${CMAKE_STRIP} --strip-debug
+    \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/lib/libhermesvm.so \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/hermesc
+    COMMAND_ERROR_IS_FATAL ANY)")
+endif()
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/runtime.json DESTINATION .)

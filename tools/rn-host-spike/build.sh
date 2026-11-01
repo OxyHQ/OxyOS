@@ -33,16 +33,16 @@ case $(dpkg --print-architecture) in
 esac
 
 RN_VERSION=$(node -p "require('$RN_DIR/package.json').version")
-HERMES_TAG=$(cat "$RN_DIR/sdks/.hermesv1version")
-echo "react-native $RN_VERSION, hermes $HERMES_TAG"
+echo "react-native $RN_VERSION"
 
 cd "$WORK"
 [ -x tools/bin/cmake ] || { python3 -m venv tools && tools/bin/pip install -q cmake ninja; }
 PATH="$WORK/tools/bin:$PATH"
 
-if [ ! -x clang/usr/bin/clang++-19 ]; then
+# LLD links Hermes as the Android NDK links it (build-hermes.sh).
+if [ ! -x clang/usr/bin/clang++-19 ] || [ ! -x clang/usr/lib/llvm-19/bin/ld.lld ]; then
   mkdir -p debs && (cd debs && apt-get download clang-19 libclang-cpp19 libllvm19 \
-    libclang-common-19-dev libclang1-19 llvm-19-linker-tools libz3-4)
+    libclang-common-19-dev libclang1-19 llvm-19-linker-tools libz3-4 lld-19)
   for deb in debs/*.deb; do dpkg -x "$deb" clang; done
 fi
 CC="$WORK/clang/usr/bin/clang-19"
@@ -158,14 +158,9 @@ fi
 # shellcheck disable=SC2086 # the list is words
 ninja -C skia-build -j "$JOBS" $skia_libs
 
-# Hermes V1 at the revision React Native pins, with ICU for case mapping and normalisation.
-# Unicode-lite (Android's build) leaves String.prototype.toLocaleLowerCase and normalize() as
-# identity functions without the platform's Java ICU behind them; OxyOS has no Java, so Hermes
-# links the system ICU instead. Intl stays off: Hermes' Linux Intl is a stub.
-[ -d hermes ] || git clone -q --depth 1 --branch "$HERMES_TAG" https://github.com/facebook/hermes.git hermes
-cmake -S hermes -B hermes-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DHERMES_ENABLE_INTL=OFF \
-  -DHERMES_UNICODE_LITE=OFF -DICU_ROOT="$WORK/icu/usr" -DHERMES_ENABLE_TEST_SUITE=OFF >/dev/null
-ninja -C hermes-build -j "$JOBS" lib/libhermesvm.so bin/hermes bin/hermesc
+# Hermes V1, the release React Native ships, built as it ships it, with the system ICU for case
+# mapping and normalisation (build-hermes.sh).
+JOBS="$JOBS" "$HERE/build-hermes.sh" "$RN_DIR" "$WORK" hermes-build
 
 # React Native's pinned third-party sources (versions from its gradle/libs.versions.toml).
 versions="$RN_DIR/gradle/libs.versions.toml"
@@ -232,7 +227,10 @@ CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=R
   -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXYOS_CLIENT_LIB="$OXYOS_CLIENT_LIB" \
   -DSVG_DIR="$SVG_DIR" -DSVG_CODEGEN_DIR="$WORK/codegen-svg/out/jni" -DGESTURE_HANDLER_DIR="$GESTURE_HANDLER_DIR" \
   -DTEXTINPUT_DIR="$WORK/textinput" -DSKIA_DIR="$WORK/skia" -DSKIA_BUILD="$WORK/skia-build" >/dev/null
-ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host oxyos-skia-check
+ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host oxyos-skia-check oxyos-turbo-module-cache-test
+
+# The runtime's TurboModules: one per name, a method kept past its module's object still working.
+host-build/oxyos-turbo-module-cache-test
 
 # Skia on its own: a raster surface and, where a Vulkan device is present, Ganesh on it, the two
 # compared (skia-check.cpp).
