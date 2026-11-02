@@ -242,7 +242,8 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
         return Rect{{at.origin.x - kFocusRingReach, at.origin.y - kFocusRingReach},
                     {at.size.width + 2 * kFocusRingReach, at.size.height + 2 * kFocusRingReach}};
       };
-      if (edit_.focusRing != edit.focusRing) {
+      // A ring that moved, or that changed colour with the accent.
+      if (edit_.focusRing != edit.focusRing || edit_.focusRingColor != edit.focusRingColor) {
         for (Tag tag : {edit_.focusRing, edit.focusRing}) {
           if (auto it = now.find(tag); it != now.end()) damage.push_back(ringed(it->second.at));
           if (auto it = seen_.find(tag); it != seen_.end()) damage.push_back(ringed(it->second.at));

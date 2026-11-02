@@ -354,6 +354,10 @@ struct RuntimeFacts {
   int api = 0;
   std::string framework;
   std::string frameworkURL;
+  // The keyboard's focus ring's colour for each of Bloom's accents, light and dark (0xRRGGBB): its
+  // `ring` token, as the framework's build took it from Bloom (`framework/focus-rings.json`). Empty
+  // for a framework built before it had them.
+  std::map<std::string, std::pair<uint32_t, uint32_t>> focusRings;
 };
 
 RuntimeFacts runtimeFacts() {
@@ -375,6 +379,24 @@ RuntimeFacts runtimeFacts() {
   facts.frameworkURL = "file://" + directory + "/framework/framework.js";
   if (!std::ifstream(facts.framework).good()) {
     throw std::runtime_error("runtime " + std::to_string(facts.abi) + " has no framework: " + facts.framework);
+  }
+  if (std::ifstream rings(directory + "/framework/focus-rings.json"); rings) {
+    std::stringstream json;
+    json << rings.rdbuf();
+    auto hex = [](const folly::dynamic& value) -> std::optional<uint32_t> {
+      if (!value.isString() || value.asString().size() != 7 || value.asString()[0] != '#') return std::nullopt;
+      return static_cast<uint32_t>(std::stoul(value.asString().substr(1), nullptr, 16));
+    };
+    try {
+      auto parsed = folly::parseJson(json.str());
+      for (const auto& [name, schemes] : parsed.items()) {
+        auto light = schemes.isObject() ? hex(schemes.getDefault("light")) : std::nullopt;
+        auto dark = schemes.isObject() ? hex(schemes.getDefault("dark")) : std::nullopt;
+        if (name.isString() && light && dark) facts.focusRings[name.asString()] = {*light, *dark};
+      }
+    } catch (const std::exception& error) {
+      std::cerr << "[host] the framework's focus rings: " << error.what() << "\n";
+    }
   }
   return facts;
 }
@@ -1334,10 +1356,19 @@ int main(int argc, char** argv) {
     // The modifiers held on the keyboard, for its navigation keys.
     bool heldShift = false, heldCtrl = false, heldAlt = false, heldMeta = false;
     // The view the keyboard navigates in a surface: the window's (its topmost modal while one is
-    // shown) or a shell region's, either narrowed to a view marked modal; none in a popup, whose
-    // keys are its own (Bloom's popup navigation).
+    // shown) or a shell region's, either narrowed to a view marked modal; a popup's that holds a
+    // dialog (Bloom's popover: its controls, as a Mac's popover's key view loop); none in any other
+    // popup, a menu's, whose keys are its own (Bloom's popup navigation).
+    auto dialogPopup = [&](uint32_t surface) -> facebook::react::Tag {
+      auto content = popups.content(surface);
+      if (!content) return -1;
+      auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(content->view).view.props);
+      bool dialog = props && (props->accessibilityRole == "dialog" || props->role == Role::Dialog);
+      return dialog ? content->view : -1;
+    };
     auto navigationScope = [&](uint32_t surface) -> facebook::react::Tag {
       if (surface == 0) return -1;
+      if (auto dialog = dialogPopup(surface); dialog >= 0) return oxyos::navigationRoot(tree, dialog);
       if (shellMode) {
         auto content = shellSurfaces.content(surface);
         return content ? oxyos::navigationRoot(tree, content->view) : -1;
@@ -1433,6 +1464,11 @@ int main(int argc, char** argv) {
     facebook::react::Tag keyboardAfterMount = -1;
     facebook::react::Tag lastScope = -1;
     uint32_t lastScopeSurface = 0;
+    // A dialog popup the keyboard went into from a control with its ring (a popover opened by Space
+    // on its button), and that control, which has the keyboard back once the popup has gone.
+    struct PopupReturn {
+      facebook::react::Tag popup = -1, control = -1;
+    } popupReturn;
     // Each shell region's focus request last carried out, while it holds the keyboard.
     std::map<facebook::react::Tag, std::optional<int>> focusRequestsApplied;
     auto followScope = [&] {
@@ -1445,6 +1481,27 @@ int main(int argc, char** argv) {
       bool sameSurface = keyboardSurface == lastScopeSurface;
       lastScope = scope;
       lastScopeSurface = keyboardSurface;
+      if (!sameSurface && keyboardSurface != 0 && dialogPopup(keyboardSurface) >= 0) {
+        // A popover took the keyboard: from a control with its ring, the keyboard goes to its first
+        // control, as a Mac's popover takes the key focus, and comes back when it goes.
+        keyboardFocus.prune();
+        auto from = keyboardFocus.focused();
+        if (keyboardFocus.ringShown() && from >= 0 && !insideOf(from, scope)) {
+          popupReturn = {dialogPopup(keyboardSurface), from};
+          auto first = oxyos::focusables(tree, scope);
+          if (!first.empty()) moveKeyboardFocus(first.front(), true, keyboardSurface);
+        }
+        return;
+      }
+      if (!sameSurface && popupReturn.popup >= 0 && !tree.views().count(popupReturn.popup)) {
+        // The popover went: the keyboard back on the control it opened from.
+        auto back = std::exchange(popupReturn, PopupReturn{}).control;
+        keyboardFocus.prune();
+        if (back >= 0 && oxyos::focusable(tree, back) && scope >= 0 && insideOf(back, scope)) {
+          moveKeyboardFocus(back, true, keyboardSurface);
+          return;
+        }
+      }
       if (!sameSurface || scope < 0) {
         keyboardFocus.prune();
         // The keyboard went to another surface of this client's: focus left behind in a surface
@@ -1459,27 +1516,42 @@ int main(int argc, char** argv) {
       bool ring = keyboardFocus.ringShown();
       if (was >= 0 && tree.views().count(was) && insideOf(scope, was) && scope != was) {
         // A modal came over what had the keyboard.
-        keyboardFocus.remember(scope, keyboardFocus.focused());
+        keyboardFocus.remember(scope, keyboardFocus.focused(), ring);
         if (ring) {
           auto first = oxyos::focusables(tree, scope);
           moveKeyboardFocus(first.empty() ? -1 : first.front(), true, keyboardSurface);
         }
       } else if (was >= 0) {
         // The modal went: the keyboard back where it was before it.
-        auto back = keyboardFocus.recall(was);
+        auto [back, hadRing] = keyboardFocus.recall(was);
         keyboardFocus.prune();
         if (back >= 0 && oxyos::focusable(tree, back) && insideOf(back, scope)) {
-          moveKeyboardFocus(back, ring, keyboardSurface);
+          moveKeyboardFocus(back, hadRing, keyboardSurface);
         }
       }
       keyboardFocus.prune();
     };
-    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement };
+    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement, ContextMenu };
+    // The view whose context menu the keyboard opens from the focused control: the control, or its
+    // nearest ancestor within `scope` that declares React Native's `longpress` accessibility action
+    // (Bloom's context menu trigger, TalkBack's long press); -1 for none.
+    auto contextMenuOf = [&](facebook::react::Tag focused, facebook::react::Tag scope) -> facebook::react::Tag {
+      auto path = oxyos::ancestry(tree, focused);
+      for (auto at = path.rbegin(); at != path.rend(); ++at) {
+        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
+        if (props && std::any_of(props->accessibilityActions.begin(), props->accessibilityActions.end(),
+                                 [](const auto& declared) { return declared.name == "longpress"; })) {
+          return *at;
+        }
+        if (*at == scope) break;
+      }
+      return -1;
+    };
     // What a key press is to the keyboard's navigation, if anything.
     auto navigationKey = [&](const OxyOSEvent& event) -> std::optional<NavigationKey> {
       if (event.kind != OXYOS_EVENT_KEY || !event.flag || heldCtrl || heldAlt || heldMeta) return std::nullopt;
       constexpr uint32_t kTab = 15, kSpace = 57, kReturn = 28, kNumpadEnter = 96, kUp = 103, kLeft = 105,
-                         kRight = 106, kDown = 108;
+                         kRight = 106, kDown = 108, kF10 = 68, kMenu = 127;
       auto scope = navigationScope(event.surface);
       if (scope < 0) return std::nullopt;
       if (event.code == kTab) return heldShift ? NavigationKey::Previous : NavigationKey::Next;
@@ -1490,7 +1562,19 @@ int main(int argc, char** argv) {
         return std::nullopt;
       }
       if (!heldShift && (event.code == kSpace || event.code == kReturn || event.code == kNumpadEnter)) {
-        return NavigationKey::Activate;
+        // Only a control that answers a click (Pressable's, a button's) takes them; any other (a
+        // list that is one stop, its Space Quick Look and its Return a rename) has them as its
+        // own keys, as a Mac's first responder passes on the keys it does not handle.
+        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(focused).view.props);
+        if (props && props->events[facebook::react::ViewEvents::Offset::Click]) return NavigationKey::Activate;
+        return std::nullopt;
+      }
+      // The Menu key and Shift+F10 open the focused control's context menu, as a PC keyboard's do
+      // (a Mac's Control-Return with Full Keyboard Access): one the application declares, else the
+      // key is the application's.
+      if (((event.code == kMenu && !heldShift) || (event.code == kF10 && heldShift)) &&
+          contextMenuOf(focused, scope) >= 0) {
+        return NavigationKey::ContextMenu;
       }
       if (event.code == kUp || event.code == kDown || event.code == kLeft || event.code == kRight) {
         auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(focused).view.props);
@@ -1519,10 +1603,16 @@ int main(int argc, char** argv) {
         oxyos::Report::get().deliver("click", event.surface, shadow, folly::dynamic::object("key", event.code));
         return;
       }
-      std::string action = key == NavigationKey::Increment ? "increment" : "decrement";
-      if (auto emitter = std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(shadow.eventEmitter)) {
+      std::string action = key == NavigationKey::Increment   ? "increment"
+                           : key == NavigationKey::Decrement ? "decrement"
+                                                             : "longpress";
+      // The context menu's view: the focused control's or an ancestor's (`contextMenuOf`).
+      const auto& target = key == NavigationKey::ContextMenu
+                               ? tree.views().at(contextMenuOf(keyboardFocus.focused(), navigationScope(event.surface))).view
+                               : shadow;
+      if (auto emitter = std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(target.eventEmitter)) {
         emitter->onAccessibilityAction(action);
-        oxyos::Report::get().deliver("accessibilityAction", event.surface, shadow,
+        oxyos::Report::get().deliver("accessibilityAction", event.surface, target,
                                      folly::dynamic::object("actionName", action));
       }
     };
@@ -2190,7 +2280,21 @@ int main(int argc, char** argv) {
                         (popups.content(keyboardSurface) ||
                          insideOf(keyboardFocus.focused(), navigationScope(keyboardSurface)));
         shownEdit.focusRing = ringHere ? keyboardFocus.focused() : -1;
+        // In the session's accent, light or dark, as a Mac draws its ring in the accent colour.
+        if (window) {
+          auto ring = runtimeOf.focusRings.find(window->drawing().accent);
+          if (ring != runtimeOf.focusRings.end()) {
+            shownEdit.focusRingColor = window->drawing().dark ? ring->second.second : ring->second.first;
+          }
+        }
         bool edited = shownEdit != drawn;
+        // The ring's colour as it is drawn, for the scenarios (regress.py's keyboard_focus "color").
+        if (shownEdit.focusRing >= 0 &&
+            (drawn.focusRing < 0 || drawn.focusRingColor != shownEdit.focusRingColor)) {
+          char color[8];
+          std::snprintf(color, sizeof color, "#%06x", shownEdit.focusRingColor & 0xFFFFFF);
+          oxyos::Report::get().input("keyboard.ring", keyboardSurface, folly::dynamic::object("color", color));
+        }
         if (edited) {
           drawn = std::move(shownEdit);
           dirty = true;

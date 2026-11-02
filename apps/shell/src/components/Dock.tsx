@@ -70,6 +70,10 @@ const DOCK_COLORS = {
   },
 } as const;
 
+/** What the screen reader says of an icon after its name and state, as VoiceOver gives a Dock item
+    its help: the key that opens its menu with the keyboard on the dock (Super+F3, then ↑). */
+const MENU_HINT = "Para abrir su menú, pulsa Flecha arriba";
+
 /** A menu open on an icon (an application's id, or the Trash): where it opens (the top of the
     icon's middle, in the window), and whether Option was held as it opened. */
 type OpenMenu = { id: string; anchor: { x: number; y: number }; option: boolean };
@@ -160,6 +164,7 @@ const DockIcon = memo(function DockIcon({
   id: string;
   name: string;
   testID: string;
+  /** Its name, as the screen reader says it: the application's, as VoiceOver names a Dock item. */
   label: string;
   /** This icon's menu, while it is the one open. */
   menu: OpenMenu | null;
@@ -231,6 +236,7 @@ const DockIcon = memo(function DockIcon({
         <Button
           testID={testID}
           accessibilityLabel={label}
+          accessibilityHint={MENU_HINT}
           appearance="plain"
           onPress={press}
           onPressIn={pressIn}
@@ -544,7 +550,7 @@ export const Dock = memo(function Dock({
             id={app.id}
             name={app.name}
             testID={`dock-${app.id}`}
-            label={`Abrir ${app.name}`}
+            label={app.name}
             menu={menu?.id === app.id ? menu : null}
             setMenu={setMenu}
             activate={activateApp}
@@ -565,7 +571,7 @@ export const Dock = memo(function Dock({
                   id={TRASH}
                   name="Papelera"
                   testID="dock-trash"
-                  label="Abrir Papelera"
+                  label="Papelera"
                   menu={menu?.id === TRASH ? menu : null}
                   setMenu={setMenu}
                   activate={openTrash}
@@ -579,7 +585,7 @@ export const Dock = memo(function Dock({
                 id={TRASH}
                 name="Papelera"
                 testID="dock-trash"
-                label="Abrir Papelera"
+                label="Papelera"
                 menu={menu?.id === TRASH ? menu : null}
                 setMenu={setMenu}
                 activate={openTrash}

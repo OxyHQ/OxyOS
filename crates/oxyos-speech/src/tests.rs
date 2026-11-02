@@ -263,3 +263,38 @@ fn a_focused_element_changed_in_place_says_its_new_state() {
         None
     );
 }
+
+#[test]
+fn an_item_of_a_collection_says_its_place_last() {
+    let row = |language, position| {
+        describe_item(
+            language,
+            AccessibleRole::ListItem,
+            state(AccessibleState::SELECTED),
+            "notas.txt",
+            "",
+            position,
+        )
+    };
+    assert_eq!(
+        row(Language::Spanish, Some((3, 21))),
+        "notas.txt, seleccionado, 3 de 21"
+    );
+    assert_eq!(
+        row(Language::English, Some((3, 21))),
+        "notas.txt, selected, 3 of 21"
+    );
+    assert_eq!(row(Language::Spanish, None), "notas.txt, seleccionado");
+    // Nothing to say is still nothing, wherever it is.
+    assert_eq!(
+        describe_item(
+            Language::Spanish,
+            AccessibleRole::Group,
+            AccessibleState::default(),
+            "",
+            "",
+            Some((1, 2))
+        ),
+        ""
+    );
+}

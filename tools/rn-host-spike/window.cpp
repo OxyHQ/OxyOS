@@ -589,8 +589,9 @@ void Window::reposition(uint32_t id, const OxyOSPositioner& positioner) {
   if (oxyos_client_reposition(client_, id, &positioner) != 0) failed("cannot reposition a popup");
 }
 
-void Window::publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes) {
-  if (oxyos_client_publish_accessibility(client_, id, nodes.data(), nodes.size()) != 0) {
+void Window::publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes,
+                                  const std::vector<OxyOSAccessibleDetail>& details) {
+  if (oxyos_client_publish_accessibility_detailed(client_, id, nodes.data(), details.data(), nodes.size()) != 0) {
     failed("cannot publish accessibility");
   }
 }

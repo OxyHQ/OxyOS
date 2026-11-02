@@ -24,6 +24,10 @@ pub struct Node {
     /// Its custom actions' labels.
     pub custom: Vec<String>,
     pub selection: Option<(u32, u32)>,
+    /// What activating it does, when its name does not say (version 13).
+    pub hint: String,
+    /// Its place among its collection's items, 1-based, and their count (version 13).
+    pub position: Option<(u32, u32)>,
     /// Its parent's index in the same tree, as the application nested it; None at the top.
     pub parent: Option<u32>,
     /// Where it is, in the global space's logical pixels (ADR 0003): x, y, width, height.
@@ -132,6 +136,8 @@ impl Reader {
                             value: String::new(),
                             custom: Vec::new(),
                             selection: None,
+                            hint: String::new(),
+                            position: None,
                             parent: (parent != oxyos_protocol::NO_ACCESSIBLE_PARENT)
                                 .then_some(parent),
                             rect: (rect.x, rect.y, rect.width, rect.height),
@@ -151,6 +157,17 @@ impl Reader {
                     node.selection = Some((start, end));
                 }
             }
+            Event::AccessiblePosition {
+                client,
+                surface,
+                index,
+                position,
+                count,
+            } => {
+                if let Some(Some((node, _))) = self.slot(key(client, surface), index) {
+                    node.position = Some((position, count));
+                }
+            }
             Event::AccessibleText {
                 client,
                 surface,
@@ -163,6 +180,7 @@ impl Reader {
                         AccessibleField::Name => node.name.push_str(text.as_str()),
                         AccessibleField::Value => node.value.push_str(text.as_str()),
                         AccessibleField::Actions => labels.push_str(text.as_str()),
+                        AccessibleField::Hint => node.hint.push_str(text.as_str()),
                     }
                 }
             }
