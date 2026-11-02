@@ -135,7 +135,7 @@
       }
     },
     {
-      "name": "→ highlights the first icon, Stash, on a light plate, said to the screen reader as the selected button; the key is the launcher's, the search receives nothing",
+      "name": "→ highlights the first icon, Stash, on a light plate, said to the screen reader by its name as the selected button, the screen reader's focus; the key is the launcher's, the search receives nothing",
       "do": [
         "key",
         [
@@ -147,9 +147,10 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Stash desde aplicaciones",
+              "name": "Stash",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]
@@ -180,9 +181,10 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Atlas desde aplicaciones",
+              "name": "Atlas",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]

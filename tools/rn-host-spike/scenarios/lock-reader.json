@@ -1,0 +1,307 @@
+{
+ "about": "The lock screen with the screen reader on in Spanish (docs/adr/0010-lock-screen.mdx, docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the development compositor's fixture throttling as the session does. Ctrl+Super+Q locks, the password field said; each wrong password is said once, at once; the fifth makes the next attempt wait 30 s, said with it; the hint counts the wait down every second but is no live region: over the wait the screen reader says only, politely, ten seconds before its end and its end, each once; the right password unlocks. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "lock_password": "oxyos.correcta",
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Super+Q locks: the lock screen, its password field focused and said",
+   "do": [
+    "strokes",
+    [
+     [
+      29,
+      125,
+      16
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "a wrong password (1 in a row), with Enter: rejected, said once, at once",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Alert",
+       "name": "Contraseña incorrecta"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "a wrong password (2 in a row), with Enter: rejected, said once, at once",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Alert",
+       "name": "Contraseña incorrecta"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "a wrong password (3 in a row), with Enter: rejected, said once, at once",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Alert",
+       "name": "Contraseña incorrecta"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "a wrong password (4 in a row), with Enter: rejected, said once, at once",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Alert",
+       "name": "Contraseña incorrecta"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the fifth in a row: rejected, and the next attempt must wait 30 s: said once, with the wrong password",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta. Vuelve a intentarlo en 30 segundos",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo en 30 segundos",
+      "live": false
+     }
+    ],
+    "in_shell": {
+     "texts": [
+      "Vuelve a intentarlo en"
+     ]
+    }
+   }
+  },
+  {
+   "name": "the wait counts down under the field, each second; nothing of it is said for 14 s (no live region counting it)",
+   "do": [
+    "wait",
+    14000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": [],
+    "in_shell": {
+     "texts": [
+      "Vuelve a intentarlo en"
+     ]
+    }
+   }
+  },
+  {
+   "name": "10 s left: said once, politely",
+   "do": [
+    "wait",
+    9000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Vuelve a intentarlo en 10 segundos",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Vuelve a intentarlo en 10 segundos",
+      "live": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "the wait ends: that the person may try again is said once, politely",
+   "do": [
+    "wait",
+    8000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Ya puedes volver a intentarlo",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Ya puedes volver a intentarlo",
+      "live": false
+     }
+    ],
+    "in_shell": {
+     "absent": [
+      "Vuelve a intentarlo en"
+     ]
+    }
+   }
+  },
+  {
+   "name": "the right password unlocks",
+   "do": [
+    "keyboard",
+    "oxyos.correcta\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": false
+    },
+    "announcements": []
+   }
+  }
+ ]
+}

@@ -56,6 +56,7 @@ export default function LoginSession() {
     answer: shell.authentication ?? undefined,
     capsLock: !!state?.capsLock,
     online: () => reachable(state?.oxyApi ?? 'https://api.oxy.so'),
+    announce: (text, polite) => shell.announce(text, polite),
   };
   const { Surface, Masked } = oxyosShell;
   return (

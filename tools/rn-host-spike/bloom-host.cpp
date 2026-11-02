@@ -993,11 +993,14 @@ int main(int argc, char** argv) {
       auto focused = tree.views().find(editing.focused());
       if (focused != tree.views().end()) editing.command(focused->second.view, "blur", folly::dynamic::array());
     };
+    // What announces: the lock screen's surface while the shell shows one, as only it is heard
+    // while the session is locked (docs/adr/0010-lock-screen.mdx); else the window.
+    auto announcer = [&shellSurfaces] { return shellSurfaces.lockSurface().value_or(oxyos::Window::kToplevel); };
     // An announcement is what the application says now: it interrupts what is being said, as
     // an announcement event does TalkBack's queue.
-    services.announce = [&window](const std::string& text) {
-      window->announce(oxyos::Window::kToplevel, OXYOS_ASSERTIVE, text);
-      oxyos::Report::get().input("announce", oxyos::Window::kToplevel, folly::dynamic::object("text", text));
+    services.announce = [&window, announcer](const std::string& text) {
+      window->announce(announcer(), OXYOS_ASSERTIVE, text);
+      oxyos::Report::get().input("announce", announcer(), folly::dynamic::object("text", text));
     };
     // The application's own window (docs/adr/0016-windows.mdx): its controls and drag regions act
     // through it. A close asked by the application ends it as the shell's close request does.
@@ -1127,8 +1130,8 @@ int main(int argc, char** argv) {
             oxyos::Report::get().input("control.do_not_disturb", 0, folly::dynamic::object("enabled", enabled));
             window->setDoNotDisturb(++controlSerial, enabled);
           },
-          .announce = [&window](const std::string& text, bool polite) {
-            window->announce(oxyos::Window::kToplevel, polite ? OXYOS_POLITE : OXYOS_ASSERTIVE, text);
+          .announce = [&window, announcer](const std::string& text, bool polite) {
+            window->announce(announcer(), polite ? OXYOS_POLITE : OXYOS_ASSERTIVE, text);
           },
           // Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): the capture cites the
           // interface's serial, the opening of a saved one the press on its thumbnail.
@@ -2156,7 +2159,6 @@ int main(int argc, char** argv) {
           if (auto asked = shellSurfaces.focusRequest(); asked && keyboardSurface == asked->surface) {
             auto& applied = focusRequestsApplied[asked->region];
             if (!applied || *applied != asked->request) {
-              applied = asked->request;
               auto root = oxyos::navigationRoot(tree, asked->region);
               auto all = oxyos::focusables(tree, root);
               facebook::react::Tag target = -1;
@@ -2167,7 +2169,12 @@ int main(int argc, char** argv) {
                   break;
                 }
               }
-              if (target >= 0) moveKeyboardFocus(target, true, asked->surface);
+              // Applied once its target is there: a region whose controls come a frame after it
+              // has the keyboard (the overview's desktops, laid out once measured) is asked again.
+              if (target >= 0) {
+                applied = asked->request;
+                moveKeyboardFocus(target, true, asked->surface);
+              }
             }
           }
           for (auto it = focusRequestsApplied.begin(); it != focusRequestsApplied.end();) {

@@ -1,0 +1,377 @@
+{
+ "about": "The overview from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+F3 and → reach the dock's overview button, Space opens the overview on its first control; each window is one button named by its title, as Mission Control's window is one element (not a title and a card doing the same), its close button the next stop; the backdrop that closes it is no stop; Space on the window goes to it. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F3 puts the keyboard on the dock's first icon",
+   "do": [
+    "key",
+    [
+     125,
+     61
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-launcher",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Abrir aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the overview's button",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "dock-overview",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Ver escritorios, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens the overview, which takes the keyboard on its first control, the desktop (its backdrop is no stop); Allo's window is one button, named by its title",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Abrir Escritorio 1",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo"
+      },
+      {
+       "role": "Button",
+       "name": "Abrir Escritorio 1",
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Cerrar Allo"
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Ir a Allo"
+      },
+      {
+       "name": "Activar ventana Allo"
+      },
+      {
+       "name": "Ventana Allo"
+      },
+      {
+       "name": "Cerrar vista de escritorios"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "seleccionado",
+      "interrupting": true
+     },
+     {
+      "text": "Abrir Escritorio 1, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Allo's window, one button by its title, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "overview-window-1-focus",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Ir a Allo"
+      },
+      {
+       "name": "Activar ventana Allo"
+      },
+      {
+       "name": "Ventana Allo"
+      },
+      {
+       "name": "Cerrar vista de escritorios"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Allo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: its close button, the next stop: the window is not reached twice",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "close-window-1",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Cerrar Allo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the desktop's options",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Opciones de Escritorio 1",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Opciones de Escritorio 1, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Añadir escritorio",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Añadir escritorio",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Añadir escritorio, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab ×3 back to Allo's window",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Opciones de Escritorio 1",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Opciones de Escritorio 1, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "close-window-1",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Cerrar Allo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: Allo's window",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "overview-window-1-focus",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Allo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space goes to the window: the overview closes and Allo has the keyboard",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

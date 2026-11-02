@@ -193,11 +193,13 @@ export const Shell = memo(function Shell({
   const [dockKeys, setDockKeys] = useState<{ target: string; request: number } | null>(null);
   const [statusKeys, setStatusKeys] = useState<{ target: string; request: number } | null>(null);
   const [controlKeys, setControlKeys] = useState(0);
+  // The overview's, its first control once it opened from the keyboard (the dock's button).
+  const [overviewKeys, setOverviewKeys] = useState(0);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys };
   // The application whose windows the overview shows alone (the dock menu's Show All Windows, as
   // a Mac's App Exposé, docs/adr/0034-the-dock.mdx); none, every window.
   const [overviewApp, setOverviewApp] = useState<string | null>(null);
@@ -207,6 +209,9 @@ export const Shell = memo(function Shell({
   }, []);
   const toggleOverview = useCallback(() => {
     setOverviewApp(null);
+    // Opened from the dock with the keyboard, it takes the keyboard on its first control, as
+    // Mission Control opened from the keyboard does.
+    if (latest.current.dockKeys) setOverviewKeys((value) => value + 1);
     setView((current) => (current === "overview" ? "desktop" : "overview"));
   }, []);
   const toggleLauncher = useCallback(() => {
@@ -323,6 +328,23 @@ export const Shell = memo(function Shell({
         : snapshot,
     [snapshot, overviewApp],
   );
+  // A window or a desktop chosen in the overview is where the keyboard goes, as in Mission
+  // Control: the dock it was opened from with the keyboard lets it go. Closed without a choice
+  // (Escape), the keyboard goes back to the dock.
+  const overviewActions = useMemo(
+    () => ({
+      ...actions,
+      focusWindow: (id: string) => {
+        setDockKeys(null);
+        actions.focusWindow(id);
+      },
+      activateWorkspace: (id: string) => {
+        setDockKeys(null);
+        actions.activateWorkspace(id);
+      },
+    }),
+    [actions],
+  );
   const launcherOpen = view === "launcher";
   const launcherArea = useMemo(
     () =>
@@ -391,6 +413,9 @@ export const Shell = memo(function Shell({
   useEffect(() => {
     if (!controlCenter) setControlKeys(0);
   }, [controlCenter]);
+  useEffect(() => {
+    if (view !== "overview") setOverviewKeys(0);
+  }, [view]);
   // The top bar, the dock and the overlays with the keyboard hear Escape and their own keys
   // (docs/adr/0039-keyboard-access.mdx): an overlay closes, the dock and the status items give
   // the window back the keyboard. A sheet over them takes its own keys.
@@ -534,10 +559,16 @@ export const Shell = memo(function Shell({
           pointerEvents={view === "desktop" ? "box-none" : "auto"}
         >
           {view === "overview" && (
-            <Surface kind="overlay" style={WHOLE} keyboard={!sheet}>
+            <Surface
+              kind="overlay"
+              style={WHOLE}
+              keyboard={!sheet}
+              focusTarget={overviewKeys > 0 ? "first" : undefined}
+              focusRequest={overviewKeys}
+            >
               <Overview
                 snapshot={overviewSnapshot}
-                actions={actions}
+                actions={overviewActions}
                 dismiss={dismiss}
                 escapeRequest={escapeRequest}
                 WindowView={platform.WindowView}
@@ -670,6 +701,7 @@ export const Shell = memo(function Shell({
               Masked={platform.Masked}
               notifications={notifications}
               applications={snapshot.applications}
+              announce={platform.announce}
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />

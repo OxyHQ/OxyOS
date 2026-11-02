@@ -289,6 +289,9 @@ that moment where that time zone is (ADR 0012).
 A scenario with `reader` ({"locale": LOCALE}) runs the session's screen reader (`oxyos-reader`,
 beside the offscreen compositor unless `--reader` names it) in that locale, its voice a record of
 what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
+With "off": true the reader is the session's but off, as `oxyos-session --reader` without
+`--reader-on` has it: Super+F5 typed on the keymap (a `strokes` step, [[125, 63]]) starts it and
+stops it again, locked or not (ADR 0014, decision 6).
 
 Every scenario runs with a preferences file of its own, light and with carets that do not blink
 unless it says otherwise (`caret_blink`, ADR 0037): a scenario's `preferences` ({KEY: VALUE}) are
@@ -2704,6 +2707,8 @@ def main():
         # The session's screen reader (ADR 0014), saying into a record, in the scenario's locale.
         reader = options.reader or str(pathlib.Path(options.offscreen).resolve().parent / "oxyos-reader")
         command += ["--reader", reader, "--reader-locale", scenario["reader"].get("locale", "en_US.UTF-8")]
+        if scenario["reader"].get("off"):
+            command += ["--reader-off"]
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
@@ -2866,7 +2871,7 @@ def main():
 
     speech_path = out / "speech.jsonl"
     spoken = ([json.loads(line) for line in speech_path.read_text().splitlines() if line.strip()]
-              if "reader" in scenario else None)
+              if "reader" in scenario and speech_path.exists() else [] if "reader" in scenario else None)
 
     failures = []
     start = summary["t_launch"]

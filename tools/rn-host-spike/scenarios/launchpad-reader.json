@@ -1,0 +1,234 @@
+{
+ "about": "Launchpad with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+Space opens Launchpad with its search focused; typing searches, the first result highlighted while the search keeps the screen reader's focus; the arrows move the highlight, which is then the screen reader's focus, as VoiceOver's cursor is Launchpad's selection: each icon reached is said once by its name; typing again gives the search the screen reader's focus back, said once, and echoes what is typed; Escape clears the search, then closes it. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+Space opens Launchpad, its search taking the keyboard",
+   "do": [
+    "key",
+    [
+     125,
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "typing searches: Atlas and Allo, the first highlighted; the search keeps the screen reader's focus",
+   "do": [
+    "keyboard",
+    "l"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Atlas",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ highlights Allo: the screen reader's focus moves to it, said once by its name",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Atlas",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Allo, seleccionado, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "← back to Atlas, said once",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Atlas",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Atlas, seleccionado, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "typing again gives the search the screen reader's focus back, said once with what it holds",
+   "do": [
+    "keyboard",
+    "l"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Search",
+       "name": "Buscar aplicaciones",
+       "value": "ll",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Buscar aplicaciones, ll, campo de búsqueda",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "typed on, the search echoes what is typed",
+   "do": [
+    "keyboard",
+    "o"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "o",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape clears the search",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "llo, borrado",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes Launchpad: Allo has the keyboard again",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

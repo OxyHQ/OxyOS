@@ -1,0 +1,180 @@
+{
+ "about": "The screen reader turned on and off at the lock screen with Super+F5 (docs/adr/0014-screen-reader.mdx, decision 6), as Cmd+F5 turns VoiceOver on at a Mac's lock screen: Allo (sample/EditingProbe.tsx) with the shell, the session's reader named but off. Locked, Super+F5 starts it: it says so, then the focused password field; a wrong password is said; Super+F5 stops it and nothing more is said; Super+F5 starts it again; the right password unlocks. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8",
+  "off": true
+ },
+ "lock_password": "oxyos.correcta",
+ "steps": [
+  {
+   "name": "Allo's window; the reader off",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Super+Q locks: nothing is said, the reader is off",
+   "do": [
+    "strokes",
+    [
+     [
+      29,
+      125,
+      16
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F5 starts the screen reader at the lock screen, as Cmd+F5 VoiceOver: it says so, then the password field",
+   "do": [
+    "strokes",
+    [
+     [
+      125,
+      63
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [
+     {
+      "text": "Lector de pantalla activado",
+      "interrupting": true
+     },
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "a wrong password: said once",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "Super+F5 again stops it: nothing more is said",
+   "do": [
+    "strokes",
+    [
+     [
+      125,
+      63
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "a wrong password with the reader off: told to assistive technologies, but no reader says it",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "and Super+F5 starts it again",
+   "do": [
+    "strokes",
+    [
+     [
+      125,
+      63
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Lector de pantalla activado",
+      "interrupting": true
+     },
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "the right password unlocks",
+   "do": [
+    "keyboard",
+    "oxyos.correcta\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": false
+    },
+    "announcements": []
+   }
+  }
+ ]
+}
