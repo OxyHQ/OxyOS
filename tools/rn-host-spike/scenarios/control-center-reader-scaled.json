@@ -1,0 +1,357 @@
+{
+ "about": "Control Center's level sliders from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx, ADR 0025), over a played machine: Allo (sample/EditingProbe.tsx) with the shell. Super+F8 and → reach Control Center's item, Space opens it on its first control; Tab reaches the display's level, Bloom's slider, read once as one element (its name, its value as a share, its role; not the card's adjustable wrapper and the slider inside it both), and the arrows step it a sixteenth, its new value said once; the reader's cursor goes from it to the next control, not to a second copy; Escape closes it. At 1.25 (1600 × 1000).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F8: the network's status item",
+   "do": [
+    "key",
+    [
+     125,
+     66
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi: LukeSkyRouter, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the search",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Buscar aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ Control Center's item",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Control Center on its first control, Wi-Fi's switch",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Dark Mode",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Modo oscuro, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the display's level, Bloom's slider, one element with its value and its name (the card's title not read again), a stop of the keyboard's",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-display",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Slider",
+       "name": "Pantalla",
+       "value": "75 %",
+       "state": [
+        "focused"
+       ],
+       "actions": [
+        "increment",
+        "decrement"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Text",
+       "name": "Pantalla"
+      },
+      {
+       "role": "Slider",
+       "name": "Pantalla",
+       "value": "75"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Pantalla, 75 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ steps it a sixteenth up: its new value said once, the machine's backlight there",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-display",
+      "ring": true
+     }
+    },
+    "controls": {
+     "display_brightness": 0.8125
+    },
+    "spoken": [
+     {
+      "text": "81 %",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "← a sixteenth down again",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "controls": {
+     "display_brightness": 0.75
+    },
+    "spoken": [
+     {
+      "text": "75 %",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the reader's cursor moves on from the slider to the sound's mute, never to a second copy of the slider",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "Silenciar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the sound's slider, read once",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "Sonido, 50 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes Control Center: the keyboard back on its status item",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}
