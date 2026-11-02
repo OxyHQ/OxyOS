@@ -89,6 +89,7 @@ fn worker_args(
     class: &str,
     env: &[(&str, String)],
     program: Vec<OsString>,
+    passed: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         ("--service", service.to_owned()),
@@ -110,13 +111,45 @@ fn worker_args(
     // environment is.
     let passed = PASSED_ON
         .iter()
-        .filter_map(|name| Some((*name, std::env::var(name).ok()?)));
+        .filter_map(|name| Some((*name, passed(name)?)));
     for (name, value) in env.iter().cloned().chain(passed) {
         args.extend(["--env".into(), format!("{name}={value}").into()]);
     }
     args.push("--".into());
     args.extend(program);
     args
+}
+
+/// The login screen's worker: a greeter session of the login program's user, the session program
+/// in its login screen mode with the login screen as its shell, given the screen reader and the
+/// wallpaper the unit names (`passed`, the login program's environment): Super+F5 starts the
+/// reader there before anyone signs in (ADR 0014, decision 6).
+fn greeter_args(config: &Config, passed: &dyn Fn(&str) -> Option<String>) -> Vec<OsString> {
+    let shell = format!(
+        "{},{},OxyOSLogin",
+        config.host.display(),
+        config.bundle.display()
+    );
+    worker_args(
+        config,
+        "oxyos-login-greeter",
+        &config.greeter_user,
+        "greeter",
+        &[
+            ("OXYOS_LOGIN_SOCKET", config.socket.display().to_string()),
+            (
+                "OXYOS_ACCOUNTD_SOCKET",
+                config.accountd.display().to_string(),
+            ),
+        ],
+        vec![
+            config.session.clone().into(),
+            "--greeter".into(),
+            "--shell".into(),
+            shell.into(),
+        ],
+        passed,
+    )
 }
 
 struct Login {
@@ -295,36 +328,13 @@ impl Login {
                 "--shell".into(),
                 shell.into(),
             ],
+            &|name| std::env::var(name).ok(),
         );
         Worker::spawn(args)
     }
 
     fn start_greeter(&mut self) {
-        let config = &self.config;
-        let shell = format!(
-            "{},{},OxyOSLogin",
-            config.host.display(),
-            config.bundle.display()
-        );
-        let args = worker_args(
-            config,
-            "oxyos-login-greeter",
-            &config.greeter_user,
-            "greeter",
-            &[
-                ("OXYOS_LOGIN_SOCKET", config.socket.display().to_string()),
-                (
-                    "OXYOS_ACCOUNTD_SOCKET",
-                    config.accountd.display().to_string(),
-                ),
-            ],
-            vec![
-                config.session.clone().into(),
-                "--greeter".into(),
-                "--shell".into(),
-                shell.into(),
-            ],
-        );
+        let args = greeter_args(&self.config, &|name| std::env::var(name).ok());
         match Worker::spawn(args) {
             Ok(worker) => self.greeter = Some(worker),
             Err(error) => {
@@ -533,5 +543,52 @@ impl Login {
             }
         }
         let _ = std::fs::remove_file(&self.config.socket);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_login_screen_is_given_the_screen_reader_the_unit_names() {
+        let config = Config {
+            dev: false,
+            confdir: None,
+            record: None,
+            greeter_user: "oxyos-login".into(),
+            socket: "/run/oxyos/login/greeter".into(),
+            accountd: "/run/oxyos/accountd".into(),
+            seat: "seat0".into(),
+            vt: 1,
+            session: "/usr/bin/oxyos-session".into(),
+            host: "/usr/libexec/oxyos/oxyos-bloom-host".into(),
+            bundle: "/usr/share/oxyos/bloom/index.js".into(),
+        };
+        let unit = |name: &str| match name {
+            "OXYOS_READER" => Some("/usr/libexec/oxyos/oxyos-reader".to_string()),
+            "HOME" => Some("/root".to_string()),
+            _ => None,
+        };
+        let args: Vec<String> = greeter_args(&config, &unit)
+            .into_iter()
+            .map(|arg| arg.into_string().unwrap())
+            .collect();
+        let env = args
+            .windows(2)
+            .filter(|pair| pair[0] == "--env")
+            .map(|pair| pair[1].as_str());
+        // The reader, for Super+F5 at the login screen; nothing else of the login program's own.
+        assert!(env
+            .clone()
+            .any(|value| value == "OXYOS_READER=/usr/libexec/oxyos/oxyos-reader"));
+        assert!(!env.clone().any(|value| value.starts_with("HOME=")));
+        let program = &args[args.iter().position(|arg| arg == "--").unwrap() + 1..];
+        assert_eq!(program[..2], ["/usr/bin/oxyos-session", "--greeter"]);
+        // Without one named, none is given: Super+F5 does nothing there.
+        let args = greeter_args(&config, &|_| None);
+        assert!(!args
+            .iter()
+            .any(|arg| arg.to_string_lossy().starts_with("OXYOS_READER=")));
     }
 }

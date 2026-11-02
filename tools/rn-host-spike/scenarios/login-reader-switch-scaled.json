@@ -1,0 +1,131 @@
+{
+ "about": "The screen reader turned on at the login screen with Super+F5 (docs/adr/0014-screen-reader.mdx, decision 6; docs/adr/0020-oxy-account-login.mdx), as Cmd+F5 turns VoiceOver on at a Mac's login window: the Bloom host's OxyOSLogin as the login screen's one client over the login program's development path, the reader named but off. Super+F5 starts it, which says so and then the password field; a wrong password is said once; Super+F5 stops it, and nothing more is said. At 1.25 (1600 × 1000).",
+ "shell": "OxyOSLogin",
+ "login": {
+  "password": "oxyos.correcta",
+  "accounts": [
+   {
+    "accountId": "0123456789abcdef01234567",
+    "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+    "uid": 1001,
+    "name": "Ada Lovelace"
+   },
+   {
+    "accountId": "0123456789abcdef01234568",
+    "user": "oxy-bbbbbbbbbbbbbbbbbbbb",
+    "uid": 1002,
+    "name": "Bea Ramos"
+   }
+  ],
+  "record": []
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8",
+  "off": true
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "the login screen, the reader off: nothing is said",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F5 starts the screen reader before anyone signs in: it says so, then the password field",
+   "do": [
+    "strokes",
+    [
+     [
+      125,
+      63
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Lector de pantalla activado",
+      "interrupting": true
+     },
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "a wrong password, with Enter: the login program rejects it, said once",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "signed_in": false
+    },
+    "spoken": [
+     {
+      "text": "Contraseña incorrecta",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "Super+F5 again stops it",
+   "do": [
+    "strokes",
+    [
+     [
+      125,
+      63
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "a wrong password again: told to assistive technologies, but no reader says it",
+   "do": [
+    "keyboard",
+    "mal\n"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Contraseña incorrecta",
+      "live": false
+     }
+    ]
+   }
+  }
+ ]
+}

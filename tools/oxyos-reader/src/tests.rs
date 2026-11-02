@@ -681,3 +681,58 @@ fn the_focused_element_changed_in_place_says_its_new_state_or_value_once() {
     assert_eq!(feed(&mut reader, &slider("6")), ["Volumen, 6, regulador"]);
     assert_eq!(feed(&mut reader, &slider("7")), ["7"]);
 }
+
+/// Launchpad's search over its icons: the field (`value`, its caret at its end), its clear button
+/// before it while it holds text, and Atlas; `focus` names the focused one.
+fn launchpad(value: &str, focus: &str) -> Vec<Event> {
+    let mut nodes = vec![(R::Generic, 0, "", ""), (R::Button, 0, "Cerrar", "")];
+    if !value.is_empty() {
+        nodes.push((R::Button, 0, "Borrar la búsqueda", ""));
+    }
+    let field = nodes.len() as u32;
+    nodes.push((R::TextInput, 0, "Buscar", value));
+    nodes.push((R::Button, 0, "Atlas", ""));
+    for node in &mut nodes {
+        if node.2 == focus {
+            node.1 |= FOCUSED;
+        }
+    }
+    let mut events = tree(WINDOW, &nodes);
+    let at = events
+        .iter()
+        .position(|event| matches!(event, Event::AccessibleNode { index, .. } if *index == field))
+        .unwrap();
+    let caret = value.len() as u32;
+    events.insert(
+        at + 1,
+        Event::AccessibleSelection {
+            client: APP,
+            surface: WINDOW,
+            index: field,
+            start: caret,
+            end: caret,
+        },
+    );
+    events
+}
+
+#[test]
+fn focus_is_followed_by_the_element_not_by_its_place() {
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &launchpad("", "Buscar"));
+    assert_eq!(feed(&mut reader, &launchpad("", "Atlas")), ["Atlas, botón"]);
+    // The field focused again as the letters typed bring its clear button before it: the field
+    // now where Atlas was is another element, and is said.
+    assert_eq!(
+        feed(&mut reader, &launchpad("inb", "Buscar")),
+        ["Buscar, inb, campo de texto"]
+    );
+    // The same field, typed on: its echo.
+    assert_eq!(feed(&mut reader, &launchpad("inbo", "Buscar")), ["o"]);
+    // Its clear button gone, the field moves back a place: the same element, not said again.
+    let said = feed(&mut reader, &launchpad("", "Buscar"));
+    assert!(
+        said.iter().all(|text| !text.contains("campo de texto")),
+        "{said:?}"
+    );
+}

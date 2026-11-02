@@ -655,9 +655,12 @@ pub struct Launch {
     /// `--reader PROGRAM`: the session's screen reader (docs/adr/0014-screen-reader.mdx), started
     /// before the application on a socket granting `accessibility` and `screen_reader`, its voice
     /// a record (`speech.jsonl` in the output directory); `--reader-locale LOCALE` is its
-    /// language (`LC_ALL`), the session's otherwise.
+    /// language (`LC_ALL`), the session's otherwise. With `--reader-off` it is the session's but
+    /// off, as `oxyos-session --reader` without `--reader-on` has it: Super+F5 typed on the keymap
+    /// (`strokes`) starts it, and again stops it (ADR 0014, decision 6), locked or not.
     pub reader: Option<PathBuf>,
     pub reader_locale: Option<String>,
+    pub reader_off: bool,
     /// `--preferences FILE`: the user's preferences, kept in FILE as the session keeps its own
     /// (docs/adr/0019-settings.mdx); the defaults, kept for the run alone, without it.
     pub preferences: Option<PathBuf>,
@@ -716,7 +719,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -801,7 +804,7 @@ impl Launch {
         let mut companion = None;
         let mut companion_at = None;
         let mut lock_password = None;
-        let (mut reader, mut reader_locale) = (None, None);
+        let (mut reader, mut reader_locale, mut reader_off) = (None, None, false);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
         let (mut grants, mut installd) = (Vec::new(), None);
@@ -873,6 +876,10 @@ impl Launch {
                 }
                 Some("--reader") => {
                     reader = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--reader-off") => {
+                    reader_off = true;
                     continue;
                 }
                 Some("--reader-locale") => {
@@ -1388,6 +1395,7 @@ impl Launch {
                 lock_password,
                 reader,
                 reader_locale,
+                reader_off,
                 preferences,
                 grant_settings,
                 grants,
@@ -1638,14 +1646,9 @@ fn start_companion(
     }
 }
 
-/// Starts the screen reader on a socket of its own, granting `accessibility` and `screen_reader`,
-/// saying what it says into `record`, and serves the session until it is connected.
-fn start_reader(
-    session: &mut Session,
-    program: &Path,
-    locale: Option<&str>,
-    record: &Path,
-) -> Result<std::process::Child> {
+/// The screen reader's socket, granting `accessibility` and `screen_reader`, as the session
+/// listens on one whether its reader is on or off; what it will say is recorded in `record`.
+fn listen_for_reader(session: &mut Session, record: &Path) -> Result<PathBuf> {
     let socket = session.socket.with_file_name("reader");
     let listener = oxyos_ipc::Listener::bind(&socket)?;
     listener.set_nonblocking(true)?;
@@ -1653,9 +1656,21 @@ fn start_reader(
     if record.exists() {
         fs::remove_file(record)?;
     }
+    Ok(socket)
+}
+
+/// Starts the screen reader on its socket, saying what it says into `record` (appended to, so
+/// every time it is on is in it), and serves the session until it is connected.
+fn start_reader(
+    session: &mut Session,
+    socket: &Path,
+    program: &Path,
+    locale: Option<&str>,
+    record: &Path,
+) -> Result<std::process::Child> {
     let mut reader = Command::new(program);
     reader
-        .env("OXYOS_COMPOSITOR_SOCKET", &socket)
+        .env("OXYOS_COMPOSITOR_SOCKET", socket)
         .env("OXYOS_SPEECH", format!("record:{}", record.display()))
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY");
@@ -1676,6 +1691,46 @@ fn start_reader(
     }
     eprintln!("[reader] connected");
     Ok(child)
+}
+
+/// Super+F5 (`Action::ToggleReader`, which the compositor keeps for the program running it):
+/// starts the screen reader if it is off and stops it if it is on, as `oxyos-session` does
+/// (`switch_reader`), whether the session is locked or not. Without a reader named, nothing.
+fn toggle_reader(
+    session: &mut Session,
+    running: &mut Children,
+    reader: Option<(&Path, &Path, Option<&str>)>,
+    record: &Path,
+) -> Result<()> {
+    if !session.compositor.take_reader_toggle() {
+        return Ok(());
+    }
+    let Some((socket, program, locale)) = reader else {
+        eprintln!("[reader] no screen reader (--reader)");
+        return Ok(());
+    };
+    match running.0.pop() {
+        Some(mut child) => {
+            eprintln!("[reader] stopping");
+            child.kill()?;
+            child.wait()?;
+            // Its connection's end, as the scene sees it go.
+            let deadline = Instant::now() + LAUNCH_DEADLINE;
+            while session.compositor.scene.screen_reader().is_some() {
+                if Instant::now() > deadline {
+                    return Err("deadline exceeded waiting for the screen reader to go".into());
+                }
+                session.compositor.serve(&session.listener)?;
+            }
+        }
+        None => {
+            eprintln!("[reader] starting");
+            running
+                .0
+                .push(start_reader(session, socket, program, locale, record)?);
+        }
+    }
+    Ok(())
 }
 
 /// The shell's surfaces and the work area they leave (the primary's, and each output's), as a
@@ -4066,16 +4121,29 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
-    // The screen reader before the application, as a session that runs one starts it.
-    let screen_reader = match &launch.reader {
-        Some(program) => Some(start_reader(
-            &mut session,
-            program,
-            launch.reader_locale.as_deref(),
-            &out.join("speech.jsonl"),
-        )?),
+    // The screen reader before the application, as a session that runs one starts it; off, only
+    // its socket, for Super+F5 to start it on.
+    let speech = out.join("speech.jsonl");
+    let reader_socket = match &launch.reader {
+        Some(_) => Some(listen_for_reader(&mut session, &speech)?),
         None => None,
     };
+    let reader_named = launch
+        .reader
+        .as_deref()
+        .zip(reader_socket.as_deref())
+        .map(|(program, socket)| (socket, program, launch.reader_locale.as_deref()));
+    // Held apart from the other children: Super+F5 may stop it, and start it again.
+    let mut screen_reader = Children(Vec::new());
+    if let Some((socket, program, locale)) = reader_named.filter(|_| !launch.reader_off) {
+        screen_reader.0.push(start_reader(
+            &mut session,
+            socket,
+            program,
+            locale,
+            &speech,
+        )?);
+    }
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
     if let Some(program) = launch.command.first() {
@@ -4099,7 +4167,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.app = Some((children.0[0].id(), id));
     }
     children.0.extend(shell.into_iter().flatten());
-    children.0.extend(screen_reader);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
     let launched_ns = monotonic_ns();
@@ -4399,6 +4466,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
         };
+        // Super+F5 typed: the reader started or stopped before the step settles, as the session
+        // switches it on its next turn.
+        toggle_reader(&mut session, &mut screen_reader, reader_named, &speech)?;
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
         let answer = settle(
             &mut session,
@@ -4615,6 +4685,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         })
         .collect::<Vec<_>>()
         .join(",");
+    // The reader, if on, ends with the session as the other clients do.
+    children.0.append(&mut screen_reader.0);
     session.finish(&mut children)?;
     drop(seat);
     println!(

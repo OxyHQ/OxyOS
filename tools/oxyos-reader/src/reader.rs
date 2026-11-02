@@ -282,9 +282,20 @@ impl Reader {
             }
         }
         let first = before.is_none();
+        // Where the element focused before is in this tree, if it is still the one focused: the
+        // protocol's nodes have no identity but their place, and an element appearing before it
+        // (a search field's clear button as the first letter is typed) moves it on.
+        let kept = self.kept_focus(key, before.as_deref());
         self.live_changes(key, before.as_deref());
-        self.text_changes(key, before.as_deref());
-        self.state_changes(key, before.as_deref());
+        if let Some(kept) = kept {
+            self.text_changes(key, before.as_deref(), kept);
+            self.state_changes(key, before.as_deref(), kept);
+            // Followed where it went: the same element, not a new focus to say.
+            if self.cursor == self.focused {
+                self.cursor = Some((key, kept.1));
+            }
+            self.focused = Some((key, kept.1));
+        }
         // A popup that appears is said by its title, as TalkBack says the pane title of a window
         // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
         // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
@@ -306,14 +317,22 @@ impl Reader {
             .position(|node| node.state.contains(AccessibleState::FOCUSED))
             .map(|index| (key, index));
         match focused {
-            Some(at) if self.focused != Some(at) => {
+            Some(at) if kept.is_none() => {
                 self.focused = Some(at);
                 let focus = if self.titled.take() == Some(key) {
                     Politeness::Polite
                 } else {
                     Politeness::Assertive
                 };
-                if self.cursor != Some(at) {
+                // The cursor on it already (its place holding the same element as before): the
+                // reader's own activation focused it, and it was said as the cursor reached it.
+                let new = &self.trees[&key][at.1];
+                let under_cursor = self.cursor == Some(at)
+                    && before
+                        .as_deref()
+                        .and_then(|nodes| nodes.get(at.1))
+                        .is_some_and(|old| old.role == new.role && old.name == new.name);
+                if !under_cursor {
                     self.cursor = Some(at);
                     let text = self.describe(at);
                     self.say(text, focus);
@@ -324,6 +343,30 @@ impl Reader {
             }
             _ => {}
         }
+    }
+
+    /// The element focused in the surface's previous tree, still focused in this one: its index
+    /// there and here. At the same place it is the same element if its role is (its name may
+    /// change in place: a network joining); at another, if its role and name are and what is at
+    /// its old place is no longer an element like it (it moved, others coming or going before
+    /// it). An element of another role focused at the same place is a new focus.
+    fn kept_focus(&self, key: Surface, before: Option<&[Node]>) -> Option<(usize, usize)> {
+        let (surface, was) = self.focused?;
+        if surface != key {
+            return None;
+        }
+        let old = before?.get(was)?;
+        let nodes = &self.trees[&key];
+        let is = nodes
+            .iter()
+            .position(|node| node.state.contains(AccessibleState::FOCUSED))?;
+        let like = |node: &Node| node.role == old.role && node.name == old.name;
+        let kept = if is == was {
+            nodes[is].role == old.role
+        } else {
+            like(&nodes[is]) && !nodes.get(was).is_some_and(like)
+        };
+        kept.then_some((was, is))
     }
 
     /// A live region whose text changed since the surface's previous tree is said, as TalkBack
@@ -354,16 +397,10 @@ impl Reader {
     /// passed over, what was selected or unselected, at once (each keystroke's echo cuts off the
     /// last). Only for the same field focused in both trees, with a selection in both: never an
     /// unfocused field, a field newly focused (its focus says it) or a secure one (it has none).
-    fn text_changes(&mut self, key: Surface, before: Option<&[Node]>) {
-        let Some((surface, index)) = self.focused else {
-            return;
-        };
-        if surface != key {
-            return;
-        }
+    fn text_changes(&mut self, key: Surface, before: Option<&[Node]>, (was, is): (usize, usize)) {
         let (Some(old), Some(new)) = (
-            before.and_then(|nodes| nodes.get(index)),
-            self.trees[&key].get(index),
+            before.and_then(|nodes| nodes.get(was)),
+            self.trees[&key].get(is),
         ) else {
             return;
         };
@@ -385,16 +422,10 @@ impl Reader {
     /// disclosure opened, by its new state; a slider stepped by the arrows, by its new value. Only
     /// for the same element focused in both trees (its role and name the same): a newly focused
     /// one is said by its focus, and a text field's edits are its echo.
-    fn state_changes(&mut self, key: Surface, before: Option<&[Node]>) {
-        let Some((surface, index)) = self.focused else {
-            return;
-        };
-        if surface != key {
-            return;
-        }
+    fn state_changes(&mut self, key: Surface, before: Option<&[Node]>, (was, is): (usize, usize)) {
         let (Some(old), Some(new)) = (
-            before.and_then(|nodes| nodes.get(index)),
-            self.trees[&key].get(index),
+            before.and_then(|nodes| nodes.get(was)),
+            self.trees[&key].get(is),
         ) else {
             return;
         };

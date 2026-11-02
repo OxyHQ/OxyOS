@@ -14,7 +14,7 @@
         "at": {
           "shell": [
             {"role": "Search", "name": "Buscar aplicaciones"},
-            {"role": "Button", "name": "Abrir Inbox desde aplicaciones", "state": []},
+            {"role": "Button", "name": "Inbox", "state": []},
             {"role": "Button", "name": "Cerrar aplicaciones"},
             {"role": "Button", "name": "Abrir aplicaciones", "state": ["selected"]},
             {"role": "Image", "name": "Fondo de escritorio"}

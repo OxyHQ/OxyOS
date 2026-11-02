@@ -91,9 +91,9 @@
             "PanGestureHandler@overview-window-1 ACTIVE>END"
           ],
           "react": {
-            "touchStart@overview-window-1": 1,
-            "touchMove@overview-window-1": 1,
-            "touchCancel@overview-window-1": 1
+            "touchStart@overview-window-1-focus": 1,
+            "touchMove@overview-window-1-focus": 1,
+            "touchCancel@overview-window-1-focus": 1
           }
         },
         "delivered": {}

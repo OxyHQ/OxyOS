@@ -28,6 +28,8 @@ export type LoginActions = {
   capsLock?: boolean;
   /** Whether Oxy's API can be reached now: setup is online only. */
   online: () => Promise<boolean>;
+  /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
+  announce?: (text: string, polite: boolean) => void;
 };
 
 const white = (size: number, weight: "400" | "600" = "400", alpha = 1) => ({
@@ -203,6 +205,7 @@ export function LoginScreen({
           authenticate={(password) => actions.authenticate(account.user, password)}
           answer={actions.answer}
           capsLock={actions.capsLock}
+          announce={actions.announce}
         />
         <Link testID="login-add" label="Añadir cuenta" onPress={() => setSetup("checking")} />
       </>
