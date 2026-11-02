@@ -590,7 +590,7 @@ fn chord(codes: &[u32]) -> String {
 }
 
 /// How a step's answer settles, from the flags before it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Settling {
     /// `--allow-unchanged`: it may leave the output unchanged.
     pub may_stay: bool,
@@ -599,6 +599,11 @@ pub struct Settling {
     /// settles only once the session has a sheet waiting and the shell shows a surface it did not
     /// show before the step.
     pub sheet: bool,
+    /// `--until-named MS NAME`: its answer comes on the application's own clock (an install the
+    /// person confirmed, done once the machine has fetched and compiled it): it settles only once
+    /// the assistive technology holds a node so named on a shown surface, within MS, as
+    /// `--wait-named` waits, and so what the step said is all its own.
+    pub until_named: Option<(u64, String)>,
 }
 
 pub struct Launch {
@@ -719,7 +724,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -829,6 +834,13 @@ impl Launch {
                 }
                 Some("--until-sheet") => {
                     settling.sheet = true;
+                    continue;
+                }
+                Some("--until-named") => {
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let ms = ms.parse().map_err(|_| "--until-named MS NAME")?;
+                    let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    settling.until_named = Some((ms, name.to_string()));
                     continue;
                 }
                 Some("--launch") => continue,
@@ -1812,12 +1824,14 @@ struct Settled {
 }
 
 /// What `settle` waits for: until when, what (to say when it gives up), how long the surfaces
-/// must then stay unchanged, and whether the answer is a system sheet (`Settling::sheet`).
+/// must then stay unchanged, whether the answer is a system sheet (`Settling::sheet`) and the
+/// node the answer shows (`Settling::until_named`).
 struct Wait<'a> {
     deadline: Instant,
     waiting_for: &'a str,
     still: Duration,
     sheet: bool,
+    named: Option<&'a str>,
 }
 
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
@@ -1833,6 +1847,7 @@ fn settle(
         waiting_for,
         still,
         sheet,
+        named,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
@@ -1946,10 +1961,13 @@ fn settle(
                 && shell_last
                     .iter()
                     .any(|(key, _, _)| !shell_before.contains(key));
+        // A node the answer shows, once the assistive technology holds it.
+        let named_shown = named.is_none_or(|name| named_point(session, name).is_some());
         if !changed
             && !shell_changed
             && answered
             && sheet_shown
+            && named_shown
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
         {
@@ -4188,6 +4206,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             waiting_for: "the first frame",
             still: launch.launch_settle,
             sheet: false,
+            named: None,
         },
         login.then_some(primary),
     ) {
@@ -4480,10 +4499,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             &before,
             *may_stay,
             Wait {
-                deadline: Instant::now() + STEP_DEADLINE,
+                deadline: Instant::now()
+                    + settling
+                        .until_named
+                        .as_ref()
+                        .map_or(STEP_DEADLINE, |(ms, _)| {
+                            STEP_DEADLINE.max(Duration::from_millis(*ms))
+                        }),
                 waiting_for: &what,
                 still: SETTLE,
                 sheet: settling.sheet,
+                named: settling.until_named.as_ref().map(|(_, name)| name.as_str()),
             },
             Some(window),
         )?;
@@ -4886,6 +4912,33 @@ mod tests {
     }
 
     #[test]
+    fn until_named_is_the_step_after_it_alone() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--key",
+            "15",
+            "--until-named",
+            "120000",
+            "Open Inbox",
+            "--key",
+            "57",
+            "--key",
+            "15",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        let named: Vec<_> = launch
+            .steps
+            .iter()
+            .map(|(_, s)| s.until_named.clone())
+            .collect();
+        assert_eq!(
+            named,
+            [None, Some((120000, "Open Inbox".to_string())), None]
+        );
+    }
+
+    #[test]
     fn malformed_steps_are_rejected() {
         for bad in [
             &["--press", "1", "--", "app"][..],
@@ -4894,6 +4947,7 @@ mod tests {
             &["--key", "42+", "--", "app"],
             &["--drag", "1,2,3", "--", "app"],
             &["--wait-named", "soon", "Try again", "--", "app"],
+            &["--until-named", "soon", "Open", "--key", "57", "--", "app"],
             &["--press", "1,2"],
             &["--press", "1,2", "--"],
         ] {

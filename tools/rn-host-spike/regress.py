@@ -218,6 +218,11 @@ it settles once the session has a sheet waiting and the shell shows a surface it
 the step, however long after the step's first answer that is (an update is staged, downloaded and
 verified, before its consent is asked), never after a set time.
 
+A step with `until_named` ([name, ms]) is answered on the application's own clock (an install the
+person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
+once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
+`ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+
 A `strokes` step types keys as a person does on the session's keyboard (a list of codes or chords,
 [40, 18] being ´ then e on the Spanish layout): through the session's keymap (the scenario's
 `layout`) and compose table (the image's, `config/`), so a dead key composes as on the machine.
@@ -466,6 +471,9 @@ def director_args(step, out):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if step.get("until_sheet"):
         args.append("--until-sheet")
+    if step.get("until_named"):
+        name, ms = step["until_named"]
+        args += ["--until-named", str(ms), name]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output",
@@ -1668,7 +1676,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         check_step(index, companion_step, result, companion, start, failures, refresh_hz=refresh_hz)
     if "in_launched" in expect and screenshot is not None:
         # An application the session launched (a store's open, the shell's dock), from its own
-        # report beside the director's (`.launched`): its texts and React deliveries.
+        # report beside the director's (`.launched`): its texts and React deliveries. Of two running
+        # at once (the store, and an application it opened), the first: the second's host writes
+        # beside it (report.cpp).
         path = pathlib.Path(screenshot).parent / "host-report.jsonl.launched"
         launched = ([json.loads(line) for line in path.read_text().splitlines() if line.strip()]
                     if path.exists() else [])

@@ -8,7 +8,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <fcntl.h>
 #include <filesystem>
+#include <sys/file.h>
 #include <unistd.h>
 
 using namespace facebook::react;
@@ -47,8 +49,23 @@ void Report::open(const std::string& application) {
   const char* path = std::getenv("OXYOS_HOST_REPORT");
   if (file_ || !path || !*path) return;
   std::string target = perProcessPath(path, application, ".jsonl");
-  file_ = std::fopen(target.c_str(), "w");
-  if (!file_) std::fprintf(stderr, "[host] cannot write the report to %s\n", target.c_str());
+  // Held for the host's life: a second host given the same file while the first runs (two
+  // applications the session launched, both told `.launched`) writes beside it, named by its
+  // pid, rather than truncating it under the first; a file no running host holds is written anew.
+  int fd = ::open(target.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+  if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) != 0) {
+    ::close(fd);
+    target += "." + std::to_string(getpid());
+    fd = ::open(target.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+  } else if (fd >= 0 && ::ftruncate(fd, 0) != 0) {
+    ::close(fd);
+    fd = -1;
+  }
+  if (fd >= 0) file_ = ::fdopen(fd, "w");
+  if (!file_) {
+    if (fd >= 0) ::close(fd);
+    std::fprintf(stderr, "[host] cannot write the report to %s\n", target.c_str());
+  }
 }
 
 void Report::diagnostic(const char* kind, folly::dynamic&& line) {

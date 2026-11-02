@@ -1,0 +1,853 @@
+{
+ "about": "Atlas (OxyHQ/Atlas) installs Inbox from the keyboard with the screen reader on, its control kept through Get, the install and Open (docs/adr/0039-keyboard-access.mdx, docs/adr/0030-installing-applications.mdx): a real oxyos-installd publishes Inbox as the store's listing `inbox`. Tab goes down Atlas's sidebar and storefront to Inbox's Get, each control said once with its ring; Space asks the machine, whose sheet is said as it appears while Atlas's control, focused still, turns into the install's ring; Tab and Space answer Instalar in the sheet; the focus comes back to the same control, said by its new name (Installing Inbox), the install runs to its end and Atlas says Inbox installed, once, and never a step of its progress; the same control, focused, is Open, and Space opens Inbox. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "grants": {
+  "so.oxy.atlas": [
+   "store",
+   "updates"
+  ]
+ },
+ "store": {
+  "categories": [
+   {
+    "slug": "productivity",
+    "label": "Productivity"
+   }
+  ],
+  "apps": [
+   {
+    "slug": "inbox",
+    "name": "Inbox",
+    "tagline": "Mail, sorted.",
+    "icon": null,
+    "category": {
+     "slug": "productivity",
+     "label": "Productivity"
+    },
+    "rating": {
+     "average": 4.6,
+     "count": 128
+    }
+   }
+  ],
+  "listings": {
+   "inbox": {
+    "slug": "inbox",
+    "name": "Inbox",
+    "tagline": "Mail, sorted.",
+    "icon": null,
+    "category": {
+     "slug": "productivity",
+     "label": "Productivity"
+    },
+    "rating": {
+     "average": 4.6,
+     "count": 128
+    },
+    "description": "Inbox keeps your mail.",
+    "websiteUrl": "https://inbox.example",
+    "privacyPolicyUrl": null,
+    "termsUrl": null,
+    "supportUrl": null,
+    "supportEmail": null,
+    "publishedAt": "2026-09-01T10:00:00.000Z",
+    "screenshots": [],
+    "ratingBreakdown": {
+     "5": 100,
+     "4": 28
+    }
+   }
+  }
+ },
+ "reader": {
+  "locale": "en_US.UTF-8"
+ },
+ "installd": {
+  "publish": [
+   {
+    "id": "so.oxy.inbox",
+    "listing": "inbox"
+   }
+  ]
+ },
+ "applications_launched": [
+  {
+   "id": "so.oxy.atlas",
+   "origin": "development",
+   "settings": false
+  },
+  {
+   "id": "so.oxy.inbox",
+   "origin": "installed 1",
+   "settings": false
+  }
+ ],
+ "steps": [
+  {
+   "name": "Allo's window, the reader on in English (Atlas's language); nothing has the keyboard's focus",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Atlas in the dock: the session starts it, with its window",
+   "do": [
+    "press_named",
+    "Abrir Atlas"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "react": {
+      "touchStart@dock-so.oxy.atlas": 1,
+      "touchEnd@dock-so.oxy.atlas": 1
+     }
+    },
+    "in_launched": {
+     "texts": [
+      "Discover"
+     ],
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "zoomed to the work area",
+   "do": [
+    "press_output",
+    [
+     436,
+     216
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "the storefront, Inbox's lockup offering Get",
+   "do": [
+    "wait_named",
+    [
+     "Spotlight",
+     60000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "texts": [
+      "Spotlight",
+      "Inbox",
+      "Get"
+     ],
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Discover, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-index",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Discover, selected, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Discover",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Apps, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-apps",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Apps, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Apps",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Search, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Search, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Search",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Categories, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-categories",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Categories, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Categories",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Productivity, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-category:productivity",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Productivity, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Productivity",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Updates, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-updates",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Updates, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Updates",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Sign In, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "Sign In",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Sign In, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Sign In",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Atlas, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-logo",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Atlas, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Atlas",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Collapse sidebar, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-collapse",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Collapse sidebar, expanded, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Collapse sidebar",
+       "state": [
+        "expanded",
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Apps, categories and more, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "Apps, categories and more",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Apps, categories and more, search field",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Search",
+       "name": "Apps, categories and more",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Ask Alia, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {},
+    "spoken": [
+     {
+      "text": "Ask Alia, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Ask Alia",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Top rated: Inbox, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "featured-inbox",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Top rated: Inbox, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Top rated: Inbox",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Inbox Mail, sorted. 4.6 (128), its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "lockup-inbox-link",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Inbox Mail, sorted. 4.6 (128), link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Inbox Mail, sorted. 4.6 (128)",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Get Inbox, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "install-inbox",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Get Inbox, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Get Inbox",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Space on Get: the machine's sheet asks, said as it appears; Atlas's control stays the one focused, its ring a spinner now named Installing Inbox, and Atlas says nothing over the sheet",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "install-inbox",
+      "ring": true
+     },
+     "react": {
+      "click@install-inbox": 1
+     }
+    },
+    "in_shell": {
+     "texts": [
+      "¿Instalar Inbox?",
+      "Instalar",
+      "Cancelar"
+     ]
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Installing Inbox",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "¿Instalar Inbox?. Versión 0.1.0 · 1,7 MB",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "¿Instalar Inbox?. Versión 0.1.0 · 1,7 MB"
+     }
+    ]
+   },
+   "until_sheet": true
+  },
+  {
+   "name": "Tab in the sheet: Cancelar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "system-sheet-refuse",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Cancelar, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Instalar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "system-sheet-accept",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Instalar, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space on Instalar: the sheet goes and the focus comes back to the same control, said by its new name; the install runs to its end (fetched, compiled on the machine) and Atlas says it once, its progress never; the control, still focused, is Open",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "absent": [
+      "¿Instalar Inbox?"
+     ]
+    },
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "install-inbox",
+      "ring": true
+     },
+     "texts": [
+      "Open"
+     ]
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Open Inbox",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Installing Inbox, button",
+      "interrupting": true
+     },
+     {
+      "text": "Inbox installed",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Inbox installed"
+     }
+    ]
+   },
+   "until_named": [
+    "Open Inbox",
+    120000
+   ]
+  },
+  {
+   "name": "Space again, on the same control, now Open: the session starts the installed Inbox",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "react": {
+      "click@install-inbox": 1
+     }
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

@@ -1,0 +1,808 @@
+{
+ "about": "Atlas (OxyHQ/Atlas) updates Inbox from its Updates page with the keyboard and the screen reader on (docs/adr/0039-keyboard-access.mdx, docs/adr/0030-installing-applications.mdx, decision 16): a real oxyos-installd with Inbox 1 installed and the store publishing 2. Tab and Space open Updates; Check for Updates keeps the focus while the machine reads the store and says what it found; Tab reaches Inbox's Update; Space applies it, said as it starts and as it ends, and the row stays where it was with its control, focused throughout, now Inbox updated (as the App Store keeps Updated Recently), rather than vanishing without a word; pressed again it asks nothing. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "grants": {
+  "so.oxy.atlas": [
+   "store",
+   "updates"
+  ]
+ },
+ "store": {
+  "categories": [
+   {
+    "slug": "productivity",
+    "label": "Productivity"
+   }
+  ],
+  "apps": [
+   {
+    "slug": "inbox",
+    "name": "Inbox",
+    "tagline": "Mail, sorted.",
+    "icon": null,
+    "category": {
+     "slug": "productivity",
+     "label": "Productivity"
+    },
+    "rating": {
+     "average": 4.6,
+     "count": 128
+    }
+   }
+  ],
+  "listings": {
+   "inbox": {
+    "slug": "inbox",
+    "name": "Inbox",
+    "tagline": "Mail, sorted.",
+    "icon": null,
+    "category": {
+     "slug": "productivity",
+     "label": "Productivity"
+    },
+    "rating": {
+     "average": 4.6,
+     "count": 128
+    },
+    "description": "Inbox keeps your mail.",
+    "websiteUrl": "https://inbox.example",
+    "privacyPolicyUrl": null,
+    "termsUrl": null,
+    "supportUrl": null,
+    "supportEmail": null,
+    "publishedAt": "2026-09-01T10:00:00.000Z",
+    "screenshots": [],
+    "ratingBreakdown": {
+     "5": 100,
+     "4": 28
+    }
+   }
+  }
+ },
+ "reader": {
+  "locale": "en_US.UTF-8"
+ },
+ "installd": {
+  "publish": [
+   {
+    "id": "so.oxy.inbox",
+    "listing": "inbox"
+   }
+  ],
+  "installed": [
+   "so.oxy.inbox"
+  ],
+  "later": [
+   {
+    "id": "so.oxy.inbox",
+    "versionCode": 2
+   }
+  ]
+ },
+ "installd_final": {
+  "packages": {
+   "so.oxy.inbox": [
+    1,
+    2
+   ]
+  }
+ },
+ "applications_launched": [
+  {
+   "id": "so.oxy.atlas",
+   "origin": "development",
+   "settings": false
+  }
+ ],
+ "steps": [
+  {
+   "name": "Allo's window, the reader on in English (Atlas's language); nothing has the keyboard's focus",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Atlas in the dock: the session starts it, with its window",
+   "do": [
+    "press_named",
+    "Abrir Atlas"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "react": {
+      "touchStart@dock-so.oxy.atlas": 1,
+      "touchEnd@dock-so.oxy.atlas": 1
+     }
+    },
+    "in_launched": {
+     "texts": [
+      "Discover"
+     ],
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "zoomed to the work area",
+   "do": [
+    "press_output",
+    [
+     436,
+     216
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "the storefront, Inbox's lockup offering Open",
+   "do": [
+    "wait_named",
+    [
+     "Spotlight",
+     60000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "texts": [
+      "Spotlight",
+      "Inbox",
+      "Open"
+     ],
+     "keyboard_focus": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Discover, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-index",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Discover, selected, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Discover",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Apps, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-apps",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Apps, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Apps",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Search, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Search, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Search",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Categories, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-categories",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Categories, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Categories",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Productivity, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-category:productivity",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Productivity, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Productivity",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Updates, its ring around it, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-updates",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Updates, link",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Updates",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Space on Updates: the page opens, the link now selected says so",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-item-updates",
+      "ring": true
+     },
+     "react": {
+      "click@sidebar-item-updates": 1
+     },
+     "texts": [
+      "Check for Updates"
+     ]
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Link",
+       "name": "Updates",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "selected",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Sign In, on the Updates page, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "Sign In",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Sign In, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Sign In",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Atlas, on the Updates page, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-logo",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Atlas, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Atlas",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Collapse sidebar, on the Updates page, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "sidebar-collapse",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Collapse sidebar, expanded, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Collapse sidebar",
+       "state": [
+        "expanded",
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Apps, categories and more, on the Updates page, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "Apps, categories and more",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Apps, categories and more, search field",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Search",
+       "name": "Apps, categories and more",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Check for Updates, on the Updates page, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "updates-check",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Check for Updates, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Check for Updates",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Space on Check for Updates: the machine reads the store and finds Inbox 0.2.0; the button keeps the focus while it checks, and what it found is said",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "updates-check",
+      "ring": true
+     },
+     "react": {
+      "click@updates-check": 1
+     },
+     "texts": [
+      "Inbox",
+      "Version 0.2.0"
+     ]
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Check for Updates",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "1 update available",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "1 update available"
+     }
+    ]
+   },
+   "until_named": [
+    "Update Inbox",
+    30000
+   ]
+  },
+  {
+   "name": "Tab: Inbox's Update, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "update-so.oxy.inbox",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Update Inbox",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Update Inbox, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space on Update: said as it starts and as it ends; the row stays, its control, focused throughout, now saying Inbox updated",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "update-so.oxy.inbox",
+      "ring": true
+     },
+     "react": {
+      "click@update-so.oxy.inbox": 1
+     },
+     "texts": [
+      "Updated"
+     ]
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Inbox updated",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Updating Inbox",
+      "interrupting": true
+     },
+     {
+      "text": "Inbox updated",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Updating Inbox"
+     },
+     {
+      "politeness": "assertive",
+      "text": "Inbox updated"
+     }
+    ]
+   },
+   "until_named": [
+    "Inbox updated",
+    60000
+   ]
+  },
+  {
+   "name": "Space again, on the same control: done, it asks nothing and says nothing",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "update-so.oxy.inbox",
+      "ring": true
+     },
+     "react": {
+      "click@update-so.oxy.inbox": 1
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Inbox updated",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}
