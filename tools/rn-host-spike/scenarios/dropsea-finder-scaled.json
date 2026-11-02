@@ -206,7 +206,8 @@
        "role": "ListItem",
        "name": "Downloads",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {
@@ -236,7 +237,9 @@
       {
        "role": "ListItem",
        "name": "Downloads",
-       "state": []
+       "state": [
+        "focused"
+       ]
       }
      ]
     }
@@ -290,7 +293,8 @@
        "role": "ListItem",
        "name": "127.0.0.1_8080_(Nest Hub Max).png",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       }
      ]
@@ -310,7 +314,8 @@
        "role": "ListItem",
        "name": "astro-browser_0.1.0_amd64.deb",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {
@@ -335,7 +340,8 @@
        "role": "ListItem",
        "name": "Gmail - 493145959.pdf",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {
@@ -360,7 +366,8 @@
        "role": "ListItem",
        "name": "Telegram Desktop",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {
@@ -404,7 +411,8 @@
        "role": "ListItem",
        "name": "Telegram Desktop",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       }
      ]
@@ -455,7 +463,7 @@
      "popup": [
       {
        "role": "Menu",
-       "name": "Context menu"
+       "name": "src.zip"
       },
       {
        "role": "MenuItem",
@@ -587,7 +595,8 @@
        "role": "ListItem",
        "name": "Pictures",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {
@@ -646,7 +655,8 @@
        "role": "ListItem",
        "name": "Documents",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {
@@ -770,7 +780,8 @@
        "role": "ListItem",
        "name": "package-lock.json",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       }
      ]
@@ -791,7 +802,8 @@
        "role": "ListItem",
        "name": "package.json",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       },
       {

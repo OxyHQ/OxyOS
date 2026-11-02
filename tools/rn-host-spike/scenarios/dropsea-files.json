@@ -145,7 +145,8 @@
               "role": "ListItem",
               "name": "notes.txt",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             },
             {
@@ -224,7 +225,8 @@
               "role": "ListItem",
               "name": "todo.txt",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]
@@ -279,7 +281,9 @@
             {
               "role": "ListItem",
               "name": "Pictures",
-              "state": []
+              "state": [
+                "focused"
+              ]
             },
             {
               "role": "ListItem",
@@ -433,7 +437,8 @@
               "role": "ListItem",
               "name": "notes.txt",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]
@@ -496,7 +501,8 @@
               "role": "ListItem",
               "name": "ideas.txt",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]
@@ -543,7 +549,8 @@
               "role": "ListItem",
               "name": "untitled folder",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]
@@ -579,7 +586,8 @@
               "role": "ListItem",
               "name": "todo.txt",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             },
             {
@@ -676,7 +684,7 @@
           "popup": [
             {
               "role": "Menu",
-              "name": "Context menu"
+              "name": "todo.txt"
             },
             {
               "role": "MenuItem",

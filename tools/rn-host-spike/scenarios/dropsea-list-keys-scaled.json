@@ -1,0 +1,1174 @@
+{
+  "about": "Dropsea's items from the keyboard (docs/adr/0039-keyboard-access.mdx), as Finder's list with Full Keyboard Access and VoiceOver: the items are one Tab stop; the arrows move the selection within it and the screen reader says each item the selection reaches, by its name and, in the list, its columns, while the keyboard stays on the list; Space still Quick Looks; Shift+F10 and the Menu key open the selection's context menu at the selected item, said as a menu by its title; Escape gives the list back. At 1.25 (1600 × 1000).",
+  "module": "Dropsea",
+  "window": [
+    1024,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "Documents/report.txt": "r",
+      "Pictures/photo.jpg": "x"
+    }
+  },
+  "reader": {
+    "locale": "en_US.UTF-8"
+  },
+  "steps": [
+    {
+      "name": "Dropsea's home; the reader on; nothing has the keyboard's focus",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: home, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "home, selected, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@home": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Documents, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Documents",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Documents": 1,
+          "blur@home": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Pictures, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Pictures",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Pictures, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Pictures": 1,
+          "blur@Documents": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Oxy Files, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Oxy Files",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Oxy Files, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Oxy Files": 1,
+          "blur@Pictures": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Photos, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Photos",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Photos, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Photos": 1,
+          "blur@Oxy Files": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Trash, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Trash",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Trash, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Trash": 1,
+          "blur@Photos": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: sidebar-logo, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "sidebar-logo",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Dropsea, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@sidebar-logo": 1,
+          "blur@Trash": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the items, one stop: the list, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "home, list",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@home": 1,
+          "blur@sidebar-logo": 1
+        }
+      }
+    },
+    {
+      "name": "Down: the first item selected, said by the screen reader (its focus on the item, the keyboard's on the list); the status bar's count said politely",
+      "do": [
+        "key",
+        [
+          108
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "1 of 3 selected",
+            "interrupting": false
+          },
+          {
+            "text": "Documents, selected, 1 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "1 of 3 selected",
+            "live": true
+          }
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right: the next item, said once",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "notes.txt, selected, 2 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Left: back to Documents, said once",
+      "do": [
+        "key",
+        [
+          105
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, selected, 1 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift+F10: Documents' menu opens at it, said as a menu by its title, then its first row",
+      "do": [
+        "key",
+        [
+          42,
+          68
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Open, menu item",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "accessibilityAction@home": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Documents"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Open"
+            }
+          ]
+        },
+        "popups": 1
+      }
+    },
+    {
+      "name": "Escape: the menu closes, the list has the keyboard back and the reader is on Documents again",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, selected, 1 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            }
+          ]
+        },
+        "popups": 0
+      }
+    },
+    {
+      "name": "The Menu key: the same menu, at Documents",
+      "do": [
+        "key",
+        [
+          127
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Open, menu item",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "accessibilityAction@home": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Documents"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Open"
+            }
+          ]
+        },
+        "popups": 1
+      }
+    },
+    {
+      "name": "Escape: closed, Documents said again",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, selected, 1 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            }
+          ]
+        },
+        "popups": 0
+      }
+    },
+    {
+      "name": "Tab: Hide Sidebar",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "sidebar-toggle",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Hide Sidebar, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@sidebar-toggle": 1,
+          "blur@home": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: as Icons",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "view-icons",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "as Icons, selected, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@view-icons": 1,
+          "blur@sidebar-toggle": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: as List",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "view-list",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "as List, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@view-list": 1,
+          "blur@view-icons": 1
+        }
+      }
+    },
+    {
+      "name": "Space: the items as a list",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "view-list",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "selected",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "click@view-list": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: as Icons",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "view-icons",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "as Icons, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@view-icons": 1,
+          "blur@view-list": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: Hide Sidebar",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "sidebar-toggle",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Hide Sidebar, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@sidebar-toggle": 1,
+          "blur@view-icons": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: Kind",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "column-kind",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Kind, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@column-kind": 1,
+          "blur@sidebar-toggle": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: Size",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "column-size",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Size, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@column-size": 1,
+          "blur@column-kind": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: Date Modified",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "column-date",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Date Modified, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@column-date": 1,
+          "blur@column-size": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: Name",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "column-name",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Name, ascending, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@column-name": 1,
+          "blur@column-date": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: the list, one stop, said once",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "home, list",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@home": 1,
+          "blur@column-name": 1
+        }
+      }
+    },
+    {
+      "name": "Down: notes.txt, said with its columns (date, size, kind) as a Finder row is",
+      "do": [
+        "key",
+        [
+          108
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "notes.txt, Jan 2, 2026, 12:00 PM, 5 bytes, Plain text, selected, 2 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [],
+              "value": "Jan 2, 2026, 12:00 PM, Folder"
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected",
+                "focused"
+              ],
+              "value": "Jan 2, 2026, 12:00 PM, 5 bytes, Plain text"
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": [],
+              "value": "Jan 2, 2026, 12:00 PM, Folder"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Up: Documents, with its columns",
+      "do": [
+        "key",
+        [
+          103
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, Jan 2, 2026, 12:00 PM, Folder, selected, 1 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "home",
+              "custom": [
+                "Show menu"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [
+                "selected",
+                "focused"
+              ],
+              "value": "Jan 2, 2026, 12:00 PM, Folder"
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [],
+              "value": "Jan 2, 2026, 12:00 PM, 5 bytes, Plain text"
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": [],
+              "value": "Jan 2, 2026, 12:00 PM, Folder"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift+F10 in the list: Documents' menu",
+      "do": [
+        "key",
+        [
+          42,
+          68
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Open, menu item",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "accessibilityAction@home": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Documents"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Open"
+            }
+          ]
+        },
+        "popups": 1
+      }
+    },
+    {
+      "name": "Escape: back on Documents",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Documents, Jan 2, 2026, 12:00 PM, Folder, selected, 1 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "popups": 0
+      }
+    },
+    {
+      "name": "Down: notes.txt",
+      "do": [
+        "key",
+        [
+          108
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "notes.txt, Jan 2, 2026, 12:00 PM, 5 bytes, Plain text, selected, 2 of 3",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: the list's own Space, Quick Look of notes.txt: a dialog named by it, over the window (it holds no control, so the keyboard's focus is on none)",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "notes.txt"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Space again: Quick Look closes, the keyboard back on the list with its ring, said; the status bar, back from under the dialog, says its count",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "home",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "1 of 3 selected",
+            "interrupting": false
+          },
+          {
+            "text": "home, list",
+            "interrupting": true
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "1 of 3 selected",
+            "live": true
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}
