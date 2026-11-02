@@ -36,7 +36,7 @@ const MESSAGES = [
 
 function Inbox() {
   return (
-    <Screen header={<PageHeader title="Inbox" />}>
+    <Screen scroll="content" header={<PageHeader title="Inbox" />}>
       <ScreenScrollView testID="inbox">
         {MESSAGES.map((message) => (
           <Card key={message.id} style={{ marginHorizontal: 12, marginBottom: 8 }}>
@@ -56,7 +56,7 @@ function Detail() {
   const [reply, setReply] = React.useState('');
   const [choice, setChoice] = React.useState<string | null>(null);
   return (
-    <Screen header={<PageHeader title="Native Bloom on OxyOS" />}>
+    <Screen scroll="content" header={<PageHeader title="Native Bloom on OxyOS" />}>
       <ScreenScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         <H3>Actual Bloom components</H3>
         <P>
