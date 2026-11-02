@@ -8,6 +8,8 @@ order: 43
 
 Status: **accepted; implemented**. Builds on [ADR 0009](./0009-session-shell) (the shell), [ADR 0013](./0013-launching-applications) (launching, launch records), [ADR 0016](./0016-windows) (windows and the close request), [ADR 0019](./0019-settings) (the user's preferences), [ADR 0024](./0024-system-shortcuts) (hiding and quitting an application), [ADR 0028](./0028-file-access) (the Trash, opening in another application), [ADR 0030](./0030-installing-applications) (system sheets) and [ADR 0033](./0033-protocol-versions) (protocol versions).
 
+**2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
+
 ## Problem
 
 On a Mac, pressing and holding a Dock icon, right-clicking it or Control-clicking it opens a menu above it: the application's windows (the current one checked), Show All Windows, Hide, Options (Keep in Dock, Open at Login, Show in Finder) and Quit, which Option turns into Force Quit and which an application that does not respond shows directly. An application not running offers Open and Options. The Trash sits at the Dock's end: a click opens it in Finder, and its menu offers Open and Empty Trash.

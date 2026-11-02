@@ -22,7 +22,7 @@ const window = (id: string, appId: string, extra: Partial<ShellWindow> = {}): Sh
   ...extra,
 });
 const snapshot = (windows: ShellWindow[], extra: Partial<ShellSnapshot> = {}): ShellSnapshot => ({
-  applications: [app("stash", true), app("inbox", true), app("allo"), app("settings")],
+  applications: [app("dropsea", true), app("inbox", true), app("allo"), app("settings")],
   folders: [],
   windows,
   workspaces: [{ id: "0", name: "Escritorio 1" }],
@@ -52,7 +52,7 @@ test("the dock shows the applications kept, in its order, then the others runnin
   // A window the session did not start is no registry application's.
   assert.deepEqual(
     shownApps.map((shownApp) => shownApp.id),
-    ["stash", "inbox", "allo"],
+    ["dropsea", "inbox", "allo"],
   );
 });
 
@@ -109,11 +109,11 @@ test("an application not running offers Open and its options, unchecked when it 
 });
 
 test("keeping in the dock and opening at login change the lists in their order", () => {
-  const shownSnapshot = snapshot([window("1", "allo")], { openAtLogin: ["stash"] });
-  assert.deepEqual(keepInDock(shownSnapshot, "allo", true), ["stash", "inbox", "allo"]);
-  assert.deepEqual(keepInDock(shownSnapshot, "inbox", false), ["stash"]);
-  assert.deepEqual(openAtLogin(shownSnapshot, "allo", true), ["stash", "allo"]);
-  assert.deepEqual(openAtLogin(shownSnapshot, "stash", false), []);
+  const shownSnapshot = snapshot([window("1", "allo")], { openAtLogin: ["dropsea"] });
+  assert.deepEqual(keepInDock(shownSnapshot, "allo", true), ["dropsea", "inbox", "allo"]);
+  assert.deepEqual(keepInDock(shownSnapshot, "inbox", false), ["dropsea"]);
+  assert.deepEqual(openAtLogin(shownSnapshot, "allo", true), ["dropsea", "allo"]);
+  assert.deepEqual(openAtLogin(shownSnapshot, "dropsea", false), []);
   // The commands say what changes: unkeeping a kept one, keeping one that is not.
   const options = dockMenu(shownSnapshot, "allo", ALL).find((item) => item.kind === "submenu");
   assert.ok(options?.kind === "submenu");

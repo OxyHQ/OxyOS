@@ -1,6 +1,6 @@
 /**
  * The file chooser for scenarios (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): what the session
- * starts in place of the file manager's picker mode (Stash's, OxyHQ/Stash), through the same
+ * starts in place of the file manager's picker mode (Dropsea's, OxyHQ/Dropsea), through the same
  * adapter, Bloom's `usePlatformFiles().chooser`. It says what it was asked to show and answers with
  * files of the scenario's home (Pictures/a.png and Pictures/b b.png, Documents/), one outside the
  * person's files (which the session refuses, leaving the panel open), or a cancellation.

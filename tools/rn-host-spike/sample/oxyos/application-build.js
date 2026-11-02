@@ -1,11 +1,11 @@
 /**
  * An Expo Router application bundled from its own checkout, as the OxyOS runtime builds it
  * (metro.config.js, bundle.mjs): the checkout `OXYOS_APPLICATION_DIR` names (its Expo project,
- * as Stash's or Atlas's `packages/frontend`), as the module `OXYOS_APPLICATION_MODULE` (its
+ * as Dropsea's or Atlas's `packages/frontend`), as the module `OXYOS_APPLICATION_MODULE` (its
  * package's `entry.module`, the registry entry's `X-OxyOS-Bloom-Module`, beside which its app
  * config is kept). One build holds one
  * application; packages.mjs builds each application named by its own checkout's variable
- * (`STASH_DIR`, `ATLAS_DIR`) this way. Without one the bundle has no application and builds as
+ * (`DROPSEA_DIR`, `ATLAS_DIR`) this way. Without one the bundle has no application and builds as
  * before.
  *
  * What the application's own Expo build would take from its project, read here the same way:

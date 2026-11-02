@@ -1,17 +1,17 @@
 {
-  "about": "Stash (OxyHQ/Stash) drags its items to other applications and takes files dropped from them (docs/adr/0035-drag-and-drop.mdx, decision 13), through Bloom's API alone: its own drag of items becomes the platform's drag, and its items' area is a DropZone. Two Stash windows on a home of the run's own, side by side (the second started as the `companion`): notes.txt dragged from the first onto Documents in the second moves into it; plan.txt dragged onto the dock's Trash goes to the home's Trash; Pictures dragged onto Documents within the second window with Option held is copied there, the original kept.",
-  "module": "Stash",
+  "about": "Dropsea (OxyHQ/Dropsea) drags its items to other applications and takes files dropped from them (docs/adr/0035-drag-and-drop.mdx, decision 13), through Bloom's API alone: its own drag of items becomes the platform's drag, and its items' area is a DropZone. Two Dropsea windows on a home of the run's own, side by side (the second started as the `companion`): notes.txt dragged from the first onto Documents in the second moves into it; plan.txt dragged onto the dock's Trash goes to the home's Trash; Pictures dragged onto Documents within the second window with Option held is copied there, the original kept.",
+  "module": "Dropsea",
   "window": [
     580,
     460
   ],
   "shell": "OxyOSShell",
   "app": {
-    "id": "so.oxy.stash",
-    "title": "Stash"
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
   },
   "companion": {
-    "module": "Stash",
+    "module": "Dropsea",
     "window": [
       640,
       460

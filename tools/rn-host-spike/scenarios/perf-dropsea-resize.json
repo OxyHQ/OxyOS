@@ -1,13 +1,13 @@
 {
-  "about": "Stash's window resized live and zoomed (docs/performance.mdx): its right edge dragged 300 px in and back at a mouse's 125 Hz (one configure in flight), then the green bubble zooming it to the work area and back. Bloom lays its shell, panels and Stash's items out as flex (Yoga, in the pass that lays the resized window out) and reads the window's size only at the thresholds it decides at, so a frame of the resize is native work: every frame's work fits a refresh at 60 Hz and runs little JavaScript (what remains is react-native-css re-evaluating media queries on every frame, nativewind/react-native-css#550, and the safe area's frame). Before, the shell and its panels re-rendered for every frame from their measured widths: 34 to 66 ms of JavaScript a frame. A zoom presents within 150 ms of the press.",
-  "module": "Stash",
+  "about": "Dropsea's window resized live and zoomed (docs/performance.mdx): its right edge dragged 300 px in and back at a mouse's 125 Hz (one configure in flight), then the green bubble zooming it to the work area and back. Bloom lays its shell, panels and Dropsea's items out as flex (Yoga, in the pass that lays the resized window out) and reads the window's size only at the thresholds it decides at, so a frame of the resize is native work: every frame's work fits a refresh at 60 Hz and runs little JavaScript (what remains is react-native-css re-evaluating media queries on every frame, nativewind/react-native-css#550, and the safe area's frame). Before, the shell and its panels re-rendered for every frame from their measured widths: 34 to 66 ms of JavaScript a frame. A zoom presents within 150 ms of the press.",
+  "module": "Dropsea",
   "window": [
     1024,
     680
   ],
   "app": {
-    "id": "so.oxy.stash",
-    "title": "Stash"
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
   },
   "home": {
     "items": {

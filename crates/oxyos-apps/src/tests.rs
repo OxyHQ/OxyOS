@@ -305,15 +305,15 @@ fn a_launch_is_told_its_grants_and_a_development_entry_none() {
 fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_only_ours() {
     let out = std::env::temp_dir().join(format!("oxyos-apps-url-{}", std::process::id()));
     let _ = std::fs::remove_file(&out);
-    let stash = format!(
-        "[Desktop Entry]\nType=Application\nName=Stash\nMimeType=inode/directory;x-scheme-handler/stash;\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_LAUNCH_URL > {}\"\n",
+    let dropsea = format!(
+        "[Desktop Entry]\nType=Application\nName=Dropsea\nMimeType=inode/directory;x-scheme-handler/dropsea;\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_LAUNCH_URL > {}\"\n",
         out.display()
     );
     let sleeper = "[Desktop Entry]\nType=Application\nName=Sleeper\nExec=/bin/sleep 30\n";
     let dir = Directory::new(
         "url",
         &[
-            ("so.oxy.stash.desktop", stash.as_str()),
+            ("so.oxy.dropsea.desktop", dropsea.as_str()),
             ("so.oxy.sleeper.desktop", sleeper),
         ],
     );
@@ -326,11 +326,11 @@ fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_onl
         env: Vec::new(),
     };
     let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![]);
-    let (id, pid) = launcher.open_url("Stash://trash").unwrap();
-    assert_eq!(id, "so.oxy.stash");
+    let (id, pid) = launcher.open_url("Dropsea://trash").unwrap();
+    assert_eq!(id, "so.oxy.dropsea");
     assert_eq!(
         launcher.application_of(pid).and_then(|l| l.url.as_deref()),
-        Some("Stash://trash")
+        Some("Dropsea://trash")
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while launcher.reap().is_empty() {
@@ -339,7 +339,7 @@ fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_onl
     }
     assert_eq!(
         std::fs::read_to_string(&out).unwrap().trim(),
-        "so.oxy.stash Stash://trash"
+        "so.oxy.dropsea Dropsea://trash"
     );
     // No scheme, a file, a scheme nobody opens: refused, nothing started.
     for url in ["trash", "1x://a", "file:///home", "mailto:ana@oxy.so"] {
@@ -358,7 +358,7 @@ fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_onl
         assert!(std::time::Instant::now() < deadline, "it was not ended");
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert_eq!(url_scheme("stash://trash").as_deref(), Some("stash"));
+    assert_eq!(url_scheme("dropsea://trash").as_deref(), Some("dropsea"));
     assert_eq!(url_scheme("://x"), None);
     let _ = std::fs::remove_file(&out);
 }
@@ -459,8 +459,8 @@ fn the_policy_is_read_strictly() {
         "so.oxy.settings":{"entry":"/usr/share/oxyos/applications/so.oxy.settings.desktop",
             "bloom":{"host":"/usr/lib/oxyos/oxyos-bloom-host","bundle":"/usr/lib/oxyos/bundle/index.js"},
             "grants":["settings"]},
-        "so.oxy.stash":{"entry":"/usr/share/oxyos/applications/so.oxy.stash.desktop",
-            "exec":"/usr/libexec/stash","grants":[]}}}"#;
+        "so.oxy.dropsea":{"entry":"/usr/share/oxyos/applications/so.oxy.dropsea.desktop",
+            "exec":"/usr/libexec/dropsea","grants":[]}}}"#;
     let policy = Policy::parse(good).unwrap();
     assert_eq!(
         policy.get("so.oxy.settings"),
@@ -477,7 +477,7 @@ fn the_policy_is_read_strictly() {
         })
     );
     assert_eq!(
-        policy.get("so.oxy.stash").map(|app| app.grants),
+        policy.get("so.oxy.dropsea").map(|app| app.grants),
         Some(Grants::default())
     );
     assert_eq!(policy.get("so.oxy.mention"), None);
@@ -766,24 +766,24 @@ fn the_file_chooser_is_the_policy_s_file_manager_told_what_to_show() {
     let out = std::env::temp_dir().join(format!("oxyos-apps-chooser-{}", std::process::id()));
     let _ = std::fs::remove_file(&out);
     let entry = format!(
-        "[Desktop Entry]\nType=Application\nName=Stash\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_FILE_CHOOSER > {}\"\n",
+        "[Desktop Entry]\nType=Application\nName=Dropsea\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_FILE_CHOOSER > {}\"\n",
         out.display()
     );
-    let dir = Directory::new("chooser", &[("so.oxy.stash.desktop", &entry)]);
+    let dir = Directory::new("chooser", &[("so.oxy.dropsea.desktop", &entry)]);
     let policy_file = Directory::new("chooser-policy", &[]);
     let path = policy_file.0.join("system-apps.json");
     let mut launcher = test_launcher(&dir, Some(&path));
     let shown = r#"{"mode":"open","multiple":false}"#;
     // Not a system application: no chooser, unless the development compositor's fixture.
-    assert!(launcher.choose("so.oxy.stash", shown, false).is_err());
+    assert!(launcher.choose("so.oxy.dropsea", shown, false).is_err());
     assert!(launcher.choose("so.oxy.none", shown, true).is_err());
-    let pid = launcher.choose("so.oxy.stash", shown, true).unwrap();
+    let pid = launcher.choose("so.oxy.dropsea", shown, true).unwrap();
     assert!(launcher.application_of(pid).is_some_and(|l| l.chooser));
     launcher.end(std::time::Duration::from_secs(5));
     // The policy's: started, told what to show.
     std::fs::write(
         &path,
-        policy_of("so.oxy.stash", &dir.0.canonicalize().unwrap(), &shell, ""),
+        policy_of("so.oxy.dropsea", &dir.0.canonicalize().unwrap(), &shell, ""),
     )
     .unwrap();
     let root = {
@@ -791,10 +791,10 @@ fn the_file_chooser_is_the_policy_s_file_manager_told_what_to_show() {
         move |path: &Path| entries(path) || policies(path) || path == shell
     };
     launcher.trusted = Box::new(root);
-    let pid = launcher.choose("so.oxy.stash", shown, false).unwrap();
+    let pid = launcher.choose("so.oxy.dropsea", shown, false).unwrap();
     let launched = launcher.application_of(pid).unwrap();
     assert!(launched.chooser && launched.origin == Origin::System);
-    assert_eq!(launched.name, "Stash");
+    assert_eq!(launched.name, "Dropsea");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while launcher.reap().is_empty() {
         assert!(std::time::Instant::now() < deadline, "it did not exit");
@@ -802,7 +802,7 @@ fn the_file_chooser_is_the_policy_s_file_manager_told_what_to_show() {
     }
     assert_eq!(
         std::fs::read_to_string(&out).unwrap().trim(),
-        r#"so.oxy.stash {"mode":"open","multiple":false}"#
+        r#"so.oxy.dropsea {"mode":"open","multiple":false}"#
     );
     // A process it did not start is never signalled.
     launcher.terminate(1);
@@ -1075,19 +1075,22 @@ fn an_applications_directories_are_its_own_under_the_base_directories() {
     };
     let data = |pairs, id| base_directory(&env(pairs), "XDG_DATA_HOME", ".local/share", id);
     assert_eq!(
-        data(&[("XDG_DATA_HOME", "/d"), ("HOME", "/h")], "so.oxy.stash"),
-        Some(PathBuf::from("/d/oxyos/apps/so.oxy.stash"))
+        data(&[("XDG_DATA_HOME", "/d"), ("HOME", "/h")], "so.oxy.dropsea"),
+        Some(PathBuf::from("/d/oxyos/apps/so.oxy.dropsea"))
     );
     // Without it, or with a relative one (ignored, as the base directory specification says): home's.
     assert_eq!(
-        data(&[("HOME", "/h")], "so.oxy.stash"),
-        Some(PathBuf::from("/h/.local/share/oxyos/apps/so.oxy.stash"))
+        data(&[("HOME", "/h")], "so.oxy.dropsea"),
+        Some(PathBuf::from("/h/.local/share/oxyos/apps/so.oxy.dropsea"))
     );
     assert_eq!(
-        data(&[("XDG_DATA_HOME", "rel"), ("HOME", "/h")], "so.oxy.stash"),
-        Some(PathBuf::from("/h/.local/share/oxyos/apps/so.oxy.stash"))
+        data(
+            &[("XDG_DATA_HOME", "rel"), ("HOME", "/h")],
+            "so.oxy.dropsea"
+        ),
+        Some(PathBuf::from("/h/.local/share/oxyos/apps/so.oxy.dropsea"))
     );
-    assert_eq!(data(&[], "so.oxy.stash"), None);
+    assert_eq!(data(&[], "so.oxy.dropsea"), None);
     // An id that is not one never names a directory, least of all one outside.
     for id in ["", "..", "../x", "a/b", ".hidden"] {
         assert_eq!(data(&[("HOME", "/h")], id), None, "{id}");
@@ -1097,9 +1100,9 @@ fn an_applications_directories_are_its_own_under_the_base_directories() {
             &env(&[("HOME", "/h")]),
             "XDG_CACHE_HOME",
             ".cache",
-            "so.oxy.stash"
+            "so.oxy.dropsea"
         ),
-        Some(PathBuf::from("/h/.cache/oxyos/apps/so.oxy.stash"))
+        Some(PathBuf::from("/h/.cache/oxyos/apps/so.oxy.dropsea"))
     );
 }
 
@@ -1255,15 +1258,15 @@ fn an_application_whose_package_is_not_there_is_not_installed() {
     let first = Directory::new(
         "not-installed",
         &[(
-            "so.oxy.stash.desktop",
-            "[Desktop Entry]\nType=Application\nName=Stash\nIcon=icon.png\nX-OxyOS-Bloom-Module=Stash\nX-OxyOS-Bloom-Bundle=packages/so.oxy.stash/index.hbc\nX-OxyOS-Runtime=1\n",
+            "so.oxy.dropsea.desktop",
+            "[Desktop Entry]\nType=Application\nName=Dropsea\nIcon=icon.png\nX-OxyOS-Bloom-Module=Dropsea\nX-OxyOS-Bloom-Bundle=packages/so.oxy.dropsea/index.hbc\nX-OxyOS-Runtime=1\n",
         )],
     );
     let later = Directory::new(
         "not-installed-later",
         &[(
-            "so.oxy.stash.desktop",
-            "[Desktop Entry]\nType=Application\nName=Not Stash\nExec=/bin/true\n",
+            "so.oxy.dropsea.desktop",
+            "[Desktop Entry]\nType=Application\nName=Not Dropsea\nExec=/bin/true\n",
         )],
     );
     let (apps, skipped) = registry(
@@ -1278,14 +1281,14 @@ fn an_application_whose_package_is_not_there_is_not_installed() {
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     assert!(skipped[0].contains("not installed"), "{skipped:?}");
     // Once its package is there, it is.
-    let package = first.0.join("packages/so.oxy.stash");
+    let package = first.0.join("packages/so.oxy.dropsea");
     std::fs::create_dir_all(&package).unwrap();
     std::fs::write(package.join("index.hbc"), "").unwrap();
     let (apps, skipped) = registry(&[first.0.clone()], &[], &Policy::none(), None, &|_| false);
     assert!(skipped.is_empty(), "{skipped:?}");
     assert_eq!(
         apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
-        ["Stash"]
+        ["Dropsea"]
     );
 }
 

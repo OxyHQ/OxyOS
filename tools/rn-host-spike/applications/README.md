@@ -13,10 +13,10 @@ bundle that is not there is not installed: the registry says so and does not lis
 Only applications that run, or whose package is where it will be, are listed: no entry stands for an
 application OxyOS cannot start.
 
-- `so.oxy.stash`: Stash, the file manager (OxyHQ/Stash; ADR 0030, decision 13), a system
-  application, first in the dock. A package of its own built from its checkout (`STASH_DIR`,
+- `so.oxy.dropsea`: Dropsea, the file manager (OxyHQ/Dropsea; ADR 0030, decision 13), a system
+  application, first in the dock. A package of its own built from its checkout (`DROPSEA_DIR`,
   `sample/packages.mjs`); without it, its entry names where the image will carry its package
-  (`/usr/lib/oxyos/apps/so.oxy.stash/`) and the registry says it is not installed.
+  (`/usr/lib/oxyos/apps/so.oxy.dropsea/`) and the registry says it is not installed.
 - `so.oxy.atlas`: Atlas, the App Store (OxyHQ/Atlas; ADR 0030, decisions 13 and 14), a system
-  application, in the dock after Stash, with the policy's `store` and `updates` grants. Built from
+  application, in the dock after Dropsea, with the policy's `store` and `updates` grants. Built from
   its checkout (`ATLAS_DIR`) the same way, and not installed without it.

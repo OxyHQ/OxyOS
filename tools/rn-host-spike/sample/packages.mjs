@@ -9,7 +9,7 @@
 //
 // with BLOOM_DIR (the Bloom checkout), OXYOS_PACK (the oxyos-pack program) and OXYOS_RUNTIME (a
 // runtime's directory: its runtime.json, hermesc and framework/), and, for each application built
-// from its own checkout (`CHECKOUTS` below: STASH_DIR, ATLAS_DIR), that checkout's Expo project. OUT gets one directory per package, named by
+// from its own checkout (`CHECKOUTS` below: DROPSEA_DIR, ATLAS_DIR), that checkout's Expo project. OUT gets one directory per package, named by
 // its id, `applications/` (the Desktop Entry oxyos-installd writes for each, `oxyos-pack entry`),
 // `probes/` (the probes' bundle, Hermes bytecode as bundle.mjs makes it with HERMESC) and
 // `development.key`, made once and kept: a development key, never a publisher's.
@@ -40,7 +40,7 @@ const icons = {
   'so.oxy.settings': 'tools/shell-preview/assets/apps/settings.png',
   'so.oxy.inbox': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.allo': 'tools/shell-preview/assets/apps/allo.png',
-  'so.oxy.stash': 'tools/shell-preview/assets/apps/stash.png',
+  'so.oxy.dropsea': 'tools/shell-preview/assets/apps/dropsea.png',
   'so.oxy.atlas': 'tools/shell-preview/assets/apps/atlas.png',
   'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
 };
@@ -55,9 +55,9 @@ const entries = {
 };
 // The applications built from their own checkouts (docs/react-native-android-adaptation.mdx), each
 // named by its variable and built when it is given: the runtime's entry (oxyos/application.js)
-// over the checkout's Expo Router root, registered as its package's module. Stash and Atlas are
+// over the checkout's Expo Router root, registered as its package's module. Dropsea and Atlas are
 // system applications (docs/adr/0030-installing-applications.mdx, decision 13).
-const CHECKOUTS = { 'so.oxy.stash': 'STASH_DIR', 'so.oxy.atlas': 'ATLAS_DIR' };
+const CHECKOUTS = { 'so.oxy.dropsea': 'DROPSEA_DIR', 'so.oxy.atlas': 'ATLAS_DIR' };
 const checkouts = Object.fromEntries(
   Object.entries(CHECKOUTS)
     .filter(([, variable]) => process.env[variable])

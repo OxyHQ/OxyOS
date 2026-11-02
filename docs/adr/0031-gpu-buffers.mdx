@@ -13,6 +13,8 @@ Status: **accepted; steps 2 and 3 implemented**, direct scanout (decision 8) inc
 - [ADR 0018](./0018-several-displays): each output composes and flips on its own, at its refresh.
 - [ADR 0029](./0029-chromium-on-oxyos): Astro's Ozone platform, whose decision 3 sketched this path. This ADR is that sketch decided; where it differs (decision 6), it says why.
 
+**2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
+
 ## Problem
 
 Every application draws on the CPU and hands the compositor shared memory: the Bloom host rasterizes each frame (`tools/rn-host-spike/renderer.cpp`) into a sealed memfd, and Astro's engine composites in software (ADR 0029, decision 3). The compositor composes on the GPU (ADR 0004) and uploads those pixels every time they change.

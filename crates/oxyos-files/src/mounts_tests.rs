@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// A file call takes paths; each asked which volumes are mounted, and each read and parsed the
-/// mount table again (2 % of the host's work in Stash). Now the table is read once while it does
+/// mount table again (2 % of the host's work in Dropsea). Now the table is read once while it does
 /// not change.
 #[test]
 fn file_calls_read_the_mount_table_once_while_it_does_not_change() {

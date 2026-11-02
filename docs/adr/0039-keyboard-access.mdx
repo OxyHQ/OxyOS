@@ -8,6 +8,8 @@ order: 48
 
 Status: **accepted; implemented** (the host's keyboard focus and ring, the accessibility tree's modal rules, Super+F3 and Super+F8, the shell's and Settings' fixes, Bloom's). Builds on [ADR 0003](./0003-accessibility-protocol) (the accessibility tree), [ADR 0014](./0014-screen-reader) (the screen reader), [ADR 0024](./0024-system-shortcuts) (Super+F2, decision 9) and [ADR 0034](./0034-the-dock).
 
+**2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
+
 ## Problem
 
 A Mac can be used without a pointer. With Full Keyboard Access on, Tab and Shift+Tab move a focus ring through every control of the window, Space presses the control the ring is on, the arrows move a slider; Control-F2 reaches the menu bar, Control-F3 the Dock, Control-F8 the status menus; Escape closes what is on top and the keyboard goes back where it came from; a sheet holds the keyboard until it is answered. VoiceOver's cursor follows the keyboard's focus and reads each control by its name, value, state and role.

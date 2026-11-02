@@ -1,5 +1,5 @@
 {
-  "about": "The Trash at the dock's end (docs/adr/0034-the-dock.mdx), past a divider: the Trash of a home of the run's own, holding a file. Its menu (a long press) offers Open and Empty Trash; Empty Trash asks the person in a system sheet, and only their acceptance empties it, for good, the file staying in the home; emptied, its menu offers emptying no more. A click opens it in the file manager: the session opens stash://trash in Stash, whose entry declares its scheme, at its Trash.",
+  "about": "The Trash at the dock's end (docs/adr/0034-the-dock.mdx), past a divider: the Trash of a home of the run's own, holding a file. Its menu (a long press) offers Open and Empty Trash; Empty Trash asks the person in a system sheet, and only their acceptance empties it, for good, the file staying in the home; emptied, its menu offers emptying no more. A click opens it in the file manager: the session opens dropsea://trash in Dropsea, whose entry declares its scheme, at its Trash.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -193,7 +193,7 @@
       }
     },
     {
-      "name": "a click on the Trash: the session opens stash://trash in Stash, whose entry declares its scheme",
+      "name": "a click on the Trash: the session opens dropsea://trash in Dropsea, whose entry declares its scheme",
       "do": [
         "press_named",
         "Abrir Papelera"
@@ -203,8 +203,8 @@
         "delivered": {},
         "urls_opened": [
           {
-            "url": "stash://trash",
-            "application": "so.oxy.stash"
+            "url": "dropsea://trash",
+            "application": "so.oxy.dropsea"
           }
         ]
       }

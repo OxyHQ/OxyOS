@@ -18,7 +18,7 @@
 //   {"t":…,"kind":"animation_frame","timestamp":1234.5,"callbacks":2}  (requestAnimationFrame's frame)
 //   {"t":…,"kind":"timing","work_ms":…,"parts":{…},"trigger":"pointer.press",…}  (frame-diagnostics.h: each
 //       frame, and work without one, "presented": false, that was slow or ran JavaScript)
-//   {"t":…,"kind":"log","text":"[host so.oxy.stash] a frame after …"}  (a line written to the log)
+//   {"t":…,"kind":"log","text":"[host so.oxy.dropsea] a frame after …"}  (a line written to the log)
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxyos-offscreen stamps its steps with, so the

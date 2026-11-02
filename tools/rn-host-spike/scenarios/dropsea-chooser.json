@@ -1,5 +1,5 @@
 {
-  "about": "The system's file chooser with Stash's own picker mode (docs/adr/0029-chromium-on-oxyos.mdx, decision 8; OxyHQ/Stash's picker, built from its checkout, STASH_DIR): Expo's File.pickFileAsync and expo-document-picker's getDocumentAsync (sample/ExpoPickerProbe.tsx) ask, the session starts Stash as a sheet of the window with its sidebar's places, its icon grid and Cancel/Open; a folder opened from the sidebar, an image selected and opened, a document's copy in the application's cache, Stash opening again in the folder it last used for this application, and a cancellation. Needs Stash's package (packages.mjs with STASH_DIR).",
+  "about": "The system's file chooser with Dropsea's own picker mode (docs/adr/0029-chromium-on-oxyos.mdx, decision 8; OxyHQ/Dropsea's picker, built from its checkout, DROPSEA_DIR): Expo's File.pickFileAsync and expo-document-picker's getDocumentAsync (sample/ExpoPickerProbe.tsx) ask, the session starts Dropsea as a sheet of the window with its sidebar's places, its icon grid and Cancel/Open; a folder opened from the sidebar, an image selected and opened, a document's copy in the application's cache, Dropsea opening again in the folder it last used for this application, and a cancellation. Needs Dropsea's package (packages.mjs with DROPSEA_DIR).",
   "module": "ExpoPickerProbe",
   "window": [
     800,
@@ -9,7 +9,7 @@
     "id": "so.oxy.expopickerprobe",
     "title": "Expo Picker Probe"
   },
-  "file_chooser": "Stash",
+  "file_chooser": "Dropsea",
   "home": {
     "items": {
       "Pictures/a.png": "an image",
@@ -19,7 +19,7 @@
   },
   "steps": [
     {
-      "name": "File.pickFileAsync for PNG images: Stash's picker, a sheet of the window",
+      "name": "File.pickFileAsync for PNG images: Dropsea's picker, a sheet of the window",
       "do": [
         "press",
         [
@@ -44,7 +44,7 @@
       }
     },
     {
-      "name": "Stash shows the home: its places, Open disabled, Cancel",
+      "name": "Dropsea shows the home: its places, Open disabled, Cancel",
       "do": [
         "wait",
         3000
@@ -136,7 +136,7 @@
       }
     },
     {
-      "name": "expo-document-picker's getDocumentAsync: Stash again, in the folder it last opened for this application",
+      "name": "expo-document-picker's getDocumentAsync: Dropsea again, in the folder it last opened for this application",
       "do": [
         "press",
         [
@@ -230,7 +230,7 @@
       }
     },
     {
-      "name": "Stash shows it",
+      "name": "Dropsea shows it",
       "do": [
         "wait",
         3000

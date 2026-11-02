@@ -470,7 +470,7 @@ function SessionShell() {
       },
       // The dock's application menu (ADR 0034), where the session speaks it (it told the lists):
       // the session ends a force-quit application's processes; the lists are the person's, kept by
-      // the session; the Trash is shown in the file manager, Stash, at its Trash, and emptied by the
+      // the session; the Trash is shown in the file manager, Dropsea, at its Trash, and emptied by the
       // session once the person accepts its sheet.
       forceQuitApp: (id) => {
         const window = recent(id);
@@ -479,7 +479,7 @@ function SessionShell() {
       setDock: listsTold ? (ids) => shell.setApplicationList('dock', ids) : undefined,
       setOpenAtLogin: listsTold ? (ids) => shell.setApplicationList('openAtLogin', ids) : undefined,
       openTrash: () => {
-        shell.openUrl('stash://trash');
+        shell.openUrl('dropsea://trash');
       },
       emptyTrash: () => {
         shell.emptyTrash();

@@ -1,5 +1,5 @@
 {
-  "about": "Screenshots (ADR 0024, decision 10) on the OxyOS shell, Allo (sample/EditingProbe.tsx, its field focused), the session in Spanish, files written as the session writes them: Super+Shift+3 saves the display to the Desktop, named as a Mac names it, its thumbnail shown and said; again, while the thumbnail shows, the thumbnail is not in it; Super+Shift+4's crosshair, keys typed reaching nobody, a drag saving the rectangle it spans; Space picking a window, tinted under the pointer, a press saving it with its shadow over nothing; Super+Shift+5's toolbar, its entire screen chosen and Return saving the display without the toolbar; keys Allo's again once it ends; and the thumbnail pressed opening the screenshot in Stash. Every step checks what Allo receives (nothing, its field keeping the keyboard), what the shell shows and says, and each file's name, folder, size and pixels.",
+  "about": "Screenshots (ADR 0024, decision 10) on the OxyOS shell, Allo (sample/EditingProbe.tsx, its field focused), the session in Spanish, files written as the session writes them: Super+Shift+3 saves the display to the Desktop, named as a Mac names it, its thumbnail shown and said; again, while the thumbnail shows, the thumbnail is not in it; Super+Shift+4's crosshair, keys typed reaching nobody, a drag saving the rectangle it spans; Space picking a window, tinted under the pointer, a press saving it with its shadow over nothing; Super+Shift+5's toolbar, its entire screen chosen and Return saving the display without the toolbar; keys Allo's again once it ends; and the thumbnail pressed opening the screenshot in Dropsea. Every step checks what Allo receives (nothing, its field keeping the keyboard), what the shell shows and says, and each file's name, folder, size and pixels.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -548,7 +548,7 @@
       }
     },
     {
-      "name": "The thumbnail pressed: the screenshot opens in Stash, the file in its launch record",
+      "name": "The thumbnail pressed: the screenshot opens in Dropsea, the file in its launch record",
       "do": [
         "press_output",
         [
@@ -561,7 +561,7 @@
           "saved": [],
           "opened": [
             {
-              "application": "so.oxy.stash"
+              "application": "so.oxy.dropsea"
             }
           ]
         }

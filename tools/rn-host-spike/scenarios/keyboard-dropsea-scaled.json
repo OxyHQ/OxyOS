@@ -1,13 +1,13 @@
 {
- "about": "Full Keyboard Access in Stash (docs/adr/0039-keyboard-access.mdx): Tab goes through its sidebar's rows, its items (one stop) and its toolbar in reading order, each control focused with its ring, told to React (focus and blur) and said once by the screen reader; Shift+Tab goes back; Space presses the focused toolbar button before Stash's own Space. At 1.25 (1600 × 1000).",
- "module": "Stash",
+ "about": "Full Keyboard Access in Dropsea (docs/adr/0039-keyboard-access.mdx): Tab goes through its sidebar's rows, its items (one stop) and its toolbar in reading order, each control focused with its ring, told to React (focus and blur) and said once by the screen reader; Shift+Tab goes back; Space presses the focused toolbar button before Dropsea's own Space. At 1.25 (1600 × 1000).",
+ "module": "Dropsea",
  "window": [
   1024,
   680
  ],
  "app": {
-  "id": "so.oxy.stash",
-  "title": "Stash"
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
  },
  "home": {
   "items": {
@@ -24,7 +24,7 @@
  "outputs": "1600x1000@1.25",
  "steps": [
   {
-   "name": "Stash's home; the reader on; nothing has the keyboard's focus",
+   "name": "Dropsea's home; the reader on; nothing has the keyboard's focus",
    "do": [
     "wait",
     1500
@@ -198,7 +198,7 @@
    }
   },
   {
-   "name": "Tab: the sidebar's Stash button, its ring around it, said once",
+   "name": "Tab: the sidebar's Dropsea button, its ring around it, said once",
    "do": [
     "key",
     [
@@ -217,7 +217,7 @@
     },
     "spoken": [
      {
-      "text": "Stash, button",
+      "text": "Dropsea, button",
       "interrupting": true
      }
     ],

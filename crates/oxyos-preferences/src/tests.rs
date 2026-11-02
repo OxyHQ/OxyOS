@@ -291,17 +291,17 @@ fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
     preferences
         .set_list(
             ApplicationList::Dock,
-            &ids(&["so.oxy.stash", "so.oxy.allo"]),
+            &ids(&["so.oxy.dropsea", "so.oxy.allo"]),
         )
         .unwrap();
     preferences
         .set_list(ApplicationList::OpenAtLogin, &ids(&["so.oxy.inbox"]))
         .unwrap();
     let text = preferences.to_text();
-    assert!(text.contains("dock = so.oxy.stash,so.oxy.allo\n"));
+    assert!(text.contains("dock = so.oxy.dropsea,so.oxy.allo\n"));
     assert!(text.contains("open_at_login = so.oxy.inbox\n"));
     let back = Preferences::parse(&text);
-    assert_eq!(back.dock, Some(ids(&["so.oxy.stash", "so.oxy.allo"])));
+    assert_eq!(back.dock, Some(ids(&["so.oxy.dropsea", "so.oxy.allo"])));
     assert_eq!(back.open_at_login, ids(&["so.oxy.inbox"]));
     // An empty dock is the person's choice too, and stays one.
     preferences.set_list(ApplicationList::Dock, &[]).unwrap();
@@ -311,7 +311,7 @@ fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
     );
     // A bad id, one twice or too many: refused, nothing changed.
     for bad in [
-        ids(&["so.oxy.stash", "so.oxy.stash"]),
+        ids(&["so.oxy.dropsea", "so.oxy.dropsea"]),
         ids(&["not an id"]),
         ids(&[".hidden"]),
         (0..=MAX_APPLICATIONS)
@@ -326,7 +326,7 @@ fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
     assert_eq!(preferences.open_at_login, ids(&["so.oxy.inbox"]));
     // A bad line in the file keeps the default.
     assert_eq!(
-        Preferences::parse("dock = so.oxy.stash,bad id\n").dock,
+        Preferences::parse("dock = so.oxy.dropsea,bad id\n").dock,
         None
     );
 }

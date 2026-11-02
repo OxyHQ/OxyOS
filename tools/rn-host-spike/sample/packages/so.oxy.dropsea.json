@@ -1,13 +1,13 @@
 {
-  "id": "so.oxy.stash",
+  "id": "so.oxy.dropsea",
   "application": "00000000-0000-0000-0000-000000000000",
   "version": "0.1.0",
   "versionCode": 1,
-  "name": "Stash",
+  "name": "Dropsea",
   "icon": "icon.png",
   "entry": {
     "bundle": "bundle/index.js",
-    "module": "Stash"
+    "module": "Dropsea"
   },
   "architectures": [
     "any"
@@ -15,5 +15,5 @@
   "capabilities": [
     { "name": "url-schemes", "purpose": { "en": "To open at a place of its own: the dock's Trash opens it at its Trash.", "es": "Para abrirse en un lugar suyo: la Papelera del Dock lo abre en su Papelera." } }
   ],
-  "opens": { "schemes": ["stash"] }
+  "opens": { "schemes": ["dropsea"] }
 }

@@ -1,5 +1,5 @@
 {
-  "about": "Atlas (OxyHQ/Atlas), the App Store, as the system application it is (docs/adr/0030-installing-applications.mdx, decisions 9, 13 and 14), built from its own checkout (ATLAS_DIR) and kept in the dock after Stash, on the ThinkPad's display (1600×1000 at 1.25): pressed there, the session starts it from its registry entry with the `store` and `updates` grants the image's policy gives it (here `grants`), and the runtime registers the machine's installer in its own Oxy SDK, so Atlas offers Updates and Get where it would offer View. Zoomed to the work area, it reads the store of the scenario's own, which is down: its storefront waits, then says it could not be loaded, and never crashes; Try again reads it once the store answers, every lockup's action Get (the machine cannot say where each stands: the install service is not running). Get asks the session to install by the listing's slug alone; the session has no install service to ask, so the shell's system sheet says so with one button, and Atlas, told the person was told, says nothing more and offers Get again. Without the installer registered, the lockups say View and the shelf has no Updates, and it fails; with the session silent when the service is absent, no sheet shows, and it fails.",
+  "about": "Atlas (OxyHQ/Atlas), the App Store, as the system application it is (docs/adr/0030-installing-applications.mdx, decisions 9, 13 and 14), built from its own checkout (ATLAS_DIR) and kept in the dock after Dropsea, on the ThinkPad's display (1600×1000 at 1.25): pressed there, the session starts it from its registry entry with the `store` and `updates` grants the image's policy gives it (here `grants`), and the runtime registers the machine's installer in its own Oxy SDK, so Atlas offers Updates and Get where it would offer View. Zoomed to the work area, it reads the store of the scenario's own, which is down: its storefront waits, then says it could not be loaded, and never crashes; Try again reads it once the store answers, every lockup's action Get (the machine cannot say where each stands: the install service is not running). Get asks the session to install by the listing's slug alone; the session has no install service to ask, so the shell's system sheet says so with one button, and Atlas, told the person was told, says nothing more and offers Get again. Without the installer registered, the lockups say View and the shelf has no Updates, and it fails; with the session silent when the service is absent, no sheet shows, and it fails.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -100,7 +100,7 @@
   ],
   "steps": [
     {
-      "name": "Atlas in the dock, after Stash: the session starts it, with its window",
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
       "do": [
         "press_output",
         [

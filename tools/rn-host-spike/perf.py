@@ -13,8 +13,8 @@ step's expected result) and measures, from what the processes report and from /p
 - the shell: what the session's shell pays for an event (shell-events.json): another window zoomed
   and restored, which changes nothing the shell shows, and the pointer over the dock; for each, the
   most JavaScript any one piece of the shell's work ran, against the scenario's budget;
-- responses: Stash used as a person uses it (perf-stash.json at 1, perf-stash-scaled.json at 1.25,
-  perf-stash-home.json on a home of 360,000 files, zoomed at 1.25):
+- responses: Dropsea used as a person uses it (perf-dropsea.json at 1, perf-dropsea-scaled.json at 1.25,
+  perf-dropsea-home.json on a home of 360,000 files, zoomed at 1.25):
   for each input, the latency from it to the first frame that changed, against the scenario's
   budget, and the work the application's host did for it (`busy_ms` summed over the frames until
   the step settled, and its JavaScript);
@@ -41,7 +41,7 @@ Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs
                [--renderer cpu|gpu] [--check]
                [interactions] [responses] [shell] [cold-start] [idle] [applications]
 
-`responses` needs packages built with STASH_DIR (docs/react-native-android-adaptation.mdx).
+`responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
 
 import argparse
@@ -75,8 +75,8 @@ INTERACTIONS = [
      "the same beside the shell on a 1600x1000 output at 1.25, the ThinkPad's scale"),
     ("live resize", "window-resize.json", [1, 2, 3],
      "the Inbox's edges dragged at 125 Hz: one configure in flight, the host laying out and drawing each size"),
-    ("Stash live resize", "perf-stash-resize.json", [3, 4],
-     "Stash's right edge dragged 300 px in and back at 125 Hz: Bloom's shell, its panels and Stash's items are flex"),
+    ("Dropsea live resize", "perf-dropsea-resize.json", [3, 4],
+     "Dropsea's right edge dragged 300 px in and back at 125 Hz: Bloom's shell, its panels and Dropsea's items are flex"),
     ("zoom", "windows.json", [3, 4],
      "the green bubble: the window's frame animated to the work area and back (a compositor transition)"),
     ("window views", "shell-thumbnails.json", [1],
@@ -88,9 +88,9 @@ INTERACTIONS = [
 # Responses: (name, scenario). Each step with an input is measured; its budget is the scenario's own
 # `latency_ms`, which regress.py holds every run to and --check the median.
 RESPONSES = [
-    ("Stash", "perf-stash.json"),
-    ("Stash at 1.25", "perf-stash-scaled.json"),
-    ("Stash on a big home, zoomed at 1.25", "perf-stash-home.json"),
+    ("Dropsea", "perf-dropsea.json"),
+    ("Dropsea at 1.25", "perf-dropsea-scaled.json"),
+    ("Dropsea on a big home, zoomed at 1.25", "perf-dropsea-home.json"),
 ]
 
 # The shell's responses: (name, scenario). Each step that holds the shell to a `js_work` budget

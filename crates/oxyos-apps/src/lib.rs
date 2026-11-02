@@ -684,7 +684,7 @@ pub fn directories() -> Vec<PathBuf> {
         .collect()
 }
 
-/// An application's own data directory (`so.oxy.stash`'s, for its storage and its documents):
+/// An application's own data directory (`so.oxy.dropsea`'s, for its storage and its documents):
 /// `oxyos/apps/<id>` under `$XDG_DATA_HOME` (`~/.local/share`), as Android gives each
 /// application `/data/data/<package>` (docs/adr/0030-installing-applications.mdx: an
 /// application's data is the account's; the host gives it as Expo's document directory). None for an id that is not one ([`valid_id`]), or without
@@ -1174,7 +1174,7 @@ fn pinned(
 
 /// The file manager (docs/adr/0028-file-access.mdx, decision 7), which shows any file: what opens
 /// one no application declares its type for.
-pub const FILE_MANAGER: &str = "so.oxy.stash";
+pub const FILE_MANAGER: &str = "so.oxy.dropsea";
 
 /// A file's `file://` URL: its absolute path, every byte but an unreserved one or `/`
 /// percent-encoded (RFC 3986), as Android's `Uri.fromFile` makes one.

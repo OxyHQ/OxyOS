@@ -8,7 +8,7 @@ impl Directory {
         let dir =
             std::env::temp_dir().join(format!("oxyos-app-storage-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        Self(dir.join("so.oxy.stash"))
+        Self(dir.join("so.oxy.dropsea"))
     }
 }
 

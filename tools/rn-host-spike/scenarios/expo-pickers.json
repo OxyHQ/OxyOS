@@ -1,5 +1,5 @@
 {
-  "about": "Expo's pickers on OxyOS (docs/adr/0029-chromium-on-oxyos.mdx, decision 8; sample/ExpoPickerProbe.tsx, sample/oxyos/expo-file-system.js, sample/oxyos/expo-document-picker.js): expo-file-system's File.pickFileAsync (one PNG, several files) and Directory.pickDirectoryAsync, and expo-document-picker's getDocumentAsync, the calls an application makes on Android and iOS, each asking the system's file chooser (sample/FileChooserFixture.tsx standing in for Stash's picker mode) as a sheet of the window; what each resolves with read back (a document's asset a copy in the application's cache), and a cancellation answered as each API answers one.",
+  "about": "Expo's pickers on OxyOS (docs/adr/0029-chromium-on-oxyos.mdx, decision 8; sample/ExpoPickerProbe.tsx, sample/oxyos/expo-file-system.js, sample/oxyos/expo-document-picker.js): expo-file-system's File.pickFileAsync (one PNG, several files) and Directory.pickDirectoryAsync, and expo-document-picker's getDocumentAsync, the calls an application makes on Android and iOS, each asking the system's file chooser (sample/FileChooserFixture.tsx standing in for Dropsea's picker mode) as a sheet of the window; what each resolves with read back (a document's asset a copy in the application's cache), and a cancellation answered as each API answers one.",
   "module": "ExpoPickerProbe",
   "window": [
     800,

@@ -4023,16 +4023,16 @@ fn an_applications_directories_are_named_by_its_id_through_the_c_abi() {
         // SAFETY: the function wrote `length` bytes and a NUL.
         Some(unsafe { CStr::from_ptr(out.as_ptr()) }.to_str().unwrap()[..length].to_string())
     };
-    let data = directory("so.oxy.stash", 0).expect("data");
-    let cache = directory("so.oxy.stash", 1).expect("cache");
-    assert!(data.ends_with("/oxyos/apps/so.oxy.stash"), "{data}");
-    assert!(cache.ends_with("/oxyos/apps/so.oxy.stash"), "{cache}");
+    let data = directory("so.oxy.dropsea", 0).expect("data");
+    let cache = directory("so.oxy.dropsea", 1).expect("cache");
+    assert!(data.ends_with("/oxyos/apps/so.oxy.dropsea"), "{data}");
+    assert!(cache.ends_with("/oxyos/apps/so.oxy.dropsea"), "{cache}");
     assert_ne!(data, cache);
     // An id that is not one never names a directory.
     for id in ["../escape", "", "a/b"] {
         assert_eq!(directory(id, 0), None, "{id}");
     }
-    assert_eq!(directory("so.oxy.stash", 2), None);
+    assert_eq!(directory("so.oxy.dropsea", 2), None);
 }
 
 #[test]
@@ -5085,8 +5085,8 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
         }
     });
     let path = CString::new(socket.to_str().unwrap()).unwrap();
-    let ids = "so.oxy.stash\nso.oxy.allo";
-    let url = "stash://trash";
+    let ids = "so.oxy.dropsea\nso.oxy.allo";
+    let url = "dropsea://trash";
     // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the buffers
     // outlive the calls.
     let received = unsafe {
@@ -5136,14 +5136,14 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
                 list: oxyos_protocol::ApplicationListKind::Dock,
                 index: 0,
                 last: true,
-                text: PreeditText::new("so.oxy.stash\nso.oxy.allo").unwrap(),
+                text: PreeditText::new("so.oxy.dropsea\nso.oxy.allo").unwrap(),
             },
             Request::OpenUrl {
                 serial: 6,
                 input: 42,
                 index: 0,
                 last: true,
-                text: PreeditText::new("stash://trash").unwrap(),
+                text: PreeditText::new("dropsea://trash").unwrap(),
             },
             Request::ForceQuitApplication { window: 7 },
             Request::EmptyTrash { input: 43 },

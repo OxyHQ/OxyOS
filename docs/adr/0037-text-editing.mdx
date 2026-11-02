@@ -8,6 +8,8 @@ order: 46
 
 Status: **accepted; implemented** (except what [Remains](#what-remains) lists). Builds on [ADR 0008](./0008-input-method) (input methods, the field's state and transactions), [ADR 0014](./0014-screen-reader) (the screen reader), [ADR 0021](./0021-menu-bar) and [ADR 0024](./0024-system-shortcuts) (Ctrl is the applications' ⌘, Super the system's), [ADR 0033](./0033-protocol-versions) (protocol versions). Key repeat is [ADR 0036](./0036-key-repeat).
 
+**2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
+
 ## Problem
 
 The owner's assessment: "Recibir texto compuesto no significa tener IME completo. Siguen faltando composición en curso, selección, cursor y otros comportamientos de edición." Receiving composed text is not a complete input method; a field must show a composition in progress, select, place and draw its caret, and edit as a Mac does.

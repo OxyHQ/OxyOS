@@ -393,7 +393,7 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Abrir Stash"
+              "name": "Abrir Dropsea"
             },
             {
               "role": "Button",
@@ -406,7 +406,7 @@
   ],
   "final": {
     "preferences_file": {
-      "dock": "so.oxy.stash,so.oxy.atlas,so.oxy.allo",
+      "dock": "so.oxy.dropsea,so.oxy.atlas,so.oxy.allo",
       "open_at_login": "so.oxy.allo"
     }
   }
