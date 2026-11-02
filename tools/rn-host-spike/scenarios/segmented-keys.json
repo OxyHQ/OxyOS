@@ -1,0 +1,409 @@
+{
+ "about": "A segmented control from the keyboard, as a Mac's with Full Keyboard Access and WAI-ARIA's radio group (docs/adr/0039-keyboard-access.mdx; Bloom's SegmentedControl): Settings with the shell, the screen reader on in Spanish. Tab reaches Appearance's Light / Dark / Auto once, on its chosen segment; → ← (↓ ↑) choose the next segment round the ends, the session's appearance changing and every application told, the keyboard following each choice once the session applied it and each segment said once, chosen; Tab goes on past the control and Shift+Tab back to its chosen segment. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says, what is announced and the preference. At 1 (1280 × 720).",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "Settings' window with the shell, the reader on, nothing of it focused",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the sidebar's selected row, Appearance",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@settings-nav-appearance": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-nav-appearance",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Appearance",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Appearance, seleccionado",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the appearance's segmented control, one stop: its chosen segment, Light, said once as chosen",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@settings-nav-appearance": 1,
+     "focus@appearance-light": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-light",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Light",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Dark",
+       "state": []
+      },
+      {
+       "role": "Radio",
+       "name": "Auto",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Light, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ chooses Dark: the session's appearance changes and every application is told; the keyboard follows the choice once the session applied it, Dark said once as chosen",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@appearance-light": 1,
+     "focus@appearance-dark": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-dark",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Dark",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Light",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Dark, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "dark": true
+    }
+   }
+  },
+  {
+   "name": "→: Auto",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@appearance-dark": 1,
+     "focus@appearance-auto": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-auto",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Auto",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Auto, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ round the end: Light",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@appearance-auto": 1,
+     "focus@appearance-light": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-light",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Light",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Light, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "dark": false
+    }
+   }
+  },
+  {
+   "name": "←: round the start to Auto",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@appearance-light": 1,
+     "focus@appearance-auto": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-auto",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Auto",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Auto, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "↓ is →, as in a radio group: Light",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@appearance-auto": 1,
+     "focus@appearance-light": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-light",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Light",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Light, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "dark": false
+    }
+   }
+  },
+  {
+   "name": "Tab leaves the control (Dark and Auto are no stops) for the accent's first swatch",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@appearance-light": 1,
+     "focus@accent-oxy": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-oxy",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Oxy, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: back on the control's chosen segment; the session keeps Light",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@accent-oxy": 1,
+     "focus@appearance-light": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-light",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Light",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Light, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences_file": {
+     "appearance": "light"
+    }
+   }
+  }
+ ]
+}

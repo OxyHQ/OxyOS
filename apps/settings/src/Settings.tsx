@@ -190,7 +190,14 @@ function AppearancePage({ snapshot, actions, strings }: PageProps) {
           title={words.accent}
           testID="accent-row"
           rightElement={
-            <View style={{ flexDirection: "row", gap: 10 }} accessibilityRole="radiogroup" accessibilityLabel={words.accent}>
+            <View
+              style={{ flexDirection: "row", gap: 10 }}
+              accessibilityRole="radiogroup"
+              accessibilityLabel={words.accent}
+              // The group holds its swatches: Fabric flattens a view that forms no stacking context
+              // (a role and a label do not form one) and mounts its children in the one above.
+              collapsable={false}
+            >
               {ACCENTS.filter((name) => name in APP_COLOR_PRESETS).map((name) => {
                 const chosen = name === accent;
                 const preset = APP_COLOR_PRESETS[name as keyof typeof APP_COLOR_PRESETS];

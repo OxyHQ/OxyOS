@@ -1,5 +1,5 @@
 {
- "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Stash's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. At scale 1.25 (the ThinkPad's panel). Its sidebar is one navigation the assistive technology receives holding its eleven rows, top to bottom, inside it (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
+ "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Stash's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. At scale 1.25 (the ThinkPad's panel). Its sidebar is one navigation holding ONE list of its eleven rows, top to bottom (its items, docs/adr/0039-keyboard-access.mdx) (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
  "module": "OxyOSSettings",
  "window": [
   960,
@@ -57,64 +57,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -124,7 +123,7 @@
        "name": "Appearance"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Appearance",
        "state": [
         "selected"
@@ -191,64 +190,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -258,7 +256,7 @@
        "name": "Wallpaper"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Wallpaper",
        "state": [
         "selected"
@@ -307,64 +305,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -374,7 +371,7 @@
        "name": "Displays"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Displays",
        "state": [
         "selected"
@@ -421,64 +418,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -488,7 +484,7 @@
        "name": "Wallpaper"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Wallpaper",
        "state": [
         "selected"
@@ -537,64 +533,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -604,7 +599,7 @@
        "name": "Displays"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Displays",
        "state": [
         "selected"
@@ -651,64 +646,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -718,7 +712,7 @@
        "name": "Wallpaper"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Wallpaper",
        "state": [
         "selected"
@@ -767,64 +761,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -834,7 +827,7 @@
        "name": "Appearance"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Appearance",
        "state": [
         "selected"
@@ -881,64 +874,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -948,7 +940,7 @@
        "name": "Wallpaper"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Wallpaper",
        "state": [
         "selected"
@@ -997,64 +989,63 @@
       },
       "items": [
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Appearance",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Wallpaper",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Notifications",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Accessibility",
         "state": [
          "selected"
         ]
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Keyboard",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Date & Time",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Software Update",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "Privacy",
         "state": []
        },
        {
-        "role": "Button",
+        "role": "ListItem",
         "name": "About",
         "state": []
        }
-      ],
-      "only": true
+      ]
      }
     ],
     "at": {
@@ -1064,7 +1055,7 @@
        "name": "Accessibility"
       },
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Accessibility",
        "state": [
         "selected"

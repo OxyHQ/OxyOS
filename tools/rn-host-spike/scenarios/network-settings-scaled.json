@@ -81,11 +81,11 @@
         "at": {
           "window": [
             {
-              "role": "Button",
+              "role": "ListItem",
               "name": "Wi-Fi"
             },
             {
-              "role": "Button",
+              "role": "ListItem",
               "name": "Network"
             }
           ]

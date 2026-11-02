@@ -1422,6 +1422,12 @@ int main(int argc, char** argv) {
     };
     // The navigation's view as last seen for the surface with the keyboard: a modal coming takes the
     // keyboard to its first control and remembers where it was; one going gives it back there.
+    // A view the application moved accessibility focus to while the keyboard navigates, which is
+    // not focusable in the tree yet: made so in the commit that asks for its focus (a segmented
+    // control's newly chosen segment, its group's one Tab stop), still to be mounted. The
+    // keyboard follows it once that commit is, as Android's mounting layer handles the event
+    // behind the mount items queued before it.
+    facebook::react::Tag keyboardAfterMount = -1;
     facebook::react::Tag lastScope = -1;
     uint32_t lastScopeSurface = 0;
     // Each shell region's focus request last carried out, while it holds the keyboard.
@@ -1548,8 +1554,12 @@ int main(int argc, char** argv) {
         // menu's or dialog's trigger the focus back) take the keyboard's with them.
         auto scope = navigationScope(keyboardSurface);
         if (keyboardFocus.ringShown() && scope >= 0 && view.tag != keyboardFocus.focused() &&
-            oxyos::focusable(tree, view.tag) && insideOf(view.tag, scope)) {
-          moveKeyboardFocus(view.tag, true, keyboardSurface);
+            insideOf(view.tag, scope)) {
+          if (oxyos::focusable(tree, view.tag)) {
+            moveKeyboardFocus(view.tag, true, keyboardSurface);
+          } else {
+            keyboardAfterMount = view.tag;
+          }
         }
       }
     };
@@ -2132,6 +2142,15 @@ int main(int argc, char** argv) {
         // The keyboard's navigation follows a modal coming and going; its ring is drawn with the
         // focused control.
         followScope();
+        if (keyboardAfterMount >= 0) {
+          auto tag = keyboardAfterMount;
+          keyboardAfterMount = -1;
+          auto scope = navigationScope(keyboardSurface);
+          if (keyboardFocus.ringShown() && scope >= 0 && tag != keyboardFocus.focused() && tree.views().count(tag) &&
+              oxyos::focusable(tree, tag) && insideOf(tag, scope)) {
+            moveKeyboardFocus(tag, true, keyboardSurface);
+          }
+        }
         // A shell region given the keyboard puts its focus where it asks (its `focusTarget`).
         if (shellMode) {
           if (auto asked = shellSurfaces.focusRequest(); asked && keyboardSurface == asked->surface) {
