@@ -1,14 +1,13 @@
 {
- "about": "stash-window.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018): every size the drags pass through asked for at 1.25, the same walk 40 px lower on the logical 1280x800 output.",
- "module": "Stash",
+ "about": "Dropsea's window as a Mac's is used (docs/adr/0016-windows.mdx): moved by its toolbar's empty middle, resized live from each edge and corner (one configure in flight, the edges not dragged never moving, the window at exactly the pointer's size) down to the smallest size Dropsea declares through Bloom's window capability (useWindowSizeLimits: 640x400, the compositor's SetSizeLimits), zoomed and restored, its sidebar hidden and shown from the toolbar, and minimized. At every size the sidebar stays in the window (Bloom's desktop window: navFrom 0), never a drawer whose menu button lands on the window's controls, and its pane's toolbar is the window's title area beside it. Its host's diagnostics write each resize, zoom and minimize to the log (frame-diagnostics.h).",
+ "module": "Dropsea",
  "window": [
   1024,
   680
  ],
- "outputs": "1600x1000@1.25",
  "app": {
-  "id": "so.oxy.stash",
-  "title": "Stash"
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
  },
  "home": {
   "items": {
@@ -31,7 +30,7 @@
    "expect": {
     "window_rect": [
      128,
-     60,
+     20,
      1024,
      680
     ],
@@ -70,7 +69,7 @@
      522,
      27,
      -60,
-     -50
+     -10
     ]
    ],
    "expect": {
@@ -126,6 +125,11 @@
        "role": "Button",
        "name": "Open navigation"
       }
+     ]
+    },
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.dropsea\\] a resize to \\d+x680: its frame presented [\\d.]+ ms after the configure \\(laying it out"
      ]
     }
    }
@@ -416,7 +420,7 @@
    }
   },
   {
-   "name": "The bottom-right corner dragged far in: the window stops at the smallest size Stash declared (640x400, its sidebar beside a pane whose toolbar fits), the sidebar still in it",
+   "name": "The bottom-right corner dragged far in: the window stops at the smallest size Dropsea declared (640x400, its sidebar beside a pane whose toolbar fits), the sidebar still in it",
    "do": [
     "drag_paced",
     [
@@ -476,8 +480,13 @@
      0,
      0,
      1280,
-     800
-    ]
+     720
+    ],
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.dropsea\\] zoom \\(to fill the work area\\): its configure [\\d.]+ ms after it was asked, its frame presented"
+     ]
+    }
    }
   },
   {
@@ -495,7 +504,12 @@
      60,
      640,
      400
-    ]
+    ],
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.dropsea\\] zoom \\(back to its size\\): its configure"
+     ]
+    }
    }
   },
   {
@@ -576,7 +590,12 @@
     ]
    ],
    "expect": {
-    "window_shown": false
+    "window_shown": false,
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.dropsea\\] minimize: the window inactive [\\d.]+ ms after it was asked$"
+     ]
+    }
    }
   }
  ]

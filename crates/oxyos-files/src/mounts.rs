@@ -2,7 +2,7 @@
 //!
 //! Every call that takes a path asks which volumes are mounted (a path in one is in scope), and
 //! reading and parsing `/proc/self/mountinfo` each time was about 2 % of the Bloom host's work in
-//! Stash. The table is read once and kept; it is read again only after the kernel says it changed,
+//! Dropsea. The table is read once and kept; it is read again only after the kernel says it changed,
 //! as util-linux's libmount monitor learns it: `/proc/self/mountinfo`, kept open, polls with
 //! `POLLPRI` (and `POLLERR`) once the mount namespace's table changed since the descriptor last
 //! looked (`proc(5)`, `fs/proc_namespace.c`'s `mounts_poll`, which forgets the change as it says

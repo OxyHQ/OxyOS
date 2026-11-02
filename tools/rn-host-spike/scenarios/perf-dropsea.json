@@ -1,13 +1,13 @@
 {
-  "about": "Stash as a person uses it on the ThinkPad (docs/performance.mdx): a home like the owner's (21 items, 27 in Downloads, pictures among them) in a 1280x800 window on a 1920x1200 output at 1, driven as a hand drives it: Downloads selected and opened, an item pressed, the arrows, the mouse moved across the icons, the list view, a row pressed, a context menu at a secondary press and Escape, back and a sidebar place. Every step checks the events React received, the selection and the focus the assistive technology holds and the popups, and its latency (input to the first frame that changed) is held to a budget on the reference machine (docs/performance.mdx; about four times what it takes there unloaded, so a regression fails it and a loaded machine does not); perf.py reports each step's latency and the host's work.",
-  "module": "Stash",
+  "about": "Dropsea as a person uses it on the ThinkPad (docs/performance.mdx): a home like the owner's (21 items, 27 in Downloads, pictures among them) in a 1280x800 window on a 1920x1200 output at 1, driven as a hand drives it: Downloads selected and opened, an item pressed, the arrows, the mouse moved across the icons, the list view, a row pressed, a context menu at a secondary press and Escape, back and a sidebar place. Every step checks the events React received, the selection and the focus the assistive technology holds and the popups, and its latency (input to the first frame that changed) is held to a budget on the reference machine (docs/performance.mdx; about four times what it takes there unloaded, so a regression fails it and a loaded machine does not); perf.py reports each step's latency and the host's work.",
+  "module": "Dropsea",
   "window": [
     1280,
     800
   ],
   "app": {
-    "id": "so.oxy.stash",
-    "title": "Stash"
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
   },
   "home": {
     "items": {
@@ -153,7 +153,7 @@
   "outputs": "1920x1200",
   "steps": [
     {
-      "name": "Stash opens on the home: its 21 items, nothing selected",
+      "name": "Dropsea opens on the home: its 21 items, nothing selected",
       "do": [
         "wait",
         3000

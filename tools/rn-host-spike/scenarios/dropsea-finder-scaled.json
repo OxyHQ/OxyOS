@@ -1,13 +1,13 @@
 {
- "about": "Stash on OxyOS as Finder is used: a press selects (only an icon or its name; the cell's corner is the background), a double press opens, the arrows move through the grid and a list, type-select, Return renames and Escape cancels, a context menu opens at the press for the item pressed (selecting it) or for the folder on the background, going back selects the folder left so the keys go on from there, and a press among the items takes the keys back from the search field. Every step checks the events React received, what the assistive technology holds, the focus and the disk, not pixels. Window 1280x800: the grid has 9 columns spread across 1042 points (icon centres at x = 294 + 113 column, y = 114 + 112 row). At 1.25, the ThinkPad's scale.",
- "module": "Stash",
+ "about": "Dropsea on OxyOS as Finder is used: a press selects (only an icon or its name; the cell's corner is the background), a double press opens, the arrows move through the grid and a list, type-select, Return renames and Escape cancels, a context menu opens at the press for the item pressed (selecting it) or for the folder on the background, going back selects the folder left so the keys go on from there, and a press among the items takes the keys back from the search field. Every step checks the events React received, what the assistive technology holds, the focus and the disk, not pixels. Window 1280x800: the grid has 9 columns spread across 1042 points (icon centres at x = 294 + 113 column, y = 114 + 112 row). At 1.25, the ThinkPad's scale.",
+ "module": "Dropsea",
  "window": [
   1280,
   800
  ],
  "app": {
-  "id": "so.oxy.stash",
-  "title": "Stash"
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
  },
  "home": {
   "items": {

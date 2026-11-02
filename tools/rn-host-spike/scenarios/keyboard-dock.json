@@ -109,7 +109,7 @@
    }
   },
   {
-   "name": "→ goes along the dock to Stash",
+   "name": "→ goes along the dock to Dropsea",
    "do": [
     "key",
     [
@@ -122,7 +122,7 @@
     "delivered": {},
     "in_shell": {
      "keyboard_focus": {
-      "target": "dock-so.oxy.stash",
+      "target": "dock-so.oxy.dropsea",
       "ring": true
      }
     },
@@ -130,7 +130,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Stash",
+       "name": "Abrir Dropsea",
        "state": [
         "collapsed",
         "focused"
@@ -140,7 +140,7 @@
     },
     "spoken": [
      {
-      "text": "Abrir Stash, contraído, botón",
+      "text": "Abrir Dropsea, contraído, botón",
       "interrupting": true
      }
     ],
@@ -294,7 +294,7 @@
    }
   },
   {
-   "name": "→ to Stash",
+   "name": "→ to Dropsea",
    "do": [
     "key",
     [
@@ -306,13 +306,13 @@
     "react": {},
     "in_shell": {
      "keyboard_focus": {
-      "target": "dock-so.oxy.stash",
+      "target": "dock-so.oxy.dropsea",
       "ring": true
      }
     },
     "spoken": [
      {
-      "text": "Abrir Stash, contraído, botón",
+      "text": "Abrir Dropsea, contraído, botón",
       "interrupting": true
      }
     ],

@@ -1,14 +1,14 @@
 {
-  "about": "Stash on a home like the owner's ThinkPad's, whose node_modules/ and Oxy/ hold 360,000 files, in its window zoomed to the work area of a 1920x1200 output at 1.25 (1536x930): it opening on the home, an item pressed, a folder opened and back to the home (the press that froze for two seconds on the ThinkPad, and its launch for four: listing the home asked every folder its info(), and expo-file-system answers that by walking the folder's whole tree for its size), a file another program added to the home while Stash showed Downloads listed with it, Stash left alone for half a minute, and four more files added one every four seconds, each heard by its watch and listed again. A listing reads each item once (a folder's own date, never its tree), so no frame's JavaScript grows with what the folders hold: the launch and the press back are held to a budget of their JavaScript (js_work) on the reference machine (docs/performance.mdx; about twice what they take there unloaded; reading the trees took 0.9 to 1.5 s), the other presses to latency budgets, every frame while Stash is left alone to a refresh, and each change it hears to a budget of its own.",
-  "module": "Stash",
+  "about": "Dropsea on a home like the owner's ThinkPad's, whose node_modules/ and Oxy/ hold 360,000 files, in its window zoomed to the work area of a 1920x1200 output at 1.25 (1536x930): it opening on the home, an item pressed, a folder opened and back to the home (the press that froze for two seconds on the ThinkPad, and its launch for four: listing the home asked every folder its info(), and expo-file-system answers that by walking the folder's whole tree for its size), a file another program added to the home while Dropsea showed Downloads listed with it, Dropsea left alone for half a minute, and four more files added one every four seconds, each heard by its watch and listed again. A listing reads each item once (a folder's own date, never its tree), so no frame's JavaScript grows with what the folders hold: the launch and the press back are held to a budget of their JavaScript (js_work) on the reference machine (docs/performance.mdx; about twice what they take there unloaded; reading the trees took 0.9 to 1.5 s), the other presses to latency budgets, every frame while Dropsea is left alone to a refresh, and each change it hears to a budget of its own.",
+  "module": "Dropsea",
   "window": [
     1536,
     930
   ],
   "outputs": "1920x1200@1.25",
   "app": {
-    "id": "so.oxy.stash",
-    "title": "Stash"
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
   },
   "home": {
     "items": {
@@ -199,7 +199,7 @@
   },
   "steps": [
     {
-      "name": "Stash opens on the home: its 21 items, listed without reading what its folders hold",
+      "name": "Dropsea opens on the home: its 21 items, listed without reading what its folders hold",
       "do": [
         "wait",
         3000

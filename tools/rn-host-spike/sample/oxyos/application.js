@@ -1,6 +1,6 @@
 /**
  * An Oxy application from its own checkout (`OXYOS_APPLICATION_DIR`, oxyos/application-build.js),
- * run as `expo-router/entry` runs it: Stash, the file manager, Atlas, the App Store (ADR 0030,
+ * run as `expo-router/entry` runs it: Dropsea, the file manager, Atlas, the App Store (ADR 0030,
  * decision 13). metro.config.js resolves this module's requests as the application's root would
  * make them, and makes it an empty module when the bundle has no application.
  *

@@ -188,7 +188,7 @@ fn force_quit_names_the_launched_clients_of_the_windows_application_and_no_other
 #[test]
 fn the_shells_list_is_handed_whole_and_every_shell_is_told_the_programs() {
     let mut h = Harness::new();
-    for (index, (last, text)) in [(false, "so.oxy.stash\n"), (true, "so.oxy.inbox")]
+    for (index, (last, text)) in [(false, "so.oxy.dropsea\n"), (true, "so.oxy.inbox")]
         .into_iter()
         .enumerate()
     {
@@ -208,7 +208,7 @@ fn the_shells_list_is_handed_whole_and_every_shell_is_told_the_programs() {
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].serial, 4);
     assert_eq!(changes[0].list, ApplicationListKind::Dock);
-    assert_eq!(changes[0].text, "so.oxy.stash\nso.oxy.inbox");
+    assert_eq!(changes[0].text, "so.oxy.dropsea\nso.oxy.inbox");
     // Only the shell changes them.
     assert_eq!(
         h.request(
@@ -226,7 +226,7 @@ fn the_shells_list_is_handed_whole_and_every_shell_is_told_the_programs() {
     logged(&mut h);
     let list = ApplicationList {
         chosen: true,
-        ids: vec!["so.oxy.stash".into(), "so.oxy.inbox".into()],
+        ids: vec!["so.oxy.dropsea".into(), "so.oxy.inbox".into()],
     };
     h.scene
         .set_application_list(ApplicationListKind::Dock, list.clone());
@@ -242,7 +242,7 @@ fn the_shells_list_is_handed_whole_and_every_shell_is_told_the_programs() {
             _ => None,
         })
         .collect();
-    assert_eq!(told, "so.oxy.stash\nso.oxy.inbox");
+    assert_eq!(told, "so.oxy.dropsea\nso.oxy.inbox");
     // The same again tells nothing; a shell connecting later is told it.
     h.scene
         .set_application_list(ApplicationListKind::Dock, list);
@@ -271,13 +271,13 @@ fn a_url_is_handed_to_the_program_with_whether_it_cited_an_input() {
             input: 0,
             index: 0,
             last: true,
-            text: PreeditText::new("stash://trash").unwrap(),
+            text: PreeditText::new("dropsea://trash").unwrap(),
         },
     )
     .unwrap();
     let asked = h.scene.take_url_requests();
     assert_eq!(asked.len(), 1);
-    assert_eq!(asked[0].url, "stash://trash");
+    assert_eq!(asked[0].url, "dropsea://trash");
     assert!(!asked[0].with_input);
     assert_eq!(
         h.request(
@@ -287,7 +287,7 @@ fn a_url_is_handed_to_the_program_with_whether_it_cited_an_input() {
                 input: 0,
                 index: 0,
                 last: true,
-                text: PreeditText::new("stash://trash").unwrap(),
+                text: PreeditText::new("dropsea://trash").unwrap(),
             }
         ),
         Err(ErrorCode::Unauthorized)

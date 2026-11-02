@@ -1,13 +1,13 @@
 {
- "about": "stash-preview.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), its home without the drawable picture, which the platform redraws as its icon moves.",
- "module": "Stash",
+ "about": "dropsea-preview.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), its home without the drawable picture, which the platform redraws as its icon moves.",
+ "module": "Dropsea",
  "window": [
   1024,
   680
  ],
  "app": {
-  "id": "so.oxy.stash",
-  "title": "Stash"
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
  },
  "home": {
   "items": {

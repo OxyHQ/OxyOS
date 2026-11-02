@@ -1216,7 +1216,7 @@ std::shared_ptr<TurboModule> createHostModule(
     // React Native's Linking, as its Android module answers it. Its initial URL is what the
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
     // thumbnail pressed, `file://`, docs/adr/0028-file-access.mdx, decision 6) or a URL of a scheme
-    // its entry declares (the dock's Trash opening Stash at stash://trash, docs/adr/0034-the-dock.mdx);
+    // its entry declares (the dock's Trash opening Dropsea at dropsea://trash, docs/adr/0034-the-dock.mdx);
     // else none. An application does not open links yet (there is no browser, and no request for
     // one), so none can be opened: asked, it says so, and opening one fails with the reason.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {

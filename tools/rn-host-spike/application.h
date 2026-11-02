@@ -1,7 +1,7 @@
 // The application the host runs (docs/adr/0030-installing-applications.mdx, decision 7; ADR 0013),
 // and what the platform keeps and answers for it (docs/react-native-android-adaptation.mdx):
 //
-// - **Which application.** Its id is the registry entry's (`so.oxy.stash`), which the session
+// - **Which application.** Its id is the registry entry's (`so.oxy.dropsea`), which the session
 //   gives it in OXYOS_APP_ID when it launches it (crates/oxyos-apps' `command`), and its module
 //   the entry's `X-OxyOS-Bloom-Module`. An application the session did not start
 //   (OXYOS_APP_UNRECORDED) has its id only as a claim; one started with no id has none.

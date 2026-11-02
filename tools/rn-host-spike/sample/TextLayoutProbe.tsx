@@ -13,7 +13,7 @@
  *   can be, the last line free; `balanced` evens the last line too; `simple` fills each line in
  *   turn. A word wider than its box is broken where Minikin's desperate breaks score least;
  * - a multiline text input breaks as a Text does: End takes its caret to its first line's end.
- * Each label is a file's name as a file manager's icon shows it (Stash: two centred lines of
+ * Each label is a file's name as a file manager's icon shows it (Dropsea: two centred lines of
  * 12-point text in 84 points, in Bloom's Inter). Under each, what `onTextLayout` gave: each line's text, as
  * Android gives it (an ellipsized line's text is all it stands for), and whether any line
  * overflowed the box.

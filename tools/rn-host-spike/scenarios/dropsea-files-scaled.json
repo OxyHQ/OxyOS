@@ -1,14 +1,15 @@
 {
-  "about": "Stash (OxyHQ/Stash), OxyOS's file manager, on a home of the run's own (docs/adr/0028-file-access.mdx, the bundle built with STASH_DIR): the person's places in its sidebar and the home's items, selection by a press, Shift and Ctrl, a double press opening a folder, a file another program writes appearing at once, Return renaming in place with the stem selected and the name kept on the disk, New Folder from the File menu's shortcut, Move to Trash into the freedesktop.org Trash with where it was, the Trash's view, a context menu at a secondary press in a popup of its own, and Put Back. Every step checks what the assistive technology holds, the focus and the disk, not only pixels.",
-  "module": "Stash",
+  "about": "Dropsea's files (scenarios/dropsea-files.json) on a 1600x1000 display at 1.25 (ADR 0018): the same home, presses, keys, renaming, Trash and context menu, its points in the window's logical pixels, drawn at the output's scale; every step checks the assistive technology's nodes, the focus and the disk.",
+  "module": "Dropsea",
   "window": [
     1024,
     680
   ],
   "app": {
-    "id": "so.oxy.stash",
-    "title": "Stash"
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
   },
+  "outputs": "1600x1000@1.25",
   "home": {
     "items": {
       "Documents/": "",

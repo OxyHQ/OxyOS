@@ -548,7 +548,7 @@
       }
     },
     {
-      "name": "The thumbnail pressed: the screenshot opens in Stash, the file in its launch record",
+      "name": "The thumbnail pressed: the screenshot opens in Dropsea, the file in its launch record",
       "do": [
         "press_output",
         [
@@ -561,7 +561,7 @@
           "saved": [],
           "opened": [
             {
-              "application": "so.oxy.stash"
+              "application": "so.oxy.dropsea"
             }
           ]
         }

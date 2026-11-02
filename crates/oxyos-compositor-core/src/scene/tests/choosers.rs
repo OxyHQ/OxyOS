@@ -235,7 +235,7 @@ fn a_sheet_moves_with_its_window_and_its_drag_moves_the_window() {
             surface: 1,
             index: 0,
             last: true,
-            text: PreeditText::new("Stash").unwrap(),
+            text: PreeditText::new("Dropsea").unwrap(),
         },
         Request::SetSizeLimits {
             surface: 1,

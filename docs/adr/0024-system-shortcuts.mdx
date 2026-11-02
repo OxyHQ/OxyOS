@@ -8,6 +8,8 @@ order: 33
 
 Status: **accepted; implemented** (the scene, the protocol, the C ABI, the Bloom host and the shell; screenshots, decision 10, in the compositor, the session and the development compositor too). Builds on [ADR 0009](./0009-session-shell) (the shell and its `shortcuts` grant), [ADR 0010](./0010-lock-screen) (the lock and Ctrl+Super+Q), [ADR 0014](./0014-screen-reader) (keys taken before everything else), [ADR 0016](./0016-windows) (windows: minimize, zoom, the close request, the active window), [ADR 0018](./0018-several-displays) (a shell per display) and [ADR 0021](./0021-menu-bar) (applications' own shortcuts).
 
+**2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
+
 ## Problem
 
 A Mac is driven from the keyboard: ⌘Tab switches applications, ⌘W closes a window, ⌘Q quits, ⌘M minimizes, ⌘H hides, ⌘` goes through an application's windows, Ctrl+⌘F is full screen, ⌘Space searches. OxyOS had three of the system's own: Ctrl+Super+Q locks (ADR 0010), Super+F5 turns the screen reader on (ADR 0014), Ctrl+Alt+Fn and Ctrl+Alt+Backspace (the keymap's). There was no application switcher, and nothing to close, quit, minimize or hide from the keyboard.

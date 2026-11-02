@@ -449,7 +449,7 @@ fn requests() -> Vec<Request> {
             list: ApplicationListKind::Dock,
             index: 0,
             last: true,
-            text: PreeditText::new("so.oxy.stash\nso.oxy.inbox").unwrap(),
+            text: PreeditText::new("so.oxy.dropsea\nso.oxy.inbox").unwrap(),
         },
         Request::EmptyTrash { input: 3 },
         Request::OpenUrl {
@@ -457,7 +457,7 @@ fn requests() -> Vec<Request> {
             input: 12,
             index: 0,
             last: true,
-            text: PreeditText::new("stash://trash").unwrap(),
+            text: PreeditText::new("dropsea://trash").unwrap(),
         },
         Request::TrackPointer { surface: 2 },
         Request::CreateDragIcon {

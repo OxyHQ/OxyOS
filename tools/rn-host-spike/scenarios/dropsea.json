@@ -1,15 +1,14 @@
 {
-  "about": "Stash (scenarios/stash.json) on a 1600x1000 display at 1.25 (ADR 0018): the same first window, view switch, Oxy Files signed out and press on the Trash, its points in the window's logical pixels.",
-  "module": "Stash",
+  "about": "Dropsea (OxyHQ/Dropsea), OxyOS's file manager: its own Expo Router root from its checkout (the bundle built with DROPSEA_DIR), run as module Dropsea with its registry id, inside the runtime's Bloom platform adapter, which its own BloomProvider keeps: Bloom draws the window's controls (the `window` capability), and the person's places (the adapter's `files`) open its window on the home of the run's own. Its toolbar is one row, its view switch and sidebar act through the assistive technology's actions and a press, and Oxy Files shows the Oxy SDK resolved signed out, asking to sign in.",
+  "module": "Dropsea",
   "window": [
     1024,
     680
   ],
   "app": {
-    "id": "so.oxy.stash",
-    "title": "Stash"
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
   },
-  "outputs": "1600x1000@1.25",
   "home": {
     "items": {
       "Documents/": "",
@@ -81,7 +80,7 @@
             },
             {
               "role": "Group",
-              "name": "Stash"
+              "name": "Dropsea"
             },
             {
               "role": "Button",

@@ -15,6 +15,8 @@ Status: **accepted** (decisions 1 to 15, and every choice under [Decided with th
 - [ADR 0023](./0023-installing-oxyos): the read-only `/usr`, images and A/B updates.
 - [ADR 0026](./0026-notifications).
 
+**2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Decision 13's system file manager is Dropsea. Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
+
 It resolves the "Installing applications, an application store" left out by ADR 0013 and ADR 0015 (#35, #36).
 
 ## Problem
