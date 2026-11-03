@@ -777,7 +777,7 @@ fn an_announcement_is_sent_in_chunks_within_its_limit() {
 }
 
 #[test]
-fn a_compositor_of_version_12_is_sent_no_hint_nor_position() {
+fn a_compositor_of_version_12_is_sent_no_hint_nor_position_nor_column_header() {
     let (client, server) = Connection::pair().unwrap();
     let compositor = std::thread::spawn(move || {
         server.recv_request().unwrap();
@@ -789,6 +789,19 @@ fn a_compositor_of_version_12_is_sent_no_hint_nor_position() {
     let client = Client::handshake(client).unwrap();
     let server = compositor.join().unwrap();
     assert_eq!(client.version(), 12);
+    let header = Accessible {
+        parent: oxyos_protocol::NO_ACCESSIBLE_PARENT,
+        role: AccessibleRole::ColumnHeader,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 200, 20),
+        name: "Name",
+        value: "",
+        custom: "",
+        selection: None,
+        hint: "",
+        position: None,
+    };
     let node = Accessible {
         parent: oxyos_protocol::NO_ACCESSIBLE_PARENT,
         role: AccessibleRole::ListItem,
@@ -802,7 +815,7 @@ fn a_compositor_of_version_12_is_sent_no_hint_nor_position() {
         hint: "Abre el archivo",
         position: Some((3, 21)),
     };
-    client.publish_accessibility(3, &[node]).unwrap();
+    client.publish_accessibility(3, &[header, node]).unwrap();
     loop {
         let (request, _) = server.recv_request().unwrap();
         assert!(
@@ -816,6 +829,10 @@ fn a_compositor_of_version_12_is_sent_no_hint_nor_position() {
             ),
             "{request:?}"
         );
+        // A column header (version 14) is the button it was to a compositor of version 12.
+        if let Request::AccessibleNode { index: 0, role, .. } = request {
+            assert_eq!(role, AccessibleRole::Button);
+        }
         if matches!(request, Request::AccessibilityCommit { .. }) {
             break;
         }

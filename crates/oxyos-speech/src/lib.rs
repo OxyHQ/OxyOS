@@ -85,6 +85,7 @@ fn role(language: Language, role: AccessibleRole) -> Option<&'static str> {
         R::ComboBox => ("combo box", "menú desplegable"),
         R::Summary => ("summary", "resumen"),
         R::Grid => ("grid", "cuadrícula"),
+        R::ColumnHeader => ("column header", "encabezado de columna"),
     };
     Some(language.pick(english, spanish))
 }

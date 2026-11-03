@@ -5,7 +5,7 @@
 //! it, and refused from it.
 
 use crate::schema::{Event, Request};
-use crate::wire::{AccessibleField, SystemShortcut};
+use crate::wire::{AccessibleField, AccessibleRole, SystemShortcut};
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io::{self, Read, Write};
 
@@ -73,7 +73,8 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// event an older version had, carrying a value that version lacks, is the newer version's too:
 /// version 12's system shortcuts to the dock and to the status items (ADR 0039), which a version 11
 /// reader would refuse as a value outside its set; version 13's hint of an accessible node
-/// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way.
+/// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way; version 14's
+/// column header role (`AccessibleRole::ColumnHeader`), likewise.
 pub fn event_since(event: &Event) -> u16 {
     match event {
         Event::SystemShortcut {
@@ -84,19 +85,28 @@ pub fn event_since(event: &Event) -> u16 {
             field: AccessibleField::Hint,
             ..
         } => 13,
+        Event::AccessibleNode {
+            role: AccessibleRole::ColumnHeader,
+            ..
+        } => 14,
         _ => since(EVENTS_ADDED, event.opcode()),
     }
 }
 
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one. A request an older version had, carrying a value that version lacks, is the newer
-/// version's: a node's hint (version 13), which a compositor of version 12 would refuse.
+/// version's: a node's hint (version 13) and a column header (version 14), which an older
+/// compositor would refuse.
 pub fn request_since(request: &Request) -> u16 {
     match request {
         Request::AccessibleText {
             field: AccessibleField::Hint,
             ..
         } => 13,
+        Request::AccessibleNode {
+            role: AccessibleRole::ColumnHeader,
+            ..
+        } => 14,
         _ => since(REQUESTS_ADDED, request.opcode()),
     }
 }

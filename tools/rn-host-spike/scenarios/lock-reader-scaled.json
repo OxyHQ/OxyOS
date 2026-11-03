@@ -48,8 +48,12 @@
     },
     "spoken": [
      {
-      "text": "Contraseña, campo de texto",
+      "text": "Pantalla bloqueada",
       "interrupting": true
+     },
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": false
      }
     ],
     "announcements": []

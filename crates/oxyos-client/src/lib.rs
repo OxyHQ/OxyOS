@@ -1038,11 +1038,18 @@ impl Client {
             nodes: count,
         })?;
         for (index, node) in (0..).zip(nodes) {
+            // A column header is version 14's: to an older compositor it is the button a sorting
+            // header was.
+            let role = if node.role == AccessibleRole::ColumnHeader && self.version < 14 {
+                AccessibleRole::Button
+            } else {
+                node.role
+            };
             self.send(&Request::AccessibleNode {
                 surface,
                 index,
                 parent: node.parent,
-                role: node.role,
+                role,
                 state: node.state,
                 actions: node.actions,
                 rect: node.rect,

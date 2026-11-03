@@ -492,7 +492,9 @@ messages! {
         // they started); `rotation_256` how far they turned since, in 1/256 degrees, clockwise.
         43 => Pinch { surface: u32, serial: u64, phase: GesturePhase, x: i32, y: i32, scale_65536: u32, rotation_256: i32, time_ns: u64 },
         // To clients with the `lock` grant (ADR 0010): the session locked, when it does and when
-        // they connect while it is, so they make their lock surfaces; and unlocked.
+        // they connect while it is, so they make their lock surfaces; and unlocked. To assistive
+        // technologies (`accessibility`) too, when it changes and as they connect, so a screen
+        // reader says the session locking (ADR 0039).
         44 => LockState { locked: bool },
         // To the lock surface that submitted a password: what came of it, and the seconds until
         // another may be tried (0: at once; a fifth rejection in a row begins the waits).

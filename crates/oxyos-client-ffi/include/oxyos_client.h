@@ -539,6 +539,8 @@ typedef struct OxyOSEvent {
 #define OXYOS_ROLE_COMBO_BOX 24
 #define OXYOS_ROLE_SUMMARY 25
 #define OXYOS_ROLE_GRID 26
+/* A table's or a list's column header (protocol version 14; a button to an older compositor). */
+#define OXYOS_ROLE_COLUMN_HEADER 27
 /* States of an accessible node (bits). */
 #define OXYOS_STATE_DISABLED 1
 #define OXYOS_STATE_SELECTED 2

@@ -255,7 +255,7 @@ uint8_t protocolRole(const std::string& role) {
       // sections), as VoiceOver reads a navigation landmark.
       {"navigation", OXYOS_ROLE_GROUP},
       {"combobox", OXYOS_ROLE_COMBO_BOX},    {"summary", OXYOS_ROLE_SUMMARY},
-      {"grid", OXYOS_ROLE_GRID},
+      {"grid", OXYOS_ROLE_GRID},             {"columnheader", OXYOS_ROLE_COLUMN_HEADER},
   };
   auto it = roles.find(role);
   return it == roles.end() ? OXYOS_ROLE_GENERIC : it->second;

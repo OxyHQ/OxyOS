@@ -298,3 +298,21 @@ fn an_item_of_a_collection_says_its_place_last() {
         ""
     );
 }
+
+#[test]
+fn a_column_header_is_said_as_one() {
+    let said = |language| {
+        describe(
+            language,
+            AccessibleRole::ColumnHeader,
+            AccessibleState::default(),
+            "Name, ascending",
+            "",
+        )
+    };
+    assert_eq!(said(Language::English), "Name, ascending, column header");
+    assert_eq!(
+        said(Language::Spanish),
+        "Name, ascending, encabezado de columna"
+    );
+}

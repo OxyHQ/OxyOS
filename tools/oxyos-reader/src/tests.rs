@@ -908,3 +908,32 @@ fn a_dialog_closed_with_nothing_focused_leaves_the_next_focus_said_at_once() {
         }]
     );
 }
+
+#[test]
+fn the_session_locking_is_said_then_the_lock_screens_field() {
+    let mut reader = Reader::new(Language::Spanish);
+    // Connected to an unlocked session: nothing said of it.
+    reader.receive(&Event::LockState { locked: false });
+    assert!(reader.take_said().is_empty());
+    reader.receive(&Event::LockState { locked: true });
+    for event in &tree_of(9, 0, &[(R::TextInput, FOCUSED, "Contraseña", "")]) {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Pantalla bloqueada".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Contraseña, campo de texto".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    // Connected to a session already locked (the login screen): nothing said of it.
+    let mut login = Reader::new(Language::Spanish);
+    login.receive(&Event::LockState { locked: true });
+    assert!(login.take_said().is_empty());
+}

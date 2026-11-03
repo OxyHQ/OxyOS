@@ -362,19 +362,19 @@
        "name": "home"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Name, ascending"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Date Modified"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Size"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Kind"
       },
       {
@@ -474,19 +474,19 @@
        "name": "home"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Name, ascending"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Date Modified"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Size"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Kind"
       },
       {
@@ -546,19 +546,19 @@
        "name": "home"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Name, descending"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Date Modified"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Size"
       },
       {
-       "role": "Button",
+       "role": "ColumnHeader",
        "name": "Kind"
       },
       {

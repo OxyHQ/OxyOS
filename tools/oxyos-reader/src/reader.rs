@@ -83,6 +83,11 @@ pub struct Reader {
     /// the modal's alone): a live region compared with itself as it was, so one hidden under a
     /// modal and shown again unchanged says nothing.
     lives: BTreeMap<(Surface, AccessibleRole, String), Vec<String>>,
+    /// Whether the session is locked, as the compositor last said (None before it said).
+    locked: Option<bool>,
+    /// The session's locking was just said: what is focused next (the lock screen's field) is
+    /// said after it, not over it.
+    after_lock: bool,
     /// A popup whose title was said and nothing focused in it yet: its first focus follows the
     /// title rather than stopping it, in whichever of its trees it comes.
     titled: Option<Surface>,
@@ -103,6 +108,8 @@ impl Reader {
             receiving: BTreeMap::new(),
             popups: BTreeSet::new(),
             lives: BTreeMap::new(),
+            locked: None,
+            after_lock: false,
             titled: None,
             announcing: BTreeMap::new(),
             cursor: None,
@@ -264,6 +271,22 @@ impl Reader {
                     self.commit(key, nodes);
                 }
             }
+            // The session locking is said as VoiceOver says "Screen locked": when it changes, never
+            // as the reader connects to a session already locked (the login screen).
+            Event::LockState { locked } => {
+                if self.locked == Some(false) && locked {
+                    let text = match self.language {
+                        Language::Spanish => "Pantalla bloqueada",
+                        Language::English => "Screen locked",
+                    };
+                    self.say(text.to_string(), Politeness::Assertive);
+                    self.after_lock = true;
+                }
+                if !locked {
+                    self.after_lock = false;
+                }
+                self.locked = Some(locked);
+            }
             Event::AccessibilityRemoved { client, surface } => {
                 let key = (client, surface);
                 self.receiving.remove(&key);
@@ -396,7 +419,9 @@ impl Reader {
         match focused {
             Some(at) if kept.is_none() => {
                 self.focused = Some(at);
-                let focus = if self.titled.take() == Some(key) {
+                let titled = self.titled.take() == Some(key);
+                let after_lock = std::mem::take(&mut self.after_lock);
+                let focus = if titled || after_lock {
                     Politeness::Polite
                 } else {
                     Politeness::Assertive
