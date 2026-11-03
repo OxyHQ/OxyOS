@@ -382,6 +382,8 @@ pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
+/// The session's locale (ADR 0040, protocol version 15), in chunks as the keyboard layout.
+pub const OXYOS_EVENT_LOCALE: u32 = 181;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA: u32 = 201;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED: u32 = 202;
@@ -1690,11 +1692,15 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
-        Event::KeyboardLayout { index, last, text } => {
+        Event::KeyboardLayout { index, last, text } | Event::Locale { index, last, text } => {
             let bytes = text.as_str().as_bytes();
             out.text[..bytes.len()].copy_from_slice(bytes);
             out = OxyOSEvent {
-                kind: OXYOS_EVENT_KEYBOARD_LAYOUT,
+                kind: if matches!(event, Event::Locale { .. }) {
+                    OXYOS_EVENT_LOCALE
+                } else {
+                    OXYOS_EVENT_KEYBOARD_LAYOUT
+                },
                 detail: u32::from(index),
                 flag: u8::from(last),
                 ..out

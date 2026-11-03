@@ -87,6 +87,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_BUFFER_FAILED 172
 #define OXYOS_EVENT_GPU_SCANOUT 173
 #define OXYOS_EVENT_KEYBOARD_LAYOUT 180
+#define OXYOS_EVENT_LOCALE 181
 #define OXYOS_EVENT_APPLICATION_OUTPUT 200
 #define OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA 201
 #define OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED 202
@@ -486,6 +487,11 @@ typedef struct OxyOSClient OxyOSClient;
  *                      them (variant and options may be empty), compiled with the default rules
  *                      and model; `detail` its index (0 begins it), `flag` 1 on the last, `text`
  *                      the chunk.
+ *   LOCALE             to every client when it connects and whenever it changes (ADR 0040,
+ *                      protocol version 15; an older compositor never sends it): a chunk of the
+ *                      session's locale, one BCP 47 tag (`es-ES`, `en-US`, `es-MX-u-hc-h12`: the
+ *                      hour cycle only when the person chose one), in chunks as KEYBOARD_LAYOUT:
+ *                      `detail` its index (0 begins it), `flag` 1 on the last, `text` the chunk.
 
  *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
  *               back. */

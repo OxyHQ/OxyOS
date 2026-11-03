@@ -4645,6 +4645,22 @@ fn the_keyboard_layout_comes_in_chunks_as_the_header_says() {
 }
 
 #[test]
+fn the_locale_comes_in_chunks_as_the_keyboard_layout() {
+    assert_eq!(define("OXYOS_EVENT_LOCALE"), i64::from(OXYOS_EVENT_LOCALE));
+    let chunk = convert(&Event::Locale {
+        index: 0,
+        last: true,
+        text: oxyos_protocol::PreeditText::new("es-MX-u-hc-h12").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (chunk.kind, chunk.detail, chunk.flag),
+        (OXYOS_EVENT_LOCALE, 0, 1)
+    );
+    assert_eq!(&chunk.text[..15], b"es-MX-u-hc-h12\0");
+}
+
+#[test]
 fn a_pointer_image_goes_in_a_buffer_of_its_own_set_and_destroyed() {
     let directory =
         std::env::temp_dir().join(format!("oxyos-client-ffi-pointer-{}", std::process::id()));

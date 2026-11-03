@@ -440,6 +440,8 @@ pub struct Scene {
     clipboard: Option<Clipboard>,
     /// The session's keyboard layout, as clients are told it.
     keyboard_layout: Option<String>,
+    /// The session's locale, one BCP 47 tag, as clients are told it (ADR 0040).
+    locale: Option<String>,
     /// What each client was last told of the outputs (ApplicationOutput), by output.
     application_outputs: BTreeMap<ClientId, BTreeMap<OutputId, ApplicationOutput>>,
     /// Offers the session made with copy_for_session, counted.
@@ -1036,10 +1038,11 @@ impl Scene {
         self.check_grants(grants)?;
         self.clients.insert(client, Grants::default());
         self.activation.insert(client, self.serial);
-        // Every client draws as the user prefers from its first frame, and knows the keys'
-        // layout before its first key.
+        // Every client draws as the user prefers from its first frame, knows the keys' layout
+        // before its first key and the session's locale before its first text.
         self.tell_drawing(client);
         self.tell_keyboard_layout(client);
+        self.tell_locale(client);
         self.tell_application_outputs(Some(client));
         self.grant(client, grants)
     }
@@ -2677,6 +2680,33 @@ impl Scene {
         Ok(())
     }
 
+    /// The session's locale, one BCP 47 tag (`es-ES`, `en-US-u-hc-h23`): told to every client
+    /// now and to each that connects (ADR 0040), not again while it is the same. An empty tag, one
+    /// too long to tell or one with other than ASCII letters, digits and `-` is refused.
+    pub fn set_locale(&mut self, tag: &str) -> Result<(), ErrorCode> {
+        if tag.is_empty() || tag.len() > oxyos_protocol::MAX_LOCALE_BYTES {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        if !tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            return Err(ErrorCode::InvalidMessage);
+        }
+        if self.locale.as_deref() == Some(tag) {
+            return Ok(());
+        }
+        self.locale = Some(tag.to_string());
+        let clients: Vec<ClientId> = self.clients.keys().copied().collect();
+        for client in clients {
+            self.tell_locale(client);
+        }
+        Ok(())
+    }
+
+    /// The session's locale, as clients are told it; none until the program running the
+    /// compositor says it.
+    pub fn locale(&self) -> Option<&str> {
+        self.locale.as_deref()
+    }
+
     /// Tells each client (or only `only`) what changed of the outputs since it was last told:
     /// each one's size, scale, refresh, whether it is the primary, and its work area relative to
     /// it, never its place in the global space (ADR 0029).
@@ -2761,6 +2791,24 @@ impl Scene {
             self.emit(
                 client,
                 Event::KeyboardLayout {
+                    index: index as u8,
+                    last: index + 1 == count,
+                    text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                },
+            );
+        }
+    }
+
+    fn tell_locale(&mut self, client: ClientId) {
+        let Some(locale) = self.locale.clone() else {
+            return;
+        };
+        let chunks = TextChunk::split(&locale);
+        let count = chunks.len();
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            self.emit(
+                client,
+                Event::Locale {
                     index: index as u8,
                     last: index + 1 == count,
                     text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
