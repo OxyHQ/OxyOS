@@ -22,7 +22,7 @@
   },
   "steps": [
     {
-      "name": "the window made active by a press on nothing in it: no field has focus",
+      "name": "the window made active by a press on nothing in it, which only activates it (a Mac's first click, docs/adr/0016-windows.mdx, decision 9): no field has focus, React hears nothing",
       "do": [
         "press",
         [
@@ -33,10 +33,7 @@
       "allow_unchanged": true,
       "expect": {
         "popups": 0,
-        "react": {
-          "touchStart@RootView#1": 1,
-          "touchEnd@RootView#1": 1
-        },
+        "react": {},
         "delivered": {
           "1": {
             "focus.in": 1,
@@ -47,6 +44,10 @@
           "companion": {
             "focus.out": 1
           }
+        },
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
         }
       }
     },
