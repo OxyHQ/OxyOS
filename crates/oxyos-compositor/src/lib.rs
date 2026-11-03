@@ -3143,10 +3143,8 @@ impl Compositor {
                 keysym,
                 modifiers,
             } => {
-                self.scene.set_key_symbol(oxyos_compositor_core::KeySymbol {
-                    keysym,
-                    modifiers,
-                });
+                self.scene
+                    .set_key_symbol(oxyos_compositor_core::KeySymbol { keysym, modifiers });
                 self.scene
                     .keyboard_repeating(code, pressed, text.as_deref(), repeats)
             }

@@ -380,7 +380,11 @@ impl Scene {
         else {
             return Ok(());
         };
-        let im = self.input_method.as_ref().expect("a list is the input method's").client;
+        let im = self
+            .input_method
+            .as_ref()
+            .expect("a list is the input method's")
+            .client;
         let event = match request {
             Request::ChooseInputCandidate { index } => {
                 if usize::from(index) >= count {
@@ -410,12 +414,24 @@ impl Scene {
                     .candidates_told
                     .as_ref()
                     .is_some_and(|(shell, _)| shell == client);
-                (SurfaceKey { client: *client, id: *id }, drawing)
+                (
+                    SurfaceKey {
+                        client: *client,
+                        id: *id,
+                    },
+                    drawing,
+                )
             })
             .collect();
         if let Some(im) = self.input_method.as_ref() {
             if let Some(id) = im.candidates {
-                surfaces.push((SurfaceKey { client: im.client, id }, true));
+                surfaces.push((
+                    SurfaceKey {
+                        client: im.client,
+                        id,
+                    },
+                    true,
+                ));
             }
         }
         for (key, shown) in surfaces {

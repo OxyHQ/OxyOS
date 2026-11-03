@@ -1823,6 +1823,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-input-methods"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "zbus",
+]
+
+[[package]]
 name = "oxyos-install"
 version = "0.1.0"
 dependencies = [

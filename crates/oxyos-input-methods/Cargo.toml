@@ -1,0 +1,15 @@
+[package]
+name = "oxyos-input-methods"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# fcitx5's D-Bus frontend, on the session's private bus, in safe Rust.
+zbus = "5"
+# The bodies of its calls.
+serde = "1"
+
+[lints]
+workspace = true
