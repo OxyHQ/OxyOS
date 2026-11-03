@@ -28,7 +28,13 @@ export default function FieldDescriptionProbe() {
           error={taken ? 'Ese nombre ya está en uso' : null}
         >
           <TextField>
-            <TextFieldInput testID="user" value={name} onChangeText={setName} />
+            <TextFieldInput
+              testID="user"
+              label="Nombre de usuario"
+              placeholder="usuario"
+              value={name}
+              onChangeText={setName}
+            />
           </TextField>
         </Field>
         <Tooltip visible={tip} onVisibleChange={setTip} position="bottom">

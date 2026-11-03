@@ -152,7 +152,7 @@
    }
   },
   {
-   "name": "Tab, Space: the error gone, the description back",
+   "name": "Tab: the button again",
    "do": [
     "key",
     [
