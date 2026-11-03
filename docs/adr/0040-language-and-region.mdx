@@ -76,4 +76,5 @@ A Mac has one answer, at the root: System Settings › General › Language & Re
 1. The preferences, the locale, the protocol, the session, the development compositor and the reader. `Intl.PluralRules` and a settable default locale in `crates/oxyos-intl`.
 2. The host: `Intl`, `I18nManager`, expo-localization, live.
 3. The shell's, the login screen's and Settings' catalogues, and the Language & Region page.
+   - *Done* (Settings): `apps/settings/src/messages.ts` is Settings' one catalogue (English the shape, Spanish typed to it, counts through `Intl.PluralRules`), chosen from `useBloomLocale()` with `resolveBloomLanguage`; `sample/SettingsApp.tsx` gives `BloomProvider` the session's locale (`useSessionLocale`), the fixture's from its own preferences. The General group has Language & Region (`apps/settings/src/locale.ts`: the session's tag as `session_locale` computes it, the choices and the sample, tested in `apps/settings/tests/locale.test.ts`), and Date & Time's switch is the hour cycle in effect.
 4. The scenarios, pinned and new, in the deploy gate.
