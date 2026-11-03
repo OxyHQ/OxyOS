@@ -11,7 +11,10 @@
 //! full screen. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
-//! choice), and Super+Space opens the launcher's search. Screenshots are decision 10's
+//! choice), and Super pressed and released alone opens the launcher's search (ADR 0041, which
+//! moved it from Super+Space). Input sources are the program's (ADR 0041): Super+Space chooses
+//! the one used before (each further Space while Super is held, the one before that),
+//! Super+Alt+Space the next in the list, Control+Super+Space and the emoji key emoji. Screenshots are decision 10's
 //! (`screenshots.rs`): Super+Shift+3 is the compositor's, Super+Shift+4 and 5 open the shell's
 //! interface, whose keys are the system's while it is open. While the session is locked none acts
 //! and their keys reach nobody. The screen reader's keys come first (ADR 0014); the keymap's own
@@ -52,6 +55,8 @@ const GRAVE: u32 = 41;
 const N: u32 = 49;
 const M: u32 = 50;
 const SPACE: u32 = 57;
+/// The emoji key some keyboards have (Linux's KEY_EMOJI_PICKER).
+const EMOJI_PICKER: u32 = 0x249;
 const F2: u32 = 60;
 const F3: u32 = 61;
 const F8: u32 = 66;
@@ -79,6 +84,24 @@ pub(super) struct SystemKeys {
     /// The application switcher, from Super+Tab until Super is released: the shell showing it
     /// and its output.
     switcher: Option<(ClientId, OutputId)>,
+    /// Super went down and nothing else happened since (no other key, button or scroll): its
+    /// release opens the launcher's search.
+    super_alone: bool,
+    /// Super+Space pressed since Super went down (ADR 0041): which input source back it chooses.
+    spaces: u32,
+}
+
+/// An input-source shortcut (ADR 0041), for the program running the compositor, which keeps the
+/// input sources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputSourceShortcut {
+    /// Super+Space: the input source used `step` switches before the one current when Super went
+    /// down (1, the one before it; 2, the one before that, and so on).
+    Previous { step: u32 },
+    /// Super+Alt+Space: the next in the list.
+    Next,
+    /// Control+Super+Space, or the emoji key: emoji, in the focused field.
+    Emoji,
 }
 
 impl SystemKeys {
@@ -121,11 +144,37 @@ impl Scene {
             }
         }
         if is_super(key) {
-            if !pressed && !self.system_keys.holds([LEFT_SUPER, RIGHT_SUPER]) {
+            let held = self.system_keys.holds([LEFT_SUPER, RIGHT_SUPER]);
+            if pressed && held && self.system_keys.held.len() == 1 {
+                // Super down alone, nothing else held.
+                self.system_keys.super_alone = true;
+                self.system_keys.spaces = 0;
+            } else if pressed {
+                self.system_keys.super_alone = false;
+            }
+            if !pressed && !held {
                 // Super released: the switcher activates what it chose.
                 if let Some((client, output)) = self.system_keys.switcher.take() {
                     self.tell_shortcut(client, output, SystemShortcut::SwitcherDone);
                 }
+                // Super alone: the launcher's search, Spotlight's place (ADR 0041).
+                if std::mem::take(&mut self.system_keys.super_alone)
+                    && !self.locked
+                    && !self.capturing()
+                {
+                    self.dismiss_grab(DismissReason::OutsidePress);
+                    let output = self.shortcut_output();
+                    if let Some(client) = self.shortcut_shell(output) {
+                        self.tell_shortcut(client, output, SystemShortcut::Search);
+                    }
+                }
+            }
+            return true;
+        }
+        if pressed && key == EMOJI_PICKER {
+            self.system_keys.taken.insert(key);
+            if !self.locked && !self.capturing() {
+                self.input_source_shortcuts.push(InputSourceShortcut::Emoji);
             }
             return true;
         }
@@ -148,6 +197,12 @@ impl Scene {
             self.system_shortcut(key);
         }
         true
+    }
+
+    /// Something other than Super happened while it was down (a key, a button, a scroll, a key
+    /// the keymap took): its release is no longer the search.
+    pub(super) fn not_super_alone(&mut self) {
+        self.system_keys.super_alone = false;
     }
 
     /// Whether a press of `key` now would be the system's, as `system_key` decides, and if so
@@ -203,6 +258,22 @@ impl Scene {
             self.tell_shortcut(client, output, shortcut);
             return;
         }
+        // Input sources (ADR 0041): never while the screenshot interface is open.
+        if key == SPACE && !shift && !self.capturing() {
+            let shortcut = match (ctrl, alt) {
+                (false, false) => {
+                    self.system_keys.spaces += 1;
+                    InputSourceShortcut::Previous {
+                        step: self.system_keys.spaces,
+                    }
+                }
+                (false, true) => InputSourceShortcut::Next,
+                (true, false) => InputSourceShortcut::Emoji,
+                (true, true) => return,
+            };
+            self.input_source_shortcuts.push(shortcut);
+            return;
+        }
         if alt {
             return;
         }
@@ -232,14 +303,6 @@ impl Scene {
                         SystemShortcut::SwitcherNext
                     };
                     self.tell_shortcut(client, output, first);
-                }
-                return;
-            }
-            (SPACE, false, false) => {
-                self.dismiss_grab(DismissReason::OutsidePress);
-                let output = self.shortcut_output();
-                if let Some(client) = self.shortcut_shell(output) {
-                    self.tell_shortcut(client, output, SystemShortcut::Search);
                 }
                 return;
             }

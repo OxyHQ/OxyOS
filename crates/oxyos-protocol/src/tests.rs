@@ -177,6 +177,20 @@ fn requests() -> Vec<Request> {
             surface: 3,
             size: Size::new(240, 120),
         },
+        Request::InputMethodCandidate {
+            index: 0,
+            text: TextChunk::new("你好").unwrap(),
+        },
+        Request::InputMethodCandidatesAux {
+            text: TextChunk::new("ni'hao").unwrap(),
+        },
+        Request::InputMethodCandidates {
+            count: 1,
+            highlighted: 0,
+            flags: CANDIDATES_NEXT,
+        },
+        Request::ChooseInputCandidate { index: 0 },
+        Request::TurnInputCandidatesPage { forward: true },
         Request::SetTitle {
             surface: 1,
             index: 0,
@@ -779,6 +793,25 @@ fn events() -> Vec<Event> {
             text: PreeditText::new("a").unwrap(),
             time_ns: 1_234_567_890_123,
         },
+        Event::InputCandidate {
+            index: 0,
+            text: TextChunk::new("你好").unwrap(),
+        },
+        Event::InputCandidatesAux {
+            text: TextChunk::new("ni'hao").unwrap(),
+        },
+        Event::InputCandidates {
+            count: 1,
+            highlighted: NO_CANDIDATE,
+            flags: CANDIDATES_PREVIOUS | CANDIDATES_VERTICAL,
+        },
+        Event::InputMethodKeySymbol {
+            serial: 20,
+            keysym: 0x61,
+            modifiers: 1,
+        },
+        Event::InputMethodCandidateChosen { index: 2 },
+        Event::InputMethodCandidatesPage { forward: false },
         Event::KeyText {
             surface: 1,
             serial: 21,
