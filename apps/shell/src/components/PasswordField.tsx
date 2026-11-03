@@ -37,6 +37,7 @@ export function PasswordField({
   placeholder = "Introduce la contraseña",
   accessibilityLabel = "Contraseña",
   announce,
+  focusRequest = 0,
 }: {
   /** Its field is `${testID}-password`, what it says `${testID}-hint`. */
   testID: string;
@@ -48,6 +49,8 @@ export function PasswordField({
   accessibilityLabel?: string;
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
   announce?: (text: string, polite: boolean) => void;
+  /** Changed, the field takes the focus again (the login screen's chosen account chosen again). */
+  focusRequest?: number;
 }) {
   const [password, setPassword] = useState("");
   const [checking, setChecking] = useState(false);
@@ -67,9 +70,15 @@ export function PasswordField({
   // Shown, the field has the screen reader's focus as it has the keyboard's, as VoiceOver starts
   // on a Mac's password field: a reader on, or turned on here with Super+F5, says it.
   const input = useRef<ComponentRef<typeof TextInput>>(null);
+  const focusedFor = useRef(focusRequest);
   useEffect(() => {
-    if (input.current) AccessibilityInfo.sendAccessibilityEvent(input.current, "focus");
-  }, []);
+    if (!input.current) return;
+    if (focusRequest !== focusedFor.current) {
+      focusedFor.current = focusRequest;
+      input.current.focus();
+    }
+    AccessibilityInfo.sendAccessibilityEvent(input.current, "focus");
+  }, [focusRequest]);
   const field = useAnimatedStyle(() => ({
     transform: [{ translateX: shake.value }],
   }));
