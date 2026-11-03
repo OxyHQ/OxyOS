@@ -1,0 +1,79 @@
+---
+title: "ADR 0040: Language and region"
+description: Where an OxyOS session's language, region and time format live, how the session tells every application and the screen reader, how the system's own applications speak them live, and how Settings changes them, as a Mac's Language & Region does.
+order: 49
+---
+
+# ADR 0040: Language and region
+
+Status: **accepted** (chosen with the platform's author). Builds on [ADR 0014](./0014-screen-reader) (the reader's speech), [ADR 0019](./0019-settings) (preferences, Settings; this decision amends its keys), [ADR 0020](./0020-oxy-account-login) (the login screen and the session's environment), [ADR 0023](./0023-installing-oxyos) (setup chooses the system's language) and [ADR 0033](./0033-protocol-versions) (version 15).
+
+## Problem
+
+The desktop speaks Spanish whatever the person speaks:
+- the shell's text is written in Spanish in its source: the top bar and its menus, Control Center, the dock's menu, Launchpad, the overview, notifications, the lock screen and the system sheets;
+- the clock is formatted with a fixed `"es"` (`lun, 2 nov`), and its hours are always 24;
+- the login screen is Spanish too.
+
+Other parts follow the environment's `LANG` instead, read once: Settings (Spanish or English), the screen reader's speech, the host's `Intl`. Nothing can change while the session runs. `clock_24h` is kept and shown in Settings, but nothing follows it. React Native's `I18nManager` says `en-US` to every application.
+
+A Mac has one answer, at the root: System Settings › General › Language & Region. The person chooses a language, a region and a time format; the system's own interface follows them, every application is told them through the platform's APIs (`NSLocale`, `Locale.current`), and VoiceOver speaks the language with its voice.
+
+## Decision
+
+1. **The person's choice is a preference, the system's is the default.** Three keys join the user's preferences ([ADR 0019](./0019-settings), decision 1), kept by `crates/oxyos-preferences` and changed only through the session:
+   - `language`: one of the languages OxyOS speaks, `en` or `es`; empty (the default) is the system's.
+   - `region`: a region as CLDR names one, two ASCII capitals (`ES`, `US`, `MX`, `GB`); empty is the system's.
+   - `hour_cycle`: `auto` (the region's), `h12` or `h23`.
+
+   `clock_24h` is retired: nothing followed it, and a boolean cannot say "the region's". A file that still has it is read as any unknown key is, and the next write leaves it out.
+
+   **The system's** is the session's environment, which the login program gives it from the system's locale (`/etc/locale.conf`, written by systemd-localed; setup chooses it, [ADR 0023](./0023-installing-oxyos)): `LC_ALL`, else `LC_MESSAGES`, else `LANG`, POSIX's order. Its language when OxyOS speaks it, else English; its territory, else the language's likely region (`en` → `US`, `es` → `ES`).
+
+   Why not the alternatives:
+   - **`LANG` alone** is read when a process starts. Changing it means a new session, and glibc only formats in locales generated on the machine.
+   - **The Oxy account's languages** are the Oxy applications' choice (`oxy` ADR 0022). They need the account's API to be read and changed, the login screen has no account yet, and a Mac keeps the system's language apart from the Apple ID's. An Oxy application signed in still follows its account, as oxy ADR 0022 decides.
+
+2. **The session's locale is one BCP 47 tag.** It is the language, the region and, only when the person chose one, the hour cycle as a Unicode extension: `es-ES`, `en-US`, `en-ES` (English, formatted for Spain), `es-MX-u-hc-h12`. `oxyos_preferences::session_locale` computes it from the preferences and the environment. The login screen has no person's preferences: its tag is the system's alone.
+
+3. **Every client is told it.** `Locale` (event 181, protocol version 15, [ADR 0033](./0033-protocol-versions)) carries the tag in chunks, as `KeyboardLayout` does. It is sent to every client when it connects and to every client whenever it changes, the screen reader among them. A client of version 14 or older is not told it and goes on with its environment's, as before. The C ABI gives it as `OXYOS_EVENT_LOCALE`.
+
+4. **Applications get it through the APIs they already use.** The Bloom host gives it to:
+   - **`Intl`'s default locale.** `Intl.DateTimeFormat().resolvedOptions().locale`, every `toLocale*String()` without a locale, and Bloom's own default (`runtimeLocale`) are the session's, with its hour cycle.
+   - **React Native's `I18nManager`:** `localeIdentifier` as Android gives it (`es_ES`), left to right for both languages.
+   - **expo-localization:** `getLocales()` (the tag, language, region, separators, measurement system, temperature unit) and `getCalendars()` (Gregorian, `uses24hourClock`, the region's first weekday, the time zone). On a change, the host sends `onLocaleSettingsChanged` and `onCalendarSettingsChanged`, as Android does, so `useLocales()` and `useCalendars()` render again.
+
+   The host also provides `Intl.PluralRules` (ICU4X's CLDR plural rules), so plurals go through `Intl` as numbers and dates do.
+
+   An application that reads the language once speaks the new language the next time it opens, as on a Mac. That is what Dropsea and Atlas do through `Intl` and the Oxy SDK, and Inbox through Bloom.
+
+5. **The system's own applications follow it live.** The shell (top bar, menus, Control Center, dock, Launchpad, overview, notifications, lock screen, screenshots, system sheets), the login screen and Settings change at once.
+   - **One catalogue per application.** Each has one message catalogue (`messages.ts`: the shell's, the login screen's, Settings'). Its English is the shape, and Spanish is typed to it, so a missing translation fails the type-check. A count is a function of `Intl.PluralRules`; a number, a size or a percentage goes through `Intl.NumberFormat`.
+   - **Bloom's mechanism.** Each application's root gives the session's locale to `BloomProvider` (`locale`). Its catalogue is chosen from `useBloomLocale()` with Bloom's `resolveBloomLanguage`, so Bloom's own components (window controls, menus, dialogs) switch in the same render.
+   - **Dates and times** are `Intl.DateTimeFormat` in that locale: the top bar's clock, the lock screen's date and time, notifications' times. Twelve or 24 hours is the locale's hour cycle: the region's, or the person's choice.
+
+6. **The screen reader speaks it.** `oxyos-reader` takes `Locale` as any client does. From the next thing it says, its words (roles, states, positions, its own announcements) and its eSpeak NG voice (`es`, `en`) are the language's. Until told, it speaks its environment's.
+
+7. **Settings › General › Language & Region.** Settings' System group becomes **General**, as on a Mac. Its new page **Language & Region** has:
+   - **Language:** Automatic (the system's, named), English, Español; each language is named in itself, as macOS lists them.
+   - **Region:** the system's, or one of a list of regions, named in the session's language.
+   - **Time format:** Automatic (the region's), 12-hour or 24-hour.
+   - **A sample:** a date, a time and a number as the choice formats them.
+
+   Date & Time's 24-hour switch shows the hour cycle in effect and sets `h23` or `h12`. A change is a preference like any other (`SetPreference`, the `settings` grant). The session validates it, keeps it, tells every client the new locale and its reader the new voice, and Settings itself switches language in the same moment.
+
+8. **Scenarios run in a fixed language.** `regress.py` runs every scenario with `LANG` and `LC_ALL` set to `en_US.UTF-8`, never the machine's. A scenario whose expectations are in a language says so (`locale`), and its reader speaks that language. The ones written against Spanish text are pinned to `es_ES.UTF-8`. `language-es` and `language-en` check the shell's text, the clock's format, the reader's speech and voice, and a change made in Settings applied live.
+
+## Not in this decision
+
+- **More languages.** A language joins when the shell's, the login screen's and Settings' catalogues and the reader's speech have it complete. Bloom ships fifteen.
+- **Right-to-left** layout, which arrives with the first right-to-left language.
+- **A list of preferred languages** (macOS orders several), and per-application languages.
+- **Changing the system's language** (localed's, the login screen's) from Settings, which needs the administrator's authentication dialog ([ADR 0019](./0019-settings), decision 2). Setup chooses it.
+
+## Steps
+
+1. The preferences, the locale, the protocol, the session, the development compositor and the reader. `Intl.PluralRules` and a settable default locale in `crates/oxyos-intl`.
+2. The host: `Intl`, `I18nManager`, expo-localization, live.
+3. The shell's, the login screen's and Settings' catalogues, and the Language & Region page.
+4. The scenarios, pinned and new, in the deploy gate.
