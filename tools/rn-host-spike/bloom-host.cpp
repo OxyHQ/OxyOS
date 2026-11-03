@@ -2609,11 +2609,16 @@ int main(int argc, char** argv) {
               << ",\"js_errors\":" << jsErrors << "}\n";
     services.keyboard.listener.reset();
     services.blurFocusedInput = nullptr;
-    window.reset();
+    // The window outlives the JavaScript that can still run: stopping the surface unmounts the
+    // application and draining runs what that queued (a cleanup, a module first loaded then, as
+    // Reanimated's reduced motion asks AccessibilityInfo when it loads). The host's modules reach
+    // the window through `services` (Appearance, AccessibilityInfo, OxyOSWindow and the rest), and
+    // the accessibility bridge, the popups and the drag hold it: none may find it destroyed.
     surface.stop();
     scheduler->unregisterSurface(surface);
     loop->drain();
     scheduler.reset();
+    window.reset();
     oxyos::FrameDiagnostics::get().ended();
     return status == 0 && jsErrors == 0 ? 0 : 1;
   }
