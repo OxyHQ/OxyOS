@@ -349,7 +349,7 @@
    }
   },
   {
-   "name": "Shift+Tab: its empty space, which opens it",
+   "name": "Shift+Tab: its empty space, which opens it: brought into view through the card's list and the desktops' strip (docs/adr/0042-scrolling.mdx, decision 4), its desktop becomes the one shown",
    "do": [
     "key",
     [
@@ -376,7 +376,7 @@
    }
   },
   {
-   "name": "Shift+Tab: the second desktop, not selected; brought into view it becomes the one shown, said selected as it changes",
+   "name": "Shift+Tab: the second desktop, already the one shown (its empty space brought it into view), said selected",
    "do": [
     "key",
     [
@@ -412,11 +412,7 @@
     },
     "spoken": [
      {
-      "text": "Abrir Escritorio 2, botón",
-      "interrupting": true
-     },
-     {
-      "text": "seleccionado",
+      "text": "Abrir Escritorio 2, seleccionado, botón",
       "interrupting": true
      }
     ],
