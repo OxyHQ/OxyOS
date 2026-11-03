@@ -1,0 +1,243 @@
+{
+ "about": "A field said with its description and its error (docs/adr/0039-keyboard-access.mdx): sample/FieldDescriptionProbe.tsx, a Bloom TextField in a Field with a description, and a button that shows the field's error in its place, the screen reader on in Spanish. On the web Bloom wires both with aria-describedby; React Native drops it, so Bloom gives the field the texts it names as its accessibilityHint, kept in step: the field is said, then its description politely, and its error once shown. The button's tooltip is its help, said after it, as a Mac's help tag. At 1.25 (1600 × 1000).",
+ "module": "FieldDescriptionProbe",
+ "window": [
+  480,
+  320
+ ],
+ "locale": "es_ES.UTF-8",
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "The field and its button; nothing focused; the field's hint is its description, the button's its tooltip",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Nombre de usuario",
+       "hint": "Entre 3 y 20 letras o números"
+      },
+      {
+       "role": "Button",
+       "name": "Comprobar",
+       "hint": "Comprueba si el nombre está libre"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: the field, then its description after it, politely",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "user",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Nombre de usuario, campo de texto",
+      "interrupting": true
+     },
+     {
+      "text": "Entre 3 y 20 letras o números",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the button, then its tooltip after it, as a Mac's help tag",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "check",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Comprobar, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Comprueba si el nombre está libre",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space: the error shown in the description's place; the field's hint is now the error",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "check",
+     "ring": true
+    },
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Nombre de usuario",
+       "hint": "Ese nombre ya está en uso"
+      },
+      {
+       "role": "Button",
+       "name": "Comprobar",
+       "hint": "Comprueba si el nombre está libre"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: the field, then its error after it",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "user",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Nombre de usuario, campo de texto",
+      "interrupting": true
+     },
+     {
+      "text": "Ese nombre ya está en uso",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab, Space: the error gone, the description back",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "check",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Comprobar, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Comprueba si el nombre está libre",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space hides the error",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "check",
+     "ring": true
+    },
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Nombre de usuario",
+       "hint": "Entre 3 y 20 letras o números"
+      },
+      {
+       "role": "Button",
+       "name": "Comprobar",
+       "hint": "Comprueba si el nombre está libre"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: the field said with its description again",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "user",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Nombre de usuario, campo de texto",
+      "interrupting": true
+     },
+     {
+      "text": "Entre 3 y 20 letras o números",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}

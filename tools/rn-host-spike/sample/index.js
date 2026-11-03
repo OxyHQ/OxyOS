@@ -44,6 +44,7 @@ import DropProbe from './DropProbe';
 import TextMenuProbe from './TextMenuProbe';
 import PopoverProbe from './PopoverProbe';
 import CollectionProbe from './CollectionProbe';
+import FieldDescriptionProbe from './FieldDescriptionProbe';
 import TextDragProbe from './TextDragProbe';
 import TextDragPeer from './TextDragPeer';
 
@@ -58,6 +59,7 @@ AppRegistry.registerComponent('DropProbe', () => DropProbe);
 AppRegistry.registerComponent('TextMenuProbe', () => TextMenuProbe);
 AppRegistry.registerComponent('PopoverProbe', () => PopoverProbe);
 AppRegistry.registerComponent('CollectionProbe', () => CollectionProbe);
+AppRegistry.registerComponent('FieldDescriptionProbe', () => FieldDescriptionProbe);
 AppRegistry.registerComponent('TextDragProbe', () => TextDragProbe);
 AppRegistry.registerComponent('TextDragPeer', () => TextDragPeer);
 AppRegistry.registerComponent('FileSystemProbe', () => FileSystemProbe);
