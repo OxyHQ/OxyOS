@@ -14,12 +14,18 @@
  *   the scenario grants this probe as the session grants Settings): the session keeps it and tells
  *   every application its new locale, this one among them.
  */
-import { addCalendarListener, addLocaleListener, useCalendars, useLocales } from 'expo-localization';
+import { requireNativeModule } from 'expo';
+import { useCalendars, useLocales } from 'expo-localization';
 import * as React from 'react';
 import { I18nManager, Pressable, Text, TurboModuleRegistry, View } from 'react-native';
 import { useSessionLocale } from './oxyos/locale';
 
 const T = Date.UTC(2026, 9, 29, 15, 4, 5);
+// expo-localization's native module, whose events its hooks subscribe to (the package exports no
+// listener functions of its own).
+const localization = requireNativeModule<{
+  addListener(event: string, listener: () => void): { remove(): void };
+}>('ExpoLocalization');
 const settings = TurboModuleRegistry.get<{ setPreference(key: string, value: string): number }>('OxyOSSettings');
 
 function Button({ label, x, onPress }: { label: string; x: number; onPress: () => void }) {
@@ -42,8 +48,10 @@ export default function LocaleProbe() {
   const [events, setEvents] = React.useState({ locale: 0, calendar: 0 });
   React.useEffect(() => {
     const subscriptions = [
-      addLocaleListener(() => setEvents((told) => ({ ...told, locale: told.locale + 1 }))),
-      addCalendarListener(() => setEvents((told) => ({ ...told, calendar: told.calendar + 1 }))),
+      localization.addListener('onLocaleSettingsChanged', () => setEvents((told) => ({ ...told, locale: told.locale + 1 }))),
+      localization.addListener('onCalendarSettingsChanged', () =>
+        setEvents((told) => ({ ...told, calendar: told.calendar + 1 })),
+      ),
     ];
     return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
