@@ -660,7 +660,8 @@ pub struct Launch {
     /// `--reader PROGRAM`: the session's screen reader (docs/adr/0014-screen-reader.mdx), started
     /// before the application on a socket granting `accessibility` and `screen_reader`, its voice
     /// a record (`speech.jsonl` in the output directory); `--reader-locale LOCALE` is its
-    /// language (`LC_ALL`), the session's otherwise. With `--reader-off` it is the session's but
+    /// environment's locale (`LC_ALL`), the session's otherwise: what it speaks until the
+    /// session's `Locale` tells it (ADR 0040), which it is on connecting. With `--reader-off` it is the session's but
     /// off, as `oxyos-session --reader` without `--reader-on` has it: Super+F5 typed on the keymap
     /// (`strokes`) starts it, and again stops it (ADR 0014, decision 6), locked or not.
     pub reader: Option<PathBuf>,
@@ -3828,8 +3829,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         outputs => Session::with_outputs(outputs)?,
     };
-    // The preferences before any client connects, so each is told them with its Welcome.
-    session.settings = oxyos_compositor::settings::Settings::from_file(launch.preferences.clone());
+    // The preferences before any client connects, so each is told them with its Welcome, and
+    // the session's locale (ADR 0040): the person's language and region over this program's
+    // environment's (`LC_ALL`, `LC_MESSAGES`, `LANG`); a login screen's is the environment's alone.
+    let settings = oxyos_compositor::settings::Settings::from_file(launch.preferences.clone());
+    session.settings = if launch.login.is_some() {
+        settings.system_locale_only()
+    } else {
+        settings
+    };
     session
         .settings
         .apply(&mut session.compositor, oxyos_compositor::settings::now());
