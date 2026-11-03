@@ -76,7 +76,7 @@ fn pairs(pairs: Vec<(&'static str, String)>) -> String {
     pairs.join(";")
 }
 
-/// The system's locale (`LC_ALL`, `LC_MESSAGES`, `LANG`) as a BCP 47 tag, `en-US` without one.
+/// The locale formats default to: the one `oxyos_intl_set_default_locale` set, else the system's.
 ///
 /// # Safety
 /// `out` is NULL, or points to `capacity` writable bytes.
@@ -85,6 +85,37 @@ fn pairs(pairs: Vec<(&'static str, String)>) -> String {
 pub unsafe extern "C" fn oxyos_intl_default_locale(out: *mut c_char, capacity: usize) -> i64 {
     // SAFETY: forwarded caller contract.
     unsafe { give(Ok(oxyos_intl::default_locale()), out, capacity) }
+}
+
+/// The system's locale (`LC_ALL`, `LC_MESSAGES`, `LANG`) as a BCP 47 tag, `en-US` without one:
+/// what the default is before any is set.
+///
+/// # Safety
+/// `out` is NULL, or points to `capacity` writable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_intl_system_locale(out: *mut c_char, capacity: usize) -> i64 {
+    // SAFETY: forwarded caller contract.
+    unsafe { give(Ok(oxyos_intl::system_locale()), out, capacity) }
+}
+
+/// Sets the process's default locale (the session's, docs/adr/0040-language-and-region.mdx) to
+/// `tag`, resolved to one with data, its Unicode extension keywords kept; empty, the system's
+/// again. 0, or -1 for an invalid tag (nothing changed).
+///
+/// # Safety
+/// `tag` points to `length` readable bytes (or is NULL with 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_intl_set_default_locale(tag: *const c_char, length: usize) -> i64 {
+    // SAFETY: forwarded caller contract.
+    match unsafe { text(tag, length, "tag") }.and_then(oxyos_intl::set_default_locale) {
+        Ok(_) => 0,
+        Err(error) => {
+            fail(error);
+            -1
+        }
+    }
 }
 
 /// `tag` canonicalized (`EN-us` as `en-US`); -1 for an invalid tag.
@@ -232,6 +263,52 @@ pub unsafe extern "C" fn oxyos_intl_resolve_number(
     // SAFETY: forwarded caller contract.
     let result = unsafe { format(locale, locale_length, options, options_length) }
         .and_then(|(locale, options)| oxyos_intl::number::resolve(locale, &options))
+        .map(pairs);
+    // SAFETY: forwarded caller contract.
+    unsafe { give(result, out, capacity) }
+}
+
+/// `Intl.PluralRules`' select of `value`: its plural category (`zero`, `one`, `two`, `few`,
+/// `many`, `other`).
+///
+/// # Safety
+/// As `oxyos_intl_format_date`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_intl_plural_select(
+    locale: *const c_char,
+    locale_length: usize,
+    options: *const c_char,
+    options_length: usize,
+    value: f64,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    // SAFETY: forwarded caller contract.
+    let result = unsafe { format(locale, locale_length, options, options_length) }
+        .and_then(|(locale, options)| oxyos_intl::plural::select(locale, &options, value))
+        .map(str::to_owned);
+    // SAFETY: forwarded caller contract.
+    unsafe { give(result, out, capacity) }
+}
+
+/// `Intl.PluralRules`' resolvedOptions; `pluralCategories` joined by `,`.
+///
+/// # Safety
+/// As `oxyos_intl_format_date`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_intl_resolve_plural(
+    locale: *const c_char,
+    locale_length: usize,
+    options: *const c_char,
+    options_length: usize,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    // SAFETY: forwarded caller contract.
+    let result = unsafe { format(locale, locale_length, options, options_length) }
+        .and_then(|(locale, options)| oxyos_intl::plural::resolve(locale, &options))
         .map(pairs);
     // SAFETY: forwarded caller contract.
     unsafe { give(result, out, capacity) }

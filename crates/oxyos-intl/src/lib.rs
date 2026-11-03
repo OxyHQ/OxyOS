@@ -22,11 +22,13 @@ use icu_locale_core::extensions::unicode::Key;
 use icu_locale_core::{LanguageIdentifier, Locale};
 use icu_provider::prelude::*;
 use std::fmt;
+use std::sync::RwLock;
 use writeable::{Part as Annotation, PartsWrite};
 
 mod data;
 pub mod date;
 pub mod number;
+pub mod plural;
 #[cfg(test)]
 mod tests;
 
@@ -71,14 +73,51 @@ pub fn options(text: &str) -> Result<Vec<(&str, &str)>, Error> {
         .collect()
 }
 
-/// The locale the system is set to: `LC_ALL`, else `LC_MESSAGES`, else `LANG` (POSIX's order),
-/// as a BCP 47 tag OxyOS has data for; `en-US` for `C`, `POSIX`, none or one without data.
+/// The process's default locale, set by [`set_default_locale`]: none, the system's.
+static DEFAULT_LOCALE: RwLock<Option<String>> = RwLock::new(None);
+
+/// The locale formats default to: the one [`set_default_locale`] set (the session's, ADR 0040),
+/// else [`system_locale`].
 pub fn default_locale() -> String {
-    system_locale(|name| std::env::var(name).ok())
+    let set = DEFAULT_LOCALE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    set.unwrap_or_else(system_locale)
 }
 
-/// [`default_locale`] from the environment `variable` gives.
-fn system_locale(variable: impl Fn(&str) -> Option<String>) -> String {
+/// Sets the process's default locale, for every thread: `tag` resolved as [`resolve`] resolves it
+/// (a locale OxyOS has data for, its Unicode extension keywords kept: `es-MX-u-hc-h12`), which it
+/// returns. An empty tag goes back to the system's. An invalid tag is an error, and changes
+/// nothing.
+pub fn set_default_locale(tag: &str) -> Result<String, Error> {
+    let resolved = if tag.is_empty() {
+        None
+    } else {
+        if tag.contains(',') {
+            return Err(Error(format!(
+                "Incorrect locale information provided: {tag:?}"
+            )));
+        }
+        // Resolved against the system's, not a default set before.
+        Some(resolve_from(tag, system_locale)?)
+    };
+    let mut set = DEFAULT_LOCALE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *set = resolved;
+    Ok(set.clone().unwrap_or_else(system_locale))
+}
+
+/// The locale the system is set to: `LC_ALL`, else `LC_MESSAGES`, else `LANG` (POSIX's order),
+/// as a BCP 47 tag OxyOS has data for; `en-US` for `C`, `POSIX`, none or one without data. What
+/// [`default_locale`] is until [`set_default_locale`] sets another.
+pub fn system_locale() -> String {
+    posix_locale(|name| std::env::var(name).ok())
+}
+
+/// [`system_locale`] from the environment `variable` gives.
+fn posix_locale(variable: impl Fn(&str) -> Option<String>) -> String {
     ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .find_map(|name| variable(name).filter(|value| !value.is_empty()))
@@ -156,6 +195,11 @@ fn structurally_valid(tag: &str) -> bool {
 /// extension keywords (`-u-hc-h23`; each format keeps those relevant to it) and without its other
 /// extensions; else [`default_locale`]. An invalid tag is an error, as in CanonicalizeLocaleList.
 pub fn resolve(requested: &str) -> Result<String, Error> {
+    resolve_from(requested, default_locale)
+}
+
+/// [`resolve`], with `default` for when none of `requested` has data.
+fn resolve_from(requested: &str, default: impl FnOnce() -> String) -> Result<String, Error> {
     let requested = requested
         .split(',')
         .filter(|tag| !tag.is_empty())
@@ -166,7 +210,7 @@ pub fn resolve(requested: &str) -> Result<String, Error> {
         found.extensions.unicode.keywords = locale.extensions.unicode.keywords.clone();
         Some(found.to_string())
     });
-    Ok(found.unwrap_or_else(default_locale))
+    Ok(found.unwrap_or_else(default))
 }
 
 /// The longest prefix of `locale` OxyOS has data for (see [`available`]).

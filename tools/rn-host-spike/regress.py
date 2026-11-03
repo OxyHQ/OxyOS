@@ -68,7 +68,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   order: an application's announcements and live regions' changes, each matching the keys
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
-  exactly and in order: each a text, or keys matching an utterance (text, interrupting);
+  exactly and in order: each a text, or keys matching an utterance (text, interrupting, voice:
+  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040);
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
@@ -1985,7 +1986,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
         if len(said) != len(wanted) or not all(all(u.get(k) == v for k, v in w.items())
                                                for u, w in zip(said, wanted)):
-            fail(f"the screen reader said {[(u['text'], u['interrupting']) for u in said]}, expected {expect['spoken']}")
+            fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
+                 f"expected {expect['spoken']}")
     if "at_absent" in expect:
         # Nodes it must not hold ({} matches any node: none at all there).
         for role, unwanted in expect["at_absent"].items():

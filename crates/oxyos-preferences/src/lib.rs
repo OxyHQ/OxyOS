@@ -19,9 +19,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod displays;
+/// The session's language and region (docs/adr/0040-language-and-region.mdx).
+pub mod locale;
 /// The user's folders (xdg-user-dirs).
 pub mod user_dirs;
 pub use displays::{Arrangement, DisplayMode, DisplaySettings};
+pub use locale::{environment_locale, session_locale, HourCycle, LANGUAGES};
 
 /// The longest value a preference takes, in bytes.
 pub const MAX_VALUE_BYTES: usize = 64;
@@ -84,7 +87,13 @@ pub struct Preferences {
     pub lock_after: u32,
     /// The screen reader is on when the session starts (ADR 0014).
     pub screen_reader: bool,
-    pub clock_24h: bool,
+    /// The language the person chose, one of [`LANGUAGES`]; none is the system's (ADR 0040).
+    pub language: Option<String>,
+    /// The region the person chose, as CLDR names one (two ASCII capitals); none is the
+    /// system's.
+    pub region: Option<String>,
+    /// Twelve or 24 hours, or the region's.
+    pub hour_cycle: HourCycle,
     /// Do Not Disturb (ADR 0026): notifications are kept in the Notification Center and shown as
     /// no banner, and the screen reader says none.
     pub do_not_disturb: bool,
@@ -112,7 +121,9 @@ impl Default for Preferences {
             wallpaper: None,
             lock_after: 5,
             screen_reader: false,
-            clock_24h: true,
+            language: None,
+            region: None,
+            hour_cycle: HourCycle::default(),
             do_not_disturb: false,
             notification_previews: Previews::default(),
             displays: Vec::new(),
@@ -196,7 +207,9 @@ pub const KEYS: &[&str] = &[
     "wallpaper",
     "lock_after",
     "screen_reader",
-    "clock_24h",
+    "language",
+    "region",
+    "hour_cycle",
     "do_not_disturb",
     "notification_previews",
 ];
@@ -255,7 +268,9 @@ impl Preferences {
                     .ok_or(Refused::BadValue)?
             }
             "screen_reader" => self.screen_reader = boolean(value)?,
-            "clock_24h" => self.clock_24h = boolean(value)?,
+            "language" => self.language = locale::language(value)?,
+            "region" => self.region = locale::region(value)?,
+            "hour_cycle" => self.hour_cycle = HourCycle::parse(value).ok_or(Refused::BadValue)?,
             "do_not_disturb" => self.do_not_disturb = boolean(value)?,
             "notification_previews" => {
                 self.notification_previews = match value {
@@ -280,7 +295,9 @@ impl Preferences {
             "wallpaper" => self.wallpaper.clone().unwrap_or_default(),
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),
-            "clock_24h" => self.clock_24h.to_string(),
+            "language" => self.language.clone().unwrap_or_default(),
+            "region" => self.region.clone().unwrap_or_default(),
+            "hour_cycle" => self.hour_cycle.name().to_owned(),
             "do_not_disturb" => self.do_not_disturb.to_string(),
             "notification_previews" => self.notification_previews.name().to_owned(),
             _ => return None,

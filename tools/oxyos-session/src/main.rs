@@ -50,7 +50,10 @@
 //! system application the image's policy (`/usr/share/oxyos/system-apps.json`) gives `settings`,
 //! launched from the entry and running the host and bundle that policy names, changes them: each change is validated, written, applied (the
 //! screen reader started or stopped) and told to every client. `lock_after` arms the idle lock
-//! again from the change.
+//! again from the change. The session's locale (docs/adr/0040-language-and-region.mdx) is the
+//! person's language, region and hour cycle over the session's environment (`LC_ALL`,
+//! `LC_MESSAGES`, `LANG`), told to every client (`Locale`) when it connects and on a change; the
+//! login screen's is the environment's alone.
 //!
 //! The hardware keys (docs/adr/0025-hardware-keys-and-control-center.mdx) are the session's:
 //! volume, mute, the microphone's mute, the display's and the keyboard's brightness act on
@@ -178,7 +181,13 @@ fn main() -> Result<()> {
         return Err(USAGE.into());
     }
     // The user's preferences; what the file does not say (or is not there) is the default.
-    let mut settings = Settings::session();
+    // The login screen has no person's preferences to speak: its locale is the system's alone
+    // (ADR 0040).
+    let mut settings = if greeter {
+        Settings::session().system_locale_only()
+    } else {
+        Settings::session()
+    };
     // The screen reader the user keeps on starts with the session, when there is one to start.
     let reader_on = reader_on || settings.preferences().screen_reader && reader_program.is_some();
 
