@@ -28,9 +28,12 @@ of the CPU. `--check` fails when a budget is exceeded:
 - an application or the shell doing nothing wakes at most once a second and uses at most 0.1 %
   of a core;
 - an application's first frame comes within half a second of its start;
-- each of Dropsea's responses (`responses`, below) within its scenario's budget at the median;
-- the scenarios' own budgets on speed, which `regress.py` holds only when `perf.py` asks it to
-  (`--speed-budgets`, below, *What a step re-renders*).
+- every budget on time a scenario states for a step: a response's `latency_ms`, `js_work`'s
+  JavaScript and `resize_work`'s frames. Each run checks what its steps do and enforces no time
+  (`regress.py --collect`); `perf.py` measures each budget in every run and judges it over them,
+  at the median of the runs' values, or at the percentile it states (`js_ms_p95_max`, the 95th of
+  every run's frames pooled), and names the runs that were over it ("runs over it" in the budgets'
+  table, "slow:" in what `--check` says), so one slow run is seen and does not decide.
 
 `responses` needs packages built with `DROPSEA_DIR` ([Expo applications from their own
 checkout](./react-native-android-adaptation#expo-applications-from-their-own-checkout)).
@@ -243,9 +246,10 @@ measured 5.1 ms of JavaScript instead of 3.3. Without it, a host counts React's 
 
 Budgets on speed stay where a claim is about speed (`perf-dropsea-home.json`'s JavaScript per
 step, `window-resize.json`'s and `perf-dropsea-resize.json`'s per frame, the shell's in
-`perf.py`), and only `perf.py` holds them (it runs `regress.py --speed-budgets`), on the hardware
-they describe, the ThinkPad's: the deploy gate runs `regress.py` without it, so a machine loaded by
-other builds fails no budget on speed, and holds what every step must do.
+`perf.py`), and only `perf.py --check` holds them, over its runs (above, *Running it*), on the
+hardware they describe, the ThinkPad's: the deploy gate runs `regress.py` without them, so a machine
+loaded by other builds fails no budget on speed, and holds what every step must do.
+`regress.py --speed-budgets` holds them in one run, for a look at one machine.
 
 ## Method
 
@@ -552,6 +556,58 @@ wakeups and 2.3 % of a core were worklets' frame loop (below). An earlier sessio
 behind by 21–47 ms": the compositor read its devices before waiting, so input that woke a turn
 waited behind that turn's frame, and each frame copied every client's buffer (the shell's
 1920 × 1200 background among them) before composing.
+
+### The budgets on speed, on the ThinkPad
+
+`perf.py shell` and `perf.py responses` (Dropsea's), with `--check`, on the ThinkPad itself on 3
+November 2026 (5 and 3 runs), beside the owner's session, which kept running and was never
+touched: the development compositor and the hosts copied into a directory of the home (a runtime,
+its packages and `oxyos-offscreen` built from this tree; nothing installed), run in a user and
+mount namespace whose `/dev/dri`, `/usr/share/oxyos`, `/usr/local/share/oxyos` and `/usr/lib/oxyos`
+are empty, with a home and runtime directory of their own and `OXYOS_HOST_RENDERER=cpu`: no
+process of the run can open a GPU (the NVIDIA T550 there hangs the kernel when opened), and none
+reads the session's registry or the person's settings.
+
+```sh
+unshare -rm sh -c 'for d in /dev/dri /usr/share/oxyos /usr/local/share/oxyos /usr/lib/oxyos; do
+    mount -t tmpfs none $d; done
+  HOME=$P/home XDG_RUNTIME_DIR=$P/run OXYOS_HOST_RENDERER=cpu python3 tools/rn-host-spike/perf.py \
+    --offscreen $P/bin/oxyos-offscreen --runtimes $P/machine/runtimes --packages $P/machine/packages \
+    --renderer cpu --check shell responses'
+```
+
+(a package's entry names where it was built: its paths are rewritten to the copy's). Every budget
+held at the median; the shell's JavaScript on the CPU, the most of one piece of work, in ms:
+
+| event | budget | ThinkPad, median (each run) |
+|---|---|---|
+| another window pressed | 2 | 0.04 (0.04 0.04 0.04 0.06 0.06) |
+| zoomed | 2 | 0.31 (0.31 0.31 0.30 0.29 0.31) |
+| restored | 2 | 0.18 (0.17 0.18 0.17 0.20 0.18) |
+| the pointer entering the dock's first icon | 4 | 3.58 (3.65 3.46 3.49 **5.4** 3.58) |
+| moving over it | 2 | 0.04 |
+| leaving it | 4 | 1.24 (1.24 1.27 1.22 1.30 1.22) |
+
+Blocked: 0 in every run. The hover's fourth run was slow (5.4 ms):
+it is named, and the median decides. Dropsea's latencies, at the median, ms (budget):
+
+| input | at 1 | at 1.25 | a big home, zoomed at 1.25 |
+|---|---|---|---|
+| a press selects Downloads | 19.0 (120) | 22.1 (120) | 28.4 (120) |
+| a double press opens it (27 items) | 162.6 (600) | 174.3 (600) | 208.7 (600) |
+| a press selects an item | 20.9 (120) | 22.3 (120) | |
+| Right | 19.4 (120) | 21.3 (120) | |
+| Down | 19.3 (120) | 21.2 (120) | |
+| the list view | 130.9 (600) | 143.1 (600) | |
+| a press on a row | 23.5 (200) | 27.0 (200) | |
+| a context menu at a secondary press | 40.0 (250) | 40.9 (250) | |
+| Escape | 11.0 (120) | 11.2 (120) | |
+| back to the home | 155.4 (450) | 164.7 (450) | 177.2 (450) |
+| a sidebar place | 116.1 (450) | 120.5 (450) | |
+
+and the big home's JavaScript (`js_work`, the most of one piece on the CPU): its launch 164.2 ms
+(budget 250), the press back to the home 144.2 (250), half a minute alone 0.01 (16.7), each file
+another program adds 35.4 (100).
 
 ## What was fixed
 

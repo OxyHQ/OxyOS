@@ -34,8 +34,12 @@ step's expected result) and measures, from what the processes report and from /p
 The development compositor turns every 5 ms when nothing wakes it, so its own idle numbers say
 nothing of a session's (oxyos-session waits on its devices and clients); the hosts' do.
 
-Writes perf.json into --out and prints the tables docs/performance.mdx shows. With --check, exits 1
-when a budget (BUDGETS) is exceeded. A frame's budget is a refresh of the display the interaction
+Writes perf.json into --out and prints the tables docs/performance.mdx shows. Each regression run
+checks what its steps do and enforces no time (regress.py --collect): the scenarios' own budgets on
+time (a step's `latency_ms`, `js_work`'s, `resize_work`'s) are measured over every run and judged
+here, at the median of the runs, or at the percentile a budget states (`js_ms_p95_max`: the 95th
+of every run's frames pooled), with the runs over it named. With --check, exits 1 when one of
+them, or a budget of BUDGETS, is exceeded. A frame's budget is a refresh of the display the interaction
 runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz without one), so a
 scenario on a 120 Hz output holds every frame to 8.3 ms.
 
@@ -49,6 +53,7 @@ Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs
 import argparse
 import json
 import os
+import re
 import pathlib
 import statistics
 import subprocess
@@ -88,7 +93,7 @@ INTERACTIONS = [
 ]
 
 # Responses: (name, scenario). Each step with an input is measured; its budget is the scenario's own
-# `latency_ms`, which regress.py holds every run to and --check the median.
+# `latency_ms`, which --check holds the median of the runs to (step_budgets).
 RESPONSES = [
     ("Dropsea", "perf-dropsea.json"),
     ("Dropsea at 1.25", "perf-dropsea-scaled.json"),
@@ -268,11 +273,10 @@ def run_scenario(options, scenario, out, during=None):
                "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out),
                # A run measuring speed never counts what React re-renders (regress.py): the count's
                # allocations move where Hermes' collections fall, into the times measured.
-               "--no-render-counts"]
-    # The scenarios' budgets on speed are perf.py's to hold, on the hardware they describe
-    # (regress.py, --speed-budgets); the deploy gate holds what the steps do, not how fast.
-    if options.check:
-        command += ["--speed-budgets"]
+               "--no-render-counts",
+               # Each run checks what its steps do and enforces no time: the steps' budgets on time
+               # are measured here over every run and judged at the median (step_budgets).
+               "--collect"]
     if options.gpu_only:
         command += ["--gpu-only"]
     if options.renderer:
@@ -291,7 +295,91 @@ def run_scenario(options, scenario, out, during=None):
     summary = json.loads(next(line for line in director.splitlines() if line.startswith('{"mode"')))
     report = read_report(out / "host-report.jsonl")
     shell = read_report(out / "host-report.jsonl.shell")
+    if isinstance(scenario, pathlib.Path) and scenario.parent == SCENARIOS:
+        STEP_RUNS.setdefault(scenario.name, []).append(
+            measure_steps(json.loads(scenario.read_text()), summary, report, shell))
     return summary, report, shell, sampler
+
+
+# The steps' budgets on time, as each run measured them: {scenario's file name: [one per run:
+# {(step index, host, budget): a value, or for a budget at the 95th percentile the values it is of}]}.
+STEP_RUNS = {}
+# Budgets at a percentile of the values of every run pooled; the rest are judged at the median of
+# each run's value.
+POOLED = {"js_ms_p95_max": 95, "busy_refreshes_p95_max": 95}
+ZOOM_LINE = re.compile(r"zoom \(.*\): its configure .* its frame presented ([\d.]+) ms after")
+
+
+def measure_steps(scenario, summary, report, shell):
+    """What one run measured of each step's budgets on time, as regress.py would check them (the same
+    windows: from the step before's end to the step's own): `js_work`'s (the most JavaScript one
+    piece of work ran on the CPU, blocked and by the clock), `resize_work`'s (the frames' JavaScript
+    on the CPU and their work in refreshes, the zoom's frame), and the step's `latency_ms`."""
+    measured = {}
+    hz = display_hz(scenario)
+    start = summary["t_launch"]
+    for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
+        end = result["t_settled"]
+        expect = step.get("expect", {})
+        for host, wanted, lines in (("app", expect, report), ("shell", expect.get("in_shell", {}), shell)):
+            work = [line for line in lines if line["kind"] == "timing" and start <= line["t"] <= end]
+            for budget, measure in (("js_ms_max", "cpu"), ("js_blocked_ms_max", "blocked"), ("js_wall_ms_max", "parts")):
+                if budget in wanted.get("js_work", {}):
+                    measured[(index, host, budget)] = max(
+                        (line.get(measure, line["parts"]).get("javascript", 0) for line in work), default=0.0)
+            resize = wanted.get("resize_work", {})
+            if resize:
+                begun = result.get("t_inject") or start
+                frames = [line for line in lines if line["kind"] == "frame" and line.get("surface") == 1
+                          and begun <= line["t"] <= end and line.get("presented", True)]
+                if "js_ms_p95_max" in resize:
+                    measured[(index, host, "js_ms_p95_max")] = [line.get("js_cpu_ms", 0) for line in frames]
+                if "busy_refreshes_p95_max" in resize:
+                    measured[(index, host, "busy_refreshes_p95_max")] = [line.get("busy_ms", 0) * hz / 1000
+                                                                         for line in frames]
+                if "zoom_presented_ms_max" in resize:
+                    zooms = [float(m.group(1)) for m in (ZOOM_LINE.search(line["text"]) for line in lines
+                                                          if line["kind"] == "log" and begun <= line["t"] <= end) if m]
+                    if zooms:
+                        measured[(index, host, "zoom_presented_ms_max")] = max(zooms)
+        if "latency_ms" in expect and result.get("latency_ms") is not None:
+            measured[(index, "app", "latency_ms")] = result["latency_ms"]
+        start = end
+    return measured
+
+
+def nearest(values, p):
+    """The `p`th percentile of `values` as regress.py takes it."""
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, round(p / 100 * (len(ordered) - 1)))] if ordered else 0.0
+
+
+def step_budgets():
+    """Each step's budget on time over every run of its scenario: the median of the runs' values,
+    or the percentile it states of all the runs' values pooled, and the runs that were over it."""
+    entries = []
+    for name, runs in STEP_RUNS.items():
+        steps = json.loads((SCENARIOS / name).read_text())["steps"]
+        for key in sorted({key for run in runs for key in run}):
+            index, host, budget = key
+            expect = steps[index].get("expect", {})
+            wanted = expect if host == "app" else expect.get("in_shell", {})
+            limit = (wanted.get(budget) if budget == "latency_ms"
+                     else {**wanted.get("js_work", {}), **wanted.get("resize_work", {})}.get(budget))
+            values = [run[key] for run in runs if key in run]
+            if budget in POOLED:
+                measured = nearest([v for run in values for v in run], POOLED[budget])
+                each = [nearest(run, POOLED[budget]) for run in values]
+                how = f"p{POOLED[budget]} of every run"
+            else:
+                measured = statistics.median(values)
+                each = values
+                how = "median of the runs"
+            entries.append({"scenario": name, "step": index + 1, "name": steps[index].get("name", ""), "host": host,
+                            "budget": budget, "limit": limit, "measured": round(measured, 2), "how": how,
+                            "runs": [round(v, 2) for v in each],
+                            "slow_runs": [run + 1 for run, v in enumerate(each) if v > limit]})
+    return entries
 
 
 def frames_between(report, start, end):
@@ -623,6 +711,13 @@ def show(results):
             print(table(rows, ["event", "shell JS CPU ms p50 / max (the most of one piece of work)", "budget",
                                "its JS by the clock p50 / max", "blocked p50 / max", "shell frames p50 / max"]))
             print()
+    if results.get("budgets"):
+        rows = [[f"{e['scenario']} {e['step']}", e["host"], e["budget"], e["limit"], f"{e['measured']} ({e['how']})",
+                 " ".join(map(str, e["runs"])),
+                 ", ".join(f"run {run}" for run in e["slow_runs"]) or "none"] for e in results["budgets"]]
+        print("The scenarios' budgets on time, over every run:")
+        print(table(rows, ["step", "host", "budget", "at most", "measured", "each run", "runs over it"]))
+        print()
     if "cold_start" in results:
         rows = [[name, spread(r["first_frame_ms"]), ", ".join(f"{k} {v}" for k, v in r["stages_ms"].items())]
                 for name, r in results["cold_start"].items()]
@@ -652,16 +747,13 @@ def check(results):
             if busy and busy["p95"] > BUDGETS["host_busy_refreshes_p95"] * refresh:
                 over.append(f"{name}: the {source}'s host worked {busy['p95']} ms per frame at p95 "
                             f"(a refresh is {refresh} ms)")
-    for name, steps in results.get("responses", {}).items():
-        for step in steps:
-            if step["budget_ms"] and step["latency_ms"] and step["latency_ms"]["p50"] > step["budget_ms"]:
-                over.append(f"{name}: {step['step']}: {step['latency_ms']['p50']} ms at the median "
-                            f"(its budget is {step['budget_ms']} ms)")
-    for name, steps in results.get("shell", {}).items():
-        for step in steps:
-            if step["js_ms"]["p50"] > step["budget_ms"]:
-                over.append(f"{name}: {step['step']}: {step['js_ms']['p50']} ms of JavaScript on the CPU at the median "
-                            f"(its budget is {step['budget_ms']} ms)")
+    # The scenarios' own budgets on time, judged over every run (step_budgets): a response's latency,
+    # a step's JavaScript, a resize's frames.
+    for entry in results.get("budgets", []):
+        if entry["measured"] > entry["limit"]:
+            slow = ", ".join(f"run {run} ({entry['runs'][run - 1]})" for run in entry["slow_runs"])
+            over.append(f"{entry['scenario']} step {entry['step']} ({entry['host']}): {entry['budget']} "
+                        f"{entry['measured']}, the {entry['how']}, over {entry['limit']} (slow: {slow})")
     for name, processes in results.get("idle", {}).items():
         for who, m in processes.items():
             if who == "compositor":
@@ -711,6 +803,7 @@ def main():
         results["idle"] = {name: idle(options, name, scenario, out) for name, scenario in IDLES}
     if "applications" in parts:
         results["applications"] = applications(options, out)
+    results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)
     print(f"\n{out / 'perf.json'}")
