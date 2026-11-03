@@ -68,6 +68,9 @@ class ShellState {
   void followApplications();
   int applicationsFd() const;
   bool applicationsChanged();
+  // The applications listed again in the session's new language (their entries' localized names,
+  // docs/adr/0040-language-and-region.mdx), once Intl's default locale is the new one.
+  void relocalize() { readApplications(); }
 
  private:
   std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> applicationsWatch_{

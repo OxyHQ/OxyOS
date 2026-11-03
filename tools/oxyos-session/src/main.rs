@@ -285,7 +285,8 @@ fn main() -> Result<()> {
             .collect();
         match oxyos_compositor::screenshots::Writer::spawn(
             folders,
-            oxyos_compositor::screenshots::Language::of(&oxyos_apps::languages()),
+            // The session's language (docs/adr/0040-language-and-region.mdx), followed as it changes.
+            oxyos_compositor::screenshots::Language::of(&[settings.locale()]),
             oxyos_compositor::screenshots::shutter_sound(&data_dirs),
         ) {
             Ok(writer) => compositor.screenshots = Some(writer),

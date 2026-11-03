@@ -163,6 +163,10 @@ impl Settings {
         if let Err(code) = compositor.scene.set_locale(&locale) {
             eprintln!("[preferences] locale {locale:?} not told: {code:?}");
         }
+        // Screenshots are named in it, as a Mac names them in the system's language.
+        if let Some(writer) = compositor.screenshots.as_mut() {
+            writer.language = crate::screenshots::Language::of(std::slice::from_ref(&locale));
+        }
         // The person's lists of applications (docs/adr/0034-the-dock.mdx), for the shell.
         compositor.scene.set_application_list(
             ApplicationListKind::Dock,

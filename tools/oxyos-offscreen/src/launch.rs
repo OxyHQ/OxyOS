@@ -3873,7 +3873,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 oxyos_protocol::CaptureDestination::Desktop => desktop.clone(),
                 oxyos_protocol::CaptureDestination::Documents => documents.clone(),
             }),
-            oxyos_compositor::screenshots::Language::of(&oxyos_apps::languages()),
+            oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
             None,
         )?);
     }

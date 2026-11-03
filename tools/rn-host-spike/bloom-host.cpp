@@ -1977,6 +1977,8 @@ int main(int argc, char** argv) {
         // expo-localization's module tells its listeners, as Android's configuration change does.
         if (window && window->locale() != toldLocale) {
           toldLocale = window->locale();
+          // The shell's applications by their names in the new language.
+          if (shellMode) shellState.relocalize();
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSLocaleChanged",
                                                                folly::dynamic::object("locale", toldLocale)));

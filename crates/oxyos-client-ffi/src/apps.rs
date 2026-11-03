@@ -142,13 +142,14 @@ pub unsafe extern "C" fn oxyos_applications_watch_changed(
 }
 
 /// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "pinned" (its
-/// place in the dock from 1, or null)}]`, sorted by name, in the session's language.
+/// place in the dock from 1, or null)}]`, sorted by name, in the session's language: `Intl`'s
+/// default locale, which the host keeps the session's (docs/adr/0040-language-and-region.mdx).
 pub fn applications_json() -> String {
     let session = Session::read();
     let trusted = |path: &std::path::Path| session.trusted(path);
     let (applications, skipped) = oxyos_apps::registry(
         &session.directories,
-        &oxyos_apps::languages(),
+        &languages_of_tag(&oxyos_intl::default_locale()),
         &session.policy,
         session.installed.as_deref(),
         &trusted,
@@ -243,4 +244,29 @@ pub unsafe extern "C" fn oxyos_application_directory(
         }
     }
     i64::try_from(bytes.len()).unwrap_or(i64::MAX)
+}
+
+/// The languages an entry's localized names are looked up by (`Name[es_ES]`, then `Name[es]`) for
+/// a BCP 47 tag: `es-ES-u-hc-h23` as `es_ES`, `es`.
+fn languages_of_tag(tag: &str) -> Vec<String> {
+    let mut subtags = tag.split('-').take_while(|subtag| subtag.len() > 1);
+    let language = subtags.next().unwrap_or_default();
+    let region =
+        subtags.find(|subtag| subtag.len() == 2 && subtag.chars().all(|c| c.is_ascii_uppercase()));
+    let posix = match region {
+        Some(region) => format!("{language}_{region}"),
+        None => language.to_owned(),
+    };
+    oxyos_apps::languages_of(&posix)
+}
+
+#[cfg(test)]
+mod locale_tests {
+    #[test]
+    fn languages_of_a_tag() {
+        assert_eq!(super::languages_of_tag("es-ES-u-hc-h23"), ["es_ES", "es"]);
+        assert_eq!(super::languages_of_tag("en-US"), ["en_US", "en"]);
+        assert_eq!(super::languages_of_tag("sr-Latn-RS"), ["sr_RS", "sr"]);
+        assert_eq!(super::languages_of_tag("es"), ["es"]);
+    }
 }
