@@ -233,6 +233,51 @@ fn the_focused_element_is_said_once_and_takes_the_cursor() {
 }
 
 #[test]
+fn the_cursor_follows_its_element_as_the_tree_changes_before_it() {
+    // Settings' Resolution choices as Bloom commits them (settings-displays-keys-scaled): the
+    // dialog with the chosen resolution focused, then, a frame later, one node fewer before the
+    // rows and nothing focused, then Tab on the next row. That row now stands where the first one
+    // stood: it is a new focus, said, not the element the cursor was left on.
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &tree(WINDOW, &[(R::Generic, 0, "", "")]));
+    let first = [
+        (R::Generic, 0, "", ""),
+        (R::Dialog, 0, "Resolución", ""),
+        (R::Generic, 0, "", ""),
+        (R::Generic, 0, "", ""),
+        (R::Radio, FOCUSED, "1920 × 1080 (nativa)", ""),
+        (R::Radio, 0, "1280 × 720", ""),
+    ];
+    let said = feed(&mut reader, &tree(WINDOW, &first));
+    assert!(
+        said.iter().any(|text| text.starts_with("1920 × 1080")),
+        "{said:?}"
+    );
+    let shifted = |focused: Option<usize>| {
+        let mut nodes = vec![
+            (R::Generic, 0, "", ""),
+            (R::Dialog, 0, "Resolución", ""),
+            (R::Generic, 0, "", ""),
+            (R::Radio, 0, "1920 × 1080 (nativa)", ""),
+            (R::Radio, 0, "1280 × 720", ""),
+        ];
+        if let Some(index) = focused {
+            nodes[index].1 |= FOCUSED;
+        }
+        tree(WINDOW, &nodes)
+    };
+    assert!(feed(&mut reader, &shifted(None)).is_empty());
+    assert_eq!(
+        reader.cursor(),
+        Some(((APP, WINDOW), 3)),
+        "on the same row, moved"
+    );
+    let said = feed(&mut reader, &shifted(Some(4)));
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].starts_with("1280 × 720"), "{said:?}");
+}
+
+#[test]
 fn announcements_and_live_regions_are_said_with_their_politeness() {
     let mut reader = Reader::new(Language::Spanish);
     feed(&mut reader, &probe(None, "Nivel 5"));

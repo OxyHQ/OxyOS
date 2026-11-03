@@ -446,6 +446,13 @@ impl Reader {
         // protocol's nodes have no identity but their place, and an element appearing before it
         // (a search field's clear button as the first letter is typed) moves it on.
         let kept = self.kept_focus(key, before.as_deref());
+        // The cursor follows the element it was on, as the focus does (below): one going or coming
+        // before it moves it on, and its old place may hold the next element now, which a focus
+        // there would otherwise take for the one the cursor was left on and never say (Settings'
+        // Resolution choices, committed again a frame later with one node fewer before the rows).
+        if let Some(moved) = self.followed_cursor(key, before.as_deref()) {
+            self.cursor = Some((key, moved));
+        }
         if let Some(kept) = kept {
             self.text_changes(key, before.as_deref(), kept);
             self.state_changes(key, before.as_deref(), kept);
@@ -588,6 +595,25 @@ impl Reader {
             like(&nodes[is]) && !nodes.get(was).is_some_and(like)
         };
         kept.then_some((was, is))
+    }
+
+    /// Where the element under the cursor in the surface's previous tree is in this one, when it
+    /// is no longer at its place: the nearest node of its role and name. None when it is still
+    /// there, or gone (the cursor then stays where it was).
+    fn followed_cursor(&self, key: Surface, before: Option<&[Node]>) -> Option<usize> {
+        let (surface, at) = self.cursor?;
+        if surface != key {
+            return None;
+        }
+        let old = before?.get(at)?;
+        let nodes = &self.trees[&key];
+        let like = |node: &Node| node.role == old.role && node.name == old.name;
+        if nodes.get(at).is_some_and(like) {
+            return None;
+        }
+        (0..nodes.len())
+            .filter(|&index| like(&nodes[index]))
+            .min_by_key(|&index| index.abs_diff(at))
     }
 
     /// A live region whose text changed since its view last showed it is said, as TalkBack says
