@@ -138,8 +138,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - resize_work: what a window resizing cost the application's host, from its report's frames in
   the step: "react_commits_max", the most commits of React's (re-renders; a resize's own layout is
   native and is none) in the whole step, one for each threshold the window's size crosses that
-  changes what the application shows; "js_ms_p95_max", the most JavaScript a frame may run at the
-  95th percentile (the events a resize delivers, onLayout and the dimensions, and nothing they
+  changes what the application shows; "js_ms_p95_max", the most JavaScript a frame may run on the
+  host's CPU at the 95th percentile (the events a resize delivers, onLayout and the dimensions, and nothing they
   re-render); "busy_refreshes_p95_max", the most of a refresh of the display (`display_hz`) a
   frame's whole work may take at the 95th percentile; "zoom_presented_ms_max", for a zoom (the
   green bubble), the most time from its being asked to its frame presented, as the host's
@@ -209,8 +209,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   since the summary before;
 - js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
   work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
-  of them ran (an event the shell is told that changes nothing it shows, another window's zoom,
-  runs next to none); "presented", [least, most] frames presented (0: the step changed nothing
+  of them ran on the host's CPU (its thread's CPU time, which the machine's load does not
+  lengthen; an event the shell is told that changes nothing it shows, another window's zoom,
+  runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
+  JavaScript (waiting for another thread, a lock, a file); "presented", [least, most] frames presented (0: the step changed nothing
   the host draws). In `in_shell`, the shell's;
 
 A step with `until_sheet` asks the session for something it confirms in a system sheet (ADR 0030):
@@ -411,7 +413,9 @@ SLOW_LINE = re.compile(
     r"\(commits (?P<commits>[\d.]+), of which Yoga layout (?P<layout>[\d.]+) and text (?P<text>[\d.]+)\), "
     r"animation (?P<animation>[\d.]+), mount (?P<mount>[\d.]+), drawing (?P<draw>[\d.]+), "
     r"presenting (?P<present>[\d.]+)(?P<painter>| on the GPU \(sync [\d.]+\)| from the CPU), "
-    r"other (?P<other>[\d.]+); waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?"
+    r"other (?P<other>[\d.]+); of it on the CPU (?P<cpu>[\d.]+) \(JavaScript (?P<javascript_cpu>[\d.]+)\), "
+    r"blocked (?P<blocked>[\d.]+) \(JavaScript (?P<javascript_blocked>[\d.]+)\), preempted (?P<preempted>[\d.]+); "
+    r"waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?"
     r"(?:; input to present (?P<latency>[\d.]+) ms)?(?:; (?P<skipped>\d+) slow not shown since the last)?$")
 
 
@@ -422,8 +426,9 @@ def percentile(ordered, p):
 
 def check_diagnostics(report, log_text, failures, who="the application"):
     """A host's frame diagnostics (frame-diagnostics.h) against its own report: each line written to
-    the log is there, a slow frame's line names the work its `timing` line has, and each summary sums
-    up exactly the frames presented since the summary before."""
+    the log is there, a slow frame's line names the work its `timing` line has, each part's time by
+    the wall clock is its time on the CPU, blocked and preempted (thread-clock.h), and each summary
+    sums up exactly the frames presented since the summary before."""
     logged = set(log_text.splitlines())
     frames, last_slow = [], None
     for line in report:
@@ -434,6 +439,16 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             if abs(late - line["late_ms"]) > 1e-6 or line["slow"] != (late > line["refresh_ms"]):
                 failures.append(f"{who}'s frame of {line['work_ms']:.2f} ms (waiting {line['wait_ms']:.2f}, a refresh "
                                 f"{line['refresh_ms']:.2f}) is {'' if line['slow'] else 'not '}said to be slow")
+            # Each part by the wall clock is exactly its CPU's, blocked and preempted time (each rounded
+            # to 0.01 ms), so that nothing off the CPU goes unsaid.
+            for part, wall in line["parts"].items():
+                split = line["cpu"][part] + line["blocked"][part] + line["preempted"][part]
+                if abs(split - wall) > 0.031:
+                    failures.append(f"{who}'s {part} of {wall:.2f} ms is {line['cpu'][part]:.2f} on the CPU, "
+                                    f"{line['blocked'][part]:.2f} blocked and {line['preempted'][part]:.2f} preempted")
+            if abs(line["cpu_ms"] + line["blocked_ms"] + line["preempted_ms"] - line["work_ms"]) > 1e-6:
+                failures.append(f"{who}'s frame of {line['work_ms']:.2f} ms is {line['cpu_ms']:.2f} on the CPU, "
+                                f"{line['blocked_ms']:.2f} blocked and {line['preempted_ms']:.2f} preempted")
             if line["presented"]:
                 frames.append(line)
             if line["slow"]:
@@ -444,7 +459,9 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             slow = SLOW_LINE.match(line["text"])
             if " took " in line["text"] and " dropped (a refresh is " in line["text"] and not slow:
                 failures.append(f"{who}'s slow line {line['text']!r} is not as frame-diagnostics.cpp writes it")
-            elif slow and (last_slow is None or abs(float(slow["work"]) - last_slow["work_ms"]) > 0.051):
+            elif slow and (last_slow is None or abs(float(slow["work"]) - last_slow["work_ms"]) > 0.051
+                           or abs(float(slow["cpu"]) - last_slow["cpu_ms"]) > 0.051
+                           or abs(float(slow["javascript_cpu"]) - last_slow["cpu"]["javascript"]) > 0.051):
                 failures.append(f"{who}'s slow line {line['text']!r} does not name its frame's work "
                                 f"({last_slow and last_slow['work_ms']})")
         elif line["kind"] == "timing_summary":
@@ -1595,13 +1612,25 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "js_work" in expect:
         # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
         # frame, and the work that drew none but ran JavaScript.
+        # JavaScript's work is its time on the loop thread's CPU, which the machine's load does not
+        # lengthen (preempted, the host waits for a CPU another process has); its time blocked (on
+        # another thread, a lock, a file) is held to a bound of its own, never hidden.
         wanted = expect["js_work"]
         work = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
-        costly = max(work, key=lambda line: line["parts"].get("javascript", 0), default=None)
-        most = costly["parts"].get("javascript", 0) if costly else 0.0
+        def js(line, measure):
+            return line[measure].get("javascript", 0)
+        costly = max(work, key=lambda line: js(line, "cpu"), default=None)
+        most = js(costly, "cpu") if costly else 0.0
         if most > wanted.get("js_ms_max", float("inf")):
-            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript"
-                 f"{'' if costly['presented'] else ' (no frame)'}, expected at most {wanted['js_ms_max']}")
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on the CPU"
+                 f"{'' if costly['presented'] else ' (no frame)'} ({js(costly, 'parts'):.2f} by the clock: "
+                 f"{js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} preempted), expected at most "
+                 f"{wanted['js_ms_max']}")
+        waited = max(work, key=lambda line: js(line, "blocked"), default=None)
+        if waited and js(waited, "blocked") > wanted.get("js_blocked_ms_max", float("inf")):
+            fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms"
+                 f"{'' if waited['presented'] else ' (no frame)'} (waiting for another thread, a lock or a file; "
+                 f"{js(waited, 'cpu'):.2f} on the CPU), expected at most {wanted['js_blocked_ms_max']}")
         presented = sum(1 for line in work if line["presented"])
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
@@ -1963,9 +1992,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         def p95(values):
             ordered = sorted(values)
             return ordered[min(len(ordered) - 1, round(0.95 * (len(ordered) - 1)))] if ordered else 0
-        js = p95([line.get("js_ms", 0) for line in frames])
+        # JavaScript's work on the CPU (report.h, `js_cpu_ms`); the frame's work below is a deadline,
+        # by the wall clock.
+        js = p95([line.get("js_cpu_ms", 0) for line in frames])
         if js > wanted.get("js_ms_p95_max", float("inf")):
-            fail(f"a frame of the resize ran {js:.1f} ms of JavaScript at the 95th percentile, expected at most "
+            fail(f"a frame of the resize ran {js:.1f} ms of JavaScript on the CPU at the 95th percentile "
+                 f"({p95([line.get('js_ms', 0) for line in frames]):.1f} by the clock), expected at most "
                  f"{wanted['js_ms_p95_max']}")
         busy = p95([line.get("busy_ms", 0) for line in frames]) * refresh_hz / 1000
         if busy > wanted.get("busy_refreshes_p95_max", float("inf")):

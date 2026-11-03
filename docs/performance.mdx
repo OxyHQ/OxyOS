@@ -70,7 +70,8 @@ application's id (else its module), lines of five kinds (`tools/rn-host-spike/fr
 ```text
 [host so.oxy.frameprobe] a frame after pointer.press took 127.4 ms, 7 dropped (a refresh is 16.7 ms): events 0.6,
   JavaScript 126.2 (commits 0.2, of which Yoga layout 0.2 and text 0.0), animation 0.1, mount 0.0, drawing 0.2,
-  presenting 0.2 from the CPU, other 0.1; waiting for the compositor 0.0; 2 turns; input to present 127.8 ms
+  presenting 0.2 from the CPU, other 0.1; of it on the CPU 127.0 (JavaScript 125.9), blocked 0.2 (JavaScript 0.1),
+  preempted 0.2; waiting for the compositor 0.0; 2 turns; input to present 127.8 ms
 [host so.oxy.frameprobe] in the last 10.0 s: 91 frames, their work 3.5 ms median, 8.5 at the 95th percentile,
   123.3 at most; input to present 129.6 ms median, 129.6 at the 95th percentile (2 inputs); 1 slow, 7 dropped
   (a refresh is 16.7 ms)
@@ -93,11 +94,15 @@ development compositor, which draws from the CPU). How to read them:
   *mount*: applying a commit to the host's tree. *drawing*: the damage and the painter recording
   (on the GPU) or rasterizing (on the CPU) the frame. *presenting*: handing it to the compositor,
   on the GPU with `sync`, the wait for its buffer, or from the CPU (copying it into shared memory).
-  *other*: the rest (images, accessibility, popups' placement). *waiting for the compositor*:
-  the time the frame was ready but the one before it was not yet answered, which is not work;
-  *turns*, the loop's turns it took.
-- **A frame is slow** when its work, plus any wait for the compositor beyond one refresh (a
-  frame in flight is answered within one), is longer than a refresh of its window's display:
+  *other*: the rest (images, accessibility, popups' placement). *Of it*: the same work by the
+  loop thread's own clocks (below, *Wall time and CPU time*): *on the CPU*, and of that
+  *JavaScript*'s; *blocked*, the thread asleep in the middle of its work, waiting for another
+  thread, a lock, a file (and of that *JavaScript*'s); *preempted*, the thread ready to run while
+  another had its CPU. *waiting for the compositor*: the time the frame was ready but the one
+  before it was not yet answered, which is not work; *turns*, the loop's turns it took.
+- **A frame is slow** when its work (by the wall clock: what the person waited), plus any wait
+  for the compositor beyond one refresh (a frame in flight is answered within one), is longer
+  than a refresh of its window's display:
   16.7 ms at 60 Hz, 8.3 at 120. Its *dropped* are the refreshes it missed. The line names what
   started the work: an input (`pointer.press`, `key`, `scroll`, `touch`, `text input`, …), *a
   resize*, *an animation frame*, *a timer*, *data arriving*, *an image arriving*, *the first
@@ -122,8 +127,10 @@ development compositor, which draws from the CPU). How to read them:
   process's teardown. One not answered within 3 s is said too.
 
 What to look for: a slow frame whose *JavaScript* dominates is the application's own work (its
-JavaScript profile, above, says which functions); *drawing* or *presenting* is the host's painter
-(on the GPU, a large *sync* is the GPU being slow or busy); a large *waiting for the compositor*
+JavaScript profile, above, says which functions), unless most of it was *preempted* (the machine
+busy with something else) or *blocked* (JavaScript waiting for another thread or a file);
+*drawing* or *presenting* is the host's painter (on the GPU, a large *sync* is the GPU being slow
+or busy); a large *waiting for the compositor*
 with little work is the compositor not answering in time (its own slow turns, above, say why);
 *input to present* far above the frame's work is the host busy with something else when the
 input came. A resize whose *settling* is cut short at every size is an application laying itself
@@ -145,8 +152,55 @@ two unsaid; the idle window writes one summary, then nothing. Every run of every
 checks that each line a host's diagnostics wrote is in the log, whole; that a frame is said to be
 slow exactly when its work (and its wait beyond a refresh) passes a refresh, so a fast frame never
 is, however loaded the machine; that a slow line names the work its frame's `timing` line has;
-and that each summary's numbers are those of the frames since the summary before (`regress.py`,
+that each part's wall time is exactly its time on the CPU, blocked and preempted; and that each
+summary's numbers are those of the frames since the summary before (`regress.py`,
 `check_diagnostics`).
+
+### Wall time and CPU time
+
+Every part of a frame's work is measured with two clocks (`thread-clock.h`), and the two answer
+different questions:
+
+- **The wall clock** (`CLOCK_MONOTONIC`) is what a person waits for: a frame's work against a
+  refresh, input to present, a resize's or a zoom's frame, an application's first frame, a
+  response's latency. Every budget on latency or a deadline is by the wall clock, because
+  whatever lengthens it, the machine's load among it, is felt.
+- **The loop thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's thread ran:
+  JavaScript, with the Yoga layout and the text measuring it runs on the same thread, and every
+  native part. Time the thread was scheduled out, or asleep waiting for something, is not in it.
+  Budgets on how much work JavaScript does (`regress.py`'s `js_work` and `resize_work`'s
+  `js_ms_p95_max`, `perf.py`'s shell budgets) are by it.
+
+The rest of a part's wall time is not lost: it is either *preempted* (the thread ready while
+another had its CPU, the thread's `run_delay` in `/proc/thread-self/schedstat`) or *blocked* (the
+thread asleep before its work was done: waiting for another thread, such as Hermes' collector or a
+painter, for a lock, a file, the compositor's answer). What another thread does while the loop
+waits for it is the loop's *blocked*, in the part that waited, and `js_work` holds JavaScript's
+blocked time to a bound of its own (`js_blocked_ms_max`): nothing that blocks the host's thread
+becomes invisible because its budget is on the CPU. A part's wall time is exactly the three
+(`check_diagnostics` checks it in every scenario). A sample is two system calls (the CPU clock
+and a read of the schedstat), under a microsecond each, at each change of part.
+
+**What CPU time does not remove: a slower CPU.** The same work takes longer on a core shared with a
+busy hyperthread, on an efficiency core, at a lower clock, or on a virtual CPU the hypervisor is
+running something else on, and the thread's CPU clock counts all of it. On the development machine
+(WSL2 on an i9-14900K, 8 performance cores with hyperthreads and 16 efficiency cores, no hardware
+counters in the guest) that is the whole of what load does to the gate's scenarios, which run in a
+scope weighted far above everything else (`CPUWeight=10000`), so they are hardly ever preempted.
+`shell-events.json`, 20 runs each on 3 November 2026, before and after the CPU clock, with
+`CPUWeight=10000` as the deploy runs it (the most JavaScript one piece of the shell's work ran on
+entering the dock, in ms):
+
+| load | before (wall) | after: on the CPU | of it preempted | blocked | passed, before / after |
+|---|---|---|---|---|---|
+| other sessions (load 28–55) | 3.2–9.0, median 7.6 | 3.2–16.9, median 7.5 | 0–0.3 | 0–0.3 | 3 / 1 of 20 |
+| the same and a busy loop on each of the 32 CPUs | 5.5–11.8, median 6.7 | 5.4–13.7, median 6.1 | 0–0.3 | 0–0.02 | 0 / 0 of 20 |
+
+Unloaded the same piece is 2.7–3.1 ms. A fixed loop timed the same way takes 9.2 ms by the CPU clock
+at the median with the machine at a load of 25, and 13–22 ms with a busy loop on every CPU: the work
+is the same, the CPU is slower. A budget on how much JavaScript does that a loaded machine
+cannot move needs a count of work rather than a time: instructions retired (a hardware counter,
+`perf_event_open`; none in a WSL2 guest) or what React rendered.
 
 ## Method
 
@@ -168,8 +222,9 @@ composing it took (`composed` in each step's record: gathering the scene, readin
 buffers, composing, handing it over), and the part of it reading the clients' buffers. For every
 frame a host presents, its report records the loop's work since its previous frame (`busy_ms`,
 never its waiting) and the part of it running JavaScript (`js_ms`: React Native's runtime and
-the worklets' UI runtime, so React's render, Fabric's commit and Yoga's layout); the rest is
-native (mounting, drawing, presenting, the compositor's events). Paced steps (`drag_paced`,
+the worklets' UI runtime, so React's render, Fabric's commit and Yoga's layout), both by the wall
+clock, and that JavaScript's time on the loop thread's CPU (`js_cpu_ms`) and blocked
+(`js_blocked_ms`); the rest is native (mounting, drawing, presenting, the compositor's events). Paced steps (`drag_paced`,
 `scroll_paced`) send each event when its time comes and compose the frame it wakes at once, as a
 device's event wakes a session's turn.
 
@@ -202,9 +257,10 @@ the watch and listed again, to a budget of their own.
 on the ThinkPad's display (1600 × 1000 at 1.25): another window activated, zoomed by its green
 bubble and restored (each changes what the shell knows of that window and nothing it shows), and
 the pointer entering the dock's first icon, moving over it and leaving. For each, the most
-JavaScript any one piece of the shell's work ran (its report's `timing` lines: a frame's work, and
-work that drew none but ran JavaScript, which the report now has too), held to the scenario's
-`js_work` budget at the median: 2 ms for another window's change, 4 for the dock's hover.
+JavaScript any one piece of the shell's work ran on the shell's CPU (its report's `timing` lines: a
+frame's work, and work that drew none but ran JavaScript, which the report now has too), held to
+the scenario's `js_work` budget at the median: 2 ms for another window's change, 4 for the dock's
+hover; and its time blocked to a bound of its own.
 
 **Cold start.** An application's process started by the compositor to its first frame on the
 output, and the host's stages in between (its report's `stage` lines): the process reaching

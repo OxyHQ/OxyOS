@@ -8,9 +8,13 @@
 // timers' and requestAnimationFrame's callbacks), animation (Animated's native driver, worklets and
 // Reanimated, a fling, gesture handlers), mounting, drawing, presenting, or anything else; and the time it slept while a frame waited for the compositor's
 // answer to the one before. A frame's work is the parts of the turns since the frame before (a turn
-// that sleeps with nothing to draw ends the work without a frame). Each frame:
+// that sleeps with nothing to draw ends the work without a frame). Each part is measured twice
+// (thread-clock.h): by the wall clock, what a person waits for, and by the loop thread's own CPU
+// clock, what the work cost however loaded the machine, with the rest of its wall time told apart
+// as the thread blocked (waiting for another thread, a lock, a file: never hidden) or preempted
+// (runnable while another thread had its CPU). Each frame:
 //
-//   - is slow when its work, plus any wait for the compositor beyond one refresh, takes longer than a
+//   - is slow when its work (by the wall clock), plus any wait for the compositor beyond one refresh, takes longer than a
 //     refresh of its display (display-refresh.h); the refreshes it missed are its dropped frames.
 //     One line says where its time went and what started it (an input, a resize, an animation
 //     frame, a timer, data arriving, JavaScript's own work), at most one a second, with how many
@@ -24,6 +28,8 @@
 // With OXYOS_HOST_REPORT, every frame's timing, every line and every summary also go to the report
 // (report.h: `timing`, `log`, `timing_summary`).
 #pragma once
+
+#include "thread-clock.h"
 
 #include <array>
 #include <chrono>
@@ -109,7 +115,7 @@ class FrameDiagnostics {
     double workMs = 0, waitMs = 0;
     std::optional<double> latencyMs;
   };
-  void charge(Clock::time_point now);
+  void charge(const ThreadSample& now);
   void finish(bool presented, Clock::time_point now);
   void due(Clock::time_point now);
   void summarize(Clock::time_point now);
@@ -123,11 +129,12 @@ class FrameDiagnostics {
 
   // The current turn and the work since the last frame.
   Part current_ = Part::Other;
-  Clock::time_point since_{};
+  ThreadSample since_{};
   bool turning_ = false;
   bool waitedForCompositor_ = false;  // the sleep before this turn was the compositor's
   Clock::time_point turnEnded_{};
-  std::array<double, static_cast<size_t>(Part::Count)> parts_{};
+  // Each part's time: by the wall clock, and of it on the CPU, preempted and blocked (thread-clock.h).
+  std::array<ThreadSpan, static_cast<size_t>(Part::Count)> parts_{};
   double waitMs_ = 0, commitMs_ = 0, layoutMs_ = 0, textMs_ = 0, syncMs_ = 0;
   int turns_ = 0, presents_ = 0;
   bool gpu_ = false, presentedThisTurn_ = false, first_ = true;
