@@ -67,7 +67,8 @@ class PointerInput {
   // A Mac's first mouse (docs/adr/0016-windows.mdx, decision 9): whether `event` belongs to a
   // primary press that only activated its window, which no view takes. The compositor marks the
   // press that makes a window the active one (`flag`, protocol version 19); it reaches the view
-  // under it only if that view accepts it (`acceptsFirstMouse`, below), as AppKit gives an
+  // under it only if that view accepts it (`acceptsFirstMouse`, below; a scrollbar does, as a
+  // Mac's scroller), as AppKit gives an
   // inactive window's mouse-down to the view only when its `acceptsFirstMouse:` says yes. True
   // for such a press and its release, which then reach nothing of the window: no touch, no
   // pointer event, no gesture, no caret moved and no keyboard focus changed, so a button pressed

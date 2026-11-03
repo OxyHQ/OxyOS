@@ -235,8 +235,11 @@ bool PointerInput::withheld(const OxyOSEvent& event) {
       if (!event.flag || event.code != kPrimaryButton || down_ || pinching_ || withheld_) return false;
       auto content = surfaces_(event.surface);
       if (!content) return false;
-      Tag target = hitTest(tree_, *content, event.x / 256.0f, event.y / 256.0f);
-      withheld_ = !acceptsFirstMouse(tree_, target);
+      float x = event.x / 256.0f, y = event.y / 256.0f;
+      // A scroll view's scrollbar takes it, as a Mac's scroller does: a background window's
+      // content is scrolled by its scrollbar in one gesture.
+      Tag target = hitTest(tree_, *content, x, y);
+      withheld_ = !barAt(*content, x, y) && !acceptsFirstMouse(tree_, target);
       Report::get().input(withheld_ ? "first_mouse.declined" : "first_mouse.accepted", event.surface);
       return withheld_;
     }

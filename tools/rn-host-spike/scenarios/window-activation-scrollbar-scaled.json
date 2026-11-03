@@ -1,0 +1,161 @@
+{
+  "about": "A scroll view's scrollbar takes the click that activates its window, as a Mac's scroller does (docs/adr/0016-windows.mdx, decision 9): ScrollProbe (sample/ScrollProbe.tsx) beside PressProbe, the `companion`, which opened last and is the active window. The inactive window's scrollbar thumb dragged 50 down scrolls its list in one gesture and activates the window, React hearing the drag and no press; with the companion active again, a press on one of the inactive window's rows only activates it: no press reaches the rows. Each step checks what each React tree received, what each client was delivered and what the host decided, exactly.",
+  "module": "ScrollProbe",
+  "window": [
+    640,
+    400
+  ],
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      40,
+      120
+    ]
+  },
+  "steps": [
+    {
+      "name": "ScrollProbe's window beside the companion, which opened last and is the active one",
+      "do": [
+        "move-window",
+        [
+          300,
+          -40
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          620,
+          160,
+          640,
+          400
+        ],
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "The inactive window's scrollbar thumb dragged 50 down: the list follows in one gesture, the window active; React hears the drag and no press",
+      "do": [
+        "drag",
+        [
+          452,
+          40,
+          452,
+          90
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "scrollBeginDrag@main": 1,
+          "scroll@main": 2,
+          "scrollEndDrag@main": 1
+        },
+        "react_presses": {},
+        "scroll_offset": {
+          "main": [
+            0,
+            219.0476
+          ]
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "A press on the companion's pad makes it the active window again, and only that",
+      "do": [
+        "press_output",
+        [
+          190,
+          196
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 1,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "A press on one of the inactive window's rows only activates it: no press reaches the rows",
+      "do": [
+        "press",
+        [
+          200,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {},
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}
