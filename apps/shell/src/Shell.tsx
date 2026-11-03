@@ -193,6 +193,8 @@ export const Shell = memo(function Shell({
   const [dockKeys, setDockKeys] = useState<{ target: string; request: number } | null>(null);
   const [statusKeys, setStatusKeys] = useState<{ target: string; request: number } | null>(null);
   const [controlKeys, setControlKeys] = useState(0);
+  // The Notification Center's, its first control once it opened from the keyboard (the clock).
+  const [centerKeys, setCenterKeys] = useState(0);
   // The overview's, its first control once it opened from the keyboard (the dock's button).
   const [overviewKeys, setOverviewKeys] = useState(0);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
@@ -398,12 +400,22 @@ export const Shell = memo(function Shell({
       hasNotifications
         ? () => {
             setControlCenter(null);
+            if (latest.current.statusKeys) setCenterKeys((value) => value + 1);
             setCenter((open) => !open);
           }
         : undefined,
     [hasNotifications],
   );
   const closeControlCenter = useCallback(() => setControlCenter(null), []);
+  // What each status item opens, shown or not: the network's item opens Control Center at its
+  // Wi-Fi view (at its modules where there is none), Control Center's item it at any view.
+  const controlCenterOpen = controlCenter !== null;
+  const networkOpen = controlCenterOpen && controlCenter === (wifiView ? "wifi" : "modules");
+  const notificationsOpen = center && !!notifications;
+  const statusPanels = useMemo(
+    () => ({ network: networkOpen, controlCenter: controlCenterOpen, notifications: notificationsOpen }),
+    [networkOpen, controlCenterOpen, notificationsOpen],
+  );
   // Moving between its modules and Wi-Fi's view from the keyboard keeps the keyboard in it, on
   // the new page's first control (the control it was on is gone).
   const showControlPage = useCallback((page: ControlCenterPage | null) => {
@@ -413,6 +425,9 @@ export const Shell = memo(function Shell({
   useEffect(() => {
     if (!controlCenter) setControlKeys(0);
   }, [controlCenter]);
+  useEffect(() => {
+    if (!center) setCenterKeys(0);
+  }, [center]);
   useEffect(() => {
     if (view !== "overview") setOverviewKeys(0);
   }, [view]);
@@ -549,6 +564,7 @@ export const Shell = memo(function Shell({
             controlCenter={toggleControlCenter}
             networkStatus={openNetworkStatus}
             clock={toggleCenter}
+            open={statusPanels}
             statusKeys={statusKeys && !controlCenter && !center && !sheet ? keyboard : undefined}
             moveStatusFocus={moveStatusFocus}
             leaveStatus={leaveStatus}
@@ -653,7 +669,13 @@ export const Shell = memo(function Shell({
           </Surface>
         )}
         {notifications && center && !lock?.locked && (
-          <Surface kind="overlay" style={WHOLE} keyboard={!sheet}>
+          <Surface
+            kind="overlay"
+            style={WHOLE}
+            keyboard={!sheet}
+            focusTarget={centerKeys > 0 ? "first" : undefined}
+            focusRequest={centerKeys}
+          >
             <NotificationCenter
               notifications={notifications}
               applications={snapshot.applications}

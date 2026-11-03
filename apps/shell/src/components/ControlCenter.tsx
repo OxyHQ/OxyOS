@@ -35,11 +35,15 @@ type Icon = typeof RiWifiLine;
 
 /** A round button with a title and what it is, as a Mac's Control Center modules: on, it is
     the accent's. `onPress` absent, it only says (Bluetooth, which the session only looks at).
-    `more`: its title and a chevron open its view (Wi-Fi's networks), a button of its own. */
+    `more`: its title and a chevron open its view (Wi-Fi's networks), a button of its own, whose
+    value is the status shown. Each module is said once, as VoiceOver says a Mac's: its switch by
+    its title, its state and `value` (what the status says beyond on or off: the network joined),
+    and its status text, which says no more than that, is not read again after it. */
 function Module({
   icon,
   title,
   status,
+  value,
   on,
   onPress,
   more,
@@ -48,6 +52,8 @@ function Module({
   icon: Icon;
   title: string;
   status: string;
+  /** The switch's value, said after its title. */
+  value?: string;
   on: boolean;
   onPress?: () => void;
   more?: { label: string; open: () => void };
@@ -70,6 +76,7 @@ function Module({
           accessibilityLabel={title}
           accessibilityRole="switch"
           accessibilityState={{ checked: on }}
+          accessibilityValue={value ? { text: value } : undefined}
           onPress={onPress}
         >
           {face}
@@ -83,6 +90,7 @@ function Module({
           className="min-w-0 flex-1 flex-row items-center"
           accessibilityRole="button"
           accessibilityLabel={more.label}
+          accessibilityValue={{ text: status }}
           onPress={more.open}
         >
           <Box className="min-w-0 flex-1">
@@ -98,8 +106,12 @@ function Module({
       ) : (
         <Box
           className="min-w-0 flex-1"
+          // Its switch says it; without one, it is one element, its title and its status.
           accessible={!onPress}
-          accessibilityLabel={onPress ? undefined : `${title}: ${status}`}
+          accessibilityLabel={onPress ? undefined : title}
+          accessibilityValue={onPress ? undefined : { text: status }}
+          importantForAccessibility={onPress ? "no-hide-descendants" : undefined}
+          accessibilityElementsHidden={!!onPress}
         >
           <Text numberOfLines={1} style={{ color: INK, fontSize: 13, fontWeight: "600" }}>
             {title}
@@ -230,7 +242,8 @@ export const ControlCenter = memo(function ControlCenter({
       />
       <Box
         testID="control-center"
-        accessibilityRole="menu"
+        // A panel of controls, as a Mac's Control Center window, not a menu: it holds no items.
+        role="dialog"
         accessibilityLabel="Centro de control"
         style={{
           position: "absolute",
@@ -256,6 +269,9 @@ export const ControlCenter = memo(function ControlCenter({
                   title="Wi-Fi"
                   status={wifi}
                   on={wifiOn(controls.network)}
+                  // The network joined is said by "Redes Wi-Fi" where it shows; else by the
+                  // switch, while Wi-Fi is on (off, its state says it).
+                  value={!wifiView && wifiOn(controls.network) ? wifi : undefined}
                   onPress={() => controls.setWifi?.(!wifiOn(controls.network))}
                   more={wifiView ? { label: "Redes Wi-Fi", open: () => showPage?.("wifi") } : undefined}
                 />
@@ -286,7 +302,10 @@ export const ControlCenter = memo(function ControlCenter({
                 style={card}
                 className="flex-row items-center"
                 accessible
-                accessibilityLabel={`Batería: ${battery}`}
+                // A level indicator, as the top bar's battery.
+                role="meter"
+                accessibilityLabel="Batería"
+                accessibilityValue={{ min: 0, max: 100, now: controls.power?.percent ?? 0, text: battery }}
               >
                 <RiBatteryLine width={16} height={16} fill={INK} />
                 <Text style={{ color: INK, fontSize: 13, marginLeft: 8 }}>Batería</Text>

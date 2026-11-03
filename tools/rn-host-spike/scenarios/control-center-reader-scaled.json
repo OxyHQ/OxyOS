@@ -65,7 +65,7 @@
     },
     "spoken": [
      {
-      "text": "Wi-Fi: LukeSkyRouter, botón",
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
       "interrupting": true
      }
     ],
@@ -117,7 +117,7 @@
     },
     "spoken": [
      {
-      "text": "Centro de control, botón",
+      "text": "Centro de control, contraído, botón",
       "interrupting": true
      }
     ],
@@ -143,7 +143,7 @@
     },
     "spoken": [
      {
-      "text": "Wi-Fi, activado, interruptor",
+      "text": "Wi-Fi, LukeSkyRouter, activado, interruptor",
       "interrupting": true
      }
     ],
@@ -346,7 +346,7 @@
     },
     "spoken": [
      {
-      "text": "Centro de control, botón",
+      "text": "Centro de control, contraído, botón",
       "interrupting": true
      }
     ],

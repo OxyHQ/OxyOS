@@ -74,7 +74,8 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// version 12's system shortcuts to the dock and to the status items (ADR 0039), which a version 11
 /// reader would refuse as a value outside its set; version 13's hint of an accessible node
 /// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way; version 14's
-/// column header role (`AccessibleRole::ColumnHeader`), likewise.
+/// column header role (`AccessibleRole::ColumnHeader`) and version 15's meter
+/// (`AccessibleRole::Meter`), likewise.
 pub fn event_since(event: &Event) -> u16 {
     match event {
         Event::SystemShortcut {
@@ -89,14 +90,18 @@ pub fn event_since(event: &Event) -> u16 {
             role: AccessibleRole::ColumnHeader,
             ..
         } => 14,
+        Event::AccessibleNode {
+            role: AccessibleRole::Meter,
+            ..
+        } => 15,
         _ => since(EVENTS_ADDED, event.opcode()),
     }
 }
 
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one. A request an older version had, carrying a value that version lacks, is the newer
-/// version's: a node's hint (version 13) and a column header (version 14), which an older
-/// compositor would refuse.
+/// version's: a node's hint (version 13), a column header (version 14) and a meter (version 15),
+/// which an older compositor would refuse.
 pub fn request_since(request: &Request) -> u16 {
     match request {
         Request::AccessibleText {
@@ -107,6 +112,10 @@ pub fn request_since(request: &Request) -> u16 {
             role: AccessibleRole::ColumnHeader,
             ..
         } => 14,
+        Request::AccessibleNode {
+            role: AccessibleRole::Meter,
+            ..
+        } => 15,
         _ => since(REQUESTS_ADDED, request.opcode()),
     }
 }

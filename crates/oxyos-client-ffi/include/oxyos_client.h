@@ -541,6 +541,9 @@ typedef struct OxyOSEvent {
 #define OXYOS_ROLE_GRID 26
 /* A table's or a list's column header (protocol version 14; a button to an older compositor). */
 #define OXYOS_ROLE_COLUMN_HEADER 27
+/* A level in a known range that is no progress, a battery's charge (protocol version 15; a
+   progress indicator to an older compositor). */
+#define OXYOS_ROLE_METER 28
 /* States of an accessible node (bits). */
 #define OXYOS_STATE_DISABLED 1
 #define OXYOS_STATE_SELECTED 2

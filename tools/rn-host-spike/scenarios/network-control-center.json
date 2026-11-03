@@ -77,7 +77,8 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Wi-Fi: LukeSkyRouter"
+              "name": "Wi-Fi",
+              "value": "LukeSkyRouter"
             }
           ]
         },
@@ -91,7 +92,7 @@
       "name": "Pressed, Control Center opens at Wi-Fi: its switch, the network joined first among the known, then the others with their signal and lock, the enterprise one not supported; it asks the daemon to scan",
       "do": [
         "press_named",
-        "Wi-Fi: LukeSkyRouter"
+        "Wi-Fi"
       ],
       "expect": {
         "at": {
@@ -392,7 +393,7 @@
       "do": [
         "wait_named",
         [
-          "Ethernet: conectado",
+          "Ethernet",
           8000
         ]
       ],
@@ -405,7 +406,8 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Ethernet: conectado"
+              "name": "Ethernet",
+              "value": "Conectado"
             }
           ]
         }
@@ -437,7 +439,8 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Ethernet: conectado"
+              "name": "Ethernet",
+              "value": "Conectado"
             }
           ]
         }

@@ -2245,3 +2245,37 @@ fn version_14_column_headers_are_never_sent_to_an_older_peer() {
         2
     );
 }
+
+#[test]
+fn version_15_meters_are_never_sent_to_an_older_peer() {
+    let meter = Event::AccessibleNode {
+        client: 3,
+        surface: 2,
+        index: 1,
+        parent: 0,
+        role: AccessibleRole::Meter,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 24, 12),
+    };
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &meter, 14).unwrap());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &meter, 15).unwrap());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(new.clone()), 15).unwrap(),
+        meter
+    );
+    // A version 14 reader refuses it.
+    assert!(read_event_for(&mut Cursor::new(new), 14).is_err());
+    let request = Request::AccessibleNode {
+        surface: 2,
+        index: 1,
+        parent: 0,
+        role: AccessibleRole::Meter,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 24, 12),
+    };
+    assert_eq!(request_since(&request), 15);
+}
