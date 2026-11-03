@@ -106,6 +106,15 @@ struct ModalPresentation {
   bool operator==(const ModalPresentation&) const = default;
 };
 
+// What a scroll view's overlay scrollbars show (scrollbars.h), as the pointer says (input.h): how
+// opaque they are as they appear and fade, and how far each axis's (0 across, 1 down) has grown
+// from thin towards wide with its track, the pointer over it.
+struct ScrollbarShown {
+  float alpha = 0;
+  float expansion[2] = {0, 0};
+  bool operator==(const ScrollbarShown&) const = default;
+};
+
 struct View {
   facebook::react::ShadowView view;
   std::vector<facebook::react::Tag> children;
@@ -151,6 +160,15 @@ class ViewTree {
     return it == stretches_.end() ? facebook::react::Point{} : it->second;
   }
 
+  // Scroll views whose overlay scrollbars show (scrollbars.h): how. A view not here shows none,
+  // unless its scrollbars are persistent.
+  void setScrollbars(std::map<facebook::react::Tag, ScrollbarShown> shown) { scrollbars_ = std::move(shown); }
+  const std::map<facebook::react::Tag, ScrollbarShown>& scrollbars() const { return scrollbars_; }
+  ScrollbarShown scrollbar(facebook::react::Tag tag) const {
+    auto it = scrollbars_.find(tag);
+    return it == scrollbars_.end() ? ScrollbarShown{} : it->second;
+  }
+
   // A modal animating in (modal.h): how it is presented; none when it is not animating.
   void present(facebook::react::Tag modal, std::optional<ModalPresentation> presentation) {
     if (presentation) {
@@ -179,6 +197,7 @@ class ViewTree {
   facebook::react::Tag root_ = -1;
   std::map<facebook::react::Tag, ModalPresentation> presenting_;
   std::map<facebook::react::Tag, facebook::react::Point> stretches_;
+  std::map<facebook::react::Tag, ScrollbarShown> scrollbars_;
   std::vector<Leaving> leaving_;
 };
 
@@ -266,7 +285,8 @@ struct TextInputEdit {
   // Whether the caret is lit: it blinks while the field waits for typing (textinput.h).
   bool caretLit = true;
   // Whether the input's window is the key window (TextEditing::setWindow): if not, no caret is
-  // drawn and the selection is macOS's unemphasized one, for the appearance (`dark`).
+  // drawn and the selection is macOS's unemphasized one, for the appearance (`dark`, the window's
+  // whether a field is focused or not: the scrollbars' knob follows it too).
   bool key = true;
   bool dark = false;
   // The field text dragged over it would drop into, focused or not, and where: a drop caret drawn

@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "scrollbars.h"
 
 #include "android-view-props.h"
 #include "background.h"
@@ -1010,6 +1011,13 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   if (clips && props) clipToPaddingBox(canvas, *props, view.layoutMetrics, x, y, w, h);
   for (Tag child : it->second.children) {
     drawChild(tree, child, childOx, childOy, childClip, opacity, draw, stretch ? &*stretch : nullptr);
+  }
+  // Its overlay scrollbars (scrollbars.h), over its content, unscrolled and unstretched, within
+  // its padding box.
+  if (name == "ScrollView" && view.state && touches(draw, x, y, w, h)) {
+    ScrollbarShown shown = tree.scrollbar(tag);
+    if (opacity < 1) shown.alpha *= opacity;
+    drawScrollbars(canvas, view, x, y, shown, draw.edit && draw.edit->dark, draw.scale);
   }
   canvas.restoreToCount(saved);
 }

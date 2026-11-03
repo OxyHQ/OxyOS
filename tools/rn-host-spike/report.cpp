@@ -328,6 +328,13 @@ void Report::stretch(const ShadowView& view, float x, float y, float distanceX, 
       "pulled_y", distanceY));
 }
 
+void Report::scrollbar(const char* event, const ShadowView& view, folly::dynamic axes, folly::dynamic thumbs,
+                       float alpha) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "scrollbar")("event", event)("target", name(view))("axes", std::move(axes))(
+      "thumbs", std::move(thumbs))("alpha", alpha));
+}
+
 void Report::textScroll(const ShadowView& view, float x, float y) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "text_scroll")("target", name(view))("x", x)("y", y));

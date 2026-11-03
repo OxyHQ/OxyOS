@@ -138,6 +138,11 @@ class Report {
   // A scroll view's stretch past its end (overscroll, input.h): what is drawn along x and y (a share
   // of its size, negative past its start) and how far it is pulled.
   void stretch(const facebook::react::ShadowView& view, float x, float y, float distanceX, float distanceY);
+  // A scroll view's overlay scrollbars changing what they show (scrollbars.h): `event` is `shown`,
+  // `wide-x` or `wide-y` (the pointer over one, grown wide) or `hidden`; with the axes that have one,
+  // each thumb where it is in the window ([x, y, width, height]) and how opaque they are.
+  void scrollbar(const char* event, const facebook::react::ShadowView& view, folly::dynamic axes,
+                 folly::dynamic thumbs, float alpha);
   // How far a text input's text is now scrolled within it (textinput.h).
   void textScroll(const facebook::react::ShadowView& view, float x, float y);
   // A modal's window starting to animate in or out (modal.h): `event` is `in` or `out`, `kind`

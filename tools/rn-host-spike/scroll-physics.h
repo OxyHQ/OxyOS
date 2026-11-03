@@ -247,4 +247,57 @@ class EdgeStretch {
   double velocity_ = 0, started_ = 0;
 };
 
+// How far a key or a press in a scrollbar's track moves a scroll view, as Safari's WebKit (and
+// Chromium) move one on a Mac: a line is 40 logical pixels (Scrollbar::pixelsPerLineStep), a page
+// the view's length less the 40 pixels kept in sight, at least seven eighths of it
+// (Scrollbar::pageStep: maxOverlapBetweenPages, minFractionToStepWhenPaging).
+constexpr float kLineStep = 40;
+inline float pageStep(float length) { return std::max(std::max(length * 0.875f, length - 40), 1.0f); }
+
+// A scroll view's animated move to an offset, as Android animates one, stepped once a frame
+// (input.h). Two curves, each its platform's own: a key's scroll (Page Down, Space, an arrow,
+// Home, End) and a press in a scrollbar's track go as Android's ScrollView.smoothScrollBy, by
+// OverScroller.startScroll (250 ms, Scroller's ViscousFluidInterpolator); JavaScript's animated
+// `scrollTo` and `scrollToEnd` as React Native's ReactScrollViewHelper.smoothScrollTo, an
+// ObjectAnimator of the default scroll duration (OverScroller's 250 ms) with ValueAnimator's
+// default AccelerateDecelerateInterpolator.
+class ScrollAnimation {
+ public:
+  enum class Curve { ViscousFluid, AccelerateDecelerate };
+  static constexpr double kDurationMs = 250;  // OverScroller.DEFAULT_DURATION
+
+  ScrollAnimation(float from, float to, Curve curve) : from_(from), to_(to), curve_(curve) {}
+  float to() const { return to_; }
+  // Where it is `ms` after it began; its end once its duration passed.
+  float at(double ms) const {
+    if (ms >= kDurationMs) return to_;
+    const double t = std::max(0.0, ms / kDurationMs);
+    const double q = curve_ == Curve::ViscousFluid ? viscousFluidInterpolation(t)
+                                                   : std::cos((t + 1) * M_PI) / 2 + 0.5;
+    return static_cast<float>(from_ + q * (to_ - from_));
+  }
+  bool done(double ms) const { return ms >= kDurationMs; }
+
+  // Scroller.ViscousFluidInterpolator.getInterpolation.
+  static double viscousFluidInterpolation(double input) {
+    static const double normalize = 1.0 / viscousFluid(1.0);
+    static const double offset = 1.0 - normalize * viscousFluid(1.0);
+    const double interpolated = normalize * viscousFluid(input);
+    return interpolated > 0 ? interpolated + offset : interpolated;
+  }
+
+ private:
+  static double viscousFluid(double x) {
+    constexpr double kScale = 8.0;  // VISCOUS_FLUID_SCALE
+    x *= kScale;
+    if (x < 1.0) return x - (1.0 - std::exp(-x));
+    constexpr double start = 0.36787944117;  // 1/e
+    x = 1.0 - std::exp(1.0 - x);
+    return start + x * (1.0 - start);
+  }
+
+  float from_, to_;
+  Curve curve_;
+};
+
 }  // namespace oxyos

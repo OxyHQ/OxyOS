@@ -1,0 +1,683 @@
+{
+  "about": "Scrolling from the keyboard (sample/ScrollProbe.tsx; docs/react-native-android-adaptation.mdx, Scrolling), as a Mac's scroll view takes the keys its first responder leaves and Android's ScrollView.executeKeyEvent takes them for React: Page Down and Page Up, Space and Shift+Space a page (Safari's: the view's height less 40, at least seven eighths of it), the arrows a line (40), Home and End (and Ctrl+↑ and Ctrl+↓, a Mac's ⌘↑ and ⌘↓) to the ends, each animated as Android's ScrollView.smoothScrollBy animates it, React hearing only its scrolls. With nothing focused the window's main scroll view (the largest) takes them, across for ← and → (the strip); with a control focused, the scroll view it is in, the focus kept; a focused field keeps its keys, the stepper its arrows and a row its Space; a scroll view at its end still takes the key, and nothing moves or hears it. Every step checks exactly what React received, the offsets, the keyboard's focus, what the host took and the scrollbar shown and faded. at 1.25 (a 1600x1000 output), each offset on the display's pixels.",
+  "module": "ScrollProbe",
+  "window": [
+    640,
+    400
+  ],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Page Down with nothing focused: the window's main scroll view (the largest) a page down, Safari's page (its height less 40, at least seven eighths), animated: its scrolls alone, its scrollbar shown and faded out",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            244.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "Space: a page more",
+      "do": [
+        "key",
+        57
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            489.6
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Space: a page back",
+      "do": [
+        "key",
+        [
+          42,
+          57
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            244.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "↓: a line (40) down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            284.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "↑: a line back",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            244.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "End: to its end, nothing past it",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            920
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "Home: to its top",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            0
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+↓ (a Mac's ⌘↓): to its end",
+      "do": [
+        "key",
+        [
+          29,
+          108
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            920
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+↑ (⌘↑): to its top",
+      "do": [
+        "key",
+        [
+          29,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            0
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        }
+      }
+    },
+    {
+      "name": "→: the main scroll view across (the strip) a line",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {
+          "scroll@strip": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "strip": [
+            40,
+            0
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@strip": 1,
+          "hidden@strip": 1
+        }
+      }
+    },
+    {
+      "name": "←: back",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {
+          "scroll@strip": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "strip": [
+            0,
+            0
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@strip": 1,
+          "hidden@strip": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the field",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@field": 1,
+          "selectionChange@field": [
+            1,
+            2
+          ]
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "field",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "Page Down in the field: the field keeps it (its caret to its end), no scroll view scrolls",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "react": {
+          "selectionChange@field": 1
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "field"
+        }
+      }
+    },
+    {
+      "name": "Tab: the stepper",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "blur@field": 1,
+          "endEditing@field": 1,
+          "focus@stepper": 1
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "stepper",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "↑ on the stepper: it steps (increment), no scroll view scrolls",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "react": {
+          "accessibilityAction@stepper": 1
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "stepper"
+        }
+      }
+    },
+    {
+      "name": "Tab: the first row",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "blur@stepper": 1,
+          "focus@row-0": 1
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "row-0",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "Page Down with the row focused: the list it is in a page down (not the main one), the focus kept",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "react": {
+          "scroll@list": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            244.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@list": 1,
+          "hidden@list": 1
+        },
+        "keyboard_focus": {
+          "target": "row-0",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "Space on the focused row presses it, and scrolls nothing",
+      "do": [
+        "key",
+        57
+      ],
+      "expect": {
+        "react": {
+          "click@row-0": 1
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "↓ on a row (no adjustable control): the list a line down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {
+          "scroll@list": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            284.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@list": 1,
+          "hidden@list": 1
+        }
+      }
+    },
+    {
+      "name": "End: the list to its end",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "react": {
+          "scroll@list": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            400
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@list": 1,
+          "hidden@list": 1
+        }
+      }
+    },
+    {
+      "name": "Page Down at its end: taken, as a Mac's scroll view takes it, and nothing moves or hears it",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "react": {},
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Shift+Tab: the stepper, brought into view with its ring (5 round it) at once, one scroll",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@row-0": 1,
+          "focus@stepper": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            35.2
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "stepper",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: the field, the list at its top",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@stepper": 1,
+          "focus@field": 1,
+          "selectionChange@field": [
+            1,
+            2
+          ],
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            0
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "field",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: round to the last control, a button in no scroll view",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@field": 1,
+          "endEditing@field": 1,
+          "focus@outside": 1
+        },
+        "scroll_offset": {},
+        "host_input": {
+          "keyboard.scroll": 0
+        },
+        "scrollbars": {},
+        "keyboard_focus": {
+          "target": "outside",
+          "ring": true
+        }
+      }
+    },
+    {
+      "name": "Page Down with the focus in no scroll view: the main one",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            244.8
+          ]
+        },
+        "host_input": {
+          "keyboard.scroll": 1
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        },
+        "keyboard_focus": {
+          "target": "outside",
+          "ring": true
+        }
+      }
+    }
+  ]
+}

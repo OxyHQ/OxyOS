@@ -260,6 +260,8 @@ TextInputEdit TextEditing::edit() const {
                          .key = key_,
                          .dark = dark_};
   }
+  // The window's appearance, focused field or not: the scrollbars are drawn by it (scrollbars.h).
+  edit.dark = dark_;
   // Inputs keep their text scrolled without focus, as an EditText does.
   edit.scrolls = scrolls_;
   if (dropTag_ >= 0) {
