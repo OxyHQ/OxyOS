@@ -1,5 +1,6 @@
 {
   "about": "menu-bar-pointer.json on a 1600x1000 output at 1.25 (ADR 0018), the same steps and expectations.",
+  "locale": "es_ES.UTF-8",
   "module": "MenuBarProbe",
   "window": [
     600,

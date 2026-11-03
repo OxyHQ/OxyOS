@@ -1,5 +1,6 @@
 {
   "about": "The session's menu bar follows the pointer with a menu open, as a Mac's (Bloom 15.83.0; ADR 0001, Input, focus and grabs): Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar, ADR 0021). File opened by a press; the pointer moving along the bar onto Edit opens Edit's menu in File's place with no press, and back onto File, File's: the compositor gives the shell the pointer's movement over the bar its menu hangs from (the grab chain's base), the host gives it only to the bar (Bloom's trackingRef), and the menu that replaces another takes the grab straight from it, so the application hears nothing between the two. Over the clock beside the bar nothing is hovered and the menu stays open. A press on the open title closes it; a row in a menu the pointer opened runs once. Right and Left from a menu a press opened, the keyboard elsewhere, open the next and previous menus in its place on their first rows. Every step checks which title is expanded and which collapsed as the assistive technology holds them, the menu's rows shown and absent, and what the application was delivered.",
+  "locale": "es_ES.UTF-8",
   "module": "MenuBarProbe",
   "window": [
     600,

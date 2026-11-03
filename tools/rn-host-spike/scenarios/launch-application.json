@@ -1,5 +1,6 @@
 {
   "about": "Launching an application (ADR 0013): the shell's dock lists the session's registry (the development registry: Dropsea, Atlas and Inbox, kept in the dock, Allo and Settings); pressing Inbox, which has no window, has the shell ask the session for it by id, and the session (here the development compositor, as oxyos-session does) starts it from its registry entry with the shell's Bloom host. Its window appears over Allo's and the dock marks Inbox running; the shell is told it was started. With the compositor starting nothing, it fails.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

@@ -1,5 +1,6 @@
 {
   "about": "The same as scenarios/text-inactive-window.json on a 1600x1000 display at 1.25 (ADR 0018): a field out of the key window keeps its focus, draws no caret and its selection in macOS's unemphasized grey, and draws them again in the key window; presses in the windows' logical pixels, pixels in the output's.",
+  "locale": "es_ES.UTF-8",
   "module": "PressProbe",
   "window": [
     460,

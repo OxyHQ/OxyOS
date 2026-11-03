@@ -1,5 +1,6 @@
 {
   "about": "Windows on an output paced as a 60 Hz display (`outputs` 1280x720:60, the session's shell on it; docs/adr/0018-several-displays.mdx), the window told its refresh before its first configure. WindowProbe's green bubble zooms it to the work area and back, its frame on the compositor's spring, which is time's, not frames': it lasts the same at any refresh (refresh-120-windows.json runs the same steps at 120 Hz), its last frame within a refresh of its end; how many frames it draws is the composition's (this fixture composes on the CPU, whose zoom takes longer than a 120 Hz refresh: the compositor's own test, tests/refresh.rs, counts twice the frames at 120 Hz as at 60 on an output too small to miss one). Its title area dragged at a mouse's 125 Hz composes a frame each 16.7 ms refresh while the hand moves, never two between vblanks, about one for every two motions.",
+  "locale": "es_ES.UTF-8",
   "module": "WindowProbe",
   "window": [
     900,

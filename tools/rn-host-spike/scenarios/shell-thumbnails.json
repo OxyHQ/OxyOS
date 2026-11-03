@@ -1,5 +1,6 @@
 {
   "about": "The overview shows each window live (docs/adr/0022-window-views.mdx): the application (sample/EditingProbe.tsx, Allo, 600 × 360) runs beside the shell; the dock's overview button opens the overview, and its card for Allo shows Allo's own pixels, drawn by the compositor where the card's OxyOSWindowView is (477 × 286 at 262, 182, the window's proportions, from the WindowSize the shell was told): its text fields' tint, its white, under the card's title bar, box-filtered. The shell sent that one view, never a pixel. A press on the card goes to the shell under the window drawn there, never to Allo: the overview closes and Allo is focused, and where the card was the wallpaper shows again. With the compositor drawing no views, the card is its own #eef3f8 and the first step fails.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

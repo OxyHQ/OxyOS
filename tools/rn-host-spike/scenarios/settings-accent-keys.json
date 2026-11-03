@@ -1,5 +1,6 @@
 {
  "about": "The accent colour's swatches from the keyboard, as a Mac's accent colour picker with Full Keyboard Access and WAI-ARIA's radio group (docs/adr/0039-keyboard-access.mdx; Bloom's RadioGroup variant=\"swatch\"): Settings with the shell, the screen reader on in Spanish. Tab reaches the swatches once, on the chosen accent; ← → ↑ ↓ choose the next round the ends, the session's accent changing and every application told, the keyboard following each choice once the session applied it, each swatch said once, chosen, and the focus ring drawn in the new accent (the host's `keyboard.ring`); Shift+Tab leaves for the appearance's segmented control and Tab comes back on the swatch now chosen. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says, what is announced and the preference. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
   900,
@@ -17,9 +18,7 @@
    "accent": "oxy"
   }
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Settings' window with the shell, the reader on, nothing of it focused",

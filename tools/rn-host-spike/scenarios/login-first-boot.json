@@ -1,5 +1,6 @@
 {
   "about": "The login screen at the first boot (docs/adr/0020-oxy-account-login.mdx, step 2): no account is enrolled, so it opens on adding one; offline (Oxy's API is a refused port), setup says it needs the network and does nothing else: no account, no password field, nobody signed in, and no way back to an empty list. Reintentar looks again, offline still.",
+  "locale": "es_ES.UTF-8",
   "shell": "OxyOSLogin",
   "login": {
     "password": "oxyos.correcta",

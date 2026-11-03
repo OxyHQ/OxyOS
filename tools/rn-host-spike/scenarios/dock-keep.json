@@ -1,5 +1,6 @@
 {
   "about": "Keep in Dock and Open at Login from the dock's menu, from the keyboard (docs/adr/0034-the-dock.mdx): Allo (sample/EditingProbe.tsx) runs and is not kept; its menu's Options submenu keeps it in the dock and opens it at login; Inbox, kept and not running, is taken out of the dock and leaves it. Each change is the person's list, which the session keeps in the user's preferences file: what dock-kept.json starts from, as a shell started again would.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

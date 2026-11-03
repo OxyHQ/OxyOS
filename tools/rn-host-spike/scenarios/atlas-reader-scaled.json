@@ -1,5 +1,6 @@
 {
  "about": "Atlas (OxyHQ/Atlas) installs Inbox from the keyboard with the screen reader on, its control kept through Get, the install and Open (docs/adr/0039-keyboard-access.mdx, docs/adr/0030-installing-applications.mdx): a real oxyos-installd publishes Inbox as the store's listing `inbox`. Tab goes down Atlas's sidebar and storefront to Inbox's Get, each control said once with its ring; Space asks the machine, whose sheet is said as it appears while Atlas's control, focused still, turns into the install's ring; Tab and Space answer Instalar in the sheet; the focus comes back to the same control, said by its new name (Installing Inbox), the install runs to its end and Atlas says Inbox installed, once, and never a step of its progress; the same control, focused, is Open, and Space opens Inbox. At 1.25 (1600 × 1000).",
+ "locale": "en_US.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -68,9 +69,7 @@
    }
   }
  },
- "reader": {
-  "locale": "en_US.UTF-8"
- },
+ "reader": {},
  "installd": {
   "publish": [
    {

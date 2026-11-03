@@ -1,5 +1,6 @@
 {
   "module": "StoreProbe",
+  "locale": "es_ES.UTF-8",
   "window": [
     520,
     340

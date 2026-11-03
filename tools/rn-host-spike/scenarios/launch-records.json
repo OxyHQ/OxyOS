@@ -1,5 +1,6 @@
 {
   "about": "Launch records (ADR 0013): an application the session did not start claims to be Inbox (its SetAppId says so.oxy.inbox). The shell is told its window is not launched, so the dock does not mark Inbox running; pressing Inbox, which has no window of its own, has the session start the real one, and only then is Inbox marked running. With windows trusted by their claim, Inbox shows running from the start and pressing it focuses the impostor instead.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

@@ -1,5 +1,6 @@
 {
  "about": "A segmented control from the keyboard, as a Mac's with Full Keyboard Access and WAI-ARIA's radio group (docs/adr/0039-keyboard-access.mdx; Bloom's SegmentedControl): Settings with the shell, the screen reader on in Spanish. Tab reaches Appearance's Light / Dark / Auto once, on its chosen segment; → ← (↓ ↑) choose the next segment round the ends, the session's appearance changing and every application told, the keyboard following each choice once the session applied it and each segment said once, chosen; Tab goes on past the control and Shift+Tab back to its chosen segment. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says, what is announced and the preference. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
   900,
@@ -17,9 +18,7 @@
    "accent": "oxy"
   }
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "outputs": "1600x1000@1.25",
  "steps": [
   {

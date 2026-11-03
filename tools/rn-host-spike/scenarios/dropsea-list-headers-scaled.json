@@ -1,5 +1,6 @@
 {
  "about": "Dropsea's list view's column headers (docs/adr/0039-keyboard-access.mdx), as Finder's: they are no stops of the keyboard's Tab, which goes from the items to the toolbar and back, as a Mac's table headers are not in the key view loop; they stay in the tree, buttons named by their column and its order, which a pointer and the screen reader press (the keyboard sorts from View > Sort By). Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1.25 (1600 × 1000).",
+ "locale": "en_US.UTF-8",
  "module": "Dropsea",
  "window": [
   1024,
@@ -18,9 +19,7 @@
    "Pictures/photo.jpg": "x"
   }
  },
- "reader": {
-  "locale": "en_US.UTF-8"
- },
+ "reader": {},
  "outputs": "1600x1000@1.25",
  "steps": [
   {

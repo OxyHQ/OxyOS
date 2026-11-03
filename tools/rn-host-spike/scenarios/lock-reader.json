@@ -1,5 +1,6 @@
 {
  "about": "The lock screen with the screen reader on in Spanish (docs/adr/0010-lock-screen.mdx, docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the development compositor's fixture throttling as the session does. Ctrl+Super+Q locks, the password field said; each wrong password is said once, at once; the fifth makes the next attempt wait 30 s, said with it; the hint counts the wait down every second but is no live region: over the wait the screen reader says only, politely, ten seconds before its end and its end, each once; the right password unlocks. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -10,9 +11,7 @@
   "id": "so.oxy.allo",
   "title": "Allo"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "lock_password": "oxyos.correcta",
  "steps": [
   {

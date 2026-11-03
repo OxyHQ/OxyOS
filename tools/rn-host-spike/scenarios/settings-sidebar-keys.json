@@ -1,5 +1,6 @@
 {
  "about": "Settings' sidebar navigated with the arrows as ONE list, as a Mac's System Settings sidebar (docs/adr/0039-keyboard-access.mdx; Bloom's SettingsLayout rail): Settings with the shell, the screen reader on in Spanish. Tab lands on the sidebar once, on its selected row; ↓ ↑, End and Home select the rows and show their panes, the keyboard following the selection and each row said once, selected; ↓ at the end goes nowhere; Tab goes on to the pane's first control and Shift+Tab back to the selected row. The sidebar is one list of its rows, its group labels headings. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
   900,
@@ -17,9 +18,7 @@
    "accent": "oxy"
   }
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Settings' window with the shell, the reader on, nothing of it focused",

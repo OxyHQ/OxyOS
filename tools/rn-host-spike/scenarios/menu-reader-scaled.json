@@ -1,12 +1,11 @@
 {
   "about": "menu-reader.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25): the same, said exactly the same.",
+  "locale": "en_US.UTF-8",
   "window": [
     1024,
     560
   ],
-  "reader": {
-    "locale": "en_US.UTF-8"
-  },
+  "reader": {},
   "steps": [
     {
       "name": "a screen reader activates Open menu: the menu that appears is said by its title, as TalkBack says a popup window's pane title, then its focused row after it, not over it",
