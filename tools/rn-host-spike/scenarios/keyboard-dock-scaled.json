@@ -367,7 +367,7 @@
    }
   },
   {
-   "name": "→ to Inbox",
+   "name": "→ to Inbox: running, said so",
    "do": [
     "key",
     [
@@ -385,7 +385,7 @@
     },
     "spoken": [
      {
-      "text": "Inbox, contraído, botón",
+      "text": "Inbox, en ejecución, contraído, botón",
       "interrupting": true
      },
      {
