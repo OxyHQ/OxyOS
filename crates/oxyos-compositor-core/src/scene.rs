@@ -87,10 +87,11 @@ pub struct Grants {
 
 impl Grants {
     /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
-    /// the store, updates, privacy and networks, and the shell (Control Center's Wi-Fi, the
-    /// password sheet's answer). What each may ask is the program's to decide.
+    /// the store, updates, privacy and networks, the shell (Control Center's Wi-Fi, the password
+    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
+    /// may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
-        self.store || self.updates || self.privacy || self.network || self.shell
+        self.store || self.updates || self.privacy || self.network || self.shell || self.settings
     }
 }
 
