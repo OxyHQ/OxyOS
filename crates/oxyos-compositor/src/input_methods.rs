@@ -29,8 +29,9 @@ use serde_json::json;
 use std::collections::{BTreeSet, HashMap};
 use std::os::fd::OwnedFd;
 
-/// The session's input method, a client of the scene in this process.
-pub const CLIENT: ClientId = ClientId::MAX - 8;
+/// The session's input method, a client of the scene in this process: the middle of the ids,
+/// which nothing else takes (applications count up from 1, shells down from the top).
+pub const CLIENT: ClientId = ClientId::MAX / 2;
 
 /// What the shell and Settings may ask (`SystemRequest`).
 const ASKS: [&str; 3] = ["inputSources", "selectInputSource", "showEmoji"];

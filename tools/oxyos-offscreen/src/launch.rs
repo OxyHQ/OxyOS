@@ -2040,6 +2040,59 @@ fn field_json(compositor: &Compositor) -> String {
     )
 }
 
+/// The text-input transactions the application was given during a step (ADR 0008), in order,
+/// each as its parts: the bytes deleted around the selection, the text committed, the
+/// composition, its cursor and its segments with their styles.
+fn transactions_json(session: &Session) -> String {
+    let mut transactions = Vec::new();
+    let (mut delete, mut commit, mut preedit) = ((0, 0), String::new(), String::new());
+    let (mut cursor, mut segments) = ((0, 0), Vec::new());
+    for (client, event) in &session.compositor.text_input_log {
+        if *client != CLIENT {
+            continue;
+        }
+        match event {
+            oxyos_protocol::Event::TextInputDelete { before, after, .. } => {
+                delete = (*before, *after)
+            }
+            oxyos_protocol::Event::TextInputCommitText { text, .. } => {
+                commit.push_str(text.as_str())
+            }
+            oxyos_protocol::Event::TextInputPreeditText { text, .. } => {
+                preedit.push_str(text.as_str())
+            }
+            oxyos_protocol::Event::TextInputPreeditCursor { begin, end, .. } => {
+                cursor = (*begin, *end)
+            }
+            oxyos_protocol::Event::TextInputPreeditSegment {
+                begin, end, style, ..
+            } => segments.push(format!(
+                "[{begin},{end},\"{}\"]",
+                format!("{style:?}").to_lowercase()
+            )),
+            oxyos_protocol::Event::TextInputDone { .. } => {
+                transactions.push(format!(
+                    "{{\"delete\":[{},{}],\"commit\":{},\"preedit\":{},\"cursor\":[{},{}],\"segments\":[{}]}}",
+                    delete.0,
+                    delete.1,
+                    json_string(&commit),
+                    json_string(&preedit),
+                    cursor.0,
+                    cursor.1,
+                    segments.join(",")
+                ));
+                delete = (0, 0);
+                commit.clear();
+                preedit.clear();
+                cursor = (0, 0);
+                segments.clear();
+            }
+            _ => {}
+        }
+    }
+    format!("[{}]", transactions.join(","))
+}
+
 /// The input routed during a step: for the application, counts per surface and kind; for the
 /// session's shell, its count (`shell`); for the applications the shell launched, counts per kind
 /// (`launched`); for any other client, a count (`leaked`).
@@ -4297,6 +4350,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let step = &resolved;
         let may_stay = &settling.may_stay;
         session.compositor.input_log.clear();
+        session.compositor.text_input_log.clear();
         if let Step::SwitchTerminal(number) = step {
             let devices = devices.as_mut().ok_or("--switch-terminal needs --uinput")?;
             let away_ms = switch_terminal(&mut session, &mut children, devices, *number)?;
@@ -4586,8 +4640,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
+        let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

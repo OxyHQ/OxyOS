@@ -493,6 +493,9 @@ pub struct Compositor {
     pub frames: usize,
     /// Input events routed to clients, kept while `log_input` is set: (client, surface, kind).
     pub input_log: Vec<(ClientId, u32, &'static str)>,
+    /// The parts of the text-input transactions routed to clients (ADR 0008), kept while
+    /// `log_input` is set: what a development compositor's step says a field was given.
+    pub text_input_log: Vec<(ClientId, Event)>,
     pub log_input: bool,
     /// Clients of the scene with no connection, played by the program running the compositor
     /// (a development compositor's assistive technology or input method): their events are kept
@@ -960,6 +963,7 @@ impl Compositor {
             shadows: window::Shadows::new(0),
             frames: 0,
             input_log: Vec::new(),
+            text_input_log: Vec::new(),
             log_input: false,
             local_clients: Default::default(),
             local_events: Vec::new(),
@@ -1436,6 +1440,17 @@ impl Compositor {
             if self.log_input {
                 if let Some((surface, kind)) = input_kind(&event) {
                     self.input_log.push((client, surface, kind));
+                }
+                if matches!(
+                    event,
+                    Event::TextInputDelete { .. }
+                        | Event::TextInputCommitText { .. }
+                        | Event::TextInputPreeditText { .. }
+                        | Event::TextInputPreeditCursor { .. }
+                        | Event::TextInputPreeditSegment { .. }
+                        | Event::TextInputDone { .. }
+                ) {
+                    self.text_input_log.push((client, event));
                 }
             }
             if self.local_clients.contains(&client) {

@@ -1,0 +1,74 @@
+{
+  "about": "Pinyin – Simplified (ADR 0041) with the real engine, fcitx5's pinyin on libime, run as the session runs it, typing into a Bloom field (sample/ImeProbe.tsx) on the Spanish layout. Each step checks the text and selection React has, exactly the React events (Android's InputConnection: onChange with the composition while it lasts, once more as it is committed, and no key event for a key the engine took), the transactions the field was given (the composition, its caret and its underlined segment), what the field tells the compositor (its text without the composition), and that the keys reached the field only as the engine's transactions.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "layout": "es",
+  "input_methods": true,
+  "preferences": {
+    "input_sources": "pinyin",
+    "input_source": "pinyin"
+  },
+  "steps": [
+    {
+      "name": "focus the line: the engine serves it",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "n i h a o: the engine composes ni hao, underlined, its caret at its end; React hears each change of the composition",
+      "do": [
+        "strokes",
+        [
+          49,
+          23,
+          35,
+          30,
+          24
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ni hao\" [6,6]"
+        ],
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        }
+      }
+    },
+    {
+      "name": "Space takes the first candidate: 你好 committed, the composition gone",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"你好\" [2,2]"
+        ],
+        "field": {
+          "text": "你好",
+          "anchor": 6,
+          "cursor": 6
+        }
+      }
+    }
+  ]
+}

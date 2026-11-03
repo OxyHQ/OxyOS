@@ -190,6 +190,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "latency_max_ms", the longest from a motion to the frame that followed it;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
+- transactions: the text-input transactions the application was given in the step (ADR 0008),
+  exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
+  end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
 - latency_ms: budget from injecting the input to the first changed frame;
@@ -2037,6 +2040,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["a11y_events"]:
             fail(f"accessibility events {got}, expected exactly {expect['a11y_events']}")
+    if "transactions" in expect:
+        # The text-input transactions the application was given (ADR 0008), exactly and in order;
+        # a transaction's parts left out of the expectation are what an empty part says.
+        got = result.get("transactions", [])
+        empty = {"delete": [0, 0], "commit": "", "preedit": "", "cursor": [0, 0], "segments": []}
+        wanted = [{**empty, **want} for want in expect["transactions"]]
+        if got != wanted:
+            fail(f"transactions given {got}, expected exactly {wanted}")
     if "delivered" in expect:
         delivered = dict(result.get("delivered", {}))
         leaked = delivered.pop("leaked", 0)

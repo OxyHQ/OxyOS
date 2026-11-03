@@ -905,6 +905,11 @@ impl Worker {
                 if let Ok((_, _, up, down, candidates, index, layout, previous, next)) =
                     body.deserialize::<Ui>()
                 {
+                    // What the engine did before it showed these is told first: a choice's
+                    // commit before the list it closed.
+                    if !change.is_empty() {
+                        self.tell(Outcome::Change(std::mem::take(change)));
+                    }
                     let count = candidates.len();
                     self.tell(Outcome::Panel(Panel {
                         candidates: candidates.into_iter().map(|(_, text)| text).collect(),
