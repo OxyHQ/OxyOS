@@ -148,7 +148,15 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
   // The root is the output.
   Float width = window_.width(), height = window_.height();
   Placement placed;
-  if (props->kind == "lock") {
+  if (props->kind == "candidates") {
+    // The candidate window: the region itself, outward to whole pixels.
+    placed.kind = kCandidates;
+    placed.edge = OXYOS_EDGE_NONE;
+    Float left = std::floor(region->origin.x), top = std::floor(region->origin.y);
+    placed.strip = Rect{{left, top},
+                        {std::ceil(region->origin.x + region->size.width) - left,
+                         std::ceil(region->origin.y + region->size.height) - top}};
+  } else if (props->kind == "lock") {
     // The lock screen: the whole output, all that shows while the session is locked.
     placed.kind = kLock;
     placed.edge = OXYOS_EDGE_NONE;
@@ -232,9 +240,14 @@ void ShellSurfaceHost::sync() {
       exclude(open->second, props);
       continue;
     }
+    // The candidate window changes size in place (protocol version 21); with an older compositor,
+    // which knows no such request, it is made anew at its new size.
+    bool resized = !(open == regions_.end() || open->second.placed.strip.size == placed->strip.size);
+    bool resizable = placed->kind == kCandidates && open != regions_.end() &&
+                     open->second.placed.kind == kCandidates && window_.protocolVersion() >= 21;
     bool reopen = open == regions_.end() || open->second.placed.kind != placed->kind ||
                   open->second.placed.edge != placed->edge || open->second.placed.exclusive != placed->exclusive ||
-                  !(open->second.placed.strip.size == placed->strip.size);
+                  (resized && !resizable);
     if (reopen) {
       // A surface's role and size are fixed when it is made: a new strip is a new surface.
       if (open != regions_.end()) {
@@ -246,6 +259,9 @@ void ShellSurfaceHost::sync() {
       uint32_t surface = window_.allocate();
       if (placed->kind == kLock) {
         window_.openLockSurface(surface);
+      } else if (placed->kind == kCandidates) {
+        window_.openCandidates(surface, static_cast<uint32_t>(placed->strip.size.width),
+                               static_cast<uint32_t>(placed->strip.size.height));
       } else {
         window_.openShellSurface(surface, placed->kind, placed->edge,
                                  static_cast<uint32_t>(placed->strip.size.width),
@@ -257,12 +273,20 @@ void ShellSurfaceHost::sync() {
       exclude(regions_[tag], props);
       Report::get().popup("shell.open", surface, &view,
                           folly::dynamic::object("kind", placed->kind == kLock                      ? "lock"
+                                                         : placed->kind == kCandidates                ? "candidates"
                                                          : placed->kind == OXYOS_SHELL_OVERLAY        ? "overlay"
                                                          : placed->kind == OXYOS_SHELL_BACKDROP       ? "backdrop"
                                                          : placed->kind == OXYOS_SHELL_NOTIFICATION ? "notification"
                                                                                                       : "panel")(
                               "width", placed->strip.size.width)("height", placed->strip.size.height));
     } else {
+      if (resized) {
+        window_.resizeCandidates(open->second.surface, static_cast<uint32_t>(placed->strip.size.width),
+                                 static_cast<uint32_t>(placed->strip.size.height));
+        Report::get().popup("shell.resize", open->second.surface, &view,
+                            folly::dynamic::object("width", placed->strip.size.width)(
+                                "height", placed->strip.size.height));
+      }
       window_.setInputRegion(open->second.surface, placed->input);
       open->second.placed = *placed;
       open->second.dirty = true;
@@ -296,6 +320,12 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
   for (auto& [tag, region] : regions_) {
     if (!window_.ready(region.surface)) continue;
     const auto* surface = window_.surface(region.surface);
+    // A candidate window resized draws once its configure of the new size came: a frame of the
+    // old size would show the new list cut to it.
+    if (region.placed.kind == kCandidates && (std::lround(surface->width) != std::lround(region.placed.strip.size.width) ||
+                                              std::lround(surface->height) != std::lround(region.placed.strip.size.height))) {
+      continue;
+    }
     if (!region.dirty && surface->configure == region.drawnFor) continue;
     auto frame = windowFrame(tree_, tag);
     if (!frame) continue;

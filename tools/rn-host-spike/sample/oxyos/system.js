@@ -136,11 +136,15 @@ export function useNetworkState() {
 /**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): the session tells Settings (its
  * `settings` grant) and the shell the sources in effect and the input methods its engine has, as
- * they change, and answers `{inputSources: {}}` with them. They are changed through the
- * `input_sources` and `input_source` preferences, never asked for here.
+ * they change, and answers `{inputSources: {}}` with them. Settings changes them through the
+ * `input_sources` and `input_source` preferences; the shell's top bar asks the session for one
+ * (`select`, answered with the new state) and for the emoji picker (`showEmoji`, answered
+ * `{emoji: {}}`), citing the press or key that chose it; a refusal is `{refused: {reason}}`.
  */
 export const inputSources = {
   state: () => ask({ inputSources: {} }),
+  select: (id) => ask({ selectInputSource: { id } }),
+  showEmoji: () => ask({ showEmoji: {} }),
   current: () => lastInputSources,
   subscribe(listener) {
     inputSourcesListeners.add(listener);

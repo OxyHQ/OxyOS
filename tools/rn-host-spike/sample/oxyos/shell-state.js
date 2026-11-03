@@ -72,6 +72,13 @@
  * `OxyOSShellLaunch` answers); `emptyTrash()` asks the session to empty the Trash, which asks the
  * person first; `trashFiles(uris)` has it put the files (`file://` URIs) in the Trash, citing the
  * latest input: the drop on the dock's Trash (docs/adr/0035-drag-and-drop.mdx).
+ *
+ * The candidate window (docs/adr/0041-input-methods.mdx): `candidates` is the page an input method
+ * handed the system to show at the caret, { candidates: [text], aux, highlighted (-1: none),
+ * previous, next, vertical } (a page before and after it, laid out down), or null while there is
+ * none; the shell draws it in a `candidates` region, which the compositor places at the caret.
+ * `chooseInputCandidate(index)` chooses one of it (a press), `turnInputCandidatesPage(forward)`
+ * turns to the page after or before (a chevron).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -182,6 +189,8 @@ const actions = {
   setDoNotDisturb: (enabled) => native?.setDoNotDisturb(enabled),
   announce: (text, polite) => native?.announce(text, polite),
   openScreenshot: (id) => native?.openScreenshot(id) ?? false,
+  chooseInputCandidate: (index) => native?.chooseInputCandidate?.(index) ?? false,
+  turnInputCandidatesPage: (forward) => native?.turnInputCandidatesPage?.(forward) ?? false,
 };
 
 export function useOxyOSShell() {
@@ -192,6 +201,7 @@ export function useOxyOSShell() {
   const [capture, setCapture] = React.useState(null);
   const [captureTarget, setCaptureTarget] = React.useState(null);
   const [screenshots, setScreenshots] = React.useState([]);
+  const [candidates, setCandidates] = React.useState(null);
   React.useEffect(() => {
     if (!native) return undefined;
     const told = (next) => {
@@ -234,6 +244,10 @@ export function useOxyOSShell() {
     const saved = DeviceEventEmitter.addListener('OxyOSShellScreenshot', (screenshot) =>
       setScreenshots((last) => [...last.slice(-15), screenshot]),
     );
+    // The page of candidates to show; an empty one hides the window. One like the last is the same.
+    const listed = DeviceEventEmitter.addListener('OxyOSShellCandidates', (list) =>
+      setCandidates((last) => sharedWith(last, list.candidates.length ? list : null)),
+    );
     // A change between the first read and the subscription is not lost.
     told(native.getState());
     return () => {
@@ -244,6 +258,7 @@ export function useOxyOSShell() {
       captured.remove();
       targeted.remove();
       saved.remove();
+      listed.remove();
     };
   }, []);
   // Capturing cites the interface open now: read when asked, so the function stays the same.
@@ -270,7 +285,8 @@ export function useOxyOSShell() {
       capture,
       captureTarget,
       screenshots,
+      candidates,
     }),
-    [capturing, state, shortcuts, authentication, bezels, capture, captureTarget, screenshots],
+    [capturing, state, shortcuts, authentication, bezels, capture, captureTarget, screenshots, candidates],
   );
 }

@@ -9,7 +9,7 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
-import { network, useNetworkState, useSystemSheets } from './oxyos/system';
+import { inputSources, network, useInputSourcesState, useNetworkState, useSystemSheets } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
@@ -18,6 +18,7 @@ import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
 import type {
   ShellActions,
+  ShellInputMethod,
   ShellLock,
   ShellMenu,
   ShellMenuItem,
@@ -231,6 +232,7 @@ function ProbeShell({
   notifications,
   sheet,
   screenshots,
+  inputMethod,
 }: {
   /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
   screenshots?: ShellScreenshots;
@@ -251,6 +253,8 @@ function ProbeShell({
   commands?: React.ComponentProps<typeof Shell>['commands'];
   /** The session's notifications (ADR 0026); banners only on the display with the dock. */
   notifications?: ShellNotifications;
+  /** Input methods (ADR 0041): the candidate window and the top bar's input sources. */
+  inputMethod?: ShellInputMethod;
 }) {
   // The same source while the frame is the same: the wallpaper and what blurs it render again only
   // when the sun moves on to another.
@@ -271,6 +275,7 @@ function ProbeShell({
       notifications={notifications}
       sheet={sheet}
       screenshots={screenshots}
+      inputMethod={inputMethod}
     />
   );
 }
@@ -399,6 +404,8 @@ function SessionShell() {
   const { sheets, answer, answerPassword } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
+  // The input sources as the session tells them (ADR 0041): the top bar's item.
+  const sources = useInputSourcesState();
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -654,6 +661,30 @@ function SessionShell() {
     }),
     [outputId, here, shell.capture, shell.captureTarget, shell.screenshots],
   );
+  // Input methods (ADR 0041): the candidates an input method handed the system, drawn at the caret
+  // by the shell of the caret's display (the compositor tells only that one); the input sources,
+  // which the session switches. Keyboard settings open Settings as the Oxy menu does: it has no
+  // page of its own to open at yet.
+  const inputMethod: ShellInputMethod = React.useMemo(
+    () => ({
+      candidates: shell.candidates,
+      choose: (index) => {
+        shell.chooseInputCandidate(index);
+      },
+      turnPage: (forward) => {
+        shell.turnInputCandidatesPage(forward);
+      },
+      sources,
+      selectSource: (id) => {
+        inputSources.select(id);
+      },
+      showEmoji: () => {
+        inputSources.showEmoji();
+      },
+      openKeyboardSettings: () => act.menuCommand('system.settings'),
+    }),
+    [shell.candidates, sources, act],
+  );
   const first = dock ? sheets[0] : undefined;
   const sheet = React.useMemo(() => {
     const firstText = first ? readSheet(first.text) : null;
@@ -683,6 +714,7 @@ function SessionShell() {
       controls={controls}
       notifications={notifications}
       screenshots={screenshots}
+      inputMethod={inputMethod}
     />
   );
 }
