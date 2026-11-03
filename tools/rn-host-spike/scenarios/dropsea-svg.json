@@ -1,0 +1,105 @@
+{
+  "about": "Dropsea's thumbnails of SVG files (svg-image.h): a home of the run's own with a drawing (an SVG document of a blue field and a yellow disc), a malformed SVG file and a text. The drawing's icon is the drawing itself, as Finder draws an SVG's thumbnail, rasterised by Skia's SVG module at the size the thumbnail is drawn; the malformed one tells Dropsea it cannot be drawn, once, and is an image's page, never an empty cell. As List, both are asked of the platform again, each told once. Before, both were refused ('not a PNG or JPEG image') and both were pages.",
+  "module": "Dropsea",
+  "window": [
+    1024,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "drawing.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 48\"><rect width=\"64\" height=\"48\" fill=\"#3a7bd5\"/><circle cx=\"32\" cy=\"24\" r=\"14\" fill=\"#ffd60a\"/></svg>",
+      "broken.svg": "<svg xmlns='http://www.w3.org/2000/svg'><rect",
+      "notes.txt": "hello"
+    }
+  },
+  "steps": [
+    {
+      "name": "every item has its icon: the drawing's is the drawing (its blue field, its yellow disc), the malformed SVG's an image's page",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "drawing.svg",
+          "broken.svg",
+          "notes.txt",
+          "3 items"
+        ],
+        "pixels": {
+          "370,85": "#3a7bd5",
+          "397,106": "#ffd60a",
+          "288,100": "#ffffff",
+          "509,100": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "As List: both SVG files asked of the platform again, the drawing loaded and the malformed one's error told, each once",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "as List"
+        ]
+      ],
+      "expect": {
+        "react": {
+          "loadStart@thumbnail-drawing.svg": 1,
+          "load@thumbnail-drawing.svg": 1,
+          "loadEnd@thumbnail-drawing.svg": 1,
+          "loadStart@thumbnail-broken.svg": 1,
+          "error@thumbnail-broken.svg": 1,
+          "loadEnd@thumbnail-broken.svg": 1,
+          "click@view-list": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "as List",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "texts": [
+          "Kind",
+          "3 items"
+        ]
+      }
+    },
+    {
+      "name": "As Icons again: the same icons, the drawing's own pixels",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "as Icons"
+        ]
+      ],
+      "expect": {
+        "react": {
+          "loadStart@thumbnail-drawing.svg": 1,
+          "load@thumbnail-drawing.svg": 1,
+          "loadEnd@thumbnail-drawing.svg": 1,
+          "loadStart@thumbnail-broken.svg": 1,
+          "error@thumbnail-broken.svg": 1,
+          "loadEnd@thumbnail-broken.svg": 1,
+          "click@view-icons": 1
+        },
+        "pixels": {
+          "370,85": "#3a7bd5",
+          "397,106": "#ffd60a",
+          "288,100": "#ffffff"
+        }
+      }
+    }
+  ]
+}

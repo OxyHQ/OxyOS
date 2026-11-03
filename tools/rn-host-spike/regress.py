@@ -354,7 +354,9 @@ refused, so nothing of the network outside reaches the run. The server answers t
 as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
 (summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
 reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
-store that is down. It also answers NetInfo's check that the Internet is reachable
+store that is down; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
+document, as a listing's `icon` may be a file URL or path), and `{store_files}` in any answer is the
+directory holding them. It also answers NetInfo's check that the Internet is reachable
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
 told from a machine that is offline. Applications reach it as they reach the real one, with their own
 builds.
@@ -2434,6 +2436,11 @@ def store_fixture(spec, out):
         "-out", "server.pem", "-days", "2", "-extfile", "server.ext")
     failing = dict(spec.get("unavailable_first", {}))
     lock = threading.Lock()
+    # The store's own files (`files`), where `{store_files}` in its answers names them.
+    files = (base / "files").resolve()
+    files.mkdir()
+    for name, text in spec.get("files", {}).items():
+        (files / name).write_text(text)
 
     class Store(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2448,7 +2455,7 @@ def store_fixture(spec, out):
 
         def reply(self, status, body):
             self.note(status)
-            data = json.dumps(body).encode()
+            data = json.dumps(body).replace("{store_files}", str(files)).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))

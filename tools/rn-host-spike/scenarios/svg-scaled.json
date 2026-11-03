@@ -1,0 +1,57 @@
+{
+  "about": "svg.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), the window at 550,313 of the output: the SVG image rasterised at 80 x 80 pixels for its 64 x 64 box, never at 64 and enlarged, the gradients, clip, pattern and mask drawn at the output's pixels; its pixels checked in the output's own, the same points as svg.json's, and the same events, once each.",
+  "module": "SvgProbe",
+  "window": [
+    400,
+    300
+  ],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "the SVG icon drawn and its load told once, the malformed one's error told once, getSize's size; the gradient, clip path, pattern, mask and radial gradient drawn",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "svg-icon: loaded 24x24",
+          "svg-broken: error: invalid SVG image: not a well-formed SVG document",
+          "getSize: 24x24"
+        ],
+        "absent": [
+          "pending"
+        ],
+        "react": {
+          "loadStart@svg-icon": 1,
+          "load@svg-icon": 1,
+          "loadEnd@svg-icon": 1,
+          "loadStart@svg-broken": 1,
+          "error@svg-broken": 1,
+          "loadEnd@svg-broken": 1
+        },
+        "output_pixels": {
+          "610,373": "#ffffff",
+          "580,353": "#2f6fed",
+          "610,395": "#ffd60a",
+          "710,373": "#ffffff",
+          "775,373": "#ff0000",
+          "845,373": "#7e0081",
+          "915,373": "#0000ff",
+          "980,373": "#30a050",
+          "980,345": "#30a050",
+          "980,338": "#ffffff",
+          "575,443": "#d03030",
+          "585,453": "#3050d0",
+          "585,443": "#ffffff",
+          "595,443": "#d03030",
+          "760,478": "#8030c0",
+          "800,478": "#ffffff",
+          "880,478": "#ffffff",
+          "880,443": "#2f2f2f"
+        }
+      }
+    }
+  ]
+}
