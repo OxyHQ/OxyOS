@@ -1,10 +1,11 @@
 {
-  "about": "Installing through the session (docs/adr/0030-installing-applications.mdx, decisions 9 and 16): a store with the store and updates grants (sample/StoreProbe.tsx) asks through OxyOSSystem; each request, citing the press that asked it, crosses the host, the compositor (which checks the grant and the input) and the session's side (oxyos_compositor::installs, which reads it strictly), and is answered to the store alone. With no install service on this machine every answer says so, as the session tells it, never a fake install.",
+  "about": "Installing through the session (docs/adr/0030-installing-applications.mdx, decisions 9 and 16): a store with the store and updates grants (sample/StoreProbe.tsx) asks through OxyOSSystem; each request, citing the press that asked it, crosses the host, the compositor (which checks the grant and the input) and the session's side (oxyos_compositor::installs, which reads it strictly), and is answered to the store alone. With no install service on this machine every answer says so, as the session tells it, never a fake install; a change the person asked for (Install) first shows the shell's sheet saying the service is not running, with one button, and the store's answer (told: the person was told) comes once it is pressed. A check or a read shows no sheet.",
   "module": "StoreProbe",
   "window": [
     520,
     340
   ],
+  "shell": "OxyOSShell",
   "app": {
     "id": "so.oxy.storeprobe"
   },
@@ -17,7 +18,7 @@
   "installd": null,
   "steps": [
     {
-      "name": "Install, pressed: the session's answer comes back to the store, that the install service is not there",
+      "name": "Install, pressed: the session has no install service to ask, and the shell's sheet says so, with one button and nothing to confirm; the store's answer waits for the person",
       "do": [
         "press",
         [
@@ -28,18 +29,55 @@
       "expect": {
         "texts": [
           "Store: available",
-          "Answer 1: failed unavailable",
+          "Answer 0: none yet",
           "Progress: 0",
           "Asked: 1"
         ],
         "react": {
           "touchStart@install": 1,
           "touchEnd@install": 1
+        },
+        "in_shell": {
+          "texts": [
+            "No se puede instalar la app",
+            "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
+            "Aceptar"
+          ],
+          "absent": [
+            "Cancelar"
+          ]
         }
       }
     },
     {
-      "name": "Check for updates, pressed (the updates grant): answered the same way, and no update is invented",
+      "name": "Aceptar: the sheet goes, and the session's answer comes back to the store, that the install service is not there",
+      "do": [
+        "press_output",
+        [
+          750,
+          431
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-accept": 1,
+            "touchEnd@system-sheet-accept": 1
+          },
+          "absent": [
+            "No se puede instalar la app"
+          ]
+        },
+        "texts": [
+          "Answer 1: failed unavailable",
+          "Install: failed unavailable · Uninstall: - · Open: -",
+          "Progress: 0",
+          "Asked: 1"
+        ]
+      }
+    },
+    {
+      "name": "Check for updates, pressed (the updates grant): answered the same way with no sheet, and no update is invented",
       "do": [
         "press",
         [
@@ -56,11 +94,18 @@
         "react": {
           "touchStart@check": 1,
           "touchEnd@check": 1
+        },
+        "in_shell": {
+          "absent": [
+            "No se puede actualizar",
+            "No se puede instalar la app",
+            "Aceptar"
+          ]
         }
       }
     },
     {
-      "name": "Status, a read: answered too",
+      "name": "Status, a read: answered too, with no sheet",
       "do": [
         "press",
         [
@@ -76,6 +121,13 @@
         "react": {
           "touchStart@status": 1,
           "touchEnd@status": 1
+        },
+        "in_shell": {
+          "absent": [
+            "No se puede actualizar",
+            "No se puede instalar la app",
+            "Aceptar"
+          ]
         }
       }
     }
