@@ -1026,11 +1026,54 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "ImageLoader") {
-    // Image sizes from the files' headers (images.h resolves the sources, oxyos-image reads them):
-    // a promise of {width, height} in pixels, or of true for a prefetch.
-    auto sized = [](bool prefetch) {
-      return [prefetch](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-        auto source = resolveImageSource(count > 0 ? text(rt, args[0]) : "");
+    // React Native's Android ImageLoaderModule (images.h): image sizes, from a file's headers
+    // (oxyos-image reads them) or a remote image's, fetched; prefetches into the disk cache; where
+    // remote images are cached. Promises of {width, height} in pixels, of true, and of {uri: "memory"
+    // | "disk"}.
+    // A promise settled later, on the JavaScript thread through the module's invoker.
+    auto later = [invoker](jsi::Runtime& rt, std::function<void(std::function<void(folly::dynamic)>,
+                                                                std::function<void(std::string)>)> start) {
+      auto run = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "imageLoader"), 2,
+          [invoker, start](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            auto reject = std::make_shared<jsi::Value>(rt, args[1]);
+            start(
+                [invoker, resolve](folly::dynamic value) {
+                  invoker->invokeAsync([resolve, value = std::move(value)](jsi::Runtime& rt) {
+                    resolve->asObject(rt).asFunction(rt).call(rt, jsi::valueFromDynamic(rt, value));
+                  });
+                },
+                [invoker, reject](std::string message) {
+                  invoker->invokeAsync([reject, message = std::move(message)](jsi::Runtime& rt) {
+                    auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
+                    reject->asObject(rt).asFunction(rt).call(rt, error);
+                  });
+                });
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
+    };
+    auto sized = [&services, later](bool withHeaders) {
+      return [&services, later, withHeaders](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+        std::string uri = count > 0 ? text(rt, args[0]) : "";
+        auto source = resolveImageSource(uri);
+        if (source.remote) {
+          std::vector<std::pair<std::string, std::string>> headers;
+          if (withHeaders && count > 1 && args[1].isObject()) {
+            auto given = jsi::dynamicFromValue(rt, args[1]);
+            for (const auto& [name, value] : given.items()) {
+              if (name.isString() && value.isString()) headers.emplace_back(name.getString(), value.getString());
+            }
+          }
+          if (!services.images) return rejected(rt, "remote images need a window on OxyOS");
+          return later(rt, [&services, uri, headers](auto resolve, auto reject) {
+            services.images->size(uri, headers, [resolve, reject](double width, double height, const std::string& error) {
+              if (!error.empty()) return reject(error);
+              resolve(folly::dynamic::object("width", width)("height", height));
+            });
+          });
+        }
         if (!source.error.empty()) return rejected(rt, source.error);
         double width = 0, height = 0;
         uint32_t pixelsWide = 0, pixelsHigh = 0;
@@ -1046,19 +1089,45 @@ std::shared_ptr<TurboModule> createHostModule(
           if (!size) return rejected(rt, failure.empty() || svgByName(source.path) ? error : failure);
           width = size->first, height = size->second;
         }
-        // A local image needs no fetching: it is ready if it can be read.
-        if (prefetch) return resolved(rt, jsi::Value(true));
         return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object("width", width)("height", height)));
       };
     };
     module->method("getSize", sized(false));
-    module->method("getSizeWithHeaders", sized(false));
-    module->method("prefetchImage", sized(true));
-    module->method("queryCache", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      return resolved(rt, jsi::Object(rt));
+    module->method("getSizeWithHeaders", sized(true));
+    module->method("prefetchImage", [&services, later](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+      std::string uri = count > 0 ? text(rt, args[0]) : "";
+      int64_t requestId = count > 1 && args[1].isNumber() ? static_cast<int64_t>(args[1].getNumber()) : 0;
+      auto source = resolveImageSource(uri);
+      if (!source.remote) {
+        // A local image needs no fetching: it is ready if it can be read.
+        if (!source.error.empty()) return rejected(rt, source.error);
+        if (access(source.path.c_str(), R_OK) != 0) return rejected(rt, "cannot read the image: " + source.path);
+        return resolved(rt, jsi::Value(true));
+      }
+      if (!services.images) return rejected(rt, "remote images need a window on OxyOS");
+      return later(rt, [&services, uri, requestId](auto resolve, auto reject) {
+        services.images->prefetch(uri, requestId, [resolve, reject](const std::string& error) {
+          if (!error.empty()) return reject(error);
+          resolve(true);
+        });
+      });
     });
-    // A prefetch has finished when it returns: there is nothing to abort.
-    module->method("abortRequest", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
+    module->method("queryCache", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      folly::dynamic found = folly::dynamic::object;
+      if (services.images && count > 0 && args[0].isObject()) {
+        for (const auto& uri : jsi::dynamicFromValue(rt, args[0])) {
+          if (!uri.isString()) continue;
+          if (auto where = services.images->cached(uri.getString())) found[uri.getString()] = *where;
+        }
+      }
+      return resolved(rt, jsi::valueFromDynamic(rt, found));
+    });
+    module->method("abortRequest", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (services.images && count > 0 && args[0].isNumber()) {
+        services.images->abort(static_cast<int64_t>(args[0].getNumber()));
+      }
+      return jsi::Value::undefined();
+    });
   } else if (name == "RNCSafeAreaContext") {
     // An OxyOS window has no system insets.
     folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);

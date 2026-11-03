@@ -1,8 +1,9 @@
 /**
  * React Native's Image on OxyOS (images.h), for scenarios/images.json: a wallpaper frame (a
  * 5120 × 2880 JPEG with a Display P3 profile) covering its box, an app icon contained in a
- * rounded one and the same icon tinted, and two sources OxyOS cannot show (a remote image and a
- * missing file), each with what its load events said; and Image.getSize on the wallpaper.
+ * rounded one and the same icon tinted, and two sources OxyOS cannot show (a `data:` URI and a
+ * missing file), each with what its load events said; and Image.getSize on the wallpaper. Remote
+ * images are scenarios/remote-images.json's (RemoteImageProbe).
  */
 import * as React from 'react';
 import { Image, Text, View } from 'react-native';
@@ -30,7 +31,7 @@ export default function ImageProbe() {
       (error: Error) => setSize(`failed: ${error.message}`),
     );
   }, []);
-  const names = ['wallpaper', 'icon', 'tinted', 'remote', 'missing'];
+  const names = ['wallpaper', 'icon', 'tinted', 'data', 'missing'];
   return (
     <View style={{ flex: 1, padding: 16, gap: 12, backgroundColor: '#fff' }}>
       <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
@@ -43,7 +44,7 @@ export default function ImageProbe() {
           {...events('icon')}
         />
         <Image testID="tinted" source={allo} resizeMode="contain" tintColor="#294ab4" style={{ width: 48, height: 48 }} {...events('tinted')} />
-        <Image testID="remote" source={{ uri: 'https://oxy.so/probe.png' }} style={{ width: 48, height: 48 }} {...events('remote')} />
+        <Image testID="data" source={{ uri: 'data:image/png;base64,iVBORw0KGgo=' }} style={{ width: 48, height: 48 }} {...events('data')} />
         <Image testID="missing" source={{ uri: 'file:///nonexistent/oxy.png' }} style={{ width: 48, height: 48 }} {...events('missing')} />
       </View>
       {names.map((name) => (

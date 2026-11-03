@@ -31,9 +31,10 @@ std::string lower(std::string text) {
   return text;
 }
 
-// The first kilobyte of the file, or nullopt if it cannot be read.
-std::optional<std::string> head(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
+// The first kilobyte of the document, or nullopt if it cannot be read.
+std::optional<std::string> head(const SvgSource& source) {
+  if (source.bytes) return source.bytes->substr(0, 1024);
+  std::ifstream file(source.name, std::ios::binary);
   if (!file) return std::nullopt;
   std::string bytes(1024, '\0');
   file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -47,11 +48,13 @@ struct Document {
   std::string error;
 };
 
-Document parse(const std::string& path) {
+Document parse(const SvgSource& source) {
   Document document;
-  auto stream = SkStream::MakeFromFile(path.c_str());
+  std::unique_ptr<SkStreamAsset> stream =
+      source.bytes ? std::make_unique<SkMemoryStream>(source.bytes->data(), source.bytes->size(), false)
+                   : SkStream::MakeFromFile(source.name.c_str());
   if (!stream) {
-    document.error = "cannot read the image: " + path;
+    document.error = "cannot read the image: " + source.name;
     return document;
   }
   document.dom = SkSVGDOM::Builder().make(*stream);
@@ -100,8 +103,8 @@ bool svgBySniffing(const std::string& bytes) {
   return bytes.substr(0, 1024).find("<svg") != std::string::npos;
 }
 
-std::optional<std::pair<float, float>> svgImageSize(const std::string& path, std::string& error) {
-  auto document = parse(path);
+std::optional<std::pair<float, float>> svgImageSize(const SvgSource& source, std::string& error) {
+  auto document = parse(source);
   if (!document.dom) {
     error = document.error;
     return std::nullopt;
@@ -113,9 +116,9 @@ std::optional<std::pair<float, float>> svgImageSize(const std::string& path, std
   return std::pair{document.width, document.height};
 }
 
-SvgImage decodeSvgImage(const std::string& path, const SvgRequest& request) {
+SvgImage decodeSvgImage(const SvgSource& source, const SvgRequest& request) {
   SvgImage out;
-  auto document = parse(path);
+  auto document = parse(source);
   if (!document.dom) {
     out.error = document.error;
     return out;
@@ -185,16 +188,16 @@ SvgDecoder::~SvgDecoder() {
   shared_->answers.clear();
 }
 
-void SvgDecoder::load(uint64_t id, const std::string& path, const SvgRequest& request, bool sniffed,
+void SvgDecoder::load(uint64_t id, const SvgSource& source, const SvgRequest& request, bool sniffed,
                       const std::string& otherwise) {
   auto shared = shared_;
-  auto run = [shared, id, path, request, sniffed, otherwise] {
+  auto run = [shared, id, source, request, sniffed, otherwise] {
     Answer answer{id, {}};
     if (sniffed) {
-      auto bytes = head(path);
+      auto bytes = head(source);
       if (!bytes || !svgBySniffing(*bytes)) answer.image.error = otherwise;
     }
-    if (answer.image.error.empty()) answer.image = decodeSvgImage(path, request);
+    if (answer.image.error.empty()) answer.image = decodeSvgImage(source, request);
     std::lock_guard guard(shared->lock);
     shared->answers.push_back(std::move(answer));
     uint64_t one = 1;

@@ -1,15 +1,24 @@
 //! Images for applications on OxyOS: the decoding behind React Native's `Image` in the Bloom host
 //! (docs/react-native-android-adaptation.mdx), through the C ABI (`oxyos-client-ffi`).
 //!
-//! PNG and JPEG are decoded in Rust, turned from the profile they carry (an embedded ICC profile,
-//! Display P3 say) into sRGB, the space the compositor composes in, and reduced to the size they
-//! are drawn at by averaging the source pixels each output pixel covers. Pixels come out as
-//! premultiplied RGBA, 8 bits a channel. An image without a profile is taken as sRGB, as Android
-//! takes it. PNG's gamma and chromaticity chunks are not applied. A truncated JPEG shows what
-//! arrived, as Android's decoder (Skia) shows it; a damaged PNG is an error.
+//! PNG, JPEG, WebP and GIF are decoded in Rust (image-rs's png, image-webp and gif, the project
+//! whose png crate Chromium's Skia decodes PNG with; zune-jpeg), turned from the profile they carry
+//! (an embedded ICC profile, Display P3 say) into sRGB, the space the compositor composes in, and
+//! reduced to the size they are drawn at by averaging the source pixels each output pixel covers.
+//! Pixels come out as premultiplied RGBA, 8 bits a channel. An image without a profile is taken as
+//! sRGB, as Android takes it. PNG's gamma and chromaticity chunks are not applied. A truncated JPEG
+//! shows what arrived, as Android's decoder (Skia) shows it; a damaged PNG is an error. An animated
+//! GIF or WebP shows its first frame, still (as React Native's Android `Image` does without
+//! Fresco's animated decoders). AVIF is recognised and refused with that reason: no AV1 decoder is
+//! part of OxyOS.
+//!
+//! Remote images (`http`, `https`) are fetched through the application's network, with a cache in
+//! memory and its HTTP cache on disk ([`remote`]).
 //!
 //! A [`Loader`] decodes on threads of its own and queues what it decoded, which the caller takes
 //! from its own thread ([`Loader::answer`]); its descriptor is readable while any are queued.
+
+pub mod remote;
 
 use moxcms::{ColorProfile, Layout, TransformOptions};
 use std::collections::VecDeque;
@@ -41,23 +50,29 @@ impl fmt::Debug for Image {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// Neither PNG nor JPEG.
+    /// Not a PNG, JPEG, WebP or GIF image.
     Unsupported,
+    /// An AVIF image, which OxyOS cannot decode.
+    Avif,
     /// The file is damaged, or its profile cannot be applied.
     Invalid(String),
     /// Larger than [`MAX_PIXELS`].
     TooLarge { width: u32, height: u32 },
     /// The file could not be read.
     Io(String),
+    /// A remote image could not be fetched: refused, failed, or answered with another status.
+    Fetch(String),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Unsupported => write!(f, "not a PNG or JPEG image"),
+            Error::Unsupported => write!(f, "not a PNG, JPEG, WebP or GIF image"),
+            Error::Avif => write!(f, "AVIF images are not supported on OxyOS"),
             Error::Invalid(reason) => write!(f, "invalid image: {reason}"),
             Error::TooLarge { width, height } => write!(f, "image too large: {width}x{height}"),
             Error::Io(reason) => write!(f, "cannot read the image: {reason}"),
+            Error::Fetch(reason) => write!(f, "{reason}"),
         }
     }
 }
@@ -67,6 +82,8 @@ impl std::error::Error for Error {}
 enum Format {
     Png,
     Jpeg,
+    Webp,
+    Gif,
 }
 
 fn format(bytes: &[u8]) -> Result<Format, Error> {
@@ -74,9 +91,25 @@ fn format(bytes: &[u8]) -> Result<Format, Error> {
         Ok(Format::Png)
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
         Ok(Format::Jpeg)
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Ok(Format::Webp)
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Ok(Format::Gif)
+    } else if bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && matches!(&bytes[8..12], b"avif" | b"avis")
+    {
+        Err(Error::Avif)
     } else {
         Err(Error::Unsupported)
     }
+}
+
+/// A GIF's decoder, its colours expanded to RGBA.
+fn gif_decoder(bytes: &[u8]) -> Result<gif::Decoder<Cursor<&[u8]>>, Error> {
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::RGBA);
+    options.read_info(Cursor::new(bytes)).map_err(invalid)
 }
 
 fn invalid(error: impl fmt::Display) -> Error {
@@ -106,6 +139,13 @@ pub fn size(bytes: &[u8]) -> Result<(u32, u32), Error> {
             decoder.decode_headers().map_err(invalid)?;
             let info = decoder.info().ok_or_else(|| invalid("no JPEG frame"))?;
             Ok((u32::from(info.width), u32::from(info.height)))
+        }
+        Format::Webp => Ok(image_webp::WebPDecoder::new(Cursor::new(bytes))
+            .map_err(invalid)?
+            .dimensions()),
+        Format::Gif => {
+            let decoder = gif_decoder(bytes)?;
+            Ok((u32::from(decoder.width()), u32::from(decoder.height())))
         }
     }
 }
@@ -168,6 +208,53 @@ fn decode_rgba(bytes: &[u8]) -> Result<Decoded, Error> {
                 return Err(invalid("JPEG decoded to an unexpected size"));
             }
             Ok((width, height, rgba, profile))
+        }
+        Format::Webp => {
+            let mut decoder = image_webp::WebPDecoder::new(Cursor::new(bytes)).map_err(invalid)?;
+            let (width, height) = decoder.dimensions();
+            checked(width, height)?;
+            let profile = decoder.icc_profile().map_err(invalid)?;
+            let mut samples = vec![
+                0;
+                decoder
+                    .output_buffer_size()
+                    .ok_or_else(|| invalid("WebP too large"))?
+            ];
+            // The first frame of an animated one.
+            decoder.read_image(&mut samples).map_err(invalid)?;
+            let rgba = if decoder.has_alpha() {
+                samples
+            } else {
+                samples
+                    .chunks_exact(3)
+                    .flat_map(|p| [p[0], p[1], p[2], 255])
+                    .collect()
+            };
+            Ok((width, height, rgba, profile))
+        }
+        Format::Gif => {
+            // The first frame, placed on the image's canvas (transparent where it does not
+            // reach), as a GIF shows before it animates.
+            let mut decoder = gif_decoder(bytes)?;
+            let (width, height) = (u32::from(decoder.width()), u32::from(decoder.height()));
+            checked(width, height)?;
+            let mut rgba = vec![0u8; width as usize * height as usize * 4];
+            let frame = decoder
+                .read_next_frame()
+                .map_err(invalid)?
+                .ok_or_else(|| invalid("no GIF frame"))?;
+            let (left, top) = (usize::from(frame.left), usize::from(frame.top));
+            let frame_width = usize::from(frame.width);
+            for (y, row) in frame.buffer.chunks_exact(frame_width * 4).enumerate() {
+                let y = top + y;
+                if y >= height as usize || left >= width as usize {
+                    continue;
+                }
+                let columns = frame_width.min(width as usize - left);
+                let at = (y * width as usize + left) * 4;
+                rgba[at..at + columns * 4].copy_from_slice(&row[..columns * 4]);
+            }
+            Ok((width, height, rgba, None))
         }
     }
 }
@@ -340,7 +427,7 @@ pub fn decode(bytes: &[u8], fit: Fit) -> Result<Image, Error> {
                 .flatten()
                 .map(|decoded| (natural, decoded))
         }
-        Format::Png => None,
+        Format::Png | Format::Webp | Format::Gif => None,
     };
     let (natural, (width, height, mut rgba, profile)) = match reduced {
         Some(reduced) => reduced,
@@ -414,11 +501,33 @@ pub fn decode_file(path: &std::path::Path, fit: Fit) -> Result<Image, Error> {
     decode(&bytes, fit)
 }
 
-/// What a load answered: the image, or why there is none.
+/// What a load answered.
+#[derive(Debug)]
+pub enum Outcome {
+    /// The image, decoded at the size it was wanted at.
+    Image(Image),
+    /// Why there is none.
+    Failed(Error),
+    /// What arrived of a remote image so far, and its length (Content-Length), as it arrives.
+    Progress { loaded: u64, total: u64 },
+    /// A remote image this crate does not decode (an SVG document, by its `Content-Type` or
+    /// as the caller sniffs it): its bytes, its type, and the error decoding it gave.
+    Undecoded {
+        bytes: Arc<[u8]>,
+        content_type: Option<String>,
+        error: Error,
+    },
+    /// A remote image's size in pixels, from its headers (`Want::Size`).
+    Size(u32, u32),
+    /// A remote image fetched into the caches (`Want::Prefetch`).
+    Fetched,
+}
+
+/// What a load answered, by its id: answers of progress, then one that ends it.
 #[derive(Debug)]
 pub struct Loaded {
     pub id: u64,
-    pub result: Result<Image, Error>,
+    pub outcome: Outcome,
 }
 
 struct Shared {
@@ -426,10 +535,21 @@ struct Shared {
     wake: Mutex<UnixStream>,
 }
 
-/// Decodes files on threads of its own.
+impl Shared {
+    fn answer(&self, id: u64, outcome: Outcome) {
+        self.answers
+            .lock()
+            .expect("lock")
+            .push_back(Loaded { id, outcome });
+        let _ = self.wake.lock().expect("lock").write_all(&[1]);
+    }
+}
+
+/// Decodes files, and fetches and decodes remote images ([`remote`]), on threads of its own.
 pub struct Loader {
     shared: Arc<Shared>,
     readable: UnixStream,
+    remote: Option<Arc<remote::Remote>>,
 }
 
 impl Loader {
@@ -443,29 +563,69 @@ impl Loader {
                 wake: Mutex::new(wake),
             }),
             readable,
+            remote: None,
         })
     }
 
     /// Starts decoding `path` at the size `fit` asks for; its answer follows.
     pub fn load(&self, id: u64, path: PathBuf, fit: Fit) {
         let shared = self.shared.clone();
-        let answer = move |result| {
-            shared
-                .answers
-                .lock()
-                .expect("lock")
-                .push_back(Loaded { id, result });
-            let _ = shared.wake.lock().expect("lock").write_all(&[1]);
-        };
         let spawned = std::thread::Builder::new()
             .name(format!("oxyos-image-{id}"))
-            .spawn({
-                let answer = answer.clone();
-                move || answer(decode_file(&path, fit))
+            .spawn(move || {
+                let outcome = match decode_file(&path, fit) {
+                    Ok(image) => Outcome::Image(image),
+                    Err(error) => Outcome::Failed(error),
+                };
+                shared.answer(id, outcome);
             });
         if let Err(error) = spawned {
-            answer(Err(Error::Io(format!("the load cannot start: {error}"))));
+            self.shared.answer(
+                id,
+                Outcome::Failed(Error::Io(format!("the load cannot start: {error}"))),
+            );
         }
+    }
+
+    /// Fetches remote images through `network` from now on, `cache` its disk cache (none: memory
+    /// only).
+    pub fn connect(
+        &mut self,
+        network: Arc<oxyos_net::Network>,
+        cache: Option<Arc<oxyos_net::cache::Cache>>,
+    ) {
+        self.remote = Some(Arc::new(remote::Remote::new(network, cache)));
+    }
+
+    /// Starts fetching a remote image; its answers follow. Without [`Loader::connect`], it fails.
+    pub fn fetch(&self, id: u64, fetch: remote::Fetch) {
+        match &self.remote {
+            Some(remote) => remote::Remote::fetch(remote, &self.shared, id, fetch),
+            None => self.shared.answer(
+                id,
+                Outcome::Failed(Error::Fetch("remote images need the network".into())),
+            ),
+        }
+    }
+
+    /// Answers nothing more for `id`: a remote image's request stops if no other load waits for
+    /// it.
+    pub fn cancel(&self, id: u64) {
+        if let Some(remote) = &self.remote {
+            remote.cancel(id);
+        }
+        self.shared
+            .answers
+            .lock()
+            .expect("lock")
+            .retain(|answer| answer.id != id);
+    }
+
+    /// Whether a remote image is held in memory, and on disk.
+    pub fn cached(&self, url: &str) -> (bool, bool) {
+        self.remote
+            .as_ref()
+            .map_or((false, false), |remote| remote.cached(url))
     }
 
     /// The next answer, if any; never blocks.

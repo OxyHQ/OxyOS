@@ -1094,7 +1094,14 @@ fn the_header_matches_the_image_abi() {
             "pixels",
             "length",
             "error",
-            "error_length"
+            "error_length",
+            "kind",
+            "loaded",
+            "total",
+            "data",
+            "data_length",
+            "content_type",
+            "content_type_length"
         ]
     );
     let rust = [
@@ -1107,10 +1114,79 @@ fn the_header_matches_the_image_abi() {
         offset_of!(OxyOSImageAnswer, length),
         offset_of!(OxyOSImageAnswer, error),
         offset_of!(OxyOSImageAnswer, error_length),
+        offset_of!(OxyOSImageAnswer, kind),
+        offset_of!(OxyOSImageAnswer, loaded),
+        offset_of!(OxyOSImageAnswer, total),
+        offset_of!(OxyOSImageAnswer, data),
+        offset_of!(OxyOSImageAnswer, data_length),
+        offset_of!(OxyOSImageAnswer, content_type),
+        offset_of!(OxyOSImageAnswer, content_type_length),
     ];
     assert_eq!(
         c_offsets(&answer),
         (rust.to_vec(), size_of::<OxyOSImageAnswer>())
+    );
+    for (name, value) in [
+        ("OXYOS_IMAGE_PICTURE", OXYOS_IMAGE_PICTURE),
+        ("OXYOS_IMAGE_FAILED", OXYOS_IMAGE_FAILED),
+        ("OXYOS_IMAGE_PROGRESS", OXYOS_IMAGE_PROGRESS),
+        ("OXYOS_IMAGE_UNDECODED", OXYOS_IMAGE_UNDECODED),
+        ("OXYOS_IMAGE_SIZE", OXYOS_IMAGE_SIZE),
+        ("OXYOS_IMAGE_FETCHED", OXYOS_IMAGE_FETCHED),
+        ("OXYOS_IMAGE_CACHE_DEFAULT", OXYOS_IMAGE_CACHE_DEFAULT),
+        ("OXYOS_IMAGE_CACHE_RELOAD", OXYOS_IMAGE_CACHE_RELOAD),
+        ("OXYOS_IMAGE_CACHE_FORCE", OXYOS_IMAGE_CACHE_FORCE),
+        (
+            "OXYOS_IMAGE_CACHE_ONLY_IF_CACHED",
+            OXYOS_IMAGE_CACHE_ONLY_IF_CACHED,
+        ),
+        ("OXYOS_IMAGE_WANT_PICTURE", OXYOS_IMAGE_WANT_PICTURE),
+        ("OXYOS_IMAGE_WANT_SIZE", OXYOS_IMAGE_WANT_SIZE),
+        ("OXYOS_IMAGE_WANT_PREFETCH", OXYOS_IMAGE_WANT_PREFETCH),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    assert_eq!(
+        define("OXYOS_IMAGE_IN_MEMORY"),
+        i64::from(OXYOS_IMAGE_IN_MEMORY)
+    );
+    assert_eq!(
+        define("OXYOS_IMAGE_ON_DISK"),
+        i64::from(OXYOS_IMAGE_ON_DISK)
+    );
+    let fetch = fields("OxyOSImageFetch");
+    assert_eq!(
+        names(&fetch),
+        [
+            "url",
+            "url_length",
+            "headers",
+            "header_count",
+            "cache",
+            "memory",
+            "disk",
+            "want",
+            "width",
+            "height",
+            "fit"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSImageFetch, url),
+        offset_of!(OxyOSImageFetch, url_length),
+        offset_of!(OxyOSImageFetch, headers),
+        offset_of!(OxyOSImageFetch, header_count),
+        offset_of!(OxyOSImageFetch, cache),
+        offset_of!(OxyOSImageFetch, memory),
+        offset_of!(OxyOSImageFetch, disk),
+        offset_of!(OxyOSImageFetch, want),
+        offset_of!(OxyOSImageFetch, width),
+        offset_of!(OxyOSImageFetch, height),
+        offset_of!(OxyOSImageFetch, fit),
+    ];
+    assert_eq!(
+        c_offsets(&fetch),
+        (rust.to_vec(), size_of::<OxyOSImageFetch>())
     );
 }
 
