@@ -464,13 +464,18 @@ impl Reader {
             if let Some(title) = title {
                 let dialog = &nodes[title];
                 let id = (dialog.name.clone(), dialog.hint.clone());
+                // A surface's own dialog is told from the next by its message too (the sheet that
+                // says what went wrong); a modal over a window by its title alone, so its message
+                // changing in place (a countdown: "…in 14 seconds") is no new dialog to say.
+                let own = title == 0 && (first || self.own_dialogs.contains_key(&key));
                 let was_shown = before.as_deref().is_some_and(|nodes| {
                     nodes.iter().any(|node| {
                         node.role == AccessibleRole::Dialog
-                            && (&node.name, &node.hint) == (&id.0, &id.1)
+                            && node.name == id.0
+                            && (!own || node.hint == id.1)
                     })
                 }) || self.own_dialogs.get(&key) == Some(&id);
-                if title == 0 && (first || self.own_dialogs.contains_key(&key)) {
+                if own {
                     self.own_dialogs.insert(key, id);
                 }
                 if !was_shown {

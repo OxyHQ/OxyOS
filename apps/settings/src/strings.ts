@@ -73,11 +73,16 @@ const en = {
     moveRight: "Move to the right",
     moveAbove: "Move above",
     moveBelow: "Move below",
+    /** Where a display stands, as its value in the arrangement says it. */
+    place: (side: "left" | "right" | "above" | "below", name: string) =>
+      ({ left: `left of ${name}`, right: `right of ${name}`, above: `above ${name}`, below: `below ${name}` })[side],
+    moveHint: "To move it, press the arrow keys.",
     keepTitle: "Keep these display settings?",
     keepDescription: (seconds: number) =>
       `The display goes back to its previous settings in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
     keep: "Keep Changes",
     revert: "Revert",
+    reverted: "The display went back to its previous settings.",
     none: "No display is shown.",
   },
   keyboard: { layout: "Layout" },
@@ -177,6 +182,14 @@ const en = {
     updateAll: "Update All",
     update: "Update",
     updateLabel: (name: string) => `Update ${name}`,
+    updating: "Updating…",
+    updatingLabel: (name: string) => `Updating ${name}`,
+    updated: "Updated",
+    updatedLabel: (name: string) => `${name} updated`,
+    atNextLaunchShort: "Next Launch",
+    atNextLaunchLabel: (name: string) => `${name} updates when it next opens`,
+    updatingCount: (count: number) => `Updating ${count} apps`,
+    failedLabel: (name: string) => `${name} could not be updated`,
     needsConsent: "Asks for more access",
     atNextLaunch: "Updates when it next opens",
     system: "OxyOS",
@@ -200,6 +213,8 @@ const en = {
       "login-item": "At sign-in",
     } as Record<string, string>,
     notAsked: "Not asked yet",
+    /** A switch's name: the capability and whose it is, as the row is read alone. */
+    capabilityOf: (capability: string, app: string) => `${capability} for ${app}`,
   },
 };
 
@@ -277,11 +292,20 @@ const es: Strings = {
     moveRight: "Mover a la derecha",
     moveAbove: "Mover arriba",
     moveBelow: "Mover abajo",
+    place: (side: "left" | "right" | "above" | "below", name: string) =>
+      ({
+        left: `a la izquierda de ${name}`,
+        right: `a la derecha de ${name}`,
+        above: `encima de ${name}`,
+        below: `debajo de ${name}`,
+      })[side],
+    moveHint: "Para moverla, pulsa las flechas.",
     keepTitle: "¿Mantener esta configuración de pantalla?",
     keepDescription: (seconds: number) =>
       `La pantalla vuelve a su configuración anterior en ${seconds} ${seconds === 1 ? "segundo" : "segundos"}.`,
     keep: "Mantener",
     revert: "Revertir",
+    reverted: "La pantalla ha vuelto a su configuración anterior.",
     none: "No se muestra ninguna pantalla.",
   },
   keyboard: { layout: "Distribución" },
@@ -381,6 +405,14 @@ const es: Strings = {
     updateAll: "Actualizar todo",
     update: "Actualizar",
     updateLabel: (name: string) => `Actualizar ${name}`,
+    updating: "Actualizando…",
+    updatingLabel: (name: string) => `Actualizando ${name}`,
+    updated: "Actualizada",
+    updatedLabel: (name: string) => `${name} actualizada`,
+    atNextLaunchShort: "Al abrirla",
+    atNextLaunchLabel: (name: string) => `${name} se actualiza al volver a abrirla`,
+    updatingCount: (count: number) => `Actualizando ${count} apps`,
+    failedLabel: (name: string) => `No se pudo actualizar ${name}`,
     needsConsent: "Pide más acceso",
     atNextLaunch: "Se actualiza al volver a abrirla",
     system: "OxyOS",
@@ -404,6 +436,7 @@ const es: Strings = {
       "login-item": "Al iniciar sesión",
     } as Record<string, string>,
     notAsked: "Aún no se ha preguntado",
+    capabilityOf: (capability: string, app: string) => `${capability} para ${app}`,
   },
 };
 

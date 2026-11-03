@@ -48,6 +48,7 @@ import {
 } from "@oxy.so/bloom/select";
 import { Button } from "@oxy.so/bloom/button";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
+import { useWindowKeys } from "@oxy.so/bloom/kbd";
 import { SettingsLayout } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
 import { RadioGroup } from "@oxy.so/bloom/radio";
@@ -63,14 +64,17 @@ import {
   formatSize,
   looksLike,
   LOCK_AFTER_CHOICES,
+  placeOf,
   prefersSteadyCaret,
   refreshRates,
   resolutions,
+  sideOfKey,
   type Appearance,
   type Display,
   type NotificationPreviews,
   type SettingsActions,
   type SettingsSnapshot,
+  type Side,
 } from "./model";
 import {
   currentNetwork,
@@ -89,7 +93,16 @@ import {
   type NetworkDetails,
 } from "./network";
 import type { Strings } from "./strings";
-import { formatSize as formatBytes, privacyRows, updatable, updateRows } from "./updates";
+import {
+  formatSize as formatBytes,
+  privacyRows,
+  progressOf,
+  updatable,
+  updateRows,
+  type UpdateOutcome,
+  type UpdateProgress,
+  type UpdateRow,
+} from "./updates";
 
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Strings };
 
@@ -310,13 +323,17 @@ const ARRANGEMENT_PADDING = 20;
  * One display in the arrangement, drawn to scale where it is. Pressed, it is the display whose
  * settings are shown, as a Mac's Displays settings choose one; dragged, it is dropped where the
  * person leaves it, and the session places it beside the others (touching one, over none). The
- * main display shows a bar along its top, as a Mac's arrangement shows the menu bar. Its custom
- * accessibility actions move it to one side of the others, for those who do not drag.
+ * main display shows a bar along its top, as a Mac's arrangement shows the menu bar. For those who
+ * do not drag (docs/adr/0039-keyboard-access.mdx): it is a keyboard stop, and while it has the
+ * keyboard the arrows move it to that side of the others, as its custom accessibility actions do
+ * for the screen reader; its value is where it stands ("right of Built-in Display"), so a move is
+ * said once, by its new place, as a focused control's new value is.
  */
 function ArrangedDisplay({
   display,
   displays,
   label,
+  nameOf,
   chosen,
   onChoose,
   place,
@@ -327,6 +344,7 @@ function ArrangedDisplay({
   display: Display;
   displays: readonly Display[];
   label: string;
+  nameOf: (display: Display) => string;
   chosen: boolean;
   onChoose: () => void;
   place: { left: number; top: number; width: number; height: number };
@@ -365,13 +383,42 @@ function ArrangedDisplay({
     ["moveAbove", "above"],
     ["moveBelow", "below"],
   ] as const;
+  const move = (side: Side) => {
+    const at = besideOthers(displays, display.output, side);
+    // Already there, it goes nowhere and nothing is said.
+    if (at.x !== display.x || at.y !== display.y) actions.setDisplayOrigin(display.output, at.x, at.y);
+  };
+  const [focused, setFocused] = React.useState(false);
+  // The focused display's keys, as a Mac's key view has them: the arrows move it; Space and Return
+  // choose it, as a press does (the host presses only what answers a click, and this view is a
+  // drag's).
+  useWindowKeys(
+    (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+      if (event.key === " " || event.key === "Enter") {
+        onChoose();
+        return true;
+      }
+      const side = sideOfKey(event.key);
+      if (!side) return false;
+      move(side);
+      return true;
+    },
+    { enabled: focused },
+  );
+  const where = placeOf(displays, display.output);
   return (
     <View
       {...responder.panHandlers}
       testID={`arranged-${display.output}`}
       accessible
+      focusable
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityValue={where ? { text: words.place(where.side, nameOf(where.of)) } : undefined}
+      accessibilityHint={displays.length > 1 ? words.moveHint : undefined}
       accessibilityState={{ selected: chosen }}
       accessibilityActions={[
         { name: "activate" },
@@ -383,9 +430,7 @@ function ArrangedDisplay({
           return;
         }
         const side = sides.find(([name]) => name === event.nativeEvent.actionName)?.[1];
-        if (!side) return;
-        const at = besideOthers(displays, display.output, side);
-        actions.setDisplayOrigin(display.output, at.x, at.y);
+        if (side) move(side);
       }}
       style={{
         position: "absolute",
@@ -464,6 +509,7 @@ function Arrangement({
               display={display}
               displays={displays}
               label={nameOf(display)}
+              nameOf={nameOf}
               chosen={display.output === chosen}
               onChoose={() => onChoose(display.output)}
               place={{
@@ -482,21 +528,57 @@ function Arrangement({
   );
 }
 
-/** The seconds left of a mode on trial, counted down from when the session said it. */
+/** The seconds left of a mode on trial, counted down from when the session said it: a trial's
+    own from its first render, never the one before's. */
 function useSecondsLeft(trial: SettingsSnapshot["displays"]["trial"]): number {
-  const [left, setLeft] = React.useState(trial?.seconds ?? 0);
   const output = trial?.output;
   const seconds = trial?.seconds ?? 0;
+  const [counted, setCounted] = React.useState({ output, seconds, left: seconds });
   React.useEffect(() => {
-    setLeft(seconds);
+    setCounted({ output, seconds, left: seconds });
     if (seconds === 0) return;
     const start = Date.now();
     const timer = setInterval(() => {
-      setLeft(Math.max(0, seconds - Math.floor((Date.now() - start) / 1000)));
+      const left = Math.max(0, seconds - Math.floor((Date.now() - start) / 1000));
+      setCounted((was) => (was.left === left ? was : { output, seconds, left }));
     }, 250);
     return () => clearInterval(timer);
   }, [output, seconds]);
-  return left;
+  return counted.output === output && counted.seconds === seconds ? counted.left : seconds;
+}
+
+/** The seconds at which a mode on trial says how long it has left, beyond its start (said with its
+    dialog, the countdown its description): as the lock screen says its wait at sensible intervals
+    rather than each second (docs/adr/0039-keyboard-access.mdx, decision 14). */
+const TRIAL_SAID_AT = [10, 5];
+
+/**
+ * A mode on trial, said as it runs: how long it has left at {@link TRIAL_SAID_AT}, and that the
+ * display went back when it ran out unanswered, which the person may not see (the trial is there
+ * because the picture may be wrong). An answer the person gave (Keep, Revert, Escape) says nothing:
+ * the keyboard's return says where they are.
+ */
+function useTrialSaid(
+  trial: SettingsSnapshot["displays"]["trial"],
+  secondsLeft: number,
+  words: Strings["displays"],
+): React.MutableRefObject<boolean> {
+  const answered = React.useRef(false);
+  const onTrial = trial !== null;
+  React.useEffect(() => {
+    if (onTrial && TRIAL_SAID_AT.includes(secondsLeft)) {
+      AccessibilityInfo.announceForAccessibility(words.keepDescription(secondsLeft));
+    }
+  }, [onTrial, secondsLeft, words]);
+  const wasOnTrial = React.useRef(onTrial);
+  React.useEffect(() => {
+    if (wasOnTrial.current && !onTrial && !answered.current) {
+      AccessibilityInfo.announceForAccessibility(words.reverted);
+    }
+    if (onTrial && !wasOnTrial.current) answered.current = false;
+    wasOnTrial.current = onTrial;
+  }, [onTrial, words]);
+  return answered;
 }
 
 /**
@@ -510,6 +592,11 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
   const { displays, trial } = snapshot.displays;
   const [chosen, setChosen] = React.useState<number | null>(null);
   const secondsLeft = useSecondsLeft(trial);
+  const answered = useTrialSaid(trial, secondsLeft, words);
+  const answer = (keep: boolean) => {
+    answered.current = true;
+    actions.confirmDisplays(keep);
+  };
   const display =
     displays.find((d) => d.output === chosen) ?? displays.find((d) => d.primary) ?? displays[0];
   const nameOf = (d: Display) => (d.builtin ? words.builtin : d.name);
@@ -533,7 +620,8 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
     const [width, height] = value.split("x").map(Number);
     const same = refreshRates(display, width, height);
     const next = same.find((m) => m.refreshMhz === mode?.refreshMhz) ?? same[0];
-    if (next) actions.setDisplayMode(display.output, next);
+    // The mode shown chosen again changes nothing, and puts nothing on trial.
+    if (next && next !== mode) actions.setDisplayMode(display.output, next);
   };
   return (
     <View style={PAGE}>
@@ -637,7 +725,7 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
                 items={rates.map((rate) => ({ value: String(rate.refreshMhz), label: formatRefresh(rate.refreshMhz) }))}
                 onChange={(value) => {
                   const next = rates.find((rate) => String(rate.refreshMhz) === value);
-                  if (next) actions.setDisplayMode(display.output, next);
+                  if (next && next !== mode) actions.setDisplayMode(display.output, next);
                 }}
                 testID="refresh-rate"
               />
@@ -651,6 +739,9 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
           />
         )}
       </GroupedSection>
+      {/* Revert is the default button, which the keyboard starts on and Return presses: the trial
+          is there because the picture may be unreadable, and a person who cannot see it is safe
+          pressing Return (or Escape, or doing nothing). Keep is a deliberate Tab away. */}
       <AlertDialog
         open={trial !== null}
         onOpenChange={() => {}}
@@ -658,9 +749,9 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
         description={words.keepDescription(secondsLeft)}
         confirmLabel={words.keep}
         cancelLabel={words.revert}
-        onConfirm={() => actions.confirmDisplays(true)}
-        onCancel={() => actions.confirmDisplays(false)}
-        dismissible={false}
+        onConfirm={() => answer(true)}
+        onCancel={() => answer(false)}
+        defaultAction="cancel"
         testID="keep-displays"
       />
     </View>
@@ -769,11 +860,23 @@ function AboutPage({ snapshot, strings }: PageProps) {
 
 /** Software Update (docs/adr/0030-installing-applications.mdx, decision 16): the OS's update
     first, then every application update the account has, from the install service's one state,
-    which Atlas's Updates shows too. Settings never runs apt and never shows a fake OS update. */
+    which Atlas's Updates shows too. Settings never runs apt and never shows a fake OS update.
+
+    An update asked for is one control from Update to done, as Atlas's is (ADR 0039): *Updating…*
+    while the machine works, *Updated* (or when it updates, the app running) once it ended; it keeps
+    the keyboard's and the screen reader's focus throughout, a press while it works or once it is
+    done asks nothing, and the row stays where it was after the service's list drops it, as the App
+    Store keeps Updated Recently. The start and the end are said once each, as the person may have
+    moved on: a control renamed in place is not said by a screen reader. */
 function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
   const words = strings.softwareUpdate;
   const language = strings.title === "Ajustes" ? "es" : "en";
   const updates = snapshot.updates;
+  const [progress, setProgress] = React.useState<Record<string, { state: UpdateProgress; row: UpdateRow }>>({});
+  // The rows as last shown, in order: a row the service's list dropped keeps its place.
+  const shownOrder = React.useRef<string[]>([]);
+  // Under way, as the requests are: a second press never asks again.
+  const underWay = React.useRef(new Set<string>());
   if (!updates || !actions.updates) {
     return (
       <GroupedSection>
@@ -783,8 +886,52 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
   }
   const act = actions.updates;
   const state = updates.state;
-  const rows = updateRows(state, language);
-  const now = updatable(rows);
+  const listed = updateRows(state, language);
+  const kept = Object.values(progress)
+    .map(({ row }) => row)
+    .filter((row) => !listed.some((one) => one.id === row.id));
+  const byId = new Map([...listed, ...kept].map((row) => [row.id, row]));
+  const order = [
+    ...shownOrder.current.filter((id) => byId.has(id)),
+    ...[...byId.keys()].filter((id) => !shownOrder.current.includes(id)),
+  ];
+  shownOrder.current = order;
+  const rows = order.map((id) => byId.get(id) as UpdateRow);
+  const now = updatable(listed).filter((row) => progress[row.id] === undefined);
+  const start = (targets: UpdateRow[], ask: () => Promise<UpdateOutcome[]>) => {
+    const starting = targets.filter((row) => !underWay.current.has(row.id));
+    if (starting.length === 0) return;
+    for (const row of starting) underWay.current.add(row.id);
+    setProgress((current) => ({
+      ...current,
+      ...Object.fromEntries(starting.map((row) => [row.id, { state: "updating" as const, row }])),
+    }));
+    AccessibilityInfo.announceForAccessibility(
+      starting.length === 1 ? words.updatingLabel(starting[0].name) : words.updatingCount(starting.length),
+    );
+    void ask().then((outcomes) => {
+      const said: string[] = [];
+      const ended: Record<string, { state: UpdateProgress; row: UpdateRow } | null> = {};
+      for (const row of starting) {
+        underWay.current.delete(row.id);
+        const how = progressOf(outcomes.find((outcome) => outcome.id === row.id)?.outcome);
+        if (how === "updated") said.push(words.updatedLabel(row.name));
+        else if (how === "atNextLaunch") said.push(words.atNextLaunchLabel(row.name));
+        else if (how === "failed") said.push(words.failedLabel(row.name));
+        // Declined in the consent sheet (it was answered) or failed: the row is the service's again.
+        ended[row.id] = how === "updated" || how === "atNextLaunch" ? { state: how, row } : null;
+      }
+      setProgress((current) => {
+        const next = { ...current };
+        for (const [id, how] of Object.entries(ended)) {
+          if (how) next[id] = how;
+          else delete next[id];
+        }
+        return next;
+      });
+      if (said.length > 0) AccessibilityInfo.announceForAccessibility(said.join(". "));
+    });
+  };
   const checked = state?.checking
     ? words.checking
     : state?.checkFailed
@@ -792,6 +939,7 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
       : state?.checkedAt
         ? words.lastChecked(new Date(state.checkedAt).toLocaleString(language))
         : words.neverChecked;
+  const updating = Object.values(progress).some(({ state: how }) => how === "updating");
   return (
     <View style={{ gap: 16 }}>
       <GroupedSection>
@@ -803,39 +951,52 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
       </GroupedSection>
       <GroupedSection>
         <GroupedSectionItem
-          title={rows.length === 0 && state?.checkedAt && !state.checking ? words.upToDate : words.applications}
+          title={listed.length === 0 && state?.checkedAt && !state.checking ? words.upToDate : words.applications}
           description={checked}
           testID="software-update-status"
         />
-        {rows.map((row) => (
-          <GroupedSectionItem
-            key={row.id}
-            title={row.name}
-            description={[
-              words.version(row.version, formatBytes(row.size, language)),
-              row.needsConsent ? words.needsConsent : row.atNextLaunch ? words.atNextLaunch : "",
-              row.notes,
-            ]
-              .filter(Boolean)
-              .join("\n")}
-            testID={`software-update-${row.id}`}
-            rightElement={
-              row.atNextLaunch ? undefined : (
-                <Button
-                  size="sm"
-                  appearance="outline"
-                  tone="neutral"
-                  testID={`software-update-${row.id}-update`}
-                  // Each row's button names its application: several say "Update" on screen.
-                  accessibilityLabel={words.updateLabel(row.name)}
-                  onPress={() => act.update(row.id)}
-                >
-                  {words.update}
-                </Button>
-              )
-            }
-          />
-        ))}
+        {rows.map((row) => {
+          const how = progress[row.id]?.state;
+          // One control from Update to done; a row waiting for its next launch from the start has none.
+          const [label, accessibilityLabel] =
+            how === "updating"
+              ? [words.updating, words.updatingLabel(row.name)]
+              : how === "updated"
+                ? [words.updated, words.updatedLabel(row.name)]
+                : how === "atNextLaunch"
+                  ? [words.atNextLaunchShort, words.atNextLaunchLabel(row.name)]
+                  : [words.update, words.updateLabel(row.name)];
+          return (
+            <GroupedSectionItem
+              key={row.id}
+              title={row.name}
+              description={[
+                words.version(row.version, formatBytes(row.size, language)),
+                how ? "" : row.needsConsent ? words.needsConsent : row.atNextLaunch ? words.atNextLaunch : "",
+                row.notes,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+              testID={`software-update-${row.id}`}
+              rightElement={
+                row.atNextLaunch && how === undefined ? undefined : (
+                  <Button
+                    size="sm"
+                    appearance={how === undefined || how === "updating" ? "outline" : "plain"}
+                    tone="neutral"
+                    testID={`software-update-${row.id}-update`}
+                    // Each row's button names its application: several say "Update" on screen.
+                    accessibilityLabel={accessibilityLabel}
+                    // Pressed while it works or once done, it asks nothing (and keeps the focus).
+                    onPress={how === undefined ? () => start([row], () => act.update(row.id)) : undefined}
+                  >
+                    {label}
+                  </Button>
+                )
+              }
+            />
+          );
+        })}
       </GroupedSection>
       <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
         <Button
@@ -847,8 +1008,13 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
         >
           {words.check}
         </Button>
-        {now.length > 0 ? (
-          <Button appearance="solid" tone="accent" testID="software-update-all" onPress={act.updateAll}>
+        {now.length > 0 || updating ? (
+          <Button
+            appearance="solid"
+            tone="accent"
+            testID="software-update-all"
+            onPress={now.length > 0 ? () => start(now, act.updateAll) : undefined}
+          >
             {words.updateAll}
           </Button>
         ) : null}
@@ -882,22 +1048,27 @@ function PrivacyPage({ snapshot, actions, strings }: PageProps) {
       ) : (
         listed.map(({ app, rows }) => (
           <GroupedSection key={app.id} title={app.name}>
-            {rows.map((row) => (
-              <GroupedSectionItem
-                key={row.capability}
-                title={words.capabilities[row.capability] ?? row.capability}
-                description={row.decided ? undefined : words.notAsked}
-                testID={`privacy-${app.id}-${row.capability}`}
-                rightElement={
-                  <Switch
-                    checked={row.granted}
-                    onCheckedChange={(granted: boolean) => act.decide(app.id, row.capability, granted)}
-                    accessibilityLabel={words.capabilities[row.capability] ?? row.capability}
-                    testID={`privacy-${app.id}-${row.capability}-switch`}
-                  />
-                }
-              />
-            ))}
+            {rows.map((row) => {
+              const capability = words.capabilities[row.capability] ?? row.capability;
+              return (
+                <GroupedSectionItem
+                  key={row.capability}
+                  title={capability}
+                  description={row.decided ? undefined : words.notAsked}
+                  testID={`privacy-${app.id}-${row.capability}`}
+                  rightElement={
+                    // Named with its application, as each switch is reached alone (Tab, the reader's
+                    // focus): the section's heading is not said with it ("Camera for Allo").
+                    <Switch
+                      checked={row.granted}
+                      onCheckedChange={(granted: boolean) => act.decide(app.id, row.capability, granted)}
+                      accessibilityLabel={words.capabilityOf(capability, app.name)}
+                      testID={`privacy-${app.id}-${row.capability}-switch`}
+                    />
+                  }
+                />
+              );
+            })}
           </GroupedSection>
         ))
       )}

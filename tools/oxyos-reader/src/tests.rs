@@ -880,6 +880,64 @@ fn a_dialog_shown_over_a_window_is_said_by_its_title_as_it_appears() {
     );
 }
 
+/// Settings' trial of a display mode over its window: an alert with its message as its hint, and
+/// its default button focused.
+fn keep_displays(seconds: u32) -> Vec<Event> {
+    let mut events = tree(
+        WINDOW,
+        &[
+            (
+                R::Dialog,
+                0,
+                "¿Mantener esta configuración de pantalla?",
+                "",
+            ),
+            (R::Button, 0, "Mantener", ""),
+            (R::Button, FOCUSED, "Revertir", ""),
+        ],
+    );
+    let commit = events.pop().unwrap();
+    let message = format!("La pantalla vuelve a su configuración anterior en {seconds} segundos.");
+    for text in TextChunk::split(&message) {
+        events.push(Event::AccessibleText {
+            client: APP,
+            surface: WINDOW,
+            index: 0,
+            field: AccessibleField::Hint,
+            text,
+        });
+    }
+    events.push(commit);
+    events
+}
+
+#[test]
+fn an_alert_says_its_title_then_its_message_then_its_default_button() {
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &status("1 of 3 selected"));
+    for event in &keep_displays(15) {
+        reader.receive(event);
+    }
+    let polite = |text: &str| Utterance {
+        text: text.into(),
+        politeness: Politeness::Polite,
+    };
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "¿Mantener esta configuración de pantalla?, diálogo".into(),
+                politeness: Politeness::Assertive
+            },
+            polite("La pantalla vuelve a su configuración anterior en 15 segundos."),
+            polite("Revertir, botón"),
+        ]
+    );
+    // Its message counting down in place says nothing: the dialog was said, and its hint is no
+    // live region.
+    assert!(feed(&mut reader, &keep_displays(14)).is_empty());
+}
+
 #[test]
 fn a_surface_that_appears_as_a_dialog_is_said_by_its_title_then_its_focus() {
     const LAUNCHPAD: u32 = 9;

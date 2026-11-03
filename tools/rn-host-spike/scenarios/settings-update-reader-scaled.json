@@ -1,0 +1,342 @@
+{
+  "about": "Settings' Software Update from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx; docs/adr/0030-installing-applications.mdx, decision 16) on a real oxyos-installd with Inbox 1 installed and the store publishing 2, as the App Store's updates are with VoiceOver. Check for Updates keeps the keyboard while it checks; Inbox's Update, named by its application, is one control from Update to done: Space starts it, said once as it starts ('Updating Inbox') and once as it ends ('Inbox updated'), the control keeping the keyboard throughout and its row staying after the service's list drops it, said 'Inbox updated'; pressed again it asks nothing and says nothing. At 1.25 (1600 × 1000).",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ],
+    "installed": [
+      "so.oxy.inbox"
+    ],
+    "later": [
+      {
+        "id": "so.oxy.inbox",
+        "versionCode": 2
+      }
+    ]
+  },
+  "installd_final": {
+    "packages": {
+      "so.oxy.inbox": [
+        1,
+        2
+      ]
+    },
+    "store_reads": 1
+  },
+  "reader": {
+    "locale": "es_ES.UTF-8"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Settings with the reader on, nothing of it focused",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "at_absent": {
+          "window": [
+            {
+              "name": "Saved"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Software Update",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Software Update"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "texts": [
+          "Check for Updates",
+          "Not checked yet"
+        ]
+      }
+    },
+    {
+      "name": "Tab: the sidebar's selected row",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-software-update",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Software Update, seleccionado, 9 de 11",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: Check for Updates",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "software-update-check",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Check for Updates, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: the store read; Inbox 2 listed, the button keeping the keyboard",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "software-update-check",
+          "ring": true
+        },
+        "spoken": [],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Update Inbox",
+              "state": []
+            }
+          ]
+        },
+        "texts": [
+          "Inbox",
+          "Version 0.2.0 · 0 bytes"
+        ]
+      },
+      "until_named": [
+        "Update Inbox",
+        30000
+      ]
+    },
+    {
+      "name": "Shift+Tab: Inbox's Update, named by its application",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "software-update-so.oxy.inbox-update",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Update Inbox, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Update Inbox",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Space: said as it starts and as it ends, the control keeping the keyboard, now Inbox updated",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "software-update-so.oxy.inbox-update",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Updating Inbox",
+            "interrupting": true
+          },
+          {
+            "text": "Inbox updated",
+            "interrupting": true
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "assertive",
+            "text": "Updating Inbox"
+          },
+          {
+            "politeness": "assertive",
+            "text": "Inbox updated"
+          }
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Inbox updated",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "texts": [
+          "Updated"
+        ]
+      },
+      "until_named": [
+        "Inbox updated",
+        60000
+      ]
+    },
+    {
+      "name": "Space again: done, it asks nothing and says nothing",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "software-update-so.oxy.inbox-update",
+          "ring": true
+        },
+        "spoken": [],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Inbox updated",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab and Tab: the row stays, said Inbox updated",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-software-update",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Software Update, seleccionado, 9 de 11",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: Inbox updated",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "software-update-so.oxy.inbox-update",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Inbox updated, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at_absent": {
+          "window": [
+            {
+              "name": "Saved"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
