@@ -143,7 +143,7 @@ export const Launchpad = memo(function Launchpad({
   folders: readonly ShellFolder[];
   dismiss: () => void;
   escapeRequest?: number;
-  /** A new value focuses the search, so what is typed searches (Super+Space,
+  /** A new value focuses the search, so what is typed searches (Super pressed alone, ADR 0041,
       docs/adr/0024-system-shortcuts.mdx). */
   searchRequest?: number;
   /** The platform's keys before the focused field, where it has them (the arrows and Return). */
@@ -281,7 +281,7 @@ export const Launchpad = memo(function Launchpad({
   const lastSearch = useRef(searchRequest);
   // Shown, the search takes what is typed, as Launchpad's does, and the screen reader's focus as
   // it has the keyboard's: Launchpad said by its title as it appears, then its search, as
-  // VoiceOver says them. Super+Space asks again.
+  // VoiceOver says them. Super alone asks again.
   useEffect(() => {
     if (!open) return;
     field.current?.focus();

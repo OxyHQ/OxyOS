@@ -3901,7 +3901,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         // The session's input methods (ADR 0041): the real engine, in a directory of this run's.
         let engine = oxyos_input_methods::Engine::at(prefix)
             .ok_or_else(|| format!("--input-methods: no engine at {}", prefix.display()))?;
-        let run = std::env::temp_dir().join(format!("oxyos-offscreen-im-{}", std::process::id()));
+        // Under the session's own directory, removed with it: nothing learned outlives the run.
+        let run = session.directory().join("input-methods");
         let paths = oxyos_input_methods::Paths {
             runtime: run.join("run"),
             data: run.join("data"),

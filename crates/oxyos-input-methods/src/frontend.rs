@@ -271,6 +271,9 @@ impl Service {
                     surrounding: None,
                 };
                 worker.run();
+                // The bus's socket and the engine's configuration go with it; what it learned
+                // stays with the person's data.
+                let _ = std::fs::remove_dir_all(&worker.paths.runtime);
             })?;
         Ok(Self {
             inputs,

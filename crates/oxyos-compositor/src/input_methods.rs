@@ -45,7 +45,9 @@ fn ours(text: &str) -> bool {
 enum Ask {
     /// The state, answered as it is told (`{"inputSources": …}`).
     InputSources {},
-    SelectInputSource { id: String },
+    SelectInputSource {
+        id: String,
+    },
     ShowEmoji {},
 }
 
@@ -200,7 +202,9 @@ pub fn for_session(
     };
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".local/share")))
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".local/share"))
+        })
         .unwrap_or_else(|| runtime_dir.to_path_buf());
     let paths = Paths::for_session(runtime_dir, &data_home);
     start(compositor, settings, engine, paths)
@@ -214,7 +218,13 @@ pub fn start(
     paths: Paths,
 ) -> Option<InputMethods> {
     let locale = settings.locale();
-    match InputMethods::new(engine, paths, compositor, settings.preferences(), language_of(&locale)) {
+    match InputMethods::new(
+        engine,
+        paths,
+        compositor,
+        settings.preferences(),
+        language_of(&locale),
+    ) {
         Ok(methods) => match methods.wake_fd() {
             Ok(fd) => {
                 compositor.wakers.push(fd);
@@ -432,7 +442,9 @@ impl InputMethods {
         }
         compositor.scene.disconnect(CLIENT);
         compositor.local_clients.remove(&CLIENT);
-        compositor.local_events.retain(|(client, _)| *client != CLIENT);
+        compositor
+            .local_events
+            .retain(|(client, _)| *client != CLIENT);
         self.connected = false;
         self.field = Field::default();
         self.preedit = None;
@@ -536,7 +548,10 @@ impl InputMethods {
     /// The person chose an input source: kept as their preference, told to the engine.
     fn select(&mut self, compositor: &mut Compositor, settings: &mut Settings, now: i64, id: &str) {
         let current = (id != LAYOUT_SOURCE).then(|| id.to_owned());
-        if current.as_ref().is_some_and(|id| !self.sources.contains(id)) {
+        if current
+            .as_ref()
+            .is_some_and(|id| !self.sources.contains(id))
+        {
             return;
         }
         self.emoji = None;
@@ -720,7 +735,9 @@ impl InputMethods {
                     time_ms: (time_ns / 1_000_000) as u32,
                 });
             }
-            Event::InputMethodCandidateChosen { index } => self.service.send(Command::Choose(index)),
+            Event::InputMethodCandidateChosen { index } => {
+                self.service.send(Command::Choose(index))
+            }
             Event::InputMethodCandidatesPage { forward } => {
                 self.service.send(Command::Page { forward })
             }

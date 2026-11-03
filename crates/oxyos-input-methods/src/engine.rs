@@ -287,6 +287,17 @@ impl Engine {
             .env("XDG_DATA_HOME", &paths.data)
             .env("FCITX_CONFIG_HOME", paths.config().join("fcitx5"))
             .env("FCITX_DATA_HOME", paths.data.join("fcitx5"))
+            // Where the engine is (it is relocatable, tools/input-methods/build.sh): its addons,
+            // their data, libime's dictionaries and language models, and its libraries (it
+            // names no library path of its own).
+            .env("FCITX_ADDON_DIRS", self.prefix.join("lib/fcitx5"))
+            .env("FCITX_DATA_DIRS", self.prefix.join("share/fcitx5"))
+            .env(
+                "XDG_DATA_DIRS",
+                format!("{}:/usr/share", self.prefix.join("share").display()),
+            )
+            .env("LIBIME_MODEL_DIRS", self.prefix.join("lib/libime"))
+            .env("LD_LIBRARY_PATH", self.prefix.join("lib"))
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY")
             .env_remove("WAYLAND_SOCKET")

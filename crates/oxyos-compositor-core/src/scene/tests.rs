@@ -7413,6 +7413,8 @@ mod controls;
 mod displays;
 mod dock;
 mod drag;
+/// Input sources and the candidates handed to the shell (ADR 0041).
+mod input_sources;
 /// Key repeat (ADR 0036).
 mod key_repeat;
 /// The menu bar (ADR 0021).

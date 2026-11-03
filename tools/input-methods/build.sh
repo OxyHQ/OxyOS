@@ -13,11 +13,21 @@
 # Usage: tools/input-methods/build.sh <work-dir> <prefix>
 #   <work-dir> holds the sources, the build-time packages (apt-get download + dpkg -x, as
 #   tools/rn-host-spike/build.sh fetches its own) and the build directories; it is kept between
-#   runs. <prefix> is where the engine is installed, as it is installed on a machine:
-#   /usr/lib/oxyos/input-methods there, any directory here (oxyos-session and oxyos-offscreen take
-#   it as OXYOS_INPUT_METHODS). Not part of the Cargo workspace or CI.
+#   runs. <prefix> is where it is installed. The engine is relocatable: nothing in it names where
+#   it was built (no RPATH), and the session tells fcitx5 and libime where their libraries,
+#   addons and data are (crates/oxyos-input-methods), so the tree built and tested here is the one
+#   copied to /usr/lib/oxyos/input-methods on a machine (oxyos-session and oxyos-offscreen take
+#   another place as OXYOS_INPUT_METHODS). Not part of the Cargo workspace or CI.
+# PRINT_RUNTIME_PACKAGES=1 tools/input-methods/build.sh prints the Debian packages it needs at run
+# time, and nothing else.
 set -eu
 
+# What the engine needs on the machine that runs it: toolkit-free Debian packages, installed with
+# apt there (and in the image's manifest once the session is in it). Printed for the deploy.
+RUNTIME_PACKAGES="dbus-daemon libjson-c5 libxkbcommon0 libuuid1 libexpat1 libsystemd0 libfmt10 libboost-iostreams1.83.0 libzstd1 libhangul1 libhangul-data libanthy1t64 anthy-common xkb-data iso-codes"
+if [ "${PRINT_RUNTIME_PACKAGES:-}" = 1 ]; then echo "$RUNTIME_PACKAGES"; exit 0; fi
+
+[ $# -eq 2 ] || { echo "usage: $0 <work-dir> <prefix>" >&2; exit 2; }
 WORK=$(mkdir -p "$1" && cd "$1" && pwd)
 PREFIX=$2
 JOBS=${JOBS:-12}
@@ -27,11 +37,6 @@ case $(dpkg --print-architecture) in
   *) echo "unsupported architecture" >&2; exit 1 ;;
 esac
 POOL=https://deb.debian.org/debian/pool/main
-
-# What the engine needs on the machine that runs it: toolkit-free Debian packages, installed with
-# apt there (and in the image's manifest once the session is in it). Printed for the deploy.
-RUNTIME_PACKAGES="dbus-daemon libjson-c5 libxkbcommon0 libuuid1 libexpat1 libsystemd0 libfmt10 libboost-iostreams1.83.0 libzstd1 libhangul1 libhangul-data libanthy1t64 anthy-common xkb-data iso-codes"
-if [ "${PRINT_RUNTIME_PACKAGES:-}" = 1 ]; then echo "$RUNTIME_PACKAGES"; exit 0; fi
 
 # Debian Trixie's versions and the SHA-256 of their .orig tarballs (as each .dsc lists it).
 SOURCES="
@@ -83,7 +88,7 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig:$SYSROOT/u
 export PKG_CONFIG_SYSROOT_DIR=
 export GETTEXTDATADIR="$SYSROOT/usr/share/gettext"
 common="-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_INSTALL_LIBDIR=lib
-  -DCMAKE_PREFIX_PATH=$PREFIX;$SYSROOT/usr -DCMAKE_INSTALL_RPATH=$PREFIX/lib -DENABLE_TEST=Off
+  -DCMAKE_PREFIX_PATH=$PREFIX;$SYSROOT/usr -DENABLE_TEST=Off
   -DCMAKE_C_FLAGS=-I$SYSROOT/usr/include -DCMAKE_CXX_FLAGS=-I$SYSROOT/usr/include
   -DCMAKE_EXE_LINKER_FLAGS=-L$SYSROOT/usr/lib/$MULTIARCH -DCMAKE_SHARED_LINKER_FLAGS=-L$SYSROOT/usr/lib/$MULTIARCH
   -DCMAKE_MODULE_LINKER_FLAGS=-L$SYSROOT/usr/lib/$MULTIARCH"
@@ -92,8 +97,11 @@ build() { # name source-dir [cmake args...]
   name=$1; src=$WORK/src/$2; shift 2
   echo "building $name"
   rm -rf "$WORK/build/$name"
+  # No RPATH installed (fcitx5's CMake would write the prefix and the build's sysroot): the
+  # session gives fcitx5 the engine's lib/ (crates/oxyos-input-methods).
   # shellcheck disable=SC2086
-  cmake -S "$src" -B "$WORK/build/$name" $common "$@" > "$WORK/build-$name.log" 2>&1 \
+  cmake -S "$src" -B "$WORK/build/$name" $common -DCMAKE_SKIP_INSTALL_RPATH=ON \
+    "$@" > "$WORK/build-$name.log" 2>&1 \
     || { tail -30 "$WORK/build-$name.log"; exit 1; }
   ninja -C "$WORK/build/$name" -j "$JOBS" >> "$WORK/build-$name.log" 2>&1 \
     || { grep -E "error|FAILED" -A3 "$WORK/build-$name.log" | head -30; exit 1; }
@@ -121,8 +129,14 @@ for addon in testfrontend testim testui; do
   rm -f "$PREFIX/lib/fcitx5/lib$addon.so" "$PREFIX/lib/fcitx5/$addon.so" "$PREFIX/share/fcitx5/addon/$addon.conf"
 done
 
+# Only fcitx5 itself among its programs: no configuration tool, diagnosis script or dictionary
+# tool runs on a machine.
+find "$PREFIX/bin" -mindepth 1 ! -name fcitx5 -delete
 # Nothing it installed may link a toolkit, X11 or Wayland.
 bad=$(find "$PREFIX" -type f \( -name "*.so*" -o -perm -u+x \) -exec sh -c 'readelf -d "$1" 2>/dev/null | sed -n "s/.*(NEEDED).*\[\(.*\)\]/\1/p"' _ {} \; \
   | sort -u | grep -E "^lib(X|x(cb|kbcommon-x11)|wayland|gtk|gdk|cairo|pango|Qt|glib|gobject|gio|enchant)" || true)
 [ -z "$bad" ] || { echo "the engine links what the image forbids:"; echo "$bad"; exit 1; }
+# Nor name where it was built.
+named=$(find "$PREFIX" -type f \( -name "*.so*" -o -perm -u+x \) -exec sh -c 'readelf -d "$1" 2>/dev/null | grep -qE "\((RPATH|RUNPATH)\)" && echo "$1"' _ {} \;)
+[ -z "$named" ] || { echo "these name a library path:"; echo "$named"; exit 1; }
 echo "input methods built into $PREFIX ($(du -sh "$PREFIX" | cut -f1)); run-time packages: $RUNTIME_PACKAGES"

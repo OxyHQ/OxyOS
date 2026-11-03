@@ -714,6 +714,11 @@ impl Session {
         }
     }
 
+    /// The session's own directory (its socket's), removed with it.
+    pub fn directory(&self) -> &Path {
+        &self._cleanup.0
+    }
+
     /// Closes every connection, waits for the clients to exit, and checks that no scene
     /// resource or descriptor remains.
     fn finish(mut self, children: &mut Children) -> Result<()> {
