@@ -76,4 +76,5 @@ A Mac has one answer, at the root: System Settings › General › Language & Re
 1. The preferences, the locale, the protocol, the session, the development compositor and the reader. `Intl.PluralRules` and a settable default locale in `crates/oxyos-intl`.
 2. The host: `Intl`, `I18nManager`, expo-localization, live.
 3. The shell's, the login screen's and Settings' catalogues, and the Language & Region page.
+   - *Done* (shell and login): `apps/shell/src/messages.ts` and `apps/login/src/messages.ts`, read with `useShellMessages()` and `useLoginMessages()`; the clocks through `apps/shell/src/clock.ts`, notifications' times and every count and number through the catalogue's `Intl` formats; ShellProbe's and LoginSession's `BloomProvider` given `useSessionLocale()`; the shell preview's `?lang=`.
 4. The scenarios, pinned and new, in the deploy gate.
