@@ -1,0 +1,660 @@
+{
+ "about": "Dropsea's list view's column headers (docs/adr/0039-keyboard-access.mdx), as Finder's: they are no stops of the keyboard's Tab, which goes from the items to the toolbar and back, as a Mac's table headers are not in the key view loop; they stay in the tree, buttons named by their column and its order, which a pointer and the screen reader press (the keyboard sorts from View > Sort By). Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (1280 × 720).",
+ "module": "Dropsea",
+ "window": [
+  1024,
+  680
+ ],
+ "app": {
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Pictures/": "",
+   "notes.txt": "hello",
+   "Documents/report.txt": "r",
+   "Pictures/photo.jpg": "x"
+  }
+ },
+ "reader": {
+  "locale": "en_US.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "Dropsea's home; the reader on; nothing has the keyboard's focus",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: home, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "home, selected, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@home": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Documents, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Documents",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Documents, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Documents": 1,
+     "blur@home": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Pictures, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Pictures",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Pictures, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Pictures": 1,
+     "blur@Documents": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Oxy Files, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Oxy Files",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Oxy Files, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Oxy Files": 1,
+     "blur@Pictures": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Photos, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Photos",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Photos, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Photos": 1,
+     "blur@Oxy Files": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Trash, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Trash",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Trash, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Trash": 1,
+     "blur@Photos": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: sidebar-logo, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "sidebar-logo",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Dropsea, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@sidebar-logo": 1,
+     "blur@Trash": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the items, one stop: the list, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "home, list",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@home": 1,
+     "blur@sidebar-logo": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Hide Sidebar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "sidebar-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Hide Sidebar, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@sidebar-toggle": 1,
+     "blur@home": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: as Icons",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "view-icons",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "as Icons, selected, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@view-icons": 1,
+     "blur@sidebar-toggle": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: as List",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "view-list",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "as List, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@view-list": 1,
+     "blur@view-icons": 1
+    }
+   }
+  },
+  {
+   "name": "Space: the items as a list, its column headers drawn above them; the button says its new state",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "view-list",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "selected",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "click@view-list": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "home"
+      },
+      {
+       "role": "Button",
+       "name": "Name, ascending"
+      },
+      {
+       "role": "Button",
+       "name": "Date Modified"
+      },
+      {
+       "role": "Button",
+       "name": "Size"
+      },
+      {
+       "role": "Button",
+       "name": "Kind"
+      },
+      {
+       "role": "Button",
+       "name": "Hide Sidebar"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: as Icons",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "view-icons",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "as Icons, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@view-icons": 1,
+     "blur@view-list": 1
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: Hide Sidebar",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "sidebar-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Hide Sidebar, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@sidebar-toggle": 1,
+     "blur@view-icons": 1
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: straight to the list, one stop, said once: the column headers are no stops, as Finder's are not in the key view loop; they are still in the tree, buttons named by their column and order",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "home, list",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@home": 1,
+     "blur@sidebar-toggle": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "home"
+      },
+      {
+       "role": "Button",
+       "name": "Name, ascending"
+      },
+      {
+       "role": "Button",
+       "name": "Date Modified"
+      },
+      {
+       "role": "Button",
+       "name": "Size"
+      },
+      {
+       "role": "Button",
+       "name": "Kind"
+      },
+      {
+       "role": "Button",
+       "name": "Hide Sidebar"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: from the list straight to the toolbar's first control, past the headers",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "sidebar-toggle",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Hide Sidebar, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@sidebar-toggle": 1,
+     "blur@home": 1
+    }
+   }
+  },
+  {
+   "name": "The screen reader presses the Name header: the order reverses, the header says it; the keyboard stays where it was",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Name, ascending"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "sidebar-toggle",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "home"
+      },
+      {
+       "role": "Button",
+       "name": "Name, descending"
+      },
+      {
+       "role": "Button",
+       "name": "Date Modified"
+      },
+      {
+       "role": "Button",
+       "name": "Size"
+      },
+      {
+       "role": "Button",
+       "name": "Kind"
+      },
+      {
+       "role": "Button",
+       "name": "Hide Sidebar"
+      }
+     ]
+    },
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: the list again, past the headers",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "home, list",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@home": 1,
+     "blur@sidebar-toggle": 1
+    }
+   }
+  },
+  {
+   "name": "Down: the first item in the reversed order, Pictures, said with its columns; the status bar's count said politely",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "home",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "1 of 3 selected",
+      "interrupting": false
+     },
+     {
+      "text": "Pictures, Jan 2, 2026, 12:00 PM, Folder, selected, 1 of 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "1 of 3 selected",
+      "live": true
+     }
+    ],
+    "react": {
+     "shortcut@menu-bar": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Pictures",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "notes.txt",
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "Documents",
+       "state": []
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
