@@ -25,7 +25,7 @@
   "outputs": "1600x1000@1.25",
   "steps": [
     {
-      "name": "the window is made active by a press on nothing in it: no text field has focus, so each editing item is the application's, all disabled (it has no handler for them, and no item of its own selected) but Find…, its own command",
+      "name": "the window is made active by a press on nothing in it, which only activates it (ADR 0016, decision 9: React hears nothing): no text field has focus, so each editing item is the application's, all disabled (it has no handler for them, and no item of its own selected) but Find…, its own command",
       "do": [
         "press",
         [
@@ -69,10 +69,7 @@
         },
         "focus_input": null,
         "clipboard": null,
-        "react": {
-          "touchStart@edit-probe": 1,
-          "touchEnd@edit-probe": 1
-        },
+        "react": {},
         "delivered": {
           "1": {
             "enter": 1,

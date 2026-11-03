@@ -210,7 +210,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
         "urls_opened": [
           {
             "url": "dropsea://trash",

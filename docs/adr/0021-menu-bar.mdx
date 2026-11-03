@@ -113,7 +113,7 @@ Bloom already has a menu bar (`@oxy.so/bloom/menubar`, shadcn's): an application
 
      With the adapter's `editing` taken away, the run fails at the bar's first Copy for the field (the item is the application's again, and disabled); with the top bar taking the keyboard on a press, the bar's Copy is refused and the run fails at the Paste that needs it.
    - The development compositor's `menu` step now chooses in the active window, as the shell does, and the director reports the companion's menus (`companion_menus`, `in_companion`'s `menus`).
-   - Scenarios that used the top bar or the dock with the pointer now expect the window's keyboard to stay with it: `menu-bar`, `menu-bar-pointer` (and at 1.25), `dock-menu` (and at 1.25), `dock-keep` and `dock-trash` see the window told `focus.out` as a bar's or the dock's menu opens and `focus.in` as it closes, and Control held after the dock's menu has closed reaches the window, not the dock. The pressed panel is still raised within the panel layer, so the top bar's menus are drawn over the dock (`lock-screen`, `session-two-outputs`).
+   - Scenarios that used the top bar or the dock with the pointer now expect the window's keyboard to stay with it: `menu-bar`, `menu-bar-pointer` (and at 1.25), `dock-menu` (and at 1.25), `dock-keep` and `dock-trash` see the window told `focus.out` as a bar's or the dock's menu opens and `focus.in` as it closes (and `focus.out` as the Trash's click opens Dropsea over it), and Control held after the dock's menu has closed reaches the window, not the dock. The pressed panel is still raised within the panel layer, so the top bar's menus are drawn over the dock (`lock-screen`, `session-two-outputs`).
 
 ## Not in this decision
 
