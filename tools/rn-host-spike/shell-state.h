@@ -36,7 +36,7 @@ class ShellState {
   //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
   //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
-  //   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }],
+  //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null }],
   //   output, outputs: [{ id, x, y, width, height, scale, primary }],
   //   oxyApi: Oxy's API, where adding an account at the login screen signs in (OXYOS_OXY_API),
   //   controls: { output, input, display, keyboard: { level (0 to 1), muted, available } or null,

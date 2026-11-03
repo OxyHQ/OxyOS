@@ -247,7 +247,7 @@ const DockIcon = memo(function DockIcon({
           className="h-[42px] w-[42px] overflow-visible rounded-[10px] border-0 bg-transparent p-0"
         >
           {/* Its icon as it is, a Mac's Dock's: no ring or plate around it. */}
-          <IconBody icon={app ? app.icon : TRASH_ICON} size={ICON} />
+          <IconBody icon={app ? app.icon : TRASH_ICON} body={app?.iconBody} size={ICON} />
         </Button>
       </ContextMenuTrigger>
     ),

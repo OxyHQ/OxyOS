@@ -298,7 +298,13 @@ type ToldWindow = {
   responding?: boolean;
 };
 type ToldLists = { dock: { chosen: boolean; ids: string[] } | null; openAtLogin: string[] | null };
-type Registered = { id: string; name: string; icon: { uri: string } | { svg: string } | null; pinned: number | null };
+type Registered = {
+  id: string;
+  name: string;
+  icon: { uri: string } | { svg: string } | null;
+  iconBody?: number | null;
+  pinned: number | null;
+};
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
 type ToldControls = Record<'output' | 'input' | 'display' | 'keyboard', Level> & {
@@ -433,7 +439,13 @@ function SessionShell() {
       .filter((app) => app.icon !== null)
       .map((app, order) => ({ app, order, place: place(app) }))
       .sort((a, b) => (a.place ?? Infinity) - (b.place ?? Infinity) || a.order - b.order)
-      .map(({ app, place }) => ({ id: app.id, name: app.name, icon: app.icon!, pinned: place !== null }));
+      .map(({ app, place }) => ({
+        id: app.id,
+        name: app.name,
+        icon: app.icon!,
+        iconBody: app.iconBody ?? undefined,
+        pinned: place !== null,
+      }));
   }, [registry, kept]);
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
   const openAtLogin = lists?.openAtLogin ?? undefined;

@@ -1,0 +1,97 @@
+{
+  "about": "Launchpad's icons as macOS 26 draws them (docs/adr/0011-transitions.mdx, the launcher), light, on a 1280×720 display at 1, with Allo (sample/EditingProbe.tsx) open: an icon that has its shape is drawn as it is and only one that has not is put on the icon grid's rounded body on white, the picture deciding (the platform measures each icon's picture once: crates/oxyos-image's shape, the shell's iconBody), never a list of applications. Super+Space opens Launchpad and, once its icons settled, exact pixels at the corners: Dropsea's picture, its own rounded navy tile with corners rounder than the grid's, shows the backdrop past each of its four corners where the grid's body would reach, its navy just within and to each edge; Atlas's square picture and Allo's round logo are on the plate, rounded to the grid's corners (the backdrop, the corner's anti-aliasing, then white). With every picture put on the plate, as before, white slivers show past Dropsea's corners and it fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "preferences": {
+    "appearance": "light"
+  },
+  "steps": [
+    {
+      "name": "Allo's window",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Super+Space opens Launchpad, every application's icon in it",
+      "do": [
+        "key",
+        [
+          125,
+          57
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Dropsea",
+            "Atlas",
+            "Inbox",
+            "Ajustes",
+            "Allo"
+          ]
+        }
+      }
+    },
+    {
+      "name": "its icons settled: Dropsea's own shape with the backdrop past its corners, no white; Atlas's and Allo's on the plate, rounded to the grid's corners",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "184,106": "#4069d3",
+          "185,107": "#4069d3",
+          "240,106": "#4069d3",
+          "239,107": "#4069d3",
+          "184,162": "#416ad3",
+          "185,161": "#416ad4",
+          "240,162": "#4069d3",
+          "239,161": "#4069d4",
+          "188,110": "#002b64",
+          "236,110": "#002b64",
+          "188,158": "#002b64",
+          "236,158": "#002b64",
+          "181,134": "#002b64",
+          "243,134": "#002b64",
+          "212,103": "#002b64",
+          "212,165": "#002b64",
+          "325,104": "#3f69d4",
+          "326,105": "#3e69d4",
+          "327,106": "#dbe3f5",
+          "328,107": "#ffffff",
+          "385,104": "#3d68d4",
+          "384,105": "#3d68d4",
+          "383,106": "#dbe2f5",
+          "382,107": "#ffffff",
+          "752,104": "#3c67d4",
+          "753,105": "#3c67d4",
+          "754,106": "#abbde9",
+          "755,107": "#ffffff",
+          "812,104": "#3c67d4",
+          "811,105": "#3c67d4",
+          "810,106": "#abbde9",
+          "809,107": "#ffffff",
+          "755,161": "#ffffff",
+          "809,161": "#ffffff"
+        }
+      }
+    }
+  ]
+}

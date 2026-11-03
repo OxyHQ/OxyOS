@@ -6,6 +6,11 @@ export type ShellApplication = {
   id: string;
   name: string;
   icon: ImageSourcePropType | { svg: string };
+  /** When its picture is its own shape (a rounded square, transparent around it and opaque
+      within: Dropsea's), the share of the picture its body takes, which the platform measured from
+      the picture: drawn as it is, its body the icon grid's. Absent for any other picture, which is
+      put in the grid's body on white. */
+  iconBody?: number;
   pinned?: boolean;
 };
 export type ShellFolder = {

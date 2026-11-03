@@ -1634,8 +1634,10 @@ int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
 size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
 
 /* The session's applications (crates/oxyos-apps, docs/adr/0013-launching-applications.mdx), as JSON:
- * [{"id", "name", "icon" (a file, or null), "pinned" (its place in the dock from 1, or null)}], sorted
- * by name, in the session's language.
+ * [{"id", "name", "icon" (a file, or null), "iconBody" (the share of the icon's picture its own body
+ * takes when the picture is its own shape, a rounded square transparent around it, measured once by
+ * crates/oxyos-image's shape; null for any other), "pinned" (its place in the dock from 1, or null)}],
+ * sorted by name, in the session's language.
  * Written into `out` (`capacity` bytes, NUL-terminated when it fits); returns its length (larger than
  * `capacity`: call again with more room). */
 int64_t oxyos_applications(char* out, size_t capacity);
