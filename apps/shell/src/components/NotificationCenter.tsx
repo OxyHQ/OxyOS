@@ -13,7 +13,7 @@ import { useShellMessages } from "../useShellMessages";
  * Mac's: the session's notifications at the screen's right, one group per application (its icon
  * and name, the newest first), each pressed to open it in its application or removed; the whole
  * of an application's cleared at once. Do Not Disturb is said at its top. A press beside it closes
- * it.
+ * it; so does Escape. Super+N opens it with the keyboard on its first control, as a Mac's Fn-N.
  */
 export const NotificationCenter = memo(function NotificationCenter({
   notifications,
@@ -43,9 +43,11 @@ export const NotificationCenter = memo(function NotificationCenter({
         className="absolute inset-0"
         onPress={close}
       />
+      {/* A dialog named by what it is, said by its title as it opens (from the clock or Super+N),
+          as VoiceOver says a Mac's Notification Center; its notifications a list. */}
       <Box
         testID="notification-center"
-        accessibilityRole="list"
+        accessibilityRole="dialog"
         accessibilityLabel={messages.common.notificationCenter}
         className="absolute rounded-[22px] border border-white/60"
         style={{
@@ -72,7 +74,11 @@ export const NotificationCenter = memo(function NotificationCenter({
             <Text className="text-[13px] text-[#5b6573]">{words.none}</Text>
           </Box>
         ) : (
-          <Scroll className="flex-1" contentContainerClassName="gap-4 px-3 pb-3">
+          <Scroll
+            className="flex-1"
+            contentContainerClassName="gap-4 px-3 pb-3"
+            accessibilityRole="list"
+          >
             {groups.map((group) => (
               <Box key={group.appId} className="gap-2">
                 <Box className="flex-row items-center justify-between px-1">
@@ -99,7 +105,7 @@ export const NotificationCenter = memo(function NotificationCenter({
                     notification={notification}
                     applications={applications}
                     now={now}
-                    closeLabel={words.clear}
+                    closeAction={words.clear}
                     close={() => notifications.remove(notification.id)}
                     activate={(action, reply) => {
                       notifications.activate(notification.id, action, reply);

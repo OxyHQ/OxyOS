@@ -686,8 +686,11 @@ int main(int argc, char** argv) {
                   reanimated.event(name, view, payload);
                 },
             });
-  // What Image views show (images.h), loaded at the size they are drawn.
+  // What Image views show (images.h), loaded at the size they are drawn; remote ones fetched with
+  // the application's network, cached in its cache directory.
   oxyos::Images images(tree);
+  images.connect(networking.handle(), application.cacheDirectory);
+  services.images = &images;
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
@@ -907,6 +910,7 @@ int main(int argc, char** argv) {
           return editing.setSelection(tag, start, end);
         },
         .selection = [&editing](facebook::react::Tag tag) { return editing.selection(tag); },
+        .text = [&editing](facebook::react::Tag tag) { return editing.text(tag); },
     });
     // The pointer's shape over each surface, as the views under it want it.
     pointer.showsShapes([&window](uint32_t surface, uint8_t shape) { window->setPointerShape(surface, shape); });
@@ -1469,6 +1473,9 @@ int main(int argc, char** argv) {
     // keyboard follows it once that commit is, as Android's mounting layer handles the event
     // behind the mount items queued before it.
     facebook::react::Tag keyboardAfterMount = -1;
+    // A modal that came over the control with the keyboard while it had no control of its own yet:
+    // the keyboard goes to its first one as it mounts, unless something else took the keyboard.
+    facebook::react::Tag modalFirstPending = -1;
     facebook::react::Tag lastScope = -1;
     uint32_t lastScopeSurface = 0;
     // A dialog popup the keyboard went into from a control with its ring (a popover opened by Space
@@ -1527,6 +1534,9 @@ int main(int argc, char** argv) {
         if (ring) {
           auto first = oxyos::focusables(tree, scope);
           moveKeyboardFocus(first.empty() ? -1 : first.front(), true, keyboardSurface);
+          // Its controls not mounted yet (a list that draws its rows in a later commit): the
+          // keyboard goes to the first once there is one, rather than nowhere.
+          modalFirstPending = first.empty() ? scope : -1;
         }
       } else if (was >= 0) {
         // The modal went: the keyboard back where it was before it.
@@ -1534,6 +1544,18 @@ int main(int argc, char** argv) {
         keyboardFocus.prune();
         if (back >= 0 && oxyos::focusable(tree, back) && insideOf(back, scope)) {
           moveKeyboardFocus(back, hadRing, keyboardSurface);
+        } else if (back >= 0 && oxyos::focusable(tree, back) && scope >= 0 && scope != tree.root() &&
+                   tree.root() >= 0 && insideOf(back, tree.root())) {
+          // Another modal came in the commit this one went in, over the control it gave the
+          // keyboard back to (a choice that asks something at once: a display mode on trial, its
+          // "Keep these display settings?"): it came over that control, which it remembers and gives
+          // the keyboard back to as it goes, and takes the keyboard as a modal does.
+          keyboardFocus.remember(scope, back, hadRing);
+          if (hadRing) {
+            auto first = oxyos::focusables(tree, scope);
+            moveKeyboardFocus(first.empty() ? -1 : first.front(), true, keyboardSurface);
+            modalFirstPending = first.empty() ? scope : -1;
+          }
         }
       }
       keyboardFocus.prune();
@@ -1840,6 +1862,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) heldShift = heldCtrl = heldAlt = heldMeta = false;
               // A press of the pointer hides the keyboard's ring, as Android's touch mode does, and
               // takes focus off a control that is no text input (a press focuses inputs itself).
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) modalFirstPending = -1;
               if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && keyboardFocus.focused() >= 0) {
                 if (oxyos::editableInput(tree, keyboardFocus.focused())) {
                   if (keyboardFocus.ringShown()) redrawFocus();
@@ -2107,8 +2130,9 @@ int main(int argc, char** argv) {
                                           "search",
                                           "menu-bar",
                                           "dock",
-                                          "status-menus"};
-          const char* action = shortcut.detail <= OXYOS_SHORTCUT_STATUS_MENUS ? actions[shortcut.detail] : "";
+                                          "status-menus",
+                                          "notifications"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_NOTIFICATIONS ? actions[shortcut.detail] : "";
           folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
@@ -2259,6 +2283,17 @@ int main(int argc, char** argv) {
         // The keyboard's navigation follows a modal coming and going; its ring is drawn with the
         // focused control.
         followScope();
+        if (modalFirstPending >= 0) {
+          auto scope = navigationScope(keyboardSurface);
+          // The ring was showing as it came (it is set only then); a focus since (a press, an
+          // application's) ends the wait.
+          if (scope != modalFirstPending || keyboardFocus.focused() >= 0) {
+            modalFirstPending = -1;
+          } else if (auto first = oxyos::focusables(tree, scope); !first.empty()) {
+            modalFirstPending = -1;
+            moveKeyboardFocus(first.front(), true, keyboardSurface);
+          }
+        }
         if (keyboardAfterMount >= 0) {
           auto tag = keyboardAfterMount;
           keyboardAfterMount = -1;

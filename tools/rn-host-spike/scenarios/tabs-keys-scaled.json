@@ -1,0 +1,1445 @@
+{
+ "about": "Tabs from the keyboard, as a Mac's tab view and segmented tabs and WAI-ARIA's tabs pattern (docs/adr/0039-keyboard-access.mdx): sample/TabsProbe.tsx, Bloom's Tabs and CategoryBar, the screen reader on in Spanish. Each is a tab list and one Tab stop, on its selected tab; ← → Home End select the tab they reach (automatic activation), the strip round its ends, the bar stopping at its ends, the keyboard following once the value lands, so each tab is said once, already selected, with its place among the list's tabs (\"Avanzado, seleccionado, pestaña, 2 de 3\"); Tab goes on past each and Shift+Tab back to its selected tab. At 1.25 (1600 × 1000).",
+ "module": "TabsProbe",
+ "window": [
+  640,
+  360
+ ],
+ "locale": "es_ES.UTF-8",
+ "reader": {},
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "The strip and the category bar: two tab lists, each tab with its place; nothing said, nothing focused",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "texts": [
+     "Sección: General"
+    ]
+   }
+  },
+  {
+   "name": "Tab: the strip, one stop, on its selected tab, said once with its place",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-general",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "General, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ selects Avanzado: the keyboard follows once it is selected, said once, already selected",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-advanced",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: Avanzado"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Avanzado, seleccionado, pestaña, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "texts": [
+     "Sección: Avanzado"
+    ]
+   }
+  },
+  {
+   "name": "End: the last tab, Acerca de",
+   "do": [
+    "key",
+    [
+     107
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-about",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: Acerca de"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Acerca de, seleccionado, pestaña, 3 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ round the end: General",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-general",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "General, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "← round the start: Acerca de",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-about",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: Acerca de"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Acerca de, seleccionado, pestaña, 3 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Home: the first tab, General",
+   "do": [
+    "key",
+    [
+     102
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-general",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "General, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "texts": [
+     "Sección: General"
+    ]
+   }
+  },
+  {
+   "name": "Tab: past the strip to the category bar, one stop, on its selected item",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "categories-item-homes",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Casas, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ selects Buscar, said once, selected, with its place",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "categories-item-search",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Buscar, seleccionado, pestaña, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "End: Personas",
+   "do": [
+    "key",
+    [
+     107
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "categories-item-people",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Personas, seleccionado, pestaña, 3 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ at the end: the bar stops there; nothing changes, nothing said",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "categories-item-people",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Home: Casas",
+   "do": [
+    "key",
+    [
+     102
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "categories-item-homes",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Casas, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: past the bar to the button",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "done",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Listo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: back to the bar's selected item",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "categories-item-homes",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Casas, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: back to the strip's selected tab",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-general",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "TabList",
+       "name": "Secciones"
+      },
+      {
+       "role": "Tab",
+       "name": "General",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Avanzado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Acerca de",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "name": "Sección: General"
+      },
+      {
+       "role": "TabList",
+       "name": "Categorías"
+      },
+      {
+       "role": "Tab",
+       "name": "Casas",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Buscar",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "Tab",
+       "name": "Personas",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Listo"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "General, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}

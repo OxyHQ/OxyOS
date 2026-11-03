@@ -1209,13 +1209,17 @@ fn menu_kinds_fields_and_flags_are_closed_sets() {
 #[test]
 fn system_shortcuts_are_a_closed_set() {
     assert!(SystemShortcut::from_raw(0).is_none());
-    assert!(SystemShortcut::from_raw(11).is_none());
+    assert!(SystemShortcut::from_raw(12).is_none());
     assert_eq!(SystemShortcut::from_raw(7), Some(SystemShortcut::Search));
     assert_eq!(SystemShortcut::from_raw(8), Some(SystemShortcut::MenuBar));
     assert_eq!(SystemShortcut::from_raw(9), Some(SystemShortcut::Dock));
     assert_eq!(
         SystemShortcut::from_raw(10),
         Some(SystemShortcut::StatusMenus)
+    );
+    assert_eq!(
+        SystemShortcut::from_raw(11),
+        Some(SystemShortcut::Notifications)
     );
     let mut bytes = Vec::new();
     write_event(
@@ -2140,6 +2144,36 @@ fn version_12_shortcuts_are_never_sent_to_an_older_client() {
 }
 
 #[test]
+fn version_16_notification_center_shortcut_is_never_sent_to_an_older_client() {
+    let event = Event::SystemShortcut {
+        shortcut: SystemShortcut::Notifications,
+        serial: 3,
+        output: 1,
+    };
+    assert_eq!(event_since(&event), 16);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &event, 15).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &event, 16).unwrap());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(new.clone()), 16).unwrap(),
+        event
+    );
+    // A version 15 reader refuses it.
+    assert!(read_event_for(&mut Cursor::new(new), 15).is_err());
+    // Version 12's shortcuts are still sent to a version 15 shell.
+    let dock = Event::SystemShortcut {
+        shortcut: SystemShortcut::Dock,
+        serial: 3,
+        output: 1,
+    };
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &dock, 15).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(old), 15).unwrap(), dock);
+}
+
+#[test]
 fn version_13_hints_and_positions_are_never_sent_to_an_older_peer() {
     let hint = Event::AccessibleText {
         client: 3,
@@ -2286,19 +2320,19 @@ fn version_15_meters_are_never_sent_to_an_older_peer() {
 }
 
 #[test]
-fn version_16_the_locale_is_never_sent_to_an_older_peer() {
+fn version_17_the_locale_is_never_sent_to_an_older_peer() {
     let locale = Event::Locale {
         index: 0,
         last: true,
         text: PreeditText::new("en-ES").unwrap(),
     };
-    assert_eq!(event_since(&locale), 16);
+    assert_eq!(event_since(&locale), 17);
     let mut nothing = Vec::new();
-    assert!(!write_event_for(&mut nothing, &locale, 15).unwrap());
+    assert!(!write_event_for(&mut nothing, &locale, 16).unwrap());
     assert!(nothing.is_empty());
-    let mut v16 = Vec::new();
-    assert!(write_event_for(&mut v16, &locale, 16).unwrap());
-    assert_eq!(read_event_for(&mut Cursor::new(&v16), 16).unwrap(), locale);
-    // A version 15 reader refuses it.
-    assert!(read_event_for(&mut Cursor::new(&v16), 15).is_err());
+    let mut v17 = Vec::new();
+    assert!(write_event_for(&mut v17, &locale, 17).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v17), 17).unwrap(), locale);
+    // A version 16 reader refuses it.
+    assert!(read_event_for(&mut Cursor::new(&v17), 16).is_err());
 }

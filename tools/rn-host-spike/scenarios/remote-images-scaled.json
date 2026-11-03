@@ -1,0 +1,257 @@
+{
+  "about": "remote-images.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), the window at 450,238 of the output: the remote PNG decoded at its box's 120 x 60 pixels from its 160 x 80, its halves meeting exactly at the output's pixel 530, and the remote SVG rasterised at 80 x 80 pixels, never at 64 and enlarged; the same events, requests, revalidation, cancellation and offline cache as at 1, each once.",
+  "module": "RemoteImageProbe",
+  "window": [
+    560,
+    420
+  ],
+  "app": {
+    "id": "so.oxy.probe.images",
+    "title": "Images"
+  },
+  "store": {
+    "hosts": [
+      "cloud.oxy.so"
+    ],
+    "offline_when_shown": "network: offline now",
+    "images": {
+      "/probe/split.png": {
+        "png": [
+          160,
+          80,
+          "#2f6fed",
+          "#ffd60a"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/icon.svg": {
+        "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><rect width=\"24\" height=\"24\" fill=\"#30a050\"/><circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"#ffffff\"/></svg>",
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/missing.png": {
+        "png": [
+          8,
+          8,
+          "#000000"
+        ],
+        "status": 404
+      },
+      "/probe/etag.png": {
+        "png": [
+          48,
+          48,
+          "#d03030"
+        ],
+        "headers": {
+          "Cache-Control": "no-cache",
+          "ETag": "\"v1\""
+        }
+      },
+      "/probe/slow.png": {
+        "png": [
+          1000,
+          1000,
+          "#8030c0"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        },
+        "trickle_ms": 60
+      },
+      "/probe/offline.png": {
+        "png": [
+          48,
+          48,
+          "#30a0d0"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=0",
+          "Last-Modified": "Mon, 02 Nov 2026 10:00:00 GMT"
+        }
+      },
+      "/probe/later.png": {
+        "png": [
+          48,
+          48,
+          "#000000"
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "the PNG and the SVG drawn and their loads told once with their sizes, the 404's error once, getSize, two prefetches; each image asked once",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "png: loaded 160x80",
+          "svg: loaded 24x24",
+          "missing: error: https://cloud.oxy.so/probe/missing.png answered 404",
+          "getSize png: 160x80",
+          "getSize svg: 24x24",
+          "prefetch: done"
+        ],
+        "react": {
+          "loadStart@png": 1,
+          "progress@png": 1,
+          "load@png": 1,
+          "loadEnd@png": 1,
+          "loadStart@svg": 1,
+          "progress@svg": 1,
+          "load@svg": 1,
+          "loadEnd@svg": 1,
+          "loadStart@missing": 1,
+          "error@missing": 1,
+          "loadEnd@missing": 1
+        },
+        "served": [
+          "200 /probe/split.png",
+          "200 /probe/icon.svg",
+          "404 /probe/missing.png",
+          "200 /probe/etag.png",
+          "200 /probe/offline.png"
+        ],
+        "output_pixels": {
+          "500,288": "#2f6fed",
+          "560,288": "#ffd60a",
+          "615,263": "#30a050",
+          "650,298": "#ffffff",
+          "740,288": "#ffffff",
+          "530,288": "#ffd60a",
+          "529,290": "#2f6fed",
+          "530,290": "#ffd60a",
+          "470,290": "#2f6fed",
+          "589,290": "#ffd60a"
+        }
+      }
+    },
+    {
+      "name": "Revalidate: where each is cached; the no-cache image asked again with its ETag, answered 304 and drawn from the disk cache, told once",
+      "do": [
+        "press_named",
+        "Revalidate"
+      ],
+      "expect": {
+        "texts": [
+          "cache: split.png memory, etag.png disk, offline.png disk, missing.png none",
+          "etag: loaded 48x48"
+        ],
+        "react": {
+          "touchStart@Revalidate": 1,
+          "touchEnd@Revalidate": 1,
+          "loadStart@etag": 1,
+          "load@etag": 1,
+          "loadEnd@etag": 1
+        },
+        "served": [
+          "304 /probe/etag.png"
+        ],
+        "output_pixels": {
+          "820,288": "#d03030"
+        }
+      }
+    },
+    {
+      "name": "Slow: an image arriving slowly starts loading, its progress told as it arrives",
+      "do": [
+        "press_named",
+        "Slow"
+      ],
+      "expect": {
+        "react": {
+          "touchStart@Slow": 1,
+          "touchEnd@Slow": 1,
+          "loadStart@slow": 1,
+          "progress@slow": [
+            0,
+            30
+          ]
+        },
+        "served": [],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/slow.png": 1
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Unmount: the view goes while it loads; its request is cancelled and cut, nothing more told of it",
+      "do": [
+        "press_named",
+        "Unmount"
+      ],
+      "expect": {
+        "texts": [
+          "slow: unmounted"
+        ],
+        "react": {
+          "touchStart@Unmount": 1,
+          "touchEnd@Unmount": 1,
+          "progress@slow": [
+            0,
+            3
+          ]
+        },
+        "images": {
+          "cancelled https://cloud.oxy.so/probe/slow.png": 1
+        },
+        "served": [
+          "200 /probe/slow.png cut"
+        ]
+      }
+    },
+    {
+      "name": "Offline: the machine's network goes away",
+      "do": [
+        "press_named",
+        "Offline"
+      ],
+      "expect": {
+        "texts": [
+          "network: offline now"
+        ],
+        "react": {
+          "touchStart@Offline": 1,
+          "touchEnd@Offline": 1
+        },
+        "served": []
+      }
+    },
+    {
+      "name": "Force cache: the stale prefetched image drawn from the disk cache offline, told once; one never fetched fails once",
+      "do": [
+        "press_named",
+        "Force cache"
+      ],
+      "expect": {
+        "texts": [
+          "forced: loaded 48x48",
+          "later: error: "
+        ],
+        "react": {
+          "touchStart@Force cache": 1,
+          "touchEnd@Force cache": 1,
+          "loadStart@forced": 1,
+          "load@forced": 1,
+          "loadEnd@forced": 1,
+          "loadStart@later": 1,
+          "error@later": 1,
+          "loadEnd@later": 1
+        },
+        "served": [],
+        "output_pixels": {
+          "980,288": "#30a0d0"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

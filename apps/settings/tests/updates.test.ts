@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatSize, privacyRows, updatable, updateRows, type UpdateState } from "../src/updates.ts";
+import { formatSize, privacyRows, progressOf, updatable, updateRows, type UpdateState } from "../src/updates.ts";
+import { messagesFor } from "../src/messages.ts";
 
 const state: UpdateState = {
   checking: false,
@@ -66,4 +67,23 @@ test("sizes and privacy rows", () => {
       { capability: "camera", granted: false, decided: true },
     ],
   );
+});
+
+test("an update asked for ends kept and said done, or back to the service's row", () => {
+  assert.equal(progressOf("switched"), "updated");
+  assert.equal(progressOf("upToDate"), "updated");
+  assert.equal(progressOf("atNextLaunch"), "atNextLaunch");
+  assert.equal(progressOf("failed"), "failed");
+  // Declined in the consent sheet: answered there, nothing more to say.
+  assert.equal(progressOf("awaitingConsent"), null);
+  assert.equal(progressOf(undefined), null);
+  const es = messagesFor("es").softwareUpdate;
+  assert.equal(es.updatingLabel("Inbox"), "Actualizando Inbox");
+  assert.equal(es.updatedLabel("Inbox"), "Inbox actualizada");
+  assert.equal(messagesFor("en").softwareUpdate.updatedLabel("Inbox"), "Inbox updated");
+});
+
+test("a privacy switch is named by its capability and its application", () => {
+  assert.equal(messagesFor("en").privacy.capabilityOf("Camera", "Allo"), "Camera for Allo");
+  assert.equal(messagesFor("es").privacy.capabilityOf("Cámara", "Allo"), "Cámara para Allo");
 });

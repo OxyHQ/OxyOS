@@ -2,17 +2,44 @@
 //! in this library so that the host links one Rust library, not one per crate.
 //!
 //! Paths cross as a pointer and a length: a Linux path is bytes, not necessarily UTF-8.
+//!
+//! Remote images (`oxyos_images_fetch`) are fetched with the application's network, the one
+//! `oxyos_net_new` made for its `fetch`, given with `oxyos_images_connect` (crates/oxyos-image's
+//! `remote`).
 
 use super::fail;
-use oxyos_image::{Fit, Loader};
+use super::net::{string, OxyOSNet, OxyOSNetHeader};
+use oxyos_image::remote::{Fetch, Want};
+use oxyos_image::{Fit, Loader, Outcome};
+use oxyos_net::cache::{Cache, Policy};
 use rustix::fd::{AsFd, AsRawFd};
 use std::ffi::{c_char, c_int, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// How `oxyos_images_load` fits an image to its box.
 pub const OXYOS_IMAGE_FIT_WITHIN: u32 = 0;
 pub const OXYOS_IMAGE_FIT_COVERING: u32 = 1;
+
+/// What an answer is (`OxyOSImageAnswer.kind`).
+pub const OXYOS_IMAGE_PICTURE: u32 = 0;
+pub const OXYOS_IMAGE_FAILED: u32 = 1;
+pub const OXYOS_IMAGE_PROGRESS: u32 = 2;
+pub const OXYOS_IMAGE_UNDECODED: u32 = 3;
+pub const OXYOS_IMAGE_SIZE: u32 = 4;
+pub const OXYOS_IMAGE_FETCHED: u32 = 5;
+
+/// A remote image's `cache` policy (`OxyOSImageFetch.cache`), as React Native's source's.
+pub const OXYOS_IMAGE_CACHE_DEFAULT: u32 = 0;
+pub const OXYOS_IMAGE_CACHE_RELOAD: u32 = 1;
+pub const OXYOS_IMAGE_CACHE_FORCE: u32 = 2;
+pub const OXYOS_IMAGE_CACHE_ONLY_IF_CACHED: u32 = 3;
+
+/// What a remote image's load wants (`OxyOSImageFetch.want`).
+pub const OXYOS_IMAGE_WANT_PICTURE: u32 = 0;
+pub const OXYOS_IMAGE_WANT_SIZE: u32 = 1;
+pub const OXYOS_IMAGE_WANT_PREFETCH: u32 = 2;
 
 /// Results of `oxyos_images_answer`.
 pub const OXYOS_IMAGE_ANSWER: c_int = 1;
@@ -27,7 +54,7 @@ pub struct OxyOSImageAnswer {
     pub id: u64,
     pub width: u32,
     pub height: u32,
-    /// The image's own size, before it was reduced.
+    /// The image's own size, before it was reduced (`OXYOS_IMAGE_SIZE`'s size).
     pub natural_width: u32,
     pub natural_height: u32,
     /// `width` × `height` premultiplied RGBA pixels, rows top to bottom, sRGB.
@@ -35,6 +62,36 @@ pub struct OxyOSImageAnswer {
     pub length: usize,
     pub error: *const c_char,
     pub error_length: usize,
+    /// `OXYOS_IMAGE_PICTURE` (pixels), `OXYOS_IMAGE_FAILED` (error), `OXYOS_IMAGE_PROGRESS`
+    /// (loaded of total bytes), `OXYOS_IMAGE_UNDECODED` (a remote image's bytes it does not
+    /// decode, `data`, with their `content_type` and the `error` decoding gave),
+    /// `OXYOS_IMAGE_SIZE` or `OXYOS_IMAGE_FETCHED`. Every kind but progress ends its load.
+    pub kind: u32,
+    pub loaded: u64,
+    pub total: u64,
+    pub data: *const u8,
+    pub data_length: usize,
+    pub content_type: *const c_char,
+    pub content_type_length: usize,
+}
+
+/// A remote image's load, as `oxyos_images_fetch` takes it: its URL, the headers sent with it,
+/// its `cache` policy, whether the memory and disk caches are used, and what it wants (its
+/// picture fitted to `width` × `height` by `fit`, as `oxyos_images_load`; its size; it fetched).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSImageFetch {
+    pub url: *const c_char,
+    pub url_length: usize,
+    pub headers: *const OxyOSNetHeader,
+    pub header_count: usize,
+    pub cache: u32,
+    pub memory: u8,
+    pub disk: u8,
+    pub want: u32,
+    pub width: u32,
+    pub height: u32,
+    pub fit: u32,
 }
 
 impl Default for OxyOSImageAnswer {
@@ -49,8 +106,24 @@ impl Default for OxyOSImageAnswer {
             length: 0,
             error: std::ptr::null(),
             error_length: 0,
+            kind: OXYOS_IMAGE_PICTURE,
+            loaded: 0,
+            total: 0,
+            data: std::ptr::null(),
+            data_length: 0,
+            content_type: std::ptr::null(),
+            content_type_length: 0,
         }
     }
+}
+
+/// What the answer last given owns, which its `OxyOSImageAnswer`'s pointers point into.
+#[derive(Default)]
+struct Given {
+    pixels: Vec<u8>,
+    error: String,
+    data: Option<Arc<[u8]>>,
+    content_type: String,
 }
 
 /// The loader, owned by the caller between `oxyos_images_new` and `oxyos_images_free`; used by one
@@ -58,7 +131,7 @@ impl Default for OxyOSImageAnswer {
 pub struct OxyOSImages {
     loader: Loader,
     /// The answer last given, which its `OxyOSImageAnswer`'s pointers point into.
-    given: Option<(Vec<u8>, String)>,
+    given: Option<Given>,
 }
 
 /// A caller's path.
@@ -186,15 +259,182 @@ pub unsafe extern "C" fn oxyos_images_load(
     let Some(path) = (unsafe { self::path(path, path_length) }) else {
         return fail("null path");
     };
-    let fit = match fit {
-        _ if width == 0 || height == 0 => Fit::Whole,
-        OXYOS_IMAGE_FIT_WITHIN => Fit::Within(width, height),
-        OXYOS_IMAGE_FIT_COVERING => Fit::Covering(width, height),
-        other => return fail(format!("unknown fit {other}")),
+    let fit = match self::fit(width, height, fit) {
+        Ok(fit) => fit,
+        Err(error) => return fail(error),
     };
     images.loader.load(id, path, fit);
     0
 }
+
+fn fit(width: u32, height: u32, fit: u32) -> Result<Fit, String> {
+    Ok(match fit {
+        _ if width == 0 || height == 0 => Fit::Whole,
+        OXYOS_IMAGE_FIT_WITHIN => Fit::Within(width, height),
+        OXYOS_IMAGE_FIT_COVERING => Fit::Covering(width, height),
+        other => return Err(format!("unknown fit {other}")),
+    })
+}
+
+/// Fetches remote images from now on with `net`'s network (shared: its cookies, TLS and proxy),
+/// through a disk cache of at most `cache_limit` bytes in the directory `cache` (NULL: memory
+/// only). 0 on success; the disk cache failing to open fails it, connecting nothing.
+///
+/// # Safety
+/// `images` and `net` are live pointers from `oxyos_images_new` and `oxyos_net_new`; `cache` is
+/// NULL or points to `cache_length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_connect(
+    images: *mut OxyOSImages,
+    net: *mut OxyOSNet,
+    cache: *const c_char,
+    cache_length: usize,
+    cache_limit: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    // SAFETY: forwarded caller contract.
+    let Some(net) = (unsafe { super::net::net(net) }) else {
+        return fail("null network");
+    };
+    // SAFETY: forwarded caller contract.
+    let cache = match unsafe { self::path(cache, cache_length) } {
+        Some(directory) => match Cache::open(&directory, cache_limit) {
+            Ok(cache) => Some(Arc::new(cache)),
+            Err(error) => {
+                return fail(format!(
+                    "the image cache at {} cannot open: {error}",
+                    directory.display()
+                ))
+            }
+        },
+        None => None,
+    };
+    images.loader.connect(net.network.clone(), cache);
+    0
+}
+
+/// Starts a remote image's load; its answers, with `id`, follow (progress, then the one that
+/// ends it). 0 on success.
+///
+/// # Safety
+/// `images` is a live pointer from `oxyos_images_new`; `fetch` points to an `OxyOSImageFetch`
+/// whose pointers are valid for their lengths.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_fetch(
+    images: *mut OxyOSImages,
+    id: u64,
+    fetch: *const OxyOSImageFetch,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    // SAFETY: the caller passes a readable OxyOSImageFetch or NULL.
+    let Some(fetch) = (unsafe { fetch.as_ref() }) else {
+        return fail("null fetch");
+    };
+    // SAFETY: forwarded caller contract.
+    let url = match unsafe { string(fetch.url, fetch.url_length, "url") } {
+        Ok(url) => url,
+        Err(error) => return fail(error),
+    };
+    let mut headers = Vec::new();
+    if fetch.header_count > 0 {
+        if fetch.headers.is_null() {
+            return fail("null headers");
+        }
+        // SAFETY: per the contract, `headers` points to `header_count` headers.
+        let given = unsafe { std::slice::from_raw_parts(fetch.headers, fetch.header_count) };
+        for header in given {
+            // SAFETY: forwarded caller contract.
+            let name = unsafe { string(header.name, header.name_length, "header name") };
+            // SAFETY: forwarded caller contract.
+            let value = unsafe { string(header.value, header.value_length, "header value") };
+            match (name, value) {
+                (Ok(name), Ok(value)) => headers.push((name, value)),
+                (Err(error), _) | (_, Err(error)) => return fail(error),
+            }
+        }
+    }
+    let policy = match fetch.cache {
+        OXYOS_IMAGE_CACHE_DEFAULT => Policy::Default,
+        OXYOS_IMAGE_CACHE_RELOAD => Policy::Reload,
+        OXYOS_IMAGE_CACHE_FORCE => Policy::ForceCache,
+        OXYOS_IMAGE_CACHE_ONLY_IF_CACHED => Policy::OnlyIfCached,
+        other => return fail(format!("unknown cache policy {other}")),
+    };
+    let want = match fetch.want {
+        OXYOS_IMAGE_WANT_PICTURE => match self::fit(fetch.width, fetch.height, fetch.fit) {
+            Ok(fit) => Want::Picture(fit),
+            Err(error) => return fail(error),
+        },
+        OXYOS_IMAGE_WANT_SIZE => Want::Size,
+        OXYOS_IMAGE_WANT_PREFETCH => Want::Prefetch,
+        other => return fail(format!("unknown want {other}")),
+    };
+    images.loader.fetch(
+        id,
+        Fetch {
+            url,
+            headers,
+            policy,
+            memory: fetch.memory != 0,
+            disk: fetch.disk != 0,
+            want,
+        },
+    );
+    0
+}
+
+/// Answers nothing more for the load `id`; a remote image's request stops once no load waits for
+/// it. 0 on success.
+///
+/// # Safety
+/// `images` is a live pointer from `oxyos_images_new`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_cancel(images: *mut OxyOSImages, id: u64) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    images.loader.cancel(id);
+    0
+}
+
+/// Where a remote image is held: `OXYOS_IMAGE_IN_MEMORY` and `OXYOS_IMAGE_ON_DISK`, or 0 for
+/// neither (`Image.queryCache`).
+///
+/// # Safety
+/// `images` is a live pointer from `oxyos_images_new`; `url` points to `url_length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_cached(
+    images: *mut OxyOSImages,
+    url: *const c_char,
+    url_length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    // SAFETY: forwarded caller contract.
+    let url = match unsafe { string(url, url_length, "url") } {
+        Ok(url) => url,
+        Err(error) => return fail(error),
+    };
+    let (memory, disk) = images.loader.cached(&url);
+    (if memory { OXYOS_IMAGE_IN_MEMORY } else { 0 }) | (if disk { OXYOS_IMAGE_ON_DISK } else { 0 })
+}
+
+/// Where `oxyos_images_cached` finds a remote image.
+pub const OXYOS_IMAGE_IN_MEMORY: c_int = 1;
+pub const OXYOS_IMAGE_ON_DISK: c_int = 2;
 
 /// Takes the next answer without blocking: `OXYOS_IMAGE_ANSWER` with `*out` filled,
 /// `OXYOS_IMAGE_EMPTY`, or `OXYOS_ERROR`.
@@ -223,20 +463,51 @@ pub unsafe extern "C" fn oxyos_images_answer(
         id: loaded.id,
         ..OxyOSImageAnswer::default()
     };
-    let given = match loaded.result {
-        Ok(image) => {
+    let mut given = Given::default();
+    match loaded.outcome {
+        Outcome::Image(image) => {
             (answer.width, answer.height) = (image.width, image.height);
             (answer.natural_width, answer.natural_height) = image.natural;
-            (image.pixels, String::new())
+            given.pixels = image.pixels;
         }
-        Err(error) => (Vec::new(), error.to_string()),
-    };
-    // The pointers point into heap memory the vector and string own, which moving them into
-    // `given` does not move.
-    if given.1.is_empty() {
-        (answer.pixels, answer.length) = (given.0.as_ptr(), given.0.len());
-    } else {
-        (answer.error, answer.error_length) = (given.1.as_ptr().cast(), given.1.len());
+        Outcome::Failed(error) => {
+            answer.kind = OXYOS_IMAGE_FAILED;
+            given.error = error.to_string();
+        }
+        Outcome::Progress { loaded, total } => {
+            answer.kind = OXYOS_IMAGE_PROGRESS;
+            (answer.loaded, answer.total) = (loaded, total);
+        }
+        Outcome::Undecoded {
+            bytes,
+            content_type,
+            error,
+        } => {
+            answer.kind = OXYOS_IMAGE_UNDECODED;
+            given.error = error.to_string();
+            given.data = Some(bytes);
+            given.content_type = content_type.unwrap_or_default();
+        }
+        Outcome::Size(width, height) => {
+            answer.kind = OXYOS_IMAGE_SIZE;
+            (answer.natural_width, answer.natural_height) = (width, height);
+        }
+        Outcome::Fetched => answer.kind = OXYOS_IMAGE_FETCHED,
+    }
+    // The pointers point into heap memory the vectors, strings and slice own, which moving them
+    // into `given` does not move.
+    if answer.kind == OXYOS_IMAGE_PICTURE {
+        (answer.pixels, answer.length) = (given.pixels.as_ptr(), given.pixels.len());
+    }
+    if !given.error.is_empty() {
+        (answer.error, answer.error_length) = (given.error.as_ptr().cast(), given.error.len());
+    }
+    if let Some(data) = &given.data {
+        (answer.data, answer.data_length) = (data.as_ptr(), data.len());
+    }
+    if !given.content_type.is_empty() {
+        (answer.content_type, answer.content_type_length) =
+            (given.content_type.as_ptr().cast(), given.content_type.len());
     }
     images.given = Some(given);
     *out = answer;

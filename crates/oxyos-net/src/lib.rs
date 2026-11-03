@@ -18,7 +18,11 @@
 //! multipart form's files, a file uploaded), never wholly in memory; its length is sent as
 //! `Content-Length`, as Android's OkHttp sends a body's whose length it knows. With
 //! `upload_progress`, what was sent is answered as it goes ([`Answer::Sent`]).
+//!
+//! [`cache`] is a private HTTP cache on disk, as OkHttp's, that [`Network::fetch_cached`] runs a
+//! request through (React Native's remote images, `crates/oxyos-image`).
 
+pub mod cache;
 pub mod connectivity;
 
 use cookie_store::{CookieStore, RawCookie};

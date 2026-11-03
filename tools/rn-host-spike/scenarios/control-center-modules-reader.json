@@ -247,8 +247,12 @@
     },
     "spoken": [
      {
-      "text": "Wi-Fi, activado, interruptor",
+      "text": "Centro de control, diálogo",
       "interrupting": true
+     },
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": false
      }
     ],
     "announcements": []

@@ -147,7 +147,8 @@ export const Shell = memo(function Shell({
   const [center, setCenter] = useState(false);
   // The banner shown, a notification that arrived to be one; each is shown once.
   const [banner, setBanner] = useState<ShellNotification | null>(null);
-  const [replying, setReplying] = useState(false);
+  // Whether the person has the banner (the pointer over it, a reply being typed in it).
+  const [bannerHeld, setBannerHeld] = useState(false);
   const seen = useRef<Set<string> | null>(null);
   const list = notifications?.list;
   useEffect(() => {
@@ -160,7 +161,7 @@ export const Shell = memo(function Shell({
     seen.current = known;
     if (next && banners && !lock?.locked && !notifications?.doNotDisturb) {
       setBanner(next);
-      setReplying(false);
+      setBannerHeld(false);
       // Said politely, after what the screen reader is saying, as VoiceOver says a banner.
       const said = spoken(next, applicationOf(next, snapshot.applications).name);
       if (platform.announce) platform.announce(said, true);
@@ -170,12 +171,17 @@ export const Shell = memo(function Shell({
       setBanner((shown) => (shown && list.some((notification) => notification.id === shown.id) ? shown : null));
     }
   }, [list]);
-  // A banner stays five seconds, or while the person is replying in it.
+  // The Notification Center opened takes the banner shown into it, as a Mac's does.
   useEffect(() => {
-    if (!banner || replying) return undefined;
+    if (center) setBanner(null);
+  }, [center]);
+  // A banner stays five seconds, and while the person has it, as a Mac's stays while the pointer
+  // is on it; let go, it stays five seconds more.
+  useEffect(() => {
+    if (!banner || bannerHeld) return undefined;
     const timer = setTimeout(() => setBanner(null), BANNER_MS);
     return () => clearTimeout(timer);
-  }, [banner, replying]);
+  }, [banner, bannerHeld]);
   const [view, setView] = useState<"desktop" | "launcher" | "overview">(
     "desktop",
   );
@@ -194,15 +200,16 @@ export const Shell = memo(function Shell({
   const [dockKeys, setDockKeys] = useState<{ target: string; request: number } | null>(null);
   const [statusKeys, setStatusKeys] = useState<{ target: string; request: number } | null>(null);
   const [controlKeys, setControlKeys] = useState(0);
-  // The Notification Center's, its first control once it opened from the keyboard (the clock).
+  // The Notification Center's, its first control once it opened from the keyboard (the clock, or
+  // Super+N).
   const [centerKeys, setCenterKeys] = useState(0);
   // The overview's, its first control once it opened from the keyboard (the dock's button).
   const [overviewKeys, setOverviewKeys] = useState(0);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications };
   // The application whose windows the overview shows alone (the dock menu's Show All Windows, as
   // a Mac's App Exposé, docs/adr/0034-the-dock.mdx); none, every window.
   const [overviewApp, setOverviewApp] = useState<string | null>(null);
@@ -287,6 +294,17 @@ export const Shell = memo(function Shell({
             target: firstStatusItem(now.controls?.network),
             request: (keys?.request ?? 0) + 1,
           }));
+          break;
+        // Super+N, as a Mac's Fn-N: the Notification Center, with the keyboard on its first
+        // control; again, it closes.
+        case "notifications":
+          if (!now.notifications) break;
+          view = "desktop";
+          setDockKeys(null);
+          setStatusKeys(null);
+          setControlCenter(null);
+          if (!now.center) setCenterKeys((value) => value + 1);
+          setCenter(!now.center);
           break;
         case "switcher-next":
         case "switcher-previous": {
@@ -662,8 +680,9 @@ export const Shell = memo(function Shell({
               notification={banner}
               applications={snapshot.applications}
               now={now}
+              closeAction={messages.notifications.closeBanner}
               close={closeBanner}
-              onReplying={setReplying}
+              onHeld={setBannerHeld}
               activate={activateBanner}
             />
           </Surface>
@@ -742,7 +761,6 @@ export const Shell = memo(function Shell({
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
               keyboard={platform.keyboard}
-              announce={platform.announce}
             />
           </Surface>
         )}

@@ -25,11 +25,12 @@ import {
   useNetworkState,
   useUpdateState,
 } from './oxyos/system';
-import type { PrivacyApplication, UpdatesActions } from '../../../apps/settings/src/updates';
+import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
 import {
   PREFERENCE_KEYS,
   preferenceText,
+  TRIAL_SECONDS,
   type Appearance,
   type DisplaysSnapshot,
   type HourCycle,
@@ -193,11 +194,26 @@ function preferencesOf(values: Record<string, string>): Preferences {
 function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActions; session: boolean } {
   const [values, setValues] = React.useState(() => native?.getValues() ?? null);
   const [displays, setDisplays] = React.useState(() => native?.getDisplays() ?? null);
+  // The displays as they were before a mode went on trial, which a revert brings back.
+  const shown = React.useRef(displays);
+  shown.current = displays;
+  const beforeTrial = React.useRef<typeof displays>(null);
+  // The mode asked for, until the session answers it: refused, the trial shown for it goes.
+  const askedMode = React.useRef(0);
   const [fixture, setFixture] = React.useState(FIXTURE);
   React.useEffect(() => {
     const subscriptions = [
       DeviceEventEmitter.addListener('OxyOSSettingsChanged', setValues),
       DeviceEventEmitter.addListener('OxyOSDisplaysChanged', setDisplays),
+      DeviceEventEmitter.addListener('OxyOSSettingsResult', ({ serial, accepted }) => {
+        if (serial !== askedMode.current) return;
+        askedMode.current = 0;
+        const before = beforeTrial.current;
+        if (!accepted && before) {
+          beforeTrial.current = null;
+          setDisplays({ ...before, trial: null });
+        }
+      }),
     ];
     // A change between the first read and the subscription is not lost.
     setValues(native?.getValues() ?? null);
@@ -220,8 +236,20 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
       },
       // The session judges, applies and keeps each and tells the displays as they are then
       // (OxyOSDisplaysChanged); the fixture takes a scale and the main display as they are asked.
+      // A mode asked for is on trial (docs/adr/0018-several-displays.mdx: for TRIAL_SECONDS, unless
+      // the card refuses it): shown so at once, as the session will tell it, so the dialog that asks
+      // to keep it comes as the choices close rather than after the session's answer, whose time
+      // no one can tell.
       setDisplayMode: (output, mode) => {
-        if (native?.getValues()) native.setDisplayMode(output, mode.width, mode.height, mode.refreshMhz);
+        if (!native?.getValues()) return;
+        const current = shown.current;
+        if (!current?.trial) beforeTrial.current = current;
+        askedMode.current = native.setDisplayMode(output, mode.width, mode.height, mode.refreshMhz);
+        const display = current?.displays.find((d) => d.output === output);
+        const shownMode = display?.modes[display.mode];
+        const already =
+          shownMode?.width === mode.width && shownMode.height === mode.height && shownMode.refreshMhz === mode.refreshMhz;
+        if (current && !current.trial && !already) setDisplays({ ...current, trial: { output, seconds: TRIAL_SECONDS } });
       },
       setDisplayScale: (output, scale) => {
         if (native?.getValues()) native.setDisplayScale(output, scale);
@@ -248,8 +276,17 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
             },
           }));
       },
+      // The answer is shown at once, as the session will tell it: the trial over, the displays as
+      // they were before it unless kept. The dialog that asked goes in the same commit, so the
+      // control it gives the keyboard back to already shows (and says) the mode kept.
       confirmDisplays: (keep) => {
-        if (native?.getValues()) native.confirmDisplays(keep);
+        if (!native?.getValues()) return;
+        native.confirmDisplays(keep);
+        const before = beforeTrial.current;
+        beforeTrial.current = null;
+        setDisplays((current: typeof displays) =>
+          current?.trial ? (keep || !before ? { ...current, trial: null } : { ...before, trial: null }) : current,
+        );
       },
     }),
     [],
@@ -296,10 +333,15 @@ function useInstallModel() {
   }, [state, reload]);
   const done = (answer: { refused?: { reason: string }; failed?: { reason: string } } | null) =>
     setFailed(answer?.refused?.reason ?? answer?.failed?.reason ?? null);
+  // An update answers once it ended, with each application's outcome.
+  const outcomes = (answer: any): UpdateOutcome[] => {
+    done(answer);
+    return Array.isArray(answer?.updated) ? answer.updated : [];
+  };
   const updates: UpdatesActions = {
     checkForUpdates: () => systemUpdates.check().then(done),
-    update: (id) => systemUpdates.update([id]).then(done),
-    updateAll: () => systemUpdates.updateAll().then(done),
+    update: (id) => systemUpdates.update([id]).then(outcomes),
+    updateAll: () => systemUpdates.updateAll().then(outcomes),
   };
   return {
     updates: updatesAllowed ? { system: { kind: 'apt' as const }, state, failed } : undefined,

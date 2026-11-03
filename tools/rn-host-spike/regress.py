@@ -16,7 +16,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - react: the exact events delivered to React during the step, as "event@name" -> count, where
   name is the target's testID or the nearest ancestor's (`within`). Any delivered event the step
   does not list fails it, which catches duplicated and leaked events; a count may be [least, most]
-  for events one a frame (a glide's scroll events);
+  for events one a frame (a glide's scroll events), and [0, most] for events that may not come;
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
@@ -369,6 +369,24 @@ directory holding them. It also answers NetInfo's check that the Internet is rea
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
 told from a machine that is offline. Applications reach it as they reach the real one, with their own
 builds.
+
+The store also serves images, as Oxy's servers serve an app's icon or a person's avatar (images.h's
+remote images): `store.hosts` are more names it answers for (its certificate holds them, the proxy
+hands them to it: `cloud.oxy.so`), and `store.images` ({PATH: IMAGE}) what it answers for a path
+on any of them: {"png": [W, H, "#rrggbb"(, "#rrggbb" its right half)]} or {"svg": TEXT}, with
+"status" (200), "headers" (its caching headers: `Cache-Control`, `ETag`, `Last-Modified`; a
+request whose `If-None-Match` or `If-Modified-Since` matches them is answered 304) and "trickle_ms"
+(its body sent 64 bytes at a time, that long apart: an image arriving slowly). Each image answered
+is recorded when its answer ends (`store/images.jsonl`), and a step's `served` expectation is what
+the store answered in it, exactly, in any order: "STATUS PATH", with " cut" when the client went
+away before the body ended (a request cancelled). `store.offline_when_shown` (a text) takes the
+machine offline once the application's window first shows it: from then on the proxy refuses
+everything, as a machine whose network went away. A step's `images` expectation is what the
+host's image loader reported in it ("fetch URI" and "cancelled URI" -> count, exactly).
+
+A scenario's `app.origin` and `app.capabilities` are what the session tells an application it
+launches (OXYOS_APP_ORIGIN, OXYOS_APP_CAPABILITIES, docs/adr/0030-installing-applications.mdx,
+decision 8): an installed version with only the capabilities its account granted.
 
 A scenario with `outputs` ("WxH[@SCALE][:HZ],..."; ADR 0018) runs on those outputs, arranged as a
 session arranges its displays (left to right, top-aligned, the first the primary), with a shell
@@ -844,10 +862,11 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.reply(200, f"POST {content_type} {body}")
 
 
-def png_bytes(width, height, colour):
-    """A PNG of one colour (8-bit RGB, rows unfiltered)."""
-    rgb = bytes(int(colour[i:i + 2], 16) for i in (1, 3, 5))
-    raw = b"".join(b"\x00" + rgb * width for _ in range(height))
+def png_bytes(width, height, colour, right=None):
+    """A PNG of one colour (8-bit RGB, rows unfiltered), or with `right` its right half another."""
+    rgb = lambda text: bytes(int(text[i:i + 2], 16) for i in (1, 3, 5))
+    row = rgb(colour) * width if right is None else rgb(colour) * (width // 2) + rgb(right) * (width - width // 2)
+    raw = b"".join(b"\x00" + row for _ in range(height))
 
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
@@ -937,6 +956,33 @@ def change_home_later(home_root, home, report_path):
     thread = threading.Thread(target=watch, daemon=True)
     thread.start()
     return thread
+
+
+def offline_when_shown(text, report_path):
+    """The machine going offline (`store.offline_when_shown`) once the application's window first
+    shows `text`, from a thread reading the host's report as it is written."""
+
+    # Only this run's frames: a report left by a run before may still be there.
+    started = time.monotonic_ns()
+
+    def watch():
+        seen = 0
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            lines = report_path.read_text().splitlines() if report_path.exists() else []
+            for line in lines[seen:]:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("kind") == "frame" and entry.get("surface") == 1 and entry.get("t", 0) >= started \
+                        and any(text in shown for shown in entry.get("texts", [])):
+                    STORE["go_offline"]()
+                    return
+            seen = len(lines)
+            time.sleep(0.02)
+
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def home_state(root):
@@ -1556,7 +1602,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         wanted = expect["react"]
         within = lambda count, want: count == want if isinstance(want, int) else want[0] <= count <= want[1]
-        if set(got) != set(wanted) or not all(within(got[k], wanted[k]) for k in got):
+        # An event a range lets be absent ([0, most]) may not have come at all.
+        if not set(got) <= set(wanted) or not all(within(got.get(k, 0), want) for k, want in wanted.items()):
             fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else {}, expect["home"], fail)
@@ -1765,6 +1812,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
         if components > wanted.get("components_max", float("inf")):
             fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
+    if "served" in expect:
+        # The images the store answered in the step (`store.images`), each when its answer ended.
+        log = STORE.get("base", pathlib.Path("/nonexistent")) / "images.jsonl"
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        got = sorted(f"{line['status']} {line['path']}{' cut' if line['cut'] else ''}"
+                     for line in lines if start <= line["t"] <= end)
+        if got != sorted(expect["served"]):
+            fail(f"the store answered {got}, expected exactly {sorted(expect['served'])}")
+    if "images" in expect:
+        # What the host's image loader did with remote images in the step (images.h).
+        got = {}
+        for line in report:
+            if line["kind"] == "image" and start <= line["t"] <= end:
+                key = f"{line['event']} {line['uri']}"
+                got[key] = got.get(key, 0) + 1
+        if got != expect["images"]:
+            fail(f"the image loader reported {got}, expected exactly {expect['images']}")
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]
@@ -2466,6 +2530,9 @@ def install_service(spec, machine, offscreen):
 
 # The run's install service (`install_service`): its state and log, for the final checks.
 INSTALLD = {}
+# The run's store (`store_fixture`): its directory (the images it answered) and whether the machine
+# went offline.
+STORE = {}
 
 
 def store_fixture(spec, out):
@@ -2482,8 +2549,9 @@ def store_fixture(spec, out):
         "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign")
     run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", "server.key", "-out", "server.csr",
         "-subj", "/CN=api.oxy.so")
+    hosts = ["api.oxy.so", "clients3.google.com", *spec.get("hosts", [])]
     (base / "server.ext").write_text("basicConstraints=critical,CA:FALSE\n"
-                                     "subjectAltName=DNS:api.oxy.so,DNS:clients3.google.com\n"
+                                     f"subjectAltName={','.join('DNS:' + host for host in hosts)}\n"
                                      "extendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\n")
     run("openssl", "x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial",
         "-out", "server.pem", "-days", "2", "-extfile", "server.ext")
@@ -2494,6 +2562,59 @@ def store_fixture(spec, out):
     files.mkdir()
     for name, text in spec.get("files", {}).items():
         (files / name).write_text(text)
+    # Whether the machine went offline (`offline_when_shown`).
+    offline = threading.Event()
+    # The tunnels open through the proxy, each its two sockets: cut when the machine goes offline,
+    # as a network going away ends the connections over it (a client keeps them alive otherwise).
+    tunnels = set()
+
+    def go_offline():
+        with lock:
+            offline.set()
+            for peers in list(tunnels):
+                for peer in peers:
+                    try:
+                        peer.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+
+    STORE.update(base=base, offline=offline, go_offline=go_offline)
+
+    def image(handler, path):
+        """An image of `store.images`: answered, its answer recorded when it ends."""
+        wanted = spec["images"][path]
+        if "png" in wanted:
+            body, kind = png_bytes(*wanted["png"]), "image/png"
+        else:
+            body, kind = wanted["svg"].encode(), "image/svg+xml"
+        headers = dict(wanted.get("headers", {}))
+        status = wanted.get("status", 200)
+        lower = {name.lower(): value for name, value in headers.items()}
+        if status == 200 and (
+                ("etag" in lower and handler.headers.get("If-None-Match") == lower["etag"]) or
+                ("last-modified" in lower and handler.headers.get("If-Modified-Since") == lower["last-modified"])):
+            status, body = 304, b""
+        handler.send_response(status)
+        if status != 304:
+            handler.send_header("Content-Type", kind)
+        handler.send_header("Content-Length", str(len(body)))
+        for name, value in headers.items():
+            handler.send_header(name, value)
+        handler.end_headers()
+        cut = False
+        try:
+            if "trickle_ms" in wanted:
+                for at in range(0, len(body), 64):
+                    time.sleep(wanted["trickle_ms"] / 1000)
+                    handler.wfile.write(body[at:at + 64])
+                    handler.wfile.flush()
+            else:
+                handler.wfile.write(body)
+        except OSError:
+            cut = True
+            handler.close_connection = True
+        with lock, open(base / "images.jsonl", "a") as log:
+            log.write(json.dumps({"t": time.monotonic_ns(), "status": status, "path": path, "cut": cut}) + "\n")
 
     class Store(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2524,6 +2645,8 @@ def store_fixture(spec, out):
                     failing[url.path] -= 1
             if down:
                 return self.reply(503, {"message": "The store is down for the scenario"})
+            if url.path in spec.get("images", {}):
+                return image(self, url.path)
             if self.headers.get("Host", "").split(":")[0] == "clients3.google.com":
                 if url.path != "/generate_204":
                     return self.reply(404, {"message": "Not found"})
@@ -2580,13 +2703,15 @@ def store_fixture(spec, out):
         def do_CONNECT(self):
             with lock, open(base / "requests.log", "a") as log:
                 log.write(f"{time.monotonic():.3f} CONNECT {self.path}\n")
-            if self.path not in ("api.oxy.so:443", "clients3.google.com:443"):
+            if self.path not in [f"{host}:443" for host in hosts] or offline.is_set():
                 self.send_error(403, "Offline: the scenario has no network but its store")
                 return
             upstream = socket.create_connection(("127.0.0.1", store_port))
             self.send_response(200, "Connection established")
             self.end_headers()
-            peers = [self.connection, upstream]
+            peers = (self.connection, upstream)
+            with lock:
+                tunnels.add(peers)
 
             def pump(source, sink):
                 try:
@@ -2605,6 +2730,8 @@ def store_fixture(spec, out):
             other.start()
             pump(self.connection, upstream)
             other.join()
+            with lock:
+                tunnels.discard(peers)
             upstream.close()
             self.close_connection = True
 
@@ -2974,6 +3101,11 @@ def main():
     # shell starts are told theirs by the launcher, from the same `grants`.
     if scenario.get("app", {}).get("id") in scenario.get("grants", {}):
         env["OXYOS_APP_GRANTS"] = ",".join(scenario["grants"][scenario["app"]["id"]])
+    # What the session tells an application it launches of where it came from and what its account
+    # granted (ADR 0030, decision 8): an installed version is given only those capabilities.
+    if "origin" in scenario.get("app", {}):
+        env["OXYOS_APP_ORIGIN"] = scenario["app"]["origin"]
+        env["OXYOS_APP_CAPABILITIES"] = ",".join(scenario["app"].get("capabilities", []))
     # An application the session did not start (ADR 0013): its id is only its claim.
     if scenario.get("app", {}).get("recorded") is False:
         env["OXYOS_APP_UNRECORDED"] = "1"
@@ -3007,6 +3139,8 @@ def main():
         env.update(login[3])
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
+        if scenario["store"].get("offline_when_shown"):
+            offline_when_shown(scenario["store"]["offline_when_shown"], report_path)
     home_root = None
     if "home" in scenario:
         # A home of the run's own (docs/adr/0028-file-access.mdx), never the developer's.

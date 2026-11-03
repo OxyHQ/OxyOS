@@ -25,6 +25,7 @@
 namespace oxyos {
 
 class Files;
+class Images;
 
 using facebook::react::CallInvoker;
 using facebook::react::TurboModule;
@@ -285,6 +286,9 @@ struct HostServices {
   // The user's files (files.h, docs/adr/0028-file-access.mdx): set for an application's window,
   // never for the shell or the login screen, whose expo-file-system and Bloom adapter have none.
   Files* files = nullptr;
+  // What Image views show (images.h), which React Native's ImageLoader asks of remote images: set
+  // once the view tree exists.
+  Images* images = nullptr;
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

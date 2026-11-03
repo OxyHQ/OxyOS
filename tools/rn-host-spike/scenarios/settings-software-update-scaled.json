@@ -17,7 +17,7 @@
       "privacy"
     ]
   },
-  "about": "Settings' Software Update (docs/adr/0030-installing-applications.mdx, decision 16) on a real oxyos-installd: the OS's row says this development install updates with apt (never a fake OS update); Inbox 1 is installed and the store publishes 2; Check for Updates reads the store once and lists Inbox 2 with its size (only what the machine lacks); Update All switches it, and the list is empty. At 1.25 on the ThinkPad's display (1600x1000).",
+  "about": "Settings' Software Update (docs/adr/0030-installing-applications.mdx, decision 16) on a real oxyos-installd: the OS's row says this development install updates with apt (never a fake OS update); Inbox 1 is installed and the store publishes 2; Check for Updates reads the store once and lists Inbox 2 with its size (only what the machine lacks); Update All switches it: the apps are up to date, Inbox's row staying where it was, its control saying it updated (as the App Store keeps Updated Recently), Update All gone. At 1.25 on the ThinkPad's display (1600x1000).",
   "installd": {
     "publish": [
       "so.oxy.inbox"
@@ -102,7 +102,7 @@
       "expect": {}
     },
     {
-      "name": "Up to date: the list empty",
+      "name": "Up to date: Inbox kept where it was, its control now saying it updated, as the App Store keeps Updated Recently",
       "do": [
         "wait",
         1500
@@ -110,10 +110,12 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Your apps are up to date."
+          "Your apps are up to date.",
+          "Inbox",
+          "Updated"
         ],
         "absent": [
-          "Version 0.2.0"
+          "Update All"
         ]
       }
     }

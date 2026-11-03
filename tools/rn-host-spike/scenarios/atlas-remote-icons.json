@@ -1,0 +1,197 @@
+{
+  "about": "Atlas's store icons as remote images (images.h, crates/oxyos-image's remote): the store of the scenario's own lists Notes' icon as an SVG document and Mention's as a PNG, both on cloud.oxy.so (served with their caching headers through the machine's proxy and TLS, as Oxy's servers serve an app's icon), and Atlas draws each in Bloom's squircle Avatar, react-native-svg's `<Image href>` clipped by a `<ClipPath>` of the squircle: each fetched with Atlas's own network, the SVG decoded by Skia's SVG module and the PNG by oxyos-image at the size the icon is drawn in pixels, placed by preserveAspectRatio slice and clipped to the squircle, whose corner shows the card behind it; each asked of the server once, however many places show it. Before, a remote icon was refused ('remote images are not supported on OxyOS yet') and the squircle was empty. Atlas is opened from the dock and zoomed to the work area as atlas.json does.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "grants": {
+    "so.oxy.atlas": [
+      "store",
+      "updates"
+    ]
+  },
+  "installd": null,
+  "store": {
+    "categories": [
+      {
+        "slug": "productivity",
+        "label": "Productivity"
+      },
+      {
+        "slug": "social",
+        "label": "Social"
+      }
+    ],
+    "apps": [
+      {
+        "slug": "notes",
+        "name": "Notes",
+        "tagline": "Write it down, find it later.",
+        "icon": "https://cloud.oxy.so/icons/notes.svg",
+        "category": {
+          "slug": "productivity",
+          "label": "Productivity"
+        },
+        "rating": {
+          "average": 4.6,
+          "count": 128
+        }
+      },
+      {
+        "slug": "mention",
+        "name": "Mention",
+        "tagline": "Say it to everyone who follows you.",
+        "icon": "https://cloud.oxy.so/icons/mention.png",
+        "category": {
+          "slug": "social",
+          "label": "Social"
+        },
+        "rating": {
+          "average": null,
+          "count": 0
+        }
+      }
+    ],
+    "listings": {
+      "notes": {
+        "slug": "notes",
+        "name": "Notes",
+        "tagline": "Write it down, find it later.",
+        "icon": "https://cloud.oxy.so/icons/notes.svg",
+        "category": {
+          "slug": "productivity",
+          "label": "Productivity"
+        },
+        "rating": {
+          "average": 4.6,
+          "count": 128
+        },
+        "description": "Notes keeps what you write, on every device you use.",
+        "websiteUrl": "https://notes.example",
+        "privacyPolicyUrl": null,
+        "termsUrl": null,
+        "supportUrl": null,
+        "supportEmail": null,
+        "publishedAt": "2026-09-01T10:00:00.000Z",
+        "screenshots": [],
+        "ratingBreakdown": {
+          "5": 100,
+          "4": 28
+        }
+      }
+    },
+    "hosts": [
+      "cloud.oxy.so"
+    ],
+    "images": {
+      "/icons/notes.svg": {
+        "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 120\"><defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#ffd60a\"/><stop offset=\"1\" stop-color=\"#ff9f0a\"/></linearGradient></defs><rect width=\"120\" height=\"120\" fill=\"url(#g)\"/><rect x=\"24\" y=\"20\" width=\"72\" height=\"80\" rx=\"8\" fill=\"#ffffff\"/><path d=\"M36 44h48M36 60h48M36 76h32\" stroke=\"#ff9f0a\" stroke-width=\"6\" stroke-linecap=\"round\"/></svg>",
+        "headers": {
+          "Cache-Control": "max-age=3600",
+          "ETag": "\"notes-1\""
+        }
+      },
+      "/icons/mention.png": {
+        "png": [
+          128,
+          128,
+          "#2f6fed"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=3600"
+        }
+      }
+    }
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.atlas",
+      "origin": "development",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
+      "do": [
+        "press_output",
+        [
+          680,
+          693
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@dock-so.oxy.atlas": 1,
+            "touchEnd@dock-so.oxy.atlas": 1
+          }
+        },
+        "in_launched": {
+          "texts": [
+            "Discover"
+          ]
+        }
+      }
+    },
+    {
+      "name": "zoomed to the work area: its sidebar, Updates among its places (the machine's installer is registered)",
+      "do": [
+        "press_output",
+        [
+          436,
+          216
+        ]
+      ],
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Discover",
+            "Apps",
+            "Search",
+            "Categories",
+            "Updates"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the storefront: Notes' and Mention's icons, an SVG document and a PNG cloud.oxy.so serves, fetched with Atlas's network and drawn in Bloom's squircle",
+      "do": [
+        "wait_named",
+        [
+          "Spotlight",
+          30000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Spotlight",
+            "Notes",
+            "Mention",
+            "Get"
+          ]
+        },
+        "output_pixels": {
+          "345,554": "#ffffff",
+          "345,559": "#ff9f0a",
+          "318,560": "#ffb90a",
+          "314,528": "#fff7f9",
+          "810,395": "#2f6fed",
+          "792,395": "#2f6fed",
+          "787,372": "#fae2f9",
+          "356,389": "#ff9f0a"
+        }
+      }
+    }
+  ]
+}

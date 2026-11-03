@@ -51,10 +51,18 @@ export type UpdatesSnapshot = {
   failed: string | null;
 };
 
+/** How one application's update ended, as the install service answers it. */
+export type UpdateOutcome = {
+  id: string;
+  outcome: "switched" | "atNextLaunch" | "awaitingConsent" | "upToDate" | "failed" | string;
+};
+
+/** An update asked for answers once it ended, with each application's outcome (none when the
+    session refused it). */
 export type UpdatesActions = {
   checkForUpdates: () => void;
-  update: (id: string) => void;
-  updateAll: () => void;
+  update: (id: string) => Promise<UpdateOutcome[]>;
+  updateAll: () => Promise<UpdateOutcome[]>;
 };
 
 export type PrivacyActions = {
@@ -89,6 +97,25 @@ export function updateRows(state: UpdateState | null, language: string): UpdateR
     needsConsent: u.status === "awaitingConsent",
     atNextLaunch: u.status === "atNextLaunch",
   }));
+}
+
+/** Where an update the person asked for stands on the page: under way, or how it ended. */
+export type UpdateProgress = "updating" | "updated" | "atNextLaunch";
+
+/** What an update's outcome leaves its row as: kept and said done, or back to what the service
+    says (declined in the consent sheet, or failed, which is said). */
+export function progressOf(outcome: UpdateOutcome["outcome"] | undefined): UpdateProgress | "failed" | null {
+  switch (outcome) {
+    case "switched":
+    case "upToDate":
+      return "updated";
+    case "atNextLaunch":
+      return "atNextLaunch";
+    case "failed":
+      return "failed";
+    default:
+      return null;
+  }
 }
 
 /** What can be updated now: those not already waiting for their next launch. */

@@ -20,6 +20,7 @@
 //       frame, and work without one, "presented": false, that was slow or ran JavaScript)
 //   {"t":…,"kind":"log","text":"[host so.oxy.dropsea] a frame after …"}  (a line written to the log)
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
+//   {"t":…,"kind":"image","event":"cancelled","uri":"https://…"}  (a remote image's load, images.h)
 //   {"t":…,"kind":"react_render","renders":[["DockIcon",9,{"DockIcon":1,"View":4,…}],…]}  (a commit of
 //       React's: where each re-render began, how many components rendered in it and which; watchReactCommits)
 //
@@ -156,6 +157,9 @@ class Report {
   // A frame of requestAnimationFrame (animation-frames.h): its timestamp, as the callbacks get it,
   // and how many callbacks it ran.
   void animationFrame(double timestamp, size_t callbacks);
+  // What the image loader did with a remote image (images.h): "fetch", a request started (or
+  // answered from a cache), "cancelled", one no view waits for any more.
+  void image(const char* event, const std::string& uri);
   // A popup's lifecycle.
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());

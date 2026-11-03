@@ -111,3 +111,4 @@ export function moveSelection(
 export function pageOf(index: number, columns: number, rows: number): number {
   return Math.floor(index / (columns * rows));
 }
+

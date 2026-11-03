@@ -1,0 +1,472 @@
+{
+ "about": "A value said as a share of its range, as TalkBack and VoiceOver say a progress bar or a slider (docs/adr/0039-keyboard-access.mdx): sample/ValueShareProbe.tsx, the screen reader on in Spanish. An element whose accessibilityValue gives a number between a minimum and a maximum and no words is published and said with its share of that range, in the session's locale (\"25 %\": 50 of 0 to 200, 15 of 10 to 30), never the raw number; its words win (\"3 de 10 archivos\"). Bloom's Meter is a level indicator (`meter`) and, with role=\"progressbar\", a progress indicator, each with its share as Bloom formats it. A slider stepped by the arrows says its new share once, nothing at the top of its range. At 1.25 (1600 × 1000).",
+ "module": "ValueShareProbe",
+ "window": [
+  480,
+  320
+ ],
+ "locale": "es_ES.UTF-8",
+ "reader": {},
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "A progress bar and a slider with a range and no words, one with words, Bloom's meter and progress bar: each value its share, or its words; nothing said",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "25 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The reader's next element: the download, its share of 0 to 200",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [
+     {
+      "text": "Descarga, 25 %, indicador de progreso",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Next: the level, its share of 10 to 30",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [
+     {
+      "text": "Nivel, 25 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Next: the copy, its words winning over its numbers",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [
+     {
+      "text": "Copia, 3 de 10 archivos, indicador de progreso",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Next: Bloom's Meter, a level indicator with its share as Bloom formats it",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [
+     {
+      "text": "Batería, 64 %, indicador de nivel",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Next: Bloom's Meter as a task's progress",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [
+     {
+      "text": "Pasos, 25 %, indicador de progreso",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the level, the one control",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "level",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Nivel, 25 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "25 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "→ steps it up: its new share said once",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "level",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "50 %",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "50 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "→: 75 %",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "level",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "75 %",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "75 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "→: the top of its range, 100 %",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "level",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "100 %",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "100 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "→ at the top: nothing changes, nothing said",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "level",
+     "ring": true
+    },
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "100 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "← steps it down: 75 %",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "level",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "75 %",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": "Descarga",
+       "value": "25 %"
+      },
+      {
+       "role": "Slider",
+       "name": "Nivel",
+       "value": "75 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Copia",
+       "value": "3 de 10 archivos"
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %"
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Pasos",
+       "value": "25 %"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

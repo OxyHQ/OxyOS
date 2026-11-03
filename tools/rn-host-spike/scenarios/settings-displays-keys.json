@@ -1,0 +1,1262 @@
+{
+  "about": "Settings' Displays from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx), as a Mac's Displays settings with Full Keyboard Access and VoiceOver, on two displays as a card reports them (a 14-inch panel, the main one, and a 24-inch monitor right of it). The arrangement's displays are keyboard stops said with where they stand ('OxyOS Monitor, right of Built-in Display') and the arrows' hint; the arrows move the focused display to that side of the other, each move said once by its new place, a move to where it already is going nowhere, saying nothing; Space chooses it. A resolution chosen from the keyboard is on trial: its dialog takes the keyboard on Revert, its default button, and is said by its title, its countdown and Revert; Escape reverts, Return reverts, and the keyboard goes back to Resolution each time; left alone it says its countdown at 10 and 5 seconds, not each second, and that the display went back; Keep Changes is a Tab away and keeps it. The settings' Saved toast is never in the tree while unseen. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (the panel at 1, 1920 × 1200, as chosen before).",
+  "locale": "es_ES.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    980,
+    760
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "display.BOE-0A4B-00000001": "default 1"
+    }
+  },
+  "shell": "OxyOSShell",
+  "displays": [
+    {
+      "identity": "BOE-0A4B-00000001",
+      "kind": "internal",
+      "size_mm": [
+        301,
+        188
+      ],
+      "modes": [
+        "1920x1200@60000*",
+        "1440x900@60000",
+        "1280x800@60000"
+      ],
+      "connector": "eDP-1"
+    },
+    {
+      "identity": "OXY-0001-00000042",
+      "kind": "external",
+      "size_mm": [
+        531,
+        299
+      ],
+      "modes": [
+        "1920x1080@60000*",
+        "1920x1080@50000",
+        "1280x720@60000"
+      ],
+      "connector": "HDMI-A-1",
+      "name": "OxyOS Monitor"
+    }
+  ],
+  "reader": {},
+  "steps": [
+    {
+      "name": "Settings with two displays, the reader on, nothing of it focused; no Saved toast in the tree",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "at_absent": {
+          "window": [
+            {
+              "name": "Saved"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Displays",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Displays"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "at_absent": {
+          "window": [
+            {
+              "name": "Saved"
+            }
+          ]
+        },
+        "texts": [
+          "Arrangement"
+        ]
+      }
+    },
+    {
+      "name": "Tab: the sidebar's selected row, Displays",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-displays",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Displays, seleccionado, 5 de 11",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: the built-in display, the one chosen, said with where it stands and how it moves",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-1",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Built-in Display, left of OxyOS Monitor, seleccionado, botón",
+            "interrupting": true
+          },
+          {
+            "text": "To move it, press the arrow keys.",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Built-in Display",
+              "value": "left of OxyOS Monitor",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "right of Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Tab: the monitor",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "OxyOS Monitor, right of Built-in Display, botón",
+            "interrupting": true
+          },
+          {
+            "text": "To move it, press the arrow keys.",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "right of Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "↑: the monitor above the panel, said once by its new place, the keyboard still on it",
+      "do": [
+        "key",
+        [
+          103
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "above Built-in Display",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "above Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Built-in Display",
+              "value": "below OxyOS Monitor",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "x": 0,
+            "y": 0
+          },
+          "1": {
+            "x": 0,
+            "y": 1080
+          }
+        }
+      }
+    },
+    {
+      "name": "↑ again: already there, it goes nowhere and nothing is said",
+      "do": [
+        "key",
+        [
+          103
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "above Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "x": 0,
+            "y": 0
+          },
+          "1": {
+            "x": 0,
+            "y": 1080
+          }
+        }
+      }
+    },
+    {
+      "name": "←: left of the panel",
+      "do": [
+        "key",
+        [
+          105
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "left of Built-in Display",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "left of Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "x": 0,
+            "y": 0
+          },
+          "1": {
+            "x": 1920,
+            "y": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "↓: below the panel",
+      "do": [
+        "key",
+        [
+          108
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "below Built-in Display",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "below Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "1": {
+            "x": 0,
+            "y": 0
+          },
+          "2": {
+            "x": 0,
+            "y": 1200
+          }
+        }
+      }
+    },
+    {
+      "name": "→: right of the panel again, where it stood",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "right of Built-in Display",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "right of Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "1": {
+            "x": 0,
+            "y": 0
+          },
+          "2": {
+            "x": 1920,
+            "y": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Space: the monitor chosen, said selected; its settings shown",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "arranged-2",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "seleccionado",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "OxyOS Monitor",
+              "value": "right of Built-in Display",
+              "hint": "To move it, press the arrow keys.",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "texts": [
+          "24-inch, 1920 × 1080"
+        ]
+      }
+    },
+    {
+      "name": "Tab: Use as",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "use-as-extended",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Extended display, seleccionado, botón de opción",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: its scale",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "scale-120",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Looks like 1920 × 1080, seleccionado, botón de opción",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: Resolution",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Resolution",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, 1920 × 1080 (native), botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: Resolution's choices, said by their title, the one chosen focused",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1920 × 1080 (native)",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "interrupting": false
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: 1280 × 720",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1280 × 720",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "1280 × 720, no seleccionado, botón de opción",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: 1280 × 720 on trial, its dialog coming as the choices close: it takes the keyboard on Revert, said by its title, its countdown and Revert",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Revert",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Keep these display settings?, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "The display goes back to its previous settings in 15 seconds.",
+            "interrupting": false
+          },
+          {
+            "text": "Revert, botón",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            },
+            {
+              "role": "Button",
+              "name": "Keep Changes",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Revert",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape: reverted, as Revert; the keyboard back on Resolution, said with the resolution it went back to",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Resolution",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, 1920 × 1080 (native), botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Resolution",
+              "value": "1920 × 1080 (native)",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1920,
+            "height": 1080,
+            "mode": 0
+          },
+          "trial": null
+        }
+      }
+    },
+    {
+      "name": "Space: Resolution's choices, said by their title, the one chosen focused",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1920 × 1080 (native)",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "interrupting": false
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: 1280 × 720",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1280 × 720",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "1280 × 720, no seleccionado, botón de opción",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: 1280 × 720 on trial, its dialog coming as the choices close: it takes the keyboard on Revert, said by its title, its countdown and Revert",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Revert",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Keep these display settings?, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "The display goes back to its previous settings in 15 seconds.",
+            "interrupting": false
+          },
+          {
+            "text": "Revert, botón",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            },
+            {
+              "role": "Button",
+              "name": "Keep Changes",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Revert",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Return: Revert, the default button, pressed; the keyboard back on Resolution",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Resolution",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, 1920 × 1080 (native), botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Resolution",
+              "value": "1920 × 1080 (native)",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1920,
+            "height": 1080,
+            "mode": 0
+          },
+          "trial": null
+        }
+      }
+    },
+    {
+      "name": "Space: Resolution's choices, said by their title, the one chosen focused",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1920 × 1080 (native)",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "interrupting": false
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: 1280 × 720",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1280 × 720",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "1280 × 720, no seleccionado, botón de opción",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: 1280 × 720 on trial, its dialog coming as the choices close: it takes the keyboard on Revert, said by its title, its countdown and Revert",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Revert",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Keep these display settings?, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "The display goes back to its previous settings in 15 seconds.",
+            "interrupting": false
+          },
+          {
+            "text": "Revert, botón",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            },
+            {
+              "role": "Button",
+              "name": "Keep Changes",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Revert",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Left alone: its countdown said at 10 and 5 seconds, then that the display went back; the keyboard back on Resolution",
+      "do": [
+        "wait",
+        16500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Resolution",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "The display goes back to its previous settings in 10 seconds.",
+            "interrupting": true
+          },
+          {
+            "text": "The display goes back to its previous settings in 5 seconds.",
+            "interrupting": true
+          },
+          {
+            "text": "The display went back to its previous settings.",
+            "interrupting": true
+          },
+          {
+            "text": "Resolution, 1920 × 1080 (native), botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "assertive",
+            "text": "The display goes back to its previous settings in 10 seconds."
+          },
+          {
+            "politeness": "assertive",
+            "text": "The display goes back to its previous settings in 5 seconds."
+          },
+          {
+            "politeness": "assertive",
+            "text": "The display went back to its previous settings."
+          }
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Resolution",
+              "value": "1920 × 1080 (native)",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1920,
+            "height": 1080,
+            "mode": 0
+          },
+          "trial": null
+        }
+      }
+    },
+    {
+      "name": "Space: Resolution's choices, said by their title, the one chosen focused",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1920 × 1080 (native)",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "interrupting": false
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: 1280 × 720",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "1280 × 720",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "1280 × 720, no seleccionado, botón de opción",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: 1280 × 720 on trial, its dialog coming as the choices close: it takes the keyboard on Revert, said by its title, its countdown and Revert",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Revert",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Keep these display settings?, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "The display goes back to its previous settings in 15 seconds.",
+            "interrupting": false
+          },
+          {
+            "text": "Revert, botón",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            },
+            {
+              "role": "Button",
+              "name": "Keep Changes",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Revert",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: Keep Changes, a Tab away from Revert",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Keep Changes",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Keep Changes, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space: kept; the keyboard back on Resolution, said with the resolution kept",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Resolution",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Resolution, 1280 × 720, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Resolution",
+              "value": "1280 × 720",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Keep these display settings?"
+            },
+            {
+              "name": "Saved"
+            }
+          ]
+        },
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2
+          },
+          "trial": null
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "display.OXY-0001-00000042": "1280x720@60000 1"
+    }
+  }
+}

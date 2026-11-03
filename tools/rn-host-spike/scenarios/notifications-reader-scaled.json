@@ -1,0 +1,668 @@
+{
+ "about": "Notifications with the screen reader on in Spanish and from the keyboard (docs/adr/0039-keyboard-access.mdx, docs/adr/0026-notifications.mdx): Allo (sample/NotificationProbe.tsx) posts; its banner is said politely once, its close named by the notification it closes (\"Ocultar la notificación de Allo: Ana\", not a bare verb). The banner stays while the pointer is on it and five seconds after it leaves, as a Mac's; while a reply is typed in it, it stays, Tab reaching its Enviar. Super+N, as a Mac's Fn-N, opens the Notification Center: a dialog said by its title, the keyboard on its first control said after it; Tab through a notification and its close, each said once; Escape closes it and gives Allo the keyboard back; Super+N again closes it. At 1.25 (1600 × 1000, 1280 × 800 logical).",
+ "locale": "es_ES.UTF-8",
+ "module": "NotificationProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {},
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "expect": {
+    "react": {},
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "name": "Ocultar la notificación de Allo: Ana"
+      }
+     ]
+    }
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Avisar posts one: its banner, said politely once; its close named by the notification it closes",
+   "do": [
+    "press",
+    [
+     53,
+     41
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Posted: posted"
+    ],
+    "in_shell": {
+     "texts": [
+      "Ana",
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Responder"
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Ocultar"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Allo. Ana. ¿Comemos juntos?"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Allo. Ana. ¿Comemos juntos?",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "the pointer over the banner",
+   "do": [
+    "move_named",
+    "Allo. Ana. ¿Comemos juntos?"
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Responder"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "six seconds with the pointer on it: the banner stays, as a Mac's stays while hovered",
+   "do": [
+    "wait",
+    6000
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Responder"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "the pointer leaves it",
+   "do": [
+    "move_output",
+    [
+     300,
+     500
+    ]
+   ],
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Responder"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "two and a half seconds after: still there, its five seconds counting from the release",
+   "do": [
+    "wait",
+    2500
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Responder"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "four more: it has gone, saying nothing",
+   "do": [
+    "wait",
+    4000
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "absent": [
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "name": "Ocultar la notificación de Allo: Ana"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Avisar again: another banner, said once",
+   "do": [
+    "press",
+    [
+     53,
+     41
+    ]
+   ],
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "¿Comemos juntos?"
+     ],
+     "keyboard_focus": null
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Responder"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Allo. Ana. ¿Comemos juntos?"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Allo. Ana. ¿Comemos juntos?",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "its Responder opens a field in the banner, which takes the keyboard",
+   "do": [
+    "press_named",
+    "Responder"
+   ],
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "Enviar"
+     ],
+     "keyboard_focus": null
+    },
+    "focus_input": null,
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Ocultar la notificación de Allo: Ana"
+      },
+      {
+       "role": "TextInput",
+       "name": "Responder"
+      },
+      {
+       "role": "Button",
+       "name": "Enviar"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "six seconds while the reply is being typed: the banner stays",
+   "do": [
+    "wait",
+    6000
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "Enviar"
+     ],
+     "keyboard_focus": null
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "TextInput",
+       "name": "Responder"
+      },
+      {
+       "role": "Button",
+       "name": "Enviar"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Tab: its Enviar, said once; the banner still stays",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "Enviar"
+     ],
+     "keyboard_focus": {
+      "target": "notification-banner-send",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Enviar",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Enviar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Super+N, as a Mac's Fn-N: the Notification Center, said by its title, the keyboard on its first control, said after it; the banner goes into it",
+   "do": [
+    "key",
+    [
+     125,
+     49
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "Notificaciones"
+     ],
+     "absent": [
+      "Enviar"
+     ],
+     "keyboard_focus": {
+      "target": "notification-clear-so.oxy.allo",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Centro de notificaciones"
+      },
+      {
+       "role": "Button",
+       "name": "Borrar las notificaciones de Allo",
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Borrar la notificación de Allo: Ana"
+      },
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?"
+      },
+      {
+       "role": "Button",
+       "name": "Borrar la notificación de Allo: Ana"
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Borrar"
+      },
+      {
+       "name": "Ocultar la notificación de Allo: Ana"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Centro de notificaciones, diálogo",
+      "interrupting": true
+     },
+     {
+      "text": "Borrar las notificaciones de Allo, botón",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Tab: the newest notification, one button by what it says",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "notification-2-open",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Allo. Ana. ¿Comemos juntos?",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Allo. Ana. ¿Comemos juntos?, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Tab: its close, named by the notification it removes, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "notification-2-close",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Borrar la notificación de Allo: Ana",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Borrar la notificación de Allo: Ana, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Escape closes it: the keyboard back in Allo, nothing said",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "in_shell": {
+     "absent": [
+      "Notificaciones"
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Centro de notificaciones",
+       "role": "Dialog"
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Super+N opens it again, said again",
+   "do": [
+    "key",
+    [
+     125,
+     49
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "texts": [
+      "Notificaciones"
+     ],
+     "keyboard_focus": {
+      "target": "notification-clear-so.oxy.allo",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Centro de notificaciones, diálogo",
+      "interrupting": true
+     },
+     {
+      "text": "Borrar las notificaciones de Allo, botón",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Super+N again closes it, as Fn-N does; Allo has the keyboard",
+   "do": [
+    "key",
+    [
+     125,
+     49
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "in_shell": {
+     "absent": [
+      "Notificaciones"
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  }
+ ]
+}

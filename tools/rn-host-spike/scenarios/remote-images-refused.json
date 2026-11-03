@@ -1,0 +1,122 @@
+{
+  "about": "An application without the network (docs/adr/0030-installing-applications.mdx, decision 8): sample/RemoteImageProbe.tsx as an installed version whose account granted it nothing (OXYOS_APP_ORIGIN installed, no capabilities, as the session launches it). Its remote images are refused before any request, each failing once with the reason, never a silent blank; its prefetches are refused the same way; the store, which would answer them, is asked nothing.",
+  "module": "RemoteImageProbe",
+  "window": [
+    560,
+    420
+  ],
+  "app": {
+    "id": "so.oxy.probe.images",
+    "title": "Images",
+    "origin": "installed",
+    "capabilities": []
+  },
+  "store": {
+    "hosts": [
+      "cloud.oxy.so"
+    ],
+    "offline_when_shown": "network: offline now",
+    "images": {
+      "/probe/split.png": {
+        "png": [
+          160,
+          80,
+          "#2f6fed",
+          "#ffd60a"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/icon.svg": {
+        "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><rect width=\"24\" height=\"24\" fill=\"#30a050\"/><circle cx=\"12\" cy=\"12\" r=\"6\" fill=\"#ffffff\"/></svg>",
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/missing.png": {
+        "png": [
+          8,
+          8,
+          "#000000"
+        ],
+        "status": 404
+      },
+      "/probe/etag.png": {
+        "png": [
+          48,
+          48,
+          "#d03030"
+        ],
+        "headers": {
+          "Cache-Control": "no-cache",
+          "ETag": "\"v1\""
+        }
+      },
+      "/probe/slow.png": {
+        "png": [
+          1000,
+          1000,
+          "#8030c0"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        },
+        "trickle_ms": 60
+      },
+      "/probe/offline.png": {
+        "png": [
+          48,
+          48,
+          "#30a0d0"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=0",
+          "Last-Modified": "Mon, 02 Nov 2026 10:00:00 GMT"
+        }
+      },
+      "/probe/later.png": {
+        "png": [
+          48,
+          48,
+          "#000000"
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "every remote image and prefetch refused once with the reason, nothing asked of the store",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "png: error: this application was not granted the network",
+          "svg: error: this application was not granted the network",
+          "missing: error: this application was not granted the network",
+          "prefetch: failed: this application was not granted the network"
+        ],
+        "react": {
+          "loadStart@png": 1,
+          "error@png": 1,
+          "loadEnd@png": 1,
+          "loadStart@svg": 1,
+          "error@svg": 1,
+          "loadEnd@svg": 1,
+          "loadStart@missing": 1,
+          "error@missing": 1,
+          "loadEnd@missing": 1
+        },
+        "served": [],
+        "images": {},
+        "pixels": {
+          "40,40": "#ffffff",
+          "160,48": "#ffffff"
+        }
+      }
+    }
+  ]
+}

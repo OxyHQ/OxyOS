@@ -81,7 +81,12 @@ fn a_jpeg_with_a_display_p3_profile_comes_out_in_srgb_at_the_size_drawn() {
 
 #[test]
 fn what_is_not_an_image_is_refused() {
-    assert_eq!(decode(b"GIF89a....", Fit::Whole), Err(Error::Unsupported));
+    assert_eq!(decode(b"BMP.......", Fit::Whole), Err(Error::Unsupported));
+    // A GIF cut short is a damaged one.
+    assert!(matches!(
+        decode(b"GIF89a....", Fit::Whole),
+        Err(Error::Invalid(_))
+    ));
     let bytes = png(2, 2, png::ColorType::Rgba, &[7; 16]);
     assert!(matches!(
         decode(&bytes[..bytes.len() - 20], Fit::Whole),
@@ -112,10 +117,13 @@ fn the_loader_answers_each_load_on_its_own_thread() {
     }
     answers.sort_by_key(|answer| answer.id);
     assert_eq!(
-        answers[0].result.as_ref().unwrap().pixels,
-        [10, 20, 30, 255]
+        match &answers[0].outcome {
+            Outcome::Image(image) => image.pixels.as_slice(),
+            other => panic!("{other:?}"),
+        },
+        &[10, 20, 30, 255]
     );
-    assert!(matches!(answers[1].result, Err(Error::Io(_))));
+    assert!(matches!(answers[1].outcome, Outcome::Failed(Error::Io(_))));
     std::fs::remove_dir_all(&directory).unwrap();
 }
 
@@ -254,4 +262,62 @@ fn a_jpeg_drawn_smaller_is_decoded_smaller_and_looks_the_same() {
     );
     // A JPEG cut short is the whole decode's, which shows what arrived.
     assert!(decode_jpeg_reduced(&bytes[..400_000], (512, 288)).is_none());
+}
+
+fn webp(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image_webp::WebPEncoder::new(&mut bytes)
+        .encode(rgba, width, height, image_webp::ColorType::Rgba8)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn a_webp_decodes_premultiplied() {
+    let bytes = webp(2, 1, &[255, 0, 0, 128, 0, 255, 0, 255]);
+    assert_eq!(size(&bytes), Ok((2, 1)));
+    let image = decode(&bytes, Fit::Whole).unwrap();
+    assert_eq!((image.width, image.height, image.natural), (2, 1, (2, 1)));
+    assert_eq!(image.pixels, [128, 0, 0, 128, 0, 255, 0, 255]);
+    // Reduced as any other.
+    let wide: Vec<u8> = (0..8).flat_map(|_| [0, 0, 255, 255]).collect();
+    let reduced = decode(&webp(4, 2, &wide), Fit::Within(2, 2)).unwrap();
+    assert_eq!((reduced.width, reduced.height), (2, 1));
+    assert_eq!(&reduced.pixels[..4], [0, 0, 255, 255]);
+}
+
+#[test]
+fn a_gif_shows_its_first_frame_on_its_canvas() {
+    // A 3 × 2 canvas; the first frame (red, a pixel wide) at (1, 1), the second (green) whole.
+    let mut bytes = Vec::new();
+    {
+        let palette = [255, 0, 0, 0, 255, 0];
+        let mut encoder = gif::Encoder::new(&mut bytes, 3, 2, &palette).unwrap();
+        encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+        let mut first = gif::Frame::from_indexed_pixels(1, 1, vec![0], None);
+        (first.left, first.top) = (1, 1);
+        encoder.write_frame(&first).unwrap();
+        encoder
+            .write_frame(&gif::Frame::from_indexed_pixels(3, 2, vec![1; 6], None))
+            .unwrap();
+    }
+    assert_eq!(size(&bytes), Ok((3, 2)));
+    let image = decode(&bytes, Fit::Whole).unwrap();
+    assert_eq!((image.width, image.height), (3, 2));
+    let mut expected = vec![0u8; 3 * 2 * 4];
+    expected[16..20].copy_from_slice(&[255, 0, 0, 255]);
+    assert_eq!(image.pixels, expected);
+}
+
+#[test]
+fn an_avif_is_refused_with_its_reason() {
+    let mut bytes = vec![0, 0, 0, 0x20];
+    bytes.extend_from_slice(b"ftypavif");
+    bytes.extend_from_slice(&[0; 20]);
+    assert_eq!(decode(&bytes, Fit::Whole), Err(Error::Avif));
+    assert_eq!(
+        Error::Avif.to_string(),
+        "AVIF images are not supported on OxyOS"
+    );
+    assert_eq!(decode(b"neither", Fit::Whole), Err(Error::Unsupported));
 }

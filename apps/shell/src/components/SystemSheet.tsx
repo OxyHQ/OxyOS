@@ -1,5 +1,4 @@
 import React, { memo, useEffect, useRef, useState } from "react";
-import { AccessibilityInfo } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
@@ -37,7 +36,6 @@ export const SystemSheet = memo(function SystemSheet({
   answer,
   answerPassword,
   keyboard,
-  announce,
 }: {
   text: SheetText;
   /** The registry's names, by id, for an application asking for a capability. */
@@ -47,8 +45,6 @@ export const SystemSheet = memo(function SystemSheet({
   answerPassword?: (password: string) => void;
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
-  /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
-  announce?: (text: string, polite: boolean) => void;
 }) {
   const view = sheetView(text, useShellMessages(), names);
   const [password, setPassword] = useState("");
@@ -60,13 +56,6 @@ export const SystemSheet = memo(function SystemSheet({
     setPassword("");
     answerPassword(typed);
   };
-  // Said once as it appears (each sheet is a new one, keyed by the session's number): a live
-  // region would not speak what a new surface shows at once.
-  useEffect(() => {
-    const said = [view.title, view.error, view.body].filter(Boolean).join(". ");
-    if (announce) announce(said, false);
-    else AccessibilityInfo.announceForAccessibility(said);
-  }, []);
   const latestAnswer = useRef(answer);
   latestAnswer.current = answer;
   useEffect(() => {
@@ -97,6 +86,9 @@ export const SystemSheet = memo(function SystemSheet({
         accessibilityViewIsModal
         accessibilityRole="alertdialog"
         accessibilityLabel={view.title}
+        // Said as it appears, once, by the screen reader: its title, then what went wrong and what
+        // it says, as VoiceOver reads an alert's message after its title.
+        accessibilityHint={[view.error, view.body].filter(Boolean).join(". ") || undefined}
         style={{
           width: SHEET_WIDTH,
           height: SHEET_HEIGHT,

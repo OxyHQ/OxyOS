@@ -48,6 +48,8 @@ const F: u32 = 33;
 const H: u32 = 35;
 /// The key above Tab, left of 1: ` on the US layout, º on the Spanish one.
 const GRAVE: u32 = 41;
+/// N: the Notification Center, as a Mac's Fn-N (ADR 0039).
+const N: u32 = 49;
 const M: u32 = 50;
 const SPACE: u32 = 57;
 const F2: u32 = 60;
@@ -243,16 +245,18 @@ impl Scene {
             }
             // The keyboard to the top bar's menus, as a Mac's Control-F2: the shell takes it with
             // `FocusShellSurface`, citing this shortcut. A menu open in a window closes first.
-            (F2 | F3 | F8, false, false) => {
+            (F2 | F3 | F8 | N, false, false) => {
                 self.dismiss_grab(DismissReason::OutsidePress);
                 let output = self.shortcut_output();
                 if let Some(client) = self.shortcut_shell(output) {
-                    // The dock, as a Mac's Control-F3, and the top bar's status items, as its
-                    // Control-F8 (ADR 0039): the shell takes the keyboard as for the menus.
+                    // The dock, as a Mac's Control-F3, the top bar's status items, as its
+                    // Control-F8, and the Notification Center, as its Fn-N (ADR 0039): the shell
+                    // takes the keyboard as for the menus.
                     let shortcut = match key {
                         F2 => SystemShortcut::MenuBar,
                         F3 => SystemShortcut::Dock,
-                        _ => SystemShortcut::StatusMenus,
+                        F8 => SystemShortcut::StatusMenus,
+                        _ => SystemShortcut::Notifications,
                     };
                     self.tell_shortcut(client, output, shortcut);
                 }

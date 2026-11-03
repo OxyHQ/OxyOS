@@ -246,6 +246,8 @@ pub const OXYOS_SHORTCUT_SEARCH: u32 = 7;
 pub const OXYOS_SHORTCUT_MENU_BAR: u32 = 8;
 pub const OXYOS_SHORTCUT_DOCK: u32 = 9;
 pub const OXYOS_SHORTCUT_STATUS_MENUS: u32 = 10;
+/// Super+N: the Notification Center, as a Mac's Fn-N (protocol version 16, ADR 0039).
+pub const OXYOS_SHORTCUT_NOTIFICATIONS: u32 = 11;
 /// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
 /// screenshot interface to show or change (serial: a user input of its own, the same until the
 /// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:
@@ -382,7 +384,7 @@ pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
-/// The session's locale (ADR 0040, protocol version 16), in chunks as the keyboard layout.
+/// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA: u32 = 201;

@@ -39,7 +39,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001); version 10,
 /// drag and drop (ADR 0035), both ways, a target's events sent unasked; version 13, a node's place
 /// in its collection (`AccessiblePosition`, ADR 0039), both ways, sent with every snapshot;
-/// version 16, the session's locale (`Locale`, ADR 0040), told to every client.
+/// version 17, the session's locale (`Locale`, ADR 0040), told to every client.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -51,7 +51,7 @@ const EVENTS_ADDED: Added = &[
     (8, 230..=232),
     (10, 240..=250),
     (13, 251..=251),
-    (16, 181..=181),
+    (17, 181..=181),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -77,13 +77,18 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// reader would refuse as a value outside its set; version 13's hint of an accessible node
 /// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way; version 14's
 /// column header role (`AccessibleRole::ColumnHeader`) and version 15's meter
-/// (`AccessibleRole::Meter`), likewise.
+/// (`AccessibleRole::Meter`), likewise; and version 16's shortcut to the Notification Center
+/// (ADR 0039).
 pub fn event_since(event: &Event) -> u16 {
     match event {
         Event::SystemShortcut {
             shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
             ..
         } => 12,
+        Event::SystemShortcut {
+            shortcut: SystemShortcut::Notifications,
+            ..
+        } => 16,
         Event::AccessibleText {
             field: AccessibleField::Hint,
             ..

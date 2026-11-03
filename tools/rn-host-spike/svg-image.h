@@ -9,6 +9,7 @@
 // decoder cannot read it and its first kilobyte starts with `<` and holds `<svg`. Its natural
 // size, which `onLoad` reports and `center`, `repeat` and `none` draw at, is the root's `width`
 // and `height` when they are lengths, else its `viewBox`'s size (Coil's default), else the box's.
+// A remote SVG image's document is the bytes fetched (images.h), decoded the same way.
 // Text inside an SVG image is not drawn (no font manager is given to the document); links to
 // other files (`<image href>`) are not followed.
 #pragma once
@@ -39,16 +40,24 @@ struct SvgImage {
   std::string error;
 };
 
+// A document: a file, or the bytes of one fetched (a remote image's, `name` its URL).
+struct SvgSource {
+  SvgSource(std::string path) : name(std::move(path)) {}
+  SvgSource(std::string name, std::shared_ptr<const std::string> bytes) : name(std::move(name)), bytes(std::move(bytes)) {}
+  std::string name;
+  std::shared_ptr<const std::string> bytes;  // null for a file, `name` its path
+};
+
 // Whether the file's name says it is an SVG document.
 bool svgByName(const std::string& path);
 // Whether the bytes look like an SVG document (Coil's sniffing).
 bool svgBySniffing(const std::string& head);
 
 // The document's natural size in logical pixels, or nullopt with `error`.
-std::optional<std::pair<float, float>> svgImageSize(const std::string& path, std::string& error);
+std::optional<std::pair<float, float>> svgImageSize(const SvgSource& source, std::string& error);
 
 // Parses and rasterises the document; on the caller's thread.
-SvgImage decodeSvgImage(const std::string& path, const SvgRequest& request);
+SvgImage decodeSvgImage(const SvgSource& source, const SvgRequest& request);
 
 // Decodes SVG documents on threads of their own, as the image loader (oxyos_images_*) decodes
 // PNG and JPEG; its descriptor is readable while answers wait.
@@ -65,9 +74,9 @@ class SvgDecoder {
   SvgDecoder(const SvgDecoder&) = delete;
   SvgDecoder& operator=(const SvgDecoder&) = delete;
 
-  // Starts decoding `path`. With `sniffed`, the file is first read to see whether it is an SVG
+  // Starts decoding `source`. With `sniffed`, it is first read to see whether it is an SVG
   // document; if it is not, the answer is `otherwise`, the error another decoder gave.
-  void load(uint64_t id, const std::string& path, const SvgRequest& request, bool sniffed = false,
+  void load(uint64_t id, const SvgSource& source, const SvgRequest& request, bool sniffed = false,
             const std::string& otherwise = "");
   // The next answer, if any; never blocks.
   std::optional<Answer> answer();

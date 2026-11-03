@@ -188,6 +188,9 @@ const en = (f: Formats) => ({
     folder: (name: string) => `${name} folder`,
     noMatches: (query: string) => `No apps match “${query}”.`,
     page: (page: number) => `Page ${f.number(page)}`,
+    /** What a search found, said politely as it changes ("3 results"). */
+    results: (count: number) =>
+      count === 0 ? "No Results" : f.plural(count, { one: "1 result", other: `${f.number(count)} results` }),
   },
   overview: {
     desktop: (number: number) => `Desktop ${f.number(number)}`,
@@ -212,7 +215,10 @@ const en = (f: Formats) => ({
     hoursAgo: (hours: number) => `${f.number(hours)} h ago`,
     yesterday: "yesterday",
     daysAgo: (days: number) => f.plural(days, { one: "1 day ago", other: `${f.number(days)} days ago` }),
+    /** The verb a banner's close button says, and the one the Notification Center's says
+        (`clear`), named with the notification it closes. */
     closeBanner: "Close",
+    closeNotification: (action: string, name: string, title: string) => `${action} the ${name} notification: ${title}`,
     reply: "Reply",
     message: "Message",
     send: "Send",
@@ -430,6 +436,8 @@ const es = (f: Formats): Catalogue => ({
     folder: (name) => `Carpeta ${name}`,
     noMatches: (query) => `No hay aplicaciones que coincidan con «${query}».`,
     page: (page) => `Página ${f.number(page)}`,
+    results: (count) =>
+      count === 0 ? "Ningún resultado" : f.plural(count, { one: "1 resultado", other: `${f.number(count)} resultados` }),
   },
   overview: {
     desktop: (number) => `Escritorio ${f.number(number)}`,
@@ -453,6 +461,7 @@ const es = (f: Formats): Catalogue => ({
     yesterday: "ayer",
     daysAgo: (days) => f.plural(days, { one: "hace 1 día", other: `hace ${f.number(days)} días` }),
     closeBanner: "Ocultar",
+    closeNotification: (action, name, title) => `${action} la notificación de ${name}: ${title}`,
     reply: "Responder",
     message: "Mensaje",
     send: "Enviar",

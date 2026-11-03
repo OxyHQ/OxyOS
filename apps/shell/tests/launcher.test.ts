@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { launcherLayout, moveSelection, pageOf } from "../src/launcher.ts";
+import { shellMessages } from "../src/messages.ts";
 
 test("a computer's screen has Launchpad's seven columns and five rows, icons a little over half a column", () => {
   // The ThinkPad's 1600 × 1000 at 1.25, less the dock: 1280 × 744 logical pixels.
@@ -60,4 +61,13 @@ test("the arrows move the highlight through the icons and across pages", () => {
   assert.equal(moveSelection(null, "ArrowRight", 0, columns, rows, 0), null);
   // A highlight past what a search left: back to the first.
   assert.equal(moveSelection(12, "ArrowRight", 3, columns, rows, 0), 0);
+});
+
+test("a search's results are said by their number, one and none in their own words", () => {
+  const es = shellMessages("es-ES").launchpad;
+  assert.equal(es.results(0), "Ningún resultado");
+  assert.equal(es.results(1), "1 resultado");
+  assert.equal(es.results(3), "3 resultados");
+  const en = shellMessages("en-US").launchpad;
+  assert.deepEqual([en.results(0), en.results(1), en.results(3)], ["No Results", "1 result", "3 results"]);
 });

@@ -14,6 +14,8 @@
 #include <react/renderer/components/view/accessibilityPropsConversions.h>
 #include <react/renderer/core/ConcreteState.h>
 
+#include <oxyos_client.h>
+
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
@@ -101,6 +103,50 @@ const char* liveOf(const ViewProps& props, const std::string& role) {
   if (role == "alert") return "assertive";
   if (role == "status" || role == "log") return "polite";
   return nullptr;
+}
+
+// A range's value as a share of it, in the session's locale ("40 %", "40%"), as VoiceOver and
+// TalkBack say a progress bar or a slider that gives a number and no words: (now - min) of
+// (max - min), to a whole percent, half to even as Foundation's percent formatter rounds.
+std::string shareOf(int min, int max, int now) {
+  double share = std::clamp(static_cast<double>(now - min) / (max - min), 0.0, 1.0);
+  double percent = std::nearbyint(share * 100);
+  static const std::string locale = [] {
+    std::string out(64, '\0');
+    auto length = oxyos_intl_default_locale(out.data(), out.size());
+    out.resize(length > 0 && static_cast<size_t>(length) < out.size() ? static_cast<size_t>(length) : 0);
+    return out;
+  }();
+  static const std::string options = "style=percent;maximumFractionDigits=0";
+  std::string parts(64, '\0');
+  for (;;) {
+    auto length = oxyos_intl_format_number(locale.data(), locale.size(), options.data(), options.size(),
+                                           percent / 100, parts.data(), parts.size());
+    if (length < 0) return std::to_string(static_cast<int>(percent)) + "%";
+    if (static_cast<size_t>(length) < parts.size()) {
+      parts.resize(static_cast<size_t>(length));
+      break;
+    }
+    parts.assign(static_cast<size_t>(length) + 1, '\0');
+  }
+  // Parts are "type\x1Fvalue" joined by '\x1E': the text is their values in order.
+  std::string text;
+  size_t start = 0;
+  while (start < parts.size()) {
+    size_t end = parts.find('\x1E', start);
+    if (end == std::string::npos) end = parts.size();
+    size_t split = parts.find('\x1F', start);
+    if (split != std::string::npos && split < end) text += parts.substr(split + 1, end - split - 1);
+    start = end + 1;
+  }
+  return text;
+}
+
+// What a value says: its words, else its number as a share of its range, else the number.
+std::string valueOf(const AccessibilityValue& value) {
+  if (value.text) return *value.text;
+  if (value.min && value.max && *value.max > *value.min) return shareOf(*value.min, *value.max, *value.now);
+  return std::to_string(*value.now);
 }
 
 // Accessibility focus sent to a view that is not an element lands on the first node inside it,
@@ -205,13 +251,17 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
       if (node.name.empty()) node.name = input->placeholder;
       // A secure field's text never leaves the application, nor its selection.
       if (!input->secureTextEntry) {
-        node.value = inputText(view);
+        // The focused input's text as its editing has it, with its selection: its mounted state
+        // can still hold the text before the latest edit while the caret is already after it, and
+        // Backspace would read as the caret passing a letter before deleting it.
+        auto live = w.hooks && w.hooks->text ? w.hooks->text(tag) : std::nullopt;
+        node.value = live ? *live : inputText(view);
         if (input->editable) node.actions |= OXYOS_OFFERS_SET_SELECTION;
         if (w.hooks && w.hooks->selection) node.selection = w.hooks->selection(tag);
       }
     } else if (const auto& value = props->accessibilityValue; value.text || value.now) {
-      // How far along it is (a slider's, a progress bar's), as said: its text, else its number.
-      node.value = value.text ? *value.text : std::to_string(*value.now);
+      // How far along it is (a slider's, a progress bar's), as said: its text, else its share.
+      node.value = valueOf(value);
       if (node.name.empty() && !scrolls) collectText(w.tree, tag, node.name);
     } else if (node.name.empty() && !scrolls) {
       // A scroll view is named by its label alone: its content is read as its own nodes.
@@ -317,7 +367,8 @@ folly::dynamic offeredNames(uint16_t actions) {
 
 // Each item's place in its collection (accessibility.h): the collection it declares it is in, by
 // row and column (Android's CollectionItemInfo in its CollectionInfo), else a list's rows among the
-// list's own (a list within a row is another collection).
+// list's own (a list within a row is another collection), and a tab list's tabs among its own, as
+// VoiceOver says a tab's place ("pestaña, 1 de 3").
 void placeItems(std::vector<AccessibleNode>& nodes) {
   auto nearest = [&](size_t index, auto&& is) -> int {
     for (int at = nodes[index].parent; at >= 0; at = nodes[at].parent) {
@@ -325,7 +376,7 @@ void placeItems(std::vector<AccessibleNode>& nodes) {
     }
     return -1;
   };
-  std::map<int, std::vector<size_t>> rows;  // a list's listitems, by the list's index
+  std::map<int, std::vector<size_t>> rows;  // a list's listitems, a tab list's tabs, by its index
   for (size_t i = 0; i < nodes.size(); ++i) {
     auto& node = nodes[i];
     if (node.itemRow >= 0) {
@@ -344,6 +395,9 @@ void placeItems(std::vector<AccessibleNode>& nodes) {
     if (node.role == "listitem") {
       int list = nearest(i, [](const AccessibleNode& n) { return n.role == "list" || n.role == "listitem"; });
       if (list >= 0 && nodes[list].role == "list") rows[list].push_back(i);
+    } else if (node.role == "tab") {
+      int list = nearest(i, [](const AccessibleNode& n) { return n.role == "tablist" || n.role == "tab"; });
+      if (list >= 0 && nodes[list].role == "tablist") rows[list].push_back(i);
     }
   }
   for (const auto& [list, items] : rows) {
