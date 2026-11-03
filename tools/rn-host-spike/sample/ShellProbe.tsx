@@ -13,6 +13,9 @@ import { network, useNetworkState, useSystemSheets } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
+import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
+import type { ShellMessages } from '../../../apps/shell/src/messages';
+import { useSessionLocale } from './oxyos/locale';
 import type {
   ShellActions,
   ShellLock,
@@ -38,11 +41,12 @@ type MenuBar = {
   }[];
 };
 
-// A chord as OxyOS shows it: `Mod` is Ctrl (docs/adr/0021-menu-bar.mdx), the rest as declared.
-const chord = (shortcut: string) =>
+// A chord as OxyOS shows it: `Mod` is Ctrl (docs/adr/0021-menu-bar.mdx), Shift named in the
+// session's language, the rest as declared.
+const chord = (shortcut: string, messages: ShellMessages) =>
   shortcut
     .split('+')
-    .map((key) => (key === 'Mod' ? 'Ctrl' : key === 'Shift' ? 'Mayús' : key))
+    .map((key) => (key === 'Mod' ? 'Ctrl' : key === 'Shift' ? messages.menus.shift : key))
     .join('+');
 
 // A command of the window's menus, by the window, the commit and its index there.
@@ -53,7 +57,7 @@ const COMMAND = /^window-menu:(\d+):(\d+):(\d+)$/;
  * name, About, Hide, Quit), then the menus it declared, their checks and chords; none when it
  * declared none, and the shell then shows its own.
  */
-function windowMenus(bar: MenuBar | undefined, name: string): ShellMenu[] | null {
+function windowMenus(bar: MenuBar | undefined, name: string, messages: ShellMessages): ShellMenu[] | null {
   if (!bar || bar.window === 0 || bar.items.length === 0) return null;
   const children = (parent: number): ShellMenuItem[] =>
     bar.items.flatMap((item, index): ShellMenuItem[] => {
@@ -69,7 +73,7 @@ function windowMenus(bar: MenuBar | undefined, name: string): ShellMenu[] | null
           label: item.label,
           enabled: item.enabled,
           checked: item.checkable ? item.checked : undefined,
-          shortcut: item.shortcut ? chord(item.shortcut) : undefined,
+          shortcut: item.shortcut ? chord(item.shortcut, messages) : undefined,
         },
       ];
     });
@@ -77,10 +81,10 @@ function windowMenus(bar: MenuBar | undefined, name: string): ShellMenu[] | null
     label: name,
     items: [
       // No about panel yet: shown, not offered.
-      { id: 'window-app:about', label: `Acerca de ${name}`, enabled: false },
+      { id: 'window-app:about', label: messages.menus.aboutApp(name), enabled: false },
       { kind: 'separator', id: 'window-app:separator' },
-      { id: `window-app:hide:${bar.window}`, label: `Ocultar ${name}` },
-      { id: `window-app:quit:${bar.window}`, label: `Salir de ${name}` },
+      { id: `window-app:hide:${bar.window}`, label: messages.menus.hideApp(name) },
+      { id: `window-app:quit:${bar.window}`, label: messages.menus.quitApp(name) },
     ],
   };
   const declared = bar.items
@@ -126,23 +130,42 @@ const snapshot: ShellSnapshot = {
       thumbnailSize: { width: 1600, height: 1066 },
     },
   ],
-  workspaces: [
-    { id: '1', name: 'Escritorio 1' },
-    { id: '2', name: 'Escritorio 2' },
-  ],
+  workspaces: [],
   workspaceId: '1',
   activeAppId: 'inbox',
-  menus: [
-    { label: 'OxyOS', items: [{ id: 'system.about', label: 'Acerca de OxyOS', enabled: false }] },
+  menus: [],
+};
+
+/** The shell's own menus, while no window with menus of its own is active (ADR 0021). */
+function shellMenus(messages: ShellMessages): ShellMenu[] {
+  return [
+    { label: 'OxyOS', items: [{ id: 'system.about', label: messages.menus.about, enabled: false }] },
     {
-      label: 'Ver',
+      label: messages.menus.view,
       items: [
-        { id: 'view.overview', label: 'Ver escritorios' },
-        { id: 'view.launcher', label: 'Ver aplicaciones' },
+        { id: 'view.overview', label: messages.common.showDesktops },
+        { id: 'view.launcher', label: messages.menus.showApplications },
       ],
     },
-  ],
-};
+  ];
+}
+
+/** The workspaces, as many as there are, named in the session's language. */
+function workspaceNames(count: number, messages: ShellMessages, first = 0): ShellSnapshot['workspaces'] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: String(index + first),
+    name: messages.overview.desktop(index + 1),
+  }));
+}
+
+/** The fixture in the session's language: its menus and its desktops' names are the shell's. */
+function useFixture(): ShellSnapshot {
+  const messages = useShellMessages();
+  return React.useMemo(
+    () => ({ ...snapshot, workspaces: workspaceNames(2, messages, 1), menus: shellMenus(messages) }),
+    [messages],
+  );
+}
 
 const actions: ShellActions = {
   activateApp: () => {},
@@ -180,12 +203,14 @@ const shellPlatform = {
   capabilities: new Set([...oxyosSurfaces.capabilities].filter((capability) => capability !== 'menu-bar')),
 };
 
-/** What the shell is rendered in: the safe area and Bloom. Nothing it is given changes, so it
-    renders once, and a change the shell shows renders the shell, never these. */
+/** What the shell is rendered in: the safe area and Bloom, in the session's locale
+    (docs/adr/0040-language-and-region.mdx). Only a new locale renders it again, and everything
+    in its language with it; a change the shell shows renders the shell, never these. */
 function ShellProviders({ children }: { children: React.ReactNode }) {
+  const locale = useSessionLocale();
   return (
     <SafeAreaProvider>
-      <BloomProvider mode="system" colorPreset="graphite" haptics={false} locale="es" platform={shellPlatform}>
+      <BloomProvider mode="system" colorPreset="graphite" haptics={false} locale={locale} platform={shellPlatform}>
         {children}
       </BloomProvider>
     </SafeAreaProvider>
@@ -195,7 +220,7 @@ function ShellProviders({ children }: { children: React.ReactNode }) {
 /** The shell, its regions where `platform` draws them, showing `shown` at `now`. */
 function ProbeShell({
   platform,
-  shown = snapshot,
+  shown,
   act = actions,
   now = PROBE_TIME,
   lock,
@@ -230,9 +255,10 @@ function ProbeShell({
   // The same source while the frame is the same: the wallpaper and what blurs it render again only
   // when the sun moves on to another.
   const source = React.useMemo(() => (wallpaper ? { uri: wallpaper } : FIXTURE_WALLPAPER), [wallpaper]);
+  const fixture = useFixture();
   return (
     <Shell
-      snapshot={shown}
+      snapshot={shown ?? fixture}
       actions={act}
       wallpaper={source}
       now={now}
@@ -382,6 +408,7 @@ function SessionShell() {
   );
   // The session's clock is the real one.
   const now = useMinuteClock();
+  const messages = useShellMessages();
   const state = shell.state;
   const toldWindows: ToldWindow[] = state?.windows ?? NO_TOLD;
   const outputs: ToldOutput[] = state?.outputs ?? NO_TOLD;
@@ -413,16 +440,16 @@ function SessionShell() {
   const trashItems: number | null = state?.trashItems ?? null;
   const trash = React.useMemo(() => (trashItems === null ? undefined : { items: trashItems }), [trashItems]);
   const workspaceCount: number = state?.workspaces ?? 0;
-  const workspaces = React.useMemo(
-    () => Array.from({ length: workspaceCount }, (_, index) => ({ id: String(index), name: `Escritorio ${index + 1}` })),
-    [workspaceCount],
-  );
+  const workspaces = React.useMemo(() => workspaceNames(workspaceCount, messages), [workspaceCount, messages]);
   // The active window's menus, after its application's own (ADR 0021); else the shell's.
   const bar: MenuBar | undefined = state?.menuBar;
   const active = toldWindows.find((window) => window.id === bar?.window);
   const application = active?.launched ? registry.find((app) => app.id === active.appId) : undefined;
   const menuName = application?.name || active?.title || active?.appId || '';
-  const menus = React.useMemo(() => windowMenus(bar, menuName) ?? snapshot.menus, [bar, menuName]);
+  const menus = React.useMemo(
+    () => windowMenus(bar, menuName, messages) ?? shellMenus(messages),
+    [bar, menuName, messages],
+  );
   const activeAppId = toldWindows.find((window) => window.focused)?.appId;
   const workspaceId = String(state?.active ?? 0);
   const shown: ShellSnapshot = React.useMemo(
@@ -623,7 +650,6 @@ function SessionShell() {
     return {
       id: first.sheet,
       text: firstText,
-      language: 'es' as const,
       names,
       answer: (accepted: boolean) => answer(first.sheet, accepted),
       // A Wi-Fi password sheet's answer (ADR 0038): to the session alone.

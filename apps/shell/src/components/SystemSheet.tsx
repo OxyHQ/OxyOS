@@ -5,7 +5,8 @@ import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
 import { Box } from "../primitives";
 import type { ShellKeyboard } from "../platform";
-import { sheetView, validWifiPassword, type Language, type SheetText } from "../sheet";
+import { sheetView, validWifiPassword, type SheetText } from "../sheet";
+import { useShellMessages } from "../useShellMessages";
 
 export const SHEET_WIDTH = 380;
 /** Every sheet is this tall, its words scrolling within it, and its buttons are this wide at its
@@ -32,7 +33,6 @@ const ERROR = "#d93025";
  */
 export const SystemSheet = memo(function SystemSheet({
   text,
-  language = "es",
   names,
   answer,
   answerPassword,
@@ -40,7 +40,6 @@ export const SystemSheet = memo(function SystemSheet({
   announce,
 }: {
   text: SheetText;
-  language?: Language;
   /** The registry's names, by id, for an application asking for a capability. */
   names?: Record<string, string>;
   answer: (accepted: boolean) => void;
@@ -51,7 +50,7 @@ export const SystemSheet = memo(function SystemSheet({
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
   announce?: (text: string, polite: boolean) => void;
 }) {
-  const view = sheetView(text, language, names);
+  const view = sheetView(text, useShellMessages(), names);
   const [password, setPassword] = useState("");
   // Answered once: the session takes the sheet away, and a second press or Return sends nothing.
   const answered = useRef(false);

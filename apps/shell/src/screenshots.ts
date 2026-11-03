@@ -146,9 +146,6 @@ export function fileUrl(path: string): string {
   return `file://${encodeURI(path)}`;
 }
 
-/** What a screen reader says once a screenshot is saved. */
-export const SAVED_ANNOUNCEMENT = "Captura de pantalla guardada";
-
 /** The seconds a timer still has, from its start and now (milliseconds), at least 1 while it runs. */
 export function secondsLeft(timer: CaptureTimer, startedAt: number, now: number): number {
   return Math.max(0, Math.ceil((startedAt + timer * 1000 - now) / 1000));
