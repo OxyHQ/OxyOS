@@ -13,7 +13,8 @@ pub use scene::physical;
 pub use scene::{
     AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BluetoothStatus, CaptureRequest,
     ChooserAnswer, ClientId, ControlLevel, ControlRequest, DisplayChange, DisplayInfo,
-    DisplayRequest, DrawingPreferences, FileRequest, Grants, HardwareKey, LaunchRequest, ModeInfo,
+    DisplayRequest, DrawingPreferences, FileRequest, Grants, HardwareKey, InputSourceShortcut,
+    KeySymbol, LaunchRequest, ModeInfo,
     NetworkStatus, Output, OutputId, PowerStatus, PreferenceChange, RenderItem, Role, Scene, Stats,
     SurfaceDamage, SurfaceKey, TextInputState, TextTransaction, TrashRequest, WindowLook,
     DRAG_VERSION, MAX_OPEN_DROPS, MAX_PENDING_KEYS, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS,

@@ -3140,9 +3140,16 @@ impl Compositor {
                 pressed,
                 text,
                 repeats,
-            } => self
-                .scene
-                .keyboard_repeating(code, pressed, text.as_deref(), repeats),
+                keysym,
+                modifiers,
+            } => {
+                self.scene.set_key_symbol(oxyos_compositor_core::KeySymbol {
+                    keysym,
+                    modifiers,
+                });
+                self.scene
+                    .keyboard_repeating(code, pressed, text.as_deref(), repeats)
+            }
             oxyos_input::Action::Terminate => self.ending = true,
             oxyos_input::Action::Lock => self.scene.lock(),
             oxyos_input::Action::ToggleReader => self.reader_toggled = true,
