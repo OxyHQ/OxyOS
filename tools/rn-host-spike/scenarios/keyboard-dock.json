@@ -132,6 +132,7 @@
        "role": "Button",
        "name": "Dropsea",
        "state": [
+        "collapsed",
         "focused"
        ]
       }
@@ -139,7 +140,7 @@
     },
     "spoken": [
      {
-      "text": "Dropsea, botón",
+      "text": "Dropsea, contraído, botón",
       "interrupting": true
      },
      {
@@ -174,6 +175,7 @@
        "role": "Button",
        "name": "Atlas",
        "state": [
+        "collapsed",
         "focused"
        ]
       }
@@ -181,7 +183,7 @@
     },
     "spoken": [
      {
-      "text": "Atlas, botón",
+      "text": "Atlas, contraído, botón",
       "interrupting": true
      },
      {
@@ -216,6 +218,7 @@
        "role": "Button",
        "name": "Inbox",
        "state": [
+        "collapsed",
         "focused"
        ]
       }
@@ -223,7 +226,7 @@
     },
     "spoken": [
      {
-      "text": "Inbox, botón",
+      "text": "Inbox, contraído, botón",
       "interrupting": true
      },
      {
@@ -321,7 +324,7 @@
     },
     "spoken": [
      {
-      "text": "Dropsea, botón",
+      "text": "Dropsea, contraído, botón",
       "interrupting": true
      },
      {
@@ -351,7 +354,7 @@
     },
     "spoken": [
      {
-      "text": "Atlas, botón",
+      "text": "Atlas, contraído, botón",
       "interrupting": true
      },
      {
@@ -381,7 +384,7 @@
     },
     "spoken": [
      {
-      "text": "Inbox, botón",
+      "text": "Inbox, contraído, botón",
       "interrupting": true
      },
      {
@@ -483,6 +486,7 @@
        "role": "Button",
        "name": "Inbox",
        "state": [
+        "collapsed",
         "focused"
        ]
       }
@@ -490,7 +494,7 @@
     },
     "spoken": [
      {
-      "text": "Inbox, botón",
+      "text": "Inbox, contraído, botón",
       "interrupting": true
      },
      {
