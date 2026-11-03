@@ -4,6 +4,8 @@ import {
   announcement,
   batteryLabel,
   bluetoothLabel,
+  clockLabel,
+  clockText,
   percent,
   segments,
   silent,
@@ -59,4 +61,11 @@ test("Wi-Fi and Bluetooth in words", () => {
   assert.equal(bluetoothLabel({ state: "on", connected: 2 }), "2 dispositivos");
   assert.equal(bluetoothLabel({ state: "off", connected: 0 }), "Desactivado");
   assert.equal(bluetoothLabel({ state: "unavailable", connected: 0 }), undefined);
+});
+
+test("the clock is said by the date and time it shows, in whole words", () => {
+  const now = new Date(2026, 10, 3, 14, 5);
+  assert.equal(clockText(now), `${now.toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" })} 14:05`);
+  assert.equal(clockLabel(now), "martes, 3 de noviembre, 14:05");
+  assert.equal(clockLabel(new Date(2026, 0, 12, 9, 30)), "lunes, 12 de enero, 09:30");
 });

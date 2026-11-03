@@ -68,7 +68,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   order: an application's announcements and live regions' changes, each matching the keys
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
-  exactly and in order: each a text, or keys matching an utterance (text, interrupting);
+  exactly and in order: each a text, or keys matching an utterance (text, interrupting); in a
+  text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`:
+  "martes, 3 de noviembre, 14:05", the minute it was said or the one before);
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
@@ -424,6 +426,34 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
 # CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
 # clock's time of a report's line, for what follows the wall clock (the shell's minute).
 WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
+
+# The time zone the run's applications tell the time in (a scenario's `tz`), else this process's.
+RUN_TZ = None
+SPANISH_WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+SPANISH_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+                  "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def clock_said(t_ns):
+    """The shell's clock as the screen reader says it at a report's time `t_ns` (its
+    `clockLabel`, apps/shell/src/controls.ts): the date and time in whole Spanish words, "martes, 3
+    de noviembre, 14:05", written here from the calendar rather than by the shell's Intl."""
+    import datetime
+    import zoneinfo
+    zone = zoneinfo.ZoneInfo(RUN_TZ) if RUN_TZ else None
+    at = datetime.datetime.fromtimestamp((t_ns + WALL_OFFSET_NS) / 1e9, zone)
+    if zone is None:
+        at = at.astimezone()
+    return f"{SPANISH_WEEKDAYS[at.weekday()]}, {at.day} de {SPANISH_MONTHS[at.month - 1]}, {at:%H:%M}"
+
+
+def same_text(got, wanted, t_ns):
+    """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
+    `t_ns`, or in the minute before it (the clock said as its minute turned)."""
+    if not isinstance(wanted, str) or "{clock}" not in wanted:
+        return got == wanted
+    return any(got == wanted.replace("{clock}", clock_said(t_ns - back * 60_000_000_000)) for back in (0, 1))
+
 
 # Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
 # this machine, which its load changes. What a step must do (what it re-renders, a backstop far
@@ -1971,7 +2001,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for role, wanted in expect["at"].items():
             nodes = held_nodes(role)
             for node in wanted:
-                if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
+                if not any(all(same_text(n.get(k), v, end) for k, v in node.items()) for n in nodes):
                     fail(f"the assistive technology has no {role} node {node}")
     if "announcements" in expect:
         said = result.get("announcements", [])
@@ -1983,7 +2013,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # What the screen reader said between the step's input and its settling.
         said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
         wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
-        if len(said) != len(wanted) or not all(all(u.get(k) == v for k, v in w.items())
+        if len(said) != len(wanted) or not all(all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
                                                for u, w in zip(said, wanted)):
             fail(f"the screen reader said {[(u['text'], u['interrupting']) for u in said]}, expected {expect['spoken']}")
     if "at_absent" in expect:
@@ -2720,7 +2750,7 @@ def main():
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
-    global SPEED_BUDGETS, RENDER_COUNTS, COLLECT
+    global SPEED_BUDGETS, RENDER_COUNTS, COLLECT, RUN_TZ
     COLLECT = options.collect
     SPEED_BUDGETS = options.speed_budgets and not COLLECT
 
@@ -2967,6 +2997,7 @@ def main():
                                      "config/includes.chroot_after_packages/usr/share/X11/locale"))
     if "tz" in scenario:
         env["TZ"] = scenario["tz"]
+        RUN_TZ = scenario["tz"]
     recorder = None
     if home_root is not None:
         report_path.unlink(missing_ok=True)

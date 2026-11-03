@@ -1039,11 +1039,12 @@ impl Client {
         })?;
         for (index, node) in (0..).zip(nodes) {
             // A column header is version 14's: to an older compositor it is the button a sorting
-            // header was.
-            let role = if node.role == AccessibleRole::ColumnHeader && self.version < 14 {
-                AccessibleRole::Button
-            } else {
-                node.role
+            // header was. A meter is version 15's: to an older one it is the progress indicator,
+            // the role a level in a range had.
+            let role = match node.role {
+                AccessibleRole::ColumnHeader if self.version < 14 => AccessibleRole::Button,
+                AccessibleRole::Meter if self.version < 15 => AccessibleRole::ProgressBar,
+                role => role,
             };
             self.send(&Request::AccessibleNode {
                 surface,

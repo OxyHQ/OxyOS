@@ -316,3 +316,24 @@ fn a_column_header_is_said_as_one() {
         "Name, ascending, encabezado de columna"
     );
 }
+
+#[test]
+fn a_meter_is_said_with_its_level() {
+    let said = |language| {
+        describe(
+            language,
+            AccessibleRole::Meter,
+            AccessibleState::default(),
+            "Batería",
+            "80 %, cargando",
+        )
+    };
+    assert_eq!(
+        said(Language::English),
+        "Batería, 80 %, cargando, level indicator"
+    );
+    assert_eq!(
+        said(Language::Spanish),
+        "Batería, 80 %, cargando, indicador de nivel"
+    );
+}

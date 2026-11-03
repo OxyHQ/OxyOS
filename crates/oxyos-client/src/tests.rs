@@ -777,7 +777,7 @@ fn an_announcement_is_sent_in_chunks_within_its_limit() {
 }
 
 #[test]
-fn a_compositor_of_version_12_is_sent_no_hint_nor_position_nor_column_header() {
+fn a_compositor_of_version_12_is_sent_no_hint_nor_position_nor_column_header_nor_meter() {
     let (client, server) = Connection::pair().unwrap();
     let compositor = std::thread::spawn(move || {
         server.recv_request().unwrap();
@@ -815,7 +815,22 @@ fn a_compositor_of_version_12_is_sent_no_hint_nor_position_nor_column_header() {
         hint: "Abre el archivo",
         position: Some((3, 21)),
     };
-    client.publish_accessibility(3, &[header, node]).unwrap();
+    let meter = Accessible {
+        parent: oxyos_protocol::NO_ACCESSIBLE_PARENT,
+        role: AccessibleRole::Meter,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 24, 12),
+        name: "Batería",
+        value: "80 %",
+        custom: "",
+        selection: None,
+        hint: "",
+        position: None,
+    };
+    client
+        .publish_accessibility(3, &[header, node, meter])
+        .unwrap();
     loop {
         let (request, _) = server.recv_request().unwrap();
         assert!(
@@ -832,6 +847,10 @@ fn a_compositor_of_version_12_is_sent_no_hint_nor_position_nor_column_header() {
         // A column header (version 14) is the button it was to a compositor of version 12.
         if let Request::AccessibleNode { index: 0, role, .. } = request {
             assert_eq!(role, AccessibleRole::Button);
+        }
+        // A meter (version 15) is the progress indicator a level in a range was.
+        if let Request::AccessibleNode { index: 2, role, .. } = request {
+            assert_eq!(role, AccessibleRole::ProgressBar);
         }
         if matches!(request, Request::AccessibilityCommit { .. }) {
             break;

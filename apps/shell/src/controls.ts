@@ -70,6 +70,21 @@ export function batteryLabel(power: ShellBattery | undefined): string | undefine
   }
 }
 
+const DATE_SHOWN = { weekday: "short", day: "numeric", month: "short" } as const;
+const DATE_SAID = { weekday: "long", day: "numeric", month: "long" } as const;
+const TIME = { hour: "2-digit", minute: "2-digit" } as const;
+
+/** The top bar's clock as it shows it: "lun, 3 nov 14:05". */
+export function clockText(now: Date): string {
+  return `${now.toLocaleDateString("es", DATE_SHOWN)} ${now.toLocaleTimeString("es", TIME)}`;
+}
+
+/** The clock as a screen reader says it, the same date and time in whole words, as VoiceOver
+    names a Mac's menu bar clock by what it shows: "lunes, 3 de noviembre, 14:05". */
+export function clockLabel(now: Date): string {
+  return `${now.toLocaleDateString("es", DATE_SAID)}, ${now.toLocaleTimeString("es", TIME)}`;
+}
+
 /** Wi-Fi in words, or nothing without it. */
 export function wifiLabel(network: ShellNetwork | undefined): string | undefined {
   if (!network || network.wifi === "unavailable") return undefined;

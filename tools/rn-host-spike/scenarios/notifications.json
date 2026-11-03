@@ -407,7 +407,10 @@
           "shell": [
             {
               "role": "Button",
-              "name": "Centro de notificaciones"
+              "name": "{clock}",
+              "state": [
+                "expanded"
+              ]
             },
             {
               "role": "List",

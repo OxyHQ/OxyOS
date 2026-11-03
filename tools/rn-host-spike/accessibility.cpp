@@ -277,6 +277,7 @@ uint8_t protocolRole(const std::string& role) {
       {"navigation", OXYOS_ROLE_GROUP},
       {"combobox", OXYOS_ROLE_COMBO_BOX},    {"summary", OXYOS_ROLE_SUMMARY},
       {"grid", OXYOS_ROLE_GRID},             {"columnheader", OXYOS_ROLE_COLUMN_HEADER},
+      {"meter", OXYOS_ROLE_METER},
   };
   auto it = roles.find(role);
   return it == roles.end() ? OXYOS_ROLE_GENERIC : it->second;

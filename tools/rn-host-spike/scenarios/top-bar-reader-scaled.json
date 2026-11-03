@@ -1,0 +1,785 @@
+{
+ "about": "The top bar's status items with the screen reader on in Spanish and the keyboard alone (docs/adr/0039-keyboard-access.mdx), over a played NetworkManager: Allo (sample/NotificationProbe.tsx) with the shell, one notification posted. Super+F8 and → go along the network's item, the search, Control Center's item and the clock, each said once: the network's item named Wi-Fi with the network joined as its value, the clock by the date and time it shows in whole words with the Notification Center as its hint, and each item that opens a panel collapsed; the battery, which opens nothing, is a level indicator the reader's cursor reaches with its charge as its value. Space opens each one's panel on its first control, the item expanded (Control Center a dialog, not a menu; the Notification Center on its first control as Control Center is), and Escape closes it, the keyboard back on the item, collapsed and said again. At 1.25 (1600 × 1000).",
+ "module": "NotificationProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Avisar posts a notification: its banner said politely, once",
+   "do": [
+    "press",
+    [
+     53,
+     41
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Allo. Ana. ¿Comemos juntos?"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Allo. Ana. ¿Comemos juntos?",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "The banner goes on its own; the status items as the reader holds them",
+   "do": [
+    "wait",
+    7000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Wi-Fi",
+       "value": "LukeSkyRouter",
+       "state": [
+        "collapsed"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "collapsed"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "{clock}",
+       "hint": "Abre el centro de notificaciones",
+       "state": [
+        "collapsed"
+       ]
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %, 3 h 20 min restantes"
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Centro de notificaciones",
+       "role": "Button"
+      },
+      {
+       "role": "Generic",
+       "name": "Batería: 64 %, 3 h 20 min restantes"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Super+F8: the network's item, named Wi-Fi, the network joined its value, its menu closed, said once",
+   "do": [
+    "key",
+    [
+     125,
+     66
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Wi-Fi",
+       "value": "LukeSkyRouter",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the search, said once",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Buscar aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ Control Center's item, its panel closed, said once",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the clock, named by the date and time it shows in whole words, closed, then what it opens as its hint",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-clock",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "{clock}",
+       "hint": "Abre el centro de notificaciones",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "{clock}, contraído, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Abre el centro de notificaciones",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ round to the network's item",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: the reader's cursor on the battery, a level indicator with its charge as its value; the keyboard stays",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Batería, 64 %, 3 h 20 min restantes, indicador de nivel",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: back on the network's item",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Control Center at Wi-Fi's view, a dialog, on its first control: the network's item expanded",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "wifi-back",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Wi-Fi",
+       "value": "LukeSkyRouter",
+       "state": [
+        "expanded"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "expanded"
+       ]
+      },
+      {
+       "role": "Dialog",
+       "name": "Centro de control"
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Menu"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Volver al centro de control, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes it: the keyboard back on the network's item, collapsed, said once",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Wi-Fi",
+       "value": "LukeSkyRouter",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "collapsed"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Centro de control"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the search",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Buscar aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ Control Center's item",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Control Center at its modules on its first control: its item expanded, the network's not",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "expanded"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Wi-Fi",
+       "value": "LukeSkyRouter",
+       "state": [
+        "collapsed"
+       ]
+      },
+      {
+       "role": "Dialog",
+       "name": "Centro de control"
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Menu"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes it: back on its item, collapsed",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the clock",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-clock",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "{clock}, contraído, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Abre el centro de notificaciones",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens the Notification Center on its first control: the clock expanded",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "notification-clear-so.oxy.allo",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "{clock}",
+       "hint": "Abre el centro de notificaciones",
+       "state": [
+        "expanded"
+       ]
+      },
+      {
+       "role": "List",
+       "name": "Centro de notificaciones"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Borrar las notificaciones de Allo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes it: back on the clock, collapsed",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-clock",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "{clock}",
+       "hint": "Abre el centro de notificaciones",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "Centro de notificaciones"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "{clock}, contraído, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Abre el centro de notificaciones",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape leaves the status items: Allo has the keyboard back",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "at_absent": {
+     "shell": [
+      {
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

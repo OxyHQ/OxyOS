@@ -1,0 +1,955 @@
+{
+ "about": "Control Center's modules with the screen reader on in Spanish and the keyboard alone (docs/adr/0039-keyboard-access.mdx, ADR 0025), over a played NetworkManager: Allo (sample/EditingProbe.tsx) with the shell. Control Center is a dialog named by it, not a menu. Each module is said once, as VoiceOver says a Mac's: a switch by its title and state, its title and status never read again after it as text (Wi-Fi, Dark Mode, Do Not Disturb); Wi-Fi's networks with the network joined as their value, and \"Desactivada\" once Wi-Fi is off; Bluetooth, which only says, one element; the battery a level indicator with its charge as its value. The reader's cursor goes from each module to the next with nothing between them; Space says a switch's new state once; Escape gives its item the keyboard back, collapsed. At 1 (1280 × 720).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F8: the network's item",
+   "do": [
+    "key",
+    [
+     125,
+     66
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ the search",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Buscar aplicaciones, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ Control Center's item",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens Control Center, a dialog named by it holding no menu, on Wi-Fi's switch, said once: no module's title or status is a second element",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Centro de control"
+      },
+      {
+       "role": "Switch",
+       "name": "Wi-Fi",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Redes Wi-Fi",
+       "value": "LukeSkyRouter"
+      },
+      {
+       "role": "Generic",
+       "name": "Bluetooth",
+       "value": "1 dispositivo"
+      },
+      {
+       "role": "Switch",
+       "name": "Modo oscuro",
+       "state": []
+      },
+      {
+       "role": "Meter",
+       "name": "Batería",
+       "value": "64 %, 3 h 20 min restantes"
+      },
+      {
+       "role": "Switch",
+       "name": "No molestar",
+       "state": []
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Text",
+       "name": "Wi-Fi"
+      },
+      {
+       "role": "Text",
+       "name": "LukeSkyRouter"
+      },
+      {
+       "role": "Text",
+       "name": "Modo oscuro"
+      },
+      {
+       "role": "Text",
+       "name": "Desactivado"
+      },
+      {
+       "role": "Text",
+       "name": "Activado"
+      },
+      {
+       "role": "Text",
+       "name": "No molestar"
+      },
+      {
+       "role": "Text",
+       "name": "Bluetooth"
+      },
+      {
+       "role": "Text",
+       "name": "1 dispositivo"
+      },
+      {
+       "role": "Text",
+       "name": "Batería"
+      },
+      {
+       "role": "Menu"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Wi-Fi's networks, the network joined as its value",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi-more",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Redes Wi-Fi, LukeSkyRouter, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Dark Mode, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Modo oscuro, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: the reader's cursor on Bluetooth, which only says, its title and status one element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Bluetooth, 1 dispositivo",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: Wi-Fi's networks",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Redes Wi-Fi, LukeSkyRouter, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: Wi-Fi's switch, nothing between them",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Wi-Fi's networks",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Redes Wi-Fi, LukeSkyRouter, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Bluetooth",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Bluetooth, 1 dispositivo",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Dark Mode",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Modo oscuro, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the display's level next, Dark Mode's title and status never read after its switch",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Pantalla, 75 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space turns Dark Mode on: its new state said once",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Switch",
+       "name": "Modo oscuro",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "activado",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "dark": true
+    }
+   }
+  },
+  {
+   "name": "Space turns it off again",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "desactivado",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "dark": false
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: Wi-Fi's networks",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi-more",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Redes Wi-Fi, LukeSkyRouter, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: Wi-Fi's switch",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space turns Wi-Fi off: its new state said once, the daemon's Wi-Fi off",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "desactivado",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "network": {
+     "wifi_enabled": false
+    }
+   }
+  },
+  {
+   "name": "Tab: Wi-Fi's networks say Wi-Fi is off",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-wifi-more",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Redes Wi-Fi",
+       "value": "Desactivada"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Redes Wi-Fi, Desactivada, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Dark Mode",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-appearance",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Modo oscuro, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the display's level",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-display",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Pantalla, 75 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the sound's mute",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-output-mute",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Silenciar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the sound's level",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-output",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Sonido, 50 %, regulador",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Do Not Disturb, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-do-not-disturb",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "No molestar, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: the battery, a level indicator with its charge as its value",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-do-not-disturb",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Batería, 64 %, 3 h 20 min restantes, indicador de nivel",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Do Not Disturb",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-do-not-disturb",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "No molestar, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Settings next, Do Not Disturb's title and status never read after its switch",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "control-do-not-disturb",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Ajustes del sistema…, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes Control Center: the keyboard back on its item, collapsed",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "shell-control-center",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Centro de control",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Centro de control"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Centro de control, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}
