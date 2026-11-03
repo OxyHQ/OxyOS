@@ -11,9 +11,9 @@ use super::text_input::{TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS
 use super::{ClientId, Role, Scene, SurfaceKey};
 use crate::placement::{anchor_point, place};
 use oxyos_protocol::{
-    Adjust, Anchor, ErrorCode, Event, Gravity, Positioner, PreeditStyle, PreeditText, Request,
-    Size, TextChunk, TextHints, TextPurpose, MAX_CANDIDATES_AUX_BYTES, MAX_CANDIDATE_BYTES,
-    MAX_INPUT_CANDIDATES, MAX_SURROUNDING_BYTES, NO_CANDIDATE,
+    Adjust, Anchor, ErrorCode, Event, Gravity, Positioner, PreeditStyle, PreeditText, Rect,
+    Request, Size, TextChunk, TextHints, TextPurpose, MAX_CANDIDATES_AUX_BYTES,
+    MAX_CANDIDATE_BYTES, MAX_INPUT_CANDIDATES, MAX_SURROUNDING_BYTES, NO_CANDIDATE,
 };
 use std::collections::VecDeque;
 
@@ -362,6 +362,27 @@ impl Scene {
     /// The input-source shortcuts pressed since the last call (ADR 0041), in order.
     pub fn take_input_source_shortcuts(&mut self) -> Vec<super::InputSourceShortcut> {
         std::mem::take(&mut self.input_source_shortcuts)
+    }
+
+    /// The candidates surfaces shown, and where: the input method's own, or the shell's drawing
+    /// the candidates handed to the system (ADR 0041).
+    pub fn shown_candidates(&self) -> Vec<(SurfaceKey, Rect)> {
+        let im = self.input_method.as_ref().and_then(|im| {
+            im.candidates.map(|id| SurfaceKey {
+                client: im.client,
+                id,
+            })
+        });
+        self.shell_candidates
+            .iter()
+            .map(|(client, id)| SurfaceKey {
+                client: *client,
+                id: *id,
+            })
+            .chain(im)
+            .filter(|key| self.visible(*key))
+            .filter_map(|key| Some((key, self.global_rect(key)?)))
+            .collect()
     }
 
     /// Whether an input method is connected (the session's frontend connects only while an input

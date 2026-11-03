@@ -706,13 +706,8 @@ impl Session {
             return;
         };
         let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
-        let kept = self.settings.preferences();
-        input_sources.serve(
-            &mut self.compositor.scene,
-            &clients,
-            &kept.input_sources,
-            kept.input_source.as_deref(),
-        );
+        let now = oxyos_compositor::settings::now();
+        input_sources.serve(&mut self.compositor, &mut self.settings, &clients, now);
     }
 
     /// The changes Settings asked for, kept as the session keeps them. The screen reader is the

@@ -52,8 +52,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   compositor delivered it, and "shell_drags" the drag events the shell's surfaces received;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
-  they leave on the primary and "work_areas" on every output (by id), exactly, and whether the
-  session is "locked" (ADR 0010);
+  they leave on the primary and "work_areas" on every output (by id), exactly, whether the
+  session is "locked" (ADR 0010), and "candidates", where the compositor shows the shell's
+  candidate window (ADR 0041: [x, y, width, height] on the output, or null while hidden);
 - at / at_absent: nodes the session's assistive technology holds (or must not), as it received
   the trees (ADR 0003): by "window", "shell" (the shell's surfaces, the lock screen's among
   them), "launched" (the applications the session launched, docs/adr/0039-keyboard-access.mdx)
@@ -210,7 +211,14 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
   end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
-  and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
+  and the keys it received in the step (active, purpose, text, cursor, keys, given_back,
+  composing...); with `im_candidates`, the page of candidates it hands the system ("candidates":
+  {page, highlighted, list}, null while none) and the shell's presses in the step ("chosen": the
+  candidates' indices, "turned": each page asked for, forward or not);
+- input_sources: with the scenario's `input_sources` (below), the source in effect once the step
+  settled ("current"), the sources chosen in the step ("selected", in order: the shell's top bar's
+  `selectInputSource`) and the emoji pickers asked for ("emoji", `showEmoji`), each key given
+  matching;
 - latency_ms: budget from injecting the input to the first changed frame;
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
@@ -283,7 +291,11 @@ steps type through it as the seat's keyboard does.
 A scenario with `input_method` runs with an input method the session plays: `keyboard` steps type
 through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
-before.
+before. With `im_candidates` ("horizontal" or "vertical") it also hands the system candidates for
+what it composes (ADR 0041: twelve, five a page, which the session's shell draws at the caret):
+`strokes` keys reach it as the keymap types them, the arrows moving the highlight along the list
+and turning the page across it, a digit choosing that candidate of the page, Space the highlighted
+one, Escape cancelling; the shell's presses choose one or turn the page.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
 `press_secondary_named` and `move_named` (a name) and `hold_named` ([name, ms]) are the output's
@@ -357,7 +369,8 @@ the `final` one once the run ended.
 A scenario with `input_sources` ({"available": [METHOD]}) has the development compositor tell
 Settings and the shell the input sources as the session does (docs/adr/0041-input-methods.mdx,
 decision 6), from the run's preferences and its `layout`, its engine having the input methods named
-(an empty list: none installed).
+(an empty list: none installed). It answers the shell's top bar as the session does: a source chosen
+is kept as the `input_source` preference, and the emoji picker asked for is counted.
 
 A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
@@ -2667,6 +2680,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: im.get(k) for k, v in wanted.items() if im.get(k) != v}
         if differing:
             fail(f"the input method has {differing}, expected {wanted}")
+    if "input_sources" in expect:
+        held, wanted = result.get("input_sources") or {}, expect["input_sources"]
+        differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
+        if differing:
+            fail(f"the input sources have {differing}, expected {wanted}")
     if "field" in expect:
         field, wanted = result.get("field"), expect["field"]
         if wanted is None or field is None:
@@ -3353,6 +3371,10 @@ def main():
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
+        if scenario.get("im_candidates"):
+            # It hands the system candidates for what it composes, laid out "horizontal" or
+            # "vertical", which the session's shell draws at the caret (ADR 0041).
+            command += ["--im-candidates", scenario["im_candidates"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
