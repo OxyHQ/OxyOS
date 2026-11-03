@@ -52,12 +52,7 @@ impl Scene {
     fn apply(&mut self, before: BTreeSet<SurfaceKey>) {
         let now = self.shown_windows();
         for &gone in before.difference(&now) {
-            let children = self.nodes[&gone].children.clone();
-            for child in children {
-                if self.nodes[&child].is_popup() && !self.nodes[&child].dismissed {
-                    self.dismiss(child, DismissReason::ParentHidden);
-                }
-            }
+            self.dismiss_group_popups(gone, DismissReason::ParentHidden);
             self.detach_input(gone);
             if self.focus.is_some_and(|f| self.root_of(f) == gone) {
                 self.set_focus(None);
