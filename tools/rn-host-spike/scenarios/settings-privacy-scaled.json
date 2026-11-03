@@ -76,12 +76,11 @@
       }
     },
     {
-      "name": "Super+Space opens Launchpad",
+      "name": "Super alone opens Launchpad",
       "do": [
         "key",
         [
-          125,
-          57
+          125
         ]
       ],
       "allow_unchanged": true,
