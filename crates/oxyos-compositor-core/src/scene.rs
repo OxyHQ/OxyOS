@@ -2681,6 +2681,11 @@ impl Scene {
     /// The session's keyboard layout, `layout\tvariant\toptions` as XKB names them: told to
     /// every client now and to each that connects (ADR 0029). A layout too long to tell is
     /// refused.
+    /// The session's keyboard layout as told (`layout\tvariant\toptions`), if one was.
+    pub fn keyboard_layout(&self) -> Option<&str> {
+        self.keyboard_layout.as_deref()
+    }
+
     pub fn set_keyboard_layout(&mut self, layout: &str) -> Result<(), ErrorCode> {
         if layout.is_empty() || layout.len() > oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES {
             return Err(ErrorCode::QuotaExceeded);

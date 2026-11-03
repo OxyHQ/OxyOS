@@ -22,6 +22,8 @@ oxyos-preferences = { path = "../oxyos-preferences" }
 oxyos-solar = { path = "../oxyos-solar" }
 oxyos-auth = { path = "../oxyos-auth" }
 oxyos-controls = { path = "../oxyos-controls" }
+# The input-method engine and the session as its frontend (ADR 0041).
+oxyos-input-methods = { path = "../oxyos-input-methods" }
 # The install service, for the store's, Settings' and applications' requests (ADR 0030).
 oxyos-install = { path = "../oxyos-install" }
 # What a file chooser's answer may name, by the rule applications' files follow (ADR 0029,

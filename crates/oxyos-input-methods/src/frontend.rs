@@ -303,6 +303,18 @@ struct Running {
     _processes: Processes,
     connection: Connection,
     context: OwnedObjectPath,
+    /// The thread reading the bus, which ends once the connection is closed.
+    reader: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Running {
+    /// The connection closed and its reader waited for, before the engine's processes stop.
+    fn drop(&mut self) {
+        let _ = self.connection.clone().close();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
 }
 
 struct Worker {
@@ -485,7 +497,7 @@ impl Worker {
         // Every message the bus delivers goes through the worker's queue, in order.
         let feed = self.feed.clone();
         let reading = connection.clone();
-        std::thread::Builder::new()
+        let reader = std::thread::Builder::new()
             .name("oxyos-input-methods-bus".into())
             .spawn(move || {
                 for message in zbus::blocking::MessageIterator::from(&reading) {
@@ -500,6 +512,7 @@ impl Worker {
             _processes: processes,
             connection,
             context: OwnedObjectPath::default(),
+            reader: Some(reader),
         };
         let reply = self.call(
             &running,

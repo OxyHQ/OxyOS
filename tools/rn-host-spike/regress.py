@@ -255,6 +255,11 @@ for, and the devices type with it. A `commit` step is an input method's committe
 no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
 method's whole change (ADR 0008).
 
+A scenario with `input_methods` runs the session's input methods (ADR 0041): the real engine
+(fcitx5 and its engines, `tools/input-methods/build.sh`, given with `--input-methods PREFIX` or
+`OXYOS_INPUT_METHODS`), with the scenario's `preferences` choosing the input sources; `strokes`
+steps type through it as the seat's keyboard does.
+
 A scenario with `input_method` runs with an input method the session plays: `keyboard` steps type
 through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
@@ -2998,6 +3003,9 @@ def main():
     parser.add_argument("--client", default=None,
                         help="the native OxyOS client a scenario with `client` runs instead of the Bloom host")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--input-methods", default=None,
+                        help="the input-method engine a scenario with `input_methods` runs (ADR 0041), "
+                             "else OXYOS_INPUT_METHODS")
     parser.add_argument("--reader", default=None,
                         help="the screen reader for scenarios with `reader` (oxyos-reader beside --offscreen)")
     parser.add_argument("--seat", action="store_true",
@@ -3159,6 +3167,14 @@ def main():
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
+    if scenario.get("input_methods"):
+        # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
+        # by tools/input-methods/build.sh, run as the session runs it.
+        prefix = options.input_methods or os.environ.get("OXYOS_INPUT_METHODS")
+        if not prefix:
+            raise SystemExit(f"{options.scenario}: needs the input-method engine "
+                             "(--input-methods PREFIX or OXYOS_INPUT_METHODS; tools/input-methods/build.sh)")
+        command += ["--input-methods", prefix]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:

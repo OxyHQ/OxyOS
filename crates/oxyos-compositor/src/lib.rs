@@ -36,6 +36,7 @@ pub use gpu_buffers::GpuFrame;
 pub mod choosers;
 pub mod displays;
 pub mod idle;
+pub mod input_methods;
 pub mod installs;
 pub mod login;
 pub mod motion;
@@ -3067,6 +3068,14 @@ impl Compositor {
             // What it makes reaches the clients with when its device registered it.
             self.scene.set_input_time(time_ns);
             self.apply_input(action);
+        }
+    }
+
+    /// Whether the seat keyboard composes dead keys and compose sequences itself, or leaves them
+    /// to the input method current (docs/adr/0041-input-methods.mdx).
+    pub fn set_composing(&mut self, on: bool) {
+        if let Some(input) = self.input.as_mut() {
+            input.set_composing(on);
         }
     }
 

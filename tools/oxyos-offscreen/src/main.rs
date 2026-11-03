@@ -146,6 +146,10 @@ struct Session {
     networks: Option<oxyos_compositor::networks::Networks>,
     networks_waker: Option<std::os::fd::RawFd>,
     network_control: Option<zbus::blocking::Connection>,
+    /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
+    /// waker among the compositor's.
+    input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
+    input_methods_waker: Option<std::os::fd::RawFd>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -206,6 +210,11 @@ impl Session {
         let socket = directory.join("s");
         let listener = Listener::bind(&socket)?;
         listener.set_nonblocking(true)?;
+        // zbus's reactor (async-io's driver thread, its epoll, eventfd and timerfd) is the
+        // process's, made at the first D-Bus connection and never closed: running before the
+        // count, as it is in a session, so the count is of what the session opens and closes
+        // (the networks', the input methods' connections).
+        zbus::block_on(async_io::Timer::after(std::time::Duration::from_millis(1)));
         let baseline_fds = open_descriptors()?;
 
         let own_uid = fs::metadata(&directory).map(|m| std::os::unix::fs::MetadataExt::uid(&m))?;
@@ -250,6 +259,8 @@ impl Session {
             controls: None,
             networks: None,
             networks_waker: None,
+            input_methods: None,
+            input_methods_waker: None,
             network_control: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
@@ -457,6 +468,11 @@ impl Session {
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.serve(&mut self.compositor.scene);
+        }
+        // Input sources and the engine (ADR 0041), before the store takes the requests left.
+        if let Some(methods) = self.input_methods.as_mut() {
+            let now = oxyos_compositor::settings::now();
+            methods.serve(&mut self.compositor, &mut self.settings, now);
         }
         // Wi-Fi and networks (ADR 0038), before the store takes the requests that are its own;
         // a change of the daemon's has the top bar look again.
@@ -675,6 +691,17 @@ impl Session {
         let now = oxyos_compositor::settings::now();
         for key in self.settings.serve(&mut self.compositor, now) {
             eprintln!("[preferences] {key} changed");
+            if let Some(methods) = self.input_methods.as_mut() {
+                match key.as_str() {
+                    "input_sources" | "input_source" => {
+                        methods.follow_preferences(self.settings.preferences())
+                    }
+                    "language" => methods.set_language(
+                        oxyos_compositor::input_methods::language_of(&self.settings.locale()),
+                    ),
+                    _ => {}
+                }
+            }
         }
         // And the displays' (ADR 0018), with `--displays`.
         if let Some((displays, heads)) = self.displays.as_mut() {
@@ -693,6 +720,10 @@ impl Session {
         let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
         for client in clients {
             self.compositor.disconnect(client);
+        }
+        // The session's input method, a client of the scene in this process (ADR 0041).
+        if let Some(methods) = self.input_methods.as_mut() {
+            methods.end(&mut self.compositor);
         }
         // Applications the shell launched end with the session, as their connections did.
         if let Some(launcher) = self.launcher.as_mut() {
@@ -717,6 +748,12 @@ impl Session {
             controls.close_network_bus();
         }
         if let Some(waker) = self.networks_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // The input methods' engine stopped, its thread waited for and its waker given back.
+        self.input_methods = None;
+        if let Some(waker) = self.input_methods_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }

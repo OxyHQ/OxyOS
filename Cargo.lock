@@ -1705,6 +1705,7 @@ dependencies = [
  "oxyos-gpu",
  "oxyos-gpu-device",
  "oxyos-input",
+ "oxyos-input-methods",
  "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
@@ -1826,6 +1827,7 @@ dependencies = [
 name = "oxyos-input-methods"
 version = "0.1.0"
 dependencies = [
+ "async-io",
  "serde",
  "zbus",
 ]
@@ -1947,6 +1949,7 @@ dependencies = [
 name = "oxyos-offscreen"
 version = "0.1.0"
 dependencies = [
+ "async-io",
  "evdev",
  "oxyos-apps",
  "oxyos-auth",
@@ -1957,6 +1960,7 @@ dependencies = [
  "oxyos-files",
  "oxyos-gpu",
  "oxyos-input",
+ "oxyos-input-methods",
  "oxyos-ipc",
  "oxyos-kms",
  "oxyos-protocol",

@@ -13,3 +13,7 @@ serde = "1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# zbus's reactor started before a test counts descriptors.
+async-io = "2"

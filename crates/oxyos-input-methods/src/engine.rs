@@ -176,11 +176,16 @@ EnableQuickPhraseEmoji=True
 EnableHintByDefault=False
 ";
 
-/// Pinyin: nine candidates to a page, as the global, no cloud pinyin, no spelling.
+/// Pinyin: nine candidates to a page, as the global, no cloud pinyin, no spelling; switching
+/// input sources while composing commits the composition as it is, as a Mac does; the caret in
+/// the composition where it was typed, the composition underlined (not highlighted as a clause
+/// being converted).
 const PINYIN_CONFIG: &str = "\
 PageSize=9
 CloudPinyinEnabled=False
 SpellEnabled=False
+SwitchInputMethodBehavior=Commit current preedit
+PreeditCursorPositionAtBeginning=False
 ";
 
 /// The input methods fcitx5 has, in order: the keyboard layout's first (and the one emoji is

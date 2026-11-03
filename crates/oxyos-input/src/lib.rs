@@ -667,6 +667,12 @@ pub struct Input {
 }
 
 impl Input {
+    /// Whether the seat keyboard's dead keys and compose sequences compose (see
+    /// [`Keyboard::set_composing`]).
+    pub fn set_composing(&mut self, on: bool) {
+        self.keyboard.set_composing(on);
+    }
+
     /// Opens seat0's devices (hotplugged ones too) for an output of `bounds` logical pixels; the
     /// pointer starts at its centre.
     pub fn open(bounds: (u32, u32), layout: &Layout) -> io::Result<Self> {

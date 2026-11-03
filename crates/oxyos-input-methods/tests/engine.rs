@@ -179,3 +179,31 @@ fn anthy_turns_romaji_into_kana_and_kana_into_kanji() {
     let change = typing.type_text("\n");
     assert_eq!(change.commit, "日本語");
 }
+
+fn descriptors() -> Vec<String> {
+    let mut open: Vec<String> = std::fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok())
+        .map(|target| target.display().to_string())
+        .filter(|target| !target.starts_with("/proc/"))
+        .collect();
+    open.sort();
+    open
+}
+
+#[test]
+fn the_service_leaves_no_descriptor_open_once_dropped() {
+    let Some(engine) = engine() else { return };
+    // zbus's reactor (async-io's driver, its epoll, eventfd and timerfd) is the process's, made
+    // at its first use and never closed: running before the count, as in a session.
+    zbus::block_on(async_io::Timer::after(Duration::from_millis(1)));
+    let before = descriptors();
+    let typing = Typing::start(engine, "descriptors", "pinyin");
+    drop(typing);
+    // A socket closed is let go on zbus's own thread a moment later.
+    let start = Instant::now();
+    while descriptors().len() > before.len() && start.elapsed() < Duration::from_secs(2) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(descriptors(), before);
+}
