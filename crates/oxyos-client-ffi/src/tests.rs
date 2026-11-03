@@ -2442,19 +2442,15 @@ fn intl_through_the_c_abi() {
     assert_eq!(unsafe { oxyos_intl_set_default_locale(tag, tag_length) }, 0);
     let (bad, bad_length) = text("en_US");
     // SAFETY: as above.
-    assert_eq!(
-        unsafe { oxyos_intl_set_default_locale(bad, bad_length) },
-        -1
-    );
+    let refused = unsafe { oxyos_intl_set_default_locale(bad, bad_length) };
+    assert_eq!(refused, -1);
     assert_eq!(
         last_error(),
         "Incorrect locale information provided: \"en_US\""
     );
     // SAFETY: an empty tag, NULL with 0.
-    assert_eq!(
-        unsafe { oxyos_intl_set_default_locale(std::ptr::null(), 0) },
-        0
-    );
+    let unset = unsafe { oxyos_intl_set_default_locale(std::ptr::null(), 0) };
+    assert_eq!(unset, 0);
     // SAFETY: as above.
     let default = intl(|out, capacity| unsafe { oxyos_intl_default_locale(out, capacity) });
     assert_eq!(default, system);
