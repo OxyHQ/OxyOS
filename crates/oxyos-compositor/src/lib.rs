@@ -36,6 +36,7 @@ pub use gpu_buffers::GpuFrame;
 pub mod choosers;
 pub mod displays;
 pub mod idle;
+pub mod input_methods;
 pub mod installs;
 pub mod login;
 pub mod motion;
@@ -492,6 +493,9 @@ pub struct Compositor {
     pub frames: usize,
     /// Input events routed to clients, kept while `log_input` is set: (client, surface, kind).
     pub input_log: Vec<(ClientId, u32, &'static str)>,
+    /// The parts of the text-input transactions routed to clients (ADR 0008), kept while
+    /// `log_input` is set: what a development compositor's step says a field was given.
+    pub text_input_log: Vec<(ClientId, Event)>,
     pub log_input: bool,
     /// Clients of the scene with no connection, played by the program running the compositor
     /// (a development compositor's assistive technology or input method): their events are kept
@@ -959,6 +963,7 @@ impl Compositor {
             shadows: window::Shadows::new(0),
             frames: 0,
             input_log: Vec::new(),
+            text_input_log: Vec::new(),
             log_input: false,
             local_clients: Default::default(),
             local_events: Vec::new(),
@@ -1435,6 +1440,17 @@ impl Compositor {
             if self.log_input {
                 if let Some((surface, kind)) = input_kind(&event) {
                     self.input_log.push((client, surface, kind));
+                }
+                if matches!(
+                    event,
+                    Event::TextInputDelete { .. }
+                        | Event::TextInputCommitText { .. }
+                        | Event::TextInputPreeditText { .. }
+                        | Event::TextInputPreeditCursor { .. }
+                        | Event::TextInputPreeditSegment { .. }
+                        | Event::TextInputDone { .. }
+                ) {
+                    self.text_input_log.push((client, event));
                 }
             }
             if self.local_clients.contains(&client) {
@@ -3070,6 +3086,14 @@ impl Compositor {
         }
     }
 
+    /// Whether the seat keyboard composes dead keys and compose sequences itself, or leaves them
+    /// to the input method current (docs/adr/0041-input-methods.mdx).
+    pub fn set_composing(&mut self, on: bool) {
+        if let Some(input) = self.input.as_mut() {
+            input.set_composing(on);
+        }
+    }
+
     /// Applies what an input device did to the scene, as the seat's devices do it: the
     /// development compositor also types a keymap's keys through here (`Keyboard::actions`).
     pub fn apply_input(&mut self, action: oxyos_input::Action) {
@@ -3140,9 +3164,14 @@ impl Compositor {
                 pressed,
                 text,
                 repeats,
-            } => self
-                .scene
-                .keyboard_repeating(code, pressed, text.as_deref(), repeats),
+                keysym,
+                modifiers,
+            } => {
+                self.scene
+                    .set_key_symbol(oxyos_compositor_core::KeySymbol { keysym, modifiers });
+                self.scene
+                    .keyboard_repeating(code, pressed, text.as_deref(), repeats)
+            }
             oxyos_input::Action::Terminate => self.ending = true,
             oxyos_input::Action::Lock => self.scene.lock(),
             oxyos_input::Action::ToggleReader => self.reader_toggled = true,

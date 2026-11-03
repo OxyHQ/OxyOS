@@ -87,10 +87,11 @@ pub struct Grants {
 
 impl Grants {
     /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
-    /// the store, updates, privacy and networks, and the shell (Control Center's Wi-Fi, the
-    /// password sheet's answer). What each may ask is the program's to decide.
+    /// the store, updates, privacy and networks, the shell (Control Center's Wi-Fi, the password
+    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
+    /// may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
-        self.store || self.updates || self.privacy || self.network || self.shell
+        self.store || self.updates || self.privacy || self.network || self.shell || self.settings
     }
 }
 
@@ -488,6 +489,14 @@ pub struct Scene {
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
     /// The input method, if one is connected.
     input_method: Option<input_method::InputMethod>,
+    /// The keymap's symbol for the key being handled (ADR 0041), told to the input method.
+    key_symbol: input_method::KeySymbol,
+    /// Each shell's candidates surface, where it draws the candidates an input method hands the
+    /// system, and the shell drawing them now with the list it was told (ADR 0041).
+    shell_candidates: BTreeMap<ClientId, u32>,
+    candidates_told: Option<(ClientId, input_method::CandidateList)>,
+    /// The input-source shortcuts pressed (ADR 0041), for the program running the compositor.
+    input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
     shell_windows: shell::ShellWindows,
@@ -1134,6 +1143,7 @@ impl Scene {
         }
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
+        self.forget_candidates_shell(client);
         self.forget_shell_client(client);
         self.forget_switcher(client);
         self.forget_capture_shell(client);
@@ -1745,7 +1755,13 @@ impl Scene {
             | Request::InputMethodPreeditText { .. }
             | Request::InputMethodPreeditCursor { .. }
             | Request::InputMethodPreeditSegment { .. }
+            | Request::InputMethodCandidate { .. }
+            | Request::InputMethodCandidatesAux { .. }
+            | Request::InputMethodCandidates { .. }
             | Request::InputMethodCommit { .. } => self.input_method_request(client, request),
+            Request::ChooseInputCandidate { .. } | Request::TurnInputCandidatesPage { .. } => {
+                self.candidates_request(client, request)
+            }
             Request::Damage { surface, rect } => {
                 let node = self
                     .nodes
@@ -2665,6 +2681,11 @@ impl Scene {
     /// The session's keyboard layout, `layout\tvariant\toptions` as XKB names them: told to
     /// every client now and to each that connects (ADR 0029). A layout too long to tell is
     /// refused.
+    /// The session's keyboard layout as told (`layout\tvariant\toptions`), if one was.
+    pub fn keyboard_layout(&self) -> Option<&str> {
+        self.keyboard_layout.as_deref()
+    }
+
     pub fn set_keyboard_layout(&mut self, layout: &str) -> Result<(), ErrorCode> {
         if layout.is_empty() || layout.len() > oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES {
             return Err(ErrorCode::QuotaExceeded);
@@ -3996,6 +4017,7 @@ impl Scene {
     }
 
     pub fn pointer_button(&mut self, button: u32, pressed: bool) {
+        self.not_super_alone();
         self.user_input();
         let serial = self.next_serial();
         if self.dragging() {
@@ -4124,6 +4146,7 @@ impl Scene {
     /// until its `stop` (the fingers lifted), which reaches it too, so the application that
     /// scrolled hears the scroll end; a wheel's notches each go to the surface under the pointer.
     pub fn pointer_scroll(&mut self, dx: i32, dy: i32, source: ScrollSource, stop: bool) {
+        self.not_super_alone();
         self.user_input();
         let target = if source == ScrollSource::Wheel {
             self.pointer_target()
@@ -4257,6 +4280,7 @@ impl Scene {
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.end_repeat_for(key, pressed);
         self.user_input();
+        self.key_with_super(key, pressed);
         self.hold_modifier(key, pressed);
         if self.drag_key(key, pressed) {
             return;
@@ -4713,7 +4737,8 @@ pub use accessibility::AccessibleNode;
 mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 mod input_method;
-pub use input_method::MAX_PENDING_KEYS;
+pub use input_method::{KeySymbol, MAX_PENDING_KEYS};
+pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;

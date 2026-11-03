@@ -169,6 +169,15 @@ impl Scene {
         taken
     }
 
+    /// The clients the input sources are told to (ADR 0041): the shell and Settings.
+    pub fn input_source_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.shell || grants.settings)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// The clients the network's state is told to (ADR 0038): those holding `network`, and the
     /// shell.
     pub fn network_watchers(&self) -> Vec<ClientId> {

@@ -511,10 +511,11 @@ fn the_switcher_is_the_shells_while_super_is_held() {
         input_to(&events, SHELL).is_empty(),
         "the shell gets commands, not keys"
     );
-    // Super released with no switcher: nothing. Each shortcut's serial is the shell's input.
-    keys(&mut h, &[SUPER]);
+    // Super released after a chord: nothing. Super alone is the search (ADR 0041); each
+    // shortcut's serial is the shell's input.
+    keys(&mut h, &[SUPER, SHIFT]);
     assert!(shortcuts_to(&logged(&mut h), SHELL).is_empty());
-    keys(&mut h, &[SUPER, SPACE]);
+    keys(&mut h, &[SUPER]);
     let events = logged(&mut h);
     let serial = to(&events, SHELL)
         .iter()
@@ -602,7 +603,7 @@ fn shortcuts_go_to_the_shell_of_the_active_windows_output() {
     let window = h.toplevel(APP, 1, 400, 300);
     h.activate(window);
     logged(&mut h);
-    chord(&mut h, &[SPACE]);
+    keys(&mut h, &[SUPER]);
     let events = logged(&mut h);
     assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Search, 1)]);
     assert!(shortcuts_to(&events, SHELL_2).is_empty());
@@ -610,7 +611,7 @@ fn shortcuts_go_to_the_shell_of_the_active_windows_output() {
     h.scene.move_window_to(window, (2000, 100));
     h.present(window);
     logged(&mut h);
-    chord(&mut h, &[SPACE]);
+    keys(&mut h, &[SUPER]);
     chord(&mut h, &[TAB]);
     let events = logged(&mut h);
     assert!(shortcuts_to(&events, SHELL).is_empty());
@@ -630,7 +631,7 @@ fn shortcuts_go_to_the_shell_of_the_active_windows_output() {
             ..Grants::default()
         },
     );
-    chord(&mut h, &[SPACE]);
+    keys(&mut h, &[SUPER]);
     let events = logged(&mut h);
     assert!(shortcuts_to(&events, SHELL_2).is_empty());
     assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Search, 2)]);
@@ -708,7 +709,12 @@ fn the_input_method_never_sees_super_or_its_chords() {
     let events = logged(&mut h);
     assert_eq!(input_to(&events, IME), []);
     assert_eq!(input_to(&events, APP), []);
-    assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Search, 1)]);
+    // Super+Space is the program's input-source shortcut (ADR 0041), never the engine's key.
+    assert!(shortcuts_to(&events, SHELL).is_empty());
+    assert_eq!(
+        h.scene.take_input_source_shortcuts(),
+        [InputSourceShortcut::Previous { step: 1 }]
+    );
     // Without Super, the input method has the key first, as before.
     h.scene.keyboard(KEY_A, true, Some("a"));
     assert_eq!(input_to(&logged(&mut h), IME).len(), 1);
@@ -756,8 +762,8 @@ fn the_shell_focuses_its_own_surface_only_with_an_input_it_received() {
     )
     .unwrap();
     assert_eq!(h.scene.focus(), Some(window));
-    // With Super+Space's, it does: the launcher's search takes the keys.
-    chord(&mut h, &[SPACE]);
+    // With Super's, it does: the launcher's search takes the keys.
+    keys(&mut h, &[SUPER]);
     let serial = to(&logged(&mut h), SHELL)
         .iter()
         .find_map(|event| match event {

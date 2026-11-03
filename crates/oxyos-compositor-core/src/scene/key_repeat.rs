@@ -41,8 +41,10 @@ enum Route {
 #[derive(Debug)]
 struct Held {
     key: u32,
-    /// What its first press typed, which each repeat types again.
+    /// What its first press typed, which each repeat types again, and the keymap's symbol for it
+    /// (ADR 0041).
     text: Option<String>,
+    symbol: super::KeySymbol,
     route: Route,
     /// When it is next pressed again, on the scene's clock.
     next: Duration,
@@ -94,6 +96,7 @@ impl Scene {
         self.key_repeat.held = self.repeat_route(key).map(|route| Held {
             key,
             text: text.map(str::to_string),
+            symbol: self.key_symbol,
             route,
             next: self.clock + REPEAT_DELAY,
         });
@@ -116,6 +119,9 @@ impl Scene {
     /// key, the keymap's own), or the seat went to another session.
     pub fn stop_key_repeat(&mut self) {
         self.key_repeat.held = None;
+        // Nor is Super's release then the launcher's search (ADR 0041): Super+F5 turned the
+        // reader on, Ctrl+Super+Q locked.
+        self.not_super_alone();
     }
 
     /// The key repeating, if any (a Linux input code).
@@ -134,7 +140,8 @@ impl Scene {
         if self.clock < due {
             return;
         }
-        let (key, route, text) = (held.key, held.route, held.text.clone());
+        let (key, route, text, symbol) = (held.key, held.route, held.text.clone(), held.symbol);
+        self.key_symbol = symbol;
         if self.repeat_route(key) != Some(route) {
             self.key_repeat.held = None;
             return;
