@@ -435,7 +435,15 @@ impl Reader {
         if !self.order.contains(&key) {
             self.order.push(key);
         }
-        if let Some((surface, index)) = self.cursor {
+        // The cursor follows the element it was on, as the focus does (below): one going or coming
+        // before it moves it on, and its old place may hold the next element now, which a focus
+        // there would otherwise take for the one the cursor was left on and never say (Settings'
+        // Resolution choices, committed again a frame later with one node fewer before the rows;
+        // its Keep Changes sheet, whose last button the cursor is on). Only an element gone
+        // leaves the cursor where it was, on the last node if the tree is shorter now.
+        if let Some(moved) = self.followed_cursor(key, before.as_deref()) {
+            self.cursor = Some((key, moved));
+        } else if let Some((surface, index)) = self.cursor {
             let count = self.trees[&key].len();
             if surface == key && index >= count {
                 self.cursor = count.checked_sub(1).map(|last| (key, last));
@@ -446,13 +454,6 @@ impl Reader {
         // protocol's nodes have no identity but their place, and an element appearing before it
         // (a search field's clear button as the first letter is typed) moves it on.
         let kept = self.kept_focus(key, before.as_deref());
-        // The cursor follows the element it was on, as the focus does (below): one going or coming
-        // before it moves it on, and its old place may hold the next element now, which a focus
-        // there would otherwise take for the one the cursor was left on and never say (Settings'
-        // Resolution choices, committed again a frame later with one node fewer before the rows).
-        if let Some(moved) = self.followed_cursor(key, before.as_deref()) {
-            self.cursor = Some((key, moved));
-        }
         if let Some(kept) = kept {
             self.text_changes(key, before.as_deref(), kept);
             self.state_changes(key, before.as_deref(), kept);

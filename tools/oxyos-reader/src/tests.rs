@@ -278,6 +278,59 @@ fn the_cursor_follows_its_element_as_the_tree_changes_before_it() {
 }
 
 #[test]
+fn the_cursor_on_the_last_element_follows_it_as_the_tree_shrinks() {
+    // Settings' Keep Changes sheet: Revert, its last control, focused and said, then the sheet
+    // committed again with one node fewer before its buttons, then Shift+Tab on Keep Changes,
+    // which now stands where Revert stood a tree before. The cursor stays on Revert, so Keep
+    // Changes is a new focus, said.
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &tree(WINDOW, &[(R::Generic, 0, "", "")]));
+    let first = [
+        (R::Generic, 0, "", ""),
+        (R::Generic, 0, "", ""),
+        (
+            R::Dialog,
+            0,
+            "¿Mantener esta configuración de pantalla?",
+            "",
+        ),
+        (R::Generic, 0, "", ""),
+        (R::Generic, 0, "", ""),
+        (R::Button, 0, "Mantener", ""),
+        (R::Button, FOCUSED, "Revertir", ""),
+    ];
+    let said = feed(&mut reader, &tree(WINDOW, &first));
+    assert!(
+        said.iter().any(|text| text.starts_with("Revertir")),
+        "{said:?}"
+    );
+    let shrunk = |focused: usize| {
+        let mut nodes = vec![
+            (R::Generic, 0, "", ""),
+            (
+                R::Dialog,
+                0,
+                "¿Mantener esta configuración de pantalla?",
+                "",
+            ),
+            (R::Generic, 0, "", ""),
+            (R::Generic, 0, "", ""),
+            (R::Button, 0, "Mantener", ""),
+            (R::Button, 0, "Revertir", ""),
+        ];
+        nodes[focused].1 |= FOCUSED;
+        tree(WINDOW, &nodes)
+    };
+    assert!(feed(&mut reader, &shrunk(5)).is_empty());
+    assert_eq!(
+        reader.cursor(),
+        Some(((APP, WINDOW), 5)),
+        "still on Revertir"
+    );
+    assert_eq!(feed(&mut reader, &shrunk(4)), ["Mantener, botón"]);
+}
+
+#[test]
 fn announcements_and_live_regions_are_said_with_their_politeness() {
     let mut reader = Reader::new(Language::Spanish);
     feed(&mut reader, &probe(None, "Nivel 5"));
