@@ -1,4 +1,4 @@
 minimumReleaseAgeExclude:
-  - '@oxy.so/bloom@16.3.0'
+  - '@oxy.so/bloom@16.5.0'
 allowBuilds:
   esbuild: true
