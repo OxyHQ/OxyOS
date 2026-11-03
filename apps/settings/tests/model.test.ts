@@ -7,11 +7,13 @@ import {
   formatRefresh,
   LOCK_AFTER_CHOICES,
   looksLike,
+  placeOf,
   PREFERENCE_KEYS,
   preferenceText,
   prefersSteadyCaret,
   refreshRates,
   resolutions,
+  sideOfKey,
   type Display,
 } from "../src/model.ts";
 import { stringsFor } from "../src/strings.ts";
@@ -140,9 +142,38 @@ test("a display moved to a side of the others is wanted just beyond them", () =>
   assert.deepEqual(besideOthers([panel], 1, "right"), { x: 0, y: 0 });
 });
 
+test("a display's place is the side of the display it shares the longest edge with", () => {
+  // The panel at 0,0 (1536 × 960), the monitor right of it.
+  assert.deepEqual(placeOf([panel, monitor], 2), { side: "right", of: panel });
+  assert.deepEqual(placeOf([panel, monitor], 1), { side: "left", of: monitor });
+  // The monitor above the panel, then below it.
+  const above = { ...monitor, x: 0, y: -1080 };
+  assert.deepEqual(placeOf([panel, above], 2), { side: "above", of: panel });
+  assert.deepEqual(placeOf([panel, above], 1), { side: "below", of: above });
+  // A third display under the panel's right end and the monitor's left end: the panel's is longer.
+  const short = { ...monitor, height: 960 };
+  const third = { ...monitor, output: 3, x: 1000, y: 960, width: 1000, height: 600 };
+  assert.deepEqual(placeOf([panel, short, third], 3), { side: "below", of: panel });
+  // Alone, or corner to corner, it stands beside none.
+  assert.equal(placeOf([panel], 1), null);
+  assert.equal(placeOf([panel, { ...monitor, x: 1536, y: 960 }], 2), null);
+  assert.equal(placeOf([panel], 9), null);
+});
+
+test("the arrows are the sides a display moves to", () => {
+  assert.equal(sideOfKey("ArrowLeft"), "left");
+  assert.equal(sideOfKey("ArrowRight"), "right");
+  assert.equal(sideOfKey("ArrowUp"), "above");
+  assert.equal(sideOfKey("ArrowDown"), "below");
+  assert.equal(sideOfKey("Enter"), null);
+});
+
 test("the Displays page's words in both languages", () => {
   assert.equal(stringsFor("es").pages.displays, "Pantallas");
   assert.equal(stringsFor("en").displays.keepDescription(1), "The display goes back to its previous settings in 1 second.");
   assert.equal(stringsFor("es").displays.size(14, "1920 × 1200"), "14 pulgadas, 1920 × 1200");
   assert.equal(stringsFor("en").displays.looksLike("1536 × 960"), "Looks like 1536 × 960");
+  assert.equal(stringsFor("en").displays.place("right", "Built-in Display"), "right of Built-in Display");
+  assert.equal(stringsFor("es").displays.place("right", "Pantalla 1"), "a la derecha de Pantalla 1");
+  assert.equal(stringsFor("es").displays.place("above", "Pantalla 1"), "encima de Pantalla 1");
 });

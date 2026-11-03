@@ -75,6 +75,10 @@ export type Display = {
   heightMm: number;
 };
 
+/** How long a mode is on trial, as the session keeps it (docs/adr/0018-several-displays.mdx,
+    `oxyos_compositor::displays::TRIAL`): a Mac's 15 seconds. */
+export const TRIAL_SECONDS = 15;
+
 /** The displays, and a mode on trial: shown, and going back unless kept within `seconds`. */
 export type DisplaysSnapshot = {
   displays: readonly Display[];
@@ -198,6 +202,53 @@ export function besideOthers(
       return { x: left, y: top - display.height };
     case "below":
       return { x: left, y: bottom };
+  }
+}
+
+/** A side of another display a display stands at. */
+export type Side = "left" | "right" | "above" | "below";
+
+/** Where a display stands in the arrangement, as a person says it: at which side of the display it
+    shares the longest edge with ("right of Built-in Display"); null alone, or touching none. */
+export function placeOf(displays: readonly Display[], output: number): { side: Side; of: Display } | null {
+  const display = displays.find((d) => d.output === output);
+  if (!display) return null;
+  const overlap = (a0: number, a1: number, b0: number, b1: number) => Math.min(a1, b1) - Math.max(a0, b0);
+  let best: { side: Side; of: Display; shared: number } | null = null;
+  for (const other of displays) {
+    if (other.output === output) continue;
+    const across = overlap(display.y, display.y + display.height, other.y, other.y + other.height);
+    const along = overlap(display.x, display.x + display.width, other.x, other.x + other.width);
+    const side: Side | null =
+      across > 0 && display.x === other.x + other.width
+        ? "right"
+        : across > 0 && display.x + display.width === other.x
+          ? "left"
+          : along > 0 && display.y + display.height === other.y
+            ? "above"
+            : along > 0 && display.y === other.y + other.height
+              ? "below"
+              : null;
+    if (side === null) continue;
+    const shared = side === "left" || side === "right" ? across : along;
+    if (!best || shared > best.shared) best = { side, of: other, shared };
+  }
+  return best && { side: best.side, of: best.of };
+}
+
+/** The arrow key that moves a display to a side of the others, as the arrangement takes them. */
+export function sideOfKey(key: string): Side | null {
+  switch (key) {
+    case "ArrowLeft":
+      return "left";
+    case "ArrowRight":
+      return "right";
+    case "ArrowUp":
+      return "above";
+    case "ArrowDown":
+      return "below";
+    default:
+      return null;
   }
 }
 

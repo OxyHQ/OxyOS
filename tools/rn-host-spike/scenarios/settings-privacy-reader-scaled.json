@@ -1,0 +1,256 @@
+{
+  "about": "Settings' Privacy from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx; docs/adr/0030-installing-applications.mdx, decision 8) on a real oxyos-installd with the permission probe installed: each switch is reached alone, so it is named by its capability and its application ('Notifications for Permission', as macOS's Privacy & Security lists name each app's switch), never by its capability alone, which every application's section repeats. Space turns it on, said once ('activado'), and the install service keeps the decision. At 1.25 (1600 × 1000).",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.permissionprobe"
+    ],
+    "installed": [
+      "so.oxy.permissionprobe"
+    ]
+  },
+  "reader": {
+    "locale": "es_ES.UTF-8"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Settings with the reader on, nothing of it focused",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "at_absent": {
+          "window": [
+            {
+              "name": "Saved"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Privacy: the probe's notifications, not asked yet",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Privacy"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Notifications for Permission",
+              "state": []
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Notifications"
+            }
+          ]
+        },
+        "texts": [
+          "Notifications",
+          "Not asked yet"
+        ]
+      }
+    },
+    {
+      "name": "Tab: the sidebar's selected row",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-privacy",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Privacy, seleccionado, 10 de 11",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: the switch, named by its capability and its application",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "privacy-so.oxy.permissionprobe-notifications-switch",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Notifications for Permission, desactivado, interruptor",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Notifications for Permission",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Space: on, said once; the install service keeps it",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "privacy-so.oxy.permissionprobe-notifications-switch",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "activado",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Notifications for Permission",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Decided: no longer not asked",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "privacy-so.oxy.permissionprobe-notifications-switch",
+          "ring": true
+        },
+        "spoken": [],
+        "announcements": [],
+        "absent": [
+          "Not asked yet"
+        ]
+      }
+    },
+    {
+      "name": "Shift+Tab: the sidebar",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-privacy",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Privacy, seleccionado, 10 de 11",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: the switch again, on",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "privacy-so.oxy.permissionprobe-notifications-switch",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Notifications for Permission, activado, interruptor",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at_absent": {
+          "window": [
+            {
+              "name": "Saved"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
