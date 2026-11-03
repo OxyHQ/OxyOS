@@ -17,6 +17,7 @@ import { LoginScreen, type LoginActions } from '../../../apps/login/src/LoginScr
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
+import { useSessionLocale } from './oxyos/locale';
 
 /** How long the network may take to answer before setup says it needs it. */
 const REACH_MS = 5000;
@@ -40,6 +41,8 @@ async function reachable(api: string): Promise<boolean> {
 export default function LoginSession() {
   const shell = useOxyOSShell();
   const now = useMinuteClock();
+  // The login screen's locale is the system's alone (docs/adr/0040-language-and-region.mdx).
+  const locale = useSessionLocale();
   const state = shell.state;
   const [accounts, setAccounts] = React.useState<Accounts>(() => accountsFrom(shell.accounts()));
   // Accounts that cannot be read are asked for again: nobody signs in until they can.
@@ -61,7 +64,7 @@ export default function LoginSession() {
   const { Surface, Masked } = oxyosShell;
   return (
     <SafeAreaProvider>
-      <BloomProvider mode="dark" colorPreset="graphite" haptics={false} locale="es" platform={oxyosSurfaces}>
+      <BloomProvider mode="dark" colorPreset="graphite" haptics={false} locale={locale} platform={oxyosSurfaces}>
         <View testID="login-background" style={styles.fill}>
           <Wallpaper source={wallpaper} decorative />
           {state?.locked && (
