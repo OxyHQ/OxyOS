@@ -572,6 +572,7 @@ export const Shell = memo(function Shell({
                 dismiss={dismiss}
                 escapeRequest={escapeRequest}
                 WindowView={platform.WindowView}
+                useWindowSizes={platform.useWindowSizes}
               />
             </Surface>
           )}

@@ -2,11 +2,12 @@
  * The compositor's windows and workspaces as the session's shell knows them (OxyOSShell, ADR 0009),
  * and the shell's actions on them. Only a Bloom host run as the shell (`--shell`) has the module.
  *
- * The state: { windows: [{ id, appId, title, workspace, minimized, focused, launched, width, height, used, hidden }],
+ * The state: { windows: [{ id, appId, title, workspace, minimized, focused, launched, used, hidden }],
  * workspaces, active,
  * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper the file of the
  * solar wallpaper's frame that shows the sun now (null without one); applications the session's
  * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null }]., windows numbered by the compositor and workspaces from 0.
+ * The windows' sizes, { width, height } by window id, are `useWindowSizes()`'s, not the state's.
  * And the outputs (ADR 0018): `output` the one this shell runs on, `outputs` every one, [{ id, x, y,
  * width, height, scale, primary }], in the global space's logical pixels; the primary has the dock.
  * Actions are intents: the next state says what happened.
@@ -109,6 +110,44 @@ export function sharedWith(previous, next) {
   return same ? previous : shared;
 }
 
+// The windows' sizes, by window id (a string, as the shell's windows are named), apart from the
+// state: a window resized or zoomed changes only what the overview shows, so only the overview reads
+// them (useWindowSizes, ShellPlatform's), and a window resizing renders nothing else of the shell,
+// nothing at all while the overview is closed. A size unchanged stays the same object.
+let windowSizes = new Map();
+const sizeListeners = new Set();
+
+/** The state as the host told it, its windows' sizes kept in `windowSizes` instead. */
+function withoutSizes(state) {
+  if (!state || !Array.isArray(state.windows)) return state;
+  const sizes = new Map();
+  let changed = false;
+  const windows = state.windows.map(({ width, height, ...window }) => {
+    const id = String(window.id);
+    const before = windowSizes.get(id);
+    const size = before && before.width === width && before.height === height ? before : { width, height };
+    if (size !== before) changed = true;
+    sizes.set(id, size);
+    return window;
+  });
+  if (changed || sizes.size !== windowSizes.size) {
+    windowSizes = sizes;
+    for (const listener of sizeListeners) listener();
+  }
+  return { ...state, windows };
+}
+
+const subscribeSizes = (listener) => {
+  sizeListeners.add(listener);
+  return () => sizeListeners.delete(listener);
+};
+const readSizes = () => windowSizes;
+
+/** The windows' sizes now, by window id: what renders when a window changes size. */
+export function useWindowSizes() {
+  return React.useSyncExternalStore(subscribeSizes, readSizes);
+}
+
 // The shell's actions on the compositor: intents, the same functions in every render, so that what
 // is given them is never new because of them.
 const actions = {
@@ -146,7 +185,7 @@ const actions = {
 };
 
 export function useOxyOSShell() {
-  const [state, setState] = React.useState(() => native?.getState() ?? null);
+  const [state, setState] = React.useState(() => withoutSizes(native?.getState() ?? null));
   const [authentication, setAuthentication] = React.useState(null);
   const [shortcuts, setShortcuts] = React.useState([]);
   const [bezels, setBezels] = React.useState([]);
@@ -155,7 +194,10 @@ export function useOxyOSShell() {
   const [screenshots, setScreenshots] = React.useState([]);
   React.useEffect(() => {
     if (!native) return undefined;
-    const told = (next) => setState((previous) => sharedWith(previous, next));
+    const told = (next) => {
+      const state = withoutSizes(next);
+      setState((previous) => sharedWith(previous, state));
+    };
     const subscription = DeviceEventEmitter.addListener('OxyOSShellChanged', told);
     // Each answer is new, even one like the last (a second wrong password shakes again).
     const answers = DeviceEventEmitter.addListener('OxyOSShellAuthentication', ({ outcome, wait }) =>

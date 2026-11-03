@@ -1,13 +1,13 @@
 {
-  "about": "What the session's shell pays for what it is told and what the pointer does over it, on the ThinkPad's display (1600×1000 at 1.25), from the shell's own report (`js_work`: its JavaScript's time on its CPU, and the time that JavaScript was blocked, waiting for another thread or a file): another window zoomed by its green bubble and restored (Bloom's SettingsLayout in a window, sample/WindowProbe.tsx) changes that window's size in what the shell knows and nothing the shell shows, so the shell draws nothing for it and runs next to no JavaScript (it ran 14 to 19 ms when every change of the compositor rendered the whole shell again); the pointer entering the first application's icon in the dock (Dropsea's, or Inbox's where Dropsea's package is not built: the point is on either) renders what its hover changes (Bloom's Button and the dock's tooltip), moving over it renders nothing, and leaving it renders the same few again, never the dock's other icons or the rest of the shell.",
+  "about": "What the session's shell does for what it is told and what the pointer does over it, on the ThinkPad's display (1600×1000 at 1.25), counted from the shell's own report: which components React re-rendered for each event (`renders`: where each re-render began, exactly, and how many components it rendered in all), the same on any machine however loaded, with a backstop on the time its JavaScript took far above what it takes (`js_work`, two refreshes at 60 Hz) for a gross regression alone; its budgets on speed (`js_ms_max`, `js_blocked_ms_max`) are held by perf.py's runs alone (regress.py --speed-budgets), on the ThinkPad. Another window pressed, zoomed by its green bubble and restored (Bloom's SettingsLayout in a window, sample/WindowProbe.tsx) changes what the shell knows of that window and nothing the shell shows, so the shell renders no component at all (its sizes are the overview's alone, useWindowSizes; every change of the compositor rendered the whole shell again once, 14 to 19 ms); the pointer entering the first application's icon in the dock (Dropsea's, or Inbox's where Dropsea's package is not built: the point is on either) renders that icon and its button's hover and the dock's tooltip (its popup surface and its text), moving over it renders nothing, and leaving it renders the icon and its button again, never the dock, its other icons or the top bar. The clock's minute turning renders the session's shell (`each_minute`), not counted in a step a minute began in.",
   "module": "WindowProbe",
   "window": [900, 600],
   "shell": "OxyOSShell",
   "outputs": "1600x1000@1.25",
   "steps": [
     {
-      "name": "The window opens between the top bar and the dock and is pressed: it is the active window",
-      "do": ["press", [600, 300]],
+      "name": "The window opens between the top bar and the dock: the shell shows it is running (the session's shell and its dock render again)",
+      "do": ["wait", 1500],
       "expect": {
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"]
@@ -15,44 +15,54 @@
       "allow_unchanged": true
     },
     {
-      "name": "Its green bubble zooms it to the work area: its size changes in what the shell knows, nothing the shell shows, and the shell runs next to no JavaScript (it draws nothing; only its clock may turn over meanwhile)",
+      "name": "It is pressed: it is and stays the active window, and the shell renders nothing",
+      "do": ["press", [600, 300]],
+      "expect": {
+        "window_rect": [190, 86, 900, 600],
+        "texts": ["active yes, zoomed no, full screen no"],
+        "in_shell": {"renders": {"tops": [], "components_max": 0, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Its green bubble zooms it to the work area: its size changes in what the shell knows, nothing the shell shows, and the shell renders no component",
       "do": ["press", [72, 26]],
       "expect": {
         "window_rect": [0, 28, 1280, 716],
         "texts": ["active yes, zoomed yes, full screen no"],
-        "in_shell": {"js_work": {"js_ms_max": 2, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": [], "components_max": 0, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
       }
     },
     {
-      "name": "Pressed again, it restores its frame: the shell again runs next to no JavaScript",
+      "name": "Pressed again, it restores its frame: the shell again renders no component",
       "do": ["press", [72, 26]],
       "expect": {
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
-        "in_shell": {"js_work": {"js_ms_max": 2, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": [], "components_max": 0, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
       }
     },
     {
-      "name": "The pointer enters the dock over its first application's icon: its hover renders the icon's button and the dock's tooltip, nothing else",
+      "name": "The pointer enters the dock over its first application's icon: its hover renders the icon and its button, and the dock's tooltip (its popup surface and its text), nothing else",
       "do": ["move_output", [692, 772]],
       "expect": {
-        "in_shell": {"js_work": {"js_ms_max": 4, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": ["DockIcon", "ButtonComponent", "PopupSurface", "CssInterop.DisplayFaceText"], "components_max": 37, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 4, "js_blocked_ms_max": 1}}
       },
       "allow_unchanged": true
     },
     {
-      "name": "It moves over the same icon: nothing the shell shows changes, and next to no JavaScript runs",
+      "name": "It moves over the same icon: nothing the shell shows changes, and the shell renders nothing",
       "do": ["move_output", [697, 772]],
       "expect": {
-        "in_shell": {"js_work": {"js_ms_max": 2, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": [], "components_max": 0, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
       },
       "allow_unchanged": true
     },
     {
-      "name": "It leaves the dock for the desktop: the icon's hover and the tooltip end, as cheaply",
+      "name": "It leaves the dock for the desktop: the icon's hover and the tooltip end, rendering the icon and its button again, nothing else",
       "do": ["move_output", [1200, 600]],
       "expect": {
-        "in_shell": {"js_work": {"js_ms_max": 4, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": ["DockIcon", "ButtonComponent"], "components_max": 16, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 4, "js_blocked_ms_max": 1}}
       },
       "allow_unchanged": true
     }

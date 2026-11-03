@@ -20,6 +20,8 @@
 //       frame, and work without one, "presented": false, that was slow or ran JavaScript)
 //   {"t":…,"kind":"log","text":"[host so.oxy.dropsea] a frame after …"}  (a line written to the log)
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
+//   {"t":…,"kind":"react_render","renders":[["DockIcon",9,{"DockIcon":1,"View":4,…}],…]}  (a commit of
+//       React's: where each re-render began, how many components rendered in it and which; watchReactCommits)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxyos-offscreen stamps its steps with, so the
 // two logs line up. Views are named by testID, else by accessibility label, else component#tag.
@@ -82,6 +84,13 @@ class Report {
   // their commits to the global hook its DevTools install, which this installs in `runtime`
   // before any renderer loads. A window resized lays its tree out natively, no commit of React's;
   // only what JavaScript re-rendered for the new size is.
+  //
+  // Each commit that rendered a component is also written as a `react_render` line: the
+  // components where a render began (one whose nearest component above it did not render: a
+  // state, a context or a store it reads changed), each with how many components rendered in its
+  // subtree for it, itself included, and how many of each name, as React's fibers have it (a function or class component,
+  // a forwardRef or a memo whose render ran, its fiber's PerformedWork, or one mounted). What a
+  // commit re-rendered is counted, not timed: the same on any machine, however loaded.
   void watchReactCommits(facebook::jsi::Runtime& runtime);
   // A stage of the host's start beginning (the Hermes instance, Fabric's scheduler, the bundle).
   void stage(const char* name);

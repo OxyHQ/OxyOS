@@ -8,7 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
-import { useOxyOSShell } from './oxyos/shell-state';
+import { useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import { network, useNetworkState, useSystemSheets } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
@@ -267,8 +267,6 @@ type ToldWindow = {
   minimized: boolean;
   focused: boolean;
   launched: boolean;
-  width: number;
-  height: number;
   used: number;
   hidden: boolean;
   responding?: boolean;
@@ -314,9 +312,8 @@ function shellWindow(window: ToldWindow): ShellSnapshot['windows'][number] {
       // The active window, and whether its process answers the compositor (ADR 0034).
       focused: window.focused,
       responding: window.responding !== false,
-      // The window's proportions (ADR 0022): its card is drawn in them, and the compositor draws
-      // the window in it live (the platform's WindowView).
-      thumbnailSize: window.width > 0 && window.height > 0 ? { width: window.width, height: window.height } : undefined,
+      // Its proportions, in which its overview card is drawn (ADR 0022), are the platform's
+      // useWindowSizes, read by the overview alone.
     };
     shellWindows.set(window, shown);
   }
@@ -376,7 +373,11 @@ function SessionShell() {
   }, [sheets, answer]);
   // OxyOS's platform, with the session's polite announcements (a banner's, ADR 0026).
   const announcing = React.useMemo(
-    () => ({ ...oxyosShell, announce: (text: string, polite: boolean) => shell.announce(text, polite) }),
+    () => ({
+      ...oxyosShell,
+      announce: (text: string, polite: boolean) => shell.announce(text, polite),
+      useWindowSizes,
+    }),
     [],
   );
   // The session's clock is the real one.
