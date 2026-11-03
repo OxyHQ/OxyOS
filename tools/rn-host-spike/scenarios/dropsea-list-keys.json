@@ -773,119 +773,7 @@
       }
     },
     {
-      "name": "Shift+Tab: Kind",
-      "do": [
-        "key",
-        [
-          42,
-          15
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "keyboard_focus": {
-          "target": "column-kind",
-          "ring": true
-        },
-        "spoken": [
-          {
-            "text": "Kind, button",
-            "interrupting": true
-          }
-        ],
-        "announcements": [],
-        "react": {
-          "focus@column-kind": 1,
-          "blur@sidebar-toggle": 1
-        }
-      }
-    },
-    {
-      "name": "Shift+Tab: Size",
-      "do": [
-        "key",
-        [
-          42,
-          15
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "keyboard_focus": {
-          "target": "column-size",
-          "ring": true
-        },
-        "spoken": [
-          {
-            "text": "Size, button",
-            "interrupting": true
-          }
-        ],
-        "announcements": [],
-        "react": {
-          "focus@column-size": 1,
-          "blur@column-kind": 1
-        }
-      }
-    },
-    {
-      "name": "Shift+Tab: Date Modified",
-      "do": [
-        "key",
-        [
-          42,
-          15
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "keyboard_focus": {
-          "target": "column-date",
-          "ring": true
-        },
-        "spoken": [
-          {
-            "text": "Date Modified, button",
-            "interrupting": true
-          }
-        ],
-        "announcements": [],
-        "react": {
-          "focus@column-date": 1,
-          "blur@column-size": 1
-        }
-      }
-    },
-    {
-      "name": "Shift+Tab: Name",
-      "do": [
-        "key",
-        [
-          42,
-          15
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "keyboard_focus": {
-          "target": "column-name",
-          "ring": true
-        },
-        "spoken": [
-          {
-            "text": "Name, ascending, button",
-            "interrupting": true
-          }
-        ],
-        "announcements": [],
-        "react": {
-          "focus@column-name": 1,
-          "blur@column-date": 1
-        }
-      }
-    },
-    {
-      "name": "Shift+Tab: the list, one stop, said once",
+      "name": "Shift+Tab: straight to the list, one stop, said once (its column headers are no stops, as Finder's)",
       "do": [
         "key",
         [
@@ -908,7 +796,7 @@
         "announcements": [],
         "react": {
           "focus@home": 1,
-          "blur@column-name": 1
+          "blur@sidebar-toggle": 1
         }
       }
     },
