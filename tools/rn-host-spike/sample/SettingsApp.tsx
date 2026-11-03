@@ -5,7 +5,9 @@
  * applies it and tells every application; the displays as the session shows them and their changes
  * (docs/adr/0018-several-displays.mdx); the machine's facts; and the networks as the session
  * tells them (docs/adr/0038-networks.mdx). Without the grant (a host run outside a session, the
- * browser preview) the model is a fixture kept in memory.
+ * browser preview) the model is a fixture kept in memory. Its language is the session's locale
+ * (docs/adr/0040-language-and-region.mdx, decision 5), given to `BloomProvider` and followed live;
+ * the fixture's is the one its own preferences give.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -13,7 +15,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { Settings } from '../../../apps/settings/src/Settings';
-import { stringsFor } from '../../../apps/settings/src/strings';
+import { sessionLocale } from '../../../apps/settings/src/locale';
+import { useSessionLocale } from './oxyos/locale';
 import {
   available,
   network as systemNetwork,
@@ -29,6 +32,8 @@ import {
   preferenceText,
   type Appearance,
   type DisplaysSnapshot,
+  type HourCycle,
+  type LanguagePreference,
   type NotificationPreviews,
   type Preferences,
   type SettingsActions,
@@ -58,7 +63,9 @@ const FIXTURE: SettingsSnapshot = {
     wallpaper: 'solar-gradients',
     lockAfter: 5,
     screenReader: false,
-    clock24h: true,
+    language: '',
+    region: '',
+    hourCycle: 'auto',
     doNotDisturb: false,
     notificationPreviews: 'unlocked',
   },
@@ -72,6 +79,8 @@ const FIXTURE: SettingsSnapshot = {
     timeZone: 'Europe/Madrid',
     automaticTime: true,
     keyboardLayout: 'us',
+    // The runtime's, which is the environment's, as a host outside a session has it.
+    locale: Intl.DateTimeFormat().resolvedOptions().locale,
   },
   // The ThinkPad's panel at 1.25, and a 27-inch 4K monitor right of it at 1.5.
   displays: {
@@ -170,7 +179,10 @@ function preferencesOf(values: Record<string, string>): Preferences {
     wallpaper: values[PREFERENCE_KEYS.wallpaper] || null,
     lockAfter: Number(values[PREFERENCE_KEYS.lockAfter] ?? 5),
     screenReader: flag(PREFERENCE_KEYS.screenReader),
-    clock24h: flag(PREFERENCE_KEYS.clock24h),
+    // The system's unless the session keeps the person's (crates/oxyos-preferences).
+    language: (values[PREFERENCE_KEYS.language] as LanguagePreference) ?? '',
+    region: values[PREFERENCE_KEYS.region] ?? '',
+    hourCycle: (values[PREFERENCE_KEYS.hourCycle] as HourCycle) || 'auto',
     doNotDisturb: flag(PREFERENCE_KEYS.doNotDisturb),
     notificationPreviews:
       (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
@@ -178,7 +190,7 @@ function preferencesOf(values: Record<string, string>): Preferences {
 }
 
 /** The session's model when this is Settings in a session, else the fixture's. */
-function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActions } {
+function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActions; session: boolean } {
   const [values, setValues] = React.useState(() => native?.getValues() ?? null);
   const [displays, setDisplays] = React.useState(() => native?.getDisplays() ?? null);
   const [fixture, setFixture] = React.useState(FIXTURE);
@@ -192,7 +204,12 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     setDisplays(native?.getDisplays() ?? null);
     return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
-  const system = React.useMemo(() => (native ? native.getSystem() : FIXTURE.system), []);
+  const system = React.useMemo(() => {
+    if (!native) return FIXTURE.system;
+    const told = native.getSystem();
+    // A host that says nothing of the system's locale: the runtime's, which is its environment's.
+    return { ...told, locale: told.locale || Intl.DateTimeFormat().resolvedOptions().locale };
+  }, []);
   const actions = React.useMemo<SettingsActions>(
     () => ({
       setPreference: (key, value) => {
@@ -237,8 +254,9 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     }),
     [],
   );
-  if (!values) return { snapshot: fixture, actions };
+  if (!values) return { snapshot: fixture, actions, session: false };
   return {
+    session: true,
     snapshot: {
       preferences: preferencesOf(values),
       // The wallpapers the session has: its own, for now.
@@ -405,11 +423,14 @@ export default function SettingsApp() {
     privacy: install.privacyActions,
     network: networks.actions,
   };
-  const strings = React.useMemo(() => stringsFor(Intl.DateTimeFormat().resolvedOptions().locale), []);
+  // The session's locale, as it tells every client; the fixture's from its own preferences.
+  const told = useSessionLocale();
+  const locale =
+    (model.session && told) || sessionLocale(model.snapshot.preferences, model.snapshot.system.locale);
   return (
     <SafeAreaProvider>
-      <BloomProvider platform={oxyosSurfaces}>
-        <Settings snapshot={snapshot} actions={actions} strings={strings} />
+      <BloomProvider platform={oxyosSurfaces} locale={locale}>
+        <Settings snapshot={snapshot} actions={actions} />
       </BloomProvider>
     </SafeAreaProvider>
   );

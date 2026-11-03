@@ -61,7 +61,7 @@
       },
       {
        "role": "Heading",
-       "name": "System"
+       "name": "General"
       },
       {
        "role": "ListItem",
@@ -80,7 +80,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 11",
+      "text": "Appearance, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
@@ -120,7 +120,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 11",
+      "text": "Wallpaper, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -163,7 +163,7 @@
     },
     "spoken": [
      {
-      "text": "Notifications, seleccionado, 3 de 11",
+      "text": "Notifications, seleccionado, 3 de 12",
       "interrupting": true
      }
     ],
@@ -206,7 +206,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 11",
+      "text": "Wallpaper, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -287,7 +287,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 11",
+      "text": "Wallpaper, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -295,7 +295,7 @@
    }
   },
   {
-   "name": "End: the last row, About, across into the System group",
+   "name": "End: the last row, About, across into the General group",
    "do": [
     "key",
     [
@@ -327,7 +327,7 @@
     },
     "spoken": [
      {
-      "text": "About, seleccionado, 11 de 11",
+      "text": "About, seleccionado, 12 de 12",
       "interrupting": true
      }
     ],
@@ -388,7 +388,7 @@
     },
     "spoken": [
      {
-      "text": "Privacy, seleccionado, 10 de 11",
+      "text": "Privacy, seleccionado, 11 de 12",
       "interrupting": true
      }
     ],
@@ -428,7 +428,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 11",
+      "text": "Appearance, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
