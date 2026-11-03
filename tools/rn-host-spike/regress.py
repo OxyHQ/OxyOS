@@ -430,6 +430,11 @@ WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
 # above any machine's time) is always held (docs/performance.mdx, "What a step re-renders").
 SPEED_BUDGETS = False
 
+# Whether the steps' budgets on time are left to the caller (--collect, perf.py's): every one of
+# them, latency and backstops too, is measured over several runs and judged at the median there,
+# so a run checks what its steps do and enforces no time.
+COLLECT = False
+
 # Whether the hosts count what React re-renders (OXYOS_HOST_REPORT_RENDERS): for a scenario holding
 # `renders`, unless --no-render-counts, whose `renders` are then not checked.
 RENDER_COUNTS = False
@@ -1676,7 +1681,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # step re-renders"): set far above what the work takes, so that a loaded machine never
         # reaches it.
         slowest = max(work, key=lambda line: js(line, "parts"), default=None)
-        if slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
+        if not COLLECT and slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
             fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock"
                  f"{'' if slowest['presented'] else ' (no frame)'} ({js(slowest, 'cpu'):.2f} on the CPU), expected at "
                  f"most {wanted['js_wall_ms_max']} (a backstop for a gross regression)")
@@ -2084,7 +2089,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                      if m]
             if not zooms:
                 fail("the host logged no zoom in the step")
-            elif max(zooms) > wanted["zoom_presented_ms_max"]:
+            elif not COLLECT and max(zooms) > wanted["zoom_presented_ms_max"]:
                 fail(f"the zoom's frame was presented {max(zooms)} ms after it was asked, expected at most "
                      f"{wanted['zoom_presented_ms_max']}")
     if "glide" in expect:
@@ -2254,7 +2259,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         check_pixels(name, expect, screenshot, result.get("window"), fail)
     if "pixels_match" in expect:
         check_pixels_match(name, expect, screenshot, result.get("window"), fail)
-    if "latency_ms" in expect and result.get("latency_ms") is not None:
+    if "latency_ms" in expect and result.get("latency_ms") is not None and not COLLECT:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
     return end
@@ -2707,13 +2712,17 @@ def main():
                         help="never count what React re-renders, even for a scenario holding `renders` (whose "
                              "checks are then not made): perf.py's runs, which measure speed, which the count's "
                              "allocations would move")
+    parser.add_argument("--collect", action="store_true",
+                        help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
+                             "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
                         help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
-    global SPEED_BUDGETS, RENDER_COUNTS
-    SPEED_BUDGETS = options.speed_budgets
+    global SPEED_BUDGETS, RENDER_COUNTS, COLLECT
+    COLLECT = options.collect
+    SPEED_BUDGETS = options.speed_budgets and not COLLECT
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))
