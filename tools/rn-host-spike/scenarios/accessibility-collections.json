@@ -6,9 +6,7 @@
   420
  ],
  "locale": "es_ES.UTF-8",
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "The lists; nothing focused; each row holds its place in its list",

@@ -1,5 +1,6 @@
 {
   "about": "Installing through the session (docs/adr/0030-installing-applications.mdx, decisions 9 and 16): a store with the store and updates grants (sample/StoreProbe.tsx) asks through OxyOSSystem; each request, citing the press that asked it, crosses the host, the compositor (which checks the grant and the input) and the session's side (oxyos_compositor::installs, which reads it strictly), and is answered to the store alone. With no install service on this machine every answer says so, as the session tells it, never a fake install; a change the person asked for (Install) first shows the shell's sheet saying the service is not running, with one button, and the store's answer (told: the person was told) comes once it is pressed. A check or a read shows no sheet.",
+  "locale": "es_ES.UTF-8",
   "module": "StoreProbe",
   "window": [
     520,

@@ -1,5 +1,6 @@
 {
   "about": "Settings' Privacy from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx; docs/adr/0030-installing-applications.mdx, decision 8) on a real oxyos-installd with the permission probe installed: each switch is reached alone, so it is named by its capability and its application ('Notifications for Permission', as macOS's Privacy & Security lists name each app's switch), never by its capability alone, which every application's section repeats. Space turns it on, said once ('activado'), and the install service keeps the decision. At 1.25 (1600 × 1000).",
+  "locale": "es_ES.UTF-8",
   "module": "OxyOSSettings",
   "window": [
     900,
@@ -25,9 +26,7 @@
       "so.oxy.permissionprobe"
     ]
   },
-  "reader": {
-    "locale": "es_ES.UTF-8"
-  },
+  "reader": {},
   "outputs": "1600x1000@1.25",
   "steps": [
     {
@@ -56,7 +55,7 @@
         "a11y-action",
         [
           "activate",
-          "Privacy"
+          "Privacidad"
         ]
       ],
       "allow_unchanged": true,
@@ -68,7 +67,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications for Permission",
+              "name": "Notificaciones para Permission",
               "state": []
             }
           ]
@@ -77,13 +76,13 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications"
+              "name": "Notificaciones"
             }
           ]
         },
         "texts": [
-          "Notifications",
-          "Not asked yet"
+          "Notificaciones",
+          "Aún no se ha preguntado"
         ]
       }
     },
@@ -103,7 +102,7 @@
         },
         "spoken": [
           {
-            "text": "Privacy, seleccionado, 10 de 11",
+            "text": "Privacidad, seleccionado, 11 de 12",
             "interrupting": true
           }
         ],
@@ -126,7 +125,7 @@
         },
         "spoken": [
           {
-            "text": "Notifications for Permission, desactivado, interruptor",
+            "text": "Notificaciones para Permission, desactivado, interruptor",
             "interrupting": true
           }
         ],
@@ -135,7 +134,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications for Permission",
+              "name": "Notificaciones para Permission",
               "state": [
                 "focused"
               ]
@@ -169,7 +168,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications for Permission",
+              "name": "Notificaciones para Permission",
               "state": [
                 "checked",
                 "focused"
@@ -194,7 +193,7 @@
         "spoken": [],
         "announcements": [],
         "absent": [
-          "Not asked yet"
+          "Aún no se ha preguntado"
         ]
       }
     },
@@ -215,7 +214,7 @@
         },
         "spoken": [
           {
-            "text": "Privacy, seleccionado, 10 de 11",
+            "text": "Privacidad, seleccionado, 11 de 12",
             "interrupting": true
           }
         ],
@@ -238,7 +237,7 @@
         },
         "spoken": [
           {
-            "text": "Notifications for Permission, activado, interruptor",
+            "text": "Notificaciones para Permission, activado, interruptor",
             "interrupting": true
           }
         ],

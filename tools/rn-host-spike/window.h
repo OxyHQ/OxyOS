@@ -124,6 +124,11 @@ class Window {
   };
   const Drawing& drawing() const { return drawing_; }
   const std::map<std::string, std::string>& preferences() const { return preferences_; }
+  // The session's locale (docs/adr/0040-language-and-region.mdx, decision 3): a BCP 47 tag
+  // (`es-ES`, `es-MX-u-hc-h12`), told at connect and at every change; empty until told (a
+  // compositor of protocol 14 or older tells none). Each tag told becomes Intl's default
+  // (oxyos_intl_set_default_locale), so the application's `Intl` formats in it from then on.
+  const std::string& locale() const { return locale_; }
   bool settingsGranted() const { return !preferences_.empty(); }
   // Asks the session to change a preference (Settings only); a PREFERENCE_RESULT with `serial`
   // answers. False if it could not be sent.
@@ -362,6 +367,8 @@ class Window {
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far
+  std::string locale_;
+  std::string receivingLocale_;  // the locale's chunks so far
   // A display's name, modes and scales being told, applied by its DISPLAY.
   struct Telling {
     std::optional<std::string> name;

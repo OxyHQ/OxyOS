@@ -34,7 +34,8 @@ export default function MaterialProbe() {
   const [now, setNow] = React.useState(() => new Date(2026, 9, 29, 9, 41));
   const { Masked } = oxyosShell;
   return (
-    <BloomProvider platform={oxyosSurfaces}>
+    // The clock in Spanish, as its regression compares it, whatever the session's language.
+    <BloomProvider platform={oxyosSurfaces} locale="es">
       <View testID="page" style={{ flex: 1, backgroundColor: '#ffffff' }}>
         <BlurTargetView ref={target} style={{ position: 'absolute', left: 0, top: 0, width: 200, height: 100 }}>
           <Target top={0} />

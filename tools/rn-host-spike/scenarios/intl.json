@@ -1,9 +1,9 @@
 {
-  "about": "ECMA-402's Intl on OxyOS (sample/IntlProbe.tsx, intl.h, crates/oxyos-intl on ICU4X), as Hermes provides it on Android from the platform: Intl.DateTimeFormat and Intl.NumberFormat, a date's parts and the toLocale*String methods, for several locales and time zones (UTC and Europe/Madrid, after its change to winter time), each row exactly as ICU 78.3 with CLDR 48 formats it (Node's formatToParts; V8's format replaces the narrow no-break space before a time's AM/PM with a space for web compatibility, which Android, like ICU4X, does not), spaces included. An option OxyOS does not support yet (compact notation) is refused with a RangeError, and a constructor it does not provide (Collator) is undefined rather than present and wrong. One row asserts a known deviation: ICU4X 2 takes a format's month width from the locale's date lengths, and German's medium date is numeric, so { day: 'numeric', month: 'short' } is 29.10. where ICU gives 29. Okt.",
+  "about": "ECMA-402's Intl on OxyOS (sample/IntlProbe.tsx, intl.h, crates/oxyos-intl on ICU4X), as Hermes provides it on Android from the platform: Intl.DateTimeFormat, Intl.NumberFormat and Intl.PluralRules, a date's parts and the toLocale*String methods, for several locales and time zones (UTC and Europe/Madrid, after its change to winter time), each row exactly as ICU 78.3 with CLDR 48 formats it or selects its plural category (Node's formatToParts and PluralRules, cardinal and ordinal, 1 and 1.0 apart, significant digits rounding 21 to 20 in Russian; V8's format replaces the narrow no-break space before a time's AM/PM with a space for web compatibility, which Android, like ICU4X, does not), spaces included. An option OxyOS does not support yet (compact notation, PluralRules' selectRange) is refused with a RangeError, PluralRules called without new is a TypeError as ECMA-402 says, and a constructor it does not provide (Collator) is undefined rather than present and wrong. One row asserts a known deviation: ICU4X 2 takes a format's month width from the locale's date lengths, and German's medium date is numeric, so { day: 'numeric', month: 'short' } is 29.10. where ICU gives 29. Okt.",
   "module": "IntlProbe",
   "window": [
     600,
-    480
+    760
   ],
   "steps": [],
   "final": {
@@ -21,6 +21,21 @@
       "fr max0: 1 235",
       "en sig: 123,000",
       "compact: refused: RangeError",
+      "en plural: one,other,other",
+      "en plural 1.0: other",
+      "en ordinal: one,two,few,other,other,other,other,one,two,few,one",
+      "es plural: other,one,other,many,other,other",
+      "fr plural: one,one,one,other,many",
+      "pl plural: one,few,many,few,many,other",
+      "ar plural: zero,one,two,few,many,other",
+      "ru sig plural: many",
+      "es categories: one,many,other",
+      "en ordinal categories: one,two,few,other",
+      "plural resolved: cardinal,1,1,3",
+      "plural resolved sig: 1,2",
+      "plural supported: es-MX",
+      "plural range: refused: RangeError",
+      "plural no new: refused: TypeError",
       "collator: undefined",
       "time zone: known"
     ]

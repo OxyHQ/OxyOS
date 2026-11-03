@@ -1,5 +1,6 @@
 {
  "about": "A Wi-Fi network joined through Control Center with the keyboard alone (docs/adr/0039-keyboard-access.mdx, ADR 0038), over a played NetworkManager: Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F8 puts the keyboard on the top bar's network item, as a Mac's Control-F8; Space opens Control Center at Wi-Fi's view on its first control; Tab goes through its switch and networks, each said once with its state, lock and signal; Space on Vecinos asks its password in the system sheet, which takes the keyboard and says itself; Tab goes round the sheet's controls and never out of it; Return in its field joins, and its joining is said once; Escape closes Control Center, the keyboard back on the status item, and Escape gives Allo the keyboard back. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -58,9 +59,7 @@
  "secrets": [
   "hunter22!"
  ],
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Allo's window; the top bar's network item shows Wi-Fi joined; the reader on",

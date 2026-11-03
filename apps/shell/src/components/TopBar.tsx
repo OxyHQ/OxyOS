@@ -21,9 +21,11 @@ import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
 import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
-import { batteryLabel, clockLabel, clockText, wifiBars, wifiLabel, wifiOn } from "../controls";
+import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
 import type { ShellKeyboard } from "../platform";
+import { barClock, clockSaid } from "../clock";
+import { useShellLocale, useShellMessages } from "../useShellMessages";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
     and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
@@ -185,7 +187,8 @@ const MENU_SIDE_OFFSET = 4;
 /** The bar's status items: the battery and Wi-Fi as the session says they are, and only what it
     said; each renders again only when what it shows changes. */
 const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }) {
-  const battery = batteryLabel(power);
+  const messages = useShellMessages();
+  const battery = batteryLabel(power, messages);
   if (battery === undefined) return null;
   // A level indicator, as VoiceOver reads a battery's charge: named "Batería", its charge and
   // what it is doing its value ("Batería, 64 %, 3 h 20 min restantes, indicador de nivel").
@@ -194,7 +197,7 @@ const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }
       testID="shell-battery"
       accessible
       role="meter"
-      accessibilityLabel="Batería"
+      accessibilityLabel={messages.topBar.battery}
       accessibilityValue={{ min: 0, max: 100, now: power.percent, text: battery }}
     >
       <BatteryIcon power={power} />
@@ -236,7 +239,7 @@ function networkItem(network: ShellNetwork | undefined): string | undefined {
   if (!network) return undefined;
   const ethernet = network.wifi !== "connected" && network.wired;
   if (ethernet) return "shell-ethernet";
-  return wifiLabel(network) === undefined ? undefined : "shell-wifi";
+  return network.wifi === "unavailable" ? undefined : "shell-wifi";
 }
 
 /** Which panels the status items open are shown: the network's (Control Center at its Wi-Fi
@@ -271,13 +274,14 @@ const NetworkItem = memo(function NetworkItem({
   onPress?: () => void;
   onItemFocus?: (testID: string) => void;
 }) {
+  const messages = useShellMessages();
   const ethernet = network.wifi !== "connected" && network.wired;
-  const wifi = ethernet ? undefined : wifiLabel(network);
+  const wifi = ethernet ? undefined : wifiLabel(network, messages);
   if (!ethernet && wifi === undefined) return null;
   // Named by what it is, the network it is on its value, as VoiceOver says a Mac's Wi-Fi menu
   // ("Wi-Fi, Vecinos").
   const label = ethernet ? "Ethernet" : "Wi-Fi";
-  const value = { text: ethernet ? "Conectado" : wifi };
+  const value = { text: ethernet ? messages.topBar.connected : wifi };
   const testID = ethernet ? "shell-ethernet" : "shell-wifi";
   if (!onPress) {
     return (
@@ -325,13 +329,14 @@ const BarButtons = memo(function BarButtons({
   controlCenterOpen: boolean;
   onItemFocus?: (testID: string) => void;
 }) {
+  const messages = useShellMessages();
   return (
     <>
       <Button
         iconOnly
         icon={RiSearchLine}
         testID="shell-search"
-        accessibilityLabel="Buscar aplicaciones"
+        accessibilityLabel={messages.common.searchApplications}
         appearance="plain"
         style={searchStyle}
         iconSize={13}
@@ -344,7 +349,7 @@ const BarButtons = memo(function BarButtons({
         icon={ControlsIcon}
         iconSize={15}
         testID="shell-control-center"
-        accessibilityLabel="Centro de control"
+        accessibilityLabel={messages.common.controlCenter}
         aria-expanded={controlCenterOpen}
         appearance="plain"
         className="h-7 w-[22px] border-0 bg-transparent p-0"
@@ -358,10 +363,9 @@ const BarButtons = memo(function BarButtons({
 
 /** The clock: the date and the time, which open the Notification Center. As VoiceOver says a
     Mac's menu bar clock, it is named by what it shows, in whole words ("lunes, 3 de noviembre,
-    14:05"): the date and time are what it is. What pressing it does, which its name does not say,
-    is its hint, said after it; it says whether the Notification Center is open as a status menu's
-    button does. */
-const CLOCK_HINT = "Abre el centro de notificaciones";
+    14:05", "Tuesday, November 3, 2:05 PM"): the date and time are what it is. What pressing it
+    does, which its name does not say, is its hint, said after it; it says whether the Notification
+    Center is open as a status menu's button does. */
 const Clock = memo(function Clock({
   now,
   open,
@@ -374,12 +378,15 @@ const Clock = memo(function Clock({
   onPress?: () => void;
   onItemFocus?: (testID: string) => void;
 }) {
+  const messages = useShellMessages();
+  const locale = useShellLocale();
+  const shown = barClock(now, locale);
   return (
     <Button
       testID="shell-clock"
       appearance="plain"
-      accessibilityLabel={clockLabel(now)}
-      accessibilityHint={onPress ? CLOCK_HINT : undefined}
+      accessibilityLabel={clockSaid(now, locale)}
+      accessibilityHint={onPress ? messages.topBar.clockHint : undefined}
       aria-expanded={onPress ? open : undefined}
       onFocus={() => onItemFocus?.("shell-clock")}
       // Where the clock's text always was (its old `ml-1`), now pressable.
@@ -387,7 +394,7 @@ const Clock = memo(function Clock({
       onPress={onPress}
     >
       <Text className="text-[12px] leading-4 font-normal text-white">
-        {clockText(now)}
+        {shown}
       </Text>
     </Button>
   );
@@ -468,11 +475,12 @@ const BarMenus = memo(function BarMenus({
     run();
   };
   const command = (id: string) => choose(() => onCommand(id))();
+  const messages = useShellMessages();
   const highlight = (value: string) =>
     focused === value ? { backgroundColor: keyboardHighlight } : undefined;
   return (
     <Menubar
-      label="Barra de menús"
+      label={messages.topBar.menuBar}
       value={open}
       onValueChange={setOpen}
       focusValue={focused}
@@ -480,11 +488,11 @@ const BarMenus = memo(function BarMenus({
       style={barStyle}
     >
       <MenubarMenu value={OXY}>
-        <MenubarTrigger asChild label="Menú de Oxy" style={[{ borderRadius: 4 }, highlight(OXY)]}>
+        <MenubarTrigger asChild label={messages.topBar.oxyMenu} style={[{ borderRadius: 4 }, highlight(OXY)]}>
           <Button
             iconOnly
             icon={OxyLogo}
-            accessibilityLabel="Menú de Oxy"
+            accessibilityLabel={messages.topBar.oxyMenu}
             appearance="plain"
             className="h-7 w-8 border-0 bg-transparent p-0"
             iconSize={17}
@@ -492,11 +500,11 @@ const BarMenus = memo(function BarMenus({
           />
         </MenubarTrigger>
         <MenubarContent label="Oxy" sideOffset={MENU_SIDE_OFFSET}>
-          <MenubarItem onPress={() => command("system.settings")}>Ajustes del sistema</MenubarItem>
-          <MenubarItem onPress={choose(launcher)}>Aplicaciones</MenubarItem>
-          <MenubarItem onPress={choose(overview)}>Ver escritorios</MenubarItem>
+          <MenubarItem onPress={() => command("system.settings")}>{messages.common.systemSettings}</MenubarItem>
+          <MenubarItem onPress={choose(launcher)}>{messages.topBar.applications}</MenubarItem>
+          <MenubarItem onPress={choose(overview)}>{messages.common.showDesktops}</MenubarItem>
           {canLock && (
-            <MenubarItem onPress={() => command("session.lock")}>Bloquear pantalla</MenubarItem>
+            <MenubarItem onPress={() => command("session.lock")}>{messages.topBar.lockScreen}</MenubarItem>
           )}
         </MenubarContent>
       </MenubarMenu>

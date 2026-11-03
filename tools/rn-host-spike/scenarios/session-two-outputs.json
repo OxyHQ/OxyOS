@@ -1,5 +1,6 @@
 {
   "about": "The session's shell on two outputs (ADR 0018): a 1280x720 primary at scale 1 and, right of it, a 1920x1080 output at 1.5 (1280x720 logical pixels), with a shell (sample/ShellProbe.tsx's OxyOSShell) on each. Each output has its background and its top bar, kept out of its own work area; only the primary has the dock, as a Mac's main display has the Dock and every display the menu bar. The application's window, moved onto the second output, is asked for frames at its scale and drawn there at 1.5, and takes its presses there; the second output's top bar opens its menu as a popup of its panel, under the item, on that output, and a press outside closes it. Each step checks the shells' surfaces and every output's work area, the window's place, its frame's size, and pixels of the second output in its own pixels: the window's edges at 1.5 its logical place (900 by 540 pixels, the wallpaper beyond them under its shadow) and its corners rounded at 1.5.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

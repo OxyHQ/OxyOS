@@ -829,6 +829,11 @@ fn events() -> Vec<Event> {
             last: true,
             text: PreeditText::new("es\t\tcompose:ralt").unwrap(),
         },
+        Event::Locale {
+            index: 0,
+            last: true,
+            text: PreeditText::new("es-MX-u-hc-h12").unwrap(),
+        },
         Event::ApplicationOutput {
             output: 2,
             size: Size::new(1280, 720),
@@ -2312,4 +2317,22 @@ fn version_15_meters_are_never_sent_to_an_older_peer() {
         rect: Rect::new(0, 0, 24, 12),
     };
     assert_eq!(request_since(&request), 15);
+}
+
+#[test]
+fn version_17_the_locale_is_never_sent_to_an_older_peer() {
+    let locale = Event::Locale {
+        index: 0,
+        last: true,
+        text: PreeditText::new("en-ES").unwrap(),
+    };
+    assert_eq!(event_since(&locale), 17);
+    let mut nothing = Vec::new();
+    assert!(!write_event_for(&mut nothing, &locale, 16).unwrap());
+    assert!(nothing.is_empty());
+    let mut v17 = Vec::new();
+    assert!(write_event_for(&mut v17, &locale, 17).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v17), 17).unwrap(), locale);
+    // A version 16 reader refuses it.
+    assert!(read_event_for(&mut Cursor::new(&v17), 16).is_err());
 }

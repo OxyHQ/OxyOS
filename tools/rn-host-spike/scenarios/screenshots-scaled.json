@@ -1,5 +1,6 @@
 {
   "about": "screenshots.json on a 1600x1000 output at 1.25 (ADR 0018), the session in English: the same steps, each file at the display's own pixels.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,
@@ -73,7 +74,7 @@
         "screenshots": {
           "saved": [
             {
-              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "name": "Captura de pantalla \\d{4}-\\d{2}-\\d{2} a las \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
               "folder": "Desktop",
               "output": 1,
               "width": 1600,
@@ -117,7 +118,7 @@
         "screenshots": {
           "saved": [
             {
-              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}( \\(2\\))?\\.png",
+              "name": "Captura de pantalla \\d{4}-\\d{2}-\\d{2} a las \\d{2}\\.\\d{2}\\.\\d{2}( \\(2\\))?\\.png",
               "folder": "Desktop",
               "width": 1600,
               "height": 1000,
@@ -243,7 +244,7 @@
         "screenshots": {
           "saved": [
             {
-              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "name": "Captura de pantalla \\d{4}-\\d{2}-\\d{2} a las \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
               "folder": "Desktop",
               "width": 250,
               "height": 188,
@@ -370,7 +371,7 @@
         "screenshots": {
           "saved": [
             {
-              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "name": "Captura de pantalla \\d{4}-\\d{2}-\\d{2} a las \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
               "folder": "Desktop",
               "width": 930,
               "height": 630,
@@ -513,7 +514,7 @@
         "screenshots": {
           "saved": [
             {
-              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}( \\(2\\))?\\.png",
+              "name": "Captura de pantalla \\d{4}-\\d{2}-\\d{2} a las \\d{2}\\.\\d{2}\\.\\d{2}( \\(2\\))?\\.png",
               "folder": "Desktop",
               "width": 1600,
               "height": 1000,

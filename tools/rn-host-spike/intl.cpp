@@ -128,6 +128,25 @@ void installIntl(jsi::Runtime& rt) {
                                                                                    capacity);
                                                 }));
            });
+  function(rt, native, "selectPlural", 3,
+           [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+             std::string locale = text(rt, args, count, 0), options = text(rt, args, count, 1);
+             double value = number(args, count, 2);
+             return jsi::String::createFromUtf8(rt, call(rt, [&](char* out, size_t capacity) {
+                                                  return oxyos_intl_plural_select(locale.data(), locale.size(),
+                                                                                  options.data(), options.size(), value,
+                                                                                  out, capacity);
+                                                }));
+           });
+  function(rt, native, "resolvePlural", 2,
+           [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+             std::string locale = text(rt, args, count, 0), options = text(rt, args, count, 1);
+             return jsi::String::createFromUtf8(rt, call(rt, [&](char* out, size_t capacity) {
+                                                  return oxyos_intl_resolve_plural(locale.data(), locale.size(),
+                                                                                   options.data(), options.size(), out,
+                                                                                   capacity);
+                                                }));
+           });
   rt.global().setProperty(rt, "__oxyosIntl", std::move(native));
   rt.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(kIntlJs), "oxyos-intl.js");
 }

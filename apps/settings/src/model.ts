@@ -10,6 +10,10 @@ import type { ImageSourcePropType } from "react-native";
 export type Appearance = "light" | "dark" | "auto";
 /** When the lock screen may show what notifications say (docs/adr/0026-notifications.mdx). */
 export type NotificationPreviews = "always" | "unlocked";
+/** A language OxyOS speaks, or empty for the system's (docs/adr/0040-language-and-region.mdx). */
+export type LanguagePreference = "" | "en" | "es";
+/** Twelve or 24 hours: the region's (`auto`), or the person's choice. */
+export type HourCycle = "auto" | "h12" | "h23";
 
 /** The user's preferences, as `crates/oxyos-preferences` keeps them. */
 export type Preferences = {
@@ -25,7 +29,11 @@ export type Preferences = {
   /** Minutes idle before the session locks; 0 never. */
   lockAfter: number;
   screenReader: boolean;
-  clock24h: boolean;
+  /** The session's language (ADR 0040, decision 1): empty is the system's. */
+  language: LanguagePreference;
+  /** A region as CLDR names one, two ASCII capitals ("ES", "US"); empty is the system's. */
+  region: string;
+  hourCycle: HourCycle;
   /** Do Not Disturb: notifications are kept, none shown as a banner (docs/adr/0026-notifications.mdx). */
   doNotDisturb: boolean;
   notificationPreviews: NotificationPreviews;
@@ -45,6 +53,9 @@ export type SystemFacts = {
   timeZone: string;
   automaticTime: boolean;
   keyboardLayout: string;
+  /** The system's locale, as its environment gives it ("es-ES"): the session's language and region
+      when the person chose none (docs/adr/0040-language-and-region.mdx, decision 1). */
+  locale: string;
 };
 
 /** One mode a display can be driven at: its pixels and refresh (millihertz), and whether it is the
@@ -110,7 +121,9 @@ export const PREFERENCE_KEYS = {
   wallpaper: "wallpaper",
   lockAfter: "lock_after",
   screenReader: "screen_reader",
-  clock24h: "clock_24h",
+  language: "language",
+  region: "region",
+  hourCycle: "hour_cycle",
   doNotDisturb: "do_not_disturb",
   notificationPreviews: "notification_previews",
 } as const satisfies Record<keyof Preferences, string>;

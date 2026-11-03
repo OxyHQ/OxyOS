@@ -6,9 +6,7 @@
   320
  ],
  "locale": "es_ES.UTF-8",
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "The field and its button; nothing focused; the field's hint is its description, the button's its tooltip",

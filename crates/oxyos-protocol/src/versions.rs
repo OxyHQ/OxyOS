@@ -38,7 +38,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// the dock's application menu (ADR 0034), both ways, `Ping` sent unasked; version 9, a popup's
 /// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001); version 10,
 /// drag and drop (ADR 0035), both ways, a target's events sent unasked; version 13, a node's place
-/// in its collection (`AccessiblePosition`, ADR 0039), both ways, sent with every snapshot.
+/// in its collection (`AccessiblePosition`, ADR 0039), both ways, sent with every snapshot;
+/// version 17, the session's locale (`Locale`, ADR 0040), told to every client.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -50,6 +51,7 @@ const EVENTS_ADDED: Added = &[
     (8, 230..=232),
     (10, 240..=250),
     (13, 251..=251),
+    (17, 181..=181),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

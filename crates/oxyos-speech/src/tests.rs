@@ -180,21 +180,74 @@ fn a_record_says_each_utterance_as_a_json_line() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("said.jsonl");
     let _ = std::fs::remove_file(&path);
-    let mut speaker = Speaker::new(Record::create(&path).unwrap());
+    let mut speaker = Speaker::new(Record::create(&path, Language::Spanish).unwrap());
     speaker.say("Nota, \"hola\"", Politeness::Polite).unwrap();
     speaker.say("dos\\tres\n", Politeness::Polite).unwrap();
+    speaker.set_language(Language::English);
     speaker.say("ya", Politeness::Assertive).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 3);
-    assert!(lines[0].ends_with(r#","text":"Nota, \"hola\"","interrupting":false}"#));
-    assert!(lines[1].ends_with(r#","text":"dos\\tres\u000a","interrupting":false}"#));
-    assert!(lines[2].ends_with(r#","text":"ya","interrupting":true}"#));
+    assert!(lines[0].ends_with(r#","text":"Nota, \"hola\"","interrupting":false,"voice":"es"}"#));
+    assert!(lines[1].ends_with(r#","text":"dos\\tres\u000a","interrupting":false,"voice":"es"}"#));
+    assert!(lines[2].ends_with(r#","text":"ya","interrupting":true,"voice":"en"}"#));
     let times: Vec<i64> = lines
         .iter()
         .map(|line| line[5..line.find(',').unwrap()].parse().unwrap())
         .collect();
     assert!(times.windows(2).all(|t| t[0] <= t[1]));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn each_utterance_is_said_in_the_language_it_was_given_in() {
+    let mut speaker = Speaker::new(Memory::default());
+    speaker.say("uno", Politeness::Polite).unwrap();
+    // Waiting behind "uno", "dos" keeps the language it was given in.
+    speaker.set_language(Language::Spanish);
+    speaker.say("dos", Politeness::Polite).unwrap();
+    speaker.set_language(Language::English);
+    speaker.say("three", Politeness::Polite).unwrap();
+    for _ in 0..2 {
+        speaker.backend_mut().busy = false;
+        speaker.pump().unwrap();
+    }
+    let memory = speaker.backend();
+    let said: Vec<&str> = memory.said.iter().map(|(text, _)| text.as_str()).collect();
+    assert_eq!(said, ["uno", "dos", "three"]);
+    // The voice's own until a language is given.
+    assert_eq!(memory.voices, ["en", "es", "en"]);
+}
+
+#[test]
+fn espeak_ng_is_run_with_the_voice_of_the_language_set() {
+    let dir = std::env::temp_dir().join(format!("oxyos-speech-voice-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (program, arguments) = (dir.join("espeak-ng"), dir.join("arguments"));
+    std::fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\ncat > /dev/null\n",
+            arguments.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut voice = Espeak::new(&program, Language::English);
+    let said = |voice: &mut Espeak, text| {
+        voice.say(text, false).unwrap();
+        while voice.speaking() {
+            std::thread::yield_now();
+        }
+    };
+    said(&mut voice, "hello");
+    voice.set_language(Language::Spanish);
+    said(&mut voice, "hola");
+    assert_eq!(
+        std::fs::read_to_string(&arguments).unwrap(),
+        "-v en -b 1\n-v es -b 1\n"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

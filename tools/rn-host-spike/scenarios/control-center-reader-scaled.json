@@ -1,5 +1,6 @@
 {
  "about": "Control Center's level sliders from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx, ADR 0025), over a played machine: Allo (sample/EditingProbe.tsx) with the shell. Super+F8 and → reach Control Center's item, Space opens it on its first control; Tab reaches the display's level, Bloom's slider, read once as one element (its name, its value as a share, its role; not the card's adjustable wrapper and the slider inside it both), and the arrows step it a sixteenth, its new value said once; the reader's cursor goes from it to the next control, not to a second copy; Escape closes it. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -10,9 +11,7 @@
   "id": "so.oxy.allo",
   "title": "Allo"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "controls": {
   "output_volume": 0.5,
   "output_muted": false,

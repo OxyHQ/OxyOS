@@ -93,18 +93,18 @@ fn environment<'a>(pairs: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<String>
 #[test]
 fn the_default_locale_follows_posix() {
     assert_eq!(
-        system_locale(environment(&[("LANG", "es_ES.UTF-8")])),
+        posix_locale(environment(&[("LANG", "es_ES.UTF-8")])),
         "es-ES"
     );
     assert_eq!(
-        system_locale(environment(&[
+        posix_locale(environment(&[
             ("LANG", "es_ES.UTF-8"),
             ("LC_MESSAGES", "de_DE")
         ])),
         "de-DE"
     );
     assert_eq!(
-        system_locale(environment(&[
+        posix_locale(environment(&[
             ("LC_ALL", "fr_FR@euro"),
             ("LC_MESSAGES", "de_DE")
         ])),
@@ -112,21 +112,21 @@ fn the_default_locale_follows_posix() {
     );
     // An empty variable is as good as none.
     assert_eq!(
-        system_locale(environment(&[("LC_ALL", ""), ("LANG", "pt_BR.UTF-8")])),
+        posix_locale(environment(&[("LC_ALL", ""), ("LANG", "pt_BR.UTF-8")])),
         "pt-BR"
     );
     assert_eq!(
-        system_locale(environment(&[("LANG", "sr_RS@latin")])),
+        posix_locale(environment(&[("LANG", "sr_RS@latin")])),
         "sr-Latn-RS"
     );
     for none in ["C", "C.UTF-8", "POSIX", "xx_YY"] {
         assert_eq!(
-            system_locale(environment(&[("LANG", none)])),
+            posix_locale(environment(&[("LANG", none)])),
             "en-US",
             "{none}"
         );
     }
-    assert_eq!(system_locale(environment(&[])), "en-US");
+    assert_eq!(posix_locale(environment(&[])), "en-US");
 }
 
 #[test]
@@ -788,4 +788,112 @@ fn option_bags_from_the_c_abi() {
     );
     assert_eq!(options("").unwrap(), []);
     assert!(options("year").is_err());
+}
+
+/// The plural category of each value, with these options.
+fn categories(locale: &str, options: &[(&str, &str)], values: &[f64]) -> Vec<&'static str> {
+    values
+        .iter()
+        .map(|value| plural::select(locale, options, *value).unwrap())
+        .collect()
+}
+
+#[test]
+fn plural_categories_are_cldrs() {
+    assert_eq!(
+        categories("en", &[], &[0.0, 1.0, 2.0, -1.0]),
+        ["other", "one", "other", "one"]
+    );
+    let ordinal = [("type", "ordinal")];
+    assert_eq!(
+        categories(
+            "en-US",
+            &ordinal,
+            &[1.0, 2.0, 3.0, 4.0, 11.0, 21.0, 22.0, 23.0, 101.0]
+        ),
+        ["one", "two", "few", "other", "other", "one", "two", "few", "one"]
+    );
+    assert_eq!(
+        categories("es-ES", &[], &[1.0, 2.0, 0.0]),
+        ["one", "other", "other"]
+    );
+    // CLDR 42 gave Spanish `many` for a million and its multiples, written without a fraction.
+    assert_eq!(
+        categories("es", &[], &[1_000_000.0, 2_000_000.0, 1_000_001.0]),
+        ["many", "many", "other"]
+    );
+    assert_eq!(categories("es", &ordinal, &[1.0, 2.0]), ["other", "other"]);
+    // French's one is 0 and 1.
+    assert_eq!(
+        categories("fr", &[], &[0.0, 1.0, 1.5, 2.0]),
+        ["one", "one", "one", "other"]
+    );
+    assert_eq!(
+        categories("ar", &[], &[0.0, 1.0, 2.0, 3.0, 11.0, 100.0]),
+        ["zero", "one", "two", "few", "many", "other"]
+    );
+    // Not a finite number: other.
+    assert_eq!(
+        categories("en", &[], &[f64::NAN, f64::INFINITY]),
+        ["other", "other"]
+    );
+}
+
+#[test]
+fn the_plural_category_is_of_the_number_as_written() {
+    // 1.0 is not 1 in English.
+    assert_eq!(
+        categories("en", &[("minimumFractionDigits", "1")], &[1.0]),
+        ["other"]
+    );
+    // Rounded first: at most 3 fraction digits by default, 1.0004 is 1.
+    assert_eq!(categories("en", &[], &[1.0004]), ["one"]);
+    assert_eq!(
+        categories("en", &[("maximumFractionDigits", "0")], &[1.4]),
+        ["one"]
+    );
+    assert_eq!(
+        categories("en", &[("maximumSignificantDigits", "1")], &[1.2]),
+        ["one"]
+    );
+    assert_eq!(
+        categories("en", &[("minimumSignificantDigits", "2")], &[1.0]),
+        ["other"]
+    );
+}
+
+#[test]
+fn plural_rules_resolved_options_are_ecma_402s() {
+    let resolved = |locale, options: &[(&str, &str)]| {
+        plural::resolve(locale, options)
+            .unwrap()
+            .into_iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(";")
+    };
+    assert_eq!(
+        resolved("en-US-u-hc-h23", &[]),
+        "locale=en-US;type=cardinal;minimumIntegerDigits=1;minimumFractionDigits=0;\
+         maximumFractionDigits=3;pluralCategories=one,other;roundingIncrement=1;\
+         roundingMode=halfExpand;roundingPriority=auto;trailingZeroDisplay=auto"
+    );
+    assert_eq!(
+        resolved("en", &[("type", "ordinal"), ("minimumFractionDigits", "4")]),
+        "locale=en;type=ordinal;minimumIntegerDigits=1;minimumFractionDigits=4;\
+         maximumFractionDigits=4;pluralCategories=one,two,few,other;roundingIncrement=1;\
+         roundingMode=halfExpand;roundingPriority=auto;trailingZeroDisplay=auto"
+    );
+    assert!(
+        resolved("es", &[("maximumSignificantDigits", "3")]).contains(
+            "minimumSignificantDigits=1;maximumSignificantDigits=3;\
+                   pluralCategories=one,many,other;"
+        )
+    );
+    // Refused loudly: an unknown option, a bad value, an option OxyOS does not take yet.
+    assert!(plural::resolve("en", &[("type", "range")]).is_err());
+    assert!(plural::resolve("en", &[("style", "percent")]).is_err());
+    assert!(plural::resolve("en", &[("minimumFractionDigits", "101")]).is_err());
+    let unsupported = plural::resolve("en", &[("roundingMode", "floor")]).unwrap_err();
+    assert!(unsupported.0.contains("not supported"), "{unsupported}");
 }

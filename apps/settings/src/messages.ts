@@ -1,9 +1,28 @@
-/** The Settings application's words, in the session's language: Spanish or English. */
-export type Strings = typeof en;
+/**
+ * Settings' one message catalogue (docs/adr/0040-language-and-region.mdx, decision 5): its words in
+ * each language OxyOS speaks. English is the shape and Spanish is typed to it, so a missing
+ * translation fails the type-check. A count is a function of `Intl.PluralRules` (which the OxyOS
+ * host provides); its number goes through `Intl.NumberFormat`.
+ */
+export type Messages = typeof en;
+
+/** The languages Settings speaks. */
+export type MessagesLanguage = "en" | "es";
+
+/** A count's words in a language, by its CLDR plural category; `other` when it has no form of its own. */
+function plural(
+  language: MessagesLanguage,
+  n: number,
+  forms: { one: (count: string) => string; other: (count: string) => string; many?: (count: string) => string },
+): string {
+  const category = new Intl.PluralRules(language).select(n);
+  const form = category === "one" ? forms.one : category === "many" ? (forms.many ?? forms.other) : forms.other;
+  return form(new Intl.NumberFormat(language).format(n));
+}
 
 const en = {
   title: "Settings",
-  groups: { connections: "Connections", personal: "Personal", system: "System" },
+  groups: { connections: "Connections", personal: "Personal", general: "General" },
   pages: {
     appearance: "Appearance",
     wallpaper: "Wallpaper",
@@ -12,6 +31,7 @@ const en = {
     displays: "Displays",
     keyboard: "Keyboard",
     dateTime: "Date & Time",
+    languageRegion: "Language & Region",
     accessibility: "Accessibility",
     about: "About",
     softwareUpdate: "Software Update",
@@ -50,7 +70,10 @@ const en = {
   lockScreen: {
     lockAfter: "Lock after",
     never: "Never",
-    minutes: (n: number) => (n === 1 ? "1 minute" : n === 60 ? "1 hour" : `${n} minutes`),
+    minutes: (n: number) =>
+      n === 60
+        ? plural("en", 1, { one: (c) => `${c} hour`, other: (c) => `${c} hours` })
+        : plural("en", n, { one: (c) => `${c} minute`, other: (c) => `${c} minutes` }),
   },
   displays: {
     arrangement: "Arrangement",
@@ -79,7 +102,10 @@ const en = {
     moveHint: "To move it, press the arrow keys.",
     keepTitle: "Keep these display settings?",
     keepDescription: (seconds: number) =>
-      `The display goes back to its previous settings in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
+      plural("en", seconds, {
+        one: (c) => `The display goes back to its previous settings in ${c} second.`,
+        other: (c) => `The display goes back to its previous settings in ${c} seconds.`,
+      }),
     keep: "Keep Changes",
     revert: "Revert",
     reverted: "The display went back to its previous settings.",
@@ -92,6 +118,41 @@ const en = {
     clock24h: "24-hour time",
     on: "On",
     off: "Off",
+  },
+  languageRegion: {
+    language: "Language",
+    region: "Region",
+    timeFormat: "Time format",
+    /** The system's choice, named: "Automatic (English)", "Automatic (Spain)", "Automatic (24-hour)". */
+    automatic: (name: string) => `Automatic (${name})`,
+    hour12: "12-hour",
+    hour24: "24-hour",
+    languageDescription:
+      "Settings and the system's apps switch at once. Other apps switch the next time they open.",
+    date: "Date",
+    time: "Time",
+    number: "Number",
+    /** The languages OxyOS speaks, named in this language (the system's, in "Automatic (…)"). */
+    languageNames: { en: "English", es: "Spanish" } as Record<MessagesLanguage, string>,
+    /** The regions Settings offers, named in this language (the OxyOS host has no Intl.DisplayNames). */
+    regionNames: {
+      AR: "Argentina",
+      AU: "Australia",
+      CA: "Canada",
+      CL: "Chile",
+      CO: "Colombia",
+      DE: "Germany",
+      ES: "Spain",
+      FR: "France",
+      GB: "United Kingdom",
+      IE: "Ireland",
+      IT: "Italy",
+      MX: "Mexico",
+      NL: "Netherlands",
+      PE: "Peru",
+      PT: "Portugal",
+      US: "United States",
+    } as Record<string, string>,
   },
   accessibility: {
     screenReader: "Screen reader",
@@ -218,9 +279,9 @@ const en = {
   },
 };
 
-const es: Strings = {
+const es: Messages = {
   title: "Ajustes",
-  groups: { connections: "Conexiones", personal: "Personal", system: "Sistema" },
+  groups: { connections: "Conexiones", personal: "Personal", general: "General" },
   pages: {
     appearance: "Apariencia",
     wallpaper: "Fondo de pantalla",
@@ -229,6 +290,7 @@ const es: Strings = {
     displays: "Pantallas",
     keyboard: "Teclado",
     dateTime: "Fecha y hora",
+    languageRegion: "Idioma y región",
     accessibility: "Accesibilidad",
     about: "Información",
     softwareUpdate: "Actualización de software",
@@ -268,7 +330,10 @@ const es: Strings = {
   lockScreen: {
     lockAfter: "Bloquear tras",
     never: "Nunca",
-    minutes: (n: number) => (n === 1 ? "1 minuto" : n === 60 ? "1 hora" : `${n} minutos`),
+    minutes: (n: number) =>
+      n === 60
+        ? plural("es", 1, { one: (c) => `${c} hora`, other: (c) => `${c} horas` })
+        : plural("es", n, { one: (c) => `${c} minuto`, other: (c) => `${c} minutos` }),
   },
   displays: {
     arrangement: "Disposición",
@@ -302,7 +367,10 @@ const es: Strings = {
     moveHint: "Para moverla, pulsa las flechas.",
     keepTitle: "¿Mantener esta configuración de pantalla?",
     keepDescription: (seconds: number) =>
-      `La pantalla vuelve a su configuración anterior en ${seconds} ${seconds === 1 ? "segundo" : "segundos"}.`,
+      plural("es", seconds, {
+        one: (c) => `La pantalla vuelve a su configuración anterior en ${c} segundo.`,
+        other: (c) => `La pantalla vuelve a su configuración anterior en ${c} segundos.`,
+      }),
     keep: "Mantener",
     revert: "Revertir",
     reverted: "La pantalla ha vuelto a su configuración anterior.",
@@ -315,6 +383,38 @@ const es: Strings = {
     clock24h: "Formato de 24 horas",
     on: "Sí",
     off: "No",
+  },
+  languageRegion: {
+    language: "Idioma",
+    region: "Región",
+    timeFormat: "Formato de hora",
+    automatic: (name: string) => `Automático (${name})`,
+    hour12: "12 horas",
+    hour24: "24 horas",
+    languageDescription:
+      "Ajustes y las apps del sistema cambian al instante. Las demás apps cambian la próxima vez que se abren.",
+    date: "Fecha",
+    time: "Hora",
+    number: "Número",
+    languageNames: { en: "inglés", es: "español" },
+    regionNames: {
+      AR: "Argentina",
+      AU: "Australia",
+      CA: "Canadá",
+      CL: "Chile",
+      CO: "Colombia",
+      DE: "Alemania",
+      ES: "España",
+      FR: "Francia",
+      GB: "Reino Unido",
+      IE: "Irlanda",
+      IT: "Italia",
+      MX: "México",
+      NL: "Países Bajos",
+      PE: "Perú",
+      PT: "Portugal",
+      US: "Estados Unidos",
+    },
   },
   accessibility: {
     screenReader: "Lector de pantalla",
@@ -440,7 +540,16 @@ const es: Strings = {
   },
 };
 
-/** The words for a BCP 47 locale ("es-ES", "en"): Spanish for Spanish, English otherwise. */
-export function stringsFor(locale: string): Strings {
-  return locale.toLowerCase().split(/[-_]/)[0] === "es" ? es : en;
+/** The language of a BCP 47 locale ("es-ES", "en") or a Bloom language: Spanish for Spanish,
+    English otherwise. */
+export function messagesLanguage(locale: string | null | undefined): MessagesLanguage {
+  return (locale ?? "").toLowerCase().split(/[-_]/)[0] === "es" ? "es" : "en";
 }
+
+/** The catalogue for a BCP 47 locale or a Bloom language (`resolveBloomLanguage`). */
+export function messagesFor(locale: string | null | undefined): Messages {
+  return messagesLanguage(locale) === "es" ? es : en;
+}
+
+/** Every catalogue, by language: for the tests' parity check. */
+export const CATALOGUES: Record<MessagesLanguage, Messages> = { en, es };

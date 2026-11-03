@@ -29,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 16;
+pub const VERSION: u16 = 17;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The keyboard's modifiers a Pointer event carries (version 8), as bits.
@@ -77,6 +77,8 @@ pub const MAX_DRAG_TYPES: usize = 16;
 pub const MAX_TRASH_FILES_BYTES: usize = 256 * 1024;
 /// The longest keyboard layout told to clients, `layout\tvariant\toptions` (ADR 0029).
 pub const MAX_KEYBOARD_LAYOUT_BYTES: usize = 1024;
+/// The longest locale told to clients, one BCP 47 tag (`Locale`, ADR 0040).
+pub const MAX_LOCALE_BYTES: usize = 256;
 /// The largest pointer image a client may set, on either side, in its pixels (ADR 0029): the
 /// largest cursor planes take 256.
 pub const MAX_POINTER_IMAGE_SIDE: u32 = 256;

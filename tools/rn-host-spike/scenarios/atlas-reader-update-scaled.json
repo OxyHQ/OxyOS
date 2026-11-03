@@ -1,5 +1,6 @@
 {
  "about": "Atlas (OxyHQ/Atlas) updates Inbox from its Updates page with the keyboard and the screen reader on (docs/adr/0039-keyboard-access.mdx, docs/adr/0030-installing-applications.mdx, decision 16): a real oxyos-installd with Inbox 1 installed and the store publishing 2. Tab and Space open Updates; Check for Updates keeps the focus while the machine reads the store and says what it found; Tab reaches Inbox's Update; Space applies it, said as it starts and as it ends, and the row stays where it was with its control, focused throughout, now Inbox updated (as the App Store keeps Updated Recently), rather than vanishing without a word; pressed again it asks nothing. At 1.25 (1600 × 1000).",
+ "locale": "en_US.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -68,9 +69,7 @@
    }
   }
  },
- "reader": {
-  "locale": "en_US.UTF-8"
- },
+ "reader": {},
  "installd": {
   "publish": [
    {

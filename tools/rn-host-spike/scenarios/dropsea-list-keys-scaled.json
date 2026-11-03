@@ -1,5 +1,6 @@
 {
   "about": "Dropsea's items from the keyboard (docs/adr/0039-keyboard-access.mdx), as Finder's list with Full Keyboard Access and VoiceOver: the items are one Tab stop; the arrows move the selection within it and the screen reader says each item the selection reaches, by its name and, in the list, its columns, while the keyboard stays on the list; Space still Quick Looks; Shift+F10 and the Menu key open the selection's context menu at the selected item, said as a menu by its title; Escape gives the list back. At 1.25 (1600 × 1000).",
+  "locale": "en_US.UTF-8",
   "module": "Dropsea",
   "window": [
     1024,
@@ -18,9 +19,7 @@
       "Pictures/photo.jpg": "x"
     }
   },
-  "reader": {
-    "locale": "en_US.UTF-8"
-  },
+  "reader": {},
   "steps": [
     {
       "name": "Dropsea's home; the reader on; nothing has the keyboard's focus",

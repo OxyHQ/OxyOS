@@ -1,3 +1,5 @@
+import type { ShellMessages } from "./messages";
+
 /**
  * How the lock and login screens' password field says a wait after too many wrong passwords
  * (docs/adr/0010-lock-screen.mdx): the session's throttle makes the fifth in a row wait 30 s,
@@ -5,10 +7,9 @@
  */
 
 /** A wait as said: "30 segundos", "2 minutos" (the visible hint counts it in seconds). */
-export function waitSaid(seconds: number): string {
-  if (seconds < 60 || seconds % 60 !== 0) return seconds === 1 ? "1 segundo" : `${seconds} segundos`;
-  const minutes = seconds / 60;
-  return minutes === 1 ? "1 minuto" : `${minutes} minutos`;
+export function waitSaid(seconds: number, messages: ShellMessages): string {
+  if (seconds < 60 || seconds % 60 !== 0) return messages.common.seconds(seconds);
+  return messages.common.minutes(seconds / 60);
 }
 
 /**

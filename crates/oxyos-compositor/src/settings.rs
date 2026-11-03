@@ -11,6 +11,12 @@
 //! `lock_after` is the idle lock's (idle.rs): changed, its deadline is armed again from the
 //! change. `screen_reader` is the program's to follow ([`Settings::serve`] says it changed): it alone
 //! starts and stops its reader.
+//!
+//! The session's locale (docs/adr/0040-language-and-region.mdx) is the person's `language`,
+//! `region` and `hour_cycle` over the environment's POSIX locale (`LC_ALL`, `LC_MESSAGES`, `LANG`,
+//! read once when the settings are made): told to every client on connecting and again when a
+//! change makes it another. The login screen's ([`Settings::system_locale_only`]) is the
+//! environment's alone.
 
 use crate::Compositor;
 use oxyos_compositor_core::scene::ApplicationList;
@@ -54,6 +60,10 @@ pub struct Settings {
     place: Option<Place>,
     /// When the sun next crosses the horizon (unix seconds), while the appearance follows it.
     crossing: Option<i64>,
+    /// The POSIX locale the session was started with: the system's language and region.
+    environment_locale: Option<String>,
+    /// The locale is the system's alone, whatever the preferences say: the login screen's.
+    system_locale_only: bool,
 }
 
 impl Settings {
@@ -63,7 +73,35 @@ impl Settings {
             file,
             place,
             crossing: None,
+            environment_locale: oxyos_preferences::environment_locale(),
+            system_locale_only: false,
         }
+    }
+
+    /// The same, with the system's locale `environment` (a POSIX locale, `es_ES.UTF-8`) instead
+    /// of this process's environment's.
+    pub fn with_environment_locale(mut self, environment: Option<&str>) -> Self {
+        self.environment_locale = environment.map(str::to_owned);
+        self
+    }
+
+    /// The same, its locale the system's alone (the login screen's: it has no person's
+    /// preferences).
+    pub fn system_locale_only(mut self) -> Self {
+        self.system_locale_only = true;
+        self
+    }
+
+    /// The session's locale, one BCP 47 tag (ADR 0040).
+    pub fn locale(&self) -> String {
+        let defaults;
+        let preferences = if self.system_locale_only {
+            defaults = Preferences::default();
+            &defaults
+        } else {
+            &self.preferences
+        };
+        oxyos_preferences::session_locale(preferences, self.environment_locale.as_deref())
     }
 
     /// The preferences in `file` (the defaults where it says nothing usable, or without one).
@@ -120,6 +158,15 @@ impl Settings {
             })
             .collect();
         compositor.scene.set_preferences(drawing, &values);
+        // The session's locale: told again only when it is another.
+        let locale = self.locale();
+        if let Err(code) = compositor.scene.set_locale(&locale) {
+            eprintln!("[preferences] locale {locale:?} not told: {code:?}");
+        }
+        // Screenshots are named in it, as a Mac names them in the system's language.
+        if let Some(writer) = compositor.screenshots.as_mut() {
+            writer.language = crate::screenshots::Language::of(std::slice::from_ref(&locale));
+        }
         // The person's lists of applications (docs/adr/0034-the-dock.mdx), for the shell.
         compositor.scene.set_application_list(
             ApplicationListKind::Dock,
@@ -534,5 +581,57 @@ mod tests {
             let text = format!("{key}={}", preferences.get(key).unwrap());
             assert!(text.len() <= oxyos_protocol::MAX_PREFERENCE_BYTES);
         }
+    }
+
+    /// The locales `client` was told since the last call, each assembled from its chunks.
+    fn locales(compositor: &mut Compositor, client: ClientId) -> Vec<String> {
+        let mut told = Vec::new();
+        let mut tag = String::new();
+        for (to, event) in compositor.scene.drain_events() {
+            if let Event::Locale { last, text, .. } = event {
+                if to == client {
+                    tag.push_str(text.as_str());
+                    if last {
+                        told.push(std::mem::take(&mut tag));
+                    }
+                }
+            }
+        }
+        told
+    }
+
+    #[test]
+    fn the_locale_is_the_persons_over_the_environments_and_told_when_it_changes() {
+        let mut compositor = compositor();
+        let mut settings = Settings::load(None, None).with_environment_locale(Some("es_ES.UTF-8"));
+        settings.apply(&mut compositor, DAY);
+        assert_eq!(locales(&mut compositor, APP), ["es-ES"]);
+        // A change that is not the locale's tells it no more.
+        ask(&mut compositor, 1, "reduce_motion=true");
+        settings.serve(&mut compositor, DAY);
+        assert!(locales(&mut compositor, APP).is_empty());
+        ask(&mut compositor, 2, "language=en");
+        assert_eq!(settings.serve(&mut compositor, DAY), ["language"]);
+        assert_eq!(locales(&mut compositor, APP), ["en-ES"]);
+        ask(&mut compositor, 3, "region=MX");
+        ask(&mut compositor, 4, "hour_cycle=h12");
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(locales(&mut compositor, APP), ["en-MX-u-hc-h12"]);
+        assert_eq!(settings.locale(), "en-MX-u-hc-h12");
+    }
+
+    #[test]
+    fn the_login_screens_locale_is_the_systems_alone() {
+        let mut preferences = Preferences::default();
+        preferences.set("language", "en").unwrap();
+        preferences.set("hour_cycle", "h12").unwrap();
+        let settings = Settings::new(preferences, None, None)
+            .with_environment_locale(Some("es_MX.UTF-8"))
+            .system_locale_only();
+        assert_eq!(settings.locale(), "es-MX");
+        let none = Settings::new(Preferences::default(), None, None)
+            .with_environment_locale(None)
+            .system_locale_only();
+        assert_eq!(none.locale(), "en-US");
     }
 }

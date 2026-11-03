@@ -6,9 +6,7 @@
   320
  ],
  "locale": "es_ES.UTF-8",
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "A progress bar and a slider with a range and no words, one with words, Bloom's meter and progress bar: each value its share, or its words; nothing said",

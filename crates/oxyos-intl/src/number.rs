@@ -80,15 +80,15 @@ pub fn resolve(
 
 /// How a number is rounded: to fraction digits (at least, at most) or significant digits.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Rounding {
+pub(crate) enum Rounding {
     Fraction(u8, u8),
     Significant(u8, u8),
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Digits {
-    integer: u8,
-    rounding: Rounding,
+pub(crate) struct Digits {
+    pub(crate) integer: u8,
+    pub(crate) rounding: Rounding,
 }
 
 /// The options, checked, with ECMA-402's defaults.
@@ -215,42 +215,12 @@ impl Options {
             ));
         }
         // SetNumberFormatDigitOptions, with roundingPriority auto and standard notation.
-        let (fraction_default, fraction_maximum_default) = match (style, &currency) {
+        let default = match (style, &currency) {
             ("currency", Some(code)) => (minor_unit(code), minor_unit(code)),
             ("percent", _) => (0, 0),
             _ => (0, 3),
         };
-        let digits = |name, value: Option<&str>, minimum, maximum| {
-            value
-                .map(|value| number(SERVICE, name, value, minimum, maximum))
-                .transpose()
-        };
-        let rounding = if significant.0.or(significant.1).is_some() {
-            let minimum = digits("minimumSignificantDigits", significant.0, 1, 21)?.unwrap_or(1);
-            let maximum = digits("maximumSignificantDigits", significant.1, 1, 21)?.unwrap_or(21);
-            if minimum > maximum {
-                return Err(Error(format!(
-                    "maximumSignificantDigits value {maximum} is out of range"
-                )));
-            }
-            Rounding::Significant(minimum, maximum)
-        } else {
-            let minimum = digits("minimumFractionDigits", fraction.0, 0, 100)?;
-            let maximum = digits("maximumFractionDigits", fraction.1, 0, 100)?;
-            match (minimum, maximum) {
-                (None, None) => Rounding::Fraction(fraction_default, fraction_maximum_default),
-                (None, Some(maximum)) => Rounding::Fraction(fraction_default.min(maximum), maximum),
-                (Some(minimum), None) => {
-                    Rounding::Fraction(minimum, fraction_maximum_default.max(minimum))
-                }
-                (Some(minimum), Some(maximum)) if minimum > maximum => {
-                    return Err(Error(format!(
-                        "maximumFractionDigits value {maximum} is out of range"
-                    )))
-                }
-                (Some(minimum), Some(maximum)) => Rounding::Fraction(minimum, maximum),
-            }
-        };
+        let rounding = rounding(SERVICE, fraction, significant, default)?;
         Ok(Self {
             style,
             currency_display: if currency.is_some() {
@@ -269,6 +239,46 @@ impl Options {
             trailing_zeros,
         })
     }
+}
+
+/// The rounding of ECMA-402's SetNumberFormatDigitOptions (roundingPriority auto, standard
+/// notation) for `service`: significant digits when either is given, else fraction digits with
+/// `default` (the least and most fraction digits) filling in what is not.
+pub(crate) fn rounding(
+    service: &str,
+    fraction: (Option<&str>, Option<&str>),
+    significant: (Option<&str>, Option<&str>),
+    default: (u8, u8),
+) -> Result<Rounding, Error> {
+    let (fraction_default, fraction_maximum_default) = default;
+    let digits = |name, value: Option<&str>, minimum, maximum| {
+        value
+            .map(|value| number(service, name, value, minimum, maximum))
+            .transpose()
+    };
+    if significant.0.or(significant.1).is_some() {
+        let minimum = digits("minimumSignificantDigits", significant.0, 1, 21)?.unwrap_or(1);
+        let maximum = digits("maximumSignificantDigits", significant.1, 1, 21)?.unwrap_or(21);
+        if minimum > maximum {
+            return Err(Error(format!(
+                "maximumSignificantDigits value {maximum} is out of range"
+            )));
+        }
+        return Ok(Rounding::Significant(minimum, maximum));
+    }
+    let minimum = digits("minimumFractionDigits", fraction.0, 0, 100)?;
+    let maximum = digits("maximumFractionDigits", fraction.1, 0, 100)?;
+    Ok(match (minimum, maximum) {
+        (None, None) => Rounding::Fraction(fraction_default, fraction_maximum_default),
+        (None, Some(maximum)) => Rounding::Fraction(fraction_default.min(maximum), maximum),
+        (Some(minimum), None) => Rounding::Fraction(minimum, fraction_maximum_default.max(minimum)),
+        (Some(minimum), Some(maximum)) if minimum > maximum => {
+            return Err(Error(format!(
+                "maximumFractionDigits value {maximum} is out of range"
+            )))
+        }
+        (Some(minimum), Some(maximum)) => Rounding::Fraction(minimum, maximum),
+    })
 }
 
 /// ECMA-402's CurrencyDigits: the currency's minor unit in ISO 4217, else 2.
@@ -356,7 +366,12 @@ impl NumberFormat {
                 decimal.multiply_pow10(2);
             }
             decimal.sign = if negative { Sign::Negative } else { Sign::None };
-            self.round(&mut decimal);
+            round(
+                &mut decimal,
+                self.options.digits,
+                self.options.rounding_mode,
+                self.options.trailing_zeros,
+            );
             decimal
         } else {
             Decimal::from(0)
@@ -458,42 +473,42 @@ impl NumberFormat {
         }
         Ok(parts)
     }
+}
 
-    /// Rounds and pads `decimal` as the digit options say.
-    fn round(&self, decimal: &mut Decimal) {
-        let digits = self.options.digits;
-        let mode = match self.options.rounding_mode {
-            "ceil" => SignedRoundingMode::Ceil,
-            "floor" => SignedRoundingMode::Floor,
-            "expand" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::Expand),
-            "trunc" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::Trunc),
-            "halfCeil" => SignedRoundingMode::HalfCeil,
-            "halfFloor" => SignedRoundingMode::HalfFloor,
-            "halfTrunc" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfTrunc),
-            "halfEven" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfEven),
-            _ => SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfExpand),
-        };
-        let shown = match digits.rounding {
-            Rounding::Fraction(minimum, maximum) => {
-                decimal.round_with_mode(-i16::from(maximum), mode);
-                -i16::from(minimum)
-            }
-            Rounding::Significant(minimum, maximum) => {
-                if !decimal.absolute.is_zero() {
-                    let start = decimal.absolute.nonzero_magnitude_start();
-                    decimal.round_with_mode(start - i16::from(maximum) + 1, mode);
-                }
-                // Rounding may have carried into a new digit (9.99 to 10.0).
-                decimal.absolute.nonzero_magnitude_start() - i16::from(minimum) + 1
-            }
-        };
-        decimal.absolute.trim_end();
-        let integer = decimal.absolute.nonzero_magnitude_end() >= 0;
-        if !(self.options.trailing_zeros == "stripIfInteger" && integer) {
-            decimal.absolute.pad_end(shown.min(0));
+/// Rounds and pads `decimal` as `digits` say, with ECMA-402's rounding `mode` (its name) and
+/// trailing zeros (`auto` or `stripIfInteger`).
+pub(crate) fn round(decimal: &mut Decimal, digits: Digits, mode: &str, trailing_zeros: &str) {
+    let mode = match mode {
+        "ceil" => SignedRoundingMode::Ceil,
+        "floor" => SignedRoundingMode::Floor,
+        "expand" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::Expand),
+        "trunc" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::Trunc),
+        "halfCeil" => SignedRoundingMode::HalfCeil,
+        "halfFloor" => SignedRoundingMode::HalfFloor,
+        "halfTrunc" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfTrunc),
+        "halfEven" => SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfEven),
+        _ => SignedRoundingMode::Unsigned(UnsignedRoundingMode::HalfExpand),
+    };
+    let shown = match digits.rounding {
+        Rounding::Fraction(minimum, maximum) => {
+            decimal.round_with_mode(-i16::from(maximum), mode);
+            -i16::from(minimum)
         }
-        decimal.absolute.pad_start(i16::from(digits.integer));
+        Rounding::Significant(minimum, maximum) => {
+            if !decimal.absolute.is_zero() {
+                let start = decimal.absolute.nonzero_magnitude_start();
+                decimal.round_with_mode(start - i16::from(maximum) + 1, mode);
+            }
+            // Rounding may have carried into a new digit (9.99 to 10.0).
+            decimal.absolute.nonzero_magnitude_start() - i16::from(minimum) + 1
+        }
+    };
+    decimal.absolute.trim_end();
+    let integer = decimal.absolute.nonzero_magnitude_end() >= 0;
+    if !(trailing_zeros == "stripIfInteger" && integer) {
+        decimal.absolute.pad_end(shown.min(0));
     }
+    decimal.absolute.pad_start(i16::from(digits.integer));
 }
 
 /// Data from ICU4X's experimental components, for `locale` and the attributes (a currency code)

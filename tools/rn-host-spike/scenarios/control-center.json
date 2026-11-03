@@ -1,5 +1,6 @@
 {
   "about": "Hardware keys and the Control Center (ADR 0025) on the OxyOS shell, over a played machine (the development compositor's --controls: a ThinkPad's volumes, display backlight, battery on 64 % discharging, Wi-Fi on LukeSkyRouter, Bluetooth with one device). Allo (sample/EditingProbe.tsx) has its field focused throughout. Volume up, down, mute and up again, Shift+Alt+volume up (a quarter step), the microphone's mute and the display's brightness keys each change the machine as a Mac's do (sixteen steps, a volume key unmuting) and show the shell's bezel, its level said to the screen reader, which fades on its own after a moment; Allo receives nothing of any of those keys. The top bar shows the battery and Wi-Fi as the machine has them. Its Control Center button opens the Control Center: Wi-Fi on LukeSkyRouter, Bluetooth with one device, the display's and the sound's sliders, the battery; pressing the sliders sets the machine's levels, Wi-Fi's switch turns it off (the top bar follows) and on again, and Dark Mode sets the user's appearance (the file the session keeps, and Allo told dark). A press outside closes it. As a control, keys typed without the hardware keys are Allo's. With the compositor not taking the hardware keys, it fails.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

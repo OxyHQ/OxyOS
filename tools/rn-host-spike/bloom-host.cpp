@@ -1042,6 +1042,12 @@ int main(int argc, char** argv) {
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
+    // The session's locale as JavaScript was last told it (docs/adr/0040-language-and-region.mdx):
+    // the one told at connect is Intl's default before the bundle runs, and the report says it.
+    std::string toldLocale = window ? window->locale() : std::string();
+    if (!toldLocale.empty()) {
+      oxyos::Report::get().input("locale", oxyos::Window::kToplevel, folly::dynamic::object("locale", toldLocale));
+    }
     folly::dynamic toldDisplays = nullptr;
     if (!shellMode) {
       services.window = {
@@ -1997,6 +2003,18 @@ int main(int argc, char** argv) {
           toldPreferences = window->preferences();
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
+        }
+        // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
+        // Intl's default is already the new one (the window set it); JavaScript is told, and
+        // expo-localization's module tells its listeners, as Android's configuration change does.
+        if (window && window->locale() != toldLocale) {
+          toldLocale = window->locale();
+          // The shell's applications by their names in the new language.
+          if (shellMode) shellState.relocalize();
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSLocaleChanged",
+                                                               folly::dynamic::object("locale", toldLocale)));
+          oxyos::Report::get().input("locale", oxyos::Window::kToplevel, folly::dynamic::object("locale", toldLocale));
         }
         // The displays as the session tells Settings them (docs/adr/0018-several-displays.mdx).
         if (window && services.settings.displays) {

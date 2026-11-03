@@ -127,6 +127,63 @@ fn the_cursor_moves_through_what_has_something_to_say() {
     );
 }
 
+/// The session's locale, in chunks as the compositor tells it.
+fn locale(tag: &str) -> Vec<Event> {
+    let chunks = TextChunk::split(tag);
+    let count = chunks.len();
+    chunks
+        .into_iter()
+        .enumerate()
+        .map(|(index, chunk)| Event::Locale {
+            index: index as u8,
+            last: index + 1 == count,
+            text: PreeditText::new(chunk.as_str()).unwrap(),
+        })
+        .collect()
+}
+
+#[test]
+fn the_reader_speaks_the_sessions_locale_from_the_next_utterance() {
+    // Its environment's until told.
+    let mut reader = Reader::new(Language::English);
+    assert!(!reader.told_locale());
+    feed(&mut reader, &probe(None, "Nivel 5"));
+    assert!(feed(&mut reader, &locale("es-ES")).is_empty());
+    assert!(reader.told_locale());
+    assert_eq!(reader.language(), Language::Spanish);
+    let said = |reader: &mut Reader, command| {
+        assert_eq!(reader.command(command), None);
+        reader
+            .take_said()
+            .into_iter()
+            .map(|u| (u.text, u.language))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        said(&mut reader, ReaderCommand::Next),
+        [("Volumen, regulador".to_string(), Language::Spanish)]
+    );
+    // A change: English, with its voice, from the next thing said; long enough for two chunks.
+    feed(&mut reader, &locale("en-US-u-hc-h23-ca-gregory-nu-latn"));
+    assert_eq!(reader.language(), Language::English);
+    assert_eq!(
+        said(&mut reader, ReaderCommand::Next),
+        [("Nivel 5".to_string(), Language::English)]
+    );
+    assert_eq!(
+        said(&mut reader, ReaderCommand::Next),
+        [("Guardar, button".to_string(), Language::English)]
+    );
+    feed(&mut reader, &locale("es-MX-u-hc-h12"));
+    assert_eq!(
+        said(&mut reader, ReaderCommand::Next),
+        [(
+            "Nota, hola ñandú, campo de texto".to_string(),
+            Language::Spanish
+        )]
+    );
+}
+
 #[test]
 fn the_focused_element_is_said_once_and_takes_the_cursor() {
     let mut reader = Reader::new(Language::Spanish);
@@ -139,7 +196,8 @@ fn the_focused_element_is_said_once_and_takes_the_cursor() {
         reader.take_said(),
         [Utterance {
             text: "Nota, hola ñandú, campo de texto".into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::Spanish,
         }]
     );
     // The same focus in the next tree says nothing again.
@@ -185,7 +243,8 @@ fn announcements_and_live_regions_are_said_with_their_politeness() {
         reader.take_said(),
         [Utterance {
             text: "Nivel 6".into(),
-            politeness: Politeness::Polite
+            politeness: Politeness::Polite,
+            language: Language::Spanish,
         }]
     );
     // An announcement in chunks, said once it is whole.
@@ -208,7 +267,8 @@ fn announcements_and_live_regions_are_said_with_their_politeness() {
         reader.take_said(),
         [Utterance {
             text: long.into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::Spanish,
         }]
     );
 }
@@ -295,11 +355,13 @@ fn a_menu_that_opens_is_said_by_its_title_then_its_focused_row() {
         [
             Utterance {
                 text: "Message actions, menu".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::English,
             },
             Utterance {
                 text: "Reply, menu item".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::English,
             },
         ]
     );
@@ -312,7 +374,8 @@ fn a_menu_that_opens_is_said_by_its_title_then_its_focused_row() {
         reader.take_said(),
         [Utterance {
             text: "Archive, menu item".into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::English,
         }]
     );
     // It closes, focus back on its trigger: the trigger is said, and nothing of the menu.
@@ -361,11 +424,13 @@ fn a_menu_focusing_its_row_after_it_appears_is_said_whole() {
         [
             Utterance {
                 text: "Message actions, menu".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::English,
             },
             Utterance {
                 text: "Reply, menu item".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::English,
             },
         ]
     );
@@ -394,7 +459,8 @@ fn a_menu_focusing_its_row_after_it_appears_is_said_whole() {
         reader.take_said(),
         [Utterance {
             text: "Forward, menu item".into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::English,
         }]
     );
 }
@@ -459,7 +525,8 @@ fn what_is_typed_is_said_as_it_is_typed() {
         reader.take_said(),
         [Utterance {
             text: "h".into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::Spanish,
         }]
     );
     assert_eq!(feed(&mut reader, &typing("ho", 2, 2)), ["o"]);
@@ -788,11 +855,13 @@ fn an_item_says_its_place_and_then_its_hint() {
         [
             Utterance {
                 text: "foto.png, seleccionado, 2 de 3".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::Spanish,
             },
             Utterance {
                 text: "Abre el archivo".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::Spanish,
             },
         ]
     );
@@ -870,11 +939,13 @@ fn a_dialog_shown_over_a_window_is_said_by_its_title_as_it_appears() {
         [
             Utterance {
                 text: "Quick Look, dialog".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::English,
             },
             Utterance {
                 text: "Close, button".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::English,
             },
         ]
     );
@@ -921,13 +992,15 @@ fn an_alert_says_its_title_then_its_message_then_its_default_button() {
     let polite = |text: &str| Utterance {
         text: text.into(),
         politeness: Politeness::Polite,
+        language: Language::Spanish,
     };
     assert_eq!(
         reader.take_said(),
         [
             Utterance {
                 text: "¿Mantener esta configuración de pantalla?, diálogo".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::Spanish
             },
             polite("La pantalla vuelve a su configuración anterior en 15 segundos."),
             polite("Revertir, botón"),
@@ -962,11 +1035,13 @@ fn a_surface_that_appears_as_a_dialog_is_said_by_its_title_then_its_focus() {
         [
             Utterance {
                 text: "Launchpad, diálogo".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::Spanish
             },
             Utterance {
                 text: "Buscar aplicaciones, campo de búsqueda".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::Spanish
             },
         ]
     );
@@ -1029,11 +1104,13 @@ fn a_surface_that_appears_as_a_dialog_is_said_by_its_title_then_its_focus() {
         [
             Utterance {
                 text: "Unirse a Vecinos, diálogo".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::Spanish
             },
             Utterance {
                 text: "Escribe la contraseña.".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::Spanish
             },
         ]
     );
@@ -1074,7 +1151,8 @@ fn a_dialog_closed_with_nothing_focused_leaves_the_next_focus_said_at_once() {
         reader.take_said(),
         [Utterance {
             text: "Documents, list".into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::English,
         }]
     );
 }
@@ -1094,11 +1172,13 @@ fn the_session_locking_is_said_then_the_lock_screens_field() {
         [
             Utterance {
                 text: "Pantalla bloqueada".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::Spanish,
             },
             Utterance {
                 text: "Contraseña, campo de texto".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::Spanish,
             },
         ]
     );
@@ -1147,7 +1227,8 @@ fn an_alert_appearing_is_said_at_once_and_once() {
         reader.take_said(),
         [Utterance {
             text: "Ese nombre ya está en uso".into(),
-            politeness: Politeness::Assertive
+            politeness: Politeness::Assertive,
+            language: Language::Spanish
         }]
     );
     assert!(feed(&mut reader, &form(Some("Ese nombre ya está en uso"))).is_empty());
@@ -1186,7 +1267,8 @@ fn a_live_container_says_the_text_it_holds_not_its_controls() {
         reader.take_said(),
         [Utterance {
             text: "Guardado, Los cambios se han guardado".into(),
-            politeness: Politeness::Polite
+            politeness: Politeness::Polite,
+            language: Language::Spanish
         }]
     );
     // Another above it: that one alone, not the one already said.
@@ -1264,11 +1346,13 @@ fn a_polite_live_region_is_said_after_a_new_focus_and_an_assertive_one_before() 
         [
             Utterance {
                 text: "Buscar aplicaciones, l, campo de búsqueda".into(),
-                politeness: Politeness::Assertive
+                politeness: Politeness::Assertive,
+                language: Language::Spanish
             },
             Utterance {
                 text: "1 resultado".into(),
-                politeness: Politeness::Polite
+                politeness: Politeness::Polite,
+                language: Language::Spanish
             },
         ]
     );

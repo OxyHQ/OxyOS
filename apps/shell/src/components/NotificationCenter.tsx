@@ -6,6 +6,7 @@ import { AppIcon } from "../apps";
 import type { ShellApplication, ShellNotifications } from "../model";
 import { groupNotifications } from "../notifications";
 import { BANNER_WIDTH, NotificationCard } from "./NotificationBanner";
+import { useShellMessages } from "../useShellMessages";
 
 /**
  * The Notification Center (docs/adr/0026-notifications.mdx), opened from the top bar's clock as a
@@ -28,6 +29,8 @@ export const NotificationCenter = memo(function NotificationCenter({
   top: number;
   close: () => void;
 }) {
+  const messages = useShellMessages();
+  const words = messages.notifications;
   const groups = groupNotifications(
     notifications.list.filter((notification) => !notification.withheld),
     applications,
@@ -45,7 +48,7 @@ export const NotificationCenter = memo(function NotificationCenter({
       <Box
         testID="notification-center"
         accessibilityRole="dialog"
-        accessibilityLabel="Centro de notificaciones"
+        accessibilityLabel={messages.common.notificationCenter}
         className="absolute rounded-[22px] border border-white/60"
         style={{
           top: top + 8,
@@ -58,17 +61,17 @@ export const NotificationCenter = memo(function NotificationCenter({
       >
         <Box className="flex-row items-center justify-between px-4 pb-2 pt-3">
           <Text accessibilityRole="header" className="text-[15px] font-semibold text-[#1d2530]">
-            Notificaciones
+            {messages.common.notifications}
           </Text>
           {notifications.doNotDisturb ? (
             <Text testID="notification-center-dnd" className="text-[12px] text-[#5b6573]">
-              No molestar
+              {messages.common.doNotDisturb}
             </Text>
           ) : null}
         </Box>
         {groups.length === 0 ? (
           <Box className="flex-1 items-center justify-center">
-            <Text className="text-[13px] text-[#5b6573]">No hay notificaciones</Text>
+            <Text className="text-[13px] text-[#5b6573]">{words.none}</Text>
           </Box>
         ) : (
           <Scroll
@@ -89,10 +92,10 @@ export const NotificationCenter = memo(function NotificationCenter({
                     testID={`notification-clear-${group.appId}`}
                     size="sm"
                     appearance="plain"
-                    accessibilityLabel={`Borrar las notificaciones de ${group.name}`}
+                    accessibilityLabel={words.clearApp(group.name)}
                     onPress={() => group.notifications.forEach((notification) => notifications.remove(notification.id))}
                   >
-                    Borrar
+                    {words.clear}
                   </Button>
                 </Box>
                 {group.notifications.map((notification) => (
@@ -102,7 +105,7 @@ export const NotificationCenter = memo(function NotificationCenter({
                     notification={notification}
                     applications={applications}
                     now={now}
-                    closeAction="Borrar"
+                    closeAction={words.clear}
                     close={() => notifications.remove(notification.id)}
                     activate={(action, reply) => {
                       notifications.activate(notification.id, action, reply);

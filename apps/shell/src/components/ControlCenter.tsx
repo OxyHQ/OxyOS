@@ -25,6 +25,7 @@ import {
 import type { ShellControl, ShellControls } from "../model";
 import { hasWifiView } from "../network";
 import { WifiPanel } from "./WifiPanel";
+import { useShellMessages } from "../useShellMessages";
 
 /** What the Control Center shows: its modules, or Wi-Fi's view (docs/adr/0038-networks.mdx). */
 export type ControlCenterPage = "modules" | "wifi";
@@ -140,6 +141,7 @@ function LevelCard({
   /** A volume: its icon mutes it and unmutes it. */
   mute?: boolean;
 }) {
+  const messages = useShellMessages();
   const level = controls.levels[control];
   if (!level?.available) return null;
   const Glyph = icon;
@@ -161,7 +163,7 @@ function LevelCard({
             iconOnly
             icon={quiet ? RiVolumeMuteLine : Glyph}
             iconSize={16}
-            accessibilityLabel={level.muted ? "Activar sonido" : "Silenciar"}
+            accessibilityLabel={level.muted ? messages.controlCenter.unmute : messages.controlCenter.mute}
             appearance="plain"
             className="border-0 p-0"
             style={{ width: 24, height: 24 }}
@@ -184,7 +186,7 @@ function LevelCard({
             step={100 / 64}
             keyboardStep={100 / 16}
             showTooltip={false}
-            formatValue={(value) => `${percent(value / 100)} %`}
+            formatValue={(value) => messages.common.percent(percent(value / 100))}
             accessibilityLabel={title}
             minimumTrackTintColor={ACCENT}
             onValueChange={(value) => controls.setLevel?.(control, value / 100)}
@@ -227,9 +229,11 @@ export const ControlCenter = memo(function ControlCenter({
   useEffect(() => {
     controls.refresh?.();
   }, []);
-  const wifi = wifiLabel(controls.network);
-  const bluetooth = bluetoothLabel(controls.bluetooth);
-  const battery = batteryLabel(controls.power);
+  const messages = useShellMessages();
+  const words = messages.controlCenter;
+  const wifi = wifiLabel(controls.network, messages);
+  const bluetooth = bluetoothLabel(controls.bluetooth, messages);
+  const battery = batteryLabel(controls.power, messages);
   const networks = controls.networks;
   const wifiView = hasWifiView(networks) && !!showPage;
   return (
@@ -244,7 +248,7 @@ export const ControlCenter = memo(function ControlCenter({
         testID="control-center"
         // A panel of controls, as a Mac's Control Center window, not a menu: it holds no items.
         role="dialog"
-        accessibilityLabel="Centro de control"
+        accessibilityLabel={messages.common.controlCenter}
         style={{
           position: "absolute",
           top: 34,
@@ -273,7 +277,7 @@ export const ControlCenter = memo(function ControlCenter({
                   // switch, while Wi-Fi is on (off, its state says it).
                   value={!wifiView && wifiOn(controls.network) ? wifi : undefined}
                   onPress={() => controls.setWifi?.(!wifiOn(controls.network))}
-                  more={wifiView ? { label: "Redes Wi-Fi", open: () => showPage?.("wifi") } : undefined}
+                  more={wifiView ? { label: words.wifiNetworks, open: () => showPage?.("wifi") } : undefined}
                 />
               )}
               {bluetooth !== undefined && (
@@ -288,15 +292,15 @@ export const ControlCenter = memo(function ControlCenter({
               <Module
                 testID="control-appearance"
                 icon={dark ? RiMoonLine : RiSunLine}
-                title="Modo oscuro"
-                status={dark ? "Activado" : "Desactivado"}
+                title={words.darkMode}
+                status={dark ? messages.common.on : messages.common.off}
                 on={dark}
                 onPress={() => controls.setDark?.(!dark)}
               />
             </Box>
-            <LevelCard control="display" title="Pantalla" icon={RiSunLine} controls={controls} />
-            <LevelCard control="keyboard" title="Teclado" icon={RiKeyboardLine} controls={controls} />
-            <LevelCard control="output" title="Sonido" icon={RiVolumeUpLine} controls={controls} mute />
+            <LevelCard control="display" title={words.display} icon={RiSunLine} controls={controls} />
+            <LevelCard control="keyboard" title={words.keyboard} icon={RiKeyboardLine} controls={controls} />
+            <LevelCard control="output" title={words.sound} icon={RiVolumeUpLine} controls={controls} mute />
             {battery !== undefined && (
               <Box
                 style={card}
@@ -304,11 +308,11 @@ export const ControlCenter = memo(function ControlCenter({
                 accessible
                 // A level indicator, as the top bar's battery.
                 role="meter"
-                accessibilityLabel="Batería"
+                accessibilityLabel={messages.topBar.battery}
                 accessibilityValue={{ min: 0, max: 100, now: controls.power?.percent ?? 0, text: battery }}
               >
                 <RiBatteryLine width={16} height={16} fill={INK} />
-                <Text style={{ color: INK, fontSize: 13, marginLeft: 8 }}>Batería</Text>
+                <Text style={{ color: INK, fontSize: 13, marginLeft: 8 }}>{words.battery}</Text>
                 <Text testID="control-battery" style={{ color: QUIET, fontSize: 12, marginLeft: "auto" }}>
                   {battery}
                 </Text>
@@ -319,8 +323,8 @@ export const ControlCenter = memo(function ControlCenter({
                 <Module
                   testID="control-do-not-disturb"
                   icon={RiNotificationOffFill}
-                  title="No molestar"
-                  status={doNotDisturb.on ? "Activado" : "Desactivado"}
+                  title={messages.common.doNotDisturb}
+                  status={doNotDisturb.on ? messages.common.on : messages.common.off}
                   on={doNotDisturb.on}
                   onPress={() => doNotDisturb.set(!doNotDisturb.on)}
                 />
@@ -336,7 +340,7 @@ export const ControlCenter = memo(function ControlCenter({
                 openSettings();
               }}
             >
-              <Text style={{ color: INK, fontSize: 12 }}>Ajustes del sistema…</Text>
+              <Text style={{ color: INK, fontSize: 12 }}>{words.systemSettings}</Text>
             </Button>
           </>
         )}

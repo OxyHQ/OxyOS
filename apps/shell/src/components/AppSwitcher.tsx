@@ -6,6 +6,7 @@ import { Box } from "../primitives";
 import { AppIcon } from "../apps";
 import type { ShellApplication } from "../model";
 import type { Switcher } from "../switcher";
+import { useShellMessages } from "../useShellMessages";
 
 const ICON = 64;
 const CELL = 88;
@@ -27,6 +28,7 @@ export const AppSwitcher = memo(function AppSwitcher({
   applications: readonly ShellApplication[];
   activate: (id: string) => void;
 }) {
+  const messages = useShellMessages();
   const apps = switcher.order
     .map((id) => applications.find((app) => app.id === id))
     .filter((app): app is ShellApplication => !!app);
@@ -40,7 +42,7 @@ export const AppSwitcher = memo(function AppSwitcher({
     <Box
       testID="shell-switcher"
       accessibilityRole="list"
-      accessibilityLabel="Cambiar de aplicación"
+      accessibilityLabel={messages.switcher.label}
       className="flex-row items-start rounded-[28px] border border-white/60 p-3"
       style={{
         backgroundColor: "#eef1f6e6",

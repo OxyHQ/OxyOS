@@ -1,5 +1,6 @@
 {
  "about": "The screen reader turned on and off at the lock screen with Super+F5 (docs/adr/0014-screen-reader.mdx, decision 6), as Cmd+F5 turns VoiceOver on at a Mac's lock screen: Allo (sample/EditingProbe.tsx) with the shell, the session's reader named but off. Locked, Super+F5 starts it: it says so, then the focused password field; a wrong password is said; Super+F5 stops it and nothing more is said; Super+F5 starts it again; the right password unlocks. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -11,7 +12,6 @@
   "title": "Allo"
  },
  "reader": {
-  "locale": "es_ES.UTF-8",
   "off": true
  },
  "lock_password": "oxyos.correcta",

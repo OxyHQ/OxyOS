@@ -1,5 +1,6 @@
 {
   "about": "Settings' Displays from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx), as a Mac's Displays settings with Full Keyboard Access and VoiceOver, on two displays as a card reports them (a 14-inch panel, the main one, and a 24-inch monitor right of it). The arrangement's displays are keyboard stops said with where they stand ('OxyOS Monitor, right of Built-in Display') and the arrows' hint; the arrows move the focused display to that side of the other, each move said once by its new place, a move to where it already is going nowhere, saying nothing; Space chooses it. A resolution chosen from the keyboard is on trial: its dialog takes the keyboard on Revert, its default button, and is said by its title, its countdown and Revert; Escape reverts, Return reverts, and the keyboard goes back to Resolution each time; left alone it says its countdown at 10 and 5 seconds, not each second, and that the display went back; Keep Changes is a Tab away and keeps it. The settings' Saved toast is never in the tree while unseen. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (the panel at 1, 1920 × 1200, as chosen before).",
+  "locale": "es_ES.UTF-8",
   "module": "OxyOSSettings",
   "window": [
     980,
@@ -48,9 +49,7 @@
       "name": "OxyOS Monitor"
     }
   ],
-  "reader": {
-    "locale": "es_ES.UTF-8"
-  },
+  "reader": {},
   "steps": [
     {
       "name": "Settings with two displays, the reader on, nothing of it focused; no Saved toast in the tree",
@@ -78,7 +77,7 @@
         "a11y-action",
         [
           "activate",
-          "Displays"
+          "Pantallas"
         ]
       ],
       "allow_unchanged": true,
@@ -94,7 +93,7 @@
           ]
         },
         "texts": [
-          "Arrangement"
+          "Disposición"
         ]
       }
     },
@@ -114,7 +113,7 @@
         },
         "spoken": [
           {
-            "text": "Displays, seleccionado, 5 de 11",
+            "text": "Pantallas, seleccionado, 5 de 12",
             "interrupting": true
           }
         ],
@@ -137,11 +136,11 @@
         },
         "spoken": [
           {
-            "text": "Built-in Display, left of OxyOS Monitor, seleccionado, botón",
+            "text": "Pantalla integrada, a la izquierda de OxyOS Monitor, seleccionado, botón",
             "interrupting": true
           },
           {
-            "text": "To move it, press the arrow keys.",
+            "text": "Para moverla, pulsa las flechas.",
             "interrupting": false
           }
         ],
@@ -150,9 +149,9 @@
           "window": [
             {
               "role": "Button",
-              "name": "Built-in Display",
-              "value": "left of OxyOS Monitor",
-              "hint": "To move it, press the arrow keys.",
+              "name": "Pantalla integrada",
+              "value": "a la izquierda de OxyOS Monitor",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "selected",
                 "focused"
@@ -161,8 +160,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "right of Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "a la derecha de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": []
             }
           ]
@@ -185,11 +184,11 @@
         },
         "spoken": [
           {
-            "text": "OxyOS Monitor, right of Built-in Display, botón",
+            "text": "OxyOS Monitor, a la derecha de Pantalla integrada, botón",
             "interrupting": true
           },
           {
-            "text": "To move it, press the arrow keys.",
+            "text": "Para moverla, pulsa las flechas.",
             "interrupting": false
           }
         ],
@@ -199,8 +198,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "right of Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "a la derecha de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "focused"
               ]
@@ -225,7 +224,7 @@
         },
         "spoken": [
           {
-            "text": "above Built-in Display",
+            "text": "encima de Pantalla integrada",
             "interrupting": true
           }
         ],
@@ -235,17 +234,17 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "above Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "encima de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "focused"
               ]
             },
             {
               "role": "Button",
-              "name": "Built-in Display",
-              "value": "below OxyOS Monitor",
-              "hint": "To move it, press the arrow keys.",
+              "name": "Pantalla integrada",
+              "value": "debajo de OxyOS Monitor",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "selected"
               ]
@@ -285,8 +284,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "above Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "encima de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "focused"
               ]
@@ -321,7 +320,7 @@
         },
         "spoken": [
           {
-            "text": "left of Built-in Display",
+            "text": "a la izquierda de Pantalla integrada",
             "interrupting": true
           }
         ],
@@ -331,8 +330,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "left of Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "a la izquierda de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "focused"
               ]
@@ -367,7 +366,7 @@
         },
         "spoken": [
           {
-            "text": "below Built-in Display",
+            "text": "debajo de Pantalla integrada",
             "interrupting": true
           }
         ],
@@ -377,8 +376,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "below Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "debajo de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "focused"
               ]
@@ -413,7 +412,7 @@
         },
         "spoken": [
           {
-            "text": "right of Built-in Display",
+            "text": "a la derecha de Pantalla integrada",
             "interrupting": true
           }
         ],
@@ -423,8 +422,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "right of Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "a la derecha de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "focused"
               ]
@@ -469,8 +468,8 @@
             {
               "role": "Button",
               "name": "OxyOS Monitor",
-              "value": "right of Built-in Display",
-              "hint": "To move it, press the arrow keys.",
+              "value": "a la derecha de Pantalla integrada",
+              "hint": "Para moverla, pulsa las flechas.",
               "state": [
                 "selected",
                 "focused"
@@ -479,7 +478,7 @@
           ]
         },
         "texts": [
-          "24-inch, 1920 × 1080"
+          "24 pulgadas, 1920 × 1080"
         ]
       }
     },
@@ -499,7 +498,7 @@
         },
         "spoken": [
           {
-            "text": "Extended display, seleccionado, botón de opción",
+            "text": "Pantalla extendida, seleccionado, botón de opción",
             "interrupting": true
           }
         ],
@@ -522,7 +521,7 @@
         },
         "spoken": [
           {
-            "text": "Looks like 1920 × 1080, seleccionado, botón de opción",
+            "text": "Se ve como 1920 × 1080, seleccionado, botón de opción",
             "interrupting": true
           }
         ],
@@ -540,12 +539,12 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Resolution",
+          "target": "Resolución",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, 1920 × 1080 (native), botón",
+            "text": "Resolución, 1920 × 1080 (nativa), botón",
             "interrupting": true
           }
         ],
@@ -563,16 +562,16 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "1920 × 1080 (native)",
+          "target": "1920 × 1080 (nativa)",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, diálogo",
+            "text": "Resolución, diálogo",
             "interrupting": true
           },
           {
-            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "text": "1920 × 1080 (nativa), seleccionado, botón de opción",
             "interrupting": false
           }
         ],
@@ -613,20 +612,20 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Revert",
+          "target": "Revertir",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Keep these display settings?, diálogo",
+            "text": "¿Mantener esta configuración de pantalla?, diálogo",
             "interrupting": true
           },
           {
-            "text": "The display goes back to its previous settings in 15 seconds.",
+            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
             "interrupting": false
           },
           {
-            "text": "Revert, botón",
+            "text": "Revertir, botón",
             "interrupting": false
           }
         ],
@@ -635,16 +634,16 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             },
             {
               "role": "Button",
-              "name": "Keep Changes",
+              "name": "Mantener",
               "state": []
             },
             {
               "role": "Button",
-              "name": "Revert",
+              "name": "Revertir",
               "state": [
                 "focused"
               ]
@@ -675,12 +674,12 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Resolution",
+          "target": "Resolución",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, 1920 × 1080 (native), botón",
+            "text": "Resolución, 1920 × 1080 (nativa), botón",
             "interrupting": true
           }
         ],
@@ -689,8 +688,8 @@
           "window": [
             {
               "role": "Button",
-              "name": "Resolution",
-              "value": "1920 × 1080 (native)",
+              "name": "Resolución",
+              "value": "1920 × 1080 (nativa)",
               "state": [
                 "focused"
               ]
@@ -701,7 +700,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             }
           ]
         },
@@ -726,16 +725,16 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "1920 × 1080 (native)",
+          "target": "1920 × 1080 (nativa)",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, diálogo",
+            "text": "Resolución, diálogo",
             "interrupting": true
           },
           {
-            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "text": "1920 × 1080 (nativa), seleccionado, botón de opción",
             "interrupting": false
           }
         ],
@@ -776,20 +775,20 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Revert",
+          "target": "Revertir",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Keep these display settings?, diálogo",
+            "text": "¿Mantener esta configuración de pantalla?, diálogo",
             "interrupting": true
           },
           {
-            "text": "The display goes back to its previous settings in 15 seconds.",
+            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
             "interrupting": false
           },
           {
-            "text": "Revert, botón",
+            "text": "Revertir, botón",
             "interrupting": false
           }
         ],
@@ -798,16 +797,16 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             },
             {
               "role": "Button",
-              "name": "Keep Changes",
+              "name": "Mantener",
               "state": []
             },
             {
               "role": "Button",
-              "name": "Revert",
+              "name": "Revertir",
               "state": [
                 "focused"
               ]
@@ -838,12 +837,12 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Resolution",
+          "target": "Resolución",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, 1920 × 1080 (native), botón",
+            "text": "Resolución, 1920 × 1080 (nativa), botón",
             "interrupting": true
           }
         ],
@@ -852,8 +851,8 @@
           "window": [
             {
               "role": "Button",
-              "name": "Resolution",
-              "value": "1920 × 1080 (native)",
+              "name": "Resolución",
+              "value": "1920 × 1080 (nativa)",
               "state": [
                 "focused"
               ]
@@ -864,7 +863,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             }
           ]
         },
@@ -889,16 +888,16 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "1920 × 1080 (native)",
+          "target": "1920 × 1080 (nativa)",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, diálogo",
+            "text": "Resolución, diálogo",
             "interrupting": true
           },
           {
-            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "text": "1920 × 1080 (nativa), seleccionado, botón de opción",
             "interrupting": false
           }
         ],
@@ -939,20 +938,20 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Revert",
+          "target": "Revertir",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Keep these display settings?, diálogo",
+            "text": "¿Mantener esta configuración de pantalla?, diálogo",
             "interrupting": true
           },
           {
-            "text": "The display goes back to its previous settings in 15 seconds.",
+            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
             "interrupting": false
           },
           {
-            "text": "Revert, botón",
+            "text": "Revertir, botón",
             "interrupting": false
           }
         ],
@@ -961,16 +960,16 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             },
             {
               "role": "Button",
-              "name": "Keep Changes",
+              "name": "Mantener",
               "state": []
             },
             {
               "role": "Button",
-              "name": "Revert",
+              "name": "Revertir",
               "state": [
                 "focused"
               ]
@@ -999,47 +998,47 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Resolution",
+          "target": "Resolución",
           "ring": true
         },
         "spoken": [
           {
-            "text": "The display goes back to its previous settings in 10 seconds.",
+            "text": "La pantalla vuelve a su configuración anterior en 10 segundos.",
             "interrupting": true
           },
           {
-            "text": "The display goes back to its previous settings in 5 seconds.",
+            "text": "La pantalla vuelve a su configuración anterior en 5 segundos.",
             "interrupting": true
           },
           {
-            "text": "The display went back to its previous settings.",
+            "text": "La pantalla ha vuelto a su configuración anterior.",
             "interrupting": true
           },
           {
-            "text": "Resolution, 1920 × 1080 (native), botón",
+            "text": "Resolución, 1920 × 1080 (nativa), botón",
             "interrupting": true
           }
         ],
         "announcements": [
           {
             "politeness": "assertive",
-            "text": "The display goes back to its previous settings in 10 seconds."
+            "text": "La pantalla vuelve a su configuración anterior en 10 segundos."
           },
           {
             "politeness": "assertive",
-            "text": "The display goes back to its previous settings in 5 seconds."
+            "text": "La pantalla vuelve a su configuración anterior en 5 segundos."
           },
           {
             "politeness": "assertive",
-            "text": "The display went back to its previous settings."
+            "text": "La pantalla ha vuelto a su configuración anterior."
           }
         ],
         "at": {
           "window": [
             {
               "role": "Button",
-              "name": "Resolution",
-              "value": "1920 × 1080 (native)",
+              "name": "Resolución",
+              "value": "1920 × 1080 (nativa)",
               "state": [
                 "focused"
               ]
@@ -1050,7 +1049,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             }
           ]
         },
@@ -1075,16 +1074,16 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "1920 × 1080 (native)",
+          "target": "1920 × 1080 (nativa)",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, diálogo",
+            "text": "Resolución, diálogo",
             "interrupting": true
           },
           {
-            "text": "1920 × 1080 (native), seleccionado, botón de opción",
+            "text": "1920 × 1080 (nativa), seleccionado, botón de opción",
             "interrupting": false
           }
         ],
@@ -1125,20 +1124,20 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Revert",
+          "target": "Revertir",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Keep these display settings?, diálogo",
+            "text": "¿Mantener esta configuración de pantalla?, diálogo",
             "interrupting": true
           },
           {
-            "text": "The display goes back to its previous settings in 15 seconds.",
+            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
             "interrupting": false
           },
           {
-            "text": "Revert, botón",
+            "text": "Revertir, botón",
             "interrupting": false
           }
         ],
@@ -1147,16 +1146,16 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             },
             {
               "role": "Button",
-              "name": "Keep Changes",
+              "name": "Mantener",
               "state": []
             },
             {
               "role": "Button",
-              "name": "Revert",
+              "name": "Revertir",
               "state": [
                 "focused"
               ]
@@ -1188,12 +1187,12 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Keep Changes",
+          "target": "Mantener",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Keep Changes, botón",
+            "text": "Mantener, botón",
             "interrupting": true
           }
         ],
@@ -1211,12 +1210,12 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": {
-          "target": "Resolution",
+          "target": "Resolución",
           "ring": true
         },
         "spoken": [
           {
-            "text": "Resolution, 1280 × 720, botón",
+            "text": "Resolución, 1280 × 720, botón",
             "interrupting": true
           }
         ],
@@ -1225,7 +1224,7 @@
           "window": [
             {
               "role": "Button",
-              "name": "Resolution",
+              "name": "Resolución",
               "value": "1280 × 720",
               "state": [
                 "focused"
@@ -1237,7 +1236,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "Keep these display settings?"
+              "name": "¿Mantener esta configuración de pantalla?"
             },
             {
               "name": "Saved"

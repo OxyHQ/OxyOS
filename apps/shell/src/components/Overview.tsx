@@ -42,6 +42,7 @@ import type {
 } from "../model";
 import { belongsTo } from "../model";
 import type { WindowSize, WindowViewProps } from "../platform";
+import { useShellMessages } from "../useShellMessages";
 
 function aspectRatio(size: WindowSize | undefined) {
   return size &&
@@ -78,6 +79,7 @@ function WindowThumbnail({
   /** The platform's live window (ADR 0022), preferred to a still thumbnail. */
   WindowView?: ComponentType<WindowViewProps>;
 }) {
+  const words = useShellMessages().overview;
   const width = contentHeight * ratio;
   const id = window.id;
   const gesture = useMemo(
@@ -164,7 +166,7 @@ function WindowThumbnail({
             <Box className="items-center gap-3">
               {app && <AppIcon app={app} size={40} />}
               <Text className="text-xs text-[#657683]">
-                Vista previa no disponible
+                {words.noPreview}
               </Text>
             </Box>
           )}
@@ -174,7 +176,7 @@ function WindowThumbnail({
         iconOnly
         icon={RiCloseLine}
         iconSize={15}
-        accessibilityLabel={`Cerrar ${window.title}`}
+        accessibilityLabel={words.closeWindow(window.title)}
         testID={`close-window-${window.id}`}
         appearance="plain"
         className="absolute right-1 top-0.5 h-5 w-5 rounded-full border-0 bg-transparent p-0"
@@ -209,6 +211,7 @@ export const Overview = memo(function Overview({
   /** The windows' sizes where the platform keeps them apart (ShellPlatform's). */
   useWindowSizes?: () => ReadonlyMap<string, WindowSize> | undefined;
 }) {
+  const words = useShellMessages().overview;
   // The windows' sizes, read here alone: a window resized renders the overview, nothing else.
   const sizes = useWindowSizes();
   const ratio = (window: ShellWindow) =>
@@ -380,7 +383,7 @@ export const Overview = memo(function Overview({
                   current desktop. */}
               <PressArea
                 accessibilityRole="button"
-                accessibilityLabel={`Abrir ${workspace.name}`}
+                accessibilityLabel={words.openDesktop(workspace.name)}
                 accessibilityState={{ selected: workspace.id === snapshot.workspaceId }}
                 onPress={() => enterWorkspace(workspace.id)}
                 className="absolute inset-0"
@@ -396,7 +399,7 @@ export const Overview = memo(function Overview({
                       className="h-8 rounded-full border-0 bg-[#f7f9fc] px-3"
                       colors={{ background: "#f7f9fc", foreground: "#3f4d58" }}
                       textStyle={{ fontSize: 12, fontWeight: "500" }}
-                      accessibilityLabel={`Opciones de ${workspace.name}`}
+                      accessibilityLabel={words.desktopOptions(workspace.name)}
                     >
                       {workspace.name}
                     </Button>
@@ -410,7 +413,7 @@ export const Overview = memo(function Overview({
                     <DropdownMenuItem
                       onPress={() => enterWorkspace(workspace.id)}
                     >
-                      Abrir este escritorio
+                      {words.openThisDesktop}
                     </DropdownMenuItem>
                     {snapshot.workspaces
                       .filter((other) => other.id !== workspace.id)
@@ -428,7 +431,7 @@ export const Overview = memo(function Overview({
                             })
                           }
                         >
-                          Ver {other.name.toLocaleLowerCase()}
+                          {words.goTo(other.name)}
                         </DropdownMenuItem>
                       ))}
                   </DropdownMenuContent>
@@ -492,13 +495,13 @@ export const Overview = memo(function Overview({
                 {!windows.length && (
                   <PressArea
                     accessibilityRole="button"
-                    accessibilityLabel={`Abrir ${workspace.name} vacío`}
+                    accessibilityLabel={words.openEmptyDesktop(workspace.name)}
                     onPress={() => enterWorkspace(workspace.id)}
                     className="items-center justify-center"
                     style={{ height: availableHeight }}
                   >
                     <Text className="text-[13px] text-white/75">
-                      No hay ventanas abiertas
+                      {words.noWindows}
                     </Text>
                   </PressArea>
                 )}
@@ -514,13 +517,13 @@ export const Overview = memo(function Overview({
             iconOnly
             icon={RiAddLine}
             iconSize={25}
-            accessibilityLabel="Añadir escritorio"
+            accessibilityLabel={words.addDesktop}
             appearance="plain"
             className="h-16 w-16 rounded-full border border-white/25 bg-white/20 p-0"
             colors={{ background: "#ffffff30", foreground: "#fff" }}
             onPress={actions.addWorkspace}
           />
-          <Text className="mt-3 text-xs text-white/90">Nuevo escritorio</Text>
+          <Text className="mt-3 text-xs text-white/90">{words.newDesktop}</Text>
         </Box>
       </Scroll>
       {drag.dragged && (

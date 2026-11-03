@@ -1,5 +1,6 @@
 {
- "about": "Atlas (OxyHQ/Atlas) installs Inbox from the keyboard with the screen reader on, its control kept through Get, the install and Open (docs/adr/0039-keyboard-access.mdx, docs/adr/0030-installing-applications.mdx): a real oxyos-installd publishes Inbox as the store's listing `inbox`. Tab goes down Atlas's sidebar and storefront to Inbox's Get, each control said once with its ring; Space asks the machine, whose sheet is said as it appears while Atlas's control, focused still, turns into the install's ring; Tab and Space answer Instalar in the sheet; the focus comes back to the same control, said by its new name (Installing Inbox), the install runs to its end and Atlas says Inbox installed, once, and never a step of its progress; the same control, focused, is Open, and Space opens Inbox. At 1.25 (1600 × 1000).",
+ "about": "Atlas (OxyHQ/Atlas) installs Inbox from the keyboard with the screen reader on, its control kept through Get, the install and Open (docs/adr/0039-keyboard-access.mdx, docs/adr/0030-installing-applications.mdx): a real oxyos-installd publishes Inbox as the store's listing `inbox`. Tab goes down Atlas's sidebar and storefront to Inbox's Get, each control said once with its ring; Space asks the machine, whose sheet is said as it appears while Atlas's control, focused still, turns into the install's ring; Tab and Space answer Install in the sheet; the focus comes back to the same control, said by its new name (Installing Inbox), the install runs to its end and Atlas says Inbox installed, once, and never a step of its progress; the same control, focused, is Open, and Space opens Inbox. At 1.25 (1600 × 1000).",
+ "locale": "en_US.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -68,9 +69,7 @@
    }
   }
  },
- "reader": {
-  "locale": "en_US.UTF-8"
- },
+ "reader": {},
  "installd": {
   "publish": [
    {
@@ -693,9 +692,9 @@
     },
     "in_shell": {
      "texts": [
-      "¿Instalar Inbox?",
-      "Instalar",
-      "Cancelar"
+      "Install Inbox?",
+      "Install",
+      "Cancel"
      ]
     },
     "at": {
@@ -711,11 +710,11 @@
     },
     "spoken": [
      {
-      "text": "¿Instalar Inbox?, dialog",
+      "text": "Install Inbox?, dialog",
       "interrupting": true
      },
      {
-      "text": "Versión 0.1.0 · 1,7 MB",
+      "text": "Version 0.1.0 · 1.7 MB",
       "interrupting": false
      }
     ],
@@ -724,7 +723,7 @@
    "until_sheet": true
   },
   {
-   "name": "Tab in the sheet: Cancelar",
+   "name": "Tab in the sheet: Cancel",
    "do": [
     "key",
     [
@@ -741,7 +740,7 @@
     },
     "spoken": [
      {
-      "text": "Cancelar, button",
+      "text": "Cancel, button",
       "interrupting": false
      }
     ],
@@ -749,7 +748,7 @@
    }
   },
   {
-   "name": "Tab: Instalar",
+   "name": "Tab: Install",
    "do": [
     "key",
     [
@@ -766,7 +765,7 @@
     },
     "spoken": [
      {
-      "text": "Instalar, button",
+      "text": "Install, button",
       "interrupting": true
      }
     ],
@@ -774,7 +773,7 @@
    }
   },
   {
-   "name": "Space on Instalar: the sheet goes and the focus comes back to the same control, said by its new name; the install runs to its end (fetched, compiled on the machine) and Atlas says it once, its progress never; the control, still focused, is Open",
+   "name": "Space on Install: the sheet goes and the focus comes back to the same control, said by its new name; the install runs to its end (fetched, compiled on the machine) and Atlas says it once, its progress never; the control, still focused, is Open",
    "do": [
     "key",
     [
@@ -785,7 +784,7 @@
    "expect": {
     "in_shell": {
      "absent": [
-      "¿Instalar Inbox?"
+      "Install Inbox?"
      ]
     },
     "in_launched": {

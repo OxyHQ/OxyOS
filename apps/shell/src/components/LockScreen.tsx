@@ -11,6 +11,7 @@ import type { ShellApplication, ShellLock, ShellNotifications } from "../model";
 import { lockSummary } from "../notifications";
 import { AppIcon } from "../apps";
 import type { MaskedProps } from "../platform";
+import { useShellMessages } from "../useShellMessages";
 
 /**
  * The backdrop of the lock and login screens: the wallpaper dimmed, and the date and the time
@@ -77,9 +78,10 @@ export const LockScreen = memo(function LockScreen({
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
   announce?: (text: string, polite: boolean) => void;
 }) {
+  const messages = useShellMessages();
   const name = lock.user.fullName || lock.user.name;
   const summary = notifications
-    ? lockSummary(notifications.list, applications, notifications.previews)
+    ? lockSummary(notifications.list, applications, notifications.previews, messages)
     : [];
   return (
     <LockBackdrop testID="shell-lock" wallpaper={wallpaper} now={now} Masked={Masked}>
@@ -87,7 +89,7 @@ export const LockScreen = memo(function LockScreen({
         <Box
           testID="shell-lock-notifications"
           accessibilityRole="list"
-          accessibilityLabel="Notificaciones"
+          accessibilityLabel={messages.common.notifications}
           className="items-center gap-2"
           style={{ marginBottom: 28 }}
         >

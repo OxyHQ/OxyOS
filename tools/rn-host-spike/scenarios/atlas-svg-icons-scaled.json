@@ -1,5 +1,6 @@
 {
   "about": "atlas-svg-icons.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), the icons' pixels read in the output's own: each SVG document rasterised at 80 x 80 pixels for its 64 x 64 icon and 60 x 60 for 48, never drawn smaller and enlarged.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

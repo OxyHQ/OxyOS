@@ -1,5 +1,6 @@
 {
  "about": "Control Center's modules with the screen reader on in Spanish and the keyboard alone (docs/adr/0039-keyboard-access.mdx, ADR 0025), over a played NetworkManager: Allo (sample/EditingProbe.tsx) with the shell. Control Center is a dialog named by it, not a menu. Each module is said once, as VoiceOver says a Mac's: a switch by its title and state, its title and status never read again after it as text (Wi-Fi, Dark Mode, Do Not Disturb); Wi-Fi's networks with the network joined as their value, and \"Desactivada\" once Wi-Fi is off; Bluetooth, which only says, one element; the battery a level indicator with its charge as its value. The reader's cursor goes from each module to the next with nothing between them; Space says a switch's new state once; Escape gives its item the keyboard back, collapsed. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -49,9 +50,7 @@
   "active": "LukeSkyRouter",
   "ethernet": "unplugged"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Allo's window; the reader on",

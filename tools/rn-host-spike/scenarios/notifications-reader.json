@@ -1,5 +1,6 @@
 {
  "about": "Notifications with the screen reader on in Spanish and from the keyboard (docs/adr/0039-keyboard-access.mdx, docs/adr/0026-notifications.mdx): Allo (sample/NotificationProbe.tsx) posts; its banner is said politely once, its close named by the notification it closes (\"Ocultar la notificación de Allo: Ana\", not a bare verb). The banner stays while the pointer is on it and five seconds after it leaves, as a Mac's; while a reply is typed in it, it stays, Tab reaching its Enviar. Super+N, as a Mac's Fn-N, opens the Notification Center: a dialog said by its title, the keyboard on its first control said after it; Tab through a notification and its close, each said once; Escape closes it and gives Allo the keyboard back; Super+N again closes it. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "NotificationProbe",
  "window": [
   600,
@@ -10,9 +11,7 @@
   "id": "so.oxy.allo",
   "title": "Allo"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Allo's window; the reader on",

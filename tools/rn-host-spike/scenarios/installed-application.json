@@ -1,5 +1,6 @@
 {
   "about": "An installed application (docs/adr/0030-installing-applications.mdx, decision 7), on the ThinkPad's display (1600x1000 at 1.25) beside Allo: the install service has Inbox's package installed for this account (its version copied into its store, its entry the one the service writes, with a line asking for `settings` added, and the account's decisions on its capabilities). The development registry also has an entry of its own for so.oxy.inbox, which is ignored: an installed id is the service's. Launchpad lists it, its search finds it, and Return starts the installed version, from the service's entry, given no `settings` whatever its entry asks; the run's summary says it was the installed version. With the development entry taking its place, or the grant given, the run fails.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

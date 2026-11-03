@@ -1,5 +1,6 @@
 {
  "about": "The screen reader turned on at the login screen with Super+F5 (docs/adr/0014-screen-reader.mdx, decision 6; docs/adr/0020-oxy-account-login.mdx), as Cmd+F5 turns VoiceOver on at a Mac's login window: the Bloom host's OxyOSLogin as the login screen's one client over the login program's development path, the reader named but off. Super+F5 starts it, which says so and then the password field; a wrong password is said once; Super+F5 stops it, and nothing more is said. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
  "shell": "OxyOSLogin",
  "login": {
   "password": "oxyos.correcta",
@@ -20,7 +21,6 @@
   "record": []
  },
  "reader": {
-  "locale": "es_ES.UTF-8",
   "off": true
  },
  "outputs": "1600x1000@1.25",

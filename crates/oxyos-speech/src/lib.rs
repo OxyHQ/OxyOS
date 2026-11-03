@@ -2,7 +2,9 @@
 //! the session's language ([`describe`]); the order it says things in ([`Speaker`]: a polite
 //! utterance after what it is saying, an assertive one at once); and the voice, behind
 //! [`Backend`]: eSpeak NG ([`Espeak`], Debian's speech synthesizer, which plays through the
-//! session's PipeWire), or a record of what would have been said ([`Record`], [`Memory`]).
+//! session's PipeWire), or a record of what would have been said ([`Record`], [`Memory`]). The
+//! language changes while the reader runs, as the session's locale does
+//! (docs/adr/0040-language-and-region.mdx): each utterance is said with its language's voice.
 
 use oxyos_protocol::{AccessibleRole, AccessibleState, Politeness};
 use std::collections::VecDeque;
@@ -15,8 +17,9 @@ use std::process::{Child, Command, Stdio};
 mod tests;
 
 /// The languages the reader speaks: Spanish when the session's locale is, English otherwise.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Language {
+    #[default]
     English,
     Spanish,
 }
@@ -268,6 +271,8 @@ pub fn describe_change(language: Language, change: &TextChange) -> String {
 pub trait Backend {
     /// Starts saying `text`; what it was saying has been stopped if `interrupting`.
     fn say(&mut self, text: &str, interrupting: bool) -> io::Result<()>;
+    /// Says what it says next in `language`'s voice; what it is saying goes on as it was.
+    fn set_language(&mut self, language: Language);
     /// Stops what it is saying, at once.
     fn stop(&mut self);
     /// Whether it is still saying something.
@@ -277,6 +282,9 @@ pub trait Backend {
 impl<B: Backend + ?Sized> Backend for Box<B> {
     fn say(&mut self, text: &str, interrupting: bool) -> io::Result<()> {
         (**self).say(text, interrupting)
+    }
+    fn set_language(&mut self, language: Language) {
+        (**self).set_language(language)
     }
     fn stop(&mut self) {
         (**self).stop()
@@ -288,10 +296,16 @@ impl<B: Backend + ?Sized> Backend for Box<B> {
 
 /// The order of what the reader says: a polite utterance waits for what is being said and what
 /// waits before it; an assertive one (an application's assertive announcement, the element the
-/// user moved to) stops it and drops what waits.
+/// user moved to) stops it and drops what waits. Each utterance is said in the language it was
+/// given in ([`Speaker::set_language`]), whenever its turn comes.
 pub struct Speaker<B: Backend> {
     backend: B,
-    queue: VecDeque<String>,
+    /// What waits, and its language (none: the voice's own).
+    queue: VecDeque<(String, Option<Language>)>,
+    /// The language of what is given next; none until set, the voice's own.
+    language: Option<Language>,
+    /// The language the voice was last set to.
+    voiced: Option<Language>,
 }
 
 impl<B: Backend> Speaker<B> {
@@ -299,7 +313,28 @@ impl<B: Backend> Speaker<B> {
         Self {
             backend,
             queue: VecDeque::new(),
+            language: None,
+            voiced: None,
         }
+    }
+
+    /// What is given from now on is said in `language`; what waits keeps its own.
+    pub fn set_language(&mut self, language: Language) {
+        self.language = Some(language);
+    }
+
+    /// Says `text` now, in `language`'s voice.
+    fn start(
+        &mut self,
+        text: &str,
+        language: Option<Language>,
+        interrupting: bool,
+    ) -> io::Result<()> {
+        if let Some(language) = language.filter(|language| self.voiced != Some(*language)) {
+            self.backend.set_language(language);
+            self.voiced = Some(language);
+        }
+        self.backend.say(text, interrupting)
     }
 
     pub fn backend(&self) -> &B {
@@ -316,12 +351,12 @@ impl<B: Backend> Speaker<B> {
         }
         match politeness {
             Politeness::Polite => {
-                self.queue.push_back(text.to_string());
+                self.queue.push_back((text.to_string(), self.language));
                 self.pump()
             }
             Politeness::Assertive => {
                 self.silence();
-                self.backend.say(text, true)
+                self.start(text, self.language, true)
             }
         }
     }
@@ -335,10 +370,10 @@ impl<B: Backend> Speaker<B> {
     /// Starts what waits, once the voice has finished what it was saying.
     pub fn pump(&mut self) -> io::Result<()> {
         while !self.backend.speaking() {
-            let Some(next) = self.queue.pop_front() else {
+            let Some((next, language)) = self.queue.pop_front() else {
                 break;
             };
-            self.backend.say(&next, false)?;
+            self.start(&next, language, false)?;
         }
         Ok(())
     }
@@ -386,6 +421,10 @@ impl Backend for Espeak {
         written
     }
 
+    fn set_language(&mut self, language: Language) {
+        self.voice = language.voice();
+    }
+
     fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
@@ -411,20 +450,24 @@ impl Drop for Espeak {
     }
 }
 
-/// What would have been said, as JSON lines (`{"t":NS,"text":TEXT,"interrupting":BOOL}`, `t` on
-/// CLOCK_MONOTONIC in nanoseconds), for the development compositor's scenarios. Each utterance
-/// is said at once.
+/// What would have been said, as JSON lines
+/// (`{"t":NS,"text":TEXT,"interrupting":BOOL,"voice":VOICE}`, `t` on CLOCK_MONOTONIC in
+/// nanoseconds, `voice` eSpeak NG's for the utterance's language: `en`, `es`), for the
+/// development compositor's scenarios. Each utterance is said at once.
 pub struct Record {
     file: std::fs::File,
+    voice: &'static str,
 }
 
 impl Record {
-    pub fn create(path: &std::path::Path) -> io::Result<Self> {
+    /// Appending to `path`, in `language`'s voice until another is set.
+    pub fn create(path: &std::path::Path, language: Language) -> io::Result<Self> {
         Ok(Self {
             file: std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(path)?,
+            voice: language.voice(),
         })
     }
 }
@@ -454,10 +497,15 @@ impl Backend for Record {
     fn say(&mut self, text: &str, interrupting: bool) -> io::Result<()> {
         writeln!(
             self.file,
-            "{{\"t\":{},\"text\":{},\"interrupting\":{interrupting}}}",
+            "{{\"t\":{},\"text\":{},\"interrupting\":{interrupting},\"voice\":{}}}",
             monotonic_ns(),
-            json(text)
+            json(text),
+            json(self.voice)
         )
+    }
+
+    fn set_language(&mut self, language: Language) {
+        self.voice = language.voice();
     }
 
     fn stop(&mut self) {}
@@ -472,6 +520,10 @@ impl Backend for Record {
 pub struct Memory {
     /// Each utterance and whether it interrupted.
     pub said: Vec<(String, bool)>,
+    /// Each utterance's voice, in `said`'s order.
+    pub voices: Vec<&'static str>,
+    /// The language it speaks now (English until set).
+    pub language: Language,
     /// How many times it was stopped.
     pub stopped: usize,
     pub busy: bool,
@@ -480,8 +532,13 @@ pub struct Memory {
 impl Backend for Memory {
     fn say(&mut self, text: &str, interrupting: bool) -> io::Result<()> {
         self.said.push((text.to_string(), interrupting));
+        self.voices.push(self.language.voice());
         self.busy = true;
         Ok(())
+    }
+
+    fn set_language(&mut self, language: Language) {
+        self.language = language;
     }
 
     fn stop(&mut self) {
@@ -505,7 +562,10 @@ pub fn from_env(language: Language) -> io::Result<Box<dyn Backend>> {
         return Ok(Box::new(Espeak::new(PathBuf::from(program), language)));
     }
     if let Some(path) = setting.strip_prefix("record:") {
-        return Ok(Box::new(Record::create(std::path::Path::new(path))?));
+        return Ok(Box::new(Record::create(
+            std::path::Path::new(path),
+            language,
+        )?));
     }
     Err(io::Error::new(
         io::ErrorKind::InvalidInput,

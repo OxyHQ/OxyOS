@@ -1,5 +1,6 @@
 {
   "about": "Settings' Software Update from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx; docs/adr/0030-installing-applications.mdx, decision 16) on a real oxyos-installd with Inbox 1 installed and the store publishing 2, as the App Store's updates are with VoiceOver. Check for Updates keeps the keyboard while it checks; Inbox's Update, named by its application, is one control from Update to done: Space starts it, said once as it starts ('Updating Inbox') and once as it ends ('Inbox updated'), the control keeping the keyboard throughout and its row staying after the service's list drops it, said 'Inbox updated'; pressed again it asks nothing and says nothing. At 1 (1280 × 720).",
+  "locale": "es_ES.UTF-8",
   "module": "OxyOSSettings",
   "window": [
     900,
@@ -40,9 +41,7 @@
     },
     "store_reads": 1
   },
-  "reader": {
-    "locale": "es_ES.UTF-8"
-  },
+  "reader": {},
   "steps": [
     {
       "name": "Settings with the reader on, nothing of it focused",
@@ -70,7 +69,7 @@
         "a11y-action",
         [
           "activate",
-          "Software Update"
+          "Actualización de software"
         ]
       ],
       "allow_unchanged": true,
@@ -79,8 +78,8 @@
         "spoken": [],
         "announcements": [],
         "texts": [
-          "Check for Updates",
-          "Not checked yet"
+          "Buscar actualizaciones",
+          "Aún no se ha comprobado"
         ]
       }
     },
@@ -100,7 +99,7 @@
         },
         "spoken": [
           {
-            "text": "Software Update, seleccionado, 9 de 11",
+            "text": "Actualización de software, seleccionado, 10 de 12",
             "interrupting": true
           }
         ],
@@ -123,7 +122,7 @@
         },
         "spoken": [
           {
-            "text": "Check for Updates, botón",
+            "text": "Buscar actualizaciones, botón",
             "interrupting": true
           }
         ],
@@ -150,18 +149,18 @@
           "window": [
             {
               "role": "Button",
-              "name": "Update Inbox",
+              "name": "Actualizar Inbox",
               "state": []
             }
           ]
         },
         "texts": [
           "Inbox",
-          "Version 0.2.0 · 0 bytes"
+          "Versión 0.2.0 · 0 bytes"
         ]
       },
       "until_named": [
-        "Update Inbox",
+        "Actualizar Inbox",
         30000
       ]
     },
@@ -182,7 +181,7 @@
         },
         "spoken": [
           {
-            "text": "Update Inbox, botón",
+            "text": "Actualizar Inbox, botón",
             "interrupting": true
           }
         ],
@@ -191,7 +190,7 @@
           "window": [
             {
               "role": "Button",
-              "name": "Update Inbox",
+              "name": "Actualizar Inbox",
               "state": [
                 "focused"
               ]
@@ -216,29 +215,29 @@
         },
         "spoken": [
           {
-            "text": "Updating Inbox",
+            "text": "Actualizando Inbox",
             "interrupting": true
           },
           {
-            "text": "Inbox updated",
+            "text": "Inbox actualizada",
             "interrupting": true
           }
         ],
         "announcements": [
           {
             "politeness": "assertive",
-            "text": "Updating Inbox"
+            "text": "Actualizando Inbox"
           },
           {
             "politeness": "assertive",
-            "text": "Inbox updated"
+            "text": "Inbox actualizada"
           }
         ],
         "at": {
           "window": [
             {
               "role": "Button",
-              "name": "Inbox updated",
+              "name": "Inbox actualizada",
               "state": [
                 "focused"
               ]
@@ -246,11 +245,11 @@
           ]
         },
         "texts": [
-          "Updated"
+          "Actualizada"
         ]
       },
       "until_named": [
-        "Inbox updated",
+        "Inbox actualizada",
         60000
       ]
     },
@@ -274,7 +273,7 @@
           "window": [
             {
               "role": "Button",
-              "name": "Inbox updated",
+              "name": "Inbox actualizada",
               "state": [
                 "focused"
               ]
@@ -300,7 +299,7 @@
         },
         "spoken": [
           {
-            "text": "Software Update, seleccionado, 9 de 11",
+            "text": "Actualización de software, seleccionado, 10 de 12",
             "interrupting": true
           }
         ],
@@ -323,7 +322,7 @@
         },
         "spoken": [
           {
-            "text": "Inbox updated, botón",
+            "text": "Inbox actualizada, botón",
             "interrupting": true
           }
         ],

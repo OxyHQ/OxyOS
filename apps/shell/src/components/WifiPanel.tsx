@@ -21,6 +21,7 @@ import {
 } from "../network";
 import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
 import { WifiArcs } from "./WifiArcs";
+import { useShellMessages } from "../useShellMessages";
 
 /** The lists scroll past this height, so the panel stays under the top bar on a small display. */
 export const WIFI_LIST_MAX_HEIGHT = 360;
@@ -37,13 +38,14 @@ function NetworkRow({
   state: NetworkState;
   join: (ssid: string) => void;
 }) {
+  const messages = useShellMessages();
   const [hovered, setHovered] = useState(false);
   const busy = networkJoining(network, state);
   return (
     <PressArea
       testID={`wifi-network-${network.ssid}`}
       accessibilityRole="button"
-      accessibilityLabel={networkLabel(network, state)}
+      accessibilityLabel={networkLabel(network, state, messages)}
       accessibilityState={{ selected: network.current, busy }}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
@@ -122,8 +124,10 @@ export const WifiPanel = memo(function WifiPanel({
     const timer = setInterval(() => scan.current?.(), SCAN_INTERVAL_MS);
     return () => clearInterval(timer);
   }, []);
+  const messages = useShellMessages();
+  const words = messages.wifi;
   const join = (ssid: string) => controls.joinNetwork?.(ssid);
-  const empty = wifiEmptyText(state);
+  const empty = wifiEmptyText(state, messages);
   const { known, other } = wifiSections(state.wifi.networks);
   const row = (network: WifiNetwork) => (
     <NetworkRow key={network.ssid} network={network} state={state} join={join} />
@@ -136,7 +140,7 @@ export const WifiPanel = memo(function WifiPanel({
           iconOnly
           icon={RiArrowLeftSLine}
           iconSize={18}
-          accessibilityLabel="Volver al centro de control"
+          accessibilityLabel={words.back}
           appearance="plain"
           className="border-0 p-0"
           style={{ width: 28, height: 28 }}
@@ -163,8 +167,8 @@ export const WifiPanel = memo(function WifiPanel({
         </Box>
       ) : (
         <Scroll style={{ maxHeight: WIFI_LIST_MAX_HEIGHT }} contentContainerStyle={{ gap: 10 }}>
-          {known.length > 0 && <Section title="Redes conocidas">{known.map(row)}</Section>}
-          {other.length > 0 && <Section title="Otras redes">{other.map(row)}</Section>}
+          {known.length > 0 && <Section title={words.knownNetworks}>{known.map(row)}</Section>}
+          {other.length > 0 && <Section title={words.otherNetworks}>{other.map(row)}</Section>}
         </Scroll>
       )}
       {controls.openWifiSettings && (
@@ -179,7 +183,7 @@ export const WifiPanel = memo(function WifiPanel({
             controls.openWifiSettings?.();
           }}
         >
-          <Text style={{ color: INK, fontSize: 12 }}>Ajustes de Wi-Fi…</Text>
+          <Text style={{ color: INK, fontSize: 12 }}>{words.settings}</Text>
         </Button>
       )}
     </Box>

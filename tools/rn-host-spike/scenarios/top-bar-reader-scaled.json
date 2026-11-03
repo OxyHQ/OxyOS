@@ -1,5 +1,6 @@
 {
  "about": "The top bar's status items with the screen reader on in Spanish and the keyboard alone (docs/adr/0039-keyboard-access.mdx), over a played NetworkManager: Allo (sample/NotificationProbe.tsx) with the shell, one notification posted. Super+F8 and → go along the network's item, the search, Control Center's item and the clock, each said once: the network's item named Wi-Fi with the network joined as its value, the clock by the date and time it shows in whole words with the Notification Center as its hint, and each item that opens a panel collapsed; the battery, which opens nothing, is a level indicator the reader's cursor reaches with its charge as its value. Space opens each one's panel on its first control, the item expanded (Control Center a dialog, not a menu; the Notification Center on its first control as Control Center is), and Escape closes it, the keyboard back on the item, collapsed and said again. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
  "module": "NotificationProbe",
  "window": [
   600,
@@ -49,9 +50,7 @@
   "active": "LukeSkyRouter",
   "ethernet": "unplugged"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "outputs": "1600x1000@1.25",
  "steps": [
   {

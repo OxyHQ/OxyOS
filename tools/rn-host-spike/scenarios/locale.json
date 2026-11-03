@@ -1,0 +1,125 @@
+{
+  "about": "The session's locale as an application gets it (docs/adr/0040-language-and-region.mdx, decisions 3 and 4; sample/LocaleProbe.tsx), live. The run's environment is es_ES.UTF-8 and the person has chosen nothing, so the session tells the probe es-ES (Locale, event 181) at connect, before its bundle runs: React Native's I18nManager says es_ES, as Android does, left to right; expo-localization's getLocales() is es-ES (Spanish, Spain, no script, comma decimal and dot grouping as CLDR has them, metric, Celsius, no currency) and getCalendars() Gregorian, 24 hours, Monday first (2, CLDR's weekData) in the run's time zone; Intl's default locale (DateTimeFormat's resolved locale, toLocaleTimeString() and PluralRules with no locale) is es-ES; oxyos/locale.js's useSessionLocale() is es-ES-u-hc-h23. The probe, granted `settings` as the session grants Settings, then changes the preferences one at a time, and each time the session tells it its new locale and the host tells expo-localization's listeners once each (onLocaleSettingsChanged, onCalendarSettingsChanged) and reports it (`locale`): hour_cycle h12 makes es-ES-u-hc-h12 (12 hours: 3:04:05 p. m., as ICU 78.3 formats it, its spaces narrow no-break ones); region MX makes es-MX-u-hc-h12 (dot decimal, comma grouping, Sunday first, 03:04:05 p.m.: a known difference from ICU, which gives 3:04:05 p.m., crates/oxyos-intl on ICU4X 2 padding Mexican Spanish's 12-hour hour, a formatting difference of the kind intl.json asserts for the German month); language en makes en-MX-u-hc-h12 (English: an ordinal 2 is `two`, 3:04:05 PM). I18nManager's identifier stays the one the host started with, as Android's constants do. A host that kept Intl's default from its start, or cached it in JavaScript, fails at the first change; one that told no change event, at the counts.",
+  "module": "LocaleProbe",
+  "window": [
+    600,
+    300
+  ],
+  "locale": "es_ES.UTF-8",
+  "tz": "Europe/Madrid",
+  "app": {
+    "id": "so.oxy.localeprobe",
+    "title": "Locale"
+  },
+  "settings": {
+    "app": "so.oxy.localeprobe",
+    "preferences": {}
+  },
+  "steps": [
+    {
+      "name": "as the session told it at connect, before any change: es-ES everywhere, and no change event",
+      "do": [
+        "move_named",
+        "English"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "I18n: es_ES ltr",
+          "Locale: es-ES es ES null ltr [,] [.] metric celsius null",
+          "Calendar: gregory 24h 2 Europe/Madrid",
+          "Intl: es-ES",
+          "Time: 15:04:05",
+          "Plural: one other",
+          "Session: es-ES-u-hc-h23",
+          "Events: 0 0"
+        ],
+        "absent": [
+          "Intl: es-ES-u"
+        ]
+      }
+    },
+    {
+      "name": "12-hour: the session keeps hour_cycle h12 and tells es-ES-u-hc-h12; every API follows, each event once",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "host_input": {
+          "locale": 1
+        },
+        "texts": [
+          "I18n: es_ES ltr",
+          "Locale: es-ES es ES null ltr [,] [.] metric celsius null",
+          "Calendar: gregory 12h 2 Europe/Madrid",
+          "Intl: es-ES-u-hc-h12",
+          "Time: 3:04:05 p. m.",
+          "Plural: one other",
+          "Session: es-ES-u-hc-h12",
+          "Events: 1 1"
+        ]
+      }
+    },
+    {
+      "name": "Mexico: region MX, es-MX-u-hc-h12: Mexico's separators and its week from Sunday",
+      "do": [
+        "press",
+        [
+          250,
+          40
+        ]
+      ],
+      "expect": {
+        "host_input": {
+          "locale": 1
+        },
+        "texts": [
+          "I18n: es_ES ltr",
+          "Locale: es-MX es MX null ltr [.] [,] metric celsius null",
+          "Calendar: gregory 12h 1 Europe/Madrid",
+          "Intl: es-MX-u-hc-h12",
+          "Time: 03:04:05 p.m.",
+          "Plural: one other",
+          "Session: es-MX-u-hc-h12",
+          "Events: 2 2"
+        ]
+      }
+    },
+    {
+      "name": "English: language en, en-MX-u-hc-h12: English's plurals and day periods",
+      "do": [
+        "press",
+        [
+          410,
+          40
+        ]
+      ],
+      "expect": {
+        "host_input": {
+          "locale": 1
+        },
+        "texts": [
+          "I18n: es_ES ltr",
+          "Locale: en-MX en MX null ltr [.] [,] metric celsius null",
+          "Calendar: gregory 12h 1 Europe/Madrid",
+          "Intl: en-MX-u-hc-h12",
+          "Time: 3:04:05 PM",
+          "Plural: one two",
+          "Session: en-MX-u-hc-h12",
+          "Events: 3 3"
+        ]
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "hour_cycle": "h12",
+      "region": "MX",
+      "language": "en"
+    }
+  }
+}

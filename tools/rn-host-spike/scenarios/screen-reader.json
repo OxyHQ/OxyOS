@@ -1,8 +1,9 @@
 {
   "about": "The session's screen reader (ADR 0014) on sample/A11yProbe.tsx, in Spanish, its voice a record of what it says: its keys, Ctrl+Alt with Right, Left or Space, reach it alone (React sees none of them) and move its cursor through the elements that have something to say, each said as name, value, state and role; Space activates the element under the cursor, whose announcement is said at once, interrupting; a live region's change is said politely; the element an application focuses is said and takes the cursor, which then moves on from it. Without the compositor taking the reader's keys, nothing is said and nothing is activated.",
+  "locale": "es_ES.UTF-8",
   "module": "A11yProbe",
   "window": [480, 560],
-  "reader": {"locale": "es_ES.UTF-8"},
+  "reader": {},
   "steps": [
     {
       "name": "Ctrl+Alt+Right: the first element, said",

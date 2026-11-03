@@ -1,5 +1,6 @@
 {
   "about": "The session's menu bar from the keyboard (docs/adr/0024-system-shortcuts.mdx, decision 9), as a Mac's Control-F2: Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar, ADR 0021) with its note field focused. Super+F2 moves the keyboard to the bar's first menu, the Oxy menu, the window staying the active one and its field focused; Left and Right go across the menus and round the ends, opening the next one when one is open; Down, Return and Space open a menu on its first enabled row, as a Mac's opened from the keyboard (Bloom's DropdownMenu openFocus, 15.74.0), whose own keys (Down, End, Home, a letter, Return, Escape) are Bloom's popup navigation; a row chosen runs in the application once and gives the window the keyboard back; Escape closes the menu, then leaves the bar, the keyboard back with the field; a press in the window takes the keyboard from the bar. However the bar is left, the assistive technology's focus leaves it too: no title or row of the shell is focused. Every step checks what React receives, what the application is delivered, the focus and what the assistive technology holds.",
+  "locale": "es_ES.UTF-8",
   "module": "MenuBarProbe",
   "window": [
     600,

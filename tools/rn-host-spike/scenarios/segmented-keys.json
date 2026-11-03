@@ -1,5 +1,6 @@
 {
  "about": "A segmented control from the keyboard, as a Mac's with Full Keyboard Access and WAI-ARIA's radio group (docs/adr/0039-keyboard-access.mdx; Bloom's SegmentedControl): Settings with the shell, the screen reader on in Spanish. Tab reaches Appearance's Light / Dark / Auto once, on its chosen segment; → ← (↓ ↑) choose the next segment round the ends, the session's appearance changing and every application told, the keyboard following each choice once the session applied it and each segment said once, chosen; Tab goes on past the control and Shift+Tab back to its chosen segment. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says, what is announced and the preference. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
   900,
@@ -17,9 +18,7 @@
    "accent": "oxy"
   }
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Settings' window with the shell, the reader on, nothing of it focused",
@@ -55,7 +54,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Appearance",
+       "name": "Apariencia",
        "state": [
         "selected",
         "focused"
@@ -65,7 +64,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 11",
+      "text": "Apariencia, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
@@ -94,7 +93,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Light",
+       "name": "Clara",
        "state": [
         "checked",
         "focused"
@@ -102,19 +101,19 @@
       },
       {
        "role": "Radio",
-       "name": "Dark",
+       "name": "Oscura",
        "state": []
       },
       {
        "role": "Radio",
-       "name": "Auto",
+       "name": "Automática",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Light, seleccionado, botón de opción",
+      "text": "Clara, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -144,7 +143,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Dark",
+       "name": "Oscura",
        "state": [
         "checked",
         "focused"
@@ -152,14 +151,14 @@
       },
       {
        "role": "Radio",
-       "name": "Light",
+       "name": "Clara",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Dark, seleccionado, botón de opción",
+      "text": "Oscura, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -192,7 +191,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Auto",
+       "name": "Automática",
        "state": [
         "checked",
         "focused"
@@ -202,7 +201,7 @@
     },
     "spoken": [
      {
-      "text": "Auto, seleccionado, botón de opción",
+      "text": "Automática, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -232,7 +231,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Light",
+       "name": "Clara",
        "state": [
         "checked",
         "focused"
@@ -242,7 +241,7 @@
     },
     "spoken": [
      {
-      "text": "Light, seleccionado, botón de opción",
+      "text": "Clara, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -275,7 +274,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Auto",
+       "name": "Automática",
        "state": [
         "checked",
         "focused"
@@ -285,7 +284,7 @@
     },
     "spoken": [
      {
-      "text": "Auto, seleccionado, botón de opción",
+      "text": "Automática, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -315,7 +314,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Light",
+       "name": "Clara",
        "state": [
         "checked",
         "focused"
@@ -325,7 +324,7 @@
     },
     "spoken": [
      {
-      "text": "Light, seleccionado, botón de opción",
+      "text": "Clara, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -385,7 +384,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Light",
+       "name": "Clara",
        "state": [
         "checked",
         "focused"
@@ -395,7 +394,7 @@
     },
     "spoken": [
      {
-      "text": "Light, seleccionado, botón de opción",
+      "text": "Clara, seleccionado, botón de opción",
       "interrupting": true
      }
     ],

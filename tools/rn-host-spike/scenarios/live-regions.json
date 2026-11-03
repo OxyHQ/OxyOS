@@ -6,9 +6,7 @@
   360
  ],
  "locale": "es_ES.UTF-8",
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "The form: the field, the status line (a polite live region), the buttons; nothing said, nothing focused",

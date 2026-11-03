@@ -1,5 +1,6 @@
 {
  "about": "The application switcher with the screen reader on in Spanish (docs/adr/0024-system-shortcuts.mdx, docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) and Inbox from the dock; with Super held, Tab, Tab and Shift+Tab move the switcher, each choice said once by its name, as VoiceOver says each application ⌘Tab moves to: the chosen icon is a selected button named by its application, and the name drawn under it is no element of its own, so the reader's cursor never reads it a second time. Super released activates the choice, saying nothing more. At 1.25 (1600 × 1000, 1280 × 800 logical).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -10,9 +11,7 @@
   "id": "so.oxy.allo",
   "title": "Allo"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "outputs": "1600x1000@1.25",
  "steps": [
   {

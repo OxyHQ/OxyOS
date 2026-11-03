@@ -1,5 +1,6 @@
 {
   "about": "The login screen (docs/adr/0020-oxy-account-login.mdx, step 2): the Bloom host's OxyOSLogin as the login screen's one client, the development compositor locked from the start with no application, as `oxyos-session --greeter` runs it. The accounts are the accounts' service's `list` (a stand-in here); a password goes from the lock surface through the compositor, for the account chosen, to the login program on its development path (`oxyos-login --dev`), whose worker checks it with PAM from the run's own configuration (pam_exec accepts oxyos.correcta alone) and throttles as the lock does. Wrong passwords are rejected by PAM and shake the field; the fifth in a row makes the next wait 30 s. Adding an account offline says setup needs the network and does nothing else. Another account has a field and a throttle of its own; its right password is accepted, the compositor shows the splash and the login program records the session it would start for that account (never starting one). The password is in no report, nothing the compositor holds and not the record.",
+  "locale": "es_ES.UTF-8",
   "shell": "OxyOSLogin",
   "login": {
     "password": "oxyos.correcta",

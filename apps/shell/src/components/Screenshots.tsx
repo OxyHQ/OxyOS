@@ -15,7 +15,6 @@ import type { ShellPlatform } from "../platform";
 import {
   defaultSelection,
   fileUrl,
-  SAVED_ANNOUNCEMENT,
   secondsLeft,
   sizeLabel,
   spanned,
@@ -33,6 +32,8 @@ import {
   type Rect,
   type ToolbarMode,
 } from "../screenshots";
+import type { ShellMessages } from "../messages";
+import { useShellMessages } from "../useShellMessages";
 
 /** The tint over the window a press captures, as a Mac's window picking shows it. */
 const WINDOW_TINT = "#3d8bff59";
@@ -43,19 +44,20 @@ const INK = "#1d2430";
     types do not list but its renderer, and OxyOS's, take (the compositor's Crosshair shape). */
 const CROSSHAIR = "crosshair" as ViewStyle["cursor"];
 
-const MODES: { mode: ToolbarMode; label: string; short: string }[] = [
-  { mode: "screen", label: "Capturar pantalla completa", short: "Pantalla" },
-  { mode: "window", label: "Capturar ventana seleccionada", short: "Ventana" },
-  { mode: "selection", label: "Capturar parte seleccionada", short: "Selección" },
+/** The toolbar's captures: each one's name and its button's word. */
+const modes = (words: ShellMessages["screenshots"]): { mode: ToolbarMode; label: string; short: string }[] => [
+  { mode: "screen", label: words.captureScreen, short: words.screen },
+  { mode: "window", label: words.captureWindow, short: words.window },
+  { mode: "selection", label: words.captureSelection, short: words.selection },
 ];
-const DESTINATIONS: { destination: CaptureDestination; label: string }[] = [
-  { destination: "desktop", label: "Escritorio" },
-  { destination: "documents", label: "Documentos" },
+const destinations = (words: ShellMessages["screenshots"]): { destination: CaptureDestination; label: string }[] => [
+  { destination: "desktop", label: words.desktop },
+  { destination: "documents", label: words.documents },
 ];
-const TIMERS: { timer: CaptureTimer; label: string }[] = [
-  { timer: 0, label: "Ninguno" },
-  { timer: 5, label: "5 segundos" },
-  { timer: 10, label: "10 segundos" },
+const timers = (messages: ShellMessages): { timer: CaptureTimer; label: string }[] => [
+  { timer: 0, label: messages.screenshots.none },
+  { timer: 5, label: messages.common.seconds(5) },
+  { timer: 10, label: messages.common.seconds(10) },
 ];
 
 /**
@@ -82,6 +84,7 @@ export const Screenshots = memo(function Screenshots({
   dock: boolean;
   dockHeight: number;
 }) {
+  const words = useShellMessages().screenshots;
   const { Surface } = platform;
   const { active, output, target } = screenshots;
   // What the toolbar keeps while the session runs: its capture, where it saves and its timer.
@@ -207,7 +210,7 @@ export const Screenshots = memo(function Screenshots({
         <Surface kind="overlay" excludeFromCapture style={StyleSheet.absoluteFill}>
           <Box
             testID="screenshot-interface"
-            accessibilityLabel={picking ? "Elegir una ventana" : "Seleccionar una parte de la pantalla"}
+            accessibilityLabel={picking ? words.chooseWindow : words.selectPortion}
             style={[StyleSheet.absoluteFill, { backgroundColor: "transparent", cursor: selecting ? CROSSHAIR : "auto" }]}
             onLayout={(event: LayoutChangeEvent) => {
               const { width, height } = event.nativeEvent.layout;
@@ -353,11 +356,13 @@ function CaptureToolbar({
   capture: () => void;
   close: () => void;
 }) {
+  const messages = useShellMessages();
+  const words = messages.screenshots;
   return (
     <Box
       testID="screenshot-toolbar"
       accessibilityRole="toolbar"
-      accessibilityLabel="Captura de pantalla"
+      accessibilityLabel={words.screenshot}
       // A press on it, between its buttons, is its own: never a capture of the screen beneath.
       onStartShouldSetResponder={() => true}
       style={{
@@ -373,7 +378,7 @@ function CaptureToolbar({
     >
       <Button
         testID="screenshot-close"
-        accessibilityLabel="Cerrar"
+        accessibilityLabel={messages.common.close}
         appearance="plain"
         onPress={close}
         className="rounded-[8px] border-0 px-2"
@@ -382,7 +387,7 @@ function CaptureToolbar({
         ✕
       </Button>
       <Box style={{ width: 1, height: 24, backgroundColor: "#0b183a1f", marginHorizontal: 2 }} />
-      {MODES.map((entry) => (
+      {modes(words).map((entry) => (
         <Button
           key={entry.mode}
           testID={`screenshot-mode-${entry.mode}`}
@@ -399,14 +404,14 @@ function CaptureToolbar({
       <Box style={{ width: 1, height: 24, backgroundColor: "#0b183a1f", marginHorizontal: 2 }} />
       <Button
         testID="screenshot-options"
-        accessibilityLabel="Opciones"
+        accessibilityLabel={messages.common.options}
         appearance="plain"
         pressed={options}
         onPress={toggleOptions}
         className="rounded-[8px] border-0 px-3"
         colors={{ background: options ? "#0b183a1f" : "transparent", foreground: INK }}
       >
-        Opciones
+        {messages.common.options}
       </Button>
       <Button
         testID="screenshot-capture"
@@ -416,7 +421,7 @@ function CaptureToolbar({
         onPress={capture}
         className="rounded-[8px] px-4"
       >
-        Capturar
+        {words.capture}
       </Button>
     </Box>
   );
@@ -434,6 +439,8 @@ function CaptureOptions({
   setDestination: (destination: CaptureDestination) => void;
   setTimer: (timer: CaptureTimer) => void;
 }) {
+  const messages = useShellMessages();
+  const words = messages.screenshots;
   const row = (label: string, chosen: boolean, choose: () => void, testID: string) => (
     <Button
       key={testID}
@@ -452,7 +459,7 @@ function CaptureOptions({
     <Box
       testID="screenshot-options-menu"
       accessibilityRole="menu"
-      accessibilityLabel="Opciones"
+      accessibilityLabel={messages.common.options}
       onStartShouldSetResponder={() => true}
       style={{
         minWidth: 220,
@@ -463,17 +470,17 @@ function CaptureOptions({
         cursor: "auto",
       }}
     >
-      <Text style={{ fontSize: 11, fontWeight: "600", color: "#5b6472", marginLeft: 8 }}>Guardar en</Text>
-      <Box accessibilityRole="radiogroup" accessibilityLabel="Guardar en">
-        {DESTINATIONS.map((entry) =>
+      <Text style={{ fontSize: 11, fontWeight: "600", color: "#5b6472", marginLeft: 8 }}>{words.saveTo}</Text>
+      <Box accessibilityRole="radiogroup" accessibilityLabel={words.saveTo}>
+        {destinations(words).map((entry) =>
           row(entry.label, destination === entry.destination, () => setDestination(entry.destination), `screenshot-save-${entry.destination}`),
         )}
       </Box>
       <Text style={{ fontSize: 11, fontWeight: "600", color: "#5b6472", marginLeft: 8, marginTop: 6 }}>
-        Temporizador
+        {words.timer}
       </Text>
-      <Box accessibilityRole="radiogroup" accessibilityLabel="Temporizador">
-        {TIMERS.map((entry) =>
+      <Box accessibilityRole="radiogroup" accessibilityLabel={words.timer}>
+        {timers(messages).map((entry) =>
           row(entry.label, timer === entry.timer, () => setTimer(entry.timer), `screenshot-timer-${entry.timer}`),
         )}
       </Box>
@@ -498,6 +505,7 @@ function Thumbnail({
   bottom: number;
   hidden: boolean;
 }) {
+  const words = useShellMessages().screenshots;
   const { Surface } = platform;
   const latest = screenshots.saved[screenshots.saved.length - 1];
   const mine = latest && latest.output === screenshots.output.id ? latest : undefined;
@@ -507,8 +515,8 @@ function Thumbnail({
     if (!mine || mine.id === seen.current) return;
     seen.current = mine.id;
     setShown(mine);
-    if (platform.announce) platform.announce(SAVED_ANNOUNCEMENT, true);
-    else AccessibilityInfo.announceForAccessibility(SAVED_ANNOUNCEMENT);
+    if (platform.announce) platform.announce(words.saved, true);
+    else AccessibilityInfo.announceForAccessibility(words.saved);
   }, [mine?.id]);
   // A few seconds, then it goes; not while it is held.
   const [held, setHeld] = useState(false);
@@ -538,8 +546,8 @@ function Thumbnail({
         testID="screenshot-thumbnail"
         accessible
         accessibilityRole="button"
-        accessibilityLabel="Captura de pantalla"
-        accessibilityHint="Ábrela"
+        accessibilityLabel={words.screenshot}
+        accessibilityHint={words.openHint}
         onStartShouldSetResponder={() => true}
         onResponderGrant={(event: GestureResponderEvent) => {
           from.current = at(event);

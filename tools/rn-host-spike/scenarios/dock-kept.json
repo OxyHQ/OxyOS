@@ -1,5 +1,6 @@
 {
   "about": "The person's lists of applications as the session keeps them (docs/adr/0034-the-dock.mdx), read by a session and its shell as they start: a preferences file whose dock keeps Allo, then Dropsea, and whose applications opened at login are Inbox. The dock shows Allo and Dropsea in that order, and Inbox, not kept, after them: the session opened it as it started, and it runs.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

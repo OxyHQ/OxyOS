@@ -1,5 +1,6 @@
 {
   "about": "Atlas's store icons as remote images (images.h, crates/oxyos-image's remote): the store of the scenario's own lists Notes' icon as an SVG document and Mention's as a PNG, both on cloud.oxy.so (served with their caching headers through the machine's proxy and TLS, as Oxy's servers serve an app's icon), and Atlas draws each in Bloom's squircle Avatar, react-native-svg's `<Image href>` clipped by a `<ClipPath>` of the squircle: each fetched with Atlas's own network, the SVG decoded by Skia's SVG module and the PNG by oxyos-image at the size the icon is drawn in pixels, placed by preserveAspectRatio slice and clipped to the squircle, whose corner shows the card behind it; each asked of the server once, however many places show it. Before, a remote icon was refused ('remote images are not supported on OxyOS yet') and the squircle was empty. At 1.25 (the ThinkPad's display, ADR 0018), as atlas-svg-icons-scaled.json. Atlas is opened from the dock and zoomed to the work area as atlas.json does.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

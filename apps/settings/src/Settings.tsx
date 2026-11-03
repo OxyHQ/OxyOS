@@ -28,8 +28,10 @@ import {
   RiPaletteLine,
   RiRefreshLine,
   RiShieldLine,
+  RiTranslate2,
   RiWifiLine,
 } from "@oxy.so/bloom/icons";
+import { resolveBloomLanguage, useBloomLocale } from "@oxy.so/bloom/locale";
 import { Loading } from "@oxy.so/bloom/loading";
 import {
   SegmentedControl,
@@ -71,6 +73,8 @@ import {
   sideOfKey,
   type Appearance,
   type Display,
+  type HourCycle,
+  type LanguagePreference,
   type NotificationPreviews,
   type SettingsActions,
   type SettingsSnapshot,
@@ -92,7 +96,15 @@ import {
   type NearbyNetwork,
   type NetworkDetails,
 } from "./network";
-import type { Strings } from "./strings";
+import {
+  hourCycleOf,
+  languageItems,
+  localeSample,
+  regionItems,
+  sessionLocale,
+  timeFormatItems,
+} from "./locale";
+import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -104,7 +116,8 @@ import {
   type UpdateRow,
 } from "./updates";
 
-type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Strings };
+/** A page's model and words, and the session's locale its numbers and dates are formatted in. */
+type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 
 /** A row whose control is a switch, as a Mac's settings lists show one. */
 function ToggleItem({
@@ -561,7 +574,7 @@ const TRIAL_SAID_AT = [10, 5];
 function useTrialSaid(
   trial: SettingsSnapshot["displays"]["trial"],
   secondsLeft: number,
-  words: Strings["displays"],
+  words: Messages["displays"],
 ): React.MutableRefObject<boolean> {
   const answered = React.useRef(false);
   const onTrial = trial !== null;
@@ -766,8 +779,11 @@ function KeyboardPage({ snapshot, strings }: PageProps) {
   );
 }
 
+/** Date & Time. Its 24-hour switch is the hour cycle in effect (the region's, or the person's
+    choice) and sets the person's (docs/adr/0040-language-and-region.mdx, decision 7). */
 function DateTimePage({ snapshot, actions, strings }: PageProps) {
   const words = strings.dateTime;
+  const cycle = hourCycleOf(sessionLocale(snapshot.preferences, snapshot.system.locale));
   return (
     <View style={PAGE}>
       <GroupedSection footer={strings.systemNote}>
@@ -781,11 +797,75 @@ function DateTimePage({ snapshot, actions, strings }: PageProps) {
       <GroupedSection>
         <ToggleItem
           title={words.clock24h}
-          value={snapshot.preferences.clock24h}
-          onChange={(on) => actions.setPreference("clock24h", on)}
+          value={cycle === "h23"}
+          onChange={(on) => actions.setPreference("hourCycle", on ? "h23" : "h12")}
           testID="clock-24h"
         />
       </GroupedSection>
+    </View>
+  );
+}
+
+/**
+ * Language & Region (docs/adr/0040-language-and-region.mdx, decision 7), as a Mac's: the language,
+ * the region and the time format, each the system's (Automatic, named) or the person's, and a
+ * sample of a date, a time and a number as the choice formats them. A change is a preference: the
+ * session keeps it and tells every application the new locale, Settings among them.
+ */
+function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.languageRegion;
+  const { preferences, system } = snapshot;
+  const sample = localeSample(sessionLocale(preferences, system.locale));
+  return (
+    <View style={PAGE}>
+      <GroupedSection footer={words.languageDescription}>
+        <GroupedSectionItem
+          title={words.language}
+          testID="language-row"
+          rightElement={
+            <Choice<LanguagePreference>
+              label={words.language}
+              value={preferences.language}
+              items={languageItems(words, system.locale)}
+              onChange={(value) => actions.setPreference("language", value)}
+              testID="language-select"
+            />
+          }
+        />
+        <GroupedSectionItem
+          title={words.region}
+          testID="region-row"
+          rightElement={
+            <Choice
+              label={words.region}
+              value={preferences.region}
+              items={regionItems(words, system.locale, preferences.region)}
+              onChange={(value) => actions.setPreference("region", value)}
+              testID="region-select"
+            />
+          }
+        />
+        <GroupedSectionItem
+          title={words.timeFormat}
+          testID="time-format-row"
+          rightElement={
+            <Choice<HourCycle>
+              label={words.timeFormat}
+              value={preferences.hourCycle}
+              items={timeFormatItems(words, preferences, system.locale)}
+              onChange={(value) => actions.setPreference("hourCycle", value)}
+              testID="time-format"
+            />
+          }
+        />
+      </GroupedSection>
+      <View testID="language-sample">
+        <GroupedSection>
+          <GroupedSectionItem title={words.date} value={sample.date} testID="language-sample-date" />
+          <GroupedSectionItem title={words.time} value={sample.time} testID="language-sample-time" />
+          <GroupedSectionItem title={words.number} value={sample.number} testID="language-sample-number" />
+        </GroupedSection>
+      </View>
     </View>
   );
 }
@@ -868,9 +948,9 @@ function AboutPage({ snapshot, strings }: PageProps) {
     done asks nothing, and the row stays where it was after the service's list drops it, as the App
     Store keeps Updated Recently. The start and the end are said once each, as the person may have
     moved on: a control renamed in place is not said by a screen reader. */
-function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
+function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
   const words = strings.softwareUpdate;
-  const language = strings.title === "Ajustes" ? "es" : "en";
+  const language = messagesLanguage(locale);
   const updates = snapshot.updates;
   const [progress, setProgress] = React.useState<Record<string, { state: UpdateProgress; row: UpdateRow }>>({});
   // The rows as last shown, in order: a row the service's list dropped keeps its place.
@@ -937,7 +1017,7 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
     : state?.checkFailed
       ? words.checkFailed
       : state?.checkedAt
-        ? words.lastChecked(new Date(state.checkedAt).toLocaleString(language))
+        ? words.lastChecked(new Date(state.checkedAt).toLocaleString(locale))
         : words.neverChecked;
   const updating = Object.values(progress).some(({ state: how }) => how === "updating");
   return (
@@ -1109,7 +1189,7 @@ function NetworkGlyphs({ network }: { network: NearbyNetwork | undefined }) {
 function networkLabel(
   ssid: string,
   network: NearbyNetwork | undefined,
-  words: Strings["wifi"],
+  words: Messages["wifi"],
   ...states: (string | null | undefined)[]
 ): string {
   const glyphs = network
@@ -1121,7 +1201,7 @@ function networkLabel(
 /** A connection's details (ADR 0038, decision 7), one row each, only those it has. */
 function detailItems(
   details: NetworkDetails | null,
-  strings: Strings,
+  strings: Messages,
   hardwareLabel: string,
   prefix: string,
 ): React.ReactNode[] {
@@ -1378,9 +1458,9 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
 
 /** Network (decision 7): Ethernet's state, speed and details; VPN only says it is not there yet,
     since nothing in OxyOS configures one. */
-function NetworkPage({ snapshot, strings }: PageProps) {
+function NetworkPage({ snapshot, strings, locale }: PageProps) {
   const words = strings.network;
-  const language = strings.title === "Ajustes" ? "es" : "en";
+  const language = messagesLanguage(locale);
   const state = snapshot.network;
   if (!state || !state.available) return <Notice title={words.unavailable} testID="network-unavailable" />;
   const ethernet = state.ethernet;
@@ -1415,16 +1495,16 @@ function NetworkPage({ snapshot, strings }: PageProps) {
   );
 }
 
-export function Settings({
-  snapshot,
-  actions,
-  strings,
-}: {
-  snapshot: SettingsSnapshot;
-  actions: SettingsActions;
-  strings: Strings;
-}) {
-  const props = { snapshot, actions, strings };
+/**
+ * Settings, in the session's language (docs/adr/0040-language-and-region.mdx, decision 5): its
+ * catalogue is chosen from the locale its root gives `BloomProvider`, so it switches in the same
+ * render as Bloom's own words when the session tells a new one.
+ */
+export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; actions: SettingsActions }) {
+  const told = useBloomLocale();
+  const strings = messagesFor(resolveBloomLanguage(told));
+  const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
+  const props = { snapshot, actions, strings, locale };
   const words = strings.pages;
   // Wi-Fi and Network first, as a Mac lists them, only with the platform's `network` grant.
   const connections: SettingsNavGroup[] =
@@ -1455,9 +1535,10 @@ export function Settings({
       ],
     },
     {
-      key: "system",
-      label: strings.groups.system,
+      key: "general",
+      label: strings.groups.general,
       items: [
+        { key: "language-region", label: words.languageRegion, icon: RiTranslate2, page: "language-region" },
         { key: "keyboard", label: words.keyboard, icon: RiKeyboardLine, page: "keyboard" },
         { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
         { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
@@ -1474,6 +1555,7 @@ export function Settings({
     displays: { title: words.displays, content: <DisplaysPage {...props} /> },
     accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },
     keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },
+    "language-region": { title: words.languageRegion, content: <LanguageRegionPage {...props} /> },
     "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },
     about: { title: words.about, content: <AboutPage {...props} /> },
     "software-update": { title: words.softwareUpdate, content: <SoftwareUpdatePage {...props} /> },

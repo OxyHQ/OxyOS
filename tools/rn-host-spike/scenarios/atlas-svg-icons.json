@@ -1,5 +1,6 @@
 {
   "about": "Atlas's store icons as SVG documents (svg-image.h, svg.cpp): the store of the scenario's own names Notes' icon by a path and Mention's by a file URL (`store.files`, written for the run), as a listing's `icon` may be, and Atlas draws each in Bloom's squircle Avatar, which is react-native-svg's `<Image href>` clipped by a `<ClipPath>` of the squircle: the document decoded by Skia's SVG module at the size the icon is drawn in pixels (its linear gradient, its rounded sheet and strokes), the picture placed by preserveAspectRatio slice and clipped to the squircle, whose corner shows the card behind it. Before, the documents were refused ('not a PNG or JPEG image') and react-native-svg's Image was not drawn, so the icons were empty squircles. Atlas is opened from the dock and zoomed to the work area as atlas.json does.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

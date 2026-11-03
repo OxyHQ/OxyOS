@@ -87,6 +87,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_BUFFER_FAILED 172
 #define OXYOS_EVENT_GPU_SCANOUT 173
 #define OXYOS_EVENT_KEYBOARD_LAYOUT 180
+#define OXYOS_EVENT_LOCALE 181
 #define OXYOS_EVENT_APPLICATION_OUTPUT 200
 #define OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA 201
 #define OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED 202
@@ -487,6 +488,11 @@ typedef struct OxyOSClient OxyOSClient;
  *                      them (variant and options may be empty), compiled with the default rules
  *                      and model; `detail` its index (0 begins it), `flag` 1 on the last, `text`
  *                      the chunk.
+ *   LOCALE             to every client when it connects and whenever it changes (ADR 0040,
+ *                      protocol version 17; an older compositor never sends it): a chunk of the
+ *                      session's locale, one BCP 47 tag (`es-ES`, `en-US`, `es-MX-u-hc-h12`: the
+ *                      hour cycle only when the person chose one), in chunks as KEYBOARD_LAYOUT:
+ *                      `detail` its index (0 begins it), `flag` 1 on the last, `text` the chunk.
 
  *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
  *               back. */
@@ -1746,8 +1752,16 @@ int oxyos_solar_frame(const OxyOSSolarAnchor* anchors, size_t count, int64_t uni
  * Results are UTF-8 written into `out` (`capacity` bytes, NUL-terminated when it fits). Each returns
  * the result's length in bytes (larger than `capacity`: call again with more room), or -1 with
  * oxyos_last_error() giving a RangeError's message (an invalid tag or value, or an option OxyOS
- * does not support yet). Parts are "type\x1Fvalue" joined by '\x1E'. */
+ * does not support yet). Parts are "type\x1Fvalue" joined by '\x1E'.
+ * default_locale: the locale formats default to, the one set_default_locale set (the session's,
+ * docs/adr/0040-language-and-region.mdx), else system_locale: the environment's (LC_ALL,
+ * LC_MESSAGES, LANG), en-US without one. */
 int64_t oxyos_intl_default_locale(char* out, size_t capacity);
+int64_t oxyos_intl_system_locale(char* out, size_t capacity);
+/* The process's default locale, for every thread: `tag` resolved as oxyos_intl_resolve resolves it
+ * (a locale with data, its Unicode extension keywords kept: "es-MX-u-hc-h12"); an empty tag, the
+ * system's again. 0, or -1 for an invalid tag (nothing changed). */
+int64_t oxyos_intl_set_default_locale(const char* tag, size_t length);
 int64_t oxyos_intl_canonicalize(const char* tag, size_t length, char* out, size_t capacity);
 /* `requested`: tags joined by ','. */
 int64_t oxyos_intl_resolve(const char* requested, size_t length, char* out, size_t capacity);
@@ -1759,6 +1773,14 @@ int64_t oxyos_intl_resolve_date(const char* locale, size_t locale_length, const 
 int64_t oxyos_intl_format_number(const char* locale, size_t locale_length, const char* options,
                                  size_t options_length, double value, char* out, size_t capacity);
 int64_t oxyos_intl_resolve_number(const char* locale, size_t locale_length, const char* options,
+                                  size_t options_length, char* out, size_t capacity);
+/* Intl.PluralRules: select writes the plural category of `value` (zero, one, two, few, many or
+ * other), of the number as written with the digit options (en: 1 is one, 1.0 is other).
+ * resolve_plural: resolvedOptions() as resolve_number's, pluralCategories joined by ',' in CLDR's
+ * order (zero, one, two, few, many, other). */
+int64_t oxyos_intl_plural_select(const char* locale, size_t locale_length, const char* options,
+                                 size_t options_length, double value, char* out, size_t capacity);
+int64_t oxyos_intl_resolve_plural(const char* locale, size_t locale_length, const char* options,
                                   size_t options_length, char* out, size_t capacity);
 
 /* The Vulkan device a native client's renderer draws on, and the surfaces' GPU buffers it presents

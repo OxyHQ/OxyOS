@@ -6,7 +6,7 @@ order: 42
 
 # ADR 0033: Protocol versions and compatibility
 
-Status: **accepted; implemented** (versions 2 to 16). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
+Status: **accepted; implemented** (versions 2 to 17). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
 
 ## Problem
 
@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 16). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 17). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -55,6 +55,7 @@ A platform cannot break installed applications on every change of its protocol. 
    | 14 | `AccessibleRole::ColumnHeader` (27), a table's or a list's column header ([ADR 0039](./0039-keyboard-access), decision 19): a value an older version's `AccessibleRole` lacks, so an `AccessibleNode` carrying it is the newer version's both ways (`event_since`, `request_since`). An assistive technology of version 13 is never sent one; the client library sends a compositor of version 13 or older the button a sorting header was. |
    | 15 | `AccessibleRole::Meter` (28), a level in a known range that is no progress, as ARIA's `meter` and VoiceOver's level indicator: the top bar's and Control Center's battery ([ADR 0039](./0039-keyboard-access)). A value an older version's `AccessibleRole` lacks, so an `AccessibleNode` carrying it is the newer version's both ways (`event_since`, `request_since`). An assistive technology of version 14 is never sent one; the client library sends a compositor of version 14 or older the progress indicator a level in a range was. |
    | 16 | `SystemShortcut::Notifications` (11), Super+N, the Notification Center as a Mac's Fn-N ([ADR 0039](./0039-keyboard-access), [ADR 0024](./0024-system-shortcuts)): a value an older version's `SystemShortcut` lacks, so the event carrying it is the newer version's (`event_since`) and never sent to a shell of version 15 or older, whose reader would refuse it; Super+N then does nothing there. |
+   | 17 | The session's locale (`Locale`, event 181, [ADR 0040](./0040-language-and-region)): one BCP 47 tag in chunks, as `KeyboardLayout`'s, told to every client when it connects and whenever it changes. A client of version 16 or older is not told it and goes on with its environment's locale, as before. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

@@ -1,5 +1,6 @@
 {
  "about": "Full Keyboard Access to the dock (docs/adr/0039-keyboard-access.mdx), as a Mac's Control-F3: Allo (sample/EditingProbe.tsx) with the shell and the development registry, the screen reader on in Spanish. Super+F3 puts the keyboard on the dock's first icon with its ring; → goes along it; Space opens Inbox; Super+F3 again and → reach it, ↑ opens its menu, End and Return quit it; Escape gives Allo the keyboard back. Every step checks the keyboard's focus, what the assistive technology holds, what the screen reader says (each icon once by its application's name, then the hint of its menu) and what is announced. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -10,9 +11,7 @@
   "id": "so.oxy.allo",
   "title": "Allo"
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Allo's window, its field without focus; the reader on",
