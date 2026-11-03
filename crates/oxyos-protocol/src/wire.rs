@@ -142,13 +142,14 @@ wire_enum! {
 }
 wire_enum! {
     /// What an accessible node is, for an assistive technology (ADR 0003). Unknown roles are
-    /// published as `Generic`, never guessed.
+    /// published as `Generic`, never guessed. `ColumnHeader` is version 14's (ADR 0039): a
+    /// table's or a list's column header, never sent to a peer of version 13 or older.
     AccessibleRole: u8 {
         Generic = 0, Button = 1, Link = 2, Text = 3, Heading = 4, Image = 5, TextInput = 6,
         Menu = 7, MenuItem = 8, CheckBox = 9, Radio = 10, Switch = 11, Tab = 12, TabList = 13,
         List = 14, ListItem = 15, Dialog = 16, Alert = 17, ProgressBar = 18, Slider = 19,
         Search = 20, Toolbar = 21, ScrollView = 22, Group = 23, ComboBox = 24, Summary = 25,
-        Grid = 26,
+        Grid = 26, ColumnHeader = 27,
     }
 }
 wire_enum! {

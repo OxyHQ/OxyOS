@@ -159,13 +159,15 @@ impl Scene {
         );
     }
 
-    /// Tells every client with the `lock` grant whether the session is locked.
+    /// Tells every client with the `lock` grant whether the session is locked, and every
+    /// assistive technology (`accessibility`), which says it as VoiceOver says "Screen locked"
+    /// (ADR 0039, decision 19).
     pub(super) fn tell_lock_state(&mut self) {
         let locked = self.locked;
         let lockers: Vec<ClientId> = self
             .clients
             .iter()
-            .filter(|(_, grants)| grants.lock)
+            .filter(|(_, grants)| grants.lock || grants.accessibility)
             .map(|(client, _)| *client)
             .collect();
         for client in lockers {

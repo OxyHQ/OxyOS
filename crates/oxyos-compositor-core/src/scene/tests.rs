@@ -8069,3 +8069,26 @@ fn applications_are_told_each_outputs_size_scale_refresh_and_work_area_but_not_i
         .events_for(7)
         .contains(&Event::ApplicationOutputRemoved { output: 2 }));
 }
+
+#[test]
+fn a_reader_is_told_the_session_locking_as_it_connects_and_as_it_changes() {
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    h.pump();
+    // As it connects: unlocked, said as it is.
+    assert!(h
+        .events_for(READER)
+        .contains(&Event::LockState { locked: false }));
+    h.clear_log();
+    h.scene.lock();
+    h.pump();
+    assert!(h
+        .events_for(READER)
+        .contains(&Event::LockState { locked: true }));
+    h.clear_log();
+    h.scene.unlock();
+    h.pump();
+    assert!(h
+        .events_for(READER)
+        .contains(&Event::LockState { locked: false }));
+}

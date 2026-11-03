@@ -1092,6 +1092,14 @@ impl Scene {
         grants.privacy |= new.privacy;
         grants.network |= new.network;
         if new.accessibility {
+            // Whether the session is locked, before the trees it may read (the lock screen's
+            // alone while it is): told as it is, never said as a change.
+            self.emit(
+                client,
+                Event::LockState {
+                    locked: self.locked,
+                },
+            );
             self.replay_accessibility(client);
         }
         if new.input_method {
