@@ -130,7 +130,8 @@ class PointerInput {
   // The scroll views around `tag` bring it into view, `margin` round it (the focus ring), as
   // Android's ScrollView.requestChildFocus does for each scroll view a focused view is in, the
   // innermost first: at once, by the least move that shows it, its top (or start) when it is
-  // larger than the view. Its scrollbars do not show (a Mac's do not as Tab moves the focus).
+  // larger than the view. Its scrollbars do not show (a Mac's do not as Tab moves the focus). The
+  // scroll views outside the modal, popup or shell region it is in do not hold it, and stay.
   void reveal(facebook::react::Tag tag, uint32_t surface, float margin);
   // A command JavaScript sent a ScrollView (React Native's ScrollView commands, as
   // ReactScrollViewManager receives them): `scrollTo` [x, y, animated] and `scrollToEnd`

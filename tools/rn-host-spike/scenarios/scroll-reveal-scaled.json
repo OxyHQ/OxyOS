@@ -1,5 +1,5 @@
 {
-  "about": "Tab bringing each control into view (sample/ScrollProbe.tsx; docs/adr/0039-keyboard-access.mdx, decision 1), as Android's ScrollView.requestChildFocus does for each scroll view a focused control is in: at once, by the least move that shows it with its focus ring (5 round it, on the display's pixels), one scroll event each, never past the content's end, and no scrollbar shown (a Mac's does not as Tab moves). Tab down the list's rows, along the chips (a scroll view in a scroll view: each brings it into view, the list the chips' row, which clips the ring) to the last row; then, with the chips and the list moved back by Home, Shift+Tab to the last chip brings it in through both. at 1.25 (a 1600x1000 output), each offset on the display's pixels.",
+  "about": "Tab bringing each control into view (sample/ScrollProbe.tsx; docs/adr/0039-keyboard-access.mdx, decision 1), as Android's ScrollView.requestChildFocus does for each scroll view a focused control is in: at once, by the least move that shows it with its focus ring (5 round it, on the display's pixels), one scroll event each, never past the content's end, and no scrollbar shown (a Mac's does not as Tab moves). A sheet (a Modal inside the main list in the tree) opened from the keyboard scrolls nothing behind it as Tab goes through it. Tab down the list's rows, along the chips (a scroll view in a scroll view: each brings it into view, the list the chips' row, which clips the ring) to the last row; then, with the chips and the list moved back by Home, Shift+Tab to the last chip brings it in through both. at 1.25 (a 1600x1000 output), each offset on the display's pixels.",
   "module": "ScrollProbe",
   "window": [
     640,
@@ -16,6 +16,152 @@
       "expect": {
         "react": {
           "focus@field": 1,
+          "selectionChange@field": [
+            1,
+            2
+          ]
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "field",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Shift+Tab: round to the last control, outside",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@field": 1,
+          "endEditing@field": 1,
+          "focus@outside": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "outside",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Shift+Tab: the sheet's button",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@outside": 1,
+          "focus@sheet": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "sheet",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Space: the sheet (a Modal inside the main list in the tree) opens, the keyboard on its first button below what the list shows: nothing scrolls behind it",
+      "do": [
+        "key",
+        57
+      ],
+      "expect": {
+        "react": {
+          "click@sheet": 1,
+          "show@main": 1,
+          "blur@sheet": 1,
+          "focus@sheet-a": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "sheet-a",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: its second button, nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "blur@sheet-a": 1,
+          "focus@sheet-b": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "sheet-b",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Escape: it is asked to close (the Modal's requestClose, its view named by the main list it is in) and closes, the keyboard back on its button, nothing scrolls",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {
+          "requestClose@main": 1,
+          "focus@sheet": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "sheet",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: outside",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "blur@sheet": 1,
+          "focus@outside": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "outside",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: round to the field, in view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@field": 1,
+          "blur@outside": 1,
           "selectionChange@field": [
             1,
             2

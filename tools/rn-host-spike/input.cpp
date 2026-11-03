@@ -1164,6 +1164,10 @@ void PointerInput::reveal(Tag tag, uint32_t surface, float margin) {
   auto path = ancestry(tree_, tag);
   for (size_t i = path.size(); i-- > 1;) {
     const auto& child = tree_.views().at(path[i]).view;
+    // A modal's window, a popup's or a shell region's surface is drawn on its own, never within
+    // the scroll views its view sits in in the tree: they do not hold it.
+    std::string childName = child.componentName ? child.componentName : "";
+    if (isModal(childName) || ownSurface(childName)) return;
     Point moved = transformOffset(child);
     rect.origin.x += child.layoutMetrics.frame.origin.x + moved.x;
     rect.origin.y += child.layoutMetrics.frame.origin.y + moved.y;

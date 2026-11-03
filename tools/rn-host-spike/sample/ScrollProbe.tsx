@@ -10,12 +10,13 @@
  *   and flashScrollIndicators (`flash`) move it.
  * - `persistent` (Android's persistentScrollbar) and `hidden` (showsVerticalScrollIndicator false).
  * - `strip`: a horizontal scroll view, the main one across.
- * - `outside`: a button in no scroll view.
+ * - `outside`: a button in no scroll view; `sheet` opens a sheet (a Modal) whose view is inside
+ *   `main` in the tree, its buttons below what `main` shows: Tab in it must scroll nothing behind it.
  * Every row is white, so the scrollbars' pixels are theirs over white (or the dark window's black
  * in the dark appearance); `status` says what JavaScript last heard.
  */
 import * as React from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 const ROW = 40;
 
@@ -44,6 +45,7 @@ function Button({ id, label, onPress, width }: { id: string; label: string; onPr
 export default function ScrollProbe() {
   const [status, setStatus] = React.useState('Nothing yet');
   const [steps, setSteps] = React.useState(0);
+  const [sheet, setSheet] = React.useState(false);
   const main = React.useRef<ScrollView>(null);
   const press = (what: string) => () => setStatus(`Pressed ${what}`);
   const lines = (count: number) => Array.from({ length: count }, (_, i) => <Line key={i} label={`Line ${i + 1}`} />);
@@ -85,6 +87,15 @@ export default function ScrollProbe() {
       </ScrollView>
       <ScrollView ref={main} testID="main" style={{ position: 'absolute', left: 220, top: 0, width: 240, height: 280 }}>
         {lines(30)}
+        <Modal transparent animationType="none" visible={sheet} onRequestClose={() => setSheet(false)}>
+          <View
+            testID="sheet-panel"
+            style={{ position: 'absolute', left: 220, top: 300, flexDirection: 'row', gap: 10, backgroundColor: '#f0f0f0' }}
+          >
+            <Button id="sheet-a" label="Sheet A" width={100} onPress={press('sheet-a')} />
+            <Button id="sheet-b" label="Sheet B" width={100} onPress={press('sheet-b')} />
+          </View>
+        </Modal>
       </ScrollView>
       <ScrollView
         testID="persistent"
@@ -133,6 +144,15 @@ export default function ScrollProbe() {
           onPress={() => {
             setStatus('Pressed flash');
             main.current?.flashScrollIndicators();
+          }}
+        />
+        <Button
+          id="sheet"
+          label="Sheet"
+          width={100}
+          onPress={() => {
+            setStatus('Pressed sheet');
+            setSheet(true);
           }}
         />
         <Button id="outside" label="Outside" width={100} onPress={press('outside')} />
