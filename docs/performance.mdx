@@ -187,20 +187,23 @@ running something else on, and the thread's CPU clock counts all of it. On the d
 (WSL2 on an i9-14900K, 8 performance cores with hyperthreads and 16 efficiency cores, no hardware
 counters in the guest) that is the whole of what load does to the gate's scenarios, which run in a
 scope weighted far above everything else (`CPUWeight=10000`), so they are hardly ever preempted.
-`shell-events.json`, 20 runs each on 3 November 2026, before and after the CPU clock, with
-`CPUWeight=10000` as the deploy runs it (the most JavaScript one piece of the shell's work ran on
-entering the dock, in ms):
+`shell-events.json`, 20 runs each on 3 November 2026, before and after the CPU clock interleaved,
+with `CPUWeight=10000` as the deploy runs it: the most JavaScript one piece of the shell's work ran
+on entering the dock (its budget is 4 ms), and the most any piece of the five budgeted steps was
+preempted or blocked, in ms:
 
-| load | before (wall) | after: on the CPU | of it preempted | blocked | passed, before / after |
+| load | before (wall) | after: on the CPU | preempted | blocked | passed, before / after |
 |---|---|---|---|---|---|
-| other sessions (load 28–55) | 3.2–9.0, median 7.6 | 3.2–16.9, median 7.5 | 0–0.3 | 0–0.3 | 3 / 1 of 20 |
-| the same and a busy loop on each of the 32 CPUs | 5.5–11.8, median 6.7 | 5.4–13.7, median 6.1 | 0–0.3 | 0–0.02 | 0 / 0 of 20 |
+| quiet (load 1–9) | 3.1–5.2, median 3.3 | 3.0–4.0, median 3.2 | 0 | 0 | 17 / 18 of 20 |
+| a busy loop on each of the 32 CPUs | 5.2–13.2, median 5.9 | 5.3–9.4, median 5.5 | ≤ 0.8 | 0 | 0 / 0 |
+| other sessions (load 28–55) | 3.2–9.0, median 7.6 | 3.2–16.9, median 7.5 | ≤ 0.9 | ≤ 0.3 | 3 / 1 |
+| both | 5.5–11.8, median 6.8 | 5.4–13.7, median 6.1 | ≤ 0.3 | ≤ 0.02 | 0 / 0 |
 
-Unloaded the same piece is 2.7–3.1 ms. A fixed loop timed the same way takes 9.2 ms by the CPU clock
-at the median with the machine at a load of 25, and 13–22 ms with a busy loop on every CPU: the work
-is the same, the CPU is slower. A budget on how much JavaScript does that a loaded machine
-cannot move needs a count of work rather than a time: instructions retired (a hardware counter,
-`perf_event_open`; none in a WSL2 guest) or what React rendered.
+A fixed loop timed the same way takes 9.2 ms by the CPU clock at the median on a lightly loaded
+machine, and 13–22 ms with a busy loop on every CPU: the work is the same, the CPU is slower. A
+budget on how much JavaScript does that a loaded machine cannot move needs a count of work rather
+than a time: instructions retired (a hardware counter, `perf_event_open`; none in a WSL2 guest) or
+what React rendered.
 
 ## Method
 
