@@ -348,12 +348,40 @@ void PointerInput::handle(const OxyOSEvent& event) {
     return scroll(event.x / 256.0f, event.y / 256.0f);
   }
   float x = event.x / 256.0f, y = event.y / 256.0f;
+  // A press on a scrollbar is the scrollbar's until it is let go (as a Mac's scroller tracks the
+  // mouse): its motion drags the thumb, and nothing reaches the views under it.
+  if (barPress_ && event.surface == barPress_->surface) {
+    x_ = x;
+    y_ = y;
+    if (event.detail == OXYOS_POINTER_MOTION) return dragBar(x, y);
+    if (event.detail == OXYOS_POINTER_RELEASE && event.code == kPrimaryButton) {
+      releaseBar();
+      hoverBar(barAt(*content, x, y), event.surface);
+      return;
+    }
+    if (event.detail == OXYOS_POINTER_PRESS || event.detail == OXYOS_POINTER_RELEASE) return;
+    if (event.detail == OXYOS_POINTER_LEAVE || event.detail == OXYOS_POINTER_CANCEL) releaseBar();
+  }
   // A touch stays with the surface it started on.
   if (!down_) content_ = *content;
   x_ = x;
   y_ = y;
-  if (event.detail == OXYOS_POINTER_ENTER || event.detail == OXYOS_POINTER_MOTION) hover(*content, x, y);
+  if (event.detail == OXYOS_POINTER_ENTER || event.detail == OXYOS_POINTER_MOTION) {
+    hover(*content, x, y);
+    // Over a scrollbar's track, it shows wide (a hidden one too, as a Mac's overlay scroller
+    // appears under the pointer), and while a button is held elsewhere it stays as it was.
+    if (!down_) hoverBar(barAt(*content, x, y), event.surface);
+  }
   if (event.detail == OXYOS_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
+  if (event.detail == OXYOS_POINTER_LEAVE && overBar_) hoverBar(std::nullopt, event.surface);
+  if (event.detail == OXYOS_POINTER_PRESS && event.code == kPrimaryButton && !down_ && !pinching_) {
+    if (auto bar = barAt(*content, x, y)) {
+      auto shown = barsShown_.find(bar->first);
+      bool showing = (shown != barsShown_.end() && shown->second.alpha > 0) ||
+                     persistentScrollbars(tree_.views().at(bar->first).view);
+      if (showing) return pressBar(*content, bar->first, bar->second, x, y);
+    }
+  }
   // A Control-click on a text input is its secondary click, as a Mac takes one: its button is the
   // secondary one to JavaScript, it is no touch, and it opens the input's context menu. Elsewhere a
   // Control-click is the application's (the dock opens its menu, a list adds to its selection).
@@ -375,8 +403,16 @@ void PointerInput::handle(const OxyOSEvent& event) {
     if (event.detail == OXYOS_POINTER_PRESS || event.detail == OXYOS_POINTER_RELEASE) return;
   }
   switch (event.detail) {
-    case OXYOS_POINTER_PRESS:
+    case OXYOS_POINTER_PRESS: {
       stopGlide();
+      // A press stops the animated scrolls of the scroll views under it, as a touch aborts
+      // Android's ScrollView's scroller.
+      Tag under = hitTest(tree_, *content, x, y);
+      if (under >= 0) {
+        for (Tag at : ancestry(tree_, under)) {
+          if (animations_.count(at)) stopAnimation(at);
+        }
+      }
       if (event.code == kPrimaryButton && !down_ && !pinching_) {
         target_ = hitTest(tree_, content_, x, y);
         if (target_ < 0) return;
@@ -387,6 +423,7 @@ void PointerInput::handle(const OxyOSEvent& event) {
         if (gestures_) gestures_(0, content_, x, y);
       }
       break;
+    }
     case OXYOS_POINTER_MOTION:
       if (down_) {
         if (!responderCancelled_) dispatch(Phase::Move, x, y);
@@ -544,7 +581,10 @@ void PointerInput::scroll(float dx, float dy) {
     const auto& view = tree_.views().at(*at).view;
     std::string name = view.componentName ? view.componentName : "";
     if (name == "AndroidTextInput" && scrollText_ && scrollText_(*at, dx, dy)) return;
-    if (scrollView(*at, dx, dy, content_.surface)) return;
+    if (scrollView(*at, dx, dy, content_.surface)) {
+      if (animations_.count(*at)) stopAnimation(*at);
+      return;
+    }
   }
 }
 
@@ -606,6 +646,7 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
       }
     }
     if (drag_->view >= 0) {
+      if (animations_.count(drag_->view)) stopAnimation(drag_->view);
       // A stretch springing back is caught where it is, as a touch catches Android's.
       if (auto it = overscroll_.find(drag_->view); it != overscroll_.end()) {
         for (auto& edge : it->second.axis) edge.pull(0);
@@ -714,13 +755,43 @@ bool PointerInput::tick(bool ready) {
   } else if (!receding) {
     stretchStepped_.reset();
   }
-  if (!glide_) return false;
-  if (glide_->stepped && now - *glide_->stepped < period) return false;
+  bool moved = false;
+  // Animated scrolls (smoothScrollBy, JavaScript's scrollTo), once a frame each.
+  for (auto it = animations_.begin(); it != animations_.end();) {
+    Tag tag = it->first;
+    Animation& animation = it->second;
+    if (animation.stepped && now - *animation.stepped < period) {
+      ++it;
+      continue;
+    }
+    animation.stepped = now;
+    auto range = scrollRange(tag);
+    if (!range) {
+      it = animations_.erase(it);
+      continue;
+    }
+    double ms = std::chrono::duration<double, std::milli>(now - animation.began).count();
+    Point to{animation.x.at(ms), animation.y.at(ms)};
+    moved |= scrollView(tag, to.x - range->first.x, to.y - range->first.y, animation.surface, animation.awaken);
+    if (animation.x.done(ms)) {
+      bool momentum = animation.momentum;
+      uint32_t surface = animation.surface;
+      it = animations_.erase(it);
+      if (momentum) scrollEvent(tag, surface, "momentumScrollEnd");
+      continue;
+    }
+    ++it;
+  }
+  // A press held in a scrollbar's track pages on.
+  if (barPress_ && !barPress_->thumb && barPress_->repeat && now >= *barPress_->repeat) pageTowardsPointer();
+  moved |= stepBars(now);
+  if (!glide_) return moved;
+  if (glide_->stepped && now - *glide_->stepped < period) return moved;
   glide_->stepped = now;
   auto range = scrollRange(glide_->view);
   if (!range) {
     glide_.reset();
-    return false;
+    return moved;
   }
   double ms = std::chrono::duration<double, std::milli>(now - glide_->began).count();
   auto [current, end] = *range;
@@ -741,7 +812,7 @@ bool PointerInput::tick(bool ready) {
     reportStretch(glide_->view);
   }
   to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
-  bool moved = scrollView(glide_->view, to.x - current.x, to.y - current.y, glide_->surface);
+  moved |= scrollView(glide_->view, to.x - current.x, to.y - current.y, glide_->surface);
   // It ends when its time is up, or at the end it was flung towards, which the stretch then takes
   // (as Android 12's ScrollView aborts its scroller once its edge absorbs it).
   bool done = ms >= std::max(glide_->x.durationMs(), glide_->y.durationMs()) ||
@@ -755,12 +826,25 @@ std::optional<std::chrono::steady_clock::time_point> PointerInput::nextFrame(boo
   if (!ready) return std::nullopt;
   auto period = refresh_ ? refresh_->period() : std::chrono::milliseconds(16);
   std::optional<std::chrono::steady_clock::time_point> next;
-  if (glide_) next = glide_->stepped ? *glide_->stepped + period : std::chrono::steady_clock::now();
+  auto now = std::chrono::steady_clock::now();
+  auto due = [&](std::chrono::steady_clock::time_point at) { next = next ? std::min(*next, at) : at; };
+  if (glide_) next = glide_->stepped ? *glide_->stepped + period : now;
+  for (const auto& [tag, animation] : animations_) due(animation.stepped ? *animation.stepped + period : now);
+  if (barPress_ && barPress_->repeat) due(*barPress_->repeat);
+  // Scrollbars fading or growing step once a frame; one held shown is due when its hold ends.
+  for (const auto& [tag, bars] : bars_) {
+    auto shown = barsShown_.find(tag);
+    bool growing = bars.hovered >= 0 && bars.expansion[bars.hovered] < 1;
+    if (growing) due(bars.grown ? *bars.grown + period : now);
+    if (bars.awake && shown != barsShown_.end()) {
+      auto hold = *bars.awake + std::chrono::microseconds(static_cast<long>(kScrollbarHoldMs * 1000));
+      due(now < hold ? hold : now + period);
+    }
+  }
   for (const auto& [tag, overscroll] : overscroll_) {
     for (const auto& edge : overscroll.axis) {
       if (edge.resting() || edge.pulling()) continue;
-      auto due = stretchStepped_ ? *stretchStepped_ + period : std::chrono::steady_clock::now();
-      next = next ? std::min(*next, due) : due;
+      due(stretchStepped_ ? *stretchStepped_ + period : now);
     }
   }
   return next;
@@ -915,7 +999,7 @@ std::optional<std::pair<facebook::react::Point, facebook::react::Point>> Pointer
                                        std::max(0.0f, content.height - viewport.height)});
 }
 
-bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
+bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface, bool awaken) {
   auto range = scrollRange(tag);
   if (!range) return false;
   auto [current, end] = *range;
@@ -947,6 +1031,7 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
     std::cerr << "[input] scroll view " << tag << " to " << next.x << "," << next.y << " of " << content.width << "x"
               << content.height << "\n";
   }
+  if (awaken) awakenBars(tag, surface);
   return true;
 }
 
@@ -966,7 +1051,8 @@ void PointerInput::clampScrolls() {
     }
     ++it;
   }
-  for (const auto& [tag, by] : back) scrollView(tag, by.x, by.y, scrolledOn_[tag]);
+  // A layout's clamp is no scroll the person made: no scrollbar shows for it.
+  for (const auto& [tag, by] : back) scrollView(tag, by.x, by.y, scrolledOn_[tag], false);
 }
 
 void PointerInput::dispatch(Phase phase, float x, float y) {
@@ -1036,6 +1122,375 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
       emitter->onTouchCancel(event);
       break;
   }
+}
+
+
+// Animated scrolls ---------------------------------------------------------------------------
+
+void PointerInput::startAnimation(Tag tag, uint32_t surface, Point to, ScrollAnimation::Curve curve, bool momentum,
+                                  bool awaken) {
+  auto range = scrollRange(tag);
+  if (!range) return;
+  auto [current, end] = *range;
+  to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
+  if (glide_ && glide_->view == tag) stopGlide();
+  // A scroll already animating there goes on from where it is (its momentum, if any, still framing
+  // it); a new one starts.
+  auto it = animations_.find(tag);
+  if (to == current && it == animations_.end()) return;
+  bool framed = it != animations_.end() && it->second.momentum;
+  Animation animation;
+  animation.surface = surface;
+  animation.x = ScrollAnimation(current.x, to.x, curve);
+  animation.y = ScrollAnimation(current.y, to.y, curve);
+  animation.began = std::chrono::steady_clock::now();
+  animation.momentum = momentum || framed;
+  animation.awaken = awaken;
+  animations_[tag] = animation;
+  if (momentum && !framed) scrollEvent(tag, surface, "momentumScrollBegin");
+}
+
+void PointerInput::stopAnimation(Tag tag) {
+  auto it = animations_.find(tag);
+  if (it == animations_.end()) return;
+  bool momentum = it->second.momentum;
+  uint32_t surface = it->second.surface;
+  animations_.erase(it);
+  if (momentum) scrollEvent(tag, surface, "momentumScrollEnd");
+}
+
+bool PointerInput::smoothScrollBy(Tag tag, float dx, float dy, uint32_t surface) {
+  auto range = scrollRange(tag);
+  if (!range) return false;
+  auto [current, end] = *range;
+  // From where an animation going on was going, so that each key adds its step.
+  Point from = current;
+  if (auto it = animations_.find(tag); it != animations_.end()) from = {it->second.x.to(), it->second.y.to()};
+  Point to{std::clamp(from.x + dx, 0.0f, end.x), std::clamp(from.y + dy, 0.0f, end.y)};
+  // On the display's pixels, as Android's are whole.
+  if (scale_ > 0) to = {std::round(to.x * scale_) / scale_, std::round(to.y * scale_) / scale_};
+  to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
+  if (to == from) return false;
+  startAnimation(tag, surface, to, ScrollAnimation::Curve::ViscousFluid, false, true);
+  return true;
+}
+
+void PointerInput::reveal(Tag tag, uint32_t surface, float margin) {
+  auto found = tree_.views().find(tag);
+  if (found == tree_.views().end()) return;
+  if (scale_ > 0) margin = std::round(margin * scale_) / scale_;
+  // The view's rectangle, with the margin, in the coordinates of each view up its path in turn.
+  Size size = found->second.view.layoutMetrics.frame.size;
+  Rect rect{{-margin, -margin}, {size.width + 2 * margin, size.height + 2 * margin}};
+  auto path = ancestry(tree_, tag);
+  for (size_t i = path.size(); i-- > 1;) {
+    const auto& child = tree_.views().at(path[i]).view;
+    // A modal's window, a popup's or a shell region's surface is drawn on its own, never within
+    // the scroll views its view sits in in the tree: they do not hold it.
+    std::string childName = child.componentName ? child.componentName : "";
+    if (isModal(childName) || ownSurface(childName)) return;
+    Point moved = transformOffset(child);
+    rect.origin.x += child.layoutMetrics.frame.origin.x + moved.x;
+    rect.origin.y += child.layoutMetrics.frame.origin.y + moved.y;
+    Tag parent = path[i - 1];
+    auto range = scrollRange(parent);
+    if (!range) continue;
+    // In the scroll view's content now: the least move that shows it, as
+    // ScrollView.computeScrollDeltaToGetChildRectOnScreen works it out (no fading edge), along each
+    // axis, never past the content's ends.
+    const auto& view = tree_.views().at(parent).view;
+    auto [offset, end] = *range;
+    auto delta = [](float start, float length, float screen, float viewport, float limit) {
+      float bottom = start + length, screenBottom = screen + viewport, d = 0;
+      if (bottom > screenBottom && start > screen) {
+        d = length > viewport ? start - screen : bottom - screenBottom;
+        d = std::min(d, limit - screen);
+      } else if (start < screen && bottom < screenBottom) {
+        d = length > viewport ? -(screenBottom - bottom) : -(screen - start);
+        d = std::max(d, -screen);
+      }
+      return d;
+    };
+    Size viewport = view.layoutMetrics.frame.size;
+    float dx = delta(rect.origin.x, rect.size.width, offset.x, viewport.width, end.x);
+    float dy = delta(rect.origin.y, rect.size.height, offset.y, viewport.height, end.y);
+    if (dx != 0 || dy != 0) scrollView(parent, dx, dy, surface, false);
+    // In the scroll view's own coordinates, kept within what it shows: what an outer one brings
+    // into view, as AppKit's scrollRectToVisible passes the rectangle up its clip views.
+    auto after = scrollRange(parent);
+    Point now = after ? after->first : offset;
+    rect.origin.x -= now.x;
+    rect.origin.y -= now.y;
+    rect = Rect::intersect(rect, Rect{{0, 0}, viewport});
+    if (rect.size.width <= 0 || rect.size.height <= 0) return;
+  }
+}
+
+void PointerInput::command(const ShadowView& view, const std::string& name, const folly::dynamic& args) {
+  if (std::string(view.componentName ? view.componentName : "") != "ScrollView") return;
+  Tag tag = view.tag;
+  auto range = scrollRange(tag);
+  uint32_t surface = surfaceOf_ ? surfaceOf_(tag) : 1;
+  auto number = [&](size_t i) { return args.isArray() && args.size() > i && args[i].isNumber() ? args[i].asDouble() : 0.0; };
+  auto flag = [&](size_t i) { return args.isArray() && args.size() > i && args[i].isBool() && args[i].getBool(); };
+  if (name == "flashScrollIndicators") {
+    awakenBars(tag, surface);
+    return;
+  }
+  if (!range || (name != "scrollTo" && name != "scrollToEnd")) return;
+  // As ReactScrollViewManager: abortAnimation, then the scroll, animated or at once.
+  if (glide_ && glide_->view == tag) stopGlide();
+  stopAnimation(tag);
+  range = scrollRange(tag);
+  auto [current, end] = *range;
+  Point to = current;
+  bool animated = false;
+  if (name == "scrollTo") {
+    to = {static_cast<float>(number(0)), static_cast<float>(number(1))};
+    animated = flag(2);
+  } else {
+    // To the end of the axis its content scrolls along (a horizontal one's right end).
+    if (scrollAxis(tag) == 0) to.x = end.x; else to.y = end.y;
+    animated = flag(0);
+  }
+  to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
+  Report::get().input("scroll.command", surface,
+                      folly::dynamic::object("target", Report::name(view))("command", name)("animated", animated)(
+                          "x", to.x)("y", to.y));
+  if (animated) {
+    startAnimation(tag, surface, to, ScrollAnimation::Curve::AccelerateDecelerate, true, false);
+  } else {
+    scrollView(tag, to.x - current.x, to.y - current.y, surface, false);
+  }
+}
+
+// Overlay scrollbars --------------------------------------------------------------------------
+
+void PointerInput::awakenBars(Tag tag, uint32_t surface) {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end()) return;
+  if (!hasScrollbar(it->second.view, 0) && !hasScrollbar(it->second.view, 1)) return;
+  auto& bars = bars_[tag];
+  bars.surface = surface;
+  bars.awake = std::chrono::steady_clock::now();
+  stepBars(*bars.awake);
+}
+
+std::optional<std::pair<Tag, int>> PointerInput::barAt(const SurfaceContent& content, float x, float y) const {
+  Tag target = hitTest(tree_, content, x, y);
+  if (target < 0) return std::nullopt;
+  auto path = ancestry(tree_, target);
+  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+    const auto& view = tree_.views().at(*at).view;
+    if (std::string(view.componentName ? view.componentName : "") != "ScrollView") continue;
+    auto range = scrollRange(*at);
+    auto frame = windowFrame(tree_, *at);
+    if (!range || !frame) continue;
+    Point local{content.origin.x + x - frame->origin.x, content.origin.y + y - frame->origin.y};
+    for (int axis : {1, 0}) {
+      auto geometry = scrollbarGeometry(view, range->first, axis, 1, scale_);
+      if (geometry && geometry->track.containsPoint(local)) return std::make_pair(*at, axis);
+    }
+  }
+  return std::nullopt;
+}
+
+void PointerInput::hoverBar(std::optional<std::pair<Tag, int>> bar, uint32_t surface) {
+  if (bar == overBar_) return;
+  auto now = std::chrono::steady_clock::now();
+  if (overBar_) {
+    // Left: it fades from now, as after a scroll.
+    if (auto it = bars_.find(overBar_->first); it != bars_.end()) {
+      it->second.hovered = -1;
+      it->second.awake = now;
+    }
+  }
+  overBar_ = bar;
+  if (bar) {
+    auto& bars = bars_[bar->first];
+    bars.surface = surface;
+    bars.hovered = bar->second;
+    bars.awake.reset();
+    if (!bars.grown) bars.grown = now;
+  }
+  stepBars(now);
+}
+
+bool PointerInput::stepBars(std::chrono::steady_clock::time_point now) {
+  std::map<Tag, ScrollbarShown> shown;
+  for (auto it = bars_.begin(); it != bars_.end();) {
+    Tag tag = it->first;
+    Bars& bars = it->second;
+    if (tree_.views().find(tag) == tree_.views().end()) {
+      it = bars_.erase(it);
+      continue;
+    }
+    bool held = bars.hovered >= 0 || (barPress_ && barPress_->view == tag);
+    float alpha = 0;
+    if (held) {
+      alpha = 1;
+    } else if (bars.awake) {
+      double ms = std::max(0.0, std::chrono::duration<double, std::milli>(now - *bars.awake).count());
+      alpha = ms < kScrollbarHoldMs ? 1.0f
+                                    : static_cast<float>(std::max(0.0, 1.0 - (ms - kScrollbarHoldMs) / kScrollbarFadeMs));
+    }
+    // The bar the pointer is over grows towards wide; once wide, a bar stays so until it has gone,
+    // as a Mac's does.
+    int growing = bars.hovered >= 0 ? bars.hovered : (barPress_ && barPress_->view == tag ? barPress_->axis : -1);
+    // (A step may be asked with a time a little before the last, taken before a scroll in the same
+    // turn stepped it: time never runs back here.)
+    if (growing >= 0 && bars.grown) {
+      double ms = std::max(0.0, std::chrono::duration<double, std::milli>(now - *bars.grown).count());
+      bars.expansion[growing] = std::min(1.0f, bars.expansion[growing] + static_cast<float>(ms / kScrollbarExpandMs));
+    }
+    if (!bars.grown || now > *bars.grown) bars.grown = now;
+    if (alpha <= 0) {
+      it = bars_.erase(it);
+      continue;
+    }
+    shown[tag] = ScrollbarShown{alpha, {bars.expansion[0], bars.expansion[1]}};
+    ++it;
+  }
+  if (shown == barsShown_) return false;
+  // What shows, reported as it changes: a view's scrollbars appearing, growing wide, going.
+  if (Report::get().enabled()) {
+    auto report = [&](Tag tag, const char* event, const ScrollbarShown& state) {
+      auto view = tree_.views().find(tag);
+      if (view == tree_.views().end()) return;
+      folly::dynamic axes = folly::dynamic::array;
+      folly::dynamic thumbs = folly::dynamic::object;
+      auto frame = windowFrame(tree_, tag);
+      auto range = scrollRange(tag);
+      for (int axis = 0; axis < 2; ++axis) {
+        if (!hasScrollbar(view->second.view, axis)) continue;
+        axes.push_back(axis ? "y" : "x");
+        if (auto geometry = scrollbarGeometry(view->second.view, range ? range->first : Point{}, axis,
+                                              state.expansion[axis], scale_);
+            geometry && frame) {
+          const Rect& k = geometry->thumb;
+          thumbs[axis ? "y" : "x"] = folly::dynamic::array(frame->origin.x + k.origin.x, frame->origin.y + k.origin.y,
+                                                           k.size.width, k.size.height);
+        }
+      }
+      Report::get().scrollbar(event, view->second.view, std::move(axes), std::move(thumbs), state.alpha);
+    };
+    for (const auto& [tag, state] : shown) {
+      auto before = barsShown_.find(tag);
+      if (before == barsShown_.end()) report(tag, "shown", state);
+      for (int axis = 0; axis < 2; ++axis) {
+        bool wide = state.expansion[axis] >= 1, was = before != barsShown_.end() && before->second.expansion[axis] >= 1;
+        if (wide && !was) report(tag, axis ? "wide-y" : "wide-x", state);
+      }
+    }
+    for (const auto& [tag, state] : barsShown_) {
+      if (!shown.count(tag)) report(tag, "hidden", state);
+    }
+  }
+  barsShown_ = std::move(shown);
+  barsChanged_ = true;
+  return true;
+}
+
+void PointerInput::pressBar(const SurfaceContent& content, Tag tag, int axis, float x, float y) {
+  stopGlide();
+  stopAnimation(tag);
+  auto range = scrollRange(tag);
+  auto frame = windowFrame(tree_, tag);
+  if (!range || !frame) return;
+  const auto& view = tree_.views().at(tag).view;
+  auto geometry = scrollbarGeometry(view, range->first, axis, 1, scale_);
+  if (!geometry) return;
+  float along = axis ? content.origin.y + y - frame->origin.y : content.origin.x + x - frame->origin.x;
+  const Rect& thumb = geometry->thumb;
+  float start = axis ? thumb.origin.y : thumb.origin.x, length = axis ? thumb.size.height : thumb.size.width;
+  BarPress press;
+  press.view = tag;
+  press.surface = content.surface;
+  press.axis = axis;
+  press.thumb = along >= start && along < start + length;
+  press.pointer = along;
+  press.from = axis ? range->first.y : range->first.x;
+  barPress_ = press;
+  if (auto it = bars_.find(tag); it != bars_.end()) it->second.awake.reset();
+  Report::get().input("scrollbar.press", content.surface,
+                      folly::dynamic::object("target", Report::name(view))("axis", axis ? "y" : "x")(
+                          "thumb", press.thumb));
+  if (press.thumb) {
+    // As Android's ScrollView, intercepting a mouse's press on its thumb, begins a drag.
+    scrollEvent(tag, content.surface, "scrollBeginDrag");
+  } else {
+    pageTowardsPointer();
+    // NSScroller's periodic paging while the button is held: after a pause, then steadily.
+    if (barPress_) barPress_->repeat = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+  }
+  stepBars(std::chrono::steady_clock::now());
+}
+
+void PointerInput::dragBar(float x, float y) {
+  if (!barPress_ || !barPress_->thumb) return;
+  auto range = scrollRange(barPress_->view);
+  auto frame = windowFrame(tree_, barPress_->view);
+  auto content = surfaces_(barPress_->surface);
+  if (!range || !frame || !content) return;
+  const auto& view = tree_.views().at(barPress_->view).view;
+  auto geometry = scrollbarGeometry(view, range->first, barPress_->axis, 1, scale_);
+  if (!geometry) return;
+  int axis = barPress_->axis;
+  float along = axis ? content->origin.y + y - frame->origin.y : content->origin.x + x - frame->origin.x;
+  // The thumb follows the pointer along its track; the content goes as far for each pixel of it as
+  // the track's free length is to the content's (View#handleScrollBarDragging).
+  float track = axis ? geometry->track.size.height : geometry->track.size.width;
+  float thumb = axis ? geometry->thumb.size.height : geometry->thumb.size.width;
+  float travel = track - 2 * kScrollbarInset - thumb;
+  float end = axis ? range->second.y : range->second.x;
+  if (travel <= 0 || end <= 0) return;
+  float to = std::clamp(barPress_->from + (along - barPress_->pointer) * end / travel, 0.0f, end);
+  float current = axis ? range->first.y : range->first.x;
+  if (to == current) return;
+  scrollView(barPress_->view, axis ? 0 : to - current, axis ? to - current : 0, barPress_->surface);
+}
+
+void PointerInput::releaseBar() {
+  if (!barPress_) return;
+  BarPress press = *barPress_;
+  barPress_.reset();
+  if (auto it = bars_.find(press.view); it != bars_.end() && it->second.hovered < 0) {
+    it->second.awake = std::chrono::steady_clock::now();
+  }
+  // The drag it began ends where it is, still: Android's View#handleScrollBarDragging takes the
+  // release before ReactScrollView.onTouchEvent would end it, so Android sends none; the host ends
+  // the drag it began, so JavaScript's begin and end pair.
+  if (press.thumb && tree_.views().find(press.view) != tree_.views().end()) {
+    scrollEvent(press.view, press.surface, "scrollEndDrag", Point{0, 0});
+  }
+  stepBars(std::chrono::steady_clock::now());
+}
+
+void PointerInput::pageTowardsPointer() {
+  if (!barPress_) return;
+  auto range = scrollRange(barPress_->view);
+  if (!range) return;
+  const auto& view = tree_.views().at(barPress_->view).view;
+  int axis = barPress_->axis;
+  // Where the thumb will be once the paging going on ends: it pages until it reaches the pointer.
+  Point target = range->first;
+  if (auto it = animations_.find(barPress_->view); it != animations_.end()) target = {it->second.x.to(), it->second.y.to()};
+  auto geometry = scrollbarGeometry(view, target, axis, 1, scale_);
+  if (!geometry) return;
+  float start = axis ? geometry->thumb.origin.y : geometry->thumb.origin.x;
+  float length = axis ? geometry->thumb.size.height : geometry->thumb.size.width;
+  int direction = barPress_->pointer < start ? -1 : barPress_->pointer >= start + length ? 1 : 0;
+  if (direction == 0) {
+    barPress_->repeat.reset();
+    return;
+  }
+  Size viewport = view.layoutMetrics.frame.size;
+  float page = direction * pageStep(axis ? viewport.height : viewport.width);
+  if (!smoothScrollBy(barPress_->view, axis ? 0 : page, axis ? page : 0, barPress_->surface)) {
+    barPress_->repeat.reset();
+    return;
+  }
+  barPress_->repeat = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
 }
 
 }  // namespace oxyos
