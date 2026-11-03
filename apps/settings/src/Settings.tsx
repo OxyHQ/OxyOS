@@ -7,6 +7,7 @@ import * as React from "react";
 import { AccessibilityInfo, PanResponder, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
+import { ChoiceList } from "@oxy.so/bloom/choice-list";
 import { Dialog } from "@oxy.so/bloom/dialog";
 import {
   DropdownMenu,
@@ -16,7 +17,9 @@ import {
 } from "@oxy.so/bloom/dropdown-menu";
 import {
   RiAccessibilityLine,
+  RiAddLine,
   RiCalendarLine,
+  RiCheckLine,
   RiComputerLine,
   RiGlobalLine,
   RiImageLine,
@@ -28,6 +31,7 @@ import {
   RiPaletteLine,
   RiRefreshLine,
   RiShieldLine,
+  RiSubtractLine,
   RiTranslate2,
   RiWifiLine,
 } from "@oxy.so/bloom/icons";
@@ -104,6 +108,20 @@ import {
   sessionLocale,
   timeFormatItems,
 } from "./locale";
+import {
+  addable,
+  INPUT_METHOD_GLYPHS,
+  LAYOUT_SOURCE,
+  layoutName,
+  layoutShortName,
+  removable,
+  selectedAfterRemoving,
+  withAdded,
+  withRemoved,
+  type InputMethod,
+  type InputSourceId,
+  type InputSourcesState,
+} from "./input-sources";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import {
   formatSize as formatBytes,
@@ -771,11 +789,242 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
-function KeyboardPage({ snapshot, strings }: PageProps) {
+/** Keyboard: the system's layout, and the person's input sources. */
+function KeyboardPage(props: PageProps) {
+  const { snapshot, strings } = props;
   return (
-    <GroupedSection footer={strings.systemNote}>
-      <GroupedSectionItem title={strings.keyboard.layout} value={snapshot.system.keyboardLayout} testID="keyboard-layout" />
+    <View style={PAGE}>
+      <GroupedSection footer={strings.systemNote}>
+        <GroupedSectionItem
+          title={strings.keyboard.layout}
+          value={layoutName(snapshot.system.keyboardLayout, strings.keyboard.layoutNames)}
+          testID="keyboard-layout"
+        />
+      </GroupedSection>
+      {snapshot.inputSources ? <InputSources {...props} state={snapshot.inputSources} /> : null}
+    </View>
+  );
+}
+
+/** A source's name: its layout's as people read it, an input method's as macOS names it. */
+function sourceName(id: InputSourceId, state: InputSourcesState, words: Messages["keyboard"]): string {
+  return id === LAYOUT_SOURCE ? layoutName(state.layout, words.layoutNames) : words.methods[id];
+}
+
+/** A source's option in a list: as wide as the list, its highlight inset from the list's edges.
+    The inset is the option's own width too, which the keyboard needs to start on it in a sheet
+    first laid out narrower than its content. */
+const SOURCE_OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
+
+/** One source's row, drawn: its glyph as the top bar shows it, its name, and a check on the one
+    typing now. Decorative: the list's option is the control, named by its label. */
+function SourceRow({
+  id,
+  state,
+  words,
+  selected,
+  current,
+}: {
+  id: InputSourceId;
+  state: InputSourcesState;
+  words: Messages["keyboard"];
+  selected: boolean;
+  current: boolean;
+}) {
+  const theme = useTheme();
+  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const layout = id === LAYOUT_SOURCE;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        borderRadius: 10,
+        backgroundColor: selected ? theme.colors.primary : "transparent",
+      }}
+    >
+      <View
+        style={{
+          width: 28,
+          height: 22,
+          borderRadius: 6,
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: 1,
+          borderColor: selected ? theme.colors.primaryForeground : theme.colors.textSecondary,
+        }}
+      >
+        <Text style={{ color: ink, fontSize: layout ? 11 : 13, fontWeight: "600" }}>
+          {layout ? layoutShortName(state.layout) : INPUT_METHOD_GLYPHS[id]}
+        </Text>
+      </View>
+      <Text numberOfLines={1} style={{ flex: 1, color: ink, fontSize: 14 }}>
+        {sourceName(id, state, words)}
+      </Text>
+      {current ? <RiCheckLine size="sm" fill={ink} /> : null}
+    </View>
+  );
+}
+
+/**
+ * Input Sources (docs/adr/0041-input-methods.mdx, decision 6), as a Mac's Text Input: the sources
+ * in effect, the layout first, a list one row of which is selected (Bloom's `ChoiceList`: one Tab
+ * stop, the arrows moving through it, Space or Return selecting; each row said with its place and,
+ * for the one typing now, "in use"). **+** opens a sheet of the input methods the session's engine
+ * has and the person has not added, the first chosen, added with Add; **−** removes the selected
+ * one, never the layout. A change is the `input_sources` preference, the list without the layout:
+ * the session keeps it and tells the sources as they are then. An addition or a removal is said
+ * once it is in effect, as nothing else under the keyboard says it.
+ */
+function InputSources({ snapshot, actions, strings, state }: PageProps & { state: InputSourcesState }) {
+  const words = strings.keyboard;
+  const kept = snapshot.preferences.inputSources;
+  const [selected, setSelected] = React.useState<InputSourceId>(state.current);
+  const shown = state.sources.includes(selected) ? selected : (state.sources[0] ?? LAYOUT_SOURCE);
+  const canAdd = addable(state);
+  const [adding, setAdding] = React.useState(false);
+  const [choice, setChoice] = React.useState<InputMethod | null>(null);
+  const plus = React.useRef<React.ComponentRef<typeof View>>(null);
+  const minusFocused = React.useRef(false);
+  // A change asked for, said once the session's sources show it; a source added is selected
+  // then, as a Mac selects the one it adds (until then the selection stays where it was).
+  const asked = React.useRef<{ kind: "added" | "removed"; id: InputMethod } | null>(null);
+  React.useEffect(() => {
+    const change = asked.current;
+    if (!change) return;
+    const there = state.sources.includes(change.id);
+    if (change.kind === "added" ? !there : there) return;
+    asked.current = null;
+    if (change.kind === "added") setSelected(change.id);
+    AccessibilityInfo.announceForAccessibility(words[change.kind](words.methods[change.id]));
+  }, [state.sources, words]);
+
+  const add = () => {
+    if (!choice || !canAdd.includes(choice)) return;
+    asked.current = { kind: "added", id: choice };
+    actions.setPreference("inputSources", withAdded(kept, choice));
+  };
+  const remove = () => {
+    if (!removable(shown)) return;
+    const next = selectedAfterRemoving(state.sources, shown);
+    asked.current = { kind: "removed", id: shown };
+    setSelected(next);
+    actions.setPreference("inputSources", withRemoved(kept, shown));
+    // The − button goes disabled under the keyboard: the keyboard goes to +, as it would otherwise
+    // be left on nothing.
+    if (!removable(next) && minusFocused.current && plus.current) {
+      AccessibilityInfo.sendAccessibilityEvent(plus.current as never, "focus");
+    }
+  };
+  const notInstalled = state.available.length === 0;
+  return (
+    <View>
+    <GroupedSection title={words.inputSources} footer={notInstalled ? words.notInstalled : words.switchHint}>
+      <GroupedSectionItem
+        title={words.inputSources}
+        testID="input-sources"
+        content={
+          <View style={{ gap: 8 }}>
+            <ChoiceList<InputSourceId>
+              label={words.sourcesList}
+              value={shown}
+              onValueChange={setSelected}
+              orientation="vertical"
+              style={{ gap: 2 }}
+              optionStyle={SOURCE_OPTION}
+              options={state.sources.map((id) => {
+                const name = sourceName(id, state, words);
+                return {
+                  value: id,
+                  label: id === state.current ? `${name}, ${words.inUse}` : name,
+                  testID: `input-source-${id}`,
+                };
+              })}
+              renderContent={(option, { selected: isSelected }) => (
+                <SourceRow
+                  id={option.value}
+                  state={state}
+                  words={words}
+                  selected={isSelected}
+                  current={option.value === state.current}
+                />
+              )}
+              testID="input-sources-list"
+            />
+            <View style={{ flexDirection: "row", gap: 4 }}>
+              <Button
+                ref={plus}
+                size="sm"
+                appearance="plain"
+                tone="neutral"
+                iconOnly
+                icon={RiAddLine}
+                accessibilityLabel={words.add}
+                disabled={canAdd.length === 0}
+                onPress={() => {
+                  setChoice(canAdd[0] ?? null);
+                  setAdding(true);
+                }}
+                testID="input-sources-add"
+              />
+              <Button
+                size="sm"
+                appearance="plain"
+                tone="neutral"
+                iconOnly
+                icon={RiSubtractLine}
+                accessibilityLabel={removable(shown) ? words.removeSource(sourceName(shown, state, words)) : words.remove}
+                disabled={!removable(shown)}
+                onFocus={() => {
+                  minusFocused.current = true;
+                }}
+                onBlur={() => {
+                  minusFocused.current = false;
+                }}
+                onPress={remove}
+                testID="input-sources-remove"
+              />
+            </View>
+          </View>
+        }
+      />
     </GroupedSection>
+      <Dialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        title={words.addTitle}
+        actions={[
+          { label: words.cancel, color: "cancel", testID: "input-sources-add-cancel" },
+          {
+            label: words.confirmAdd,
+            color: "default",
+            disabled: choice === null,
+            onPress: add,
+            testID: "input-sources-add-confirm",
+          },
+        ]}
+        testID="input-sources-add-sheet"
+      >
+        {choice !== null ? (
+          <ChoiceList<InputMethod>
+            label={words.addList}
+            value={choice}
+            onValueChange={setChoice}
+            orientation="vertical"
+            style={{ gap: 2 }}
+            optionStyle={SOURCE_OPTION}
+            options={canAdd.map((id) => ({ value: id, label: words.methods[id], testID: `input-source-add-${id}` }))}
+            renderContent={(option, { selected: isSelected }) => (
+              <SourceRow id={option.value} state={state} words={words} selected={isSelected} current={false} />
+            )}
+            testID="input-sources-add-list"
+          />
+        ) : null}
+      </Dialog>
+    </View>
   );
 }
 
