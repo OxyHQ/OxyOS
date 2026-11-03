@@ -430,6 +430,19 @@ WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
 # above any machine's time) is always held (docs/performance.mdx, "What a step re-renders").
 SPEED_BUDGETS = False
 
+# Whether the hosts count what React re-renders (OXYOS_HOST_REPORT_RENDERS): for a scenario holding
+# `renders`, unless --no-render-counts, whose `renders` are then not checked.
+RENDER_COUNTS = False
+
+
+def holds_renders(value):
+    """Whether a scenario's steps (and the hosts' within them, `in_shell` and the rest) hold `renders`."""
+    if isinstance(value, dict):
+        return "renders" in value or any(holds_renders(v) for v in value.values())
+    if isinstance(value, list):
+        return any(holds_renders(v) for v in value)
+    return False
+
 
 # A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish).
 SLOW_LINE = re.compile(
@@ -1670,7 +1683,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         presented = sum(1 for line in work if line["presented"])
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
-    if "renders" in expect:
+    if "renders" in expect and RENDER_COUNTS:
         # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
         # the components each re-render began at, exactly, the same on any machine however loaded.
         wanted = expect["renders"]
@@ -2690,12 +2703,16 @@ def main():
                              "from the CPU frame's by more than 32 levels fails")
     parser.add_argument("--gpu-only", action="store_true",
                         help="compose on the Vulkan device alone, with no CPU reference (measures it)")
+    parser.add_argument("--no-render-counts", action="store_true",
+                        help="never count what React re-renders, even for a scenario holding `renders` (whose "
+                             "checks are then not made): perf.py's runs, which measure speed, which the count's "
+                             "allocations would move")
     parser.add_argument("--speed-budgets", action="store_true",
                         help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
-    global SPEED_BUDGETS
+    global SPEED_BUDGETS, RENDER_COUNTS
     SPEED_BUDGETS = options.speed_budgets
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
@@ -2844,6 +2861,13 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path))
+    # What React re-renders is counted (report.h, `react_render`) only for a scenario that holds it
+    # and a run that does not measure speed: walking React's commits allocates, which moves where
+    # Hermes' collections fall.
+    RENDER_COUNTS = holds_renders(scenario["steps"]) and not options.no_render_counts
+    env.pop("OXYOS_HOST_REPORT_RENDERS", None)
+    if RENDER_COUNTS:
+        env["OXYOS_HOST_REPORT_RENDERS"] = "1"
     # glibc fills what it frees (and what it hands out) with this byte, so a use of freed memory
     # crashes the run every time instead of only when the memory happened to be reused: a host
     # destroying JavaScript's pending timers after its runtime crashed one exit in tens, and with

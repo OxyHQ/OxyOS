@@ -245,7 +245,19 @@ void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
       "    onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},"
       "  };"
       "})();";
-  runtime.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(hook), "oxyos-report-react-commits");
+  // Without OXYOS_HOST_REPORT_RENDERS=1 (regress.py sets it for a scenario that holds `renders`),
+  // commits are counted and nothing more: the walk's allocations move where Hermes' collections
+  // fall, so a run that measures speed (perf.py) never walks, nor does a session.
+  static const char* count =
+      "globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {"
+      "  supportsFiber: true, renderers: new Map(),"
+      "  inject(internals) { const id = this.renderers.size + 1; this.renderers.set(id, internals); return id; },"
+      "  onCommitFiberRoot() { __oxyosReactCommitted(); },"
+      "  onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},"
+      "};";
+  const char* renders = std::getenv("OXYOS_HOST_REPORT_RENDERS");
+  bool walk = renders != nullptr && std::string(renders) == "1";
+  runtime.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(walk ? hook : count), "oxyos-report-react-commits");
 }
 
 void Report::layout(float width, float height, double ms) {

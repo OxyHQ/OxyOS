@@ -265,7 +265,10 @@ def run_scenario(options, scenario, out, during=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
     `during(sampler, out)` called meanwhile. Returns (summary, app report, shell report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
-               "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out)]
+               "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out),
+               # A run measuring speed never counts what React re-renders (regress.py): the count's
+               # allocations move where Hermes' collections fall, into the times measured.
+               "--no-render-counts"]
     # The scenarios' budgets on speed are perf.py's to hold, on the hardware they describe
     # (regress.py, --speed-budgets); the deploy gate holds what the steps do, not how fast.
     if options.check:

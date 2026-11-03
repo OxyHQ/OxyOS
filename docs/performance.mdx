@@ -233,10 +233,13 @@ JavaScript by the wall clock, two refreshes at 60 Hz (`js_work.js_wall_ms_max`: 
 regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window change's,
 twice the most the heaviest load measured made of it (16.9 ms).
 
-Counting is done only while a report is written, about 0.03 ms a commit (the walk and the line);
-its few allocations move where Hermes' young collections fall, so a time measured with a report
-can gain or lose one (a collection of 1.5 ms fell in the dock's hover in these runs, which took 5.1
-ms of JavaScript with the count and 3.3 without it).
+Counting is done only where it is checked: a host walks React's commits when its environment has
+`OXYOS_HOST_REPORT_RENDERS=1` beside `OXYOS_HOST_REPORT`, which `regress.py` sets for a scenario
+holding `renders` alone, and never with `--no-render-counts`, which `perf.py` always passes; a
+session has neither. The walk costs about 0.03 ms a commit, but its few allocations move where
+Hermes' young collections fall: with it, a collection of 1.5 ms fell in the dock's hover, which
+measured 5.1 ms of JavaScript instead of 3.3. Without it, a host counts React's commits alone
+(`react_commits`), allocating nothing.
 
 Budgets on speed stay where a claim is about speed (`perf-dropsea-home.json`'s JavaScript per
 step, `window-resize.json`'s and `perf-dropsea-resize.json`'s per frame, the shell's in

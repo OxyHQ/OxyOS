@@ -90,7 +90,10 @@ class Report {
   // state, a context or a store it reads changed), each with how many components rendered in its
   // subtree for it, itself included, and how many of each name, as React's fibers have it (a function or class component,
   // a forwardRef or a memo whose render ran, its fiber's PerformedWork, or one mounted). What a
-  // commit re-rendered is counted, not timed: the same on any machine, however loaded.
+  // commit re-rendered is counted, not timed: the same on any machine, however loaded. Only with
+  // OXYOS_HOST_REPORT_RENDERS=1 as well (regress.py's, for a scenario holding `renders`): walking
+  // allocates, which moves where Hermes' collections fall, so a run measuring speed, and a session,
+  // count commits alone.
   void watchReactCommits(facebook::jsi::Runtime& runtime);
   // A stage of the host's start beginning (the Hermes instance, Fabric's scheduler, the bundle).
   void stage(const char* name);
