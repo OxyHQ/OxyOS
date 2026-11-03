@@ -88,7 +88,8 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 
 | Event | Policy |
 | --- | --- |
-| Parent minimized | Child popups `PopupDone(ParentHidden)` |
+| Parent minimized, hidden with its application, or left on another workspace | Every popup of its group (its own and its dialogs') `PopupDone(ParentHidden)`; none comes back when it is shown again |
+| Another window of the grab's layer activated (the shell focusing it, a notification's window shown, a window mapped with activation) | The grab's chain `PopupDone(OutsidePress)`, the keyboard going straight to the window activated; a shell's menu, in its own layer, stays |
 | Parent destroyed | Children `PopupDone(ParentGone)`; they stay inert and addressable until the client destroys them |
 | Client disconnect or crash | All its surfaces, grabs, focus, captures and touches are removed; buffers are retired for the backend |
 | Lock | Grab and all non-lock popups `PopupDone(Locked)`; new grabs denied |
@@ -100,6 +101,22 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 | Output removed | Popups and output-bound shell/lock surfaces `PopupDone(OutputRemoved)`. Windows move to the first remaining output at once (a compositor-owned move, like a drag), so their last content is visible while buffers for the new scale are prepared. Fullscreen windows are configured to the surviving output's size, and their windowed geometry is restored on it |
 
 A dismissed popup releases its content immediately (deferred while a backend frame is in flight).
+
+### Popups and their window, against macOS
+
+The audit of 3 November 2026: what a window's popups (Bloom's DropdownMenu, ContextMenu, Popover and Tooltip, each a compositor popup) do when something happens to the window, against a Mac. Scenarios run `sample/PopupWindowProbe.tsx` and check outcomes: the popups and their rectangles against the trigger, the compositor's focus, what each client was delivered, exactly what React heard and the page's own count of each popup's openings and closings (one closing each, none reopened). Each runs at 1 and at 1.25 (`-scaled`).
+
+| The window is | A Mac | OxyOS before | OxyOS now | Checked by | What remains |
+| --- | --- | --- | --- | --- | --- |
+| Moved by the shell (a keyboard move, tiling) | A popover, a child window, moves with it | The popups keep their place against the parent in the same frame and are re-placed after if their constraints changed | The same | `sample.json`, `popup-follows-scaled.json`, `popup-window.json` (a menu and a tooltip); the scene's `parent_move_carries_popups_in_the_same_frame_then_reconstrains` | |
+| Dragged by its title area | The click outside the menu closes it and is consumed; a new press drags | A press outside the chain dismisses it and is consumed (above), never checked on a window's title band | The same, checked: the window does not move, no client hears the press, React nothing; the next press drags it | `popup-window.json` | |
+| Resized | A popover follows its anchor | Re-placed at its trigger once the frame at the new size is shown ([ADR 0016](./0016-windows)); the resize band is off behind an open menu, so a press there is outside | The same | `sample.json`, `popup-follows-scaled.json` | A press on the band with a menu open is checked on the scene only |
+| Zoomed (the green bubble) | The click closes the menu and does not zoom | A press outside | The same, checked: not zoomed, React hears nothing | `popup-window.json` | Super+Ctrl+F with a menu open (closes it, then full screen) is checked on the scene only |
+| Minimized (Super+M, the yellow bubble), hidden (Super+H), left on another workspace | Its menus close with it; nothing comes back on restore | Its own popups closed with it, but Super+M and Super+H first closed the menu as an outside press, so the window was given the keyboard back for an instant (a focus in and out, an activation it drew); a dialog's popups were not closed at all, kept the grab and the keyboard while unseen and came back with the window | The window's whole group's popups close with it, as its parent hidden, and the keyboard goes from the menu straight to the next window; restored, the window has the keyboard and no popup | `popup-window.json` (a context menu and a tooltip, restored from the dock); the scene's `super_m_and_super_h_close_the_windows_menu_with_it`, `hiding_a_window_closes_its_dialogs_menus_and_restoring_reopens_none` | |
+| Moved to a display of another scale ([ADR 0018](./0018-several-displays)) | A popover follows, drawn at that display's density | Followed and re-placed at the new scale, never checked | The same, checked at 1 → 1.25 and 1.25 → 1: the same place against the trigger, frames at the new scale, rows taking presses there | `popup-window-displays.json`, `popup-window-displays-scaled.json` (fail without the popup's re-scale) | Dragged across by the person: a press closes the menu first (the title row) |
+| No longer active: another application activated | Menus and transient popovers close (Command-Tab) | Every system shortcut that activates another window (Super+Tab, Super+\`) closes the menu first. An activation with neither a press nor a shortcut (the shell's `FocusWindow`, a notification's window shown, a window mapped with activation) raised the other window and left the menu holding the keyboard under it | Activating another window of the grab's layer closes the menu, the keyboard going straight to that window | `popup-window-switch.json`, `popup-window-switch-scaled.json`; the scene's `activating_another_window_closes_the_open_menu` | A tooltip (no grab) is not closed when its window stops being active: the window raised over it covers it, where a Mac hides it |
+
+Bloom's Select is no popup on OxyOS: on native it opens as an in-window sheet (`dialog/SheetShell`), a part of its window, which follows it as the window's content does and stays across a minimize as a Mac's sheet does. A Mac's pop-up button opens a menu over itself; Select as an anchored popup is Bloom's to do.
 
 ## Presentation and buffer lifetime
 

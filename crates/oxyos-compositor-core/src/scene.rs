@@ -3016,6 +3016,26 @@ impl Scene {
         }
     }
 
+    /// Dismisses every popup of a window's group: its own and its dialogs' (a dialog's menu is
+    /// drawn and grabs with the window it belongs to), when the window goes from the screen.
+    fn dismiss_group_popups(&mut self, key: SurfaceKey, reason: DismissReason) {
+        let children = self
+            .nodes
+            .get(&key)
+            .map(|node| node.children.clone())
+            .unwrap_or_default();
+        for child in children {
+            let Some(node) = self.nodes.get(&child) else {
+                continue;
+            };
+            if node.is_popup() {
+                self.dismiss(child, reason);
+            } else if node.role == Role::Dialog {
+                self.dismiss_group_popups(child, reason);
+            }
+        }
+    }
+
     fn dismiss_grab(&mut self, reason: DismissReason) {
         if let Some(first) = self.grab.first().copied() {
             self.dismiss(first, reason);
@@ -3435,6 +3455,20 @@ impl Scene {
             return;
         }
         let layer = layer_of(&self.nodes[&root].role);
+        // Another window of the grab's layer becomes the active one: its menus close, as a Mac's
+        // close when their window stops being the active one, rather than keep the keyboard
+        // under the window raised over them. A shell's menu (its own layer) stays.
+        let grabbing = self.grab.first().map(|popup| self.root_of(*popup));
+        if grabbing.is_some_and(|grabbing| {
+            grabbing != root && layer_of(&self.nodes[&grabbing].role) == layer
+        }) {
+            // The keyboard goes from the menu straight to the window activated, never back to
+            // the one it was opened in for the instant between.
+            if self.focusable(root) {
+                self.focus_before_grab = Some(self.focus_target(root));
+            }
+            self.dismiss_grab(DismissReason::OutsidePress);
+        }
         self.roots.retain(|r| *r != root);
         let index = self
             .roots
@@ -3480,16 +3514,11 @@ impl Scene {
         if node.role != Role::Toplevel || node.hidden {
             return;
         }
-        let children = node.children.clone();
         if node.mapped {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
-        for child in children {
-            if self.nodes[&child].is_popup() {
-                self.dismiss(child, DismissReason::ParentHidden);
-            }
-        }
+        self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.detach_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
             self.set_focus(None);

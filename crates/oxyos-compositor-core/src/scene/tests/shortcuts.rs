@@ -229,6 +229,120 @@ fn super_m_minimizes_the_active_window_into_the_dock() {
     assert_eq!(input_to(&events, APP), []);
 }
 
+/// Super+M or Super+H with a menu open in the window: the menu closes as the window goes, its
+/// parent hidden, and the window is never given the keyboard back for the instant between (a
+/// focus in and out it would hear, and an activation it would draw), as a Mac's menu closes with
+/// the window it is minimized with.
+#[test]
+fn super_m_and_super_h_close_the_windows_menu_with_it() {
+    for code in [M, H] {
+        let mut h = Harness::new();
+        dock(&mut h);
+        let other = h.toplevel(OTHER, 1, 400, 300);
+        let window = h.toplevel(APP, 1, 400, 300);
+        h.activate(window);
+        let w = h.rect(window);
+        let popup = h.open_menu(
+            window,
+            2,
+            (w.x + 100, w.y + 100),
+            menu(Rect::new(90, 90, 20, 20), 200, 200),
+        );
+        assert_eq!(h.scene.focus(), Some(popup));
+        logged(&mut h);
+        chord(&mut h, &[code]);
+        let events = logged(&mut h);
+        assert!(!h.rendered(window) && !h.rendered(popup));
+        assert!(h.scene.grab_chain().is_empty());
+        assert_eq!(h.scene.focus(), Some(other));
+        let done: Vec<Event> = to(&events, APP)
+            .into_iter()
+            .filter(|event| matches!(event, Event::PopupDone { .. }))
+            .collect();
+        assert_eq!(
+            done,
+            [Event::PopupDone {
+                surface: 2,
+                reason: DismissReason::ParentHidden
+            }]
+        );
+        let told: Vec<Event> = to(&events, APP)
+            .into_iter()
+            .filter(|event| matches!(event, Event::Focus { .. } | Event::Activated { .. }))
+            .collect();
+        assert_eq!(
+            told,
+            [
+                Event::Focus {
+                    surface: 2,
+                    focused: false
+                },
+                Event::Activated {
+                    surface: 1,
+                    active: false
+                }
+            ],
+            "Super+{code}"
+        );
+        assert_eq!(input_to(&events, APP), []);
+    }
+}
+
+/// Another window activated while a menu is open in the active one (the shell's dock or switcher
+/// focusing it, a notification's window shown): the menu closes, as a Mac's menus close when
+/// their window stops being the active one, and the window activated takes the keyboard. A menu
+/// left open would hold the keyboard under the window raised over it.
+#[test]
+fn activating_another_window_closes_the_open_menu() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 100, w.y + 100),
+        menu(Rect::new(90, 90, 20, 20), 200, 200),
+    );
+    logged(&mut h);
+    let number = h.scene.window_number(other).unwrap();
+    h.request(SHELL, Request::FocusWindow { window: number })
+        .unwrap();
+    let events = logged(&mut h);
+    assert!(h.scene.grab_chain().is_empty());
+    assert!(!h.rendered(popup));
+    assert_eq!(h.scene.focus(), Some(other));
+    let told: Vec<Event> = to(&events, APP)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event,
+                Event::PopupDone { .. } | Event::Focus { .. } | Event::Activated { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        told,
+        [
+            Event::PopupDone {
+                surface: 2,
+                reason: DismissReason::OutsidePress
+            },
+            Event::Focus {
+                surface: 2,
+                focused: false
+            },
+            Event::Activated {
+                surface: 1,
+                active: false
+            }
+        ]
+    );
+    assert_eq!(input_to(&events, APP), []);
+}
+
 #[test]
 fn super_h_hides_the_application_until_it_is_activated() {
     let mut h = Harness::new();
