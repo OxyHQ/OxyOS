@@ -15,8 +15,10 @@ export type ShellSurfaceProps = {
       the output's top-right corner, which takes presses (docs/adr/0026-notifications.mdx). A
       backdrop is an overlay's, beneath it (Launchpad's blurred wallpaper): the compositor fades
       it in and out and never scales it, while the overlay above settles
-      (docs/adr/0011-transitions.mdx). */
-  kind: "panel" | "overlay" | "backdrop" | "notification" | "lock";
+      (docs/adr/0011-transitions.mdx). A candidates region is the candidate window
+      (docs/adr/0041-input-methods.mdx): its surface is as large as the region, placed by the
+      platform at the caret of the field being typed in, and never takes the keyboard. */
+  kind: "panel" | "overlay" | "backdrop" | "notification" | "lock" | "candidates";
   edge?: "top" | "bottom" | "left" | "right";
   /** Whether a panel keeps its strip of the output out of where windows are placed. */
   exclusive?: boolean;

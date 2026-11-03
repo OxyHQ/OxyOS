@@ -6,6 +6,7 @@ import type {
   ShellActions,
   ShellCommand,
   ShellControls,
+  ShellInputMethod,
   ShellLock,
   ShellNotification,
   ShellNotifications,
@@ -25,6 +26,8 @@ import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner"
 import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
+import { CandidateWindow } from "./components/CandidateWindow";
+import { sourceName } from "./input-sources";
 import type { SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
 import { hasWifiView } from "./network";
@@ -63,6 +66,11 @@ const SWITCHER_AREA = {
 } as const;
 const BANNER_AREA = { position: "absolute", top: TOP_BAR_HEIGHT + 8, right: 12, width: BANNER_WIDTH } as const;
 const NO_LEVELS: ShellControls = { levels: {} };
+/** The candidate window's region: the compositor places its surface at the caret, never here; at
+    whole pixels, so it is drawn on the pixel grid. With nothing to show it holds a point, so its
+    surface (and what the screen reader holds of it) stays from one list to the next. */
+const CANDIDATES_AREA = { position: "absolute", top: 0, left: 0 } as const;
+const NO_CANDIDATES = { width: 1, height: 1 } as const;
 
 /**
  * OxyOS shell presentation. Native application surfaces belong to the compositor beneath it.
@@ -88,6 +96,7 @@ export const Shell = memo(function Shell({
   banners = true,
   sheet,
   screenshots,
+  inputMethod,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -133,6 +142,9 @@ export const Shell = memo(function Shell({
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
   screenshots?: ShellScreenshots;
+  /** Input methods, where the platform has them (docs/adr/0041-input-methods.mdx): the candidate
+      window at the caret, and the top bar's input source item. */
+  inputMethod?: ShellInputMethod;
 }) {
   const { Surface } = platform;
   const messages = useShellMessages();
@@ -209,8 +221,9 @@ export const Shell = memo(function Shell({
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications };
+  const inputSources = inputMethod?.sources ?? null;
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources };
   // The application whose windows the overview shows alone (the dock menu's Show All Windows, as
   // a Mac's App Exposé, docs/adr/0034-the-dock.mdx); none, every window.
   const [overviewApp, setOverviewApp] = useState<string | null>(null);
@@ -292,7 +305,7 @@ export const Shell = memo(function Shell({
           setControlCenter(null);
           setCenter(false);
           setStatusKeys((keys) => ({
-            target: firstStatusItem(now.controls?.network),
+            target: firstStatusItem(now.controls?.network, now.inputSources),
             request: (keys?.request ?? 0) + 1,
           }));
           break;
@@ -455,6 +468,11 @@ export const Shell = memo(function Shell({
   // (docs/adr/0039-keyboard-access.mdx): an overlay closes, the dock and the status items give
   // the window back the keyboard. A sheet over them takes its own keys.
   const keyboard = platform.keyboard;
+  // The top bar's input source menu open: Escape is its own, closing it.
+  const inputMenu = useRef(false);
+  const inputMenuChanged = useCallback((open: boolean) => {
+    inputMenu.current = open;
+  }, []);
   const keys = useRef({ controlCenter, center, view, statusKeys, dockKeys, sheet: !!sheet });
   keys.current = { controlCenter, center, view, statusKeys, dockKeys, sheet: !!sheet };
   useEffect(() => {
@@ -462,7 +480,7 @@ export const Shell = memo(function Shell({
     return keyboard.subscribe((event) => {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
       const now = keys.current;
-      if (now.sheet || event.key !== "Escape") return false;
+      if (now.sheet || inputMenu.current || event.key !== "Escape") return false;
       if (now.controlCenter) {
         setControlCenter(null);
         return true;
@@ -527,6 +545,18 @@ export const Shell = memo(function Shell({
     if (platform.announce) platform.announce(said, true);
     else AccessibilityInfo.announceForAccessibility(said);
   }, [joined]);
+  // Each switch of input source is said, politely, by the new source's name, as VoiceOver says a
+  // Mac's (docs/adr/0041-input-methods.mdx, decision 6): the first state told is no switch.
+  const currentSource = inputSources ? inputSources.current : null;
+  const saidSource = useRef(currentSource);
+  useEffect(() => {
+    const before = saidSource.current;
+    saidSource.current = currentSource;
+    if (!inputSources || currentSource === null || before === null || currentSource === before) return;
+    const said = sourceName(currentSource, inputSources, messages);
+    if (platform.announce) platform.announce(said, true);
+    else AccessibilityInfo.announceForAccessibility(said);
+  }, [currentSource]);
   const openSettings = useCallback(() => menuCommand("system.settings"), [menuCommand]);
   const setDoNotDisturb = notifications?.setDoNotDisturb;
   const doNotDisturbOn = !!notifications?.doNotDisturb;
@@ -588,8 +618,26 @@ export const Shell = memo(function Shell({
             statusKeys={statusKeys && !controlCenter && !center && !sheet ? keyboard : undefined}
             moveStatusFocus={moveStatusFocus}
             leaveStatus={leaveStatus}
+            inputSources={inputSources}
+            selectInputSource={inputMethod?.selectSource}
+            showEmoji={inputMethod?.showEmoji}
+            openKeyboardSettings={inputMethod?.openKeyboardSettings}
+            onInputMenuChange={inputMenuChanged}
           />
         </Surface>
+        {inputMethod && (
+          <Surface kind="candidates" style={CANDIDATES_AREA}>
+            {inputMethod.candidates ? (
+              <CandidateWindow
+                list={inputMethod.candidates}
+                onChoose={inputMethod.choose}
+                onTurnPage={inputMethod.turnPage}
+              />
+            ) : (
+              <Box style={NO_CANDIDATES} />
+            )}
+          </Surface>
+        )}
         <Box
           className="min-h-0 flex-1"
           pointerEvents={view === "desktop" ? "box-none" : "auto"}

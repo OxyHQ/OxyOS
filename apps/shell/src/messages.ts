@@ -94,6 +94,40 @@ const en = (f: Formats) => ({
     /** The clock's hint: what pressing it does, which its name (the date and time) does not say. */
     clockHint: "Opens Notification Center",
   },
+  /** The input sources (docs/adr/0041-input-methods.mdx): the top bar's item, its menu, and what
+      is said of a switch. */
+  inputSources: {
+    /** The item's name; its value is the current source's name ("Input source, Pinyin – Simplified"). */
+    item: "Input source",
+    pinyin: "Pinyin – Simplified",
+    japanese: "Japanese – Romaji",
+    korean: "2-Set Korean",
+    /** A keyboard layout by its XKB name, as a Mac names its layouts; one not named here is
+        "Keyboard (XX)". */
+    layouts: {
+      us: "U.S.",
+      gb: "British",
+      es: "Spanish",
+      latam: "Latin American",
+      fr: "French",
+      de: "German",
+      it: "Italian",
+      pt: "Portuguese",
+      br: "Brazilian",
+    } as Record<string, string>,
+    layout: (code: string) => `Keyboard (${code})`,
+    showEmoji: "Show Emoji & Symbols",
+    openKeyboardSettings: "Open Keyboard Settings…",
+  },
+  /** The candidate window (docs/adr/0041-input-methods.mdx). */
+  candidates: {
+    /** The list's name while nothing is highlighted. */
+    list: "Candidates",
+    /** A candidate, its place on the page and how many there are: "你好, 1 of 9". */
+    candidate: (text: string, place: number, count: number) => `${text}, ${f.number(place)} of ${f.number(count)}`,
+    previousPage: "Previous Page",
+    nextPage: "Next Page",
+  },
   /** The shell's own menus, while no application is active, and an application's own menu. */
   menus: {
     about: "About OxyOS",
@@ -347,6 +381,32 @@ const es = (f: Formats): Catalogue => ({
     battery: "Batería",
     connected: "Conectado",
     clockHint: "Abre el centro de notificaciones",
+  },
+  inputSources: {
+    item: "Fuente de entrada",
+    pinyin: "Pinyin – Simplificado",
+    japanese: "Japonés – Romaji",
+    korean: "Coreano de 2 juegos",
+    layouts: {
+      us: "EE. UU.",
+      gb: "Británico",
+      es: "Español",
+      latam: "Latinoamericano",
+      fr: "Francés",
+      de: "Alemán",
+      it: "Italiano",
+      pt: "Portugués",
+      br: "Brasileño",
+    },
+    layout: (code) => `Teclado (${code})`,
+    showEmoji: "Mostrar emojis y símbolos",
+    openKeyboardSettings: "Abrir ajustes de Teclado…",
+  },
+  candidates: {
+    list: "Candidatos",
+    candidate: (text, place, count) => `${text}, ${f.number(place)} de ${f.number(count)}`,
+    previousPage: "Página anterior",
+    nextPage: "Página siguiente",
   },
   menus: {
     about: "Acerca de OxyOS",
