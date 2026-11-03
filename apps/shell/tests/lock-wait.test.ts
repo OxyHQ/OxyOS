@@ -1,13 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { waitReminder, waitSaid } from "../src/lock-wait.ts";
+import { shellMessages } from "../src/messages.ts";
+
+const ES = shellMessages("es-ES");
 
 test("a wait is said in words: seconds under a minute, minutes when whole", () => {
-  assert.equal(waitSaid(30), "30 segundos");
-  assert.equal(waitSaid(1), "1 segundo");
-  assert.equal(waitSaid(60), "1 minuto");
-  assert.equal(waitSaid(900), "15 minutos");
-  assert.equal(waitSaid(90), "90 segundos");
+  assert.equal(waitSaid(30, ES), "30 segundos");
+  assert.equal(waitSaid(1, ES), "1 segundo");
+  assert.equal(waitSaid(60, ES), "1 minuto");
+  assert.equal(waitSaid(900, ES), "15 minutos");
+  assert.equal(waitSaid(90, ES), "90 segundos");
 });
 
 test("a wait counting down is said again only each minute, at half a minute and at ten seconds", () => {

@@ -25,6 +25,7 @@ import {
   pageOf,
   type LauncherKey,
 } from "../launcher";
+import { useShellMessages } from "../useShellMessages";
 
 const normalize = (value: string) =>
   value
@@ -139,6 +140,8 @@ export const Launchpad = memo(function Launchpad({
   /** The platform's keys before the focused field, where it has them (the arrows and Return). */
   keyboard?: ShellKeyboard;
 }) {
+  const messages = useShellMessages();
+  const words = messages.launchpad;
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState<ShellFolder | null>(null);
   const [page, setPage] = useState(0);
@@ -307,7 +310,7 @@ export const Launchpad = memo(function Launchpad({
       >
       <PressArea
         accessibilityRole="button"
-        accessibilityLabel="Cerrar aplicaciones"
+        accessibilityLabel={words.close}
         className="absolute inset-0 h-full w-full rounded-none border-0 bg-transparent p-0"
         onPress={dismiss}
       />
@@ -326,9 +329,9 @@ export const Launchpad = memo(function Launchpad({
           <Search
             ref={field}
             testID="launcher-search"
-            label="Buscar aplicaciones"
-            placeholder="Buscar"
-            accessibilityLabel="Buscar aplicaciones"
+            label={messages.common.searchApplications}
+            placeholder={words.search}
+            accessibilityLabel={messages.common.searchApplications}
             iconSize={15}
             value={query}
             onChangeText={search}
@@ -379,7 +382,7 @@ export const Launchpad = memo(function Launchpad({
                     app ? `launcher-${app.id}` : `launcher-folder-${group!.id}`
                   }
                   // Its name, as VoiceOver says a Launchpad icon; a folder says it is one.
-                  accessibilityLabel={app ? app.name : `Carpeta ${group!.name}`}
+                  accessibilityLabel={app ? app.name : words.folder(group!.name)}
                   pressed={highlighted}
                   appearance="plain"
                   className="flex-col items-center justify-start rounded-[18px] border-0 p-0"
@@ -432,7 +435,7 @@ export const Launchpad = memo(function Launchpad({
             { position: "absolute", top: layout.gridTop + 40, fontSize: 15 },
           ]}
         >
-          No hay aplicaciones que coincidan con «{query}».
+          {words.noMatches(query)}
         </Text>
       )}
       {pageCount > 1 && (
@@ -443,7 +446,7 @@ export const Launchpad = memo(function Launchpad({
           {Array.from({ length: pageCount }, (_, index) => (
             <Button
               key={index}
-              accessibilityLabel={`Página ${index + 1}`}
+              accessibilityLabel={words.page(index + 1)}
               pressed={index === currentPage}
               appearance="plain"
               className="h-6 w-5 rounded-full border-0 bg-transparent p-0"

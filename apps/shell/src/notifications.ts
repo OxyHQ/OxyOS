@@ -1,3 +1,4 @@
+import type { ShellMessages } from "./messages";
 import type { ShellApplication, ShellNotification } from "./model";
 
 /** How long a banner stays, as a Mac's: five seconds, unless the person is replying in it. */
@@ -57,8 +58,8 @@ export function nextBanner(
 }
 
 /** What the lock screen says of an application's notifications without their previews. */
-export function countLabel(count: number): string {
-  return count === 1 ? "1 notificación" : `${count} notificaciones`;
+export function countLabel(count: number, messages: ShellMessages): string {
+  return messages.notifications.count(count);
 }
 
 /**
@@ -69,6 +70,7 @@ export function lockSummary(
   list: readonly ShellNotification[],
   applications: readonly ShellApplication[],
   previews: boolean,
+  messages: ShellMessages,
 ): { appId: string; name: string; app?: ShellApplication; count: string; preview?: { title: string; body: string } }[] {
   return groupNotifications(list, applications).map((group) => {
     const newest = group.notifications[0];
@@ -76,7 +78,7 @@ export function lockSummary(
       appId: group.appId,
       name: group.name,
       app: group.app,
-      count: countLabel(group.notifications.length),
+      count: countLabel(group.notifications.length, messages),
       preview:
         previews && !newest.withheld ? { title: newest.title, body: newest.body } : undefined,
     };
@@ -84,14 +86,15 @@ export function lockSummary(
 }
 
 /** How long ago, as the Notification Center says it. */
-export function ago(postedAt: number, now: number): string {
+export function ago(postedAt: number, now: number, messages: ShellMessages): string {
+  const words = messages.notifications;
   const minutes = Math.floor(Math.max(0, now - postedAt) / 60000);
-  if (minutes < 1) return "ahora";
-  if (minutes < 60) return `hace ${minutes} min`;
+  if (minutes < 1) return words.now;
+  if (minutes < 60) return words.minutesAgo(minutes);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `hace ${hours} h`;
+  if (hours < 24) return words.hoursAgo(hours);
   const days = Math.floor(hours / 24);
-  return days === 1 ? "ayer" : `hace ${days} días`;
+  return days === 1 ? words.yesterday : words.daysAgo(days);
 }
 
 /** What a screen reader says of a banner: whose it is, then what it says. */

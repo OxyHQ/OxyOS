@@ -18,6 +18,7 @@ import {
   silent,
 } from "../controls";
 import type { ShellControl, ShellControls, ShellLevel } from "../model";
+import { useShellMessages } from "../useShellMessages";
 
 const SIZE = 200;
 const SEGMENT = 9;
@@ -52,6 +53,7 @@ export const Bezel = memo(function Bezel({
   bezel?: ShellControls["bezel"];
   levels: ShellControls["levels"];
 }) {
+  const messages = useShellMessages();
   const [shown, setShown] = useState<ShellControls["bezel"]>(undefined);
   const opacity = useRef(new Animated.Value(0)).current;
   const level = shown ? levels[shown.control] : undefined;
@@ -73,7 +75,7 @@ export const Bezel = memo(function Bezel({
     return () => clearTimeout(fade);
   }, [bezel?.id]);
   // Said once per press, after the session's answer is in the state.
-  const said = shown && level ? announcement(shown.control, level) : undefined;
+  const said = shown && level ? announcement(shown.control, level, messages) : undefined;
   useEffect(() => {
     if (said) AccessibilityInfo.announceForAccessibility(said);
   }, [shown?.id]);
@@ -95,12 +97,12 @@ export const Bezel = memo(function Bezel({
         testID="shell-bezel"
         accessible
         accessibilityRole="progressbar"
-        accessibilityLabel={controlName(shown.control)}
+        accessibilityLabel={controlName(shown.control, messages)}
         accessibilityValue={{
           min: 0,
           max: 100,
           now: level.muted ? 0 : percent(level.level),
-          text: level.muted ? "Silenciado" : `${percent(level.level)} %`,
+          text: level.muted ? messages.controls.muted : messages.common.percent(percent(level.level)),
         }}
         style={{
           opacity,

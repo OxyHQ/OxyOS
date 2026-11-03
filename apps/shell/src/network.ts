@@ -4,6 +4,8 @@
  * Wi-Fi view makes of it. Nothing here asks anything: the session alone speaks to the daemon.
  */
 
+import type { ShellMessages } from "./messages";
+
 /** How a network is protected, as the session says it. */
 export type WifiSecurity = "open" | "owe" | "wpa" | "wpa3" | "wep" | "enterprise";
 
@@ -102,22 +104,28 @@ export function networkJoining(network: WifiNetwork, state: Pick<NetworkState, "
 
 /** A network's row for a screen reader: "Casa, conectada, protegida, señal 3 de 3",
     "Café, señal 1 de 3", "Oficina, conectando, protegida, no compatible, señal 2 de 3". */
-export function networkLabel(network: WifiNetwork, state: Pick<NetworkState, "joining" | "wifi">): string {
+export function networkLabel(
+  network: WifiNetwork,
+  state: Pick<NetworkState, "joining" | "wifi">,
+  messages: ShellMessages,
+): string {
+  const words = messages.wifi;
   const parts = [network.ssid];
-  if (networkJoining(network, state)) parts.push("conectando");
-  else if (network.current) parts.push("conectada");
-  if (isProtected(network)) parts.push("protegida");
-  if (!network.supported) parts.push("no compatible");
-  parts.push(`señal ${signalArcs(network.signal)} de 3`);
+  if (networkJoining(network, state)) parts.push(words.connecting);
+  else if (network.current) parts.push(words.connected);
+  if (isProtected(network)) parts.push(words.secure);
+  if (!network.supported) parts.push(words.unsupported);
+  parts.push(words.signal(signalArcs(network.signal)));
   return parts.join(", ");
 }
 
 /** What the Wi-Fi view says in place of its lists, or nothing when it has them. */
-export function wifiEmptyText(state: NetworkState): string | undefined {
-  if (!state.available) return "El servicio de red no responde.";
-  if (state.wifi.hardwareBlocked) return "Wi-Fi está desactivada con el interruptor del ordenador.";
-  if (!state.wifi.enabled) return "Wi-Fi desactivada";
-  if (state.wifi.networks.length === 0) return "Buscando redes…";
+export function wifiEmptyText(state: NetworkState, messages: ShellMessages): string | undefined {
+  const words = messages.wifi;
+  if (!state.available) return words.serviceDown;
+  if (state.wifi.hardwareBlocked) return words.hardwareBlocked;
+  if (!state.wifi.enabled) return words.off;
+  if (state.wifi.networks.length === 0) return words.searching;
   return undefined;
 }
 

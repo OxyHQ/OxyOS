@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readSheet, sheetArrived, sheetGone, sheetView, size, validWifiPassword, type AvailableUpdate, type Plan } from "../src/sheet.ts";
+import { shellMessages } from "../src/messages.ts";
+
+const ES = shellMessages("es-ES");
+const EN = shellMessages("en-US");
 
 const plan: Plan = {
   id: "so.oxy.notes",
@@ -18,33 +22,33 @@ const plan: Plan = {
 };
 
 test("an install sheet names the app, its size and each capability with its purpose", () => {
-  const es = sheetView({ kind: "install", plan }, "es");
+  const es = sheetView({ kind: "install", plan }, ES);
   assert.equal(es.title, "¿Instalar Notas?");
   assert.equal(es.body, "Versión 1.12.0 · 71 kB");
   assert.deepEqual(es.lines[0], { label: "Internet", detail: "Sincronizar tus notas" });
   assert.equal(es.lines[1].label, "Notificaciones");
   assert.match(es.lines[1].detail!, /Se preguntará cuando la app lo use/);
   assert.equal(es.accept, "Instalar");
-  const en = sheetView({ kind: "install", plan }, "en");
+  const en = sheetView({ kind: "install", plan }, EN);
   assert.equal(en.title, "Install Notes?");
   assert.equal(en.lines[1].detail, "Reminders · Asked when the app uses it");
 });
 
 test("without the install service, the sheet says so with one button and nothing to confirm", () => {
-  const es = sheetView({ kind: "unavailable", action: "install" }, "es");
+  const es = sheetView({ kind: "unavailable", action: "install" }, ES);
   assert.equal(es.title, "No se puede instalar la app");
   assert.match(es.body, /El servicio que instala las apps en este ordenador no está funcionando/);
   assert.equal(es.accept, "Aceptar");
   assert.equal(es.refuse, "");
   assert.equal(es.destructive, false);
-  const en = sheetView({ kind: "unavailable", action: "update" }, "en");
+  const en = sheetView({ kind: "unavailable", action: "update" }, EN);
   assert.equal(en.title, "Can't Update");
   assert.equal(en.accept, "OK");
   assert.deepEqual(readSheet('{"kind":"unavailable","action":"uninstall"}'), { kind: "unavailable", action: "uninstall" });
 });
 
 test("removing says the data goes, and its button is destructive", () => {
-  const view = sheetView({ kind: "uninstall", id: "so.oxy.notes", name: "Notes", version: "1.12.0" }, "en");
+  const view = sheetView({ kind: "uninstall", id: "so.oxy.notes", name: "Notes", version: "1.12.0" }, EN);
   assert.equal(view.title, "Delete Notes and its data?");
   assert.equal(view.accept, "Delete");
   assert.equal(view.destructive, true);
@@ -60,7 +64,7 @@ test("a consent lists what the update adds, and a rotated key", () => {
     releaseNotes: {},
     consent: { capabilities: ["oxy-account"], keyRotation: true },
   };
-  const view = sheetView({ kind: "consent", update }, "en");
+  const view = sheetView({ kind: "consent", update }, EN);
   assert.equal(view.title, "Notes asks for more access");
   assert.deepEqual(view.lines.map((l) => l.label), [
     "Your Oxy account",
@@ -69,7 +73,7 @@ test("a consent lists what the update adds, and a rotated key", () => {
 });
 
 test("a permission asks in the registry's name for the app", () => {
-  const view = sheetView({ kind: "permission", id: "so.oxy.notes", capability: "notifications" }, "es", {
+  const view = sheetView({ kind: "permission", id: "so.oxy.notes", capability: "notifications" }, ES, {
     "so.oxy.notes": "Notas",
   });
   assert.equal(view.title, "¿Permitir que Notas enviarte notificaciones?");
@@ -88,34 +92,34 @@ test("sheets queue in order, once each, and go", () => {
 });
 
 test("sizes read as a person reads them", () => {
-  assert.equal(size(71, "en"), "71 bytes");
-  assert.equal(size(1_500_000, "es"), "1,5 MB");
-  assert.equal(size(15_000_000, "en"), "15 MB");
+  assert.equal(size(71, EN), "71 bytes");
+  assert.equal(size(1_500_000, ES), "1,5 MB");
+  assert.equal(size(15_000_000, EN), "15 MB");
 });
 
 test("emptying the Trash says how many items go for good, and its button is destructive", () => {
   const sheet = readSheet('{"items":3,"kind":"empty-trash"}');
   assert.ok(sheet);
-  const view = sheetView(sheet, "es");
+  const view = sheetView(sheet, ES);
   assert.equal(view.title, "¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?");
   assert.equal(view.body, "Se eliminarán 3 ítems. No puedes deshacer esta acción.");
   assert.equal(view.accept, "Vaciar");
   assert.equal(view.refuse, "Cancelar");
   assert.equal(view.destructive, true);
-  assert.equal(sheetView({ kind: "empty-trash", items: 1 }, "en").body, "1 item is erased. You can't undo this action.");
+  assert.equal(sheetView({ kind: "empty-trash", items: 1 }, EN).body, "1 item will be erased. You can't undo this action.");
 });
 
 test("a Wi-Fi network's password sheet names it and its kind, with a password field and Join", () => {
-  const es = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: false }, "es");
+  const es = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: false }, ES);
   assert.equal(es.title, 'La red Wi-Fi “Casa” requiere una contraseña WPA2.');
   assert.equal(es.error, undefined);
   assert.equal(es.accept, "Conectarse");
   assert.equal(es.refuse, "Cancelar");
   assert.deepEqual(es.password, { label: "Contraseña", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
-  const wpa3 = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa3", incorrect: true }, "es");
+  const wpa3 = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa3", incorrect: true }, ES);
   assert.equal(wpa3.title, 'La red Wi-Fi “Casa” requiere una contraseña WPA3.');
   assert.equal(wpa3.error, "La contraseña no es correcta. Inténtalo de nuevo.");
-  const en = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: true }, "en");
+  const en = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: true }, EN);
   assert.equal(en.title, 'The Wi-Fi network “Casa” requires a WPA2 password.');
   assert.equal(en.error, "The password is incorrect. Try again.");
   assert.equal(en.accept, "Join");
@@ -123,20 +127,20 @@ test("a Wi-Fi network's password sheet names it and its kind, with a password fi
 });
 
 test("a join that failed, and a network OxyOS cannot join, only tell, with one button", () => {
-  const failed = sheetView({ kind: "wifi-failed", ssid: "Casa" }, "es");
+  const failed = sheetView({ kind: "wifi-failed", ssid: "Casa" }, ES);
   assert.equal(failed.title, 'No se ha podido conectar a la red “Casa”.');
   assert.equal(failed.accept, "Aceptar");
   assert.equal(failed.refuse, "");
   assert.equal(failed.password, undefined);
-  assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, "en").title, 'Couldn\'t join the network “Casa”.');
-  const enterprise = sheetView({ kind: "wifi-unsupported", ssid: "Oficina", security: "enterprise" }, "es");
+  assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, EN).title, 'Couldn\'t join the network “Casa”.');
+  const enterprise = sheetView({ kind: "wifi-unsupported", ssid: "Oficina", security: "enterprise" }, ES);
   assert.equal(enterprise.title, 'OxyOS todavía no puede conectarse a “Oficina”.');
   assert.equal(enterprise.body, "Las redes empresariales (802.1X) aún no son compatibles.");
   assert.equal(enterprise.accept, "Aceptar");
   assert.equal(enterprise.refuse, "");
-  const wep = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, "es");
+  const wep = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, ES);
   assert.equal(wep.body, "Las redes WEP no son compatibles: no son seguras.");
-  const en = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, "en");
+  const en = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, EN);
   assert.equal(en.title, 'OxyOS can\'t join “Antiguo” yet.');
   assert.equal(en.body, "WEP networks aren't supported: they aren't secure.");
 });

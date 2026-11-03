@@ -5,6 +5,7 @@ import type {
   ShellMenu,
 } from "../../../apps/shell/src/model";
 import type { NetworkState } from "../../../apps/shell/src/network";
+import type { Language, ShellMessages } from "../../../apps/shell/src/messages";
 import astro from "../assets/apps/astro.png";
 import inbox from "../assets/apps/inbox.png";
 import mention from "../assets/apps/mention.png";
@@ -55,103 +56,149 @@ const applications: ShellApplication[] = [
   raster("commons", "Commons", commons),
   raster("accounts", "Oxy", accounts),
 ];
-const menus: ShellMenu[] = [
-  {
-    label: "OxyOS",
-    items: [{ id: "system.about", label: "Acerca de OxyOS", enabled: false }],
-  },
-  {
-    label: "Archivo",
-    items: [{ id: "app.new", label: "Nueva ventana", enabled: false }],
-  },
-  {
-    label: "Edición",
-    items: [
-      { id: "edit.undo", label: "Deshacer", enabled: false },
-      { id: "edit.copy", label: "Copiar", enabled: false },
-      { id: "edit.paste", label: "Pegar", enabled: false },
-    ],
-  },
-  {
-    label: "Ver",
-    items: [
-      { id: "view.overview", label: "Ver escritorios" },
-      { id: "view.launcher", label: "Ver aplicaciones" },
-    ],
-  },
-  { label: "Ir", items: [{ id: "view.launcher", label: "Aplicaciones" }] },
-  {
-    label: "Ventana",
-    items: [{ id: "view.overview", label: "Todas las ventanas" }],
-  },
-  {
-    label: "Ayuda",
-    items: [{ id: "help", label: "Ayuda de OxyOS", enabled: false }],
-  },
-];
-export const previewSnapshot: ShellSnapshot = {
-  applications,
-  folders: [
-    { id: "finance", name: "Finanzas", appIds: ["peable", "fairwallet"] },
-  ],
-  // Published Oxy app screenshots for overview composition, not live processes.
-  windows: [
-    {
-      id: "preview-inbox",
-      appId: "inbox",
-      title: "Inbox",
-      workspaceId: "1",
-      thumbnail: { uri: inboxThumbnail },
-      thumbnailSize: { width: 1600, height: 1066 },
-    },
-    {
-      id: "preview-astro",
-      appId: "astro",
-      title: "Astro",
-      workspaceId: "1",
-      thumbnail: { uri: astroThumbnail },
-      thumbnailSize: { width: 2880, height: 1800 },
-    },
-    {
-      id: "preview-alia",
-      appId: "alia",
-      title: "Alia",
-      workspaceId: "1",
-      thumbnail: { uri: aliaThumbnail },
-      thumbnailSize: { width: 2303, height: 1535 },
-    },
-    {
-      id: "preview-mention",
-      appId: "mention",
-      title: "Mention",
-      workspaceId: "1",
-      thumbnail: { uri: mentionThumbnail },
-      thumbnailSize: { width: 1600, height: 1066 },
-    },
-    {
-      id: "preview-split",
-      appId: "astro",
-      title: "Astro · Documentación",
-      workspaceId: "1",
-      thumbnail: { uri: splitThumbnail },
-      thumbnailSize: { width: 2880, height: 1800 },
-    },
-    {
-      id: "preview-work",
-      appId: "astro",
-      title: "Astro · Trabajo",
-      workspaceId: "2",
-      thumbnail: { uri: workThumbnail },
-      thumbnailSize: { width: 2880, height: 1800 },
-    },
-  ],
-  workspaces: [
-    { id: "1", name: "Escritorio 1" },
-    { id: "2", name: "Escritorio 2" },
-  ],
-  workspaceId: "1",
-  menus,
+/** The fixture's own words, which stand for an application's (its menus, a folder, window
+    titles): the shell's words come from its catalogue. */
+const FIXTURE_ENGLISH = {
+  file: "File",
+  newWindow: "New Window",
+  edit: "Edit",
+  undo: "Undo",
+  copy: "Copy",
+  paste: "Paste",
+  go: "Go",
+  window: "Window",
+  allWindows: "All Windows",
+  help: "Help",
+  oxyosHelp: "OxyOS Help",
+  finance: "Finance",
+  documentation: "Documentation",
+  work: "Work",
 };
+const FIXTURE_WORDS: Record<Language, typeof FIXTURE_ENGLISH> = {
+  en: FIXTURE_ENGLISH,
+  es: {
+    file: "Archivo",
+    newWindow: "Nueva ventana",
+    edit: "Edición",
+    undo: "Deshacer",
+    copy: "Copiar",
+    paste: "Pegar",
+    go: "Ir",
+    window: "Ventana",
+    allWindows: "Todas las ventanas",
+    help: "Ayuda",
+    oxyosHelp: "Ayuda de OxyOS",
+    finance: "Finanzas",
+    documentation: "Documentación",
+    work: "Trabajo",
+  },
+};
+
+function previewMenus(messages: ShellMessages): ShellMenu[] {
+  const words = FIXTURE_WORDS[messages.language];
+  return [
+    {
+      label: "OxyOS",
+      items: [{ id: "system.about", label: messages.menus.about, enabled: false }],
+    },
+    {
+      label: words.file,
+      items: [{ id: "app.new", label: words.newWindow, enabled: false }],
+    },
+    {
+      label: words.edit,
+      items: [
+        { id: "edit.undo", label: words.undo, enabled: false },
+        { id: "edit.copy", label: words.copy, enabled: false },
+        { id: "edit.paste", label: words.paste, enabled: false },
+      ],
+    },
+    {
+      label: messages.menus.view,
+      items: [
+        { id: "view.overview", label: messages.common.showDesktops },
+        { id: "view.launcher", label: messages.menus.showApplications },
+      ],
+    },
+    { label: words.go, items: [{ id: "view.launcher", label: messages.topBar.applications }] },
+    {
+      label: words.window,
+      items: [{ id: "view.overview", label: words.allWindows }],
+    },
+    {
+      label: words.help,
+      items: [{ id: "help", label: words.oxyosHelp, enabled: false }],
+    },
+  ];
+}
+
+/** The fixture in the preview's language. */
+export function previewSnapshot(messages: ShellMessages): ShellSnapshot {
+  const words = FIXTURE_WORDS[messages.language];
+  return {
+    applications,
+    folders: [
+      { id: "finance", name: words.finance, appIds: ["peable", "fairwallet"] },
+    ],
+    // Published Oxy app screenshots for overview composition, not live processes.
+    windows: [
+      {
+        id: "preview-inbox",
+        appId: "inbox",
+        title: "Inbox",
+        workspaceId: "1",
+        thumbnail: { uri: inboxThumbnail },
+        thumbnailSize: { width: 1600, height: 1066 },
+      },
+      {
+        id: "preview-astro",
+        appId: "astro",
+        title: "Astro",
+        workspaceId: "1",
+        thumbnail: { uri: astroThumbnail },
+        thumbnailSize: { width: 2880, height: 1800 },
+      },
+      {
+        id: "preview-alia",
+        appId: "alia",
+        title: "Alia",
+        workspaceId: "1",
+        thumbnail: { uri: aliaThumbnail },
+        thumbnailSize: { width: 2303, height: 1535 },
+      },
+      {
+        id: "preview-mention",
+        appId: "mention",
+        title: "Mention",
+        workspaceId: "1",
+        thumbnail: { uri: mentionThumbnail },
+        thumbnailSize: { width: 1600, height: 1066 },
+      },
+      {
+        id: "preview-split",
+        appId: "astro",
+        title: `Astro · ${words.documentation}`,
+        workspaceId: "1",
+        thumbnail: { uri: splitThumbnail },
+        thumbnailSize: { width: 2880, height: 1800 },
+      },
+      {
+        id: "preview-work",
+        appId: "astro",
+        title: `Astro · ${words.work}`,
+        workspaceId: "2",
+        thumbnail: { uri: workThumbnail },
+        thumbnailSize: { width: 2880, height: 1800 },
+      },
+    ],
+    workspaces: [
+      { id: "1", name: messages.overview.desktop(1) },
+      { id: "2", name: messages.overview.desktop(2) },
+    ],
+    workspaceId: "1",
+    menus: previewMenus(messages),
+  };
+}
 
 /** A played machine's networks (docs/adr/0038-networks.mdx), so the Control Center's Wi-Fi view
     can be tried in the browser: one joined, two more known, and others nearby. */

@@ -11,6 +11,9 @@ import {
   type NetworkState,
   type WifiNetwork,
 } from "../src/network.ts";
+import { shellMessages } from "../src/messages.ts";
+
+const ES = shellMessages("es-ES");
 
 const network = (ssid: string, signal: number, more: Partial<WifiNetwork> = {}): WifiNetwork => ({
   ssid,
@@ -79,16 +82,16 @@ test("a lock shows on every network that asks for something: not open, not OWE",
 
 test("each row says what it is to a screen reader", () => {
   const joined = network("Oxy", 80, { current: true, known: true });
-  assert.equal(networkLabel(joined, state()), "Oxy, conectada, protegida, señal 3 de 3");
-  assert.equal(networkLabel(network("Café", 20, { security: "open" }), state()), "Café, señal 1 de 3");
+  assert.equal(networkLabel(joined, state(), ES), "Oxy, conectada, protegida, señal 3 de 3");
+  assert.equal(networkLabel(network("Café", 20, { security: "open" }), state(), ES), "Café, señal 1 de 3");
   const joining = state({}, { joining: "Casa" });
-  assert.equal(networkLabel(network("Casa", 50), joining), "Casa, conectando, protegida, señal 2 de 3");
+  assert.equal(networkLabel(network("Casa", 50), joining, ES), "Casa, conectando, protegida, señal 2 de 3");
   assert.equal(
-    networkLabel(network("Oficina", 50, { security: "enterprise", supported: false }), joining),
+    networkLabel(network("Oficina", 50, { security: "enterprise", supported: false }), joining, ES),
     "Oficina, protegida, no compatible, señal 2 de 3",
   );
   // The daemon connecting to the network it marks current: being joined, not joined yet.
-  assert.equal(networkLabel(joined, state({ state: "connecting" })), "Oxy, conectando, protegida, señal 3 de 3");
+  assert.equal(networkLabel(joined, state({ state: "connecting" }), ES), "Oxy, conectando, protegida, señal 3 de 3");
 });
 
 test("a network is being joined while the session joins it or the daemon connects to it", () => {
@@ -99,14 +102,14 @@ test("a network is being joined while the session joins it or the daemon connect
 });
 
 test("the view says why it has no list: no daemon, the switch, off, nothing found yet", () => {
-  assert.equal(wifiEmptyText(state({}, { available: false })), "El servicio de red no responde.");
+  assert.equal(wifiEmptyText(state({}, { available: false }), ES), "El servicio de red no responde.");
   assert.equal(
-    wifiEmptyText(state({ enabled: false, hardwareBlocked: true })),
+    wifiEmptyText(state({ enabled: false, hardwareBlocked: true }), ES),
     "Wi-Fi está desactivada con el interruptor del ordenador.",
   );
-  assert.equal(wifiEmptyText(state({ enabled: false, state: "off" })), "Wi-Fi desactivada");
-  assert.equal(wifiEmptyText(state({ networks: [] })), "Buscando redes…");
-  assert.equal(wifiEmptyText(state()), undefined);
+  assert.equal(wifiEmptyText(state({ enabled: false, state: "off" }), ES), "Wi-Fi desactivada");
+  assert.equal(wifiEmptyText(state({ networks: [] }), ES), "Buscando redes…");
+  assert.equal(wifiEmptyText(state(), ES), undefined);
 });
 
 test("the Control Center has a Wi-Fi view only with the networks told and a Wi-Fi device", () => {

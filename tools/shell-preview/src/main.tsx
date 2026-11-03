@@ -12,9 +12,33 @@ import type {
 } from "../../../apps/shell/src/model";
 import { isProtected, type NetworkState } from "../../../apps/shell/src/network";
 import type { SheetText } from "../../../apps/shell/src/sheet";
+import { shellMessages } from "../../../apps/shell/src/messages";
+
+/**
+ * The preview's locale (docs/adr/0040-language-and-region.mdx): the browser's, or the one `?lang=`
+ * asks for (`en`, `es`, or any tag, such as `en-GB` or `es-MX-u-hc-h12`). As the session makes
+ * its own, a language OxyOS does not speak is English, in the tag's region.
+ */
+function previewLocale(): string {
+  const asked = new URLSearchParams(window.location.search).get("lang");
+  let tag = navigator.language || "en-US";
+  if (asked) {
+    try {
+      tag = Intl.getCanonicalLocales(asked)[0] ?? tag;
+    } catch {
+      console.warn("[shell preview] not a language tag:", asked);
+    }
+  }
+  const chosen = new Intl.Locale(tag);
+  if (chosen.language === "en" || chosen.language === "es") return tag;
+  return new Intl.Locale("en", { region: chosen.region ?? "US" }).toString();
+}
+const locale = previewLocale();
+const messages = shellMessages(locale);
+document.documentElement.lang = locale;
 
 function Preview() {
-  const [snapshot, setSnapshot] = useState(previewSnapshot);
+  const [snapshot, setSnapshot] = useState(() => previewSnapshot(messages));
   const actions: ShellActions = {
     activateApp: (id) =>
       console.info("[shell preview] activate app intent", id),
@@ -48,7 +72,7 @@ function Preview() {
                 ...current.workspaces,
                 {
                   id: String(current.workspaces.length + 1),
-                  name: `Escritorio ${current.workspaces.length + 1}`,
+                  name: messages.overview.desktop(current.workspaces.length + 1),
                 },
               ],
             },
@@ -115,7 +139,6 @@ function Preview() {
   const shownSheet = sheet && {
     id: sheet.id,
     text: sheet.text,
-    language: "es" as const,
     answer: (_accepted: boolean) => {
       setSheet(null);
       setNetworks((current) => ({ ...current, joining: null }));
@@ -197,7 +220,7 @@ function Preview() {
           mode="light"
           colorPreset="graphite"
           haptics={false}
-          locale="es"
+          locale={locale}
         >
           <Shell
             snapshot={snapshot}

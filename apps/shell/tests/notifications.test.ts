@@ -9,6 +9,9 @@ import {
   spoken,
 } from "../src/notifications.ts";
 import type { ShellNotification } from "../src/model.ts";
+import { shellMessages } from "../src/messages.ts";
+
+const ES = shellMessages("es-ES");
 
 const applications = [
   { id: "so.oxy.allo", name: "Allo", icon: { svg: "" } },
@@ -61,7 +64,7 @@ test("the lock screen says how many each application has, and what they say only
     notification("2", "so.oxy.allo", 20, { title: "Ana", body: "la clave" }),
     notification("3", "so.oxy.inbox", 5, { withheld: true, title: "", body: "" }),
   ];
-  const without = lockSummary(list, applications, false);
+  const without = lockSummary(list, applications, false, ES);
   assert.deepEqual(
     without.map((entry) => [entry.name, entry.count, entry.preview]),
     [
@@ -69,21 +72,21 @@ test("the lock screen says how many each application has, and what they say only
       ["Inbox", "1 notificación", undefined],
     ],
   );
-  const withPreviews = lockSummary(list, applications, true);
+  const withPreviews = lockSummary(list, applications, true, ES);
   assert.deepEqual(withPreviews[0].preview, { title: "Ana", body: "la clave" });
   // One the session withheld has nothing to preview.
   assert.equal(withPreviews[1].preview, undefined);
-  assert.equal(countLabel(1), "1 notificación");
+  assert.equal(countLabel(1, ES), "1 notificación");
 });
 
 test("when, as the Notification Center says it, and what a screen reader says of a banner", () => {
   const now = 1_000_000_000;
-  assert.equal(ago(now - 30_000, now), "ahora");
-  assert.equal(ago(now - 5 * 60_000, now), "hace 5 min");
-  assert.equal(ago(now - 3 * 3_600_000, now), "hace 3 h");
-  assert.equal(ago(now - 30 * 3_600_000, now), "ayer");
-  assert.equal(ago(now - 72 * 3_600_000, now), "hace 3 días");
-  assert.equal(ago(now + 5000, now), "ahora");
+  assert.equal(ago(now - 30_000, now, ES), "ahora");
+  assert.equal(ago(now - 5 * 60_000, now, ES), "hace 5 min");
+  assert.equal(ago(now - 3 * 3_600_000, now, ES), "hace 3 h");
+  assert.equal(ago(now - 30 * 3_600_000, now, ES), "ayer");
+  assert.equal(ago(now - 72 * 3_600_000, now, ES), "hace 3 días");
+  assert.equal(ago(now + 5000, now, ES), "ahora");
   assert.equal(
     spoken(notification("1", "so.oxy.allo", 0, { title: "Ana", body: "¿Comemos?" }), "Allo"),
     "Allo. Ana. ¿Comemos?",

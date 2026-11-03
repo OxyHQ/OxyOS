@@ -33,6 +33,7 @@ import {
   type DockCommand,
   type DockMenuItem,
 } from "../dock";
+import { useShellMessages } from "../useShellMessages";
 
 /** The shelf's height: the work area ends above it, and the launcher's overlay with it. */
 export const DOCK_HEIGHT = 56;
@@ -69,10 +70,6 @@ const DOCK_COLORS = {
     separator: "#3a3e46",
   },
 } as const;
-
-/** What the screen reader says of an icon after its name and state, as VoiceOver gives a Dock item
-    its help: the key that opens its menu with the keyboard on the dock (Super+F3, then ↑). */
-const MENU_HINT = "Para abrir su menú, pulsa Flecha arriba";
 
 /** A menu open on an icon (an application's id, or the Trash): where it opens (the top of the
     icon's middle, in the window), and whether Option was held as it opened. */
@@ -185,6 +182,9 @@ const DockIcon = memo(function DockIcon({
   /** The keyboard's focus reached the icon. */
   onFocusIcon?: (testID: string) => void;
 }) {
+  // What the screen reader says of it after its name and state, as VoiceOver gives a Dock item its
+  // help: the key that opens its menu with the keyboard on the dock (Super+F3, then ↑).
+  const menuHint = useShellMessages().dock.menuHint;
   const box = useRef<React.ComponentRef<typeof View>>(null);
   const [hovered, setHovered] = useState(false);
   // Whether Option was held at the press that may open the menu, and whether it was a
@@ -241,7 +241,7 @@ const DockIcon = memo(function DockIcon({
           testID={testID}
           accessibilityLabel={label}
           accessibilityValue={status ? { text: status } : undefined}
-          accessibilityHint={MENU_HINT}
+          accessibilityHint={menuHint}
           appearance="plain"
           onPress={press}
           onPressIn={pressIn}
@@ -260,7 +260,7 @@ const DockIcon = memo(function DockIcon({
         </Button>
       </ContextMenuTrigger>
     ),
-    [testID, label, status, press, pressIn, hoverIn, hoverOut, onFocus, app],
+    [testID, label, status, menuHint, press, pressIn, hoverIn, hoverOut, onFocus, app],
   );
   // Its menu's panel, made again only as the menu opens, closes or changes.
   const content = useMemo(
@@ -377,6 +377,8 @@ export const Dock = memo(function Dock({
   leave?: () => void;
 }) {
   const colors = DOCK_COLORS[useColorScheme() === "dark" ? "dark" : "light"];
+  const messages = useShellMessages();
+  const words = messages.dock;
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   // What the shelf shows changes only with the applications that run: a window resized, moved or
   // retitled leaves it as it was.
@@ -430,7 +432,7 @@ export const Dock = memo(function Dock({
   const rows = useMemo(() => {
     if (!menu) return null;
     if (menu.id === TRASH) {
-      return trashMenu(trash?.items, !!actions.emptyTrash).map((entry) => (
+      return trashMenu(trash?.items, !!actions.emptyTrash, messages).map((entry) => (
         <ContextMenuItem
           key={entry.id}
           disabled={!entry.enabled}
@@ -448,13 +450,14 @@ export const Dock = memo(function Dock({
       { applications, windows, activeAppId, openAtLogin: atLogin },
       menu.id,
       abilities,
+      messages,
       menu.option,
     );
     return <MenuRows items={items} run={(command) => run(menu.id, command)} />;
-  }, [menu, applications, windows, activeAppId, atLogin, abilities, trash, actions, run]);
+  }, [menu, applications, windows, activeAppId, atLogin, abilities, messages, trash, actions, run]);
   const openTrash = useCallback(() => actions.openTrash?.(), [actions]);
   // Whether the Trash holds anything, as a Mac's Trash is said empty or full (when the platform says).
-  const trashStatus = trash?.items === undefined ? undefined : trash.items > 0 ? "llena" : "vacía";
+  const trashStatus = trash?.items === undefined ? undefined : trash.items > 0 ? words.trashFull : words.trashEmpty;
   // The keyboard along the dock: the icon its focus is on, and each icon's menu opener.
   const focusedIcon = useRef<string | null>(null);
   const onFocusIcon = useCallback((testID: string) => {
@@ -529,7 +532,7 @@ export const Dock = memo(function Dock({
           testID="dock-launcher"
           iconOnly
           icon={OxyLogo}
-          accessibilityLabel="Abrir aplicaciones"
+          accessibilityLabel={words.openApplications}
           appearance="plain"
           onPress={toggleLauncher}
           onFocus={() => onFocusIcon("dock-launcher")}
@@ -542,7 +545,7 @@ export const Dock = memo(function Dock({
           testID="dock-overview"
           iconOnly
           icon={RiLayoutGridLine}
-          accessibilityLabel="Ver escritorios"
+          accessibilityLabel={messages.common.showDesktops}
           appearance="plain"
           onPress={toggleOverview}
           onFocus={() => onFocusIcon("dock-overview")}
@@ -558,7 +561,7 @@ export const Dock = memo(function Dock({
             name={app.name}
             testID={`dock-${app.id}`}
             label={app.name}
-            status={running.has(app.id) ? "en ejecución" : undefined}
+            status={running.has(app.id) ? words.running : undefined}
             menu={menu?.id === app.id ? menu : null}
             setMenu={setMenu}
             activate={activateApp}
@@ -577,9 +580,9 @@ export const Dock = memo(function Dock({
               <TrashDrop trashFiles={trashFiles}>
                 <DockIcon
                   id={TRASH}
-                  name="Papelera"
+                  name={messages.common.trash}
                   testID="dock-trash"
-                  label="Papelera"
+                  label={messages.common.trash}
                   status={trashStatus}
                   menu={menu?.id === TRASH ? menu : null}
                   setMenu={setMenu}
@@ -592,9 +595,9 @@ export const Dock = memo(function Dock({
             ) : (
               <DockIcon
                 id={TRASH}
-                name="Papelera"
+                name={messages.common.trash}
                 testID="dock-trash"
-                label="Papelera"
+                label={messages.common.trash}
                 status={trashStatus}
                 menu={menu?.id === TRASH ? menu : null}
                 setMenu={setMenu}
@@ -608,7 +611,7 @@ export const Dock = memo(function Dock({
         )}
       </Scroll>
     ),
-    [apps, running, colors, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon],
+    [apps, running, colors, messages, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon],
   );
   return (
     <Box
