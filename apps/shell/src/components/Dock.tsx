@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, useColorScheme, type PointerEvent, type View } from "react-native";
+import { useColorScheme, type PointerEvent, type View } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import {
   ContextMenu,
@@ -18,7 +18,7 @@ import { DropZone, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
 import { Box, Scroll } from "../primitives";
 import type { ShellKeyboard } from "../platform";
-import { AppIcon } from "../apps";
+import { IconBody } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
 import { TRASH_ICON } from "./trash-icon";
@@ -51,7 +51,6 @@ const TRASH = "trash";
 const DOCK_COLORS = {
   light: {
     shelf: "#f7f9fc",
-    edge: "#e5e9ef",
     launcher: "#dfe6ed",
     launcherIcon: "#5b6871",
     overview: "#e7edf3",
@@ -61,7 +60,6 @@ const DOCK_COLORS = {
   },
   dark: {
     shelf: "#1d1f24",
-    edge: "#2c2f36",
     launcher: "#2c3038",
     launcherIcon: "#c3cad3",
     overview: "#2a2e35",
@@ -127,8 +125,6 @@ function MenuRows({
 }
 
 const ICON_ROW = { height: ROW, width: ICON } as const;
-const TRASH_IMAGE = { width: ICON, height: ICON } as const;
-const TRASH_ROUND = { width: ICON, height: ICON, borderRadius: ICON / 2 } as const;
 const SCROLL_STYLE = { flexGrow: 0, maxWidth: "100%" } as const;
 
 /**
@@ -248,15 +244,10 @@ const DockIcon = memo(function DockIcon({
           onHoverIn={hoverIn}
           onHoverOut={hoverOut}
           onFocus={onFocus}
-          className="h-[42px] w-[42px] overflow-visible rounded-full border-0 bg-transparent p-0"
+          className="h-[42px] w-[42px] overflow-visible rounded-[10px] border-0 bg-transparent p-0"
         >
-          {app ? (
-            <AppIcon app={app} size={ICON} circular />
-          ) : (
-            <Box className="items-center justify-center overflow-hidden" style={TRASH_ROUND}>
-              <Image source={TRASH_ICON} resizeMode="cover" style={TRASH_IMAGE} />
-            </Box>
-          )}
+          {/* Its icon as it is, a Mac's Dock's: no ring or plate around it. */}
+          <IconBody icon={app ? app.icon : TRASH_ICON} size={ICON} />
         </Button>
       </ContextMenuTrigger>
     ),
@@ -509,10 +500,7 @@ export const Dock = memo(function Dock({
   const shelfStyle = useMemo(
     () => ({
       backgroundColor: colors.shelf,
-      borderTopColor: colors.edge,
       height: DOCK_HEIGHT,
-      borderTopLeftRadius: DOCK_HEIGHT / 2,
-      borderTopRightRadius: DOCK_HEIGHT / 2,
       zIndex: 40,
     }),
     [colors],
@@ -616,9 +604,13 @@ export const Dock = memo(function Dock({
   return (
     <Box
       testID="shell-dock"
-      className="shrink-0 items-center justify-center overflow-hidden border-t"
-      // The shelf's top corners are fully rounded, as ChromeOS's shelf: the wallpaper shows
-      // past them.
+      className="shrink-0 items-center justify-center overflow-hidden"
+      // One surface from edge to edge of the display, flush with its sides and its bottom, as
+      // ChromeOS's shelf beside a maximized window: no outline and square corners, so no wallpaper
+      // shows past it and a window zoomed to the work area meets it along a straight edge
+      // (docs/adr/0034-the-dock.mdx). A border on a rounded view would also keep its background
+      // 0.8 px inside every edge, as Android's (BackgroundDrawable's pathAdjustment), the
+      // wallpaper showing down the display's sides and along its bottom.
       style={shelfStyle}
     >
       {shelf}
