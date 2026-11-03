@@ -177,7 +177,7 @@ The host publishes each surface's snapshot to the compositor whenever it changes
 - names, and a text input's value (never a secure field's);
 - what each node offers beyond activate and focus, as Android's node info: `accessibilityActions` increment and decrement, a scroll view's scrolling on and back while it can, the first node of a modal or a popup (dismiss), an editable text input (its selection); and any other `accessibilityActions`, by label, as custom actions;
 - a focused, editable text input's selection, in bytes of its value (never a secure field's);
-- live regions (`accessibilityLiveRegion` polite or assertive, on a view or on loose text).
+- live regions (`accessibilityLiveRegion` polite or assertive, on a view or on loose text), and those a role implies, as ARIA's: `alert` assertive, `status` and `log` polite (the view's own politeness wins). A live view that is no element (a toast's row) is a node with no words of its own, holding its views' nodes: the screen reader says the text they show as it changes.
 
 Only a client granted `accessibility`, the screen reader, receives the snapshots, with global rectangles. Its actions come back to the host:
 - **activate:** React Native's accessibility click, which Pressability turns into `onPress`, as TalkBack's activation on Android. Its serial is the user's activation, so a menu it opens grabs like one opened from the keyboard.
@@ -243,6 +243,7 @@ With React Native's zero-delay timer it fails six ways: 593 commits, 174 and 197
 
 Defects found and fixed at their source:
 - **React Native:** `AndroidTextInputProps` and `AndroidTextInputState` use Android's serialisation API without the `#ifdef RN_SERIALIZABLE_STATE` guard every other component has, so they do not build off Android. `tools/rn-host-spike/patches/react-native-androidtextinput-props.patch` adds the guard. `build.sh` applies it to a private copy; the React Native package is never modified. Upstream `main` still lacks the guard.
+- **React Native:** 0.88's `AccessibilityProps` keeps `role` and `accessibilityRole` when an application removes them (a removed prop arrives as null, which its constructor takes as unchanged), so a Text that stops being an alert stays one. Fixed on upstream `main`; `tools/rn-host-spike/CMakeLists.txt` backports the fix to a copy of that one file, compiled in place of React Native's, and stops the build if the file changes otherwise.
 - **Bloom:** `FontLoader` gated rendering on `useFonts`' `loaded` alone, so one font that failed to load left the whole app blank, on every platform. Fixed in Bloom 15.59.4: the app renders in the system font and the failure is reported.
 
 - **A Bloom menu beyond the window:** with the OxyOS platform adapter (`sample/oxyos/platform-surface.js`, [ADR 0002](./adr/0002-bloom-platform-surface-api)), Bloom's native `DropdownMenu` renders its rows in `OxyOSPopupView`. The host leaves that subtree out of the window and opens a protocol popup positioned from the anchor's frame and Bloom's placement, grabbed with the press that opened it. It is drawn in premultiplied ARGB, so the rounded corners are transparent. In the sample, the menu opens 96 px beyond the window's right edge and 40 px beyond its bottom; choosing a row closes it and updates the app; an outside press closes it through `PopupDone` and `onDismiss`.

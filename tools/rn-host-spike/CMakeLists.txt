@@ -105,6 +105,62 @@ endforeach()
 # patched copy: patches/react-native-androidtextinput-props.patch.
 add_subdirectory(${TEXTINPUT_DIR} ReactCommon/react_renderer_components_textinput)
 
+# React Native 0.88 keeps a view's `role` and `accessibilityRole` once an application removes them:
+# a removed prop arrives as null, and AccessibilityProps' constructor takes null as unchanged, so a
+# Bloom Field's error Text that becomes its description stays an alert (a live region said at once).
+# Fixed upstream (facebook/react-native main: null resets it); backported here to a copy of that one
+# file, compiled in place of React Native's own. The React Native package is never modified; a
+# release with the fix needs no copy, and one that changes these lines otherwise stops the build.
+set(accessibility_props ${REACT_COMMON_DIR}/react/renderer/components/view/AccessibilityProps.cpp)
+file(READ ${accessibility_props} accessibility_source)
+set(role_kept [=[
+  if (accessibilityRoleValue == nullptr ||
+      !accessibilityRoleValue->hasValue()) {
+    accessibilityRole = sourceProps.accessibilityRole;
+  } else {
+    fromRawValue(context, *accessibilityRoleValue, accessibilityRole);
+  }
+
+  if (roleValue == nullptr || !roleValue->hasValue()) {
+    role = sourceProps.role;
+  } else {
+    fromRawValue(context, *roleValue, role);
+  }
+]=])
+set(role_reset [=[
+  if (accessibilityRoleValue == nullptr) {
+    accessibilityRole = sourceProps.accessibilityRole;
+  } else if (accessibilityRoleValue->hasValue()) {
+    fromRawValue(context, *accessibilityRoleValue, accessibilityRole);
+  }
+
+  if (roleValue == nullptr) {
+    role = sourceProps.role;
+  } else if (roleValue->hasValue()) {
+    fromRawValue(context, *roleValue, role);
+  }
+]=])
+string(FIND "${accessibility_source}" "${role_kept}" role_kept_at)
+string(FIND "${accessibility_source}" "${role_reset}" role_reset_at)
+if(role_kept_at GREATER_EQUAL 0)
+  string(REPLACE "${role_kept}" "${role_reset}" accessibility_source "${accessibility_source}")
+  string(REPLACE "#include \"AccessibilityProps.h\""
+    "#include <react/renderer/components/view/AccessibilityProps.h>"
+    accessibility_source "${accessibility_source}")
+  set(accessibility_patched ${CMAKE_CURRENT_BINARY_DIR}/react-native-patched/AccessibilityProps.cpp)
+  # Written through a copy that changes only when its content does, so configuring again never
+  # rebuilds it.
+  file(WRITE ${accessibility_patched}.new "${accessibility_source}")
+  configure_file(${accessibility_patched}.new ${accessibility_patched} COPYONLY)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${accessibility_props})
+  get_target_property(view_sources rrc_view SOURCES)
+  list(REMOVE_ITEM view_sources ${accessibility_props})
+  list(APPEND view_sources ${accessibility_patched})
+  set_property(TARGET rrc_view PROPERTY SOURCES ${view_sources})
+elseif(role_reset_at LESS 0)
+  message(FATAL_ERROR "React Native's AccessibilityProps.cpp changed: check that a removed role resets")
+endif()
+
 # Like ReactAndroid's libreactnative.so: every ReactCommon OBJECT library in one shared library.
 function(collect_targets directory out)
   get_property(targets DIRECTORY ${directory} PROPERTY BUILDSYSTEM_TARGETS)

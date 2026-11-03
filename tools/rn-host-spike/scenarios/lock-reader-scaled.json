@@ -86,7 +86,7 @@
     "at": {
      "shell": [
       {
-       "role": "Alert",
+       "role": "Text",
        "name": "Contraseña incorrecta"
       }
      ]
@@ -120,7 +120,7 @@
     "at": {
      "shell": [
       {
-       "role": "Alert",
+       "role": "Text",
        "name": "Contraseña incorrecta"
       }
      ]
@@ -154,7 +154,7 @@
     "at": {
      "shell": [
       {
-       "role": "Alert",
+       "role": "Text",
        "name": "Contraseña incorrecta"
       }
      ]
@@ -188,7 +188,7 @@
     "at": {
      "shell": [
       {
-       "role": "Alert",
+       "role": "Text",
        "name": "Contraseña incorrecta"
       }
      ]

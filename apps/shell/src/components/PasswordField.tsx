@@ -174,11 +174,10 @@ export function PasswordField({
         />
       </Animated.View>
       {/* What the last attempt said, the wait, Caps Lock, as text the screen reader's cursor
-          reads (an attempt's answer as an alert); each is announced once as it happens, above,
-          never as a live region counting the wait down. */}
+          reads; each is announced once as it happens, above, never as a live region counting the
+          wait down (an alert is one: it would say each second). */}
       <Text
         testID={`${testID}-hint`}
-        accessibilityRole={wait > 0 || message ? "alert" : undefined}
         style={{ ...textShadow, color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 10, minHeight: 16 }}
       >
         {hint}

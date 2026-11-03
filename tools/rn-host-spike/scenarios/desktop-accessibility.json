@@ -1,5 +1,5 @@
 {
-  "about": "The desktop as a screen reader reads and works it (ADR 0003): the session's assistive technology holds the shell's trees as the compositor sends them, and acts through them alone, never with the pointer. It opens the launcher from the dock, finds its search field and applications, closes it, opens the Oxy menu and locks the session from it. While locked it holds the lock screen alone: nothing of the application or the panels (ADR 0010), the wallpaper and the user's picture not read, the password field named and its text never held; a wrong password is said as an alert. Unlocked, it holds the window and the panels again, and the lock screen no longer.",
+  "about": "The desktop as a screen reader reads and works it (ADR 0003): the session's assistive technology holds the shell's trees as the compositor sends them, and acts through them alone, never with the pointer. It opens the launcher from the dock, finds its search field and applications, closes it, opens the Oxy menu and locks the session from it. While locked it holds the lock screen alone: nothing of the application or the panels (ADR 0010), the wallpaper and the user's picture not read, the password field named and its text never held; a wrong password is said once, as the lock screen announces it, its message text the reader holds. Unlocked, it holds the window and the panels again, and the lock screen no longer.",
   "module": "EditingProbe",
   "window": [600, 360],
   "shell": "OxyOSShell",
@@ -78,12 +78,12 @@
       }
     },
     {
-      "name": "rejected, the lock screen's message is an alert the reader holds",
+      "name": "rejected, the lock screen's message is text the reader holds (announced once, no live region)",
       "do": ["key", [28]],
       "expect": {
         "shell": {"locked": true},
         "react": {},
-        "at": {"shell": [{"role": "Alert", "name": "Contraseña incorrecta"}]},
+        "at": {"shell": [{"role": "Text", "name": "Contraseña incorrecta"}]},
         "at_absent": {"window": [{}]}
       }
     },
