@@ -426,8 +426,12 @@
     },
     "spoken": [
      {
-      "text": "Volver al centro de control, botón",
+      "text": "Centro de control, diálogo",
       "interrupting": true
+     },
+     {
+      "text": "Volver al centro de control, botón",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -588,8 +592,12 @@
     },
     "spoken": [
      {
-      "text": "Wi-Fi, activado, interruptor",
+      "text": "Centro de control, diálogo",
       "interrupting": true
+     },
+     {
+      "text": "Wi-Fi, activado, interruptor",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -691,15 +699,19 @@
        ]
       },
       {
-       "role": "List",
+       "role": "Dialog",
        "name": "Centro de notificaciones"
       }
      ]
     },
     "spoken": [
      {
-      "text": "Borrar las notificaciones de Allo, botón",
+      "text": "Centro de notificaciones, diálogo",
       "interrupting": true
+     },
+     {
+      "text": "Borrar las notificaciones de Allo, botón",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -738,7 +750,7 @@
     "at_absent": {
      "shell": [
       {
-       "role": "List",
+       "role": "Dialog",
        "name": "Centro de notificaciones"
       }
      ]

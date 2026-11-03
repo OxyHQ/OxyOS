@@ -153,8 +153,12 @@
     },
     "spoken": [
      {
-      "text": "Volver al centro de control, botón",
+      "text": "Centro de control, diálogo",
       "interrupting": true
+     },
+     {
+      "text": "Volver al centro de control, botón",
+      "interrupting": false
      }
     ],
     "announcements": []

@@ -203,7 +203,7 @@
         "at": {
           "shell": [
             {
-              "role": "Menu",
+              "role": "Dialog",
               "name": "Centro de control"
             },
             {
@@ -275,7 +275,7 @@
         "at_absent": {
           "shell": [
             {
-              "role": "Menu",
+              "role": "Dialog",
               "name": "Centro de control"
             }
           ]
