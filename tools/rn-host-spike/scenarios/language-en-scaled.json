@@ -1,0 +1,301 @@
+{
+ "about": "The session's language and region (docs/adr/0040-language-and-region.mdx) in an English session (en_US.UTF-8): Settings with the shell and the screen reader. Everything starts in English: Settings' pages, the shell's Oxy menu and View menu, the top bar's clock as the United States writes it (12 hours), the reader's speech with eSpeak's English voice. General › Language & Region shows the system's choices and a sample formatted for the United States. Choosing Español changes Settings, the shell, its clock (es-US: 12 hours) and the reader's words and voice at once, with no restart; 24 horas then changes the sample and the clock. The preferences file keeps the choices. At 1.25 (1600 × 1000).",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "reader": {},
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "The desktop in English: Settings' sidebar, the shell's Oxy menu and its clock as the United States writes the date and 12 hours",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Appearance",
+     "Wallpaper",
+     "Language & Region",
+     "Date & Time"
+    ],
+    "absent": [
+     "Apariencia",
+     "Idioma y región"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Oxy Menu"
+      }
+     ]
+    },
+    "in_shell": {
+     "texts": [
+      "View"
+     ],
+     "texts_matching": [
+      "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) \\d{1,2} [1-9]\\d?:\\d{2}[   ](AM|PM)$"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the reader says the next element in English, with eSpeak's English voice",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Wallpaper, image",
+      "interrupting": true,
+      "voice": "en"
+     }
+    ]
+   }
+  },
+  {
+   "name": "Super+F2: the keyboard on the Oxy menu, said in English",
+   "do": [
+    "key",
+    [
+     125,
+     60
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Oxy Menu, collapsed, button",
+      "interrupting": true,
+      "voice": "en"
+     }
+    ]
+   }
+  },
+  {
+   "name": "Escape: the keyboard back with Settings, nothing said",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": []
+   }
+  },
+  {
+   "name": "General › Language & Region: the system's language, region and time format, and a sample formatted for the United States",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Language & Region"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Language",
+     "Automatic (English)",
+     "Region",
+     "Automatic (United States)",
+     "Time format",
+     "Automatic (12-hour)",
+     "Tuesday, January 5, 2027",
+     "1,234,567.89"
+    ],
+    "texts_matching": [
+     "^2:45[   ]PM$"
+    ]
+   }
+  },
+  {
+   "name": "The language's menu, said",
+   "do": [
+    "press",
+    [
+     750,
+     94
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Language, dialog",
+      "interrupting": true,
+      "voice": "en"
+     }
+    ],
+    "texts": [
+     "English",
+     "Español"
+    ]
+   }
+  },
+  {
+   "name": "Español: Settings, the shell and its clock change at once, the region still the United States' (es-US, 12 hours)",
+   "do": [
+    "press_named",
+    "Español"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Idioma y región",
+     "Idioma",
+     "Español",
+     "Región",
+     "Automático (Estados Unidos)",
+     "Formato de hora",
+     "Automático (12 horas)",
+     "martes, 5 de enero de 2027",
+     "1,234,567.89"
+    ],
+    "absent": [
+     "Language & Region",
+     "Automatic (United States)"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Menú de Oxy"
+      }
+     ]
+    },
+    "in_shell": {
+     "texts": [
+      "Ver"
+     ],
+     "absent": [
+      "View"
+     ],
+     "texts_matching": [
+      "^(lun|mar|mié|jue|vie|sáb|dom), \\d{1,2} de (ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic) [1-9]\\d?:\\d{2}[   ](a|p)\\.m\\.$"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the reader now speaks Spanish, with eSpeak's Spanish voice",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "OxyOS, contraído, botón",
+      "interrupting": true,
+      "voice": "es"
+     }
+    ]
+   }
+  },
+  {
+   "name": "The time format's menu, said in Spanish",
+   "do": [
+    "press",
+    [
+     750,
+     218
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Formato de hora, diálogo",
+      "interrupting": true,
+      "voice": "es"
+     }
+    ],
+    "texts": [
+     "12 horas",
+     "24 horas"
+    ]
+   }
+  },
+  {
+   "name": "24 horas: the sample and the shell's clock count 24 hours (es-US-u-hc-h23)",
+   "do": [
+    "press_named",
+    "24 horas"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "24 horas",
+     "14:45"
+    ],
+    "in_shell": {
+     "texts_matching": [
+      "^(lun|mar|mié|jue|vie|sáb|dom), \\d{1,2} de (ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic) \\d{2}:\\d{2}$"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: still Spanish",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Ver, contraído, botón",
+      "interrupting": true,
+      "voice": "es"
+     }
+    ]
+   }
+  }
+ ],
+ "final": {
+  "preferences_file": {
+   "language": "es",
+   "region": "",
+   "hour_cycle": "h23"
+  }
+ }
+}
