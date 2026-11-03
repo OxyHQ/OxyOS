@@ -43,11 +43,18 @@ pub enum Action {
     /// A key for the scene, with the text its press types. `repeats`: a press of a key the keymap
     /// repeats while it is held (`xkb_keymap_key_repeats`: never a modifier or a lock), which the
     /// scene presses again while it is (docs/adr/0036-key-repeat.mdx); false for every release.
+    ///
+    /// `keysym` and `modifiers` are what the keymap made of it as it happened (before the key
+    /// changed the state): its XKB keysym and the modifiers in effect in X11's bits (Shift 1,
+    /// Lock 2, Control 4, Mod1 8, Mod2 16, Mod3 32, Mod4 64, Mod5 128), which an input method
+    /// reads the key by (docs/adr/0041-input-methods.mdx).
     Key {
         code: u32,
         pressed: bool,
         text: Option<String>,
         repeats: bool,
+        keysym: u32,
+        modifiers: u32,
     },
     /// A key the compose table took (a dead key, or a key of a sequence), which no
     /// application sees as a key: `composition` is the sequence so far as it is shown (empty
@@ -194,6 +201,9 @@ pub struct Keyboard {
     /// Keys whose press the compose table or a terminal switch took, so their release is no
     /// application's either.
     taken: Vec<u32>,
+    /// Dead keys and compose sequences are left to an input method (ADR 0041): while one is the
+    /// current input source, its engine reads them as keys.
+    compose_off: bool,
 }
 
 /// Text a key may type: not empty, and no control characters (Enter and Backspace are keys).
@@ -365,7 +375,30 @@ impl Keyboard {
             composition: String::new(),
             dead_only: true,
             taken: Vec::new(),
+            compose_off: false,
         })
+    }
+
+    /// Whether dead keys and compose sequences compose here (on), or reach the scene as keys for
+    /// an input method's engine (off, docs/adr/0041-input-methods.mdx). Turned off, a sequence
+    /// begun is dropped.
+    pub fn set_composing(&mut self, on: bool) {
+        self.compose_off = !on;
+        if !on {
+            if let Some(compose) = self.compose.as_mut() {
+                compose.reset();
+            }
+            self.composition.clear();
+            self.dead_only = true;
+        }
+    }
+
+    /// What the keymap makes of a key (Linux input code) now, before it changes the state: its
+    /// keysym and the modifiers in effect, in X11's bits.
+    pub fn symbol(&self, code: u32) -> (u32, u32) {
+        let keysym = self.state.key_get_one_sym(xkb::Keycode::new(code + 8));
+        let modifiers = self.state.serialize_mods(xkb::STATE_MODS_EFFECTIVE) & 0xff;
+        (keysym.raw(), modifiers)
     }
 
     /// Whether Control and Super, and no other modifier, are held: with `q`, the lock.
@@ -444,9 +477,11 @@ impl Keyboard {
                 self.taken.push(code);
                 Typed::ToggleReader
             } else {
+                let composing = !self.compose_off;
                 match self
                     .compose
                     .as_mut()
+                    .filter(|_| composing)
                     .map(|compose| (compose.feed(keysym), compose))
                 {
                     Some((compose::FeedResult::Accepted, compose))
@@ -516,6 +551,7 @@ impl Keyboard {
     /// Lock coming on or going off after it.
     pub fn actions(&mut self, code: u32, pressed: bool) -> Vec<Action> {
         let caps = self.caps_locked();
+        let (keysym, modifiers) = self.symbol(code);
         let mut actions = Vec::new();
         match self.key(code, pressed) {
             Typed::Key(text) => actions.push(Action::Key {
@@ -523,6 +559,8 @@ impl Keyboard {
                 pressed,
                 text,
                 repeats: pressed && self.repeats(code),
+                keysym,
+                modifiers,
             }),
             Typed::Compose { composition, text } => {
                 actions.push(Action::Compose { composition, text })
@@ -537,6 +575,8 @@ impl Keyboard {
                     pressed,
                     text,
                     repeats: pressed && self.repeats(code),
+                    keysym,
+                    modifiers,
                 });
             }
             Typed::SwitchTerminal(number) => actions.push(Action::SwitchTerminal(number)),
@@ -627,6 +667,12 @@ pub struct Input {
 }
 
 impl Input {
+    /// Whether the seat keyboard's dead keys and compose sequences compose (see
+    /// [`Keyboard::set_composing`]).
+    pub fn set_composing(&mut self, on: bool) {
+        self.keyboard.set_composing(on);
+    }
+
     /// Opens seat0's devices (hotplugged ones too) for an output of `bounds` logical pixels; the
     /// pointer starts at its centre.
     pub fn open(bounds: (u32, u32), layout: &Layout) -> io::Result<Self> {

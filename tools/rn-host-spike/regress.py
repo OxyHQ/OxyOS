@@ -191,6 +191,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "latency_max_ms", the longest from a motion to the frame that followed it;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
+- transactions: the text-input transactions the application was given in the step (ADR 0008),
+  exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
+  end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
 - latency_ms: budget from injecting the input to the first changed frame;
@@ -255,6 +258,11 @@ scenario's `layout` (an XKB layout, `us` by default) is the one those expectatio
 for, and the devices type with it. A `commit` step is an input method's committed text, which
 no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
 method's whole change (ADR 0008).
+
+A scenario with `input_methods` runs the session's input methods (ADR 0041): the real engine
+(fcitx5 and its engines, `tools/input-methods/build.sh`, given with `--input-methods PREFIX` or
+`OXYOS_INPUT_METHODS`), with the scenario's `preferences` choosing the input sources; `strokes`
+steps type through it as the seat's keyboard does.
 
 A scenario with `input_method` runs with an input method the session plays: `keyboard` steps type
 through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
@@ -326,8 +334,14 @@ written in it, with no grant given. A scenario
 with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
 `settings` as a session grants the system application the image's policy names. A step's `preferences` expectation checks
 what the session last told the application of how to draw (dark, reduceMotion,
-reduceTransparency, accent) by the time the step settled, each key given; the `final`
-`preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.
+reduceTransparency, accent) by the time the step settled, each key given; a step's
+`preferences_file` expectation checks the file holds each KEY = VALUE given as that step left it,
+the `final` one once the run ended.
+
+A scenario with `input_sources` ({"available": [METHOD]}) has the development compositor tell
+Settings and the shell the input sources as the session does (docs/adr/0041-input-methods.mdx,
+decision 6), from the run's preferences and its `layout`, its engine having the input methods named
+(an empty list: none installed).
 
 A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
@@ -2037,6 +2051,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["a11y_events"]:
             fail(f"accessibility events {got}, expected exactly {expect['a11y_events']}")
+    if "transactions" in expect:
+        # The text-input transactions the application was given (ADR 0008), exactly and in order;
+        # a transaction's parts left out of the expectation are what an empty part says.
+        got = result.get("transactions", [])
+        empty = {"delete": [0, 0], "commit": "", "preedit": "", "cursor": [0, 0], "segments": []}
+        wanted = [{**empty, **want} for want in expect["transactions"]]
+        if got != wanted:
+            fail(f"transactions given {got}, expected exactly {wanted}")
     if "delivered" in expect:
         delivered = dict(result.get("delivered", {}))
         leaked = delivered.pop("leaked", 0)
@@ -2429,8 +2451,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if display.get(key) != value:
                     fail(f"display {output}: {key} = {display.get(key)!r}, expected {value!r}")
     if "preferences_file" in expect:
+        # The file as the step left it (the development compositor's report), else as the run did.
+        if isinstance(result.get("preferences_file"), str):
+            text = result["preferences_file"]
+        else:
+            text = preferences.read_text() if preferences and preferences.exists() else ""
         kept = {}
-        for line in (preferences.read_text().splitlines() if preferences else []):
+        for line in text.splitlines():
             if "=" in line and not line.lstrip().startswith("#"):
                 key, value = line.split("=", 1)
                 kept[key.strip()] = value.strip()
@@ -3003,6 +3030,9 @@ def main():
     parser.add_argument("--client", default=None,
                         help="the native OxyOS client a scenario with `client` runs instead of the Bloom host")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--input-methods", default=None,
+                        help="the input-method engine a scenario with `input_methods` runs (ADR 0041), "
+                             "else OXYOS_INPUT_METHODS")
     parser.add_argument("--reader", default=None,
                         help="the screen reader for scenarios with `reader` (oxyos-reader beside --offscreen)")
     parser.add_argument("--seat", action="store_true",
@@ -3153,6 +3183,11 @@ def main():
         # networks and the played machine's Wi-Fi are its, never the developer's machine's.
         network_address, stop_network = network_daemon(scenario["network"], out, options.offscreen)
         command += ["--network-bus", network_address]
+    if "input_sources" in scenario:
+        # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
+        # played with an engine that has the input methods named (none: none installed), from the
+        # run's preferences and its layout.
+        command += ["--input-sources-available", ",".join(scenario["input_sources"]["available"])]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -3168,6 +3203,14 @@ def main():
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
+    if scenario.get("input_methods"):
+        # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
+        # by tools/input-methods/build.sh, run as the session runs it.
+        prefix = options.input_methods or os.environ.get("OXYOS_INPUT_METHODS")
+        if not prefix:
+            raise SystemExit(f"{options.scenario}: needs the input-method engine "
+                             "(--input-methods PREFIX or OXYOS_INPUT_METHODS; tools/input-methods/build.sh)")
+        command += ["--input-methods", prefix]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:

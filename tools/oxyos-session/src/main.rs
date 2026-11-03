@@ -490,6 +490,13 @@ fn main() -> Result<()> {
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
     };
+    // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
+    // has the keyboard layout only.
+    let mut input_methods = if greeter {
+        None
+    } else {
+        oxyos_compositor::input_methods::for_session(&mut compositor, &settings, &runtime)
+    };
     let mut versions = Versions::default();
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): any application asks, the
     // file manager answers in its picker mode, as a sheet of the asking window; answers are
@@ -573,6 +580,10 @@ fn main() -> Result<()> {
         }
         if let Some(trash) = trash.as_mut() {
             trash.serve(&mut compositor.scene);
+        }
+        // Input sources (ADR 0041), before the store, which takes the requests left.
+        if let Some(methods) = input_methods.as_mut() {
+            methods.serve(&mut compositor, &mut settings, settings::now());
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
@@ -781,6 +792,17 @@ fn main() -> Result<()> {
         // The changes Settings asked for, and the sun an automatic appearance follows.
         for key in settings.serve(&mut compositor, settings::now()) {
             eprintln!("[session] {key} changed");
+            if let Some(methods) = input_methods.as_mut() {
+                match key.as_str() {
+                    "input_sources" | "input_source" => {
+                        methods.follow_preferences(settings.preferences())
+                    }
+                    "language" => methods.set_language(
+                        oxyos_compositor::input_methods::language_of(&settings.locale()),
+                    ),
+                    _ => {}
+                }
+            }
             if key == "screen_reader" {
                 let on = settings.preferences().screen_reader;
                 switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;

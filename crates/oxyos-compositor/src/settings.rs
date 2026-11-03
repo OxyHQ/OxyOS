@@ -184,6 +184,23 @@ impl Settings {
         );
     }
 
+    /// Changes one preference for the session itself (the input source Super+Space chose, ADR
+    /// 0041), kept as any change is and told to the clients that follow preferences: whether it
+    /// changed.
+    pub fn set_preference(
+        &mut self,
+        compositor: &mut Compositor,
+        key: &str,
+        value: &str,
+        now: i64,
+    ) -> Result<bool, String> {
+        let changed = self.change(key, value)?;
+        if changed {
+            self.apply(compositor, now);
+        }
+        Ok(changed)
+    }
+
     /// When the sun next crosses the horizon where the system is (unix seconds), with an automatic
     /// appearance: `serve` should run by then.
     pub fn next_crossing(&self) -> Option<i64> {

@@ -138,6 +138,20 @@ messages! {
         // the caret of the field it serves, shown only while it serves one. Its configure carries
         // the size alone: the input method never learns where the caret is.
         42 => CreateInputCandidates { surface: u32, size: Size },
+        // Candidates an input method hands the system to draw (ADR 0041, version 18), in place of
+        // a surface of its own: each of the page's (`index` from 0, at most
+        // MAX_INPUT_CANDIDATES; one repeated adds the next chunk of its text; the shell numbers
+        // them, 1 to 9 then 0, the keys that choose them), the auxiliary text
+        // (a reading, a mode) in chunks, then InputMethodCandidates closing the list: how many,
+        // the highlighted one (NO_CANDIDATE: none) and CANDIDATES_* flags. A count of 0 hides
+        // them. The scene tells the session's shell, which draws them at the caret.
+        63 => InputMethodCandidate { index: u8, text: TextChunk },
+        64 => InputMethodCandidatesAux { text: TextChunk },
+        65 => InputMethodCandidates { count: u8, highlighted: u8, flags: u8 },
+        // The session's shell (ADR 0041, version 18): a candidate it draws pressed, or the page
+        // before or after asked for with its chevrons; passed to the input method.
+        66 => ChooseInputCandidate { index: u8 },
+        67 => TurnInputCandidatesPage { forward: bool },
         // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
         // `index` 0 begins it, `last` applies it. The application id is the application's own
         // claim until launch records give it; the shell shows it, nothing is authorized by it.
@@ -417,7 +431,7 @@ messages! {
         // `modifiers`: the keyboard's modifiers held (`MODIFIER_*`), whichever surface has the
         // keyboard, as X11's and macOS's pointer events carry them: a Control-click or an
         // Option-click on a surface that does not have the keyboard (the dock). `activating`
-        // (version 18): this press made its window the active one, as the press a Mac's window
+        // (version 19): this press made its window the active one, as the press a Mac's window
         // server delivers to an inactive window does; the client decides whether the view under
         // it takes it (AppKit's `acceptsFirstMouse:`) or it only activated the window
         // (docs/adr/0016-windows.mdx, decision 9). Never set on a release, a motion or any press
@@ -477,6 +491,21 @@ messages! {
         34 => InputMethodSelection { anchor: u32, cursor: u32 },
         35 => InputMethodDone { serial: u32 },
         36 => InputMethodKey { serial: u64, key: u32, pressed: bool, text: PreeditText, time_ns: u64 },
+        // To the session's shell (ADR 0041, version 18): the input method's candidates to draw at
+        // the caret, as InputMethodCandidate, InputMethodCandidatesAux and InputMethodCandidates
+        // sent them; a count of 0 hides them.
+        59 => InputCandidate { index: u8, text: TextChunk },
+        60 => InputCandidatesAux { text: TextChunk },
+        61 => InputCandidates { count: u8, highlighted: u8, flags: u8 },
+        // To the input method (ADR 0041, version 18), before each InputMethodKey of the same
+        // serial: the keymap's symbol for it (an XKB keysym, 0 for none) and the modifiers in
+        // effect as it happened (XKB's depressed, latched and locked, in X11's bits: Shift 1,
+        // Lock 2, Control 4, Mod1 8, Mod2 16, Mod3 32, Mod4 64, Mod5 128).
+        62 => InputMethodKeySymbol { serial: u64, keysym: u32, modifiers: u32 },
+        // To an input method that hands its candidates to the system: the shell's press on one,
+        // or on a chevron (ChooseInputCandidate, TurnInputCandidatesPage).
+        63 => InputMethodCandidateChosen { index: u8 },
+        64 => InputMethodCandidatesPage { forward: bool },
         // To the session's shell (ADR 0009): each window, by a number the compositor gives it
         // (never a surface id), as it appears and changes, its title and application id in chunks
         // as SetTitle's, its closing; and the workspaces and the active one.

@@ -349,3 +349,36 @@ fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
         None
     );
 }
+
+#[test]
+fn input_sources_are_the_input_methods_added_and_the_current_is_one_of_them_or_the_layout() {
+    let mut preferences = Preferences::default();
+    assert_eq!(preferences.get("input_sources").unwrap(), "");
+    assert_eq!(preferences.get("input_source").unwrap(), "layout");
+    // Only the input methods OxyOS has, each once.
+    assert_eq!(
+        preferences.set("input_sources", "pinyin,klingon"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(
+        preferences.set("input_sources", "pinyin,pinyin"),
+        Err(Refused::BadValue)
+    );
+    preferences.set("input_sources", "pinyin,korean").unwrap();
+    // The current one is one of them, or the layout.
+    assert_eq!(
+        preferences.set("input_source", "japanese"),
+        Err(Refused::BadValue)
+    );
+    preferences.set("input_source", "korean").unwrap();
+    assert_eq!(preferences.input_source.as_deref(), Some("korean"));
+    // Written and read back, in that order.
+    let written = Preferences::parse(&preferences.to_text());
+    assert_eq!(written.input_sources, ["pinyin", "korean"]);
+    assert_eq!(written.input_source.as_deref(), Some("korean"));
+    // The current one removed: the layout is current.
+    preferences.set("input_sources", "pinyin").unwrap();
+    assert_eq!(preferences.input_source, None);
+    preferences.set("input_source", "layout").unwrap();
+    assert_eq!(preferences.get("input_source").unwrap(), "layout");
+}

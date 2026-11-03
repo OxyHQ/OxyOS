@@ -1,5 +1,5 @@
 {
-  "about": "Launchpad's icons as macOS 26 draws them (docs/adr/0011-transitions.mdx, the launcher), light, on a 1280×720 display at 1, with Allo (sample/EditingProbe.tsx) open: an icon that has its shape is drawn as it is and only one that has not is put on the icon grid's rounded body on white, the picture deciding (the platform measures each icon's picture once: crates/oxyos-image's shape, the shell's iconBody), never a list of applications. Super+Space opens Launchpad and, once its icons settled, exact pixels at the corners: Dropsea's picture, its own rounded navy tile with corners rounder than the grid's, shows the backdrop past each of its four corners where the grid's body would reach, its navy just within and to each edge; Atlas's square picture and Allo's round logo are on the plate, rounded to the grid's corners (the backdrop, the corner's anti-aliasing, then white). With every picture put on the plate, as before, white slivers show past Dropsea's corners and it fails.",
+  "about": "Launchpad's icons as macOS 26 draws them (docs/adr/0011-transitions.mdx, the launcher), light, on a 1280×720 display at 1, with Allo (sample/EditingProbe.tsx) open: an icon that has its shape is drawn as it is and only one that has not is put on the icon grid's rounded body on white, the picture deciding (the platform measures each icon's picture once: crates/oxyos-image's shape, the shell's iconBody), never a list of applications. Super alone opens Launchpad and, once its icons settled, exact pixels at the corners: Dropsea's picture, its own rounded navy tile with corners rounder than the grid's, shows the backdrop past each of its four corners where the grid's body would reach, its navy just within and to each edge; Atlas's square picture and Allo's round logo are on the plate, rounded to the grid's corners (the backdrop, the corner's anti-aliasing, then white). With every picture put on the plate, as before, white slivers show past Dropsea's corners and it fails.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -25,12 +25,11 @@
       "expect": {}
     },
     {
-      "name": "Super+Space opens Launchpad, every application's icon in it",
+      "name": "Super alone opens Launchpad, every application's icon in it",
       "do": [
         "key",
         [
-          125,
-          57
+          125
         ]
       ],
       "expect": {

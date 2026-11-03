@@ -1097,7 +1097,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::InputMethodSurrounding { .. }
         | Event::InputMethodSelection { .. }
         | Event::InputMethodDone { .. }
-        | Event::InputMethodKey { .. } => return None,
+        | Event::InputMethodKey { .. }
+        | Event::InputMethodKeySymbol { .. }
+        | Event::InputMethodCandidateChosen { .. }
+        | Event::InputMethodCandidatesPage { .. } => return None,
+        // The shell's candidates (ADR 0041): not yet in the C ABI.
+        Event::InputCandidate { .. }
+        | Event::InputCandidatesAux { .. }
+        | Event::InputCandidates { .. } => return None,
         Event::WindowState {
             window,
             workspace,

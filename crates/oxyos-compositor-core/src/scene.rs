@@ -87,10 +87,11 @@ pub struct Grants {
 
 impl Grants {
     /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
-    /// the store, updates, privacy and networks, and the shell (Control Center's Wi-Fi, the
-    /// password sheet's answer). What each may ask is the program's to decide.
+    /// the store, updates, privacy and networks, the shell (Control Center's Wi-Fi, the password
+    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
+    /// may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
-        self.store || self.updates || self.privacy || self.network || self.shell
+        self.store || self.updates || self.privacy || self.network || self.shell || self.settings
     }
 }
 
@@ -488,6 +489,14 @@ pub struct Scene {
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
     /// The input method, if one is connected.
     input_method: Option<input_method::InputMethod>,
+    /// The keymap's symbol for the key being handled (ADR 0041), told to the input method.
+    key_symbol: input_method::KeySymbol,
+    /// Each shell's candidates surface, where it draws the candidates an input method hands the
+    /// system, and the shell drawing them now with the list it was told (ADR 0041).
+    shell_candidates: BTreeMap<ClientId, u32>,
+    candidates_told: Option<(ClientId, input_method::CandidateList)>,
+    /// The input-source shortcuts pressed (ADR 0041), for the program running the compositor.
+    input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
     shell_windows: shell::ShellWindows,
@@ -1134,6 +1143,7 @@ impl Scene {
         }
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
+        self.forget_candidates_shell(client);
         self.forget_shell_client(client);
         self.forget_switcher(client);
         self.forget_capture_shell(client);
@@ -1745,7 +1755,13 @@ impl Scene {
             | Request::InputMethodPreeditText { .. }
             | Request::InputMethodPreeditCursor { .. }
             | Request::InputMethodPreeditSegment { .. }
+            | Request::InputMethodCandidate { .. }
+            | Request::InputMethodCandidatesAux { .. }
+            | Request::InputMethodCandidates { .. }
             | Request::InputMethodCommit { .. } => self.input_method_request(client, request),
+            Request::ChooseInputCandidate { .. } | Request::TurnInputCandidatesPage { .. } => {
+                self.candidates_request(client, request)
+            }
             Request::Damage { surface, rect } => {
                 let node = self
                     .nodes
@@ -2665,6 +2681,11 @@ impl Scene {
     /// The session's keyboard layout, `layout\tvariant\toptions` as XKB names them: told to
     /// every client now and to each that connects (ADR 0029). A layout too long to tell is
     /// refused.
+    /// The session's keyboard layout as told (`layout\tvariant\toptions`), if one was.
+    pub fn keyboard_layout(&self) -> Option<&str> {
+        self.keyboard_layout.as_deref()
+    }
+
     pub fn set_keyboard_layout(&mut self, layout: &str) -> Result<(), ErrorCode> {
         if layout.is_empty() || layout.len() > oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES {
             return Err(ErrorCode::QuotaExceeded);
@@ -3013,6 +3034,26 @@ impl Scene {
         if self.focus == Some(key) {
             self.set_focus(None);
             self.focus_next();
+        }
+    }
+
+    /// Dismisses every popup of a window's group: its own and its dialogs' (a dialog's menu is
+    /// drawn and grabs with the window it belongs to), when the window goes from the screen.
+    fn dismiss_group_popups(&mut self, key: SurfaceKey, reason: DismissReason) {
+        let children = self
+            .nodes
+            .get(&key)
+            .map(|node| node.children.clone())
+            .unwrap_or_default();
+        for child in children {
+            let Some(node) = self.nodes.get(&child) else {
+                continue;
+            };
+            if node.is_popup() {
+                self.dismiss(child, reason);
+            } else if node.role == Role::Dialog {
+                self.dismiss_group_popups(child, reason);
+            }
         }
     }
 
@@ -3464,6 +3505,20 @@ impl Scene {
             return;
         }
         let layer = layer_of(&self.nodes[&root].role);
+        // Another window of the grab's layer becomes the active one: its menus close, as a Mac's
+        // close when their window stops being the active one, rather than keep the keyboard
+        // under the window raised over them. A shell's menu (its own layer) stays.
+        let grabbing = self.grab.first().map(|popup| self.root_of(*popup));
+        if grabbing.is_some_and(|grabbing| {
+            grabbing != root && layer_of(&self.nodes[&grabbing].role) == layer
+        }) {
+            // The keyboard goes from the menu straight to the window activated, never back to
+            // the one it was opened in for the instant between.
+            if self.focusable(root) {
+                self.focus_before_grab = Some(self.focus_target(root));
+            }
+            self.dismiss_grab(DismissReason::OutsidePress);
+        }
         self.roots.retain(|r| *r != root);
         let index = self
             .roots
@@ -3509,16 +3564,11 @@ impl Scene {
         if node.role != Role::Toplevel || node.hidden {
             return;
         }
-        let children = node.children.clone();
         if node.mapped {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
-        for child in children {
-            if self.nodes[&child].is_popup() {
-                self.dismiss(child, DismissReason::ParentHidden);
-            }
-        }
+        self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.detach_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
             // Minimized, its application's next window takes the keyboard, as a Mac's does;
@@ -4014,6 +4064,7 @@ impl Scene {
     }
 
     pub fn pointer_button(&mut self, button: u32, pressed: bool) {
+        self.not_super_alone();
         self.user_input();
         let serial = self.next_serial();
         if self.dragging() {
@@ -4149,6 +4200,7 @@ impl Scene {
     /// until its `stop` (the fingers lifted), which reaches it too, so the application that
     /// scrolled hears the scroll end; a wheel's notches each go to the surface under the pointer.
     pub fn pointer_scroll(&mut self, dx: i32, dy: i32, source: ScrollSource, stop: bool) {
+        self.not_super_alone();
         self.user_input();
         let target = if source == ScrollSource::Wheel {
             self.pointer_target()
@@ -4282,6 +4334,7 @@ impl Scene {
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.end_repeat_for(key, pressed);
         self.user_input();
+        self.key_with_super(key, pressed);
         self.hold_modifier(key, pressed);
         if self.drag_key(key, pressed) {
             return;
@@ -4738,7 +4791,8 @@ pub use accessibility::AccessibleNode;
 mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 mod input_method;
-pub use input_method::MAX_PENDING_KEYS;
+pub use input_method::{KeySymbol, MAX_PENDING_KEYS};
+pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;

@@ -727,6 +727,15 @@ pub struct Launch {
     /// the played machine's network (`--controls`) follows it too, and each step's result says
     /// what the daemon holds (`network`).
     pub network_bus: Option<String>,
+    /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
+    /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
+    /// in a directory of the run's own with nothing learned before.
+    pub input_methods: Option<PathBuf>,
+    /// `--input-sources-available METHOD,...`: what the session tells of the input sources is
+    /// played (input_sources.rs, docs/adr/0041-input-methods.mdx), its engine having these input
+    /// methods (an empty list: none installed), for scenarios that need the state alone (Settings'
+    /// Input Sources) without the engine. Refused with `--input-methods`, which tells the real one.
+    pub input_sources_available: Option<String>,
     /// `--outputs WxH[@SCALE][:HZ],...`: the session's outputs, of these pixels at these scales,
     /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
@@ -745,7 +754,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -834,6 +843,8 @@ impl Launch {
         let (mut reader, mut reader_locale, mut reader_off) = (None, None, false);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
+        let mut input_methods = None;
+        let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
         let mut runtimes = None;
@@ -938,9 +949,18 @@ impl Launch {
                     controls = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
+                Some("--input-methods") => {
+                    input_methods = Some(PathBuf::from(args.next().ok_or(USAGE)?));
+                    continue;
+                }
                 Some("--network-bus") => {
                     let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     network_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--input-sources-available") => {
+                    let methods = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    input_sources_available = Some(methods.to_string());
                     continue;
                 }
                 Some("--installed-fixture") => {
@@ -1457,6 +1477,8 @@ impl Launch {
                 screenshots,
                 controls,
                 network_bus,
+                input_methods,
+                input_sources_available,
                 outputs: screens,
                 displays,
                 login,
@@ -2070,6 +2092,85 @@ fn field_json(compositor: &Compositor) -> String {
         field.cursor,
         field.serial,
     )
+}
+
+/// The text-input transactions the application was given during a step (ADR 0008), in order,
+/// each as its parts: the bytes deleted around the selection, the text committed, the
+/// composition, its cursor and its segments with their styles; for a field whose text is a
+/// secret, only `withheld`.
+fn transactions_json(session: &Session) -> String {
+    let mut transactions = Vec::new();
+    let (mut delete, mut commit, mut preedit) = ((0, 0), String::new(), String::new());
+    let (mut cursor, mut segments) = ((0, 0), Vec::new());
+    for (client, event) in &session.compositor.text_input_log {
+        if *client != CLIENT {
+            continue;
+        }
+        match event {
+            oxyos_protocol::Event::TextInputDelete { before, after, .. } => {
+                delete = (*before, *after)
+            }
+            oxyos_protocol::Event::TextInputCommitText { text, .. } => {
+                commit.push_str(text.as_str())
+            }
+            oxyos_protocol::Event::TextInputPreeditText { text, .. } => {
+                preedit.push_str(text.as_str())
+            }
+            oxyos_protocol::Event::TextInputPreeditCursor { begin, end, .. } => {
+                cursor = (*begin, *end)
+            }
+            oxyos_protocol::Event::TextInputPreeditSegment {
+                begin, end, style, ..
+            } => segments.push(format!(
+                "[{begin},{end},\"{}\"]",
+                format!("{style:?}").to_lowercase()
+            )),
+            oxyos_protocol::Event::TextInputDone { surface, .. } => {
+                // What is typed into a password, a PIN or a sensitive field is never written
+                // anywhere (ADR 0008, decision 4): only that a transaction was given.
+                let field = SurfaceKey {
+                    client: CLIENT,
+                    id: *surface,
+                };
+                let secret = session
+                    .compositor
+                    .scene
+                    .text_input(field)
+                    .is_none_or(|state| {
+                        matches!(
+                            state.purpose,
+                            oxyos_protocol::TextPurpose::Password
+                                | oxyos_protocol::TextPurpose::Pin
+                        ) || state.hints.contains(oxyos_protocol::TextHints::SENSITIVE)
+                    });
+                if secret {
+                    transactions.push("{\"withheld\":true}".to_string());
+                    (delete, cursor) = ((0, 0), (0, 0));
+                    commit.clear();
+                    preedit.clear();
+                    segments.clear();
+                    continue;
+                }
+                transactions.push(format!(
+                    "{{\"delete\":[{},{}],\"commit\":{},\"preedit\":{},\"cursor\":[{},{}],\"segments\":[{}]}}",
+                    delete.0,
+                    delete.1,
+                    json_string(&commit),
+                    json_string(&preedit),
+                    cursor.0,
+                    cursor.1,
+                    segments.join(",")
+                ));
+                delete = (0, 0);
+                commit.clear();
+                preedit.clear();
+                cursor = (0, 0);
+                segments.clear();
+            }
+            _ => {}
+        }
+    }
+    format!("[{}]", transactions.join(","))
 }
 
 /// The input routed during a step: for the application, counts per surface and kind; for the
@@ -2885,6 +2986,15 @@ fn inject_through(
         _ => return Ok(None),
     }
     Ok(Some(0))
+}
+
+/// The preferences file as the step left it (`--preferences`), as a JSON string; null without one
+/// or before the session first wrote it.
+fn preferences_file_json(file: Option<&Path>) -> String {
+    file.and_then(|file| fs::read_to_string(file).ok())
+        .map_or("null".to_string(), |text| {
+            serde_json::Value::String(text).to_string()
+        })
 }
 
 /// The Linux key code typing `c` on a US layout, and the text it types (none for Enter).
@@ -3969,6 +4079,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None,
         )?);
     }
+    if let Some(methods) = &launch.input_sources_available {
+        // The state played or the engine run, never both telling it.
+        if launch.input_methods.is_some() {
+            return Err(
+                "--input-sources-available plays what --input-methods runs: give one".into(),
+            );
+        }
+        session.input_sources = Some(crate::input_sources::InputSources::new(
+            methods,
+            &launch.layout,
+        )?);
+    }
     if let Some(address) = &launch.network_bus {
         // The session's networks, over the played daemon on the run's own bus.
         let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
@@ -3978,6 +4100,35 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.networks = Some(networks);
         session.network_control =
             Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
+    if let Some(prefix) = &launch.input_methods {
+        // The session's input methods (ADR 0041): the real engine, in a directory of this run's.
+        let engine = oxyos_input_methods::Engine::at(prefix)
+            .ok_or_else(|| format!("--input-methods: no engine at {}", prefix.display()))?;
+        // Under the session's own directory, removed with it: nothing learned outlives the run.
+        let run = session.directory().join("input-methods");
+        let paths = oxyos_input_methods::Paths {
+            runtime: run.join("run"),
+            data: run.join("data"),
+        };
+        let methods = oxyos_compositor::input_methods::start(
+            &mut session.compositor,
+            &session.settings,
+            engine,
+            paths,
+        )
+        .ok_or("--input-methods: the engine did not start")?;
+        let mut methods = methods;
+        // The scenario's first key reaches the engine, not the layout it falls back to.
+        if !methods.wait_ready(&mut session.compositor, Duration::from_secs(30)) {
+            return Err("--input-methods: the engine did not start in 30 s".into());
+        }
+        session.input_methods_waker = session
+            .compositor
+            .wakers
+            .last()
+            .map(std::os::fd::AsRawFd::as_raw_fd);
+        session.input_methods = Some(methods);
     }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
@@ -4356,6 +4507,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let step = &resolved;
         let may_stay = &settling.may_stay;
         session.compositor.input_log.clear();
+        session.compositor.text_input_log.clear();
         if let Step::SwitchTerminal(number) = step {
             let devices = devices.as_mut().ok_or("--switch-terminal needs --uinput")?;
             let away_ms = switch_terminal(&mut session, &mut children, devices, *number)?;
@@ -4568,6 +4720,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     let keyboard = keyboard
                         .as_mut()
                         .map_err(|error| format!("the {} keymap: {error}", launch.layout))?;
+                    // Dead keys are the engine's while an input method is current (ADR 0041).
+                    keyboard.set_composing(
+                        session
+                            .input_methods
+                            .as_ref()
+                            .is_none_or(|methods| methods.composing()),
+                    );
                     for codes in chords {
                         let presses = codes.iter().map(|code| (*code, true));
                         let releases = codes.iter().rev().map(|code| (*code, false));
@@ -4649,8 +4808,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
+        let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4670,6 +4830,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             session.network_state(),
+            preferences_file_json(launch.preferences.as_deref()),
             menus_json(&session.compositor),
             chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),

@@ -698,6 +698,10 @@ fn a_menu_bar_tracks_the_pointer_while_its_menu_is_open() {
     let mut h = Harness::new();
     let other = h.toplevel(OTHER, 1, 1200, 800);
     let bar = h.toplevel(APP, 1, 400, 300);
+    // Another window of the same client, behind the bar: mapped while a menu is open it would
+    // be the active one, and the menu would close.
+    let window = h.toplevel(APP, 5, 300, 200);
+    h.activate(bar);
     let b = h.rect(bar);
     // File's title is at (10, 0) of the bar, 40x20; Edit's at (60, 0). Its menu hangs under it,
     // the bar going on tracking the pointer while it is open. Opened while the press is held.
@@ -818,7 +822,6 @@ fn a_menu_bar_tracks_the_pointer_while_its_menu_is_open() {
     let e = h.rect(edit);
     let serial = h.press(e.x + 20, e.y + 20);
     h.scene.pointer_button(BUTTON, false);
-    let window = h.toplevel(APP, 5, 300, 200);
     let stray = h.popup(window, 6, menu(Rect::new(0, 0, 10, 10), 50, 50));
     h.request(APP, Request::GrabPopup { surface: 6, serial })
         .unwrap();
@@ -1075,6 +1078,62 @@ fn parent_minimize_destroy_and_disconnect_dismiss_popups_and_release_grabs() {
             h.scene.stats().held_buffers,
             if ending == 0 { 1 } else { 0 }
         );
+    }
+}
+
+/// A window going from the screen (minimized, hidden with its application, left on another
+/// workspace) closes every menu of its group, a dialog's too: none stays grabbing the keyboard
+/// while unseen, and none is shown again when the window comes back.
+#[test]
+fn hiding_a_window_closes_its_dialogs_menus_and_restoring_reopens_none() {
+    for hiding in 0..3 {
+        let mut h = Harness::new();
+        let window = h.toplevel(APP, 1, 600, 400);
+        h.request(
+            APP,
+            Request::CreateDialog {
+                surface: 2,
+                parent: 1,
+                size: Size::new(300, 200),
+            },
+        )
+        .unwrap();
+        let dialog = key(APP, 2);
+        h.present(dialog);
+        let d = h.rect(dialog);
+        let popup = h.open_menu(
+            dialog,
+            3,
+            (d.x + 10, d.y + 10),
+            menu(Rect::new(0, 0, 40, 20), 120, 80),
+        );
+        assert_eq!(h.scene.grab_chain(), &[popup]);
+        assert_eq!(h.scene.focus(), Some(popup));
+        match hiding {
+            0 => h.scene.minimize(window),
+            1 => {
+                h.scene.add_workspace();
+                assert!(h.scene.activate_workspace(1));
+            }
+            _ => {
+                h.scene.add_workspace();
+                assert!(h.scene.move_to_workspace(window, 1));
+            }
+        }
+        h.pump();
+        assert_eq!(h.dismissed(popup), Some(DismissReason::ParentHidden));
+        assert!(h.scene.grab_chain().is_empty());
+        assert_eq!(h.scene.focus(), None);
+        // Back on the screen: the dialog has the keyboard, the menu is gone.
+        match hiding {
+            0 => h.scene.restore(window),
+            1 => assert!(h.scene.activate_workspace(0)),
+            _ => assert!(h.scene.activate_workspace(1)),
+        }
+        h.pump();
+        assert!(h.rendered(dialog));
+        assert!(!h.rendered(popup));
+        assert_eq!(h.scene.focus(), Some(dialog));
     }
 }
 
@@ -1403,9 +1462,8 @@ fn shortcuts_and_window_moves_do_not_wait_for_a_stalled_application() {
     assert_eq!(h.scene.focus(), Some(window));
     // APP never reads or answers from here on.
     h.clear_log();
+    // Super pressed alone: the search (ADR 0041).
     h.scene.key(SUPER, true);
-    h.scene.key(SPACE, true);
-    h.scene.key(SPACE, false);
     h.scene.key(SUPER, false);
     h.pump();
     assert_eq!(
@@ -1960,7 +2018,7 @@ fn shortcuts_reach_the_shell_through_any_surface_it_has_left() {
     h.request(SHELL, Request::Destroy { surface: 1 }).unwrap();
     h.clear_log();
     h.scene.key(SUPER, true);
-    h.scene.key(SPACE, true);
+    h.scene.key(SUPER, false);
     h.pump();
     assert!(h.events_for(SHELL).contains(&Event::SystemShortcut {
         shortcut: SystemShortcut::Search,
@@ -4233,19 +4291,31 @@ fn the_input_method_is_told_the_field_and_nothing_of_where_it_is() {
 #[test]
 fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
     let (mut h, _) = served("");
+    // The keymap's symbol for it and the modifiers in effect come first (ADR 0041).
+    h.scene.set_key_symbol(KeySymbol {
+        keysym: 0x61,
+        modifiers: 16,
+    });
     h.scene.keyboard(KEY_A, true, Some("a"));
     let events = logged(&mut h);
     assert!(to(&events, APP).is_empty());
     let a = held(&events);
     assert_eq!(
         to(&events, IME),
-        [Event::InputMethodKey {
-            serial: a,
-            key: KEY_A,
-            pressed: true,
-            text: PreeditText::new("a").unwrap(),
-            time_ns: 0,
-        }]
+        [
+            Event::InputMethodKeySymbol {
+                serial: a,
+                keysym: 0x61,
+                modifiers: 16,
+            },
+            Event::InputMethodKey {
+                serial: a,
+                key: KEY_A,
+                pressed: true,
+                text: PreeditText::new("a").unwrap(),
+                time_ns: 0,
+            }
+        ]
     );
     h.scene.keyboard(KEY_B, true, Some("b"));
     let b = held(&logged(&mut h));
@@ -4479,12 +4549,15 @@ fn shortcuts_and_an_unserved_keyboard_bypass_the_input_method() {
     logged(&mut h);
     h.scene.keyboard(SUPER, true, None);
     h.scene.keyboard(57, true, Some(" "));
+    h.scene.keyboard(57, false, None);
+    h.scene.keyboard(SUPER, false, None);
     let events = logged(&mut h);
     assert!(to(&events, IME).is_empty());
     assert!(to(&events, APP).is_empty());
-    assert!(to(&events, SHELL)
-        .iter()
-        .any(|e| matches!(e, Event::SystemShortcut { .. })));
+    assert_eq!(
+        h.scene.take_input_source_shortcuts(),
+        [InputSourceShortcut::Previous { step: 1 }]
+    );
     // A field without text input is not served: keys go straight, text as Text.
     let (mut h, _) = served("");
     h.request(APP, Request::TextInputDisable { surface: 1 })
@@ -7571,6 +7644,8 @@ mod controls;
 mod displays;
 mod dock;
 mod drag;
+/// Input sources and the candidates handed to the shell (ADR 0041).
+mod input_sources;
 /// Key repeat (ADR 0036).
 mod key_repeat;
 /// The menu bar (ADR 0021).
@@ -8002,10 +8077,13 @@ fn a_key_the_input_method_gives_back_keeps_its_own_time() {
     let a = held(&events);
     assert!(matches!(
         to(&events, IME).as_slice(),
-        [Event::InputMethodKey {
-            time_ns: 2_000_000_000,
-            ..
-        }]
+        [
+            Event::InputMethodKeySymbol { .. },
+            Event::InputMethodKey {
+                time_ns: 2_000_000_000,
+                ..
+            }
+        ]
     ));
     // Answered after a later key: it reaches the application with its own time.
     h.scene.set_input_time(2_500_000_000);

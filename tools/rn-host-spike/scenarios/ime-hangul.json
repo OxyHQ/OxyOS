@@ -1,0 +1,222 @@
+{
+  "about": "2-Set Korean (ADR 0041) with the real engine, fcitx5-hangul on libhangul, run as the session runs it, typing into a Bloom field (sample/ImeProbe.tsx). Each step checks the text React has, exactly the React events (onChange with the syllable being composed, as Android's InputConnection; a selection change only when its place in UTF-16 units moves), the transactions the field was given (the syllable composed, which fcitx5-hangul marks as the part being converted), what the field tells the compositor, and that no key reaches the field but as the engine's, except the Space it gives back.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "input_methods": true,
+  "preferences": {
+    "input_sources": "korean",
+    "input_source": "korean"
+  },
+  "steps": [
+    {
+      "name": "focus the line: the engine serves it",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "transactions": [],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "g k s: ㅎ, 하, 한 composed in one syllable",
+      "do": [
+        "strokes",
+        [
+          34,
+          37,
+          31
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"한\" [1,1]"
+        ],
+        "react": {
+          "change@line": 3,
+          "selectionChange@line": 1,
+          "keyPress@line": 3
+        },
+        "delivered": {
+          "1": {
+            "text_input": 3
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "ㅎ",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "converting"
+              ]
+            ]
+          },
+          {
+            "preedit": "하",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "converting"
+              ]
+            ]
+          },
+          {
+            "preedit": "한",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "converting"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        }
+      }
+    },
+    {
+      "name": "g k s again: the final ㄴ moves to the next syllable as it begins (핞, then 한 committed and 하), 한한",
+      "do": [
+        "strokes",
+        [
+          34,
+          37,
+          31
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"한한\" [2,2]"
+        ],
+        "react": {
+          "change@line": 3,
+          "keyPress@line": 3,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 3
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "핞",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "converting"
+              ]
+            ]
+          },
+          {
+            "commit": "한",
+            "preedit": "하",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "converting"
+              ]
+            ]
+          },
+          {
+            "preedit": "한",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "converting"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "한",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "Space commits the syllable and is given back: the field types it as its own key",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"한한 \" [3,3]"
+        ],
+        "react": {
+          "keyPress@line": 2,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1,
+            "text_input": 2
+          }
+        },
+        "transactions": [
+          {
+            "commit": "한"
+          },
+          {
+            "commit": " "
+          }
+        ],
+        "field": {
+          "text": "한한 ",
+          "anchor": 7,
+          "cursor": 7
+        }
+      }
+    }
+  ]
+}

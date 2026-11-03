@@ -8,6 +8,8 @@ order: 33
 
 Status: **accepted; implemented** (the scene, the protocol, the C ABI, the Bloom host and the shell; screenshots, decision 10, in the compositor, the session and the development compositor too). Builds on [ADR 0009](./0009-session-shell) (the shell and its `shortcuts` grant), [ADR 0010](./0010-lock-screen) (the lock and Ctrl+Super+Q), [ADR 0014](./0014-screen-reader) (keys taken before everything else), [ADR 0016](./0016-windows) (windows: minimize, zoom, the close request, the active window), [ADR 0018](./0018-several-displays) (a shell per display) and [ADR 0021](./0021-menu-bar) (applications' own shortcuts).
 
+**3 November 2026 ([ADR 0041](./0041-input-methods)):** Super+Space switches input sources, as a Mac's Control-Space does (the habit of the platform's author; on OxyOS Control is the applications' ⌘), Super+Alt+Space chooses the next and Control+Super+Space opens emoji. The launcher's search, Super+Space below, is **Super pressed and released alone**, with no other key, button or scroll while it was down, as ChromeOS, GNOME and Windows open their launchers. The rest stands as written.
+
 **2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
 
 ## Problem

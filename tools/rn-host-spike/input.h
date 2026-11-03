@@ -62,7 +62,7 @@ class PointerInput {
 
   // A Mac's first mouse (docs/adr/0016-windows.mdx, decision 9): whether `event` belongs to a
   // primary press that only activated its window, which no view takes. The compositor marks the
-  // press that makes a window the active one (`flag`, protocol version 18); it reaches the view
+  // press that makes a window the active one (`flag`, protocol version 19); it reaches the view
   // under it only if that view accepts it (`acceptsFirstMouse`, below), as AppKit gives an
   // inactive window's mouse-down to the view only when its `acceptsFirstMouse:` says yes. True
   // for such a press and its release, which then reach nothing of the window: no touch, no
@@ -131,6 +131,12 @@ class PointerInput {
   // Scrolls the scroll view `tag` (on `surface`) by (dx, dy), as far as it goes, and sends its
   // scroll event, as the wheel does; true if it moved.
   bool scrollView(facebook::react::Tag tag, float dx, float dy, uint32_t surface);
+  // The scroll views this host scrolled whose content or viewport has since changed so that their
+  // offset is past their end are brought back to it, with their scroll event, as Android's
+  // ScrollView clamps its scroll as it is laid out (onLayout's scrollTo): a dialog whose control
+  // was brought into view while it was first laid out narrower and taller than it is drawn shows
+  // its content, not the empty space below it. Those gone from the tree are forgotten.
+  void clampScrolls();
 
   // A scroll view flung by a touchpad's fingers glides once a frame of `refresh` (the window's
   // display, display-refresh.h), as Android's OverScroller is stepped on each vsync: `tick`, once
@@ -235,6 +241,8 @@ class PointerInput {
   // Offsets this host gave each scroll view; the state commit that carries one may still be
   // pending when the next scroll arrives.
   std::unordered_map<facebook::react::Tag, facebook::react::Point> offsets_;
+  // The surface each of them was last scrolled on.
+  std::unordered_map<facebook::react::Tag, uint32_t> scrolledOn_;
   // When the event being handled happened (eventTime): what every event it makes carries.
   facebook::react::HighResTimeStamp eventTime_ = facebook::react::HighResTimeStamp::now();
   const DisplayRefresh* refresh_ = nullptr;

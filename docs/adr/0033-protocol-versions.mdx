@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 18). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 19). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -56,7 +56,8 @@ A platform cannot break installed applications on every change of its protocol. 
    | 15 | `AccessibleRole::Meter` (28), a level in a known range that is no progress, as ARIA's `meter` and VoiceOver's level indicator: the top bar's and Control Center's battery ([ADR 0039](./0039-keyboard-access)). A value an older version's `AccessibleRole` lacks, so an `AccessibleNode` carrying it is the newer version's both ways (`event_since`, `request_since`). An assistive technology of version 14 is never sent one; the client library sends a compositor of version 14 or older the progress indicator a level in a range was. |
    | 16 | `SystemShortcut::Notifications` (11), Super+N, the Notification Center as a Mac's Fn-N ([ADR 0039](./0039-keyboard-access), [ADR 0024](./0024-system-shortcuts)): a value an older version's `SystemShortcut` lacks, so the event carrying it is the newer version's (`event_since`) and never sent to a shell of version 15 or older, whose reader would refuse it; Super+N then does nothing there. |
    | 17 | The session's locale (`Locale`, event 181, [ADR 0040](./0040-language-and-region)): one BCP 47 tag in chunks, as `KeyboardLayout`'s, told to every client when it connects and whenever it changes. A client of version 16 or older is not told it and goes on with its environment's locale, as before. |
-   | 18 | `activating` at the end of `Pointer` ([ADR 0016](./0016-windows), decision 9): the press made its window the active one, and the client decides whether the view under it takes it, as AppKit's `acceptsFirstMouse:`. A version 17 reader reads that it did not, which is what every press of an older compositor meant (each reached the view under it); the C ABI's POINTER `flag` is never set from an older compositor. |
+   | 18 | Input methods' candidates drawn by the shell and a key's symbol ([ADR 0041](./0041-input-methods)): events 59 to 64 and requests 63 to 67, both ways, sent only to an input method or the shell, never to a client of version 17. |
+   | 19 | `activating` at the end of `Pointer` ([ADR 0016](./0016-windows), decision 9): the press made its window the active one, and the client decides whether the view under it takes it, as AppKit's `acceptsFirstMouse:`. A version 18 reader reads that it did not, which is what every press of an older compositor meant (each reached the view under it); the C ABI's POINTER `flag` is never set from an older compositor. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

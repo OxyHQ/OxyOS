@@ -14,7 +14,7 @@ use std::io::{self, Read, Write};
 /// sends the event. Version 3: each input event's device time (none) and a scroll's source and
 /// stop (pixels from a continuous source, never a stop). Version 8: a pointer event's modifiers
 /// (none held) and whether a window's process is responding (it is). Version 11: whether a text
-/// field's caret blinks (it does). Version 18: whether a press made its window the active one (it
+/// field's caret blinks (it does). Version 19: whether a press made its window the active one (it
 /// did not: an older compositor delivers every press as one the view under it takes, ADR 0016).
 const GROWN: &[(u16, u8, &[u8])] = &[
     (3, 4, &[0; 8]),
@@ -27,7 +27,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
     (8, 4, &[0]),
     (8, 37, &[1]),
     (11, 53, &[1]),
-    (18, 4, &[0]),
+    (19, 4, &[0]),
 ];
 
 /// The opcodes each version added, by direction (a request and an event may share an opcode):
@@ -41,7 +41,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// parent tracking the pointer during its grab (`TrackPointer`, a menu bar, ADR 0001); version 10,
 /// drag and drop (ADR 0035), both ways, a target's events sent unasked; version 13, a node's place
 /// in its collection (`AccessiblePosition`, ADR 0039), both ways, sent with every snapshot;
-/// version 17, the session's locale (`Locale`, ADR 0040), told to every client.
+/// version 17, the session's locale (`Locale`, ADR 0040), told to every client; version 18, input
+/// methods' candidates drawn by the shell and a key's symbol (ADR 0041), both ways, sent only to
+/// an input method or the shell.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -54,6 +56,7 @@ const EVENTS_ADDED: Added = &[
     (10, 240..=250),
     (13, 251..=251),
     (17, 181..=181),
+    (18, 59..=64),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -64,6 +67,7 @@ const REQUESTS_ADDED: Added = &[
     (9, 235..=235),
     (10, 240..=247),
     (13, 251..=251),
+    (18, 63..=67),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
