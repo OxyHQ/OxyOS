@@ -1,0 +1,451 @@
+{
+ "about": "The accent colour's swatches from the keyboard, as a Mac's accent colour picker with Full Keyboard Access and WAI-ARIA's radio group (docs/adr/0039-keyboard-access.mdx; Bloom's RadioGroup variant=\"swatch\"): Settings with the shell, the screen reader on in Spanish. Tab reaches the swatches once, on the chosen accent; ← → ↑ ↓ choose the next round the ends, the session's accent changing and every application told, the keyboard following each choice once the session applied it, each swatch said once, chosen, and the focus ring drawn in the new accent (the host's `keyboard.ring`); Shift+Tab leaves for the appearance's segmented control and Tab comes back on the swatch now chosen. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says, what is announced and the preference. At 1.25 (1600 × 1000).",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Settings' window with the shell, the reader on, nothing of it focused",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the sidebar's selected row, Appearance",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@settings-nav-appearance": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-nav-appearance",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Appearance, seleccionado, 1 de 11",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the appearance's segmented control, on its chosen segment",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@settings-nav-appearance": 1,
+     "focus@appearance-light": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-light",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Light, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the accent's swatches, one stop: the chosen one, Oxy, said once as chosen, the ring in Oxy's accent",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@appearance-light": 1,
+     "focus@accent-oxy": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-oxy",
+     "ring": true,
+     "color": "#9422ae"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Group",
+       "name": "Accent colour"
+      },
+      {
+       "role": "Radio",
+       "name": "Oxy",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Blue",
+       "state": []
+      },
+      {
+       "role": "Radio",
+       "name": "Grey",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Oxy, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "→ chooses Blue: the session's accent changes and every application is told; the keyboard follows once the session applied it, Blue said once, chosen, the ring drawn in its accent",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@accent-oxy": 1,
+     "focus@accent-blue": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-blue",
+     "ring": true,
+     "color": "#00629d"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Blue",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Oxy",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Blue, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "accent": "blue"
+    }
+   }
+  },
+  {
+   "name": "↓ (→ in a radio group) chooses Purple: the session's accent changes and every application is told; the keyboard follows once the session applied it, Purple said once, chosen, the ring drawn in its accent",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@accent-blue": 1,
+     "focus@accent-purple": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-purple",
+     "ring": true,
+     "color": "#8c00e5"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Purple",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Blue",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Purple, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "accent": "purple"
+    }
+   }
+  },
+  {
+   "name": "← chooses Blue: the session's accent changes and every application is told; the keyboard follows once the session applied it, Blue said once, chosen, the ring drawn in its accent",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@accent-purple": 1,
+     "focus@accent-blue": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-blue",
+     "ring": true,
+     "color": "#00629d"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Blue",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Purple",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Blue, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "accent": "blue"
+    }
+   }
+  },
+  {
+   "name": "↑ (←) chooses Oxy: the session's accent changes and every application is told; the keyboard follows once the session applied it, Oxy said once, chosen, the ring drawn in its accent",
+   "do": [
+    "key",
+    [
+     103
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@accent-blue": 1,
+     "focus@accent-oxy": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-oxy",
+     "ring": true,
+     "color": "#9422ae"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Oxy",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Blue",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Oxy, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "accent": "oxy"
+    }
+   }
+  },
+  {
+   "name": "← round the start chooses Grey, the last: the session's accent changes and every application is told; the keyboard follows once the session applied it, Grey said once, chosen, the ring drawn in its accent",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@accent-oxy": 1,
+     "focus@accent-gray": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-gray",
+     "ring": true,
+     "color": "#006783"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Grey",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Oxy",
+       "state": []
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Grey, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences": {
+     "accent": "gray"
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: back on the appearance's chosen segment (the other swatches are no stops)",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@accent-gray": 1,
+     "focus@appearance-light": 1
+    },
+    "keyboard_focus": {
+     "target": "appearance-light",
+     "ring": true,
+     "color": "#006783"
+    },
+    "spoken": [
+     {
+      "text": "Light, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the swatches again, on the one now chosen, Grey, said once; the session keeps it",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@appearance-light": 1,
+     "focus@accent-gray": 1
+    },
+    "keyboard_focus": {
+     "target": "accent-gray",
+     "ring": true,
+     "color": "#006783"
+    },
+    "spoken": [
+     {
+      "text": "Grey, seleccionado, botón de opción",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "preferences_file": {
+     "accent": "gray"
+    }
+   }
+  }
+ ]
+}

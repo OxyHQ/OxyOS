@@ -4,7 +4,7 @@
  * OxyOS, natively and in the browser: only the model differs (docs/adr/0015-application-model.mdx).
  */
 import * as React from "react";
-import { AccessibilityInfo, PanResponder, Pressable, View } from "react-native";
+import { AccessibilityInfo, PanResponder, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { Dialog } from "@oxy.so/bloom/dialog";
@@ -50,6 +50,7 @@ import { Button } from "@oxy.so/bloom/button";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
 import { SettingsLayout } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
+import { RadioGroup } from "@oxy.so/bloom/radio";
 import { Switch } from "@oxy.so/bloom/switch";
 import { APP_COLOR_PRESETS, useTheme } from "@oxy.so/bloom/theme";
 import { Text } from "@oxy.so/bloom/typography";
@@ -190,39 +191,22 @@ function AppearancePage({ snapshot, actions, strings }: PageProps) {
           title={words.accent}
           testID="accent-row"
           rightElement={
-            <View
-              style={{ flexDirection: "row", gap: 10 }}
-              accessibilityRole="radiogroup"
-              accessibilityLabel={words.accent}
-              // The group holds its swatches: Fabric flattens a view that forms no stacking context
-              // (a role and a label do not form one) and mounts its children in the one above.
-              collapsable={false}
-            >
-              {ACCENTS.filter((name) => name in APP_COLOR_PRESETS).map((name) => {
-                const chosen = name === accent;
-                const preset = APP_COLOR_PRESETS[name as keyof typeof APP_COLOR_PRESETS];
-                return (
-                  <Pressable
-                    key={name}
-                    testID={`accent-${name}`}
-                    accessibilityRole="radio"
-                    // By its colour's name in the session's language (Bloom's `label` is the colour of
-                    // the text on the accent, not its name).
-                    accessibilityLabel={words.accents[name] ?? name}
-                    accessibilityState={{ checked: chosen }}
-                    onPress={() => actions.setPreference("accent", name)}
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 11,
-                      backgroundColor: preset.hex,
-                      borderWidth: chosen ? 3 : 0,
-                      borderColor: "rgba(255,255,255,0.9)",
-                    }}
-                  />
-                );
-              })}
-            </View>
+            // One keyboard stop, the arrows choosing the next accent (Bloom's swatch radio group), each
+            // named by its colour in the session's language (Bloom's preset `label` is the colour of
+            // the text on the accent, not its name).
+            <RadioGroup<string>
+              label={words.accent}
+              variant="swatch"
+              value={accent}
+              onValueChange={(name) => actions.setPreference("accent", name)}
+              options={ACCENTS.filter((name) => name in APP_COLOR_PRESETS).map((name) => ({
+                value: name,
+                label: words.accents[name] ?? name,
+                color: APP_COLOR_PRESETS[name as keyof typeof APP_COLOR_PRESETS].hex,
+                testID: `accent-${name}`,
+              }))}
+              testID="accent"
+            />
           }
         />
       </GroupedSection>
