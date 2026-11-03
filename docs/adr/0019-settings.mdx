@@ -35,7 +35,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - `wallpaper` (a folder under the wallpapers' directory);
      - `lock_after` (minutes idle before the session locks; 0 never);
      - `screen_reader` (on at login);
-     - `clock_24h`;
+     - `language` (`en`, `es`; empty, the system's), `region` (two ASCII capitals, as CLDR names a region; empty, the system's) and `hour_cycle` (`auto`, the region's; `h12`, `h23`), added by [ADR 0040](./0040-language-and-region), which retires `clock_24h` (a file that still has it is read as any unknown key, and the next write leaves it out);
      - `do_not_disturb` and `notification_previews` (`always`, `unlocked`), added by [ADR 0026](./0026-notifications);
      - `caret_blink` (a text field's caret blinks; on by default), added by [ADR 0037](./0037-text-editing).
 2. **The system's settings stay the system's.** The time zone and automatic time (systemd-timedated), the keyboard layout (systemd-localed, which writes `/etc/default/keyboard`) and the computer's name (systemd-hostnamed) are changed through those services, as their own command-line tools change them. The session calls them over the system bus as the user, and polkit decides. A change that needs an administrator is asked for by the session's own authentication dialog, never by the application. Until that dialog exists ([Not in this decision](#not-in-this-decision)), Settings shows these settings and their current values and says they cannot be changed yet. The session follows a change it learns of (the keyboard layout of new strokes; the time zone of the clock and the wallpaper).

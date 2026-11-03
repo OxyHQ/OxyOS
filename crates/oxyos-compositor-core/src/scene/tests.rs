@@ -6372,7 +6372,7 @@ fn only_settings_changes_preferences_and_its_changes_are_handed_over_whole() {
         Err(ErrorCode::QuotaExceeded)
     );
     // Revoked, it asks no more; and a client that goes takes its unanswered changes.
-    set_preference(&mut h, SETTINGS, 12, "clock_24h=false").unwrap();
+    set_preference(&mut h, SETTINGS, 12, "hour_cycle=h12").unwrap();
     h.scene.revoke(
         SETTINGS,
         Grants {
@@ -6382,7 +6382,7 @@ fn only_settings_changes_preferences_and_its_changes_are_handed_over_whole() {
     );
     assert!(h.scene.take_preference_changes().is_empty());
     assert_eq!(
-        set_preference(&mut h, SETTINGS, 13, "clock_24h=false"),
+        set_preference(&mut h, SETTINGS, 13, "hour_cycle=h12"),
         Err(ErrorCode::Unauthorized)
     );
 }
@@ -7895,6 +7895,58 @@ fn every_client_is_told_the_keyboard_layout_before_its_first_key() {
     h.scene.set_keyboard_layout(layout).unwrap();
     h.pump();
     assert_eq!(told(&h, APP), "", "only a change is told again");
+}
+
+#[test]
+fn every_client_is_told_the_sessions_locale_on_connecting_and_on_a_change() {
+    let mut h = Harness::new();
+    let told = |h: &Harness, client| -> Vec<(u8, bool, String)> {
+        h.events_for(client)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Locale { index, last, text } => {
+                    Some((index, last, text.as_str().to_string()))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    // Nothing until the program running the compositor says it.
+    assert!(told(&h, APP).is_empty());
+    assert_eq!(h.scene.locale(), None);
+    assert_eq!(h.scene.set_locale(""), Err(ErrorCode::QuotaExceeded));
+    let long = "a".repeat(oxyos_protocol::MAX_LOCALE_BYTES + 1);
+    assert_eq!(h.scene.set_locale(&long), Err(ErrorCode::QuotaExceeded));
+    assert_eq!(h.scene.set_locale("es_ES"), Err(ErrorCode::InvalidMessage));
+    assert_eq!(h.scene.locale(), None);
+    h.scene.set_locale("es-ES").unwrap();
+    h.pump();
+    assert_eq!(told(&h, APP), [(0, true, "es-ES".to_string())]);
+    // One that connects later is told it with the other connect-time events.
+    h.scene.connect(7, Grants::default()).unwrap();
+    h.pump();
+    assert_eq!(told(&h, 7), [(0, true, "es-ES".to_string())]);
+    // The same again is nothing; a change is told to every client.
+    h.clear_log();
+    h.scene.set_locale("es-ES").unwrap();
+    h.pump();
+    assert!(told(&h, APP).is_empty() && told(&h, 7).is_empty());
+    // Long enough for two chunks.
+    let tag = "es-MX-u-hc-h12-ca-gregory-nu-latn";
+    h.scene.set_locale(tag).unwrap();
+    h.pump();
+    for client in [APP, 7] {
+        let chunks = told(&h, client);
+        assert_eq!(
+            chunks.iter().map(|(i, l, _)| (*i, *l)).collect::<Vec<_>>(),
+            [(0, false), (1, true)]
+        );
+        assert_eq!(
+            chunks.into_iter().map(|(_, _, t)| t).collect::<String>(),
+            tag
+        );
+    }
+    assert_eq!(h.scene.locale(), Some(tag));
 }
 
 #[test]

@@ -2334,9 +2334,29 @@ fn the_header_matches_the_intl_abi() {
     ) -> i64;
     type Resolve =
         unsafe extern "C" fn(*const c_char, usize, *const c_char, usize, *mut c_char, usize) -> i64;
-    let default: unsafe extern "C" fn(*mut c_char, usize) -> i64 = oxyos_intl_default_locale;
+    type Locale = unsafe extern "C" fn(*mut c_char, usize) -> i64;
+    type SetLocale = unsafe extern "C" fn(*const c_char, usize) -> i64;
     for (name, rust) in [
-        ("oxyos_intl_default_locale", type_of(default)),
+        (
+            "oxyos_intl_default_locale",
+            type_of(oxyos_intl_default_locale as Locale),
+        ),
+        (
+            "oxyos_intl_system_locale",
+            type_of(oxyos_intl_system_locale as Locale),
+        ),
+        (
+            "oxyos_intl_set_default_locale",
+            type_of(oxyos_intl_set_default_locale as SetLocale),
+        ),
+        (
+            "oxyos_intl_plural_select",
+            type_of(oxyos_intl_plural_select as Format),
+        ),
+        (
+            "oxyos_intl_resolve_plural",
+            type_of(oxyos_intl_resolve_plural as Resolve),
+        ),
         (
             "oxyos_intl_canonicalize",
             type_of(oxyos_intl_canonicalize as Text),
@@ -2412,6 +2432,67 @@ fn intl_through_the_c_abi() {
     // SAFETY: as above.
     let default = intl(|out, capacity| unsafe { oxyos_intl_default_locale(out, capacity) });
     assert!(oxyos_intl::canonicalize(&default).is_ok(), "{default}");
+    // SAFETY: as above.
+    let system = intl(|out, capacity| unsafe { oxyos_intl_system_locale(out, capacity) });
+    assert_eq!(system, oxyos_intl::system_locale());
+    // Setting the default is the whole process's (crates/oxyos-intl/tests/default_locale.rs
+    // tests what it does): here only the system's, which the other tests see as before.
+    let (tag, tag_length) = text(&system);
+    // SAFETY: as above.
+    assert_eq!(unsafe { oxyos_intl_set_default_locale(tag, tag_length) }, 0);
+    let (bad, bad_length) = text("en_US");
+    // SAFETY: as above.
+    let refused = unsafe { oxyos_intl_set_default_locale(bad, bad_length) };
+    assert_eq!(refused, -1);
+    assert_eq!(
+        last_error(),
+        "Incorrect locale information provided: \"en_US\""
+    );
+    // SAFETY: an empty tag, NULL with 0.
+    let unset = unsafe { oxyos_intl_set_default_locale(std::ptr::null(), 0) };
+    assert_eq!(unset, 0);
+    // SAFETY: as above.
+    let default = intl(|out, capacity| unsafe { oxyos_intl_default_locale(out, capacity) });
+    assert_eq!(default, system);
+
+    // Plural rules: the category of the number as written.
+    let plural = |locale: &'static str, options: &'static str, value: f64| {
+        let ((locale, locale_length), (options, options_length)) = (text(locale), text(options));
+        // SAFETY: as above.
+        intl(move |out, capacity| unsafe {
+            oxyos_intl_plural_select(
+                locale,
+                locale_length,
+                options,
+                options_length,
+                value,
+                out,
+                capacity,
+            )
+        })
+    };
+    assert_eq!(plural("en-US", "", 1.0), "one");
+    assert_eq!(plural("en-US", "minimumFractionDigits=1", 1.0), "other");
+    assert_eq!(plural("en-US", "type=ordinal", 3.0), "few");
+    let (locale, locale_length) = text("es-ES");
+    let (options, options_length) = text("type=cardinal");
+    // SAFETY: as above.
+    let resolved = intl(|out, capacity| unsafe {
+        oxyos_intl_resolve_plural(
+            locale,
+            locale_length,
+            options,
+            options_length,
+            out,
+            capacity,
+        )
+    });
+    assert_eq!(
+        resolved,
+        "locale=es-ES;type=cardinal;minimumIntegerDigits=1;minimumFractionDigits=0;\
+         maximumFractionDigits=3;pluralCategories=one,many,other;roundingIncrement=1;\
+         roundingMode=halfExpand;roundingPriority=auto;trailingZeroDisplay=auto"
+    );
 
     // 2026-10-29T14:05:09Z.
     let (locale, locale_length) = text("es-ES");
@@ -4642,6 +4723,22 @@ fn the_keyboard_layout_comes_in_chunks_as_the_header_says() {
         (OXYOS_EVENT_KEYBOARD_LAYOUT, 0, 1)
     );
     assert_eq!(&chunk.text[..11], b"fr\tazerty\t\0");
+}
+
+#[test]
+fn the_locale_comes_in_chunks_as_the_keyboard_layout() {
+    assert_eq!(define("OXYOS_EVENT_LOCALE"), i64::from(OXYOS_EVENT_LOCALE));
+    let chunk = convert(&Event::Locale {
+        index: 0,
+        last: true,
+        text: oxyos_protocol::PreeditText::new("es-MX-u-hc-h12").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (chunk.kind, chunk.detail, chunk.flag),
+        (OXYOS_EVENT_LOCALE, 0, 1)
+    );
+    assert_eq!(&chunk.text[..15], b"es-MX-u-hc-h12\0");
 }
 
 #[test]
