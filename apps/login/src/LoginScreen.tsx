@@ -16,6 +16,7 @@ import {
   type LoginAccount,
   type Setup,
 } from "./model";
+import { useLoginMessages } from "./useLoginMessages";
 
 export type { LoginAccount, Accounts } from "./model";
 
@@ -72,15 +73,12 @@ function SetupPanel({
   retry: () => void;
   back?: () => void;
 }) {
+  const words = useLoginMessages().setup;
   const message =
-    setup === "checking"
-      ? "Comprobando la conexión…"
-      : setup === "offline"
-        ? "Para añadir una cuenta hace falta conexión a internet. Conéctate y vuelve a intentarlo."
-        : "El inicio de sesión con Oxy aún no está disponible en esta pantalla.";
+    setup === "checking" ? words.checking : setup === "offline" ? words.offline : words.unavailable;
   return (
     <Box testID="login-setup" className="items-center" style={{ maxWidth: 360 }}>
-      <Text style={white(17, "600")}>Añadir una cuenta de Oxy</Text>
+      <Text style={white(17, "600")}>{words.title}</Text>
       <Text
         testID="login-setup-message"
         accessibilityRole="alert"
@@ -89,8 +87,8 @@ function SetupPanel({
       >
         {message}
       </Text>
-      {setup !== "checking" && <Link testID="login-setup-retry" label="Reintentar" onPress={retry} />}
-      {back && <Link testID="login-setup-back" label="Volver" onPress={back} />}
+      {setup !== "checking" && <Link testID="login-setup-retry" label={words.retry} onPress={retry} />}
+      {back && <Link testID="login-setup-back" label={words.back} onPress={back} />}
     </Box>
   );
 }
@@ -109,9 +107,10 @@ function AccountChooser({
   chosen: string;
   choose: (user: string) => void;
 }) {
+  const words = useLoginMessages();
   return (
     <ChoiceList
-      label="Cuentas"
+      label={words.accounts}
       value={chosen}
       onValueChange={choose}
       options={accounts.map((account) => ({
@@ -156,6 +155,7 @@ export function LoginScreen({
   now: Date;
   Masked?: ComponentType<MaskedProps>;
 }) {
+  const words = useLoginMessages();
   const [chosen, setChosen] = useState<string | null>(null);
   // Choosing the account already chosen goes on to its password, as Return on a Mac's chosen
   // account does: its field takes the focus again.
@@ -185,7 +185,7 @@ export function LoginScreen({
   if (accounts === null) {
     content = (
       <Text testID="login-unavailable" accessibilityRole="alert" style={white(13, "400", 0.85)}>
-        No se pueden leer las cuentas de este ordenador.
+        {words.unreadable}
       </Text>
     );
   } else if (shownSetup !== "closed") {
@@ -227,7 +227,7 @@ export function LoginScreen({
           announce={actions.announce}
           focusRequest={toPassword}
         />
-        <Link testID="login-add" label="Añadir cuenta" onPress={() => setSetup("checking")} />
+        <Link testID="login-add" label={words.addAccount} onPress={() => setSetup("checking")} />
       </>
     );
   }

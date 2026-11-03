@@ -15,9 +15,10 @@
  * typed into the sheet's own secure field and goes to the session alone; nothing here keeps it.
  */
 
+import type { Language, ShellMessages } from "./messages";
 import type { WifiSecurity } from "./network";
 
-export type Language = "es" | "en";
+export type { Language } from "./messages";
 
 /** A sheet as the session describes it (JSON). */
 export type SheetText =
@@ -74,121 +75,22 @@ export type SheetView = {
   error?: string;
 };
 
-const words = {
-  es: {
-    install: (name: string) => `¿Instalar ${name}?`,
-    update: (name: string) => `¿Actualizar ${name}?`,
-    uninstall: (name: string) => `¿Eliminar ${name} y sus datos?`,
-    consent: (name: string) => `${name} pide más acceso`,
-    permission: (name: string, what: string) => `¿Permitir que ${name} ${what}?`,
-    installButton: "Instalar",
-    updateButton: "Actualizar",
-    uninstallButton: "Eliminar",
-    allow: "Permitir",
-    dontAllow: "No permitir",
-    cancel: "Cancelar",
-    version: (version: string, size: string) => `Versión ${version} · ${size}`,
-    uninstallBody: "Se eliminarán la app y sus datos en esta cuenta. Puedes volver a instalarla desde Atlas.",
-    consentBody: (version: string) => `La versión ${version} usa:`,
-    keyRotation: "El desarrollador firma esta versión con una clave nueva de su linaje.",
-    later: "Se preguntará cuando la app lo use",
-    unavailable: {
-      install: "No se puede instalar la app",
-      uninstall: "No se puede eliminar la app",
-      update: "No se puede actualizar",
-    },
-    unavailableBody:
-      "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
-    ok: "Aceptar",
-    emptyTrash: "¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?",
-    emptyTrashBody: (items: number) =>
-      `${items === 1 ? "Se eliminará 1 ítem" : `Se eliminarán ${items} ítems`}. No puedes deshacer esta acción.`,
-    emptyTrashButton: "Vaciar",
-    wifiPassword: (ssid: string, kind: string) => `La red Wi-Fi “${ssid}” requiere una contraseña ${kind}.`,
-    wifiIncorrect: "La contraseña no es correcta. Inténtalo de nuevo.",
-    wifiJoin: "Conectarse",
-    wifiField: "Contraseña",
-    showPassword: "Mostrar contraseña",
-    hidePassword: "Ocultar contraseña",
-    wifiFailed: (ssid: string) => `No se ha podido conectar a la red “${ssid}”.`,
-    wifiUnsupported: (ssid: string) => `OxyOS todavía no puede conectarse a “${ssid}”.`,
-    wifiEnterprise: "Las redes empresariales (802.1X) aún no son compatibles.",
-    wifiWep: "Las redes WEP no son compatibles: no son seguras.",
-    wifiOtherUnsupported: "Esta red aún no es compatible.",
-  },
-  en: {
-    install: (name: string) => `Install ${name}?`,
-    update: (name: string) => `Update ${name}?`,
-    uninstall: (name: string) => `Delete ${name} and its data?`,
-    consent: (name: string) => `${name} asks for more access`,
-    permission: (name: string, what: string) => `Allow ${name} to ${what}?`,
-    installButton: "Install",
-    updateButton: "Update",
-    uninstallButton: "Delete",
-    allow: "Allow",
-    dontAllow: "Don't Allow",
-    cancel: "Cancel",
-    version: (version: string, size: string) => `Version ${version} · ${size}`,
-    uninstallBody: "The app and its data in this account are deleted. You can install it again from Atlas.",
-    consentBody: (version: string) => `Version ${version} uses:`,
-    keyRotation: "The developer signs this version with a new key of its lineage.",
-    later: "Asked when the app uses it",
-    unavailable: {
-      install: "Can't Install the App",
-      uninstall: "Can't Delete the App",
-      update: "Can't Update",
-    },
-    unavailableBody:
-      "The service that installs apps on this computer isn't running. Try again once it's available.",
-    ok: "OK",
-    emptyTrash: "Are you sure you want to permanently erase the items in the Trash?",
-    emptyTrashBody: (items: number) =>
-      `${items === 1 ? "1 item is erased" : `${items} items are erased`}. You can't undo this action.`,
-    emptyTrashButton: "Empty",
-    wifiPassword: (ssid: string, kind: string) => `The Wi-Fi network “${ssid}” requires a ${kind} password.`,
-    wifiIncorrect: "The password is incorrect. Try again.",
-    wifiJoin: "Join",
-    wifiField: "Password",
-    showPassword: "Show password",
-    hidePassword: "Hide password",
-    wifiFailed: (ssid: string) => `Couldn't join the network “${ssid}”.`,
-    wifiUnsupported: (ssid: string) => `OxyOS can't join “${ssid}” yet.`,
-    wifiEnterprise: "Enterprise (802.1X) networks aren't supported yet.",
-    wifiWep: "WEP networks aren't supported: they aren't secure.",
-    wifiOtherUnsupported: "This network isn't supported yet.",
-  },
-};
-
-/** Each capability's name, and what an application asking for it would do. */
-const capabilities: Record<string, Record<Language, [string, string]>> = {
-  network: { es: ["Internet", "conectarse a Internet"], en: ["The Internet", "connect to the Internet"] },
-  notifications: { es: ["Notificaciones", "enviarte notificaciones"], en: ["Notifications", "send you notifications"] },
-  files: { es: ["Tus archivos", "acceder a tus archivos"], en: ["Your files", "access your files"] },
-  camera: { es: ["Cámara", "usar la cámara"], en: ["Camera", "use the camera"] },
-  microphone: { es: ["Micrófono", "usar el micrófono"], en: ["Microphone", "use the microphone"] },
-  location: { es: ["Ubicación", "usar tu ubicación"], en: ["Location", "use your location"] },
-  "oxy-account": { es: ["Tu cuenta Oxy", "usar tu cuenta Oxy"], en: ["Your Oxy account", "use your Oxy account"] },
-  "open-files": { es: ["Abrir archivos", "abrir archivos"], en: ["Opening files", "open files"] },
-  "url-schemes": { es: ["Abrir enlaces", "abrir enlaces"], en: ["Opening links", "open links"] },
-  background: { es: ["En segundo plano", "funcionar en segundo plano"], en: ["In the background", "run in the background"] },
-  "login-item": { es: ["Al iniciar sesión", "abrirse al iniciar sesión"], en: ["At sign-in", "open at sign-in"] },
-};
-
-export function capabilityLabel(name: string, language: Language): string {
-  return capabilities[name]?.[language][0] ?? name;
+/** A capability's name, in the catalogue's language; its own name for one OxyOS does not know. */
+export function capabilityLabel(name: string, messages: ShellMessages): string {
+  return messages.sheet.capabilities[name]?.[0] ?? name;
 }
 
-/** A size in bytes as a person reads it. */
-export function size(bytes: number, language: Language): string {
-  const units = language === "es" ? ["bytes", "kB", "MB", "GB"] : ["bytes", "KB", "MB", "GB"];
+/** A size in bytes as a person reads it, in the locale's digits ("1,5 MB", "1.5 MB"). */
+export function size(bytes: number, messages: ShellMessages): string {
+  const units = messages.sheet.units;
   let value = bytes;
   let unit = 0;
   while (value >= 1000 && unit < units.length - 1) {
     value /= 1000;
     unit += 1;
   }
-  const shown = unit === 0 ? String(value) : value.toFixed(value < 10 ? 1 : 0);
-  return `${language === "es" ? shown.replace(".", ",") : shown} ${units[unit]}`;
+  const shown = messages.format.number(value, unit === 0 || value >= 10 ? 0 : 1);
+  return `${shown} ${units[unit]}`;
 }
 
 /** A text in the person's language; else `fallback` (an app's own name), else English, else any. */
@@ -224,9 +126,11 @@ export function readSheet(text: string): SheetText | null {
   return null;
 }
 
-/** What the sheet shows, in `language`; `names` the registry's names, for a permission's app. */
-export function sheetView(sheet: SheetText, language: Language, names: Record<string, string> = {}): SheetView {
-  const w = words[language];
+/** What the sheet shows, in the catalogue's language; `names` the registry's names, for a
+    permission's app. */
+export function sheetView(sheet: SheetText, messages: ShellMessages, names: Record<string, string> = {}): SheetView {
+  const w = messages.sheet;
+  const language = messages.language;
   switch (sheet.kind) {
     case "install":
     case "update": {
@@ -234,9 +138,9 @@ export function sheetView(sheet: SheetText, language: Language, names: Record<st
       const name = localized(plan.names, language, plan.name);
       return {
         title: sheet.kind === "update" ? w.update(name) : w.install(name),
-        body: w.version(plan.version, size(plan.download, language)),
+        body: w.version(plan.version, size(plan.download, messages)),
         lines: plan.capabilities.map((c) => ({
-          label: capabilityLabel(c.name, language),
+          label: capabilityLabel(c.name, messages),
           detail: c.askedAtFirstUse
             ? `${localized(c.purpose, language)}${localized(c.purpose, language) ? " · " : ""}${w.later}`
             : localized(c.purpose, language) || undefined,
@@ -258,7 +162,7 @@ export function sheetView(sheet: SheetText, language: Language, names: Record<st
     case "consent": {
       const update = sheet.update;
       const name = localized(update.names, language, update.name);
-      const lines = (update.consent?.capabilities ?? []).map((c) => ({ label: capabilityLabel(c, language) }));
+      const lines = (update.consent?.capabilities ?? []).map((c) => ({ label: capabilityLabel(c, messages) }));
       if (update.consent?.keyRotation) lines.push({ label: w.keyRotation });
       return {
         title: w.consent(name),
@@ -280,7 +184,7 @@ export function sheetView(sheet: SheetText, language: Language, names: Record<st
       };
     case "permission": {
       const name = names[sheet.id] ?? sheet.name ?? sheet.id;
-      const what = capabilities[sheet.capability]?.[language][1] ?? sheet.capability;
+      const what = w.capabilities[sheet.capability]?.[1] ?? sheet.capability;
       return {
         title: w.permission(name, what),
         body: "",

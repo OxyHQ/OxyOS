@@ -1,5 +1,6 @@
 {
   "about": "The solar wallpaper (ADR 0012): with the wallpaper's folder given (OXYOS_WALLPAPER), the shell shows the frame of the sun now where the system's time zone is, chosen by the OS (crates/oxyos-solar). At 03:00 in Madrid on the June solstice (01:00 UTC, the sun 26° below the horizon, the morning's darkest twilight: frame 1), the desktop is that night frame, not the day frame the shell shows without the system (frame 8: #4378ff where this checks #121838).",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

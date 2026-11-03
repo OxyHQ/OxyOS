@@ -1,5 +1,6 @@
 {
   "about": "screenshots.json on a 1600x1000 output at 1.25 (ADR 0018), the session in English: the same steps, each file at the display's own pixels.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

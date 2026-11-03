@@ -1,12 +1,11 @@
 {
   "about": "The session's screen reader (ADR 0014) on the sample app's menu (sample/App.tsx), in English, its voice a record: a menu that opens in a popup is said by its title, the named menu it holds (\"Message actions, menu\"), as TalkBack says the pane title of a window whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window), and its focused row after it, queued rather than cutting the title off; the reader's keys move through its rows and choose one; a menu that goes is not said, the trigger that takes focus again is, once. No application announcement is involved (`announcements` empty): the reader says it from the trees. Without it the reader said the row alone, nothing telling a menu had opened.",
+  "locale": "en_US.UTF-8",
   "window": [
     1024,
     560
   ],
-  "reader": {
-    "locale": "en_US.UTF-8"
-  },
+  "reader": {},
   "steps": [
     {
       "name": "a screen reader activates Open menu: the menu that appears is said by its title, as TalkBack says a popup window's pane title, then its focused row after it, not over it",

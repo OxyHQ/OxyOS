@@ -9,6 +9,7 @@ import Animated, {
 import { Text } from "@oxy.so/bloom/typography";
 import type { ShellLock } from "../model";
 import { waitReminder, waitSaid } from "../lock-wait";
+import { useShellMessages } from "../useShellMessages";
 
 /** Linux-PAM's longest answer: the compositor takes no longer password (ADR 0010). */
 const MAX_PASSWORD_BYTES = 512;
@@ -34,8 +35,8 @@ export function PasswordField({
   authenticate,
   answer,
   capsLock,
-  placeholder = "Introduce la contraseña",
-  accessibilityLabel = "Contraseña",
+  placeholder,
+  accessibilityLabel,
   announce,
   focusRequest = 0,
 }: {
@@ -45,6 +46,7 @@ export function PasswordField({
   authenticate: (password: string) => boolean;
   answer: ShellLock["answer"];
   capsLock?: boolean;
+  /** Its placeholder and name; the catalogue's "Enter Password" and "Password" by default. */
   placeholder?: string;
   accessibilityLabel?: string;
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
@@ -52,9 +54,12 @@ export function PasswordField({
   /** Changed, the field takes the focus again (the login screen's chosen account chosen again). */
   focusRequest?: number;
 }) {
+  const messages = useShellMessages();
+  const words = messages.password;
   const [password, setPassword] = useState("");
   const [checking, setChecking] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // What the last attempt said, by what it was, so that it is drawn in the language of the moment.
+  const [message, setMessage] = useState<"incorrect" | "notChecked" | null>(null);
   // Seconds until another attempt may be made, counted down.
   const [wait, setWait] = useState(0);
   const latestAnnounce = useRef(announce);
@@ -90,15 +95,15 @@ export function PasswordField({
     setPassword("");
     setWait(answer.wait);
     counting.current = answer.wait;
-    const waiting = answer.wait > 0 ? `Vuelve a intentarlo en ${waitSaid(answer.wait)}` : null;
+    const waiting = answer.wait > 0 ? waitSaid(answer.wait, messages) : null;
     if (answer.outcome === "rejected") {
-      setMessage("Contraseña incorrecta");
-      say(waiting ? `Contraseña incorrecta. ${waiting}` : "Contraseña incorrecta", false);
+      setMessage("incorrect");
+      say(waiting ? words.incorrectTryAgainIn(waiting) : words.incorrect, false);
       shake.value = withSequence(
         ...[-12, 12, -9, 9, -5, 5, 0].map((x) => withTiming(x, { duration: 45 })),
       );
     } else {
-      if (waiting) say(waiting, false);
+      if (waiting) say(words.tryAgainIn(waiting), false);
       // Throttled: the hint counts the wait down. Busy: another check was going on.
       // Accepted: the session takes over.
       setMessage(null);
@@ -108,9 +113,9 @@ export function PasswordField({
     if (counting.current > 0 && wait !== counting.current) {
       if (wait <= 0) {
         counting.current = 0;
-        say("Ya puedes volver a intentarlo", true);
+        say(words.canTryAgain, true);
       } else if (waitReminder(wait)) {
-        say(`Vuelve a intentarlo en ${waitSaid(wait)}`, true);
+        say(words.tryAgainIn(waitSaid(wait, messages)), true);
       }
     }
     if (wait <= 0) return undefined;
@@ -120,7 +125,7 @@ export function PasswordField({
   // Caps Lock turned on is said, politely, where nothing else is under the field.
   const lastCapsLock = useRef(capsLock);
   useEffect(() => {
-    if (capsLock && !lastCapsLock.current && wait <= 0 && !message) say("Bloq Mayús activado", true);
+    if (capsLock && !lastCapsLock.current && wait <= 0 && !message) say(words.capsLock, true);
     lastCapsLock.current = capsLock;
   }, [capsLock]);
   // The field stays focused and editable throughout, as macOS's: only submitting waits.
@@ -131,22 +136,28 @@ export function PasswordField({
     setMessage(null);
     if (authenticate(typed)) setChecking(true);
     else {
-      setMessage("No se ha podido comprobar la contraseña");
-      say("No se ha podido comprobar la contraseña", false);
+      setMessage("notChecked");
+      say(words.notChecked, false);
     }
   };
   // What the last attempt said comes first; Caps Lock on is said while nothing else is.
   const hint =
     wait > 0
-      ? `Vuelve a intentarlo en ${wait} s`
-      : (message ?? (checking ? "Comprobando…" : capsLock ? "Bloq Mayús activado" : ""));
+      ? words.tryAgainInSeconds(wait)
+      : message
+        ? words[message]
+        : checking
+          ? words.checking
+          : capsLock
+            ? words.capsLock
+            : "";
   return (
     <>
       <Animated.View testID={`${testID}-field`} style={[{ marginTop: 12 }, field]}>
         <TextInput
           ref={input}
           testID={`${testID}-password`}
-          accessibilityLabel={accessibilityLabel}
+          accessibilityLabel={accessibilityLabel ?? words.label}
           value={password}
           onChangeText={(text) => {
             setPassword(text);
@@ -157,7 +168,7 @@ export function PasswordField({
           secureTextEntry
           autoFocus
           maxLength={MAX_PASSWORD_BYTES}
-          placeholder={placeholder}
+          placeholder={placeholder ?? words.placeholder}
           placeholderTextColor="rgba(255,255,255,0.65)"
           returnKeyType="go"
           // Enter submits and the field stays focused for another try, as macOS's.

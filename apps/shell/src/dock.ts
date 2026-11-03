@@ -4,6 +4,7 @@
  * press, a secondary click or a Control-click opens on an icon. What the menu offers is worked out
  * here from the platform's snapshot; the platform does what is chosen.
  */
+import type { ShellMessages } from "./messages";
 import type { ShellApplication, ShellSnapshot, ShellWindow } from "./model";
 
 /** What the dock's menus are worked out from: the snapshot's applications, windows, active
@@ -68,18 +69,6 @@ export type DockAbilities = {
   showAllWindows: boolean;
 };
 
-const WORDS = {
-  open: "Abrir",
-  showAllWindows: "Mostrar todas las ventanas",
-  hide: "Ocultar",
-  options: "Opciones",
-  keepInDock: "Mantener en el Dock",
-  openAtLogin: "Abrir al iniciar sesión",
-  quit: "Salir",
-  forceQuit: "Forzar salida",
-  notResponding: "La aplicación no responde",
-  untitled: "Sin título",
-};
 
 /** The windows of the application `id`, as its menu lists them: its own, oldest first. */
 export function appWindows(snapshot: DockState, id: string): ShellWindow[] {
@@ -98,8 +87,10 @@ export function dockMenu(
   snapshot: DockState,
   id: string,
   abilities: DockAbilities,
+  messages: ShellMessages,
   option = false,
 ): DockMenuItem[] {
+  const words = messages.dock;
   const app = snapshot.applications.find((candidate) => candidate.id === id);
   const windows = appWindows(snapshot, id);
   const running = windows.length > 0;
@@ -109,7 +100,7 @@ export function dockMenu(
     options.push({
       kind: "item",
       id: "keep-in-dock",
-      label: WORDS.keepInDock,
+      label: words.keepInDock,
       command: { kind: "keep-in-dock", keep: !kept },
       checked: kept,
     });
@@ -119,21 +110,21 @@ export function dockMenu(
     options.push({
       kind: "item",
       id: "open-at-login",
-      label: WORDS.openAtLogin,
+      label: words.openAtLogin,
       command: { kind: "open-at-login", open: !atLogin },
       checked: atLogin,
     });
   }
   const optionsMenu: DockMenuItem[] = options.length
-    ? [{ kind: "submenu", id: "options", label: WORDS.options, items: options }]
+    ? [{ kind: "submenu", id: "options", label: messages.common.options, items: options }]
     : [];
   if (!running) {
-    return [{ kind: "item", id: "open", label: WORDS.open, command: { kind: "open" } }, ...optionsMenu];
+    return [{ kind: "item", id: "open", label: words.open, command: { kind: "open" } }, ...optionsMenu];
   }
   const responding = windows.every((win) => win.responding !== false);
   const items: DockMenuItem[] = [];
   if (!responding) {
-    items.push({ kind: "label", id: "not-responding", label: WORDS.notResponding });
+    items.push({ kind: "label", id: "not-responding", label: words.notResponding });
     items.push({ kind: "separator", id: "not-responding-separator" });
   }
   // The application's current window, checked: the active one, else the one it used last (the
@@ -145,7 +136,7 @@ export function dockMenu(
     items.push({
       kind: "item",
       id: `window-${win.id}`,
-      label: win.title || app?.name || WORDS.untitled,
+      label: win.title || app?.name || words.untitled,
       command: { kind: "window", window: win.id },
       checked: win === current,
     });
@@ -155,12 +146,12 @@ export function dockMenu(
     items.push({
       kind: "item",
       id: "show-all-windows",
-      label: WORDS.showAllWindows,
+      label: words.showAllWindows,
       command: { kind: "show-all-windows" },
     });
   }
   if (abilities.hide) {
-    items.push({ kind: "item", id: "hide", label: WORDS.hide, command: { kind: "hide" } });
+    items.push({ kind: "item", id: "hide", label: words.hide, command: { kind: "hide" } });
   }
   items.push(...optionsMenu);
   const force = (option || !responding) && abilities.forceQuit;
@@ -168,8 +159,8 @@ export function dockMenu(
     items.push({ kind: "separator", id: "quit-separator" });
     items.push(
       force
-        ? { kind: "item", id: "force-quit", label: WORDS.forceQuit, command: { kind: "force-quit" } }
-        : { kind: "item", id: "quit", label: WORDS.quit, command: { kind: "quit" } },
+        ? { kind: "item", id: "force-quit", label: words.forceQuit, command: { kind: "force-quit" } }
+        : { kind: "item", id: "quit", label: words.quit, command: { kind: "quit" } },
     );
   }
   return items;
@@ -186,9 +177,10 @@ export type TrashCommand = "open" | "empty";
 export function trashMenu(
   items: number | undefined,
   canEmpty: boolean,
+  messages: ShellMessages,
 ): { id: TrashCommand; label: string; enabled: boolean }[] {
   return [
-    { id: "open", label: WORDS.open, enabled: true },
-    ...(canEmpty ? [{ id: "empty" as const, label: "Vaciar Papelera", enabled: (items ?? 0) > 0 }] : []),
+    { id: "open", label: messages.dock.open, enabled: true },
+    ...(canEmpty ? [{ id: "empty" as const, label: messages.dock.emptyTrash, enabled: (items ?? 0) > 0 }] : []),
   ];
 }

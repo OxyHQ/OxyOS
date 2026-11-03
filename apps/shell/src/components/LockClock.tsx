@@ -10,6 +10,8 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { Text } from "@oxy.so/bloom/typography";
 import type { MaskedProps } from "../platform";
+import { lockDate, lockTime } from "../clock";
+import { useShellLocale } from "../useShellMessages";
 
 const TIME_SIZE = 112;
 const TIME_LINE = 124;
@@ -132,13 +134,9 @@ export function LockClock({
   Masked?: ComponentType<MaskedProps>;
   blurTarget: RefObject<ComponentRef<typeof View> | null>;
 }) {
-  const date = now.toLocaleDateString("es", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-  const day = date.charAt(0).toUpperCase() + date.slice(1);
-  const time = now.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+  const locale = useShellLocale();
+  const day = lockDate(now, locale);
+  const time = lockTime(now, locale);
   const shown = useSharedValue(0);
   useEffect(() => {
     shown.value = withTiming(1, { duration: 600, easing: ease });
@@ -154,9 +152,9 @@ export function LockClock({
           <Text style={glyphStyle(DATE_SIZE, DATE_LINE)}>{day}</Text>
         </Material>
       </View>
-      <View testID="shell-lock-time" accessible accessibilityRole="text" accessibilityLabel={time}>
+      <View testID="shell-lock-time" accessible accessibilityRole="text" accessibilityLabel={time.said}>
         <Material Masked={Masked} blurTarget={blurTarget} height={TIME_LINE}>
-          {[...time].map((char, index) => (
+          {[...time.shown].map((char, index) => (
             <Glyph key={index} char={char} />
           ))}
         </Material>

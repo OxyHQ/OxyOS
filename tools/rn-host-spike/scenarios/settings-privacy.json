@@ -1,5 +1,6 @@
 {
   "module": "OxyOSSettings",
+  "locale": "es_ES.UTF-8",
   "window": [
     900,
     640
@@ -39,7 +40,7 @@
         "press",
         [
           71,
-          515
+          555
         ]
       ],
       "expect": {

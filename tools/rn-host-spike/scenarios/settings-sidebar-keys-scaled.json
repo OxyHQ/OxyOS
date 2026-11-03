@@ -1,5 +1,6 @@
 {
  "about": "Settings' sidebar navigated with the arrows as ONE list, as a Mac's System Settings sidebar (docs/adr/0039-keyboard-access.mdx; Bloom's SettingsLayout rail): Settings with the shell, the screen reader on in Spanish. Tab lands on the sidebar once, on its selected row; ↓ ↑, End and Home select the rows and show their panes, the keyboard following the selection and each row said once, selected; ↓ at the end goes nowhere; Tab goes on to the pane's first control and Shift+Tab back to the selected row. The sidebar is one list of its rows, its group labels headings. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
   900,
@@ -17,9 +18,7 @@
    "accent": "oxy"
   }
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "outputs": "1600x1000@1.25",
  "steps": [
   {
@@ -63,7 +62,7 @@
       },
       {
        "role": "Heading",
-       "name": "System"
+       "name": "General"
       },
       {
        "role": "ListItem",
@@ -82,7 +81,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 11",
+      "text": "Appearance, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
@@ -122,7 +121,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 11",
+      "text": "Wallpaper, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -165,7 +164,7 @@
     },
     "spoken": [
      {
-      "text": "Notifications, seleccionado, 3 de 11",
+      "text": "Notifications, seleccionado, 3 de 12",
       "interrupting": true
      }
     ],
@@ -208,7 +207,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 11",
+      "text": "Wallpaper, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -289,7 +288,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 11",
+      "text": "Wallpaper, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -297,7 +296,7 @@
    }
   },
   {
-   "name": "End: the last row, About, across into the System group",
+   "name": "End: the last row, About, across into the General group",
    "do": [
     "key",
     [
@@ -329,7 +328,7 @@
     },
     "spoken": [
      {
-      "text": "About, seleccionado, 11 de 11",
+      "text": "About, seleccionado, 12 de 12",
       "interrupting": true
      }
     ],
@@ -390,7 +389,7 @@
     },
     "spoken": [
      {
-      "text": "Privacy, seleccionado, 10 de 11",
+      "text": "Privacy, seleccionado, 11 de 12",
       "interrupting": true
      }
     ],
@@ -430,7 +429,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 11",
+      "text": "Appearance, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],

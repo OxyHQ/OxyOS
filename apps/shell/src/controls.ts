@@ -5,6 +5,7 @@ import type {
   ShellLevel,
   ShellNetwork,
 } from "./model";
+import type { ShellMessages } from "./messages";
 
 /** The bezel's segments, as a Mac's: a level moves in sixteen steps. */
 export const SEGMENTS = 16;
@@ -22,15 +23,8 @@ export function segments(level: ShellLevel): number {
   return Math.round(Math.min(1, Math.max(0, level.level)) * SEGMENTS);
 }
 
-const NAMES: Record<ShellControl, string> = {
-  output: "Volumen",
-  input: "Micrófono",
-  display: "Brillo",
-  keyboard: "Retroiluminación del teclado",
-};
-
-export function controlName(control: ShellControl): string {
-  return NAMES[control];
+export function controlName(control: ShellControl, messages: ShellMessages): string {
+  return messages.controls.names[control];
 }
 
 /** Whether a volume is heard: not muted, and above nothing. */
@@ -39,49 +33,49 @@ export function silent(level: ShellLevel): boolean {
 }
 
 /** What the bezel says to a screen reader: "Volumen, 56 %", "Micrófono silenciado". */
-export function announcement(control: ShellControl, level: ShellLevel): string {
-  if (level.muted) return control === "input" ? "Micrófono silenciado" : "Sonido silenciado";
-  return `${NAMES[control]}, ${percent(level.level)} %`;
+export function announcement(control: ShellControl, level: ShellLevel, messages: ShellMessages): string {
+  const words = messages.controls;
+  if (level.muted) return control === "input" ? words.microphoneMuted : words.soundMuted;
+  return words.level(words.names[control], messages.common.percent(percent(level.level)));
 }
 
 /** Hours and minutes, as "3 h 1 min" or "45 min". */
-function duration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours === 0) return `${rest} min`;
-  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+function duration(minutes: number, messages: ShellMessages): string {
+  return messages.controls.duration(Math.floor(minutes / 60), minutes % 60);
 }
 
 /** The battery in words, or nothing without one: "78 %, cargando (3 h 1 min para cargarse)". */
-export function batteryLabel(power: ShellBattery | undefined): string | undefined {
+export function batteryLabel(power: ShellBattery | undefined, messages: ShellMessages): string | undefined {
   if (!power || power.battery === "absent") return undefined;
-  const charge = `${power.percent} %`;
+  const words = messages.controls;
+  const charge = messages.common.percent(power.percent);
   switch (power.battery) {
     case "charging":
       return power.minutes > 0
-        ? `${charge}, cargando (${duration(power.minutes)} para cargarse)`
-        : `${charge}, cargando`;
+        ? words.chargingFor(charge, duration(power.minutes, messages))
+        : words.charging(charge);
     case "full":
-      return `${charge}, cargada`;
+      return words.charged(charge);
     case "not-charging":
-      return `${charge}, conectada, sin cargar`;
+      return words.notCharging(charge);
     default:
-      return power.minutes > 0 ? `${charge}, ${duration(power.minutes)} restantes` : charge;
+      return power.minutes > 0 ? words.remaining(charge, duration(power.minutes, messages)) : charge;
   }
 }
 
 /** Wi-Fi in words, or nothing without it. */
-export function wifiLabel(network: ShellNetwork | undefined): string | undefined {
+export function wifiLabel(network: ShellNetwork | undefined, messages: ShellMessages): string | undefined {
   if (!network || network.wifi === "unavailable") return undefined;
+  const words = messages.controls;
   switch (network.wifi) {
     case "off":
-      return "Desactivada";
+      return words.wifiOff;
     case "disconnected":
-      return "Sin conexión";
+      return words.wifiDisconnected;
     case "connecting":
-      return network.ssid ? `Conectando a ${network.ssid}` : "Conectando";
+      return network.ssid ? words.wifiConnectingTo(network.ssid) : words.wifiConnecting;
     default:
-      return network.ssid || "Conectada";
+      return network.ssid || words.wifiConnected;
   }
 }
 
@@ -91,11 +85,14 @@ export function wifiOn(network: ShellNetwork | undefined): boolean {
 }
 
 /** Bluetooth in words, or nothing without it. */
-export function bluetoothLabel(bluetooth: ShellBluetooth | undefined): string | undefined {
+export function bluetoothLabel(
+  bluetooth: ShellBluetooth | undefined,
+  messages: ShellMessages,
+): string | undefined {
   if (!bluetooth || bluetooth.state === "unavailable") return undefined;
-  if (bluetooth.state === "off") return "Desactivado";
-  if (bluetooth.connected === 0) return "Activado";
-  return bluetooth.connected === 1 ? "1 dispositivo" : `${bluetooth.connected} dispositivos`;
+  if (bluetooth.state === "off") return messages.common.off;
+  if (bluetooth.connected === 0) return messages.common.on;
+  return messages.controls.devices(bluetooth.connected);
 }
 
 /** How many of the Wi-Fi icon's three arcs its signal fills. */

@@ -1,5 +1,6 @@
 {
   "about": "Wi-Fi in Control Center as a Mac's (docs/adr/0038-networks.mdx), over a NetworkManager played on the run's own bus (oxyos-fake-networkmanager): LukeSkyRouter joined (WPA2, saved), Café Libre open, Vecinos WPA2 (hunter22!), eduroam 802.1X, an Ethernet port with no cable. The top bar's Wi-Fi opens Control Center at its Wi-Fi view, which scans; an open network joins with nothing asked; a protected one asks its password in the shell's system sheet, a wrong one is refused by the daemon, kept nowhere and asked again saying so, the right one joins and the daemon alone keeps it; the enterprise network says it is not supported; Wi-Fi's switch turns the daemon's Wi-Fi off; a cable plugged shows Ethernet in the top bar, unplugged it goes. Every step checks what the daemon holds.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

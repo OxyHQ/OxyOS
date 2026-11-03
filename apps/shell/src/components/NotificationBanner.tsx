@@ -6,6 +6,7 @@ import { Box, PressArea } from "../primitives";
 import { AppIcon } from "../apps";
 import type { ShellApplication, ShellNotification } from "../model";
 import { ago, applicationOf, spoken } from "../notifications";
+import { useShellMessages } from "../useShellMessages";
 
 export const BANNER_WIDTH = 360;
 
@@ -31,11 +32,14 @@ export const NotificationCard = memo(function NotificationCard({
   now: Date;
   activate: (action: number, reply?: string) => void;
   close: () => void;
-  closeLabel: string;
+  /** Its close button's name; the banner's Hide by default. */
+  closeLabel?: string;
   /** Whether the person is typing a reply in it (a banner then stays). */
   onReplying?: (replying: boolean) => void;
   testID: string;
 }) {
+  const messages = useShellMessages();
+  const words = messages.notifications;
   const { name, app } = applicationOf(notification, applications);
   const [replying, setReplying] = useState<number | null>(null);
   const [reply, setReply] = useState("");
@@ -70,7 +74,7 @@ export const NotificationCard = memo(function NotificationCard({
             <Text numberOfLines={1} className="text-[11px] text-[#5b6573]" style={{ flexShrink: 1 }}>
               {name}
             </Text>
-            <Text className="ml-2 text-[11px] text-[#5b6573]">{ago(notification.postedAt, now.getTime())}</Text>
+            <Text className="ml-2 text-[11px] text-[#5b6573]">{ago(notification.postedAt, now.getTime(), messages)}</Text>
           </Box>
           <Text numberOfLines={1} className="text-[13px] font-semibold text-[#1d2530]">
             {notification.title}
@@ -89,7 +93,7 @@ export const NotificationCard = memo(function NotificationCard({
       </PressArea>
       <CloseButton
         size="xs"
-        accessibilityLabel={closeLabel}
+        accessibilityLabel={closeLabel ?? words.closeBanner}
         onPress={close}
         style={{ position: "absolute", top: 8, right: 8 }}
       />
@@ -99,8 +103,8 @@ export const NotificationCard = memo(function NotificationCard({
             <TextField size="sm">
               <TextFieldInput
                 testID={`${testID}-reply`}
-                label={notification.actions[replying - 1]?.label ?? "Responder"}
-                placeholder={notification.actions[replying - 1]?.reply || "Mensaje"}
+                label={notification.actions[replying - 1]?.label ?? words.reply}
+                placeholder={notification.actions[replying - 1]?.reply || words.message}
                 value={reply}
                 onChangeText={setReply}
                 autoFocus
@@ -114,7 +118,7 @@ export const NotificationCard = memo(function NotificationCard({
             </TextField>
           </Box>
           <Button testID={`${testID}-send`} size="sm" onPress={() => send(reply)}>
-            Enviar
+            {words.send}
           </Button>
         </Box>
       ) : notification.actions.length > 0 ? (

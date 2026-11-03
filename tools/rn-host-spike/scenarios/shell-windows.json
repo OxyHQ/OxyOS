@@ -1,5 +1,6 @@
 {
   "about": "The compositor's windows in the OxyOS shell (ADR 0009, step 3): the application (sample/EditingProbe.tsx) is launched as Allo, an application the shell's dock does not pin, and the shell (OxyOSShell) is told its window by the compositor, so Allo joins the dock. Minimized by the compositor, the window leaves the screen and stays in the dock; a press on Allo there makes the shell ask the compositor to focus the application's newest window, which is restored and focused. Each step checks the window on the screen, its place, the dock's pixels, and that the application receives exactly its own events and React nothing it should not.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

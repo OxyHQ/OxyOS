@@ -6,9 +6,7 @@
   420
  ],
  "locale": "es_ES.UTF-8",
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "preferences": {
   "accent": "jade",
   "appearance": "dark"

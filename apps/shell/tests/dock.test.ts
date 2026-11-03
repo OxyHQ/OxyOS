@@ -11,6 +11,9 @@ import {
   type DockMenuItem,
 } from "../src/dock.ts";
 import type { ShellApplication, ShellSnapshot, ShellWindow } from "../src/model.ts";
+import { shellMessages } from "../src/messages.ts";
+
+const ES = shellMessages("es-ES");
 
 const app = (id: string, pinned = false): ShellApplication => ({ id, name: id, icon: { svg: "" }, pinned });
 const window = (id: string, appId: string, extra: Partial<ShellWindow> = {}): ShellWindow => ({
@@ -64,6 +67,7 @@ test("a running application's menu lists its windows, the one it used last check
     }),
     "inbox",
     ALL,
+    ES,
   );
   assert.deepEqual(shown(menu), [
     "[x] inbox 1",
@@ -82,28 +86,29 @@ test("the active window is the one checked", () => {
     snapshot([window("1", "inbox", { used: 4 }), window("2", "inbox", { used: 2, focused: true })]),
     "inbox",
     ALL,
+    ES,
   );
   assert.deepEqual(shown(menu).slice(0, 2), ["inbox 1", "[x] inbox 2"]);
 });
 
 test("Option held, or an application not responding, makes Quit Force Quit", () => {
   const running = snapshot([window("1", "allo")]);
-  assert.equal(shown(dockMenu(running, "allo", ALL, true)).at(-1), "Forzar salida");
+  assert.equal(shown(dockMenu(running, "allo", ALL, ES, true)).at(-1), "Forzar salida");
   const stuck = snapshot([window("1", "allo", { responding: false })]);
-  const menu = shown(dockMenu(stuck, "allo", ALL));
+  const menu = shown(dockMenu(stuck, "allo", ALL, ES));
   assert.equal(menu[0], "(La aplicación no responde)");
   assert.equal(menu.at(-1), "Forzar salida");
   // Where the platform cannot force-quit, Quit stays.
-  assert.equal(shown(dockMenu(stuck, "allo", { ...ALL, forceQuit: false })).at(-1), "Salir");
+  assert.equal(shown(dockMenu(stuck, "allo", { ...ALL, forceQuit: false }, ES)).at(-1), "Salir");
 });
 
 test("an application not running offers Open and its options, unchecked when it is not kept", () => {
-  assert.deepEqual(shown(dockMenu(snapshot([]), "inbox", ALL)), [
+  assert.deepEqual(shown(dockMenu(snapshot([]), "inbox", ALL, ES)), [
     "Abrir",
     "Opciones > [x] Mantener en el Dock | Abrir al iniciar sesión",
   ]);
   // Nothing the platform cannot do is offered.
-  assert.deepEqual(shown(dockMenu(snapshot([]), "inbox", { ...ALL, keepInDock: false, openAtLogin: false })), [
+  assert.deepEqual(shown(dockMenu(snapshot([]), "inbox", { ...ALL, keepInDock: false, openAtLogin: false }, ES)), [
     "Abrir",
   ]);
 });
@@ -115,7 +120,7 @@ test("keeping in the dock and opening at login change the lists in their order",
   assert.deepEqual(openAtLogin(shownSnapshot, "allo", true), ["dropsea", "allo"]);
   assert.deepEqual(openAtLogin(shownSnapshot, "dropsea", false), []);
   // The commands say what changes: unkeeping a kept one, keeping one that is not.
-  const options = dockMenu(shownSnapshot, "allo", ALL).find((item) => item.kind === "submenu");
+  const options = dockMenu(shownSnapshot, "allo", ALL, ES).find((item) => item.kind === "submenu");
   assert.ok(options?.kind === "submenu");
   assert.deepEqual(
     options.items.map((item) => (item.kind === "item" ? item.command : null)),
@@ -127,13 +132,13 @@ test("keeping in the dock and opening at login change the lists in their order",
 });
 
 test("the Trash offers emptying only while it holds anything", () => {
-  assert.deepEqual(trashMenu(0, true), [
+  assert.deepEqual(trashMenu(0, true, ES), [
     { id: "open", label: "Abrir", enabled: true },
     { id: "empty", label: "Vaciar Papelera", enabled: false },
   ]);
-  assert.equal(trashMenu(3, true)[1]?.enabled, true);
+  assert.equal(trashMenu(3, true, ES)[1]?.enabled, true);
   assert.deepEqual(
-    trashMenu(3, false).map((entry) => entry.id),
+    trashMenu(3, false, ES).map((entry) => entry.id),
     ["open"],
   );
 });

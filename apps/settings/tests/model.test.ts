@@ -14,19 +14,21 @@ import {
   resolutions,
   type Display,
 } from "../src/model.ts";
-import { stringsFor } from "../src/strings.ts";
+import { messagesFor } from "../src/messages.ts";
 
 test("preferences are named as the session's file names them", () => {
   assert.deepEqual(Object.values(PREFERENCE_KEYS).sort(), [
     "accent",
     "appearance",
     "caret_blink",
-    "clock_24h",
     "do_not_disturb",
+    "hour_cycle",
+    "language",
     "lock_after",
     "notification_previews",
     "reduce_motion",
     "reduce_transparency",
+    "region",
     "screen_reader",
     "wallpaper",
   ]);
@@ -46,9 +48,9 @@ test("Prefer non-blinking cursor is the session's caret_blink turned around", ()
   assert.equal(preferenceText<"caretBlink">(false), "false");
   assert.equal(preferenceText<"caretBlink">(true), "true");
   // Named as macOS names it, in Accessibility, in both languages.
-  assert.equal(stringsFor("en").accessibility.steadyCaret, "Prefer non-blinking cursor");
-  assert.equal(stringsFor("es").accessibility.steadyCaret, "Preferir cursor sin parpadeo");
-  assert.ok(stringsFor("es").accessibility.steadyCaretDescription.length > 0);
+  assert.equal(messagesFor("en").accessibility.steadyCaret, "Prefer non-blinking cursor");
+  assert.equal(messagesFor("es").accessibility.steadyCaret, "Preferir cursor sin parpadeo");
+  assert.ok(messagesFor("es").accessibility.steadyCaretDescription.length > 0);
 });
 
 test("lock after offers never, and a day at most", () => {
@@ -63,12 +65,12 @@ test("memory reads as people read it", () => {
 });
 
 test("Spanish for Spanish, English otherwise", () => {
-  assert.equal(stringsFor("es-ES").title, "Ajustes");
-  assert.equal(stringsFor("es_MX").title, "Ajustes");
-  assert.equal(stringsFor("en-US").title, "Settings");
-  assert.equal(stringsFor("fr").title, "Settings");
-  assert.equal(stringsFor("es").lockScreen.minutes(1), "1 minuto");
-  assert.equal(stringsFor("en").lockScreen.minutes(60), "1 hour");
+  assert.equal(messagesFor("es-ES").title, "Ajustes");
+  assert.equal(messagesFor("es_MX").title, "Ajustes");
+  assert.equal(messagesFor("en-US").title, "Settings");
+  assert.equal(messagesFor("fr").title, "Settings");
+  assert.equal(messagesFor("es").lockScreen.minutes(1), "1 minuto");
+  assert.equal(messagesFor("en").lockScreen.minutes(60), "1 hour");
 });
 
 /** A 24-inch 1080p monitor right of a 14-inch panel at 1.25, as the session tells Settings them. */
@@ -141,8 +143,8 @@ test("a display moved to a side of the others is wanted just beyond them", () =>
 });
 
 test("the Displays page's words in both languages", () => {
-  assert.equal(stringsFor("es").pages.displays, "Pantallas");
-  assert.equal(stringsFor("en").displays.keepDescription(1), "The display goes back to its previous settings in 1 second.");
-  assert.equal(stringsFor("es").displays.size(14, "1920 × 1200"), "14 pulgadas, 1920 × 1200");
-  assert.equal(stringsFor("en").displays.looksLike("1536 × 960"), "Looks like 1536 × 960");
+  assert.equal(messagesFor("es").pages.displays, "Pantallas");
+  assert.equal(messagesFor("en").displays.keepDescription(1), "The display goes back to its previous settings in 1 second.");
+  assert.equal(messagesFor("es").displays.size(14, "1920 × 1200"), "14 pulgadas, 1920 × 1200");
+  assert.equal(messagesFor("en").displays.looksLike("1536 × 960"), "Looks like 1536 × 960");
 });

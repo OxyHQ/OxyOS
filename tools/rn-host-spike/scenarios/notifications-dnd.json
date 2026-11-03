@@ -1,5 +1,6 @@
 {
   "about": "Do Not Disturb (docs/adr/0026-notifications.mdx, the user's `do_not_disturb` preference, docs/adr/0019-settings.mdx): Allo posts one now (sample/NotificationProbe.tsx) and the session keeps it, but the shell shows no banner and the screen reader says nothing. The top bar's clock opens the Notification Center, which says Do Not Disturb is on and lists it under Allo; pressing it there brings Allo forward and its response listener hears it once. Then the Control Center's No molestar switch (ADR 0025's Control Center) turns it off, through the user's preference as Dark Mode goes, kept in the file; the next notification is a banner, said. With Do Not Disturb off from the start, the banner shows and is said, so the first step fails.",
+  "locale": "es_ES.UTF-8",
   "module": "NotificationProbe",
   "window": [
     600,

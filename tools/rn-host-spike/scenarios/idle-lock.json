@@ -1,5 +1,6 @@
 {
   "about": "The idle lock (ADR 0010, step 4) with the session's shell and an application, at the default lock_after of five minutes. The development compositor's idle lock counts the seconds an `idle` step names as passed with no input, at once, on top of the real time the run takes (a minute is left for it). Four minutes lock nothing; a press in the window arms the lock again from it; five minutes with no input lock the session, as the shell's menu does, showing only the lock screen; locked, more time locks nothing again; unlocked by the password, five minutes from the unlock lock it again.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
     600,

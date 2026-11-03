@@ -1,5 +1,6 @@
 {
   "about": "A window dragged by its title area on the ThinkPad's kind of output (1600x1000 at 1.25, the session's shell on it), at a mouse's pace, for the performance harness (perf.py, docs/performance.mdx): WindowProbe pressed on its rail's top band and moved 200 px right and 100 px down in 100 motions at 125 Hz, the development compositor serving between motions (`drag_paced`). The compositor moves the window with the pointer, composing a frame for each motion; nothing of any client changes, so no client's pixels are read or uploaded again: the compositor reads none in the drag.",
+  "locale": "es_ES.UTF-8",
   "module": "WindowProbe",
   "window": [900, 600],
   "shell": "OxyOSShell",

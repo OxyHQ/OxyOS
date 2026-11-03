@@ -44,6 +44,8 @@
     "../../apps/shell/src",
     "../../apps/shell/tests",
     "../../apps/login/src",
-    "../../apps/login/tests"
+    "../../apps/login/tests",
+    "../../apps/settings/src",
+    "../../apps/settings/tests"
   ]
 }

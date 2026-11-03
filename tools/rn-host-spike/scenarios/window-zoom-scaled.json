@@ -1,5 +1,6 @@
 {
   "about": "A window zoomed on the ThinkPad's display (1600×1000 at 1.25) with the session's shell (docs/adr/0016-windows.mdx): Bloom's SettingsLayout in a window (sample/WindowProbe.tsx), its green bubble zooming it to the work area between the top bar and the dock, its frame going there on a spring (a `zoomed` transition, eased out) and its corners square there: the page to the work area's every corner, in whole device pixels, the top bar right above it and the dock right below, no desktop between; pressed again, it restores its frame and its corners round again, the desktop at its corner. With the corners drawn round when zoomed, the work area's corners show the desktop and it fails.",
+  "locale": "es_ES.UTF-8",
   "module": "WindowProbe",
   "window": [900, 600],
   "shell": "OxyOSShell",

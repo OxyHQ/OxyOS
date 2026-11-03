@@ -1,5 +1,6 @@
 {
  "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on System Settings and Return opens Settings; Tab goes down its sidebar, each row said once with its ring; Space opens Accessibility; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
   600,
@@ -17,9 +18,7 @@
    "accent": "oxy"
   }
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Allo's window, its field without focus; the reader on, nothing focused",

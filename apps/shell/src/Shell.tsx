@@ -25,7 +25,8 @@ import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner"
 import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
-import type { Language, SheetText } from "./sheet";
+import type { SheetText } from "./sheet";
+import { useShellMessages } from "./useShellMessages";
 import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
@@ -122,7 +123,6 @@ export const Shell = memo(function Shell({
         new one, its field empty. */
     id?: number;
     text: SheetText;
-    language?: Language;
     names?: Record<string, string>;
     answer: (accepted: boolean) => void;
     /** A Wi-Fi password sheet's answer (docs/adr/0038-networks.mdx): the password, to the
@@ -134,6 +134,7 @@ export const Shell = memo(function Shell({
   screenshots?: ShellScreenshots;
 }) {
   const { Surface } = platform;
+  const messages = useShellMessages();
   const dark = useColorScheme() === "dark";
   // The Control Center, open at its modules or at Wi-Fi's view (docs/adr/0038-networks.mdx).
   const [controlCenter, setControlCenter] = useState<ControlCenterPage | null>(null);
@@ -488,7 +489,7 @@ export const Shell = memo(function Shell({
     if (joined === saidJoined.current) return;
     saidJoined.current = joined;
     if (!joined) return;
-    const said = `Conectado a ${joined}`;
+    const said = messages.wifi.joined(joined);
     if (platform.announce) platform.announce(said, true);
     else AccessibilityInfo.announceForAccessibility(said);
   }, [joined]);
@@ -645,7 +646,6 @@ export const Shell = memo(function Shell({
               notification={banner}
               applications={snapshot.applications}
               now={now}
-              closeLabel="Ocultar"
               close={closeBanner}
               onReplying={setReplying}
               activate={activateBanner}
@@ -716,7 +716,6 @@ export const Shell = memo(function Shell({
             <SystemSheet
               key={sheet.id}
               text={sheet.text}
-              language={sheet.language}
               names={sheet.names}
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}

@@ -5,7 +5,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 (OXYOS_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
 
 - texts / absent: text the application shows (or must not) once the step settled, across its
-  window and popups (each surface's latest presented frame);
+  window and popups (each surface's latest presented frame); texts_matching, regular expressions
+  each some shown text matches (re.search): what follows the wall clock (the top bar's clock, in
+  the locale's format);
 - focus_input: the text input holding focus (null for none), from the latest frame;
 - focus_surface: the application surface with the compositor's keyboard focus;
 - keyboard_focus: the control the keyboard's navigation focused (Tab, docs/adr/0039-keyboard-access.mdx)
@@ -306,9 +308,10 @@ where its entry came from (`system`, `installed N`, `development`) and whether i
 A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
 that moment where that time zone is (ADR 0012).
 
-A scenario with `reader` ({"locale": LOCALE}) runs the session's screen reader (`oxyos-reader`,
-beside the offscreen compositor unless `--reader` names it) in that locale, its voice a record of
-what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
+A scenario with `reader` ({}) runs the session's screen reader (`oxyos-reader`, beside the
+offscreen compositor unless `--reader` names it), which speaks the session's language (the
+scenario's `locale`, docs/adr/0040-language-and-region.mdx), its voice a record of what it says
+(ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
 With "off": true the reader is the session's but off, as `oxyos-session --reader` without
 `--reader-on` has it: Super+F5 typed on the keymap (a `strokes` step, [[125, 63]]) starts it and
 stops it again, locked or not (ADR 0014, decision 6).
@@ -336,8 +339,10 @@ change it did not make), or `after_ms` after it first does (a change coming whil
 sits idle). A step's `home` expectation checks the home once the step settled: each path given
 exists (true) or not (false), a file's text, and `trash` the names in the home's Trash (its
 `files/`), each with a `.trashinfo` naming where it was; with a `shell`, the dock's Trash follows
-that home's Trash (ADR 0034). A scenario's `locale` sets `LANG` and
-`LC_ALL` for the run, and its `tz` the time zone (`TZ`).
+that home's Trash (ADR 0034). Every scenario runs in one fixed language, never the machine's
+(docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
+scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
+and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`).
 
 What applications keep (their data and cache directories by id, application.h) is under the run's
 own XDG_DATA_HOME and XDG_CACHE_HOME. A scenario's `app_data` ({ID: {FILE: JSON}}) is written to an
@@ -413,6 +418,9 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# The language every scenario runs in unless it names its own `locale` (docs/adr/0040-language-and-region.mdx).
+FIXED_LOCALE = "en_US.UTF-8"
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
@@ -1471,6 +1479,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     for text in expect.get("absent", []):
         if any(text in shown_text for shown_text in shown):
             fail(f"text {text!r} is shown but must not be")
+    for pattern in expect.get("texts_matching", []):
+        if not any(re.search(pattern, shown_text) for shown_text in shown):
+            fail(f"no text shown matches {pattern!r}")
     if "focus_input" in expect and window.get("focus") != expect["focus_input"]:
         fail(f"focused input is {window.get('focus')!r}, expected {expect['focus_input']!r}")
     if "keyboard_focus" in expect:
@@ -2840,7 +2851,9 @@ def main():
     if "reader" in scenario:
         # The session's screen reader (ADR 0014), saying into a record, in the scenario's locale.
         reader = options.reader or str(pathlib.Path(options.offscreen).resolve().parent / "oxyos-reader")
-        command += ["--reader", reader, "--reader-locale", scenario["reader"].get("locale", "en_US.UTF-8")]
+        if "locale" in scenario["reader"]:
+            raise SystemExit(f"{options.scenario}: the reader speaks the scenario's `locale` (ADR 0040), not one of its own")
+        command += ["--reader", reader, "--reader-locale", scenario.get("locale", FIXED_LOCALE)]
         if scenario["reader"].get("off"):
             command += ["--reader-off"]
     if scenario.get("input_method"):
@@ -2961,8 +2974,10 @@ def main():
         directory.mkdir(parents=True, exist_ok=True)
         for name, content in files.items():
             (directory / name).write_text(json.dumps(content))
-    if "locale" in scenario:
-        env["LANG"] = env["LC_ALL"] = scenario["locale"]
+    # One fixed language, never the machine's (docs/adr/0040-language-and-region.mdx, decision 8).
+    for variable in ("LANGUAGE", "LC_MESSAGES", "LC_TIME", "LC_NUMERIC", "LC_CTYPE"):
+        env.pop(variable, None)
+    env["LANG"] = env["LC_ALL"] = scenario.get("locale", FIXED_LOCALE)
     # The session's keyboard composes with the image's compose tables (config/, as CI's tests do),
     # never the developer's machine's.
     env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /

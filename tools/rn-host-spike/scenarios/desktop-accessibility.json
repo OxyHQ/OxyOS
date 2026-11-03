@@ -1,5 +1,6 @@
 {
   "about": "The desktop as a screen reader reads and works it (ADR 0003): the session's assistive technology holds the shell's trees as the compositor sends them, and acts through them alone, never with the pointer. It opens the launcher from the dock, finds its search field and applications, closes it, opens the Oxy menu and locks the session from it. While locked it holds the lock screen alone: nothing of the application or the panels (ADR 0010), the wallpaper and the user's picture not read, the password field named and its text never held; a wrong password is said as an alert. Unlocked, it holds the window and the panels again, and the lock screen no longer.",
+  "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [600, 360],
   "shell": "OxyOSShell",

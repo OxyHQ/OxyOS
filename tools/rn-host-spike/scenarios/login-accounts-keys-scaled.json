@@ -1,5 +1,6 @@
 {
  "about": "The login screen's account chooser from the keyboard (docs/adr/0020-oxy-account-login.mdx; docs/adr/0039-keyboard-access.mdx), as a Mac's login window with Full Keyboard Access and VoiceOver, Bloom's ChoiceList: the Bloom host's OxyOSLogin as the login screen's one client over the login program's development path, three enrolled accounts, the screen reader on in Spanish. The accounts are one list and one Tab stop, the chosen account; the arrows move the keyboard among them without choosing (a row has no ↑ ↓; the list stops at its ends; Home, End), each said once with its place; Return or Space chooses the one focused, whose own password field then takes the focus; leaving the list without choosing gives the stop back to the chosen account. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
  "shell": "OxyOSLogin",
  "login": {
   "password": "oxyos.correcta",
@@ -27,9 +28,7 @@
    "session would start for oxy-bbbbbbbbbbbbbbbbbbbb (user session): "
   ]
  },
- "reader": {
-  "locale": "es_ES.UTF-8"
- },
+ "reader": {},
  "outputs": "1600x1000@1.25",
  "steps": [
   {

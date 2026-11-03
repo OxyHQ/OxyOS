@@ -1,5 +1,6 @@
 {
  "about": "Full Keyboard Access in Dropsea (docs/adr/0039-keyboard-access.mdx): Tab goes through its sidebar's rows, its items (one stop) and its toolbar in reading order, each control focused with its ring, told to React (focus and blur) and said once by the screen reader; Shift+Tab goes back; Space presses the focused toolbar button before Dropsea's own Space. At 1 (1280 × 720).",
+ "locale": "en_US.UTF-8",
  "module": "Dropsea",
  "window": [
   1024,
@@ -18,9 +19,7 @@
    "Pictures/photo.jpg": "x"
   }
  },
- "reader": {
-  "locale": "en_US.UTF-8"
- },
+ "reader": {},
  "steps": [
   {
    "name": "Dropsea's home; the reader on; nothing has the keyboard's focus",
