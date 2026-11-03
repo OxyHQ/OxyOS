@@ -1,9 +1,9 @@
 /**
  * OxyOS side of the Expo modules Bloom and Oxy apps reach (expo-font, expo-asset beneath it,
  * expo-clipboard, expo-notifications, expo-constants, expo-crypto, expo-linking,
- * expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity, and expo-blur's views). expo-modules-core's own global polyfill provides the
+ * expo-localization, expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity, and expo-blur's views). expo-modules-core's own global polyfill provides the
  * module classes; the native work is done by the host's TurboModules (OxyOSFontRegistry,
- * OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto) and host components
+ * OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto, OxyOSLocale) and host components
  * (expo-blur.h). Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
@@ -174,6 +174,96 @@ globalThis.expo.modules.ExpoSecureStore = {
   },
   canUseBiometricAuthentication: () => false,
 };
+
+// expo-localization (docs/adr/0040-language-and-region.mdx, decision 4), as its Android module
+// answers: one locale and one calendar, the session's (the host's OxyOSLocale: the tag the session
+// last told, `es-MX-u-hc-h12`, else the environment's), read at each call; on a change, both of its
+// events, as Android's configuration change sends them, so useLocales() and useCalendars() render
+// again. Separators are the host's Intl's (CLDR's, through ICU4X); the measurement system, the
+// temperature unit and the first day of the week are CLDR's by region (below). No currency: OxyOS
+// has no region-to-currency data yet, and null says so rather than a guess.
+const localeModule = TurboModuleRegistry.get('OxyOSLocale');
+const sessionLocale = () => localeModule?.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
+// A tag's language, script and region: those before its first singleton (`-u-`, `-x-`).
+const subtagsOf = (tag) => {
+  const found = { language: null, script: null, region: null };
+  const subtags = tag.split('-');
+  found.language = subtags[0] || null;
+  for (const subtag of subtags.slice(1)) {
+    if (subtag.length === 1) break;
+    if (/^[A-Za-z]{4}$/.test(subtag) && !found.script && !found.region) found.script = subtag;
+    else if (/^([A-Za-z]{2}|\d{3})$/.test(subtag) && !found.region) found.region = subtag.toUpperCase();
+  }
+  return found;
+};
+// CLDR's measurementData (supplementalData.xml): `US` for the United States, Liberia and Myanmar,
+// `UK` for the United Kingdom; metric (001) elsewhere.
+const measurementOf = (region) => (['US', 'LR', 'MM'].includes(region) ? 'us' : region === 'GB' ? 'uk' : 'metric');
+// Fahrenheit where the region's temperature is told in it (expo-localization's Android table).
+const temperatureOf = (region) =>
+  region === null ? null : ['US', 'BS', 'BZ', 'KY', 'PW', 'LR'].includes(region) ? 'fahrenheit' : 'celsius';
+// CLDR 48's weekData firstDay (as ICU 78.3 gives it, Intl.Locale's getWeekInfo), the regions whose
+// week does not begin on Monday, CLDR's 001; in expo-localization's numbering, 1 Sunday to 7 Saturday.
+const FIRST_DAYS = {
+  1: 'AG AS BD BR BS BT BW BZ CA CO DM DO ET GT GU HK HN ID IL IN IS JM JP KE KH KR LA MH MM MO MT MX MZ NI NP PA PE PH PK PR PT PY SA SG SV TH TT TW UM US VE VI WS YE ZA ZW',
+  6: 'MV',
+  7: 'AF BH DJ DZ EG IQ IR JO KW LY OM QA SD SY',
+};
+const firstWeekdayOf = (region) =>
+  Number(Object.keys(FIRST_DAYS).find((day) => FIRST_DAYS[day].split(' ').includes(region)) ?? 2);
+const separatorsOf = (tag) => {
+  const parts = new Intl.NumberFormat(tag).formatToParts(1234567.5);
+  return {
+    decimal: parts.find((part) => part.type === 'decimal')?.value ?? null,
+    group: parts.find((part) => part.type === 'group')?.value ?? null,
+  };
+};
+const ExpoLocalization = new globalThis.expo.EventEmitter();
+Object.assign(ExpoLocalization, {
+  getLocales: () => {
+    const tag = sessionLocale();
+    const { language, script, region } = subtagsOf(tag);
+    const separators = separatorsOf(tag);
+    return [
+      {
+        // Without its extensions, as Android's system locale has none (the hour cycle is
+        // getCalendars()' uses24hourClock).
+        languageTag: [language, script, region].filter(Boolean).join('-'),
+        languageCode: language,
+        languageScriptCode: script,
+        regionCode: region,
+        languageRegionCode: region,
+        currencyCode: null,
+        currencySymbol: null,
+        languageCurrencyCode: null,
+        languageCurrencySymbol: null,
+        decimalSeparator: separators.decimal,
+        digitGroupingSeparator: separators.group,
+        // Both of OxyOS's languages are written left to right.
+        textDirection: 'ltr',
+        measurementSystem: measurementOf(region),
+        temperatureUnit: temperatureOf(region),
+      },
+    ];
+  },
+  getCalendars: () => {
+    const tag = sessionLocale();
+    const { hourCycle } = new Intl.DateTimeFormat(tag, { hour: 'numeric' }).resolvedOptions();
+    return [
+      {
+        calendar: 'gregory',
+        uses24hourClock: hourCycle === 'h23' || hourCycle === 'h24',
+        firstWeekday: firstWeekdayOf(subtagsOf(tag).region),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
+      },
+    ];
+  },
+});
+DeviceEventEmitter.addListener('OxyOSLocaleChanged', () => {
+  ExpoLocalization.emit('onLocaleSettingsChanged');
+  ExpoLocalization.emit('onCalendarSettingsChanged');
+});
+globalThis.expo.modules.ExpoLocalization = ExpoLocalization;
 
 const fonts = TurboModuleRegistry.getEnforcing('OxyOSFontRegistry');
 const loaded = new Set();

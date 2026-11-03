@@ -52,6 +52,8 @@ const native = [
   // application's facts.
   '@react-native-async-storage/async-storage', '@react-native-community/netinfo', 'expo-crypto',
   'expo-secure-store', 'expo-web-browser', 'expo-clipboard', 'expo-notifications', 'expo-application',
+  // The session's language and region (docs/adr/0040-language-and-region.mdx): expo-localization.
+  'expo-localization',
   // What an Expo Router application's entry runs on (expo-router's qualified entry, but its context
   // of the application's routes, `_ctx`, which each application builds for itself; decision 17).
   'expo-router', 'expo-router/build/ExpoRoot', 'expo-router/build/head', 'expo-router/build/fast-refresh',
@@ -101,9 +103,10 @@ const css = [
   'react-native-css', 'react-native-css/native', 'react-native-css/native-internal', 'react-native-css/components',
   'react-native-css/components/react-native-safe-area-context', 'react-native-css/utilities',
 ];
-// The runtime's own start, Bloom's platform adapter for OxyOS, and the store's installer the runtime
-// registers in an application the policy gives `store` (oxyos/store-installer.js).
-const own = ['./oxyos/framework-init', './oxyos/platform-surface', './oxyos/store-installer',
+// The runtime's own start, Bloom's platform adapter for OxyOS, the session's locale for an
+// application's root (oxyos/locale.js), and the store's installer the runtime registers in an
+// application the policy gives `store` (oxyos/store-installer.js).
+const own = ['./oxyos/framework-init', './oxyos/platform-surface', './oxyos/locale', './oxyos/store-installer',
   'react-native/Libraries/Core/InitializeCore'];
 
 const provided = [...core, ...native, ...css, ...bloomExports, ...own];
