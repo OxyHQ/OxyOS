@@ -25,6 +25,8 @@ namespace oxyos {
 // out in, and what the renderer draws it with.
 struct Face {
   std::string path;
+  // Its face in the file: a collection's (a .ttc) holds several.
+  int index = 0;
   int weight = 400;
   bool variable = false;  // whether the weight is on the file's `wght` axis
   float size = 0;
@@ -91,7 +93,10 @@ class TextEngine {
   // Registers a font file under a family name (variable fonts cover every weight). Returns false,
   // and registers nothing, when the file is not a font Skia can open.
   bool registerFamily(const std::string& family, const std::string& path);
-  // Used for code points the requested family lacks.
+  // Used for code points the requested family lacks, in the order added: every face of the file
+  // (each of a collection's, as Noto Sans CJK holds one per language). Of the faces that have a
+  // code point, the first family's, its weight nearest the text's; for a CJK code point, the face
+  // of the paragraph's language first where one is for it (`CjkLanguage`).
   void addFallback(const std::string& path);
 
   ParagraphLayout layout(

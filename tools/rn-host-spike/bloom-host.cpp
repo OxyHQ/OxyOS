@@ -459,8 +459,15 @@ int main(int argc, char** argv) {
   const float width = !shellMode && argc > 5 ? std::stof(argv[4]) : 1024;
   const float height = !shellMode && argc > 5 ? std::stof(argv[5]) : 640;
 
+  // What the application's fonts lack: Latin, Greek and Cyrillic and symbols (DejaVu, Noto Sans),
+  // Chinese, Japanese and Korean (Noto Sans CJK, Debian's fonts-noto-cjk: a collection of a face
+  // for each language, its regular and bold, docs/adr/0041-input-methods.mdx), and emoji in colour
+  // (Noto Color Emoji, fonts-noto-color-emoji). A file missing is skipped.
   for (const char* path : {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                           "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"}) {
+                           "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+                           "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                           "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                           "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"}) {
     if (std::ifstream(path).good()) oxyos::TextEngine::shared().addFallback(path);
   }
   ReactNativeFeatureFlags::override(std::make_unique<Flags>());
