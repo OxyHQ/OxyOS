@@ -1,0 +1,181 @@
+{
+  "about": "atlas-svg-icons.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), the icons' pixels read in the output's own: each SVG document rasterised at 80 x 80 pixels for its 64 x 64 icon and 60 x 60 for 48, never drawn smaller and enlarged.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "grants": {
+    "so.oxy.atlas": [
+      "store",
+      "updates"
+    ]
+  },
+  "installd": null,
+  "store": {
+    "categories": [
+      {
+        "slug": "productivity",
+        "label": "Productivity"
+      },
+      {
+        "slug": "social",
+        "label": "Social"
+      }
+    ],
+    "apps": [
+      {
+        "slug": "notes",
+        "name": "Notes",
+        "tagline": "Write it down, find it later.",
+        "icon": "{store_files}/notes.svg",
+        "category": {
+          "slug": "productivity",
+          "label": "Productivity"
+        },
+        "rating": {
+          "average": 4.6,
+          "count": 128
+        }
+      },
+      {
+        "slug": "mention",
+        "name": "Mention",
+        "tagline": "Say it to everyone who follows you.",
+        "icon": "file://{store_files}/mention.svg",
+        "category": {
+          "slug": "social",
+          "label": "Social"
+        },
+        "rating": {
+          "average": null,
+          "count": 0
+        }
+      }
+    ],
+    "listings": {
+      "notes": {
+        "slug": "notes",
+        "name": "Notes",
+        "tagline": "Write it down, find it later.",
+        "icon": "{store_files}/notes.svg",
+        "category": {
+          "slug": "productivity",
+          "label": "Productivity"
+        },
+        "rating": {
+          "average": 4.6,
+          "count": 128
+        },
+        "description": "Notes keeps what you write, on every device you use.",
+        "websiteUrl": "https://notes.example",
+        "privacyPolicyUrl": null,
+        "termsUrl": null,
+        "supportUrl": null,
+        "supportEmail": null,
+        "publishedAt": "2026-09-01T10:00:00.000Z",
+        "screenshots": [],
+        "ratingBreakdown": {
+          "5": 100,
+          "4": 28
+        }
+      }
+    },
+    "files": {
+      "notes.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 120\"><defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#ffd60a\"/><stop offset=\"1\" stop-color=\"#ff9f0a\"/></linearGradient></defs><rect width=\"120\" height=\"120\" fill=\"url(#g)\"/><rect x=\"24\" y=\"20\" width=\"72\" height=\"80\" rx=\"8\" fill=\"#ffffff\"/><path d=\"M36 44h48M36 60h48M36 76h32\" stroke=\"#ff9f0a\" stroke-width=\"6\" stroke-linecap=\"round\"/></svg>",
+      "mention.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\"><rect width=\"64\" height=\"64\" fill=\"#2f6fed\"/><circle cx=\"32\" cy=\"32\" r=\"16\" fill=\"#ffffff\"/></svg>"
+    }
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.atlas",
+      "origin": "development",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
+      "do": [
+        "press_output",
+        [
+          680,
+          773
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@dock-so.oxy.atlas": 1,
+            "touchEnd@dock-so.oxy.atlas": 1
+          }
+        },
+        "in_launched": {
+          "texts": [
+            "Discover"
+          ]
+        }
+      }
+    },
+    {
+      "name": "zoomed to the work area: its sidebar, Updates among its places (the machine's installer is registered)",
+      "do": [
+        "press_output",
+        [
+          436,
+          256
+        ]
+      ],
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Discover",
+            "Apps",
+            "Search",
+            "Categories",
+            "Updates"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the storefront: Notes' and Mention's icons, SVG documents the store names as a path and a file URL, drawn in Bloom's squircle",
+      "do": [
+        "wait_named",
+        [
+          "Spotlight",
+          30000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Spotlight",
+            "Notes",
+            "Mention",
+            "Get"
+          ]
+        },
+        "output_pixels": {
+          "431,696": "#ffffff",
+          "431,701": "#ff9f0a",
+          "396,701": "#ffb90a",
+          "392,662": "#fff7f9",
+          "431,805": "#ffffff",
+          "397,805": "#2f6fed",
+          "392,766": "#fff7f9",
+          "446,488": "#ff9f0a",
+          "1012,493": "#ffffff",
+          "990,493": "#2f6fed"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

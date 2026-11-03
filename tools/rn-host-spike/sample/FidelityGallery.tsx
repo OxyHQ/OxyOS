@@ -15,7 +15,20 @@
  * sides, so nothing is moving when the frame is shot.
  */
 import * as React from 'react';
-import { Platform, View } from 'react-native';
+import { Image, Platform, View } from 'react-native';
+import Svg, {
+  Circle,
+  ClipPath,
+  Defs,
+  G,
+  LinearGradient,
+  Mask,
+  Path,
+  Pattern,
+  RadialGradient,
+  Rect,
+  Stop,
+} from 'react-native-svg';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { useTheme } from '@oxy.so/bloom/theme';
@@ -57,6 +70,7 @@ import { Dialog } from '@oxy.so/bloom/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@oxy.so/bloom/popover';
 import { Tooltip, TooltipTextBubble, TooltipTrigger } from '@oxy.so/bloom/tooltip';
 import { toast, ToastOutlet } from '@oxy.so/bloom/toast';
+import { SocialButton } from '@oxy.so/bloom/social-button';
 import { RiAddLine } from '@oxy.so/bloom/icons/RiAddLine';
 import { RiHomeLine } from '@oxy.so/bloom/icons/RiHomeLine';
 import { RiSearchLine } from '@oxy.so/bloom/icons/RiSearchLine';
@@ -155,7 +169,83 @@ function typeCells(): Cell[] {
   return cells;
 }
 
+// Page 10: SVG documents as images (Skia's SVG module on the host, the browser's own on the web)
+// and react-native-svg's paint servers, clip paths and masks.
+const STORE_ICON = require('./assets/svg/store-icon.svg');
+const BADGE = require('./assets/svg/badge.svg');
+const PROBE_ICON = require('./assets/svg/probe-icon.svg');
+const STOPS = [
+  <Stop key="a" offset="0" stopColor="#ff5f6d" />,
+  <Stop key="b" offset="0.5" stopColor="#ffc371" stopOpacity={0.8} />,
+  <Stop key="c" offset="1" stopColor="#2f6fed" />,
+];
+
+function svgCells(): Cell[] {
+  const box = (id: string, w: number, h: number, body: React.ReactNode, defs: React.ReactNode): Cell => ({
+    id, w: w + 24, h: h + 24,
+    render: () => (
+      <Svg width={w} height={h}>
+        <Defs>{defs}</Defs>
+        {body}
+      </Svg>
+    ),
+  });
+  return [
+    { id: 'svg.image.store-icon', w: 136, h: 136, render: () => <Image source={STORE_ICON} style={{ width: 112, height: 112 }} /> },
+    { id: 'svg.image.icon-64', w: 88, h: 88, render: () => <Image source={PROBE_ICON} style={{ width: 64, height: 64 }} /> },
+    { id: 'svg.image.icon-24', w: 48, h: 48, render: () => <Image source={PROBE_ICON} style={{ width: 24, height: 24 }} /> },
+    { id: 'svg.image.contain', w: 144, h: 120, render: () => <Image source={BADGE} resizeMode="contain" style={{ width: 120, height: 96 }} /> },
+    box('svg.linear', 160, 96, <Rect width={160} height={96} rx={12} fill="url(#lin)" />,
+      <LinearGradient id="lin" x1="0" y1="0" x2="1" y2="1">{STOPS}</LinearGradient>),
+    box('svg.linear.user-space', 160, 96, <Rect x={8} y={8} width={144} height={80} fill="url(#linu)" />,
+      <LinearGradient id="linu" gradientUnits="userSpaceOnUse" x1="20" y1="0" x2="140" y2="0">{STOPS}</LinearGradient>),
+    box('svg.linear.transform', 160, 96, <Rect width={160} height={96} fill="url(#lint)" />,
+      <LinearGradient id="lint" x1="0" y1="0" x2="1" y2="0" gradientTransform="rotate(30 0.5 0.5)">{STOPS}</LinearGradient>),
+    box('svg.radial', 96, 96, <Circle cx={48} cy={48} r={44} fill="url(#rad)" />,
+      <RadialGradient id="rad" cx="50%" cy="50%" r="50%">{STOPS}</RadialGradient>),
+    box('svg.radial.focal', 96, 96, <Rect width={96} height={96} fill="url(#radf)" />,
+      <RadialGradient id="radf" cx="50%" cy="50%" r="50%" fx="30%" fy="30%">{STOPS}</RadialGradient>),
+    box('svg.stroke.gradient', 160, 96,
+      <Path d="M16 72 C48 8 112 8 144 72" fill="none" stroke="url(#lins)" strokeWidth={10} strokeLinecap="round" />,
+      <LinearGradient id="lins" x1="0" y1="0" x2="1" y2="0">{STOPS}</LinearGradient>),
+    box('svg.clip', 96, 96, <Rect width={96} height={96} fill="url(#clipfill)" clipPath="url(#clipc)" />,
+      [<ClipPath key="c" id="clipc"><Circle cx={48} cy={48} r={40} /></ClipPath>,
+        <LinearGradient key="g" id="clipfill" x1="0" y1="0" x2="0" y2="1">{STOPS}</LinearGradient>]),
+    box('svg.clip.group', 160, 96,
+      <G clipPath="url(#clipr)" transform="translate(16 8)">
+        <Rect width={128} height={80} fill="#30a050" />
+        <Circle cx={96} cy={40} r={36} fill="#d03030" />
+      </G>,
+      <ClipPath id="clipr"><Rect x={8} y={8} width={112} height={64} rx={16} /></ClipPath>),
+    box('svg.pattern', 160, 96, <Rect width={160} height={96} fill="url(#pat)" />,
+      <Pattern id="pat" patternUnits="userSpaceOnUse" width={16} height={16}>
+        <Rect width={8} height={8} fill="#d03030" />
+        <Rect x={8} y={8} width={8} height={8} fill="#3050d0" />
+      </Pattern>),
+    box('svg.pattern.bbox', 160, 96, <Rect x={8} y={8} width={144} height={80} fill="url(#patb)" />,
+      <Pattern id="patb" width="0.25" height="0.5">
+        <Circle cx={18} cy={20} r={12} fill="#2f6fed" />
+      </Pattern>),
+    box('svg.pattern.view-box', 160, 96, <Rect width={160} height={96} fill="url(#patv)" />,
+      <Pattern id="patv" patternUnits="userSpaceOnUse" width={32} height={32} viewBox="0 0 10 10">
+        <Path d="M0 10 L5 0 L10 10 Z" fill="#8030c0" />
+      </Pattern>),
+    box('svg.mask.luminance', 160, 96, <Rect width={160} height={96} fill="#8030c0" mask="url(#maskl)" />,
+      [<Mask key="m" id="maskl"><Rect width={160} height={96} fill="url(#maskg)" /></Mask>,
+        <LinearGradient key="g" id="maskg" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0" stopColor="#ffffff" />
+          <Stop offset="1" stopColor="#000000" />
+        </LinearGradient>]),
+    box('svg.mask.alpha', 96, 96, <Rect width={96} height={96} fill="#2f6fed" mask="url(#maska)" />,
+      <Mask id="maska" maskType="alpha"><Circle cx={48} cy={48} r={40} fill="#000000" fillOpacity={0.5} /></Mask>),
+    // Bloom's squircle Avatar, as Atlas draws a store icon: react-native-svg's Image in a ClipPath.
+    { id: 'svg.bloom.avatar-squircle', w: 96, h: 96, render: () => <Avatar source={STORE_ICON} shape="squircle" size={72} name="Store" /> },
+    { id: 'svg.bloom.social-oxy', w: 72, h: 72, render: () => <SocialButton brand="oxy" iconOnly onPress={noop} accessibilityLabel="Oxy" /> },
+  ];
+}
+
 const PAGE_CELLS: Record<number, Cell[]> = {
+  10: svgCells(),
   1: [
     ...APPEARANCES.flatMap((appearance) =>
       SIZES.map((size) => ({

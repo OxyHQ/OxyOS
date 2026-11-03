@@ -118,8 +118,9 @@ skia_args="$skia_args skia_use_system_libpng=true skia_use_system_zlib=true
   skia_use_libjpeg_turbo_decode=false skia_use_libjpeg_turbo_encode=false
   skia_use_libwebp_decode=false skia_use_libwebp_encode=false skia_use_libavif=false
   skia_use_wuffs=false skia_use_piex=false skia_use_dng_sdk=false"
-# - Text: SkShaper (HarfBuzz) and SkUnicode (ICU), SkParagraph; the SVG module over the system's
-#   Expat. No PDF, Skottie or tools.
+# - Text: SkShaper (HarfBuzz) and SkUnicode (ICU), SkParagraph; the SVG module (SkSVGDOM, libsvg.a)
+#   over the system's Expat, which decodes SVG documents for Image (svg-image.h) and carries the path
+#   operations react-native-svg's clip paths unite with (svg.cpp). No PDF, Skottie or tools.
 skia_args="$skia_args skia_enable_skshaper=true skia_enable_skunicode=true skia_enable_skparagraph=true
   skia_use_expat=true skia_use_system_expat=true skia_enable_svg=true
   skia_enable_pdf=false skia_enable_skottie=false skia_enable_tools=false"

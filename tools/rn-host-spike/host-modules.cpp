@@ -1032,9 +1032,19 @@ std::shared_ptr<TurboModule> createHostModule(
       return [prefetch](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
         auto source = resolveImageSource(count > 0 ? text(rt, args[0]) : "");
         if (!source.error.empty()) return rejected(rt, source.error);
-        uint32_t width = 0, height = 0;
-        if (oxyos_image_size(source.path.data(), source.path.size(), &width, &height) != 0) {
-          return rejected(rt, oxyos_last_error());
+        double width = 0, height = 0;
+        uint32_t pixelsWide = 0, pixelsHigh = 0;
+        if (!svgByName(source.path) &&
+            oxyos_image_size(source.path.data(), source.path.size(), &pixelsWide, &pixelsHigh) == 0) {
+          width = pixelsWide, height = pixelsHigh;
+        } else {
+          // An SVG document's natural size (svg-image.h), by its name or, when oxyos-image cannot
+          // read the file, by its content.
+          std::string failure = svgByName(source.path) ? "" : oxyos_last_error();
+          std::string error;
+          auto size = svgImageSize(source.path, error);
+          if (!size) return rejected(rt, failure.empty() || svgByName(source.path) ? error : failure);
+          width = size->first, height = size->second;
         }
         // A local image needs no fetching: it is ready if it can be read.
         if (prefetch) return resolved(rt, jsi::Value(true));
