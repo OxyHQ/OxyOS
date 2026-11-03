@@ -28,6 +28,10 @@ pub struct AccessibleNode {
     pub custom: String,
     /// A text field's selection, in bytes of its value.
     pub selection: Option<(u32, u32)>,
+    /// What activating it does, when its name does not say (version 13).
+    pub hint: String,
+    /// Its place among its collection's items, 1-based, and their count (version 13).
+    pub position: Option<(u32, u32)>,
 }
 
 impl AccessibleNode {
@@ -116,6 +120,7 @@ impl Scene {
             AccessibleField::Name => &mut node.name,
             AccessibleField::Value => &mut node.value,
             AccessibleField::Actions => &mut node.custom,
+            AccessibleField::Hint => &mut node.hint,
         };
         if target.len() + text.as_str().len() > MAX_ACCESSIBLE_TEXT_BYTES {
             return Err(ErrorCode::QuotaExceeded);
@@ -140,6 +145,27 @@ impl Scene {
             return Err(ErrorCode::InvalidMessage);
         }
         node.selection = Some((start, end));
+        Ok(())
+    }
+
+    /// A node's place among its collection's items: 1-based, within a count no larger than a
+    /// snapshot could hold of them.
+    pub(super) fn accessibility_position(
+        &mut self,
+        key: SurfaceKey,
+        index: u32,
+        position: u32,
+        count: u32,
+    ) -> Result<(), ErrorCode> {
+        let pending = self.pending_snapshot(key)?;
+        let node = pending
+            .get_mut(index as usize)
+            .and_then(Option::as_mut)
+            .ok_or(ErrorCode::InvalidOrder)?;
+        if position == 0 || position > count {
+            return Err(ErrorCode::InvalidMessage);
+        }
+        node.position = Some((position, count));
         Ok(())
     }
 
@@ -373,10 +399,25 @@ impl Scene {
                         },
                     );
                 }
+                // An assistive technology of version 12 or older is sent neither (`emit` writes
+                // each event for its connection's version).
+                if let Some((position, count)) = node.position {
+                    self.emit(
+                        target,
+                        Event::AccessiblePosition {
+                            client: key.client,
+                            surface: key.id,
+                            index,
+                            position,
+                            count,
+                        },
+                    );
+                }
                 for (field, text) in [
                     (AccessibleField::Name, &node.name),
                     (AccessibleField::Value, &node.value),
                     (AccessibleField::Actions, &node.custom),
+                    (AccessibleField::Hint, &node.hint),
                 ] {
                     for chunk in TextChunk::split(text) {
                         self.emit(

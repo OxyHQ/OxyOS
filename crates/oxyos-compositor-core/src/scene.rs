@@ -1821,6 +1821,8 @@ impl Scene {
                     value: String::new(),
                     custom: String::new(),
                     selection: None,
+                    hint: String::new(),
+                    position: None,
                 },
             ),
             Request::AccessibleSelection {
@@ -1829,6 +1831,12 @@ impl Scene {
                 start,
                 end,
             } => self.accessibility_selection(key(surface), index, start, end),
+            Request::AccessiblePosition {
+                surface,
+                index,
+                position,
+                count,
+            } => self.accessibility_position(key(surface), index, position, count),
             Request::AccessibilityAnnounce {
                 surface,
                 index,

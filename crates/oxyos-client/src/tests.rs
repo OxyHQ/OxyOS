@@ -214,6 +214,8 @@ fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
             value: "",
             custom: "Archivar\nResponder",
             selection: None,
+            hint: "Abre las acciones del mensaje",
+            position: None,
         },
         Accessible {
             parent: 0,
@@ -226,6 +228,8 @@ fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
             custom: "",
             // Past the value as it is sent, and backwards: kept within it, in order.
             selection: Some((u32::MAX, 3)),
+            hint: "",
+            position: Some((3, 21)),
         },
     ];
     client.publish_accessibility(3, &nodes).unwrap();
@@ -287,6 +291,25 @@ fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
         })
         .collect();
     assert_eq!(labels, "Archivar\nResponder");
+    let hint: String = requests
+        .iter()
+        .filter_map(|request| match request {
+            Request::AccessibleText {
+                index: 0,
+                field: AccessibleField::Hint,
+                text,
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(hint, "Abre las acciones del mensaje");
+    assert!(requests.contains(&Request::AccessiblePosition {
+        surface: 3,
+        index: 1,
+        position: 3,
+        count: 21,
+    }));
     let too_many = vec![nodes[0]; MAX_ACCESSIBLE_NODES as usize + 1];
     assert_eq!(
         client
@@ -751,4 +774,50 @@ fn an_announcement_is_sent_in_chunks_within_its_limit() {
         .unwrap();
     client.send(&Request::Goodbye {}).unwrap();
     assert_eq!(server.recv_request().unwrap().0, Request::Goodbye {});
+}
+
+#[test]
+fn a_compositor_of_version_12_is_sent_no_hint_nor_position() {
+    let (client, server) = Connection::pair().unwrap();
+    let compositor = std::thread::spawn(move || {
+        server.recv_request().unwrap();
+        server
+            .send_event(&Event::Welcome { version: 12 }, None)
+            .unwrap();
+        server
+    });
+    let client = Client::handshake(client).unwrap();
+    let server = compositor.join().unwrap();
+    assert_eq!(client.version(), 12);
+    let node = Accessible {
+        parent: oxyos_protocol::NO_ACCESSIBLE_PARENT,
+        role: AccessibleRole::ListItem,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 200, 20),
+        name: "notas.txt",
+        value: "",
+        custom: "",
+        selection: None,
+        hint: "Abre el archivo",
+        position: Some((3, 21)),
+    };
+    client.publish_accessibility(3, &[node]).unwrap();
+    loop {
+        let (request, _) = server.recv_request().unwrap();
+        assert!(
+            !matches!(
+                request,
+                Request::AccessiblePosition { .. }
+                    | Request::AccessibleText {
+                        field: AccessibleField::Hint,
+                        ..
+                    }
+            ),
+            "{request:?}"
+        );
+        if matches!(request, Request::AccessibilityCommit { .. }) {
+            break;
+        }
+    }
 }

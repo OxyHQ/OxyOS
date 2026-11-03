@@ -1,0 +1,348 @@
+{
+ "about": "Full Keyboard Access in a popover that is not a menu (docs/adr/0039-keyboard-access.mdx): sample/PopoverProbe.tsx, Bloom's Popover holding a field, a switch and a button, shown in a platform popup beside its button as a Mac's popover, the screen reader on in Spanish and the accent jade. Space on the button opens it with the keyboard on its first control and the dialog said by its title; Tab and Shift+Tab go round its controls and never leave it; Space presses them; Escape closes it and gives the keyboard back to the button. Every step checks the keyboard's focus and its ring's colour (the accent's, Bloom's ring token: light at 1, dark at 1.25), what the assistive technology holds, what the screen reader says (each once) and what is announced. At 1 (1280 × 720).",
+ "module": "PopoverProbe",
+ "window": [
+  640,
+  420
+ ],
+ "locale": "es_ES.UTF-8",
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "preferences": {
+  "accent": "jade"
+ },
+ "steps": [
+  {
+   "name": "The window, nothing focused; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "popups": 0,
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Antes, its ring in the accent's colour (jade, Bloom's ring token), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "before",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "spoken": [
+     {
+      "text": "Antes, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Opciones, the popover's button",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "options",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "spoken": [
+     {
+      "text": "Opciones, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens the popover in a popup of its own beside the button, as a Mac's: the keyboard goes to its first control; the reader says the dialog by its title, then the field after it",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "popups": 1,
+    "keyboard_focus": {
+     "target": "name",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "at": {
+     "popup": [
+      {
+       "role": "Dialog",
+       "name": "Opciones del perfil"
+      },
+      {
+       "role": "TextInput",
+       "name": "Nombre",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Opciones del perfil, diálogo",
+      "interrupting": true
+     },
+     {
+      "text": "Nombre, campo de texto",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab goes on to the switch, in the popover",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "notify",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "at": {
+     "popup": [
+      {
+       "role": "Switch",
+       "name": "Avisarme",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Avisarme, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space turns it on, said once by its new state",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "notify",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "at": {
+     "popup": [
+      {
+       "role": "Switch",
+       "name": "Avisarme",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "activado",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Guardar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "spoken": [
+     {
+      "text": "Guardar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab goes round the popover's controls, never out of it: back to the field",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "name",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "popups": 1,
+    "spoken": [
+     {
+      "text": "Nombre, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab goes back round to Guardar",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "spoken": [
+     {
+      "text": "Guardar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space presses it; the popover stays",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "popups": 1,
+    "texts": [
+     "Guardado 1, aviso sí"
+    ],
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape closes the popover: the keyboard back on the button it opened from, said once",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "popups": 0,
+    "keyboard_focus": {
+     "target": "options",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Dialog",
+       "name": "Opciones del perfil"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Opciones, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab goes on in the window",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "after",
+     "ring": true,
+     "color": "#006d42"
+    },
+    "spoken": [
+     {
+      "text": "Después, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}

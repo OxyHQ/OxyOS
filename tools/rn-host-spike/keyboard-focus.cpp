@@ -109,12 +109,12 @@ Tag KeyboardFocus::next(Tag root, bool backwards) const {
   return all[(index + 1) % all.size()];
 }
 
-Tag KeyboardFocus::recall(Tag root) {
+std::pair<Tag, bool> KeyboardFocus::recall(Tag root) {
   auto it = before_.find(root);
-  if (it == before_.end()) return -1;
-  Tag tag = it->second;
+  if (it == before_.end()) return {-1, false};
+  auto kept = it->second;
   before_.erase(it);
-  return tag;
+  return kept;
 }
 
 void KeyboardFocus::prune() {

@@ -9,7 +9,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - focus_input: the text input holding focus (null for none), from the latest frame;
 - focus_surface: the application surface with the compositor's keyboard focus;
 - keyboard_focus: the control the keyboard's navigation focused (Tab, docs/adr/0039-keyboard-access.mdx)
-  as the host last moved it: null for none, else {"target": testID, "ring": whether its ring shows};
+  as the host last moved it: null for none, else {"target": testID, "ring": whether its ring shows,
+  "color": the colour it was last drawn in, "#rrggbb", the session's accent's};
 - react: the exact events delivered to React during the step, as "event@name" -> count, where
   name is the target's testID or the nearest ancestor's (`within`). Any delivered event the step
   does not list fails it, which catches duplicated and leaked events; a count may be [least, most]
@@ -53,7 +54,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   them), "launched" (the applications the session launched, docs/adr/0039-keyboard-access.mdx)
   or the application's popups, each node matching the keys given ({} matches any): role,
   name, value, state, actions (what it offers beyond activate and focus), custom (its custom
-  actions' labels), selection;
+  actions' labels), selection, hint (what activating it does, ADR 0039) and position ([place,
+  count] among its collection's items, a list's row; null for none);
 - at_group: groups in the window's tree as the assistive technology received it, nested as the
   application nested it (each node's parent): each {"group": node, "items": [node, ...]} has
   exactly one node matching "group", and each item matches exactly one node in the whole window,
@@ -240,7 +242,7 @@ A step may aim at what is on screen by its accessible name instead of a point: `
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
-(`Abrir Inbox`), so a change of the dock's row moves no scenario's press; `drag_paced_named`
+(`Inbox`), so a change of the dock's row moves no scenario's press; `drag_paced_named`
 ([from, to, motions, hz] and optionally the motion Escape follows) is a paced drag from one node
 to another (a file onto the dock's Trash, ADR 0035). A `wait_named` step
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
@@ -1416,6 +1418,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         got = None
         if moves and moves[-1].get("target"):
             got = {"target": moves[-1]["target"], "ring": moves[-1].get("ring")}
+            # The colour the ring was last drawn in ("#rrggbb"): the session's accent's.
+            rings = [line for line in report
+                     if line["kind"] == "input" and line["event"] == "keyboard.ring" and line["t"] <= end]
+            if rings:
+                got["color"] = rings[-1].get("color")
         wanted = expect["keyboard_focus"]
         if (wanted is None) != (got is None) or (wanted and any(got.get(k) != v for k, v in wanted.items())):
             fail(f"keyboard focus is {got}, expected {wanted}")

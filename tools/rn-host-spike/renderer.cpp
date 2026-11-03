@@ -760,15 +760,17 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
 
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   // The keyboard's focus ring (keyboard-focus.h), drawn once the view and its subtree are, over
-  // them and outside the view, within what clips the view: a band of the system's blue, half
-  // opaque, a pixel off the view's edge and following its corners, as a Mac draws its keyboard
-  // focus ring around a control.
+  // them and outside the view, within what clips the view: a band of the session's accent colour,
+  // half opaque, a pixel off the view's edge and following its corners, as a Mac draws its
+  // keyboard focus ring around a control in its accent colour.
   struct FocusRing {
     SkCanvas* canvas = nullptr;
     SkRRect box;
+    uint32_t color = 0;
     ~FocusRing() {
       if (!canvas) return;
-      SkPaint paint(SkColor4f{0.0f, 0.478f, 1.0f, 0.55f});
+      SkPaint paint(SkColor4f{((color >> 16) & 0xFF) / 255.0f, ((color >> 8) & 0xFF) / 255.0f, (color & 0xFF) / 255.0f,
+                              0.55f});
       paint.setAntiAlias(true);
       paint.setStyle(SkPaint::kStroke_Style);
       paint.setStrokeWidth(3);
@@ -786,6 +788,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
                          {border.borderRadii.bottomLeft.horizontal + kOff, border.borderRadii.bottomLeft.vertical + kOff}};
     ring.box.setRectRadii(SkRect::MakeXYWH(x - kOff, y - kOff, w + 2 * kOff, h + 2 * kOff), radii);
     ring.canvas = draw.canvas;
+    ring.color = draw.edit->focusRingColor;
   }
   // Debug aid: OXYOS_HOST_DUMP=1 prints every drawn view, indented by depth.
   static const bool dump = std::getenv("OXYOS_HOST_DUMP") != nullptr;

@@ -1,5 +1,5 @@
 {
- "about": "Full Keyboard Access to the dock (docs/adr/0039-keyboard-access.mdx), as a Mac's Control-F3: Allo (sample/EditingProbe.tsx) with the shell and the development registry, the screen reader on in Spanish. Super+F3 puts the keyboard on the dock's first icon with its ring; → goes along it; Space opens Inbox; Super+F3 again and → reach it, ↑ opens its menu, End and Return quit it; Escape gives Allo the keyboard back. Every step checks the keyboard's focus, what the assistive technology holds, what the screen reader says (each icon once) and what is announced. At 1 (1280 × 720).",
+ "about": "Full Keyboard Access to the dock (docs/adr/0039-keyboard-access.mdx), as a Mac's Control-F3: Allo (sample/EditingProbe.tsx) with the shell and the development registry, the screen reader on in Spanish. Super+F3 puts the keyboard on the dock's first icon with its ring; → goes along it; Space opens Inbox; Super+F3 again and → reach it, ↑ opens its menu, End and Return quit it; Escape gives Allo the keyboard back. Every step checks the keyboard's focus, what the assistive technology holds, what the screen reader says (each icon once by its application's name, then the hint of its menu) and what is announced. At 1 (1280 × 720).",
  "module": "EditingProbe",
  "window": [
   600,
@@ -130,7 +130,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Dropsea",
+       "name": "Dropsea",
        "state": [
         "collapsed",
         "focused"
@@ -140,8 +140,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Dropsea, contraído, botón",
+      "text": "Dropsea, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -169,7 +173,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Atlas",
+       "name": "Atlas",
        "state": [
         "collapsed",
         "focused"
@@ -179,8 +183,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Atlas, contraído, botón",
+      "text": "Atlas, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -208,7 +216,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Inbox",
+       "name": "Inbox",
        "state": [
         "collapsed",
         "focused"
@@ -218,8 +226,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Inbox, contraído, botón",
+      "text": "Inbox, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -312,8 +324,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Dropsea, contraído, botón",
+      "text": "Dropsea, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -338,8 +354,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Atlas, contraído, botón",
+      "text": "Atlas, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -364,8 +384,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Inbox, contraído, botón",
+      "text": "Inbox, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []
@@ -460,7 +484,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Abrir Inbox",
+       "name": "Inbox",
        "state": [
         "collapsed",
         "focused"
@@ -470,8 +494,12 @@
     },
     "spoken": [
      {
-      "text": "Abrir Inbox, contraído, botón",
+      "text": "Inbox, contraído, botón",
       "interrupting": true
+     },
+     {
+      "text": "Para abrir su menú, pulsa Flecha arriba",
+      "interrupting": false
      }
     ],
     "announcements": []

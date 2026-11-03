@@ -292,7 +292,10 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
     }
     window_.present(popup.surface, canvas);
     Report::get().frame(popup.surface, canvas.width, canvas.height, renderMs, stats.textContent, focus);
-    accessibility_.publish(popup.surface, tag);
+    // A tooltip is no element of its own for an assistive technology: what it shows is its
+    // trigger's name (the dock's icon), as a Mac's help tag is its control's help, never a place
+    // the screen reader's cursor or a press by name lands on.
+    if (!popup.tooltip) accessibility_.publish(popup.surface, tag);
     popup.dirty = false;
     popup.drawnFor = surface->configure;
   }

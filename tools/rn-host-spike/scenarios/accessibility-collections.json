@@ -1,0 +1,224 @@
+{
+ "about": "A list's rows say where they are, and an element its hint (docs/adr/0039-keyboard-access.mdx, protocol version 13): sample/CollectionProbe.tsx, the screen reader on in Spanish. A `listitem` of a `list` holds its place among the list's rows (\"2 de 3\"), and one of a list that shows only some of its rows holds its place among them all through Android's accessibilityCollection and accessibilityCollectionItem (\"3 de 21\"); `accessibilityHint` is published and said after the element, politely. Tab reaches each row, said once with its place, the hint after it. At 1 (1280 × 720).",
+ "module": "CollectionProbe",
+ "window": [
+  480,
+  420
+ ],
+ "locale": "es_ES.UTF-8",
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "steps": [
+  {
+   "name": "The lists; nothing focused; each row holds its place in its list",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Documentos",
+       "position": null
+      },
+      {
+       "role": "ListItem",
+       "name": "notas.txt",
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "foto.png",
+       "position": [
+        2,
+        3
+       ],
+       "hint": "Abre la foto en Vista previa"
+      },
+      {
+       "role": "ListItem",
+       "name": "informe.pdf",
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "List",
+       "name": "Historial"
+      },
+      {
+       "role": "ListItem",
+       "name": "Fila 3",
+       "position": [
+        3,
+        21
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Fila 4",
+       "position": [
+        4,
+        21
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: the first row, said with its place in the list",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "notes",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "notas.txt, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the second row, its place, then its hint after it",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "photo",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "foto.png, 2 de 3",
+      "interrupting": true
+     },
+     {
+      "text": "Abre la foto en Vista previa",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the third",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "report",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "informe.pdf, 3 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: a row of a list that shows only some of its 21 rows, said where it is among them all",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "row-3",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Fila 3, 3 de 21",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the next",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "row-4",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Fila 4, 4 de 21",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab back, said again with its place",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "row-3",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Fila 3, 3 de 21",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  }
+ ]
+}

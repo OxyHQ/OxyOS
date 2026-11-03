@@ -52,11 +52,13 @@ class KeyboardFocus {
   }
   // A press of the pointer: the ring goes, as Android's touch mode hides its focus highlight.
   void pressed() { ring_ = false; }
-  // Before a modal or a view marked modal takes the keyboard: where focus was, to give it back to
-  // when it goes, as a Mac's sheet gives the keyboard back to its window's control.
-  void remember(facebook::react::Tag root, facebook::react::Tag tag) { before_[root] = tag; }
-  // What `remember` kept for `root`, forgotten; -1 for none.
-  facebook::react::Tag recall(facebook::react::Tag root);
+  // Before a modal or a view marked modal takes the keyboard: where focus was and whether its ring
+  // showed, to give it back to as it was when the modal goes, as a Mac's sheet gives the keyboard
+  // back to its window's control (a modal with no control of its own leaves nothing focused
+  // meanwhile, so the ring is kept here, not read again).
+  void remember(facebook::react::Tag root, facebook::react::Tag tag, bool ring) { before_[root] = {tag, ring}; }
+  // What `remember` kept for `root`, forgotten; {-1, false} for none.
+  std::pair<facebook::react::Tag, bool> recall(facebook::react::Tag root);
   // Views no longer in the tree lose focus and what was remembered of them.
   void prune();
 
@@ -64,7 +66,7 @@ class KeyboardFocus {
   const ViewTree& tree_;
   facebook::react::Tag focused_ = -1;
   bool ring_ = false;
-  std::map<facebook::react::Tag, facebook::react::Tag> before_;
+  std::map<facebook::react::Tag, std::pair<facebook::react::Tag, bool>> before_;
 };
 
 }  // namespace oxyos
