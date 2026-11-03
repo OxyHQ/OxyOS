@@ -87,10 +87,11 @@ pub struct Grants {
 
 impl Grants {
     /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
-    /// the store, updates, privacy and networks, and the shell (Control Center's Wi-Fi, the
-    /// password sheet's answer). What each may ask is the program's to decide.
+    /// the store, updates, privacy and networks, the shell (Control Center's Wi-Fi, the password
+    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
+    /// may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
-        self.store || self.updates || self.privacy || self.network || self.shell
+        self.store || self.updates || self.privacy || self.network || self.shell || self.settings
     }
 }
 
@@ -488,6 +489,14 @@ pub struct Scene {
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
     /// The input method, if one is connected.
     input_method: Option<input_method::InputMethod>,
+    /// The keymap's symbol for the key being handled (ADR 0041), told to the input method.
+    key_symbol: input_method::KeySymbol,
+    /// Each shell's candidates surface, where it draws the candidates an input method hands the
+    /// system, and the shell drawing them now with the list it was told (ADR 0041).
+    shell_candidates: BTreeMap<ClientId, u32>,
+    candidates_told: Option<(ClientId, input_method::CandidateList)>,
+    /// The input-source shortcuts pressed (ADR 0041), for the program running the compositor.
+    input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
     shell_windows: shell::ShellWindows,
@@ -1134,6 +1143,7 @@ impl Scene {
         }
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
+        self.forget_candidates_shell(client);
         self.forget_shell_client(client);
         self.forget_switcher(client);
         self.forget_capture_shell(client);
@@ -1744,7 +1754,13 @@ impl Scene {
             | Request::InputMethodPreeditText { .. }
             | Request::InputMethodPreeditCursor { .. }
             | Request::InputMethodPreeditSegment { .. }
+            | Request::InputMethodCandidate { .. }
+            | Request::InputMethodCandidatesAux { .. }
+            | Request::InputMethodCandidates { .. }
             | Request::InputMethodCommit { .. } => self.input_method_request(client, request),
+            Request::ChooseInputCandidate { .. } | Request::TurnInputCandidatesPage { .. } => {
+                self.candidates_request(client, request)
+            }
             Request::Damage { surface, rect } => {
                 let node = self
                     .nodes
@@ -2687,6 +2703,11 @@ impl Scene {
     /// The session's keyboard layout, `layout\tvariant\toptions` as XKB names them: told to
     /// every client now and to each that connects (ADR 0029). A layout too long to tell is
     /// refused.
+    /// The session's keyboard layout as told (`layout\tvariant\toptions`), if one was.
+    pub fn keyboard_layout(&self) -> Option<&str> {
+        self.keyboard_layout.as_deref()
+    }
+
     pub fn set_keyboard_layout(&mut self, layout: &str) -> Result<(), ErrorCode> {
         if layout.is_empty() || layout.len() > oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES {
             return Err(ErrorCode::QuotaExceeded);
@@ -3038,6 +3059,26 @@ impl Scene {
         }
     }
 
+    /// Dismisses every popup of a window's group: its own and its dialogs' (a dialog's menu is
+    /// drawn and grabs with the window it belongs to), when the window goes from the screen.
+    fn dismiss_group_popups(&mut self, key: SurfaceKey, reason: DismissReason) {
+        let children = self
+            .nodes
+            .get(&key)
+            .map(|node| node.children.clone())
+            .unwrap_or_default();
+        for child in children {
+            let Some(node) = self.nodes.get(&child) else {
+                continue;
+            };
+            if node.is_popup() {
+                self.dismiss(child, reason);
+            } else if node.role == Role::Dialog {
+                self.dismiss_group_popups(child, reason);
+            }
+        }
+    }
+
     fn dismiss_grab(&mut self, reason: DismissReason) {
         if let Some(first) = self.grab.first().copied() {
             self.dismiss(first, reason);
@@ -3076,6 +3117,8 @@ impl Scene {
         let Some(node) = self.nodes.get(&key) else {
             return;
         };
+        // A window closed with the keyboard: its application's next window takes it.
+        let application = (node.role == Role::Toplevel).then(|| self.application_identity(key));
         let children = node.children.clone();
         let parent = node.parent;
         let popup = node.is_popup();
@@ -3130,7 +3173,7 @@ impl Scene {
         }
         if self.focus == Some(key) {
             self.focus = None;
-            self.focus_next();
+            self.focus_after_window(key, application);
         }
         if self.focus_before_grab == Some(key) {
             self.focus_before_grab = None;
@@ -3426,6 +3469,33 @@ impl Scene {
             .unwrap_or(root)
     }
 
+    /// The keyboard after `gone`, the window that had it, was minimized or closed: the topmost
+    /// window still shown of the same application, as a Mac keeps the application active and
+    /// makes its next window the key one (ADR 0016); without one, the topmost window.
+    fn focus_after_window(
+        &mut self,
+        gone: SurfaceKey,
+        application: Option<(bool, String, Option<ClientId>)>,
+    ) {
+        let next = application
+            .filter(|_| self.grab.is_empty() && !self.locked)
+            .and_then(|of| {
+                self.roots.iter().rev().copied().find(|root| {
+                    *root != gone
+                        && self.nodes[root].role == Role::Toplevel
+                        && self.visible(*root)
+                        && self.application_identity(*root) == of
+                })
+            });
+        match next {
+            Some(root) => {
+                let target = self.focus_target(root);
+                self.set_focus(Some(target));
+            }
+            None => self.focus_next(),
+        }
+    }
+
     fn focus_next(&mut self) {
         if !self.grab.is_empty() {
             return;
@@ -3450,9 +3520,28 @@ impl Scene {
 
     /// Raises a window group within its layer and focuses it.
     pub fn activate(&mut self, key: SurfaceKey) {
-        let Some(root) = self.raise_in_layer(key) else {
+        let root = self.root_of(key);
+        if !self.nodes.contains_key(&root)
+            || self.locked && layer_of(&self.nodes[&root].role) != Layer::Lock
+        {
             return;
-        };
+        }
+        let layer = layer_of(&self.nodes[&root].role);
+        // Another window of the grab's layer becomes the active one: its menus close, as a Mac's
+        // close when their window stops being the active one, rather than keep the keyboard
+        // under the window raised over them. A shell's menu (its own layer) stays.
+        let grabbing = self.grab.first().map(|popup| self.root_of(*popup));
+        if grabbing.is_some_and(|grabbing| {
+            grabbing != root && layer_of(&self.nodes[&grabbing].role) == layer
+        }) {
+            // The keyboard goes from the menu straight to the window activated, never back to
+            // the one it was opened in for the instant between.
+            if self.focusable(root) {
+                self.focus_before_grab = Some(self.focus_target(root));
+            }
+            self.dismiss_grab(DismissReason::OutsidePress);
+        }
+        self.raise_in_layer(root);
         if self.grab.is_empty() && self.focusable(root) {
             let target = self.focus_target(root);
             self.set_focus(Some(target));
@@ -3511,20 +3600,19 @@ impl Scene {
         if node.role != Role::Toplevel || node.hidden {
             return;
         }
-        let children = node.children.clone();
         if node.mapped {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
-        for child in children {
-            if self.nodes[&child].is_popup() {
-                self.dismiss(child, DismissReason::ParentHidden);
-            }
-        }
+        self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.detach_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
+            // Minimized, its application's next window takes the keyboard, as a Mac's does;
+            // hidden with its application, every window of it goes, so the next one is another's.
+            let application =
+                (change == appearances::Change::Minimized).then(|| self.application_identity(key));
             self.set_focus(None);
-            self.focus_next();
+            self.focus_after_window(key, application);
         }
         // Minimized while the shell's top bar had focus: no longer the active window.
         self.update_active();
@@ -3719,6 +3807,19 @@ impl Scene {
     }
 
     fn pointer_event(&mut self, key: SurfaceKey, serial: u64, kind: PointerKind, button: u32) {
+        self.emit_pointer(key, serial, kind, button, false);
+    }
+
+    /// A pointer event for `key`; `activating` on a press that made its window the active one
+    /// (ADR 0016, decision 9: the client decides whether the view under it takes that press).
+    fn emit_pointer(
+        &mut self,
+        key: SurfaceKey,
+        serial: u64,
+        kind: PointerKind,
+        button: u32,
+        activating: bool,
+    ) {
         let (x, y) = self.local(key, self.pointer.0, self.pointer.1);
         self.emit(
             key.client,
@@ -3731,6 +3832,7 @@ impl Scene {
                 button,
                 time_ns: self.input_time_ns,
                 modifiers: self.modifiers(),
+                activating,
             },
         );
     }
@@ -3998,6 +4100,7 @@ impl Scene {
     }
 
     pub fn pointer_button(&mut self, button: u32, pressed: bool) {
+        self.not_super_alone();
         self.user_input();
         let serial = self.next_serial();
         if self.dragging() {
@@ -4032,6 +4135,7 @@ impl Scene {
             };
             // The screenshot interface's surfaces take presses, never the keyboard: the active
             // application stays active (ADR 0024, decision 10).
+            let mut activating = false;
             // A press on a shell panel (the top bar, the dock) raises it within the panel layer
             // but leaves the keyboard where it is, as a click on a Mac's menu bar or Dock leaves
             // the key window key: a menu it opens grabs the keyboard and gives it back to the
@@ -4049,7 +4153,13 @@ impl Scene {
             } else if self.grab.is_empty() && !self.shows_capture_interface(target) {
                 let root = self.root_of(target);
                 let blocked = target == root && self.focus_target(root) != root;
+                let was_active = self.active;
                 self.activate(target);
+                // The press that makes a window the active one is told so, as a Mac's window
+                // server delivers it: the client's view under it may take it (a field, the
+                // window's drag region and controls) or it only activated the window (a button
+                // does not fire), AppKit's `acceptsFirstMouse:` (ADR 0016, decision 9).
+                activating = self.active == Some(root) && was_active != Some(root);
                 if blocked {
                     // Modal scope: the window behind a dialog does not receive the press.
                     self.consume_press();
@@ -4062,7 +4172,7 @@ impl Scene {
             self.capture = Some(target);
             self.set_pointer_focus(Some(target));
             self.record_press(serial, target, true);
-            self.pointer_event(target, serial, PointerKind::Press, button);
+            self.emit_pointer(target, serial, PointerKind::Press, button, activating);
         } else {
             self.buttons_down = self.buttons_down.saturating_sub(1);
             if self.resizing.is_some() {
@@ -4140,6 +4250,7 @@ impl Scene {
     /// until its `stop` (the fingers lifted), which reaches it too, so the application that
     /// scrolled hears the scroll end; a wheel's notches each go to the surface under the pointer.
     pub fn pointer_scroll(&mut self, dx: i32, dy: i32, source: ScrollSource, stop: bool) {
+        self.not_super_alone();
         self.user_input();
         let target = if source == ScrollSource::Wheel {
             self.pointer_target()
@@ -4273,6 +4384,7 @@ impl Scene {
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.end_repeat_for(key, pressed);
         self.user_input();
+        self.key_with_super(key, pressed);
         self.hold_modifier(key, pressed);
         if self.drag_key(key, pressed) {
             return;
@@ -4729,7 +4841,8 @@ pub use accessibility::AccessibleNode;
 mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 mod input_method;
-pub use input_method::MAX_PENDING_KEYS;
+pub use input_method::{KeySymbol, MAX_PENDING_KEYS};
+pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;

@@ -229,6 +229,120 @@ fn super_m_minimizes_the_active_window_into_the_dock() {
     assert_eq!(input_to(&events, APP), []);
 }
 
+/// Super+M or Super+H with a menu open in the window: the menu closes as the window goes, its
+/// parent hidden, and the window is never given the keyboard back for the instant between (a
+/// focus in and out it would hear, and an activation it would draw), as a Mac's menu closes with
+/// the window it is minimized with.
+#[test]
+fn super_m_and_super_h_close_the_windows_menu_with_it() {
+    for code in [M, H] {
+        let mut h = Harness::new();
+        dock(&mut h);
+        let other = h.toplevel(OTHER, 1, 400, 300);
+        let window = h.toplevel(APP, 1, 400, 300);
+        h.activate(window);
+        let w = h.rect(window);
+        let popup = h.open_menu(
+            window,
+            2,
+            (w.x + 100, w.y + 100),
+            menu(Rect::new(90, 90, 20, 20), 200, 200),
+        );
+        assert_eq!(h.scene.focus(), Some(popup));
+        logged(&mut h);
+        chord(&mut h, &[code]);
+        let events = logged(&mut h);
+        assert!(!h.rendered(window) && !h.rendered(popup));
+        assert!(h.scene.grab_chain().is_empty());
+        assert_eq!(h.scene.focus(), Some(other));
+        let done: Vec<Event> = to(&events, APP)
+            .into_iter()
+            .filter(|event| matches!(event, Event::PopupDone { .. }))
+            .collect();
+        assert_eq!(
+            done,
+            [Event::PopupDone {
+                surface: 2,
+                reason: DismissReason::ParentHidden
+            }]
+        );
+        let told: Vec<Event> = to(&events, APP)
+            .into_iter()
+            .filter(|event| matches!(event, Event::Focus { .. } | Event::Activated { .. }))
+            .collect();
+        assert_eq!(
+            told,
+            [
+                Event::Focus {
+                    surface: 2,
+                    focused: false
+                },
+                Event::Activated {
+                    surface: 1,
+                    active: false
+                }
+            ],
+            "Super+{code}"
+        );
+        assert_eq!(input_to(&events, APP), []);
+    }
+}
+
+/// Another window activated while a menu is open in the active one (the shell's dock or switcher
+/// focusing it, a notification's window shown): the menu closes, as a Mac's menus close when
+/// their window stops being the active one, and the window activated takes the keyboard. A menu
+/// left open would hold the keyboard under the window raised over it.
+#[test]
+fn activating_another_window_closes_the_open_menu() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 100, w.y + 100),
+        menu(Rect::new(90, 90, 20, 20), 200, 200),
+    );
+    logged(&mut h);
+    let number = h.scene.window_number(other).unwrap();
+    h.request(SHELL, Request::FocusWindow { window: number })
+        .unwrap();
+    let events = logged(&mut h);
+    assert!(h.scene.grab_chain().is_empty());
+    assert!(!h.rendered(popup));
+    assert_eq!(h.scene.focus(), Some(other));
+    let told: Vec<Event> = to(&events, APP)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event,
+                Event::PopupDone { .. } | Event::Focus { .. } | Event::Activated { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        told,
+        [
+            Event::PopupDone {
+                surface: 2,
+                reason: DismissReason::OutsidePress
+            },
+            Event::Focus {
+                surface: 2,
+                focused: false
+            },
+            Event::Activated {
+                surface: 1,
+                active: false
+            }
+        ]
+    );
+    assert_eq!(input_to(&events, APP), []);
+}
+
 #[test]
 fn super_h_hides_the_application_until_it_is_activated() {
     let mut h = Harness::new();
@@ -397,10 +511,11 @@ fn the_switcher_is_the_shells_while_super_is_held() {
         input_to(&events, SHELL).is_empty(),
         "the shell gets commands, not keys"
     );
-    // Super released with no switcher: nothing. Each shortcut's serial is the shell's input.
-    keys(&mut h, &[SUPER]);
+    // Super released after a chord: nothing. Super alone is the search (ADR 0041); each
+    // shortcut's serial is the shell's input.
+    keys(&mut h, &[SUPER, SHIFT]);
     assert!(shortcuts_to(&logged(&mut h), SHELL).is_empty());
-    keys(&mut h, &[SUPER, SPACE]);
+    keys(&mut h, &[SUPER]);
     let events = logged(&mut h);
     let serial = to(&events, SHELL)
         .iter()
@@ -488,7 +603,7 @@ fn shortcuts_go_to_the_shell_of_the_active_windows_output() {
     let window = h.toplevel(APP, 1, 400, 300);
     h.activate(window);
     logged(&mut h);
-    chord(&mut h, &[SPACE]);
+    keys(&mut h, &[SUPER]);
     let events = logged(&mut h);
     assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Search, 1)]);
     assert!(shortcuts_to(&events, SHELL_2).is_empty());
@@ -496,7 +611,7 @@ fn shortcuts_go_to_the_shell_of_the_active_windows_output() {
     h.scene.move_window_to(window, (2000, 100));
     h.present(window);
     logged(&mut h);
-    chord(&mut h, &[SPACE]);
+    keys(&mut h, &[SUPER]);
     chord(&mut h, &[TAB]);
     let events = logged(&mut h);
     assert!(shortcuts_to(&events, SHELL).is_empty());
@@ -516,7 +631,7 @@ fn shortcuts_go_to_the_shell_of_the_active_windows_output() {
             ..Grants::default()
         },
     );
-    chord(&mut h, &[SPACE]);
+    keys(&mut h, &[SUPER]);
     let events = logged(&mut h);
     assert!(shortcuts_to(&events, SHELL_2).is_empty());
     assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Search, 2)]);
@@ -594,7 +709,12 @@ fn the_input_method_never_sees_super_or_its_chords() {
     let events = logged(&mut h);
     assert_eq!(input_to(&events, IME), []);
     assert_eq!(input_to(&events, APP), []);
-    assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Search, 1)]);
+    // Super+Space is the program's input-source shortcut (ADR 0041), never the engine's key.
+    assert!(shortcuts_to(&events, SHELL).is_empty());
+    assert_eq!(
+        h.scene.take_input_source_shortcuts(),
+        [InputSourceShortcut::Previous { step: 1 }]
+    );
     // Without Super, the input method has the key first, as before.
     h.scene.keyboard(KEY_A, true, Some("a"));
     assert_eq!(input_to(&logged(&mut h), IME).len(), 1);
@@ -642,8 +762,8 @@ fn the_shell_focuses_its_own_surface_only_with_an_input_it_received() {
     )
     .unwrap();
     assert_eq!(h.scene.focus(), Some(window));
-    // With Super+Space's, it does: the launcher's search takes the keys.
-    chord(&mut h, &[SPACE]);
+    // With Super's, it does: the launcher's search takes the keys.
+    keys(&mut h, &[SUPER]);
     let serial = to(&logged(&mut h), SHELL)
         .iter()
         .find_map(|event| match event {

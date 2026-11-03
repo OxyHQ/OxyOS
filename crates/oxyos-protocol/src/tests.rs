@@ -177,6 +177,20 @@ fn requests() -> Vec<Request> {
             surface: 3,
             size: Size::new(240, 120),
         },
+        Request::InputMethodCandidate {
+            index: 0,
+            text: TextChunk::new("你好").unwrap(),
+        },
+        Request::InputMethodCandidatesAux {
+            text: TextChunk::new("ni'hao").unwrap(),
+        },
+        Request::InputMethodCandidates {
+            count: 1,
+            highlighted: 0,
+            flags: CANDIDATES_NEXT,
+        },
+        Request::ChooseInputCandidate { index: 0 },
+        Request::TurnInputCandidatesPage { forward: true },
         Request::SetTitle {
             surface: 1,
             index: 0,
@@ -529,6 +543,7 @@ fn events() -> Vec<Event> {
             button: 272,
             time_ns: 1_234_567_890_123,
             modifiers: MODIFIER_CONTROL | MODIFIER_ALT,
+            activating: false,
         },
         Event::Key {
             surface: 1,
@@ -779,6 +794,25 @@ fn events() -> Vec<Event> {
             text: PreeditText::new("a").unwrap(),
             time_ns: 1_234_567_890_123,
         },
+        Event::InputCandidate {
+            index: 0,
+            text: TextChunk::new("你好").unwrap(),
+        },
+        Event::InputCandidatesAux {
+            text: TextChunk::new("ni'hao").unwrap(),
+        },
+        Event::InputCandidates {
+            count: 1,
+            highlighted: NO_CANDIDATE,
+            flags: CANDIDATES_PREVIOUS | CANDIDATES_VERTICAL,
+        },
+        Event::InputMethodKeySymbol {
+            serial: 20,
+            keysym: 0x61,
+            modifiers: 1,
+        },
+        Event::InputMethodCandidateChosen { index: 2 },
+        Event::InputMethodCandidatesPage { forward: false },
         Event::KeyText {
             surface: 1,
             serial: 21,
@@ -1550,6 +1584,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         button: 272,
         time_ns: 1_234_567_890,
         modifiers: 0,
+        activating: false,
     };
     let mut v2 = Vec::new();
     assert!(write_event_for(&mut v2, &pointer, 2).unwrap());
@@ -1573,6 +1608,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
             button: 272,
             time_ns: 0,
             modifiers: 0,
+            activating: false,
         }
     );
     assert_eq!(read_event_for(&mut Cursor::new(&v3), 3).unwrap(), pointer);
@@ -1587,6 +1623,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         button: 272,
         time_ns: 1_234_567_890,
         modifiers: MODIFIER_CONTROL,
+        activating: false,
     };
     let mut v8 = Vec::new();
     assert!(write_event_for(&mut v8, &held, 8).unwrap());
@@ -2335,4 +2372,108 @@ fn version_17_the_locale_is_never_sent_to_an_older_peer() {
     assert_eq!(read_event_for(&mut Cursor::new(&v17), 17).unwrap(), locale);
     // A version 16 reader refuses it.
     assert!(read_event_for(&mut Cursor::new(&v17), 16).is_err());
+}
+
+#[test]
+fn version_18_input_methods_candidates_and_key_symbols_are_never_sent_to_an_older_peer() {
+    let events = [
+        Event::InputMethodKeySymbol {
+            serial: 1,
+            keysym: 0x6e,
+            modifiers: 0,
+        },
+        Event::InputCandidate {
+            index: 0,
+            text: TextChunk::new("你好").unwrap(),
+        },
+        Event::InputCandidates {
+            count: 1,
+            highlighted: 0,
+            flags: 0,
+        },
+        Event::InputMethodCandidateChosen { index: 0 },
+    ];
+    for event in events {
+        assert_eq!(event_since(&event), 18);
+        let mut nothing = Vec::new();
+        assert!(!write_event_for(&mut nothing, &event, 17).unwrap());
+        assert!(nothing.is_empty());
+        let mut v18 = Vec::new();
+        assert!(write_event_for(&mut v18, &event, 18).unwrap());
+        assert_eq!(read_event_for(&mut Cursor::new(&v18), 18).unwrap(), event);
+    }
+    // A compositor of version 17 never receives the shell's or the input method's new requests.
+    for request in [
+        Request::ChooseInputCandidate { index: 0 },
+        Request::TurnInputCandidatesPage { forward: true },
+        Request::InputMethodCandidates {
+            count: 0,
+            highlighted: NO_CANDIDATE,
+            flags: 0,
+        },
+    ] {
+        assert_eq!(request_since(&request), 18);
+    }
+}
+
+#[test]
+fn version_19_a_press_says_whether_it_activated_its_window() {
+    // Version 19 adds `activating` to the end of Pointer: 36 bytes with its opcode. A version 18
+    // writer leaves it out (35 bytes, version 8's Pointer), and a version 18 compositor's press
+    // reads as one that activated nothing, which is what every press of an older one meant.
+    let activating = Event::Pointer {
+        surface: 1,
+        serial: 9,
+        kind: PointerKind::Press,
+        x: 512,
+        y: -256,
+        button: 272,
+        time_ns: 1_234_567_890,
+        modifiers: MODIFIER_SUPER,
+        activating: true,
+    };
+    let mut v19 = Vec::new();
+    assert!(write_event_for(&mut v19, &activating, 19).unwrap());
+    assert_eq!(u32::from_le_bytes(v19[..4].try_into().unwrap()), 36);
+    assert_eq!(*v19.last().unwrap(), 1);
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v19), 19).unwrap(),
+        activating
+    );
+    let mut v18 = Vec::new();
+    assert!(write_event_for(&mut v18, &activating, 18).unwrap());
+    assert_eq!(u32::from_le_bytes(v18[..4].try_into().unwrap()), 35);
+    assert_eq!(&v18[4..], &v19[4..39]);
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v18), 18).unwrap(),
+        Event::Pointer {
+            surface: 1,
+            serial: 9,
+            kind: PointerKind::Press,
+            x: 512,
+            y: -256,
+            button: 272,
+            time_ns: 1_234_567_890,
+            modifiers: MODIFIER_SUPER,
+            activating: false,
+        }
+    );
+    // Version 7 has neither the modifiers nor it.
+    let mut v7 = Vec::new();
+    assert!(write_event_for(&mut v7, &activating, 7).unwrap());
+    assert_eq!(u32::from_le_bytes(v7[..4].try_into().unwrap()), 34);
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v7), 7).unwrap(),
+        Event::Pointer {
+            surface: 1,
+            serial: 9,
+            kind: PointerKind::Press,
+            x: 512,
+            y: -256,
+            button: 272,
+            time_ns: 1_234_567_890,
+            modifiers: 0,
+            activating: false,
+        }
+    );
 }

@@ -214,6 +214,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
                 button: 272,
                 time_ns: 0,
                 modifiers: 0,
+                activating: false,
             },
             None,
         )
@@ -235,6 +236,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
                     button: 272,
                     time_ns: 0,
                     modifiers: 0,
+                    activating: false,
                 },
                 None,
             )

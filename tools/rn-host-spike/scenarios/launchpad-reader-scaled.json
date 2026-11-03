@@ -1,5 +1,5 @@
 {
- "about": "Launchpad with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+Space opens Launchpad, a dialog said by its title as it appears (\"Launchpad, diálogo\"), with its search focused and said after it; typing searches, the first result highlighted while the search keeps the screen reader's focus, each letter echoed and the number of results said politely once as it changes (a status, \"2 resultados\", \"Ningún resultado\"), never again while it is the same; the arrows move the highlight, which is then the screen reader's focus, as VoiceOver's cursor is Launchpad's selection: each icon reached is said once by its name; typing again gives the search the screen reader's focus back, said once, and echoes what is typed; Escape clears the search, then closes it. At 1.25 (1600 × 1000).",
+ "about": "Launchpad with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super alone opens Launchpad, a dialog said by its title as it appears (\"Launchpad, diálogo\"), with its search focused and said after it; typing searches, the first result highlighted while the search keeps the screen reader's focus, each letter echoed and the number of results said politely once as it changes (a status, \"2 resultados\", \"Ningún resultado\"), never again while it is the same; the arrows move the highlight, which is then the screen reader's focus, as VoiceOver's cursor is Launchpad's selection: each icon reached is said once by its name; typing again gives the search the screen reader's focus back, said once, and echoes what is typed; Escape clears the search, then closes it. At 1.25 (1600 × 1000).",
  "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -28,12 +28,11 @@
    }
   },
   {
-   "name": "Super+Space opens Launchpad, said by its title as it appears, then its search, which has the keyboard and the screen reader's focus",
+   "name": "Super alone opens Launchpad, said by its title as it appears, then its search, which has the keyboard and the screen reader's focus",
    "do": [
     "key",
     [
-     125,
-     57
+     125
     ]
    ],
    "allow_unchanged": true,

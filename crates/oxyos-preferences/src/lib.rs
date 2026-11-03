@@ -108,6 +108,11 @@ pub struct Preferences {
     pub dock: Option<Vec<String>>,
     /// The applications the session opens when it starts, in order.
     pub open_at_login: Vec<String>,
+    /// The input methods the person added after their keyboard layout, in order, each one of
+    /// [`INPUT_METHODS`] (ADR 0041).
+    pub input_sources: Vec<String>,
+    /// The current input source: one of `input_sources`, or none for the keyboard layout.
+    pub input_source: Option<String>,
 }
 
 impl Default for Preferences {
@@ -130,9 +135,19 @@ impl Default for Preferences {
             arrangements: Vec::new(),
             dock: None,
             open_at_login: Vec::new(),
+            input_sources: Vec::new(),
+            input_source: None,
         }
     }
 }
+
+/// The input methods OxyOS has (ADR 0041), by the names the preferences keep: Pinyin –
+/// Simplified, Japanese – Romaji and 2-Set Korean. Whether the engine installed has each is the
+/// session's to say.
+pub const INPUT_METHODS: &[&str] = &["pinyin", "japanese", "korean"];
+
+/// What `input_source` keeps for the keyboard layout.
+pub const LAYOUT_SOURCE: &str = "layout";
 
 /// The most applications one of the person's lists holds.
 pub const MAX_APPLICATIONS: usize = 64;
@@ -212,6 +227,8 @@ pub const KEYS: &[&str] = &[
     "hour_cycle",
     "do_not_disturb",
     "notification_previews",
+    "input_sources",
+    "input_source",
 ];
 
 fn boolean(value: &str) -> Result<bool, Refused> {
@@ -279,6 +296,31 @@ impl Preferences {
                     _ => return Err(Refused::BadValue),
                 }
             }
+            "input_sources" => {
+                let mut sources: Vec<String> = Vec::new();
+                for id in value.split(',').filter(|id| !id.is_empty()) {
+                    if !INPUT_METHODS.contains(&id) || sources.iter().any(|kept| kept == id) {
+                        return Err(Refused::BadValue);
+                    }
+                    sources.push(id.to_owned());
+                }
+                // The current one removed: the keyboard layout is current.
+                if self
+                    .input_source
+                    .as_ref()
+                    .is_some_and(|current| !sources.contains(current))
+                {
+                    self.input_source = None;
+                }
+                self.input_sources = sources;
+            }
+            "input_source" => {
+                self.input_source = match value {
+                    "" | LAYOUT_SOURCE => None,
+                    id if self.input_sources.iter().any(|kept| kept == id) => Some(id.to_owned()),
+                    _ => return Err(Refused::BadValue),
+                }
+            }
             _ => return Err(Refused::UnknownKey),
         }
         Ok(())
@@ -300,6 +342,11 @@ impl Preferences {
             "hour_cycle" => self.hour_cycle.name().to_owned(),
             "do_not_disturb" => self.do_not_disturb.to_string(),
             "notification_previews" => self.notification_previews.name().to_owned(),
+            "input_sources" => self.input_sources.join(","),
+            "input_source" => self
+                .input_source
+                .clone()
+                .unwrap_or_else(|| LAYOUT_SOURCE.to_owned()),
             _ => return None,
         })
     }

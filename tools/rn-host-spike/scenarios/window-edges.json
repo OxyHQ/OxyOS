@@ -1,0 +1,538 @@
+{
+  "about": "A window resized from every edge and corner, as a Mac's is (docs/adr/0016-windows.mdx, decision 5), and zoomed by a double click on its title area: WindowProbe (sample/WindowProbe.tsx) alone. The pointer over each band (6 px beyond an edge, 12 px along it from a corner) shows that edge's or corner's resize shape, the window told only that the pointer left it; a drag from the band moves exactly the edges pressed, the others staying, the press reaching no client and React hearing nothing; back inside the window the pointer is the page's arrow again. A hand's double click on the active window's title area zooms it to the work area and again restores the frame it had. Each step checks the window's frame, the pointer's shape, what React received and what the window was delivered, exactly.",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "steps": [
+    {
+      "name": "The window is the active one",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          60,
+          900,
+          600
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "pointer_shape": "Arrow",
+        "react": {
+          "touchStart@settings-page": 1,
+          "touchEnd@settings-page": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the right edge: the ResizeHorizontal shape",
+      "do": [
+        "move_output",
+        [
+          1093,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeHorizontal",
+        "window_rect": [
+          190,
+          60,
+          900,
+          600
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Dragged from there by (40, 0): the right moves with the pointer, the left, top, bottom stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          1093,
+          360,
+          1133,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          60,
+          940,
+          600
+        ],
+        "pointer_shape": "ResizeHorizontal",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the left edge: the ResizeHorizontal shape",
+      "do": [
+        "move_output",
+        [
+          187,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeHorizontal",
+        "window_rect": [
+          190,
+          60,
+          940,
+          600
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (-40, 0): the left moves with the pointer, the top, right, bottom stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          187,
+          360,
+          147,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          150,
+          60,
+          980,
+          600
+        ],
+        "pointer_shape": "ResizeHorizontal",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the top edge: the ResizeVertical shape",
+      "do": [
+        "move_output",
+        [
+          640,
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeVertical",
+        "window_rect": [
+          150,
+          60,
+          980,
+          600
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (0, -20): the top moves with the pointer, the left, right, bottom stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          640,
+          57,
+          640,
+          37
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          150,
+          40,
+          980,
+          620
+        ],
+        "pointer_shape": "ResizeVertical",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the bottom edge: the ResizeVertical shape",
+      "do": [
+        "move_output",
+        [
+          640,
+          663
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeVertical",
+        "window_rect": [
+          150,
+          40,
+          980,
+          620
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (0, -20): the bottom moves with the pointer, the left, top, right stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          640,
+          663,
+          640,
+          643
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          150,
+          40,
+          980,
+          600
+        ],
+        "pointer_shape": "ResizeVertical",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the top-left corner: the ResizeTopLeft shape",
+      "do": [
+        "move_output",
+        [
+          147,
+          37
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeTopLeft",
+        "window_rect": [
+          150,
+          40,
+          980,
+          600
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (20, 20): the top-left moves with the pointer, the right, bottom stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          147,
+          37,
+          167,
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          170,
+          60,
+          960,
+          580
+        ],
+        "pointer_shape": "ResizeTopLeft",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the top-right corner: the ResizeTopRight shape",
+      "do": [
+        "move_output",
+        [
+          1133,
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeTopRight",
+        "window_rect": [
+          170,
+          60,
+          960,
+          580
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (-20, 20): the top-right moves with the pointer, the left, bottom stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          1133,
+          57,
+          1113,
+          77
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          170,
+          80,
+          940,
+          560
+        ],
+        "pointer_shape": "ResizeTopRight",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the bottom-right corner: the ResizeTopLeft shape",
+      "do": [
+        "move_output",
+        [
+          1113,
+          643
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeTopLeft",
+        "window_rect": [
+          170,
+          80,
+          940,
+          560
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (20, 20): the bottom-right moves with the pointer, the left, top stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          1113,
+          643,
+          1133,
+          663
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          170,
+          80,
+          960,
+          580
+        ],
+        "pointer_shape": "ResizeTopLeft",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The pointer over the band beyond the bottom-left corner: the ResizeTopRight shape",
+      "do": [
+        "move_output",
+        [
+          167,
+          663
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeTopRight",
+        "window_rect": [
+          170,
+          80,
+          960,
+          580
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Dragged from there by (20, -20): the bottom-left moves with the pointer, the top, right stay; no client hears the press",
+      "do": [
+        "drag_output",
+        [
+          167,
+          663,
+          187,
+          643
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          80,
+          940,
+          560
+        ],
+        "pointer_shape": "ResizeTopRight",
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Within 12 px of a corner, the band beyond an edge is the corner's: the right edge's top end is the top-right corner",
+      "do": [
+        "move_output",
+        [
+          1133,
+          85
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "ResizeTopRight",
+        "window_rect": [
+          190,
+          80,
+          940,
+          560
+        ],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Back inside the window, the pointer is the page's arrow, and the window is told it is entered",
+      "do": [
+        "move_output",
+        [
+          590,
+          330
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "Arrow",
+        "window_rect": [
+          190,
+          80,
+          940,
+          560
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "A hand's double click on the active window's title area zooms it to the work area: the first press begins a move (its touch cancelled), the second zooms",
+      "do": [
+        "double_click",
+        [
+          150,
+          30,
+          60,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          0,
+          0,
+          1280,
+          720
+        ],
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-rail-window-band": 2,
+          "touchCancel@settings-rail-window-band": 1,
+          "touchEnd@settings-rail-window-band": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 1,
+            "press": 2,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Double-clicked again, it restores the frame it had",
+      "do": [
+        "double_click",
+        [
+          150,
+          30,
+          60,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          80,
+          940,
+          560
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-rail-window-band": 2,
+          "touchCancel@settings-rail-window-band": 1,
+          "touchEnd@settings-rail-window-band": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 2,
+            "press": 2,
+            "release": 1
+          }
+        }
+      }
+    }
+  ]
+}

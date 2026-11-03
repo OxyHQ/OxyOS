@@ -260,6 +260,8 @@ TextInputEdit TextEditing::edit() const {
                          .key = key_,
                          .dark = dark_};
   }
+  // The window's appearance, focused field or not: the scrollbars are drawn by it (scrollbars.h).
+  edit.dark = dark_;
   // Inputs keep their text scrolled without focus, as an EditText does.
   edit.scrolls = scrolls_;
   if (dropTag_ >= 0) {
@@ -1205,7 +1207,13 @@ void TextEditing::update(std::string text, size_t anchor, size_t caret) {
   const auto& view = it->second.view;
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   column_.reset();
-  bool moved = anchor != anchor_ || caret != caret_;
+  // The selection React holds is in UTF-16 units of the text, as Android's EditText reports it:
+  // it moved when those changed, whatever the bytes did. A commit of 你好 over the composition
+  // "ni hao" leaves the caret at byte 6 and moves it from unit 6 to unit 2.
+  auto units = [](const std::string& of, size_t a, size_t b) {
+    return std::make_pair(utf16Length(of, std::min(a, b)), utf16Length(of, std::max(a, b)));
+  };
+  bool moved = units(text_, anchor_, caret_) != units(text, anchor, caret);
   anchor_ = anchor;
   caret_ = caret;
   if (text != text_) {

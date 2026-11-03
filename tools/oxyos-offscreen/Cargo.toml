@@ -17,10 +17,17 @@ oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-vt = { path = "../../crates/oxyos-vt" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+oxyos-input-methods = { path = "../../crates/oxyos-input-methods" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
+# The input methods the preferences know (`--input-sources-available`, ADR 0041) and the JSON
+# the session tells of them.
+oxyos-preferences = { path = "../../crates/oxyos-preferences" }
+serde_json = "1"
 # A played NetworkManager's control interface (`--network-bus`, docs/adr/0038-networks.mdx).
 zbus = "5"
+# zbus's reactor, started before the descriptors are counted.
+async-io = "2"
 # The run's home, which a file chooser's answer is checked against (ADR 0029, decision 8).
 oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.

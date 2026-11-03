@@ -29,9 +29,20 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 17;
+pub const VERSION: u16 = 19;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
+/// The most candidates an input method hands the system at once (InputMethodCandidate, ADR 0041),
+/// the most bytes of one candidate's text, and the most of the auxiliary text.
+pub const MAX_INPUT_CANDIDATES: usize = 16;
+pub const MAX_CANDIDATE_BYTES: usize = 128;
+pub const MAX_CANDIDATES_AUX_BYTES: usize = 128;
+/// No candidate highlighted (InputMethodCandidates' `highlighted`).
+pub const NO_CANDIDATE: u8 = u8::MAX;
+/// InputMethodCandidates' flags: a page before, a page after, a vertical list.
+pub const CANDIDATES_PREVIOUS: u8 = 1;
+pub const CANDIDATES_NEXT: u8 = 2;
+pub const CANDIDATES_VERTICAL: u8 = 4;
 /// The keyboard's modifiers a Pointer event carries (version 8), as bits.
 pub const MODIFIER_SHIFT: u8 = 1;
 pub const MODIFIER_CONTROL: u8 = 2;

@@ -1,5 +1,5 @@
 {
-  "about": "Settings' \"Prefer non-blinking cursor\" (apps/settings, Accessibility, where macOS 14 places its own; docs/adr/0037-text-editing.mdx, decision 4): the switch is the session's `caret_blink` turned around, off while carets blink (the default). Another application, sample/EditingProbe.tsx started beside Settings (`companion`), has a field focused, whose caret blinks ten times and rests. The switch pressed on: the session keeps `caret_blink = false` and tells every application at once (`Preferences`, protocol version 11), Settings and the other alike; back in the field, a character typed, which lights a blinking caret anew, gives no blink. The switch pressed off: the other application's caret, out of the key window while Settings is active, is not drawn and does not blink (decision 6); back in its field, its window key again, the caret is lit anew and blinks ten times, and a character typed there blinks ten times again. The switch pressed on once more: the preferences file keeps `caret_blink = false`. The switch is drawn in the accent when on. Each step checks exactly the React events each application received, the input the compositor delivered each, and the blinks the other application's host reported.",
+  "about": "Settings' \"Prefer non-blinking cursor\" (apps/settings, Accessibility, where macOS 14 places its own; docs/adr/0037-text-editing.mdx, decision 4): the switch is the session's `caret_blink` turned around, off while carets blink (the default). Another application, sample/EditingProbe.tsx started beside Settings (`companion`), has a field focused, whose caret blinks ten times and rests. The switch pressed in Settings' inactive window only activates it (a Mac's first click, docs/adr/0016-windows.mdx, decision 9); pressed again, on: the session keeps `caret_blink = false` and tells every application at once (`Preferences`, protocol version 11), Settings and the other alike; back in the field, a character typed, which lights a blinking caret anew, gives no blink. The switch pressed off: the other application's caret, out of the key window while Settings is active, is not drawn and does not blink (decision 6); back in its field, its window key again, the caret is lit anew and blinks ten times, and a character typed there blinks ten times again. The switch pressed on once more: the preferences file keeps `caret_blink = false`. The switch is drawn in the accent when on. Each step checks exactly the React events each application received, the input the compositor delivered each, and the blinks the other application's host reported.",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -112,7 +112,57 @@
       }
     },
     {
-      "name": "the switch pressed on: the session keeps caret_blink off and tells every application at once, Settings and the other alike",
+      "name": "the switch pressed in Settings' inactive window only activates it, as a Mac's first click on a control: the switch stays off and React hears nothing",
+      "do": [
+        "press",
+        [
+          890,
+          291
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": []
+            }
+          ]
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        },
+        "pixels": {
+          "872,292": "#e9dce3",
+          "904,292": "#8c798d"
+        },
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        }
+      }
+    },
+    {
+      "name": "pressed again in the active window, the switch turns on: the session keeps caret_blink off and tells every application at once, Settings and the other alike",
       "do": [
         "press",
         [
@@ -131,15 +181,10 @@
         },
         "delivered": {
           "1": {
-            "enter": 1,
-            "focus.in": 1,
             "press": 1,
             "release": 1
           },
-          "companion": {
-            "focus.out": 1,
-            "leave": 1
-          }
+          "companion": {}
         },
         "at": {
           "window": [
@@ -165,6 +210,10 @@
         "pixels": {
           "872,292": "#9422ae",
           "904,292": "#ffeefc"
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
         }
       }
     },
@@ -232,7 +281,59 @@
       }
     },
     {
-      "name": "the switch pressed off: the session keeps caret_blink on; the other application's caret, its window not the key one, is not drawn and does not blink",
+      "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
+      "do": [
+        "press",
+        [
+          890,
+          291
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        },
+        "pixels": {
+          "872,292": "#9422ae",
+          "904,292": "#ffeefc"
+        },
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        }
+      }
+    },
+    {
+      "name": "pressed again in the active window, the switch off: the session keeps caret_blink on; the other application's caret, its window not the key one, is not drawn and does not blink",
       "do": [
         "press",
         [
@@ -251,15 +352,10 @@
         },
         "delivered": {
           "1": {
-            "enter": 1,
-            "focus.in": 1,
             "press": 1,
             "release": 1
           },
-          "companion": {
-            "focus.out": 1,
-            "leave": 1
-          }
+          "companion": {}
         },
         "at": {
           "window": [
@@ -283,6 +379,10 @@
         "pixels": {
           "872,292": "#e9dce3",
           "904,292": "#8c798d"
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
         }
       }
     },
@@ -350,7 +450,57 @@
       }
     },
     {
-      "name": "the switch pressed on again: kept, and told to both",
+      "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
+      "do": [
+        "press",
+        [
+          890,
+          291
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Prefer non-blinking cursor",
+              "state": []
+            }
+          ]
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "caret.dark": 0,
+            "caret.lit": 0
+          }
+        },
+        "pixels": {
+          "872,292": "#e9dce3",
+          "904,292": "#8c798d"
+        },
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        }
+      }
+    },
+    {
+      "name": "pressed again in the active window, the switch on again: kept, and told to both",
       "do": [
         "press",
         [
@@ -369,15 +519,10 @@
         },
         "delivered": {
           "1": {
-            "enter": 1,
-            "focus.in": 1,
             "press": 1,
             "release": 1
           },
-          "companion": {
-            "focus.out": 1,
-            "leave": 1
-          }
+          "companion": {}
         },
         "at": {
           "window": [
@@ -403,6 +548,10 @@
         "pixels": {
           "872,292": "#9422ae",
           "904,292": "#ffeefc"
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
         }
       }
     }

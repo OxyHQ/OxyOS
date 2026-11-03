@@ -9,8 +9,11 @@
 #include "display-refresh.h"
 #include "renderer.h"
 #include "scroll-physics.h"
+#include "scrollbars.h"
 
 #include <oxyos_client.h>
+
+#include <folly/dynamic.h>
 
 #include <react/renderer/core/ReactPrimitives.h>
 #include <react/timing/primitives.h>
@@ -20,6 +23,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -46,11 +50,31 @@ facebook::react::Tag hitTest(const ViewTree& tree, const SurfaceContent& content
 facebook::react::Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y,
                                     const std::function<bool(facebook::react::Tag)>& reaches);
 
+// Whether the view under a press, `target`, takes the press that activates its window, as AppKit
+// asks the view under an inactive window's mouse-down (`acceptsFirstMouse:`): from the view up,
+// the first that says so with `acceptsFirstMouse` (react-native-macos's prop) decides, as
+// react-native-macos's RCTView inherits it; an editable text input takes it, as NSTextView does (the
+// caret goes where it was pressed); and a control the keyboard can focus (a button, a switch: a
+// Pressable) decides for itself and what it holds, so a toolbar's button inside a window's drag
+// region does not fire. Reaching the root, nothing took it: NSView's default.
+bool acceptsFirstMouse(const ViewTree& tree, facebook::react::Tag target);
+
 class PointerInput {
  public:
   using Surfaces = std::function<std::optional<SurfaceContent>(uint32_t surface)>;
   PointerInput(const ViewTree& tree, Surfaces surfaces) : tree_(tree), surfaces_(std::move(surfaces)) {}
 
+  // A Mac's first mouse (docs/adr/0016-windows.mdx, decision 9): whether `event` belongs to a
+  // primary press that only activated its window, which no view takes. The compositor marks the
+  // press that makes a window the active one (`flag`, protocol version 19); it reaches the view
+  // under it only if that view accepts it (`acceptsFirstMouse`, below; a scrollbar does, as a
+  // Mac's scroller), as AppKit gives an
+  // inactive window's mouse-down to the view only when its `acceptsFirstMouse:` says yes. True
+  // for such a press and its release, which then reach nothing of the window: no touch, no
+  // pointer event, no gesture, no caret moved and no keyboard focus changed, so a button pressed
+  // to activate its window neither fires nor shows itself pressed. Asked once for each pointer
+  // event, before it is handled.
+  bool withheld(const OxyOSEvent& event);
   // Handles a compositor pointer or scroll event. The primary button starts, moves and ends one
   // touch; a cancel or the pointer leaving cancels it. Every mouse button's press and release is
   // also a W3C pointer event (pointerdown, pointerup) to the view under the pointer, bubbling, with
@@ -79,6 +103,9 @@ class PointerInput {
   void feedsGestures(std::function<void(int phase, const SurfaceContent& content, float x, float y)> feed) {
     gestures_ = std::move(feed);
   }
+  // The surface a view is drawn in (a popup's, a shell region's, else the window's): where a scroll
+  // JavaScript asks for is reported.
+  void locatesSurfaces(std::function<uint32_t(facebook::react::Tag)> surfaceOf) { surfaceOf_ = std::move(surfaceOf); }
   // The pointer's shape over a surface changed (OXYOS_POINTER_*): the compositor is to be told.
   void showsShapes(std::function<void(uint32_t surface, uint8_t shape)> tell) { tellShape_ = std::move(tell); }
   // Whether the pointer over `view` of `surface` reaches it. While a popup holds the compositor's
@@ -110,8 +137,41 @@ class PointerInput {
   // wheel last left it; nullopt for a view that is not a scroll view that scrolls.
   std::optional<std::pair<facebook::react::Point, facebook::react::Point>> scrollRange(facebook::react::Tag tag) const;
   // Scrolls the scroll view `tag` (on `surface`) by (dx, dy), as far as it goes, and sends its
-  // scroll event, as the wheel does; true if it moved.
-  bool scrollView(facebook::react::Tag tag, float dx, float dy, uint32_t surface);
+  // scroll event, as the wheel does; true if it moved. A scroll the person made shows the view's
+  // scrollbars (`awaken`), as macOS shows its overlay scrollers; one the application or the keyboard's
+  // focus made does not.
+  bool scrollView(facebook::react::Tag tag, float dx, float dy, uint32_t surface, bool awaken = true);
+  // Scrolls `tag` by (dx, dy), as far as it goes, animated as Android's ScrollView.smoothScrollBy
+  // animates a key's scroll (scroll-physics.h's ScrollAnimation, ViscousFluid): its scroll events
+  // once a frame, and nothing else, as Android's ScrollView sends for one. A scroll already animating
+  // there goes on from where it is to where it was going plus this, so a key held down glides on
+  // rather than jumping, as a Mac's scroll view does under a repeating key. True if it will move.
+  bool smoothScrollBy(facebook::react::Tag tag, float dx, float dy, uint32_t surface);
+  // The scroll views around `tag` bring it into view, `margin` round it (the focus ring), as
+  // Android's ScrollView.requestChildFocus does for each scroll view a focused view is in, the
+  // innermost first: at once, by the least move that shows it, its top (or start) when it is
+  // larger than the view. Its scrollbars do not show (a Mac's do not as Tab moves the focus). The
+  // scroll views outside the modal, popup or shell region it is in do not hold it, and stay.
+  void reveal(facebook::react::Tag tag, uint32_t surface, float margin);
+  // A command JavaScript sent a ScrollView (React Native's ScrollView commands, as
+  // ReactScrollViewManager receives them): `scrollTo` [x, y, animated] and `scrollToEnd`
+  // [animated], at once or animated as ReactScrollViewHelper.smoothScrollTo animates them (its
+  // momentum events framing the animation), a glide or an animation going on stopped first
+  // (abortAnimation); `flashScrollIndicators`, its scrollbars shown and faded out, as Android's
+  // awakenScrollBars. JavaScript's scrolls do not show the scrollbars otherwise, as a Mac's
+  // programmatic scrolls do not.
+  void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
+
+  // The scroll views whose overlay scrollbars show, and how (scrollbars.h), at the last tick; and
+  // whether that changed since this was last asked (the window draws again).
+  const std::map<facebook::react::Tag, ScrollbarShown>& scrollbars() const { return barsShown_; }
+  bool takeScrollbarsChanged() { return std::exchange(barsChanged_, false); }
+  // The scroll views this host scrolled whose content or viewport has since changed so that their
+  // offset is past their end are brought back to it, with their scroll event, as Android's
+  // ScrollView clamps its scroll as it is laid out (onLayout's scrollTo): a dialog whose control
+  // was brought into view while it was first laid out narrower and taller than it is drawn shows
+  // its content, not the empty space below it. Those gone from the tree are forgotten.
+  void clampScrolls();
 
   // A scroll view flung by a touchpad's fingers glides once a frame of `refresh` (the window's
   // display, display-refresh.h), as Android's OverScroller is stepped on each vsync: `tick`, once
@@ -159,6 +219,30 @@ class PointerInput {
   // the views under it.
   void hover(const std::optional<SurfaceContent>& content, float x, float y);
 
+  // Overlay scrollbars (scrollbars.h). A scroll the person made shows the view's, from `now`
+  // (`awakenBars`); the scrollbar under a point of `content`, if one shows there or would with the
+  // pointer over it (`barAt`: the view and the axis); the pointer coming over one and leaving it;
+  // and each one's state stepped to `now`, true if what shows changed.
+  void awakenBars(facebook::react::Tag tag, uint32_t surface);
+  std::optional<std::pair<facebook::react::Tag, int>> barAt(const SurfaceContent& content, float x, float y) const;
+  void hoverBar(std::optional<std::pair<facebook::react::Tag, int>> bar, uint32_t surface);
+  bool stepBars(std::chrono::steady_clock::time_point now);
+  // The primary button pressed on a scrollbar, as a Mac's scroller takes it, reaching nothing
+  // under it: on the thumb it is dragged, the view's content following the pointer along the track
+  // as Android's View#handleScrollBarDragging moves it (onScrollBeginDrag, onScroll as it moves,
+  // onScrollEndDrag as it is let go); in the track it pages towards the press, animated, as NSScroller
+  // pages, again and again while it is held until the thumb reaches the pointer.
+  void pressBar(const SurfaceContent& content, facebook::react::Tag tag, int axis, float x, float y);
+  void dragBar(float x, float y);
+  void releaseBar();
+  void pageTowardsPointer();
+  // A scroll view's animated scroll (`smoothScrollBy`, JavaScript's `scrollTo`) stopped where it is:
+  // a press, a wheel, fingers or another scroll stop it, as Android's abortAnimation; its momentum's
+  // end sent if it had a beginning.
+  void stopAnimation(facebook::react::Tag tag);
+  void startAnimation(facebook::react::Tag tag, uint32_t surface, facebook::react::Point to,
+                      ScrollAnimation::Curve curve, bool momentum, bool awaken);
+
   // A mouse button's W3C pointer event (pointerdown or pointerup) to the view under (x, y).
   void pointerButton(const SurfaceContent& content, uint32_t code, bool down, float x, float y);
 
@@ -188,6 +272,8 @@ class PointerInput {
   // The primary button is held as a Control-click on a text input: its press and release are the
   // secondary button's.
   bool controlClick_ = false;
+  // The primary button is held from a press that only activated the window (`withheld`).
+  bool withheld_ = false;
   std::function<void(int, const SurfaceContent&, float, float)> gestures_;
   std::function<void(uint8_t, size_t, const SurfaceContent&, const std::vector<facebook::react::Point>&)> fingers_;
   float scale_ = 1;
@@ -197,6 +283,7 @@ class PointerInput {
   float pinchSpread_ = 1, pinchDegrees_ = 0;
   bool responderCancelled_ = false;  // React Native has let go of the current touch
   std::function<void(uint32_t, uint8_t)> tellShape_;
+  std::function<uint32_t(facebook::react::Tag)> surfaceOf_;
   std::function<bool(uint32_t, facebook::react::Tag)> admits_;
   std::map<uint32_t, uint8_t> toldShapes_;  // the shape each surface last asked for
   SurfaceContent content_{};  // the surface the pointer is over
@@ -214,6 +301,8 @@ class PointerInput {
   // Offsets this host gave each scroll view; the state commit that carries one may still be
   // pending when the next scroll arrives.
   std::unordered_map<facebook::react::Tag, facebook::react::Point> offsets_;
+  // The surface each of them was last scrolled on.
+  std::unordered_map<facebook::react::Tag, uint32_t> scrolledOn_;
   // When the event being handled happened (eventTime): what every event it makes carries.
   facebook::react::HighResTimeStamp eventTime_ = facebook::react::HighResTimeStamp::now();
   const DisplayRefresh* refresh_ = nullptr;
@@ -245,6 +334,45 @@ class PointerInput {
     uint32_t surface = 0;
   };
   std::map<facebook::react::Tag, Overscroll> overscroll_;
+  // Scroll views animating to an offset (`smoothScrollBy`, JavaScript's `scrollTo`): along each axis,
+  // when it began and last stepped, whether its momentum events frame it, whether it shows the
+  // scrollbars as it goes.
+  struct Animation {
+    uint32_t surface = 0;
+    ScrollAnimation x{0, 0, ScrollAnimation::Curve::ViscousFluid}, y{0, 0, ScrollAnimation::Curve::ViscousFluid};
+    std::chrono::steady_clock::time_point began;
+    std::optional<std::chrono::steady_clock::time_point> stepped;
+    bool momentum = false, awaken = false;
+  };
+  std::map<facebook::react::Tag, Animation> animations_;
+  // Each scroll view's overlay scrollbars while any shows: when it last scrolled (none while the
+  // pointer holds it shown), the axis the pointer is over (-1 for none), each axis's growth towards
+  // wide and when that last stepped.
+  struct Bars {
+    uint32_t surface = 0;
+    std::optional<std::chrono::steady_clock::time_point> awake;
+    int hovered = -1;
+    float expansion[2] = {0, 0};
+    std::optional<std::chrono::steady_clock::time_point> grown;
+  };
+  std::map<facebook::react::Tag, Bars> bars_;
+  std::map<facebook::react::Tag, ScrollbarShown> barsShown_;
+  bool barsChanged_ = false;
+  // The scrollbar the pointer is over, and the press on one going on: its view and axis, whether it
+  // holds the thumb, where the pointer took it (along the axis, logical pixels of the surface) and
+  // the offset then; a press in the track pages until the thumb reaches the pointer, the next page
+  // when `repeat` is due.
+  std::optional<std::pair<facebook::react::Tag, int>> overBar_;
+  struct BarPress {
+    facebook::react::Tag view = -1;
+    uint32_t surface = 0;
+    int axis = 1;
+    bool thumb = false;
+    float grabbed = 0, from = 0;
+    float pointer = 0;
+    std::optional<std::chrono::steady_clock::time_point> repeat;
+  };
+  std::optional<BarPress> barPress_;
   std::optional<std::chrono::steady_clock::time_point> stretchStepped_;
   bool stretchChanged_ = false;
 };

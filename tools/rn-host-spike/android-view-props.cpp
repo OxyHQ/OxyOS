@@ -49,6 +49,9 @@ Props::Shared ViewComponentDescriptor::cloneProps(const PropsParserContext& cont
       if (auto it = raw.find("focusable"); it != raw.items().end()) {
         values.focusable = it->second.isBool() && it->second.asBool();
       }
+      if (auto it = raw.find("acceptsFirstMouse"); it != raw.items().end()) {
+        values.acceptsFirstMouse = it->second.isBool() ? (it->second.asBool() ? 1 : 0) : -1;
+      }
       // A whole number of a map's, or -1.
       auto count = [](const folly::dynamic& map, const char* key) {
         if (!map.isObject()) return -1;

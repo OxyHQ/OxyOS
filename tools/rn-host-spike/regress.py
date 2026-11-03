@@ -44,7 +44,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ("sheet": [x, y, width, height] on the output, "focused": it has the keyboard, "window_active":
   the application's window is the active one); `in_chooser` checks its own texts and React
   deliveries, as `in_shell` the shell's, and `delivered`'s "chooser" what it was delivered;
-- companion: with the scenario's `companion` ({"module", "window"}) started as a second application
+- companion: with the scenario's `companion` ({"module", "window", "at", "app": the id it claims,
+  the application's own making both windows one application's}) started as a second application
   once the first's window is shown (ADR 0035, the other side of a drag between applications),
   `in_companion` checks its own texts and React deliveries, `delivered`'s "companion" what the
   compositor delivered it, and "shell_drags" the drag events the shell's surfaces received;
@@ -162,6 +163,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   went back to none by the step's end, only ever shrinking once it began to (a spring from rest
   that does not overshoot), in at least "frames_min" changes; "caught_ms", that it was held still while it
   showed for at least that long (fingers resting on the touchpad catching it as it sprang back);
+- scrollbars: the scroll views' overlay scrollbars (scrollbars.h) changing in the step, as the host
+  reported each change, counted exactly as "event@testID": "shown" as they appear, "wide-x" or
+  "wide-y" as the pointer over one brings it wide, "hidden" once faded out; "scrollbar_thumbs",
+  where each view's thumbs were in the window (logical pixels) as last reported in the step,
+  {testID: {"x"|"y": [x, y, width, height]}};
 - glide: for a `flick` step (a `scroll_paced` whose fingers then lift), the scroll view
   ("view", by testID) the fingers flung, as Android's ScrollView flings: the velocity the host
   measured at the lift ("velocity": [least, most] in logical pixels a second, along the offset);
@@ -191,6 +197,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "latency_max_ms", the longest from a motion to the frame that followed it;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
+- transactions: the text-input transactions the application was given in the step (ADR 0008),
+  exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
+  end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
 - latency_ms: budget from injecting the input to the first changed frame;
@@ -255,6 +264,11 @@ scenario's `layout` (an XKB layout, `us` by default) is the one those expectatio
 for, and the devices type with it. A `commit` step is an input method's committed text, which
 no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
 method's whole change (ADR 0008).
+
+A scenario with `input_methods` runs the session's input methods (ADR 0041): the real engine
+(fcitx5 and its engines, `tools/input-methods/build.sh`, given with `--input-methods PREFIX` or
+`OXYOS_INPUT_METHODS`), with the scenario's `preferences` choosing the input sources; `strokes`
+steps type through it as the seat's keyboard does.
 
 A scenario with `input_method` runs with an input method the session plays: `keyboard` steps type
 through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
@@ -326,8 +340,14 @@ written in it, with no grant given. A scenario
 with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
 `settings` as a session grants the system application the image's policy names. A step's `preferences` expectation checks
 what the session last told the application of how to draw (dark, reduceMotion,
-reduceTransparency, accent) by the time the step settled, each key given; the `final`
-`preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.
+reduceTransparency, accent) by the time the step settled, each key given; a step's
+`preferences_file` expectation checks the file holds each KEY = VALUE given as that step left it,
+the `final` one once the run ended.
+
+A scenario with `input_sources` ({"available": [METHOD]}) has the development compositor tell
+Settings and the shell the input sources as the session does (docs/adr/0041-input-methods.mdx,
+decision 6), from the run's preferences and its `layout`, its engine having the input methods named
+(an empty list: none installed).
 
 A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
@@ -451,7 +471,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu"}
 
@@ -654,6 +674,10 @@ def director_args(step, out):
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]
+    if kind == "double_click":
+        # A hand's double click on a title area: the first press held until the application begins
+        # a move with it (a drag region), the second after a gap, held hold_ms: [x, y, hold_ms, gap_ms].
+        return args + ["--double-click", ",".join(map(str, value))]
     if kind == "flick":
         # The same, then the fingers lifting: [x, y, dy, events, hz].
         return args + ["--flick", ",".join(map(str, value))]
@@ -2035,6 +2059,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["a11y_events"]:
             fail(f"accessibility events {got}, expected exactly {expect['a11y_events']}")
+    if "transactions" in expect:
+        # The text-input transactions the application was given (ADR 0008), exactly and in order;
+        # a transaction's parts left out of the expectation are what an empty part says.
+        got = result.get("transactions", [])
+        empty = {"delete": [0, 0], "commit": "", "preedit": "", "cursor": [0, 0], "segments": []}
+        wanted = [{**empty, **want} for want in expect["transactions"]]
+        if got != wanted:
+            fail(f"transactions given {got}, expected exactly {wanted}")
     if "delivered" in expect:
         delivered = dict(result.get("delivered", {}))
         leaked = delivered.pop("leaked", 0)
@@ -2081,8 +2113,29 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for line in report:
             if line["kind"] == "deliver" and line["event"] == "scroll" and start <= line["t"] <= end:
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
-        if offsets != expect["scroll_offset"]:
-            fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+        # Exactly, but for a float's precision (an offset on a 1.25 display's pixels, 4.8, is reported
+        # as the float nearest it).
+        wanted = expect["scroll_offset"]
+        if set(offsets) != set(wanted) or any(abs(a - b) > 1e-3 for k in wanted for a, b in zip(offsets[k], wanted[k])):
+            fail(f"scroll offsets {offsets}, expected exactly {wanted}")
+    if "scrollbars" in expect or "scrollbar_thumbs" in expect:
+        # The scroll views' overlay scrollbars (scrollbars.h) in this step, as the host reported them
+        # changing: "scrollbars", each change counted exactly as "event@testID" (shown, wide-x and
+        # wide-y as the pointer brings one wide, hidden once faded out); "scrollbar_thumbs", where
+        # each view's thumbs were in the window as last reported ({testID: {axis: [x, y, w, h]}}).
+        changes, thumbs = {}, {}
+        for line in report:
+            if line["kind"] == "scrollbar" and start <= line["t"] <= end:
+                key = f"{line['event']}@{line['target']}"
+                changes[key] = changes.get(key, 0) + 1
+                thumbs[line["target"]] = line.get("thumbs", {})
+        if "scrollbars" in expect and changes != expect["scrollbars"]:
+            fail(f"the scrollbars changed {changes}, expected exactly {expect['scrollbars']}")
+        for target, wanted in expect.get("scrollbar_thumbs", {}).items():
+            got = thumbs.get(target, {})
+            if any(got.get(axis) is None or any(abs(a - b) > 0.01 for a, b in zip(got[axis], rect))
+                   for axis, rect in wanted.items()):
+                fail(f"{target}'s scrollbar thumbs were last at {got}, expected {wanted}")
     if "host_input" in expect:
         # What the host reported handling in this step (Report::input), counted by name, exactly.
         counts = {}
@@ -2427,8 +2480,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if display.get(key) != value:
                     fail(f"display {output}: {key} = {display.get(key)!r}, expected {value!r}")
     if "preferences_file" in expect:
+        # The file as the step left it (the development compositor's report), else as the run did.
+        if isinstance(result.get("preferences_file"), str):
+            text = result["preferences_file"]
+        else:
+            text = preferences.read_text() if preferences and preferences.exists() else ""
         kept = {}
-        for line in (preferences.read_text().splitlines() if preferences else []):
+        for line in text.splitlines():
             if "=" in line and not line.lstrip().startswith("#"):
                 key, value = line.split("=", 1)
                 kept[key.strip()] = value.strip()
@@ -3001,6 +3059,9 @@ def main():
     parser.add_argument("--client", default=None,
                         help="the native OxyOS client a scenario with `client` runs instead of the Bloom host")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--input-methods", default=None,
+                        help="the input-method engine a scenario with `input_methods` runs (ADR 0041), "
+                             "else OXYOS_INPUT_METHODS")
     parser.add_argument("--reader", default=None,
                         help="the screen reader for scenarios with `reader` (oxyos-reader beside --offscreen)")
     parser.add_argument("--seat", action="store_true",
@@ -3112,6 +3173,10 @@ def main():
                     f"{companion_width},{companion_height}"]
         if "at" in companion:
             command += ["--companion-at", ",".join(map(str, companion["at"]))]
+        if "app" in companion:
+            # The application id it claims: the application's own makes the two windows one
+            # application's (Super+`, docs/adr/0024-system-shortcuts.mdx).
+            command += ["--companion-app", companion["app"]]
     if scenario.get("file_chooser"):
         # The file chooser the session starts for the application's requests (ADR 0029, decision
         # 8): the module run as the file manager is, in its picker mode, its report the
@@ -3147,6 +3212,11 @@ def main():
         # networks and the played machine's Wi-Fi are its, never the developer's machine's.
         network_address, stop_network = network_daemon(scenario["network"], out, options.offscreen)
         command += ["--network-bus", network_address]
+    if "input_sources" in scenario:
+        # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
+        # played with an engine that has the input methods named (none: none installed), from the
+        # run's preferences and its layout.
+        command += ["--input-sources-available", ",".join(scenario["input_sources"]["available"])]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -3162,6 +3232,14 @@ def main():
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
+    if scenario.get("input_methods"):
+        # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
+        # by tools/input-methods/build.sh, run as the session runs it.
+        prefix = options.input_methods or os.environ.get("OXYOS_INPUT_METHODS")
+        if not prefix:
+            raise SystemExit(f"{options.scenario}: needs the input-method engine "
+                             "(--input-methods PREFIX or OXYOS_INPUT_METHODS; tools/input-methods/build.sh)")
+        command += ["--input-methods", prefix]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:

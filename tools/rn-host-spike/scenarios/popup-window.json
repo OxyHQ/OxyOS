@@ -1,0 +1,480 @@
+{
+  "about": "A window's popups as a Mac's follow it, or close with it (the audit in docs/react-native-android-adaptation.mdx, \"Popups following their window\"): PopupWindowProbe (sample/PopupWindowProbe.tsx), a window as ADR 0016 draws it with Bloom's DropdownMenu, ContextMenu, Popover and Tooltip, each in a compositor popup, in the session's shell. Moved by the shell, the menu goes with the window in the same frame, at the same place against its trigger, and is not placed again. A press on the window's title band (where a drag would start) or on its zoom bubble with the menu open closes the menu and does nothing else, as a Mac's click outside a menu: the press reaches no client, the window neither moves nor zooms, React hears nothing; the next press drags the window. Super+M with the context menu open closes it with the window, its parent hidden (PopupDone ParentHidden), the window never given the keyboard back between (no focus in and out); restored from the dock, no popup comes back and the window has the keyboard. A tooltip (no grab) moves with its window and closes when the window is minimized, and does not come back on restore. Each step checks the popups shown and their rectangles, the compositor's focus, what each client was delivered, exactly what React heard and the page's own count of each popup's openings and closings (each closed once, none reopened).",
+  "module": "PopupWindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "a press on the page: the window is the active one",
+      "do": [
+        "press",
+        [
+          600,
+          500
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "react": {
+          "touchStart@settings-page": 1,
+          "touchEnd@settings-page": 1
+        },
+        "texts": [
+          "menu opened 0, closed 0; context opened 0, closed 0",
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the menu opens under its trigger and takes the keyboard",
+      "do": [
+        "press_named",
+        "Actions"
+      ],
+      "expect": {
+        "popup_rects": [
+          [
+            524,
+            218,
+            266,
+            72
+          ]
+        ],
+        "focus_surface": 2,
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "react": {
+          "touchStart@menu-trigger": 1,
+          "touchEnd@menu-trigger": 1
+        },
+        "popup_events": {
+          "open@actions": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "2": {
+            "focus.in": 1
+          }
+        },
+        "texts": [
+          "menu opened 1, closed 0",
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the shell moves the window: the menu goes with it in the same frame, at its trigger, not placed again",
+      "do": [
+        "move-window",
+        [
+          -60,
+          20
+        ]
+      ],
+      "expect": {
+        "popup_rects": [
+          [
+            464,
+            238,
+            266,
+            72
+          ]
+        ],
+        "focus_surface": 2,
+        "window_rect": [
+          130,
+          66,
+          900,
+          600
+        ],
+        "react": {},
+        "popup_events": {},
+        "delivered": {},
+        "texts": [
+          "menu opened 1, closed 0"
+        ]
+      }
+    },
+    {
+      "name": "a press held and dragged on the title band closes the menu and nothing else: the window stays, React hears nothing",
+      "do": [
+        "grab",
+        [
+          150,
+          30,
+          -40,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [
+          130,
+          66,
+          900,
+          600
+        ],
+        "react": {},
+        "popup_events": {
+          "dismissed@actions": 1,
+          "close@2": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "2": {
+            "focus.out": 1,
+            "popup.done": 1
+          }
+        },
+        "texts": [
+          "menu opened 1, closed 1",
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the next press on the title band drags the window",
+      "do": [
+        "grab",
+        [
+          150,
+          30,
+          -40,
+          30
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [
+          90,
+          96,
+          900,
+          600
+        ],
+        "react": {
+          "touchStart@settings-rail-window-band": 1,
+          "touchCancel@settings-rail-window-band": 1
+        },
+        "popup_events": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "texts": [
+          "menu opened 1, closed 1"
+        ]
+      }
+    },
+    {
+      "name": "the menu opens again where its trigger is now",
+      "do": [
+        "press_named",
+        "Actions"
+      ],
+      "expect": {
+        "popup_rects": [
+          [
+            424,
+            268,
+            266,
+            72
+          ]
+        ],
+        "focus_surface": 3,
+        "react": {
+          "touchStart@menu-trigger": 1,
+          "touchEnd@menu-trigger": 1
+        },
+        "popup_events": {
+          "open@actions": 1
+        },
+        "texts": [
+          "menu opened 2, closed 1"
+        ]
+      }
+    },
+    {
+      "name": "a press on the zoom bubble closes the menu and does not zoom the window",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [
+          90,
+          96,
+          900,
+          600
+        ],
+        "react": {},
+        "popup_events": {
+          "dismissed@actions": 1,
+          "close@3": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "3": {
+            "focus.out": 1,
+            "popup.done": 1
+          }
+        },
+        "texts": [
+          "menu opened 2, closed 2",
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the context menu opens where the area was pressed",
+      "do": [
+        "press_secondary_named",
+        "Area"
+      ],
+      "expect": {
+        "popup_rects": [
+          [
+            564,
+            317,
+            266,
+            72
+          ]
+        ],
+        "focus_surface": 4,
+        "react": {},
+        "popup_events": {
+          "open@Context menu": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "4": {
+            "focus.in": 1
+          }
+        },
+        "texts": [
+          "context opened 1, closed 0"
+        ]
+      }
+    },
+    {
+      "name": "Super+M closes it with the window, its parent hidden; the window is never given the keyboard back on the way",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": null,
+        "window_shown": false,
+        "react": {},
+        "popup_events": {
+          "dismissed@Context menu": 1,
+          "close@4": 1
+        },
+        "delivered": {
+          "4": {
+            "focus.out": 1,
+            "popup.done": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "restored from the dock: no popup comes back, the window has the keyboard, each popup closed once",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_shown": true,
+        "window_rect": [
+          90,
+          96,
+          900,
+          600
+        ],
+        "react": {},
+        "popup_events": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "texts": [
+          "menu opened 2, closed 2; context opened 1, closed 1",
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the tooltip shows under its button without taking the keyboard",
+      "do": [
+        "press_named",
+        "Help"
+      ],
+      "expect": {
+        "popup_rects": [
+          [
+            505,
+            267,
+            240,
+            37
+          ]
+        ],
+        "focus_surface": 1,
+        "react": {
+          "touchStart@tip-trigger": 1,
+          "touchEnd@tip-trigger": 1
+        },
+        "popup_events": {
+          "open@Explains the page": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "texts": [
+          "tooltip opened 1, closed 0"
+        ]
+      }
+    },
+    {
+      "name": "the shell moves the window: the tooltip goes with it",
+      "do": [
+        "move-window",
+        [
+          40,
+          -20
+        ]
+      ],
+      "expect": {
+        "popup_rects": [
+          [
+            545,
+            247,
+            240,
+            37
+          ]
+        ],
+        "focus_surface": 1,
+        "window_rect": [
+          130,
+          76,
+          900,
+          600
+        ],
+        "react": {},
+        "popup_events": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Super+M: the tooltip closes with the window",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": null,
+        "window_shown": false,
+        "react": {},
+        "popup_events": {
+          "dismissed@Explains the page": 1,
+          "close@5": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "5": {
+            "popup.done": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "restored from the dock: the tooltip does not come back",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_shown": true,
+        "react": {},
+        "popup_events": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "texts": [
+          "popover opened 0, closed 0; tooltip opened 1, closed 1"
+        ]
+      }
+    }
+  ]
+}

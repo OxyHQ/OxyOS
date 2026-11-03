@@ -162,6 +162,15 @@ pub enum Step {
         count: u32,
         interval_ms: u32,
     },
+    /// A double click as a hand makes it on a window's title area, at a window-local point: the
+    /// primary button held while the compositor serves the application until it begins a move
+    /// with the press (as a title bar's drag region does; two seconds at most), released, then
+    /// `gap_ms` later pressed again, held `hold_ms` and released.
+    DoubleClick {
+        at: (i32, i32),
+        hold_ms: u32,
+        gap_ms: u32,
+    },
     /// The pointer moved over the window, no button held, from one window-local point to another
     /// in `motions` even steps, `hz` of them a second, the compositor serving the application
     /// between them: a hand moving the mouse across a list. What the window showed meanwhile is
@@ -349,6 +358,9 @@ impl Step {
                 count,
                 interval_ms,
             } => format!("{count} presses at {at:?}, {interval_ms} ms apart"),
+            Step::DoubleClick { at, hold_ms, gap_ms } => {
+                format!("double click at {at:?}, each press held {hold_ms} ms, {gap_ms} ms apart")
+            }
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::Strokes(chords) => format!(
                 "keys {} on the keymap",
@@ -516,6 +528,9 @@ impl Step {
                 count,
                 interval_ms,
             } => format!("\"press_paced\":[{},{},{count},{interval_ms}]", at.0, at.1),
+            Step::DoubleClick { at, hold_ms, gap_ms } => {
+                format!("\"double_click\":[{},{},{hold_ms},{gap_ms}]", at.0, at.1)
+            }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::Strokes(chords) => format!("\"strokes\":{chords:?}"),
             Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
@@ -654,6 +669,11 @@ pub struct Launch {
     /// `--companion-at X,Y`: where the companion's window is moved once shown (output
     /// coordinates), beside the application's rather than centred over it.
     pub companion_at: Option<(i32, i32)>,
+    /// `--companion-app ID`: the application the companion is launched for, recorded as the
+    /// session records a launch (else it is an unrecorded `so.oxy.companion`): the application's
+    /// own makes the two windows one application's (docs/adr/0024-system-shortcuts.mdx, decision 2),
+    /// as Super+` goes through them.
+    pub companion_app: Option<String>,
     /// `--lock-password PASSWORD`: the lock screen's password unlocks when it is this one, the
     /// development compositor's fixture in place of the session's PAM (lock.rs).
     pub lock_password: Option<String>,
@@ -707,6 +727,15 @@ pub struct Launch {
     /// the played machine's network (`--controls`) follows it too, and each step's result says
     /// what the daemon holds (`network`).
     pub network_bus: Option<String>,
+    /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
+    /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
+    /// in a directory of the run's own with nothing learned before.
+    pub input_methods: Option<PathBuf>,
+    /// `--input-sources-available METHOD,...`: what the session tells of the input sources is
+    /// played (input_sources.rs, docs/adr/0041-input-methods.mdx), its engine having these input
+    /// methods (an empty list: none installed), for scenarios that need the state alone (Settings'
+    /// Input Sources) without the engine. Refused with `--input-methods`, which tells the real one.
+    pub input_sources_available: Option<String>,
     /// `--outputs WxH[@SCALE][:HZ],...`: the session's outputs, of these pixels at these scales,
     /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
@@ -725,8 +754,8 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -809,10 +838,13 @@ impl Launch {
         let mut file_chooser = None;
         let mut companion = None;
         let mut companion_at = None;
+        let mut companion_app = None;
         let mut lock_password = None;
         let (mut reader, mut reader_locale, mut reader_off) = (None, None, false);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
+        let mut input_methods = None;
+        let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
         let mut runtimes = None;
@@ -887,6 +919,11 @@ impl Launch {
                     companion_at = Some((n[0], n[1]));
                     continue;
                 }
+                Some("--companion-app") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    companion_app = Some(value.to_string());
+                    continue;
+                }
                 Some("--reader") => {
                     reader = Some(args.next().ok_or(USAGE)?.into());
                     continue;
@@ -912,9 +949,18 @@ impl Launch {
                     controls = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
+                Some("--input-methods") => {
+                    input_methods = Some(PathBuf::from(args.next().ok_or(USAGE)?));
+                    continue;
+                }
                 Some("--network-bus") => {
                     let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     network_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--input-sources-available") => {
+                    let methods = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    input_sources_available = Some(methods.to_string());
                     continue;
                 }
                 Some("--installed-fixture") => {
@@ -1221,6 +1267,17 @@ impl Launch {
                         hz: n[5] as u32,
                     }
                 }
+                Some("--double-click") => {
+                    let n = numbers(args.next(), 4)?;
+                    if n[2] < 0 || n[3] < 0 {
+                        return Err("--double-click needs times of 0 ms or more".into());
+                    }
+                    Step::DoubleClick {
+                        at: (n[0], n[1]),
+                        hold_ms: n[2] as u32,
+                        gap_ms: n[3] as u32,
+                    }
+                }
                 Some("--press-paced") => {
                     let n = numbers(args.next(), 4)?;
                     if n[2] < 1 || n[3] < 0 {
@@ -1405,6 +1462,7 @@ impl Launch {
                 file_chooser,
                 companion,
                 companion_at,
+                companion_app,
                 lock_password,
                 reader,
                 reader_locale,
@@ -1419,6 +1477,8 @@ impl Launch {
                 screenshots,
                 controls,
                 network_bus,
+                input_methods,
+                input_sources_available,
                 outputs: screens,
                 displays,
                 login,
@@ -1597,14 +1657,14 @@ fn start_companion(
     children: &mut Children,
     command: &[std::ffi::OsString],
     at: Option<(i32, i32)>,
+    app: Option<&str>,
 ) -> Result<()> {
     let mut companion = Command::new(command.first().ok_or(USAGE)?);
     companion
         .args(&command[1..])
         .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
-        .env("OXYOS_APP_ID", "so.oxy.companion")
+        .env("OXYOS_APP_ID", app.unwrap_or("so.oxy.companion"))
         .env("OXYOS_APP_TITLE", "Companion")
-        .env("OXYOS_APP_UNRECORDED", "1")
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY");
     if let Some(bundle) = command
@@ -1619,9 +1679,13 @@ fn start_companion(
         report.push(".companion");
         companion.env("OXYOS_HOST_REPORT", report);
     }
+    if app.is_none() {
+        companion.env("OXYOS_APP_UNRECORDED", "1");
+    }
     let child = companion.spawn()?;
     let pid = child.id();
     session.companion = Some(pid);
+    session.companion_app = app.map(str::to_string);
     children.0.push(child);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
     let mut last = (Vec::new(), Instant::now());
@@ -2028,6 +2092,85 @@ fn field_json(compositor: &Compositor) -> String {
         field.cursor,
         field.serial,
     )
+}
+
+/// The text-input transactions the application was given during a step (ADR 0008), in order,
+/// each as its parts: the bytes deleted around the selection, the text committed, the
+/// composition, its cursor and its segments with their styles; for a field whose text is a
+/// secret, only `withheld`.
+fn transactions_json(session: &Session) -> String {
+    let mut transactions = Vec::new();
+    let (mut delete, mut commit, mut preedit) = ((0, 0), String::new(), String::new());
+    let (mut cursor, mut segments) = ((0, 0), Vec::new());
+    for (client, event) in &session.compositor.text_input_log {
+        if *client != CLIENT {
+            continue;
+        }
+        match event {
+            oxyos_protocol::Event::TextInputDelete { before, after, .. } => {
+                delete = (*before, *after)
+            }
+            oxyos_protocol::Event::TextInputCommitText { text, .. } => {
+                commit.push_str(text.as_str())
+            }
+            oxyos_protocol::Event::TextInputPreeditText { text, .. } => {
+                preedit.push_str(text.as_str())
+            }
+            oxyos_protocol::Event::TextInputPreeditCursor { begin, end, .. } => {
+                cursor = (*begin, *end)
+            }
+            oxyos_protocol::Event::TextInputPreeditSegment {
+                begin, end, style, ..
+            } => segments.push(format!(
+                "[{begin},{end},\"{}\"]",
+                format!("{style:?}").to_lowercase()
+            )),
+            oxyos_protocol::Event::TextInputDone { surface, .. } => {
+                // What is typed into a password, a PIN or a sensitive field is never written
+                // anywhere (ADR 0008, decision 4): only that a transaction was given.
+                let field = SurfaceKey {
+                    client: CLIENT,
+                    id: *surface,
+                };
+                let secret = session
+                    .compositor
+                    .scene
+                    .text_input(field)
+                    .is_none_or(|state| {
+                        matches!(
+                            state.purpose,
+                            oxyos_protocol::TextPurpose::Password
+                                | oxyos_protocol::TextPurpose::Pin
+                        ) || state.hints.contains(oxyos_protocol::TextHints::SENSITIVE)
+                    });
+                if secret {
+                    transactions.push("{\"withheld\":true}".to_string());
+                    (delete, cursor) = ((0, 0), (0, 0));
+                    commit.clear();
+                    preedit.clear();
+                    segments.clear();
+                    continue;
+                }
+                transactions.push(format!(
+                    "{{\"delete\":[{},{}],\"commit\":{},\"preedit\":{},\"cursor\":[{},{}],\"segments\":[{}]}}",
+                    delete.0,
+                    delete.1,
+                    json_string(&commit),
+                    json_string(&preedit),
+                    cursor.0,
+                    cursor.1,
+                    segments.join(",")
+                ));
+                delete = (0, 0);
+                commit.clear();
+                preedit.clear();
+                cursor = (0, 0);
+                segments.clear();
+            }
+            _ => {}
+        }
+    }
+    format!("[{}]", transactions.join(","))
 }
 
 /// The input routed during a step: for the application, counts per surface and kind; for the
@@ -2851,6 +2994,15 @@ fn inject_through(
     Ok(Some(0))
 }
 
+/// The preferences file as the step left it (`--preferences`), as a JSON string; null without one
+/// or before the session first wrote it.
+fn preferences_file_json(file: Option<&Path>) -> String {
+    file.and_then(|file| fs::read_to_string(file).ok())
+        .map_or("null".to_string(), |text| {
+            serde_json::Value::String(text).to_string()
+        })
+}
+
 /// The Linux key code typing `c` on a US layout, and the text it types (none for Enter).
 fn key_for(c: char) -> Result<(u32, Option<String>)> {
     const LETTERS: [u32; 26] = [
@@ -3555,6 +3707,55 @@ fn press_paced(
     Ok(())
 }
 
+/// A hand's double click on a title area (`Step::DoubleClick`): the first press held while the
+/// compositor serves the application until it is moving the window (two seconds at most), as a
+/// hand's press is held while a drag region answers it, then released; the second pressed `gap_ms`
+/// after, held `hold_ms` and released.
+fn double_click(
+    session: &mut Session,
+    window: Rect,
+    at: (i32, i32),
+    hold_ms: u32,
+    gap_ms: u32,
+) -> Result<()> {
+    if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
+        return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
+    }
+    let idle_wait = session.compositor.idle_wait;
+    let serve_for = |session: &mut Session, ms: u32| -> Result<()> {
+        let until = Instant::now() + Duration::from_millis(u64::from(ms));
+        while Instant::now() < until {
+            session.compositor.idle_wait =
+                idle_wait.min(until.saturating_duration_since(Instant::now()));
+            session.compositor.serve(&session.listener)?;
+        }
+        Ok(())
+    };
+    session
+        .compositor
+        .scene
+        .pointer_motion(window.x + at.0, window.y + at.1);
+    for press in 0..2 {
+        if press == 1 {
+            serve_for(session, gap_ms)?;
+        }
+        session.compositor.scene.pointer_button(BUTTON, true);
+        if press == 0 {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while session.compositor.scene.moving_window().is_none() && Instant::now() < deadline {
+                serve_for(session, 2)?;
+            }
+        } else {
+            serve_for(session, hold_ms)?;
+        }
+        session.compositor.scene.pointer_button(BUTTON, false);
+    }
+    session.compositor.idle_wait = Duration::ZERO;
+    session.compositor.serve(&session.listener)?;
+    session.compositor.idle_wait = idle_wait;
+    Ok(())
+}
+
 /// A point on one of the session's outputs (a scaled one's logical pixels).
 fn inside_output(compositor: &Compositor, (x, y): (i32, i32)) -> Result<()> {
     if compositor
@@ -3791,6 +3992,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::ScrollPaced { .. }
         | Step::MovePaced { .. }
         | Step::HoldOutput { .. }
+        | Step::DoubleClick { .. }
         | Step::PressPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
@@ -3883,6 +4085,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None,
         )?);
     }
+    if let Some(methods) = &launch.input_sources_available {
+        // The state played or the engine run, never both telling it.
+        if launch.input_methods.is_some() {
+            return Err(
+                "--input-sources-available plays what --input-methods runs: give one".into(),
+            );
+        }
+        session.input_sources = Some(crate::input_sources::InputSources::new(
+            methods,
+            &launch.layout,
+        )?);
+    }
     if let Some(address) = &launch.network_bus {
         // The session's networks, over the played daemon on the run's own bus.
         let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
@@ -3892,6 +4106,35 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.networks = Some(networks);
         session.network_control =
             Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
+    if let Some(prefix) = &launch.input_methods {
+        // The session's input methods (ADR 0041): the real engine, in a directory of this run's.
+        let engine = oxyos_input_methods::Engine::at(prefix)
+            .ok_or_else(|| format!("--input-methods: no engine at {}", prefix.display()))?;
+        // Under the session's own directory, removed with it: nothing learned outlives the run.
+        let run = session.directory().join("input-methods");
+        let paths = oxyos_input_methods::Paths {
+            runtime: run.join("run"),
+            data: run.join("data"),
+        };
+        let methods = oxyos_compositor::input_methods::start(
+            &mut session.compositor,
+            &session.settings,
+            engine,
+            paths,
+        )
+        .ok_or("--input-methods: the engine did not start")?;
+        let mut methods = methods;
+        // The scenario's first key reaches the engine, not the layout it falls back to.
+        if !methods.wait_ready(&mut session.compositor, Duration::from_secs(30)) {
+            return Err("--input-methods: the engine did not start in 30 s".into());
+        }
+        session.input_methods_waker = session
+            .compositor
+            .wakers
+            .last()
+            .map(std::os::fd::AsRawFd::as_raw_fd);
+        session.input_methods = Some(methods);
     }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
@@ -4233,7 +4476,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     };
     let mut window = first.window;
     if let Some(command) = &launch.companion {
-        start_companion(&mut session, &mut children, command, launch.companion_at)?;
+        start_companion(
+            &mut session,
+            &mut children,
+            command,
+            launch.companion_at,
+            launch.companion_app.as_deref(),
+        )?;
     }
     if !login
         && (window.y..window.bottom() as i32).all(|y| {
@@ -4264,6 +4513,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let step = &resolved;
         let may_stay = &settling.may_stay;
         session.compositor.input_log.clear();
+        session.compositor.text_input_log.clear();
         if let Step::SwitchTerminal(number) = step {
             let devices = devices.as_mut().ok_or("--switch-terminal needs --uinput")?;
             let away_ms = switch_terminal(&mut session, &mut children, devices, *number)?;
@@ -4434,6 +4684,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::DoubleClick { .. }) => {
+                if let Step::DoubleClick {
+                    at,
+                    hold_ms,
+                    gap_ms,
+                } = step
+                {
+                    double_click(&mut session, window, *at, *hold_ms, *gap_ms)?;
+                }
+                0
+            }
             _ if matches!(step, Step::PressPaced { .. }) => {
                 if let Step::PressPaced {
                     at,
@@ -4465,6 +4726,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     let keyboard = keyboard
                         .as_mut()
                         .map_err(|error| format!("the {} keymap: {error}", launch.layout))?;
+                    // Dead keys are the engine's while an input method is current (ADR 0041).
+                    keyboard.set_composing(
+                        session
+                            .input_methods
+                            .as_ref()
+                            .is_none_or(|methods| methods.composing()),
+                    );
                     for codes in chords {
                         let presses = codes.iter().map(|code| (*code, true));
                         let releases = codes.iter().rev().map(|code| (*code, false));
@@ -4546,8 +4814,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
+        let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4567,6 +4836,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             session.network_state(),
+            preferences_file_json(launch.preferences.as_deref()),
             menus_json(
                 &session.compositor,
                 Some(SurfaceKey {
