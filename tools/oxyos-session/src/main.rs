@@ -1057,7 +1057,15 @@ fn switch_reader(
         }
         (None, Some(program), true) => {
             eprintln!("[session] starting the screen reader");
-            *reader = Some(spawn_reader(socket, program)?);
+            // A reader that cannot start leaves the switch off, never the session ended: the
+            // login screen's session lasts while no one has signed in.
+            match spawn_reader(socket, program) {
+                Ok(started) => *reader = Some(started),
+                Err(error) => eprintln!(
+                    "[session] cannot start the screen reader {}: {error}",
+                    program.to_string_lossy()
+                ),
+            }
         }
         (None, None, true) => eprintln!("[session] no screen reader (--reader)"),
         (running, _, _) => *reader = running,
@@ -1372,5 +1380,20 @@ fn asker(launched: Option<&oxyos_apps::Launched>) -> oxyos_compositor::installs:
                 decisions: launched.capabilities.clone(),
             },
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::switch_reader;
+    use std::ffi::OsString;
+
+    #[test]
+    fn a_reader_that_cannot_start_leaves_the_switch_off_and_the_session_on() {
+        let mut reader = None;
+        let missing = OsString::from("/nonexistent/oxyos-reader");
+        let socket = std::env::temp_dir().join("oxyos-reader-test.socket");
+        assert!(switch_reader(&mut reader, Some(&missing), &socket, true).is_ok());
+        assert!(reader.is_none());
     }
 }

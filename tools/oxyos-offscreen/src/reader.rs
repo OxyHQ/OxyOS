@@ -75,6 +75,9 @@ pub struct Reader {
     announcing: BTreeMap<SurfaceKey, (String, Politeness)>,
     /// What it would have said since the last `take_announcements`.
     announcements: Vec<Announcement>,
+    /// Each view's live regions as they last showed, by surface and the view its tree is of (its
+    /// first node's role and name: the window, or a modal shown over it): see `live_changes`.
+    lives: BTreeMap<(SurfaceKey, AccessibleRole, String), Vec<String>>,
 }
 
 impl Reader {
@@ -207,6 +210,7 @@ impl Reader {
                 let key = key(client, surface);
                 self.receiving.remove(&key);
                 self.trees.remove(&key);
+                self.lives.retain(|(surface, ..), _| *surface != key);
             }
             Event::AccessibilityAnnouncement {
                 client,
@@ -243,23 +247,26 @@ impl Reader {
             .and_then(|nodes| nodes.get_mut(index as usize))
     }
 
-    /// A live region whose text changed since the surface's previous tree is announced, as
-    /// TalkBack does; a surface's first tree announces nothing. Live regions are matched in
-    /// order among the tree's live regions, so nodes coming and going around them move nothing.
+    /// A live region whose text changed since its view last showed it is announced, as TalkBack
+    /// does, compared with itself as the same view (the window, or the same modal) last showed it:
+    /// one hidden under a modal and shown again unchanged announces nothing. A view's first
+    /// showing announces nothing. Live regions are matched in order within a view.
     fn live_changes(&mut self, key: SurfaceKey, nodes: &[Node]) {
-        let Some(before) = self.trees.get(&key) else {
+        let view = nodes
+            .first()
+            .map_or((AccessibleRole::Generic, String::new()), |root| {
+                (root.role, root.name.clone())
+            });
+        let now: Vec<(Politeness, String)> = nodes
+            .iter()
+            .filter_map(|node| Some((node.live()?, node.said())))
+            .collect();
+        let texts = now.iter().map(|(_, said)| said.clone()).collect();
+        let Some(shown) = self.lives.insert((key, view.0, view.1), texts) else {
             return;
         };
-        let before: Vec<String> = before
-            .iter()
-            .filter(|node| node.live().is_some())
-            .map(Node::said)
-            .collect();
-        let live = nodes.iter().filter_map(|node| Some((node.live()?, node)));
-        for (index, (politeness, node)) in live.enumerate() {
-            let said = node.said();
-            let was = before.get(index);
-            if !said.is_empty() && was != Some(&said) {
+        for (index, (politeness, said)) in now.into_iter().enumerate() {
+            if !said.is_empty() && shown.get(index) != Some(&said) {
                 self.announcements.push(Announcement {
                     politeness,
                     text: said,

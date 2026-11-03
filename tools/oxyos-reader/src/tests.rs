@@ -806,3 +806,105 @@ fn an_item_says_its_place_and_then_its_hint() {
         ["foto.png, seleccionado, 2 de 3", "Abre el archivo"]
     );
 }
+
+/// A window with Dropsea's status bar, a live region, and its list.
+fn status(text: &str) -> Vec<Event> {
+    tree(
+        WINDOW,
+        &[
+            (R::Generic, 0, "", ""),
+            (R::List, 0, "Documents", ""),
+            (R::Text, AccessibleState::LIVE_POLITE, text, ""),
+        ],
+    )
+}
+
+/// The same surface while a modal is shown: its tree is the modal's alone.
+fn quick_look(focused: bool) -> Vec<Event> {
+    tree(
+        WINDOW,
+        &[
+            (R::Dialog, 0, "Quick Look", ""),
+            (R::Text, 0, "notes.txt", ""),
+            (R::Button, if focused { FOCUSED } else { 0 }, "Close", ""),
+        ],
+    )
+}
+
+#[test]
+fn a_live_region_shown_again_unchanged_says_nothing() {
+    let mut reader = Reader::new(Language::English);
+    assert!(feed(&mut reader, &status("1 of 3 selected")).is_empty());
+    assert_eq!(
+        feed(&mut reader, &status("2 of 3 selected")),
+        ["2 of 3 selected"]
+    );
+    // A modal over the window: the window's live region is not in the tree meanwhile.
+    feed(&mut reader, &quick_look(false));
+    // Back unchanged: nothing said; changed while hidden: its new text.
+    assert!(feed(&mut reader, &status("2 of 3 selected")).is_empty());
+    feed(&mut reader, &quick_look(false));
+    assert_eq!(
+        feed(&mut reader, &status("3 of 3 selected")),
+        ["3 of 3 selected"]
+    );
+}
+
+#[test]
+fn a_dialog_shown_over_a_window_is_said_by_its_title_as_it_appears() {
+    let mut reader = Reader::new(Language::English);
+    feed(&mut reader, &status("1 of 3 selected"));
+    // Nothing focused in it: its title alone, once.
+    assert_eq!(
+        feed(&mut reader, &quick_look(false)),
+        ["Quick Look, dialog"]
+    );
+    assert!(feed(&mut reader, &quick_look(false)).is_empty());
+    feed(&mut reader, &status("1 of 3 selected"));
+    // A control focused in it: the title, then the control after it, politely.
+    for event in &quick_look(true) {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Quick Look, dialog".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Close, button".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_dialog_closed_with_nothing_focused_leaves_the_next_focus_said_at_once() {
+    let mut reader = Reader::new(Language::English);
+    feed(&mut reader, &status("1 of 3 selected"));
+    assert_eq!(
+        feed(&mut reader, &quick_look(false)),
+        ["Quick Look, dialog"]
+    );
+    // Closed: the list focused again is said at once, not as if after the dialog's title.
+    let mut back = tree(
+        WINDOW,
+        &[
+            (R::Generic, 0, "", ""),
+            (R::List, FOCUSED, "Documents", ""),
+            (R::Text, AccessibleState::LIVE_POLITE, "1 of 3 selected", ""),
+        ],
+    );
+    for event in back.drain(..) {
+        reader.receive(&event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [Utterance {
+            text: "Documents, list".into(),
+            politeness: Politeness::Assertive
+        }]
+    );
+}
