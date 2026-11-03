@@ -24,6 +24,7 @@ pub mod animation;
 pub mod data;
 pub mod placeholder;
 pub mod remote;
+pub mod shape;
 
 use moxcms::{ColorProfile, Layout, TransformOptions};
 use remote::Want;

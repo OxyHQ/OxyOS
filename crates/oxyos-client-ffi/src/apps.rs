@@ -2,7 +2,41 @@
 //! session has, for the Bloom host run as the shell, which lists them in the launcher and the dock.
 
 use super::fail;
+use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
+
+/// What each icon's picture was measured as (`oxyos_image::shape`), by its file, with the file's
+/// length and time it was measured at: a picture is decoded and measured once, again only when its
+/// file changes.
+#[allow(clippy::type_complexity)]
+static SHAPES: Mutex<Option<HashMap<PathBuf, (u64, Option<SystemTime>, Option<f64>)>>> =
+    Mutex::new(None);
+
+/// The share of the icon's picture its own body takes when the picture is its own shape (a
+/// rounded square, transparent around it: Dropsea's), else None: an SVG (drawn on the icon grid),
+/// a picture that is not, or one that cannot be read.
+pub(crate) fn icon_body(icon: &Path) -> Option<f64> {
+    if icon.extension().is_some_and(|extension| extension == "svg") {
+        return None;
+    }
+    let metadata = std::fs::metadata(icon).ok()?;
+    let stamp = (metadata.len(), metadata.modified().ok());
+    let mut shapes = SHAPES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let shapes = shapes.get_or_insert_with(HashMap::new);
+    if let Some(&(length, modified, body)) = shapes.get(icon) {
+        if (length, modified) == stamp {
+            return body;
+        }
+    }
+    let body = oxyos_image::shape::own_shape_of_file(icon).ok().flatten();
+    shapes.insert(icon.to_path_buf(), (stamp.0, stamp.1, body));
+    body
+}
 
 /// `text` as a JSON string.
 pub(crate) fn json_string(text: &str) -> String {
@@ -141,7 +175,9 @@ pub unsafe extern "C" fn oxyos_applications_watch_changed(
     }
 }
 
-/// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "pinned" (its
+/// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "iconBody" (the
+/// share of the icon's picture its own body takes when the picture is its own shape, which the
+/// shell draws as it is; null for any other, which it puts in the icon grid's body), "pinned" (its
 /// place in the dock from 1, or null)}]`, sorted by name, in the session's language: `Intl`'s
 /// default locale, which the host keeps the session's (docs/adr/0040-language-and-region.mdx).
 pub fn applications_json() -> String {
@@ -161,12 +197,16 @@ pub fn applications_json() -> String {
         .iter()
         .map(|app| {
             format!(
-                "{{\"id\":{},\"name\":{},\"icon\":{},\"pinned\":{}}}",
+                "{{\"id\":{},\"name\":{},\"icon\":{},\"iconBody\":{},\"pinned\":{}}}",
                 json_string(&app.id),
                 json_string(&app.name),
                 app.icon
                     .as_ref()
                     .map_or("null".into(), |icon| json_string(&icon.to_string_lossy())),
+                app.icon
+                    .as_deref()
+                    .and_then(icon_body)
+                    .map_or("null".into(), |body| format!("{body}")),
                 app.pinned.map_or("null".into(), |place| place.to_string())
             )
         })

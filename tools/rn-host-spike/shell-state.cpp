@@ -100,8 +100,9 @@ void ShellState::readApplications() {
         icon = folly::dynamic::object("uri", "file://" + path);
       }
     }
+    // Its picture's own body, when the picture is its own shape (oxyos_applications measured it).
     applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"])("icon", icon)(
-        "pinned", app["pinned"]));
+        "iconBody", app["iconBody"])("pinned", app["pinned"]));
   }
   applications_ = std::move(applications);
 }

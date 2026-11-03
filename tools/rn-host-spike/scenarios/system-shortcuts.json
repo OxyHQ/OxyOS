@@ -1,5 +1,5 @@
 {
-  "about": "System shortcuts (ADR 0024) on the OxyOS shell: Allo (sample/EditingProbe.tsx, a text field focused) and Inbox, launched from the dock. Super+Tab released at once switches back to the application used before; with Super held, Tab, Tab and Shift+Tab move the shell's application switcher (each choice framed, named, a selected button and said to the screen reader) and Super's release activates the choice. Super+H hides Inbox, which keeps its dock mark and comes back when the switcher activates it; Super+W asks it to close, so it goes and leaves the dock; Super+Space opens the launcher with its search taking what is typed; Super+M minimizes Allo into the dock, whose press brings it back; and, as a control, keys typed without Super are Allo's. Every step checks exactly what Allo's React tree and client receive (none of the Super chords, nor their text) and what the launched Inbox's client does. With the compositor not taking Super's chords, it fails.",
+  "about": "System shortcuts (ADR 0024) on the OxyOS shell: Allo (sample/EditingProbe.tsx, a text field focused) and Inbox, launched from the dock. Super+Tab released at once switches back to the application used before; with Super held, Tab, Tab and Shift+Tab move the shell's application switcher (each choice framed, named, a selected button and said to the screen reader) and Super's release activates the choice. Super+H hides Inbox, which keeps its dock mark and comes back when the switcher activates it; Super+W asks it to close, so it goes and leaves the dock; Super+Space opens the launcher with its search taking what is typed (in Spanish, the session's language, docs/adr/0040-language-and-region.mdx: its search \"Buscar\", Settings named \"Ajustes\"; \"inb\" leaves Inbox alone); Super+M minimizes Allo into the dock, whose press brings it back; and, as a control, keys typed without Super are Allo's. Every step checks exactly what Allo's React tree and client receive (none of the Super chords, nor their text) and what the launched Inbox's client does. With the compositor not taking Super's chords, it fails.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [600, 360],
@@ -131,7 +131,7 @@
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1}},
-        "in_shell": {"react": {"focus@launcher-search": 1, "selectionChange@launcher-search": 1}, "texts": ["Buscar", "Inbox", "Allo", "Settings"]}
+        "in_shell": {"react": {"focus@launcher-search": 1, "selectionChange@launcher-search": 1}, "texts": ["Buscar", "Inbox", "Allo", "Ajustes"]}
       }
     },
     {
@@ -143,7 +143,7 @@
         "in_shell": {
           "react": {"keyPress@launcher-search": 3, "change@launcher-search": 3, "selectionChange@launcher-search": 3},
           "texts": ["Inbox"],
-          "absent": ["Settings"]
+          "absent": ["Ajustes", "Allo"]
         }
       }
     },

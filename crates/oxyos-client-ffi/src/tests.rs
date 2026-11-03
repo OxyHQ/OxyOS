@@ -3513,6 +3513,46 @@ fn the_applications_are_listed_as_json_through_the_c_abi() {
 }
 
 #[test]
+fn an_icon_that_is_its_own_shape_is_measured_once_and_again_when_its_file_changes() {
+    use crate::apps::icon_body;
+    // A 64 × 64 PNG: a squircle (Dropsea's tile) transparent around it, or a square to its corners.
+    let encode = |rounded: bool| {
+        let mut rgba = Vec::new();
+        for y in 0..64 {
+            for x in 0..64 {
+                let at = |p: i32| (p as f64 + 0.5) / 32.0 - 1.0;
+                let inside = !rounded || at(x).abs().powi(3) + at(y).abs().powi(3) <= 1.0;
+                rgba.extend(if inside { [0, 0x2b, 0x64, 255] } else { [0; 4] });
+            }
+        }
+        let mut bytes = Vec::new();
+        let mut encoder = png::Encoder::new(&mut bytes, 64, 64);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&rgba)
+            .unwrap();
+        bytes
+    };
+    let dir = std::env::temp_dir().join(format!("oxyos-icon-body-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let icon = dir.join("icon.png");
+    std::fs::write(&icon, encode(true)).unwrap();
+    assert_eq!(icon_body(&icon), Some(1.0));
+    assert_eq!(icon_body(&icon), Some(1.0));
+    // Replaced by a square of another length: measured again, and put in the grid's body.
+    std::fs::write(&icon, encode(false)).unwrap();
+    assert_eq!(icon_body(&icon), None);
+    // An SVG is drawn on the grid, never measured; a missing file is nothing.
+    std::fs::write(dir.join("icon.svg"), "<svg/>").unwrap();
+    assert_eq!(icon_body(&dir.join("icon.svg")), None);
+    assert_eq!(icon_body(&dir.join("missing.png")), None);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn the_applications_are_followed_through_the_c_abi() {
     use crate::apps::*;
     for declared in [
