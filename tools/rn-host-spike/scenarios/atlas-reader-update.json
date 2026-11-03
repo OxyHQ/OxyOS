@@ -121,7 +121,7 @@
    "name": "Atlas in the dock: the session starts it, with its window",
    "do": [
     "press_named",
-    "Abrir Atlas"
+    "Atlas"
    ],
    "allow_unchanged": true,
    "expect": {
