@@ -15,7 +15,7 @@ import {
   type NearbyNetwork,
   type WifiState,
 } from "../src/network.ts";
-import { stringsFor } from "../src/strings.ts";
+import { messagesFor } from "../src/messages.ts";
 
 const nearby = (ssid: string, signal: number, extra: Partial<NearbyNetwork> = {}): NearbyNetwork => ({
   ssid,
@@ -97,8 +97,8 @@ test("a join's failure is said by Settings only where the session's sheet says n
 });
 
 test("a failure's words, in English and Spanish", () => {
-  const en = stringsFor("en").wifi.failures;
-  const es = stringsFor("es-ES").wifi.failures;
+  const en = messagesFor("en").wifi.failures;
+  const es = messagesFor("es-ES").wifi.failures;
   assert.equal(failureLabel("notPermitted", en, "forget"), "Only an administrator can forget this network.");
   assert.equal(failureLabel("notPermitted", es, "forget"), "Solo un administrador puede olvidar esta red.");
   assert.equal(failureLabel("notPermitted", en, "join"), "Only an administrator can join this network.");
