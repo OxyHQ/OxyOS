@@ -1,5 +1,5 @@
 {
- "about": "Launchpad with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+Space opens Launchpad with its search focused; typing searches, the first result highlighted while the search keeps the screen reader's focus; the arrows move the highlight, which is then the screen reader's focus, as VoiceOver's cursor is Launchpad's selection: each icon reached is said once by its name; typing again gives the search the screen reader's focus back, said once, and echoes what is typed; Escape clears the search, then closes it. At 1.25 (1600 × 1000).",
+ "about": "Launchpad with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+Space opens Launchpad, a dialog said by its title as it appears (\"Launchpad, diálogo\"), with its search focused and said after it; typing searches, the first result highlighted while the search keeps the screen reader's focus, each letter echoed and the number of results said politely once as it changes (a status, \"2 resultados\", \"Ningún resultado\"), never again while it is the same; the arrows move the highlight, which is then the screen reader's focus, as VoiceOver's cursor is Launchpad's selection: each icon reached is said once by its name; typing again gives the search the screen reader's focus back, said once, and echoes what is typed; Escape clears the search, then closes it. At 1.25 (1600 × 1000).",
  "module": "EditingProbe",
  "window": [
   600,
@@ -29,7 +29,7 @@
    }
   },
   {
-   "name": "Super+Space opens Launchpad, its search taking the keyboard",
+   "name": "Super+Space opens Launchpad, said by its title as it appears, then its search, which has the keyboard and the screen reader's focus",
    "do": [
     "key",
     [
@@ -40,12 +40,36 @@
    "allow_unchanged": true,
    "expect": {
     "react": {},
-    "spoken": [],
-    "announcements": []
+    "spoken": [
+     {
+      "text": "Launchpad, diálogo",
+      "interrupting": true
+     },
+     {
+      "text": "Buscar aplicaciones, campo de búsqueda",
+      "interrupting": false
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Launchpad"
+      },
+      {
+       "role": "Search",
+       "name": "Buscar aplicaciones",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    }
    }
   },
   {
-   "name": "typing searches: Atlas and Allo, the first highlighted; the search keeps the screen reader's focus",
+   "name": "typing searches: Atlas and Allo, the first highlighted; the search keeps the screen reader's focus and echoes the letter, then the results are said politely, once",
    "do": [
     "keyboard",
     "l"
@@ -69,8 +93,23 @@
       }
      ]
     },
-    "spoken": [],
-    "announcements": []
+    "spoken": [
+     {
+      "text": "l",
+      "interrupting": true
+     },
+     {
+      "text": "2 resultados",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "2 resultados",
+      "live": true
+     }
+    ]
    }
   },
   {
@@ -148,7 +187,7 @@
    }
   },
   {
-   "name": "typing again gives the search the screen reader's focus back, said once with what it holds",
+   "name": "typing again gives the search the screen reader's focus back, said once with what it holds, then the new count",
    "do": [
     "keyboard",
     "l"
@@ -172,13 +211,23 @@
      {
       "text": "Buscar aplicaciones, ll, campo de búsqueda",
       "interrupting": true
+     },
+     {
+      "text": "1 resultado",
+      "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "1 resultado",
+      "live": true
+     }
+    ]
    }
   },
   {
-   "name": "typed on, the search echoes what is typed",
+   "name": "typed on, the search echoes what is typed; the count, the same, is not said again",
    "do": [
     "keyboard",
     "o"
@@ -193,6 +242,70 @@
      }
     ],
     "announcements": []
+   }
+  },
+  {
+   "name": "a letter nothing matches: echoed, then no result said",
+   "do": [
+    "keyboard",
+    "z"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "texts": [],
+    "in_shell": {
+     "texts": [
+      "No hay aplicaciones que coincidan con «lloz»."
+     ]
+    },
+    "spoken": [
+     {
+      "text": "z",
+      "interrupting": true
+     },
+     {
+      "text": "Ningún resultado",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Ningún resultado",
+      "live": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "Backspace: the letter said deleted, then the one result again",
+   "do": [
+    "key",
+    [
+     14
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "z, borrado",
+      "interrupting": true
+     },
+     {
+      "text": "1 resultado",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "1 resultado",
+      "live": true
+     }
+    ]
    }
   },
   {

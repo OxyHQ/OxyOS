@@ -136,6 +136,10 @@ pub struct Reader {
     /// A popup whose title was said and nothing focused in it yet: its first focus follows the
     /// title rather than stopping it, in whichever of its trees it comes.
     titled: Option<Surface>,
+    /// Each surface that appeared as a named dialog (Launchpad, the Notification Center, a system
+    /// sheet), by its title and description: its own, said as it appeared, never again as a modal
+    /// over it goes.
+    own_dialogs: BTreeMap<Surface, (String, String)>,
     announcing: BTreeMap<Surface, (String, Politeness)>,
     /// The element under the cursor.
     cursor: Option<(Surface, usize)>,
@@ -156,6 +160,7 @@ impl Reader {
             locked: None,
             after_lock: false,
             titled: None,
+            own_dialogs: BTreeMap::new(),
             announcing: BTreeMap::new(),
             cursor: None,
             focused: None,
@@ -349,6 +354,7 @@ impl Reader {
                 if self.titled == Some(key) {
                     self.titled = None;
                 }
+                self.own_dialogs.remove(&key);
                 self.announcing.remove(&key);
                 self.trees.remove(&key);
                 self.lives.retain(|(surface, ..), _| *surface != key);
@@ -417,8 +423,10 @@ impl Reader {
             self.focused = Some((key, kept.1));
         }
         // After what the focused element's change says (the letter typed), which an alert it
-        // brought (the name typed is taken) interrupts; before a new focus, which says itself.
-        self.live_changes(key);
+        // brought (the name typed is taken) interrupts; an assertive one before a new focus, which
+        // says itself, and a polite one after it, as it waits for what is being said (a search's
+        // count after the field focused again).
+        let polite = self.live_changes(key);
         // A popup that appears is said by its title, as TalkBack says the pane title of a window
         // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
         // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
@@ -433,26 +441,40 @@ impl Reader {
                 self.titled = Some(key);
             }
         }
-        // A dialog shown in a surface that was showing something else (a modal over a window,
-        // whose tree is then the modal's alone, ADR 0039 decision 2) is said by its title as it
-        // appears, as a popup's is and as TalkBack says a dialog's window title: Dropsea's Quick
-        // Look, which has no control to focus. What is focused in it is said after the title.
-        if !first && !self.popups.contains(&key) {
-            let dialog = |nodes: &[Node]| {
-                nodes.iter().position(|node| {
-                    node.role == AccessibleRole::Dialog && !node.name.trim().is_empty()
-                })
+        // A dialog that appears is said by its title, then its description (its hint, as a sheet's
+        // message is VoiceOver's after an alert's title), as a popup's is and as TalkBack says a
+        // dialog's window title; what is focused in it is said after them. It appears:
+        // - as a surface that is a dialog, its first tree's root (a shell's overlay: Launchpad, the
+        //   Notification Center, a system sheet), as VoiceOver says a window coming to the front.
+        //   That dialog is the surface's own: shown again as a modal over it goes (an open
+        //   Launchpad folder) it is not said again, and another in its place (the next sheet,
+        //   with what went wrong) is said as it comes;
+        // - in a surface that was showing something else (a modal over a window, whose tree is
+        //   then the modal's alone, ADR 0039 decision 2): Dropsea's Quick Look, which has no
+        //   control to focus.
+        if !self.popups.contains(&key) {
+            let nodes = &self.trees[&key];
+            let named =
+                |node: &Node| node.role == AccessibleRole::Dialog && !node.name.trim().is_empty();
+            let title = if first {
+                nodes.first().filter(|node| named(node)).map(|_| 0)
+            } else {
+                nodes.iter().position(named)
             };
-            if let Some(title) = dialog(&self.trees[&key]) {
-                let name = self.trees[&key][title].name.clone();
+            if let Some(title) = title {
+                let dialog = &nodes[title];
+                let id = (dialog.name.clone(), dialog.hint.clone());
                 let was_shown = before.as_deref().is_some_and(|nodes| {
-                    nodes
-                        .iter()
-                        .any(|node| node.role == AccessibleRole::Dialog && node.name == name)
-                });
+                    nodes.iter().any(|node| {
+                        node.role == AccessibleRole::Dialog
+                            && (&node.name, &node.hint) == (&id.0, &id.1)
+                    })
+                }) || self.own_dialogs.get(&key) == Some(&id);
+                if title == 0 && (first || self.own_dialogs.contains_key(&key)) {
+                    self.own_dialogs.insert(key, id);
+                }
                 if !was_shown {
-                    let text = self.describe((key, title));
-                    self.say(text, Politeness::Assertive);
+                    self.say_reached((key, title), Politeness::Assertive);
                     self.titled = Some(key);
                 }
             }
@@ -501,6 +523,9 @@ impl Reader {
             }
             _ => {}
         }
+        for text in polite {
+            self.say(text, Politeness::Polite);
+        }
     }
 
     /// The element focused in the surface's previous tree, still focused in this one: its index
@@ -535,7 +560,9 @@ impl Reader {
     /// toast) is a change: it says what it shows, once. What the view showed is matched by text,
     /// each once, not by place, so a region appearing before others (a toast above the last one)
     /// does not make them say themselves again.
-    fn live_changes(&mut self, key: Surface) {
+    /// The assertive ones are said at once; the polite ones are returned, to be said after the rest
+    /// of what the tree says.
+    fn live_changes(&mut self, key: Surface) -> Vec<String> {
         let nodes = &self.trees[&key];
         // The view, by its first node that is not live content: a toast's row coming first in
         // the window is not another view.
@@ -566,16 +593,19 @@ impl Reader {
         let texts: Vec<String> = now.iter().map(|(text, _)| text.clone()).collect();
         let shown = self.lives.insert((key, view.0, view.1), texts);
         let Some(mut shown) = shown else {
-            return;
+            return Vec::new();
         };
+        let mut polite = Vec::new();
         for (text, politeness) in now {
             match shown.iter().position(|was| *was == text) {
                 Some(at) => {
                     shown.swap_remove(at);
                 }
+                None if politeness == Politeness::Polite => polite.push(text),
                 None => self.say(text, politeness),
             }
         }
+        polite
     }
 
     /// The focused text field edited, or its caret or selection moved, since the surface's

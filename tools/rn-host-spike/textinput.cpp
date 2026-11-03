@@ -1157,6 +1157,11 @@ std::optional<std::pair<size_t, size_t>> TextEditing::selection(Tag tag) const {
   return std::make_pair(std::min(anchor_, caret_), std::max(anchor_, caret_));
 }
 
+std::optional<std::string> TextEditing::text(Tag tag) const {
+  if (tag != focused_ || secure()) return std::nullopt;
+  return text_;
+}
+
 void TextEditing::selectionChanged() {
   auto it = tree_.views().find(focused_);
   if (it == tree_.views().end()) return;

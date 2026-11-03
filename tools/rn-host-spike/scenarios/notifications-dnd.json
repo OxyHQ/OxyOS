@@ -116,7 +116,7 @@
         "at": {
           "shell": [
             {
-              "role": "List",
+              "role": "Dialog",
               "name": "Centro de notificaciones"
             },
             {
@@ -162,7 +162,7 @@
         "at_absent": {
           "shell": [
             {
-              "role": "List",
+              "role": "Dialog",
               "name": "Centro de notificaciones"
             },
             {

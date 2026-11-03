@@ -189,7 +189,9 @@ export type ShellCommand = {
     // Super+F3 and Super+F8: the keyboard to the dock and to the status items, as a Mac's
     // Control-F3 and Control-F8 (docs/adr/0039-keyboard-access.mdx).
     | "dock"
-    | "status-menus";
+    | "status-menus"
+    // Super+N: the Notification Center, as a Mac's Fn-N (docs/adr/0039-keyboard-access.mdx).
+    | "notifications";
 };
 
 /** Whether `window` is the application `appId`'s: its id, given by the session's launch record

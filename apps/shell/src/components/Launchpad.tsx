@@ -23,6 +23,7 @@ import {
   launcherLayout,
   moveSelection,
   pageOf,
+  resultsLabel,
   type LauncherKey,
 } from "../launcher";
 
@@ -53,6 +54,15 @@ function focusForAccessibility(view: ComponentRef<typeof View> | null | undefine
     );
   }
 }
+
+/** Read by the screen reader, drawn nowhere: Launchpad shows no count. */
+const SAID_ONLY = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  opacity: 0,
+} as const;
 
 const LABEL_SHADOW = {
   textShadowColor: "#00000059",
@@ -267,9 +277,13 @@ export const Launchpad = memo(function Launchpad({
     }
   }, [folder, open]);
   const lastSearch = useRef(searchRequest);
-  // Shown, the search takes what is typed, as Launchpad's does; Super+Space asks again.
+  // Shown, the search takes what is typed, as Launchpad's does, and the screen reader's focus as
+  // it has the keyboard's: Launchpad said by its title as it appears, then its search, as
+  // VoiceOver says them. Super+Space asks again.
   useEffect(() => {
-    if (open) field.current?.focus();
+    if (!open) return;
+    field.current?.focus();
+    focusForAccessibility(field.current as unknown as ComponentRef<typeof View>);
   }, [open]);
   useEffect(() => {
     if (open && lastSearch.current !== searchRequest) field.current?.focus();
@@ -295,6 +309,9 @@ export const Launchpad = memo(function Launchpad({
   return (
     <Box
       testID="shell-launchpad"
+      // A dialog named Launchpad, said by its title as it opens, as VoiceOver says Launchpad.
+      accessibilityRole="dialog"
+      accessibilityLabel="Launchpad"
       className="absolute inset-0 items-center overflow-hidden"
       style={{ zIndex: 20, display: open ? "flex" : "none" }}
     >
@@ -424,6 +441,12 @@ export const Launchpad = memo(function Launchpad({
             );
           })}
       </Box>
+      {/* What the search found, a status the screen reader says politely as it changes, after
+          what is typed is echoed, as VoiceOver says a search's results ("3 resultados"); nothing
+          without a search. */}
+      <Text role="status" style={SAID_ONLY}>
+        {query ? resultsLabel(entries.length) : ""}
+      </Text>
       {!entries.length && (
         <Text
           className="text-center text-white/80"

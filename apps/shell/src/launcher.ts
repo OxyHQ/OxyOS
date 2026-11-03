@@ -111,3 +111,10 @@ export function moveSelection(
 export function pageOf(index: number, columns: number, rows: number): number {
   return Math.floor(index / (columns * rows));
 }
+
+/** What a search found, as the screen reader says it: "3 resultados", "1 resultado", "Ningún
+    resultado". */
+export function resultsLabel(count: number): string {
+  if (count === 0) return "Ningún resultado";
+  return count === 1 ? "1 resultado" : `${count} resultados`;
+}

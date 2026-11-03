@@ -1,0 +1,291 @@
+{
+ "about": "The application switcher with the screen reader on in Spanish (docs/adr/0024-system-shortcuts.mdx, docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) and Inbox from the dock; with Super held, Tab, Tab and Shift+Tab move the switcher, each choice said once by its name, as VoiceOver says each application ⌘Tab moves to: the chosen icon is a selected button named by its application, and the name drawn under it is no element of its own, so the reader's cursor never reads it a second time. Super released activates the choice, saying nothing more. At 1.25 (1600 × 1000, 1280 × 800 logical).",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "Allo's window; the reader on",
+   "do": [
+    "wait",
+    1500
+   ],
+   "expect": {
+    "react": {},
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": []
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Inbox from the dock: its window over Allo's, the active one",
+   "do": [
+    "press_named",
+    "Inbox"
+   ],
+   "expect": {
+    "react": {},
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super held: nothing yet",
+   "do": [
+    "key_down",
+    [
+     125
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "launched": {}
+    },
+    "spoken": [],
+    "announcements": [],
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Cambiar de aplicación"
+      }
+     ]
+    }
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "Tab: the switcher on Allo, the application used before, said once by its name; its button names it, and the name drawn under it is no element",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "launched": {}
+    },
+    "in_shell": {
+     "texts": [
+      "Allo"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "Cambiar de aplicación"
+      },
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Inbox",
+       "state": []
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Text",
+       "name": "Allo"
+      },
+      {
+       "role": "Text",
+       "name": "Inbox"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Allo"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Allo",
+      "interrupting": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "Tab again: Inbox, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "launched": {}
+    },
+    "in_shell": {
+     "texts": [
+      "Inbox"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "Cambiar de aplicación"
+      },
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Inbox",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Text",
+       "name": "Inbox"
+      },
+      {
+       "role": "Text",
+       "name": "Allo"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Inbox"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Inbox",
+      "interrupting": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "Shift+Tab: back to Allo, said once",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "launched": {}
+    },
+    "in_shell": {
+     "texts": [
+      "Allo"
+     ],
+     "keyboard_focus": null
+    },
+    "keyboard_focus": null,
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "Cambiar de aplicación"
+      },
+      {
+       "role": "Button",
+       "name": "Allo",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Inbox",
+       "state": []
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Text",
+       "name": "Allo"
+      },
+      {
+       "role": "Text",
+       "name": "Inbox"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Allo"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Allo",
+      "interrupting": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "Super released: Allo is activated, the switcher goes, nothing more said",
+   "do": [
+    "key_up",
+    [
+     125
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "focus_surface": 1,
+    "spoken": [],
+    "announcements": [],
+    "at_absent": {
+     "shell": [
+      {
+       "name": "Cambiar de aplicación"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

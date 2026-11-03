@@ -22,7 +22,7 @@ The display protocol carries accessibility, as it carries buffers. The composito
    - `AccessibilityBegin { surface, nodes }`;
    - one `AccessibleNode { surface, index, parent, role, state, actions, rect }` per node: `actions` what it offers beyond activate and focus (increment, decrement, scroll forward, scroll backward, dismiss, set selection), as Android's node info lists them;
    - `AccessibleText { surface, index, field, text }` chunks for each node's name, its value, its custom actions' labels (one per line) and, since version 13, its hint (what activating it does, [ADR 0039](./0039-keyboard-access), decision 8);
-   - for a text field, `AccessibleSelection { surface, index, start, end }`: its selection, in bytes of its value, between characters;
+   - for a text field, `AccessibleSelection { surface, index, start, end }`: its selection, in bytes of its value, between characters. The focused field's value and selection are read together from its editing as it is now (the Bloom host's `TextEditing`), never its value from a mounted state that has not caught up with the caret, so Backspace is read as a letter deleted, not as the caret passing it first;
    - since version 13, for an item of a collection, `AccessiblePosition { surface, index, position, count }`: its place among the collection's items, 1-based (a list's row, "3 of 21");
    - `AccessibilityCommit { surface }`.
 

@@ -187,11 +187,13 @@ wire_enum! {
     /// it), quitting or hiding the application it has chosen, its end with the person's choice
     /// (Super released) or without one (Escape, the lock), the launcher's search, and the
     /// keyboard moved to the top bar's menus (Super+F2, a Mac's Control-F2), to the dock (Super+F3,
-    /// a Mac's Control-F3) or to the top bar's status items (Super+F8, a Mac's Control-F8); the last
-    /// two since version 12 (ADR 0039).
+    /// a Mac's Control-F3) or to the top bar's status items (Super+F8, a Mac's Control-F8), those
+    /// two since version 12 (ADR 0039); and the Notification Center (Super+N, a Mac's Fn-N), since
+    /// version 16.
     SystemShortcut: u8 {
         SwitcherNext = 1, SwitcherPrevious = 2, SwitcherQuit = 3, SwitcherHide = 4,
         SwitcherDone = 5, SwitcherCancel = 6, Search = 7, MenuBar = 8, Dock = 9, StatusMenus = 10,
+        Notifications = 11,
     }
 }
 wire_enum! {

@@ -15,7 +15,8 @@ const CELL = 88;
  * applications' icons in a row, the most recently used first, the chosen one framed and named.
  * The keyboard drives it from the compositor (Super+Tab, Shift+Tab, `, the arrows, Q, H, Escape,
  * Super's release); a press on an icon activates that application at once. Each choice is said
- * to a screen reader, and every icon is a button naming its application, the chosen one selected.
+ * to a screen reader, as VoiceOver says each application ⌘Tab moves to, and every icon is a button
+ * naming its application, the chosen one selected; the name drawn under it is not read again.
  */
 export const AppSwitcher = memo(function AppSwitcher({
   switcher,
@@ -66,8 +67,13 @@ export const AppSwitcher = memo(function AppSwitcher({
             >
               <AppIcon app={app} size={ICON} />
             </Button>
-            {/* The chosen one's name; the others keep its room, so the row never moves. */}
-            <Box className="mt-1 h-[18px] items-center">
+            {/* The chosen one's name; the others keep its room, so the row never moves. Drawn
+                only: its button says it, so the screen reader says each application once. */}
+            <Box
+              className="mt-1 h-[18px] items-center"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
               {selected && (
                 <Text
                   numberOfLines={1}

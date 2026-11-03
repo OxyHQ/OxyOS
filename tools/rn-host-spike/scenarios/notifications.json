@@ -104,7 +104,7 @@
             },
             {
               "role": "Button",
-              "name": "Ocultar"
+              "name": "Ocultar la notificación de Allo: Ana"
             },
             {
               "role": "Button",
@@ -413,7 +413,7 @@
               ]
             },
             {
-              "role": "List",
+              "role": "Dialog",
               "name": "Centro de notificaciones"
             },
             {
@@ -500,7 +500,7 @@
         "at_absent": {
           "shell": [
             {
-              "role": "List",
+              "role": "Dialog",
               "name": "Centro de notificaciones"
             }
           ]

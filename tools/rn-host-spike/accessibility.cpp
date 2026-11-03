@@ -205,7 +205,11 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
       if (node.name.empty()) node.name = input->placeholder;
       // A secure field's text never leaves the application, nor its selection.
       if (!input->secureTextEntry) {
-        node.value = inputText(view);
+        // The focused input's text as its editing has it, with its selection: its mounted state
+        // can still hold the text before the latest edit while the caret is already after it, and
+        // Backspace would read as the caret passing a letter before deleting it.
+        auto live = w.hooks && w.hooks->text ? w.hooks->text(tag) : std::nullopt;
+        node.value = live ? *live : inputText(view);
         if (input->editable) node.actions |= OXYOS_OFFERS_SET_SELECTION;
         if (w.hooks && w.hooks->selection) node.selection = w.hooks->selection(tag);
       }

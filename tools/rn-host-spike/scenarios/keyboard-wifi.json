@@ -283,16 +283,10 @@
       }
      ]
     },
-    "announcements": [
-     {
-      "politeness": "assertive",
-      "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2.",
-      "live": false
-     }
-    ],
+    "announcements": [],
     "spoken": [
      {
-      "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2.",
+      "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2., diálogo",
       "interrupting": true
      }
     ]
@@ -327,7 +321,7 @@
     "spoken": [
      {
       "text": "Mostrar contraseña, botón",
-      "interrupting": true
+      "interrupting": false
      }
     ],
     "announcements": []

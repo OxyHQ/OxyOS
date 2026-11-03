@@ -65,6 +65,8 @@ struct AccessibilityHooks {
   // An input's selection, in bytes: set (taking focus), and read.
   std::function<bool(facebook::react::Tag, size_t start, size_t end)> select;
   std::function<std::optional<std::pair<size_t, size_t>>(facebook::react::Tag)> selection;
+  // The focused input's text as it is now, read with its selection, so the two always agree.
+  std::function<std::optional<std::string>(facebook::react::Tag)> text;
 };
 
 // The nodes under `root` in reading (tree) order, each parent before its children. An element
