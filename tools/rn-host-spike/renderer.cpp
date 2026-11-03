@@ -3,6 +3,7 @@
 #include "android-view-props.h"
 #include "background.h"
 #include "expo-blur.h"
+#include "expo-image.h"
 #include "masked-view.h"
 #include "skia-gpu.h"
 
@@ -173,6 +174,7 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
+                                            "ViewManagerAdapter_ExpoImage",
                                             kWindowViewComponent};
 // The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
 // number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
@@ -436,6 +438,56 @@ sk_sp<SkImageFilter> imageBlur(float blurRadius, float scale, const SkRect& boun
   if (radius <= 0) return nullptr;
   float sigma = std::sqrt(radius * (radius + 1)) / scale;
   return SkImageFilters::Blur(sigma, sigma, SkTileMode::kClamp, nullptr, bounds);
+}
+
+// An expo-image view's layers (renderer.h's ExpoImageLayers) in its content box, bottom to top,
+// as Android's ExpoImageViews draw them: each picture where ContentFit and ContentPosition place it
+// (a placeholder by placeholderContentFit, centred, unless it is a hash), clipped to the box and
+// the view's corners (the views clip to their outline), at its alpha, tinted with tintColor
+// (setColorFilter's SRC_IN, each view's), the source's (not a placeholder's) blurred as
+// SoftwareBlurTransformation blurs its decoded bitmap.
+void drawExpoImage(const ShadowView& view, const ExpoImageLayers& layers, float x, float y, float w, float h,
+                   float opacity, const Draw& draw) {
+  auto props = std::static_pointer_cast<const ExpoImageProps>(view.props);
+  auto content = view.layoutMetrics.getContentFrame();
+  float cx = x + content.origin.x, cy = y + content.origin.y, cw = content.size.width, ch = content.size.height;
+  if (cw <= 0 || ch <= 0) return;
+  SkCanvas& canvas = *draw.canvas;
+  canvas.save();
+  auto border = props->resolveBorderMetrics(view.layoutMetrics);
+  canvas.clipRect(SkRect::MakeXYWH(cx, cy, cw, ch), true);
+  canvas.clipRRect(borderBox(border, x, y, w, h), true);
+  auto fit = expoContentFit(props->contentFit, ExpoContentFit::Cover);
+  auto placeholderFit = expoContentFit(props->placeholderContentFit, ExpoContentFit::ScaleDown);
+  auto position = expoContentPosition(props->contentPosition);
+  float deviation = expoBlurDeviation(props->blurRadius);
+  for (const auto& layer : layers.layers) {
+    const auto& image = layer.picture ? layer.picture->frame(layer.frame) : nullptr;
+    if (!image || layer.alpha <= 0) continue;
+    const Picture& picture = *layer.picture;
+    float nw = picture.naturalWidth > 0 ? picture.naturalWidth : picture.width;
+    float nh = picture.naturalHeight > 0 ? picture.naturalHeight : picture.height;
+    auto placed = layer.placeholder
+                      ? placeExpoImage(layer.ownFit ? placeholderFit : fit, ExpoContentPosition{}, nw, nh, cw, ch,
+                                       layer.sourceWidth, layer.sourceHeight)
+                      : placeExpoImage(fit, position, nw, nh, cw, ch, layer.sourceWidth, layer.sourceHeight);
+    if (placed.width <= 0 || placed.height <= 0) continue;
+    SkRect target = SkRect::MakeXYWH(cx + placed.x, cy + placed.y, placed.width, placed.height);
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setAlphaf(opacity * layer.alpha);
+    if (props->tintColor && *props->tintColor) {
+      paint.setColorFilter(SkColorFilters::Blend(faded(*props->tintColor, 1), nullptr, SkBlendMode::kSrcIn));
+    }
+    if (!layer.placeholder && deviation > 0) {
+      // In the picture's pixels, drawn at the target's size: the deviation scaled as the picture is.
+      float sx = placed.width / std::max(1, picture.width), sy = placed.height / std::max(1, picture.height);
+      paint.setImageFilter(
+          SkImageFilters::Blur(deviation * sx, deviation * sy, SkTileMode::kClamp, nullptr, target));
+    }
+    canvas.drawImageRect(image, target, SkSamplingOptions(SkFilterMode::kLinear), &paint);
+  }
+  canvas.restore();
 }
 
 // An Image view's picture within its content box, as React Native's resizeMode places it, rounded
@@ -896,6 +948,9 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
 
   if (name == "Image" && it->second.picture && touches(draw, x, y, w, h)) {
     drawImage(view, *it->second.picture, x, y, w, h, opacity, draw);
+  }
+  if (it->second.layers && isExpoImage(name) && touches(draw, x, y, w, h)) {
+    drawExpoImage(view, *it->second.layers, x, y, w, h, opacity, draw);
   }
 
   // An SVG view's elements are its picture (svg.h), drawn over its content box.
@@ -1373,8 +1428,10 @@ RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, c
 bool drawsTheSame(const ShadowView& before, const ShadowView& after) {
   if (before.props == after.props) return true;
   std::string name = after.componentName ? after.componentName : "";
-  // A text input's drawing and a blur view's tint read props of their own.
-  if ((before.componentName ? before.componentName : "") != name || name == "AndroidTextInput" || isExpoBlurView(name)) {
+  // A text input's drawing, a blur view's tint and an expo-image view's placement, tint and blur
+  // read props of their own.
+  if ((before.componentName ? before.componentName : "") != name || name == "AndroidTextInput" || isExpoBlurView(name) ||
+      isExpoImage(name)) {
     return false;
   }
   auto a = std::dynamic_pointer_cast<const ViewProps>(before.props);

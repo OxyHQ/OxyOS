@@ -5,12 +5,13 @@
 //!
 //! Remote images (`oxyos_images_fetch`) are fetched with the application's network, the one
 //! `oxyos_net_new` made for its `fetch`, given with `oxyos_images_connect` (crates/oxyos-image's
-//! `remote`).
+//! `remote`). Files, `data:` URIs, BlurHashes and ThumbHashes are opened with `oxyos_images_open`
+//! (expo-image's sources besides remote ones).
 
 use super::fail;
 use super::net::{string, OxyOSNet, OxyOSNetHeader};
 use oxyos_image::remote::{Fetch, Want};
-use oxyos_image::{Fit, Loader, Outcome};
+use oxyos_image::{Fit, Loader, Open, Origin, Outcome};
 use oxyos_net::cache::{Cache, Policy};
 use rustix::fd::{AsFd, AsRawFd};
 use std::ffi::{c_char, c_int, OsStr};
@@ -41,6 +42,17 @@ pub const OXYOS_IMAGE_WANT_PICTURE: u32 = 0;
 pub const OXYOS_IMAGE_WANT_SIZE: u32 = 1;
 pub const OXYOS_IMAGE_WANT_PREFETCH: u32 = 2;
 
+/// Where a picture's bytes came from (`OxyOSImageAnswer.from`), as expo-image's `cacheType`.
+pub const OXYOS_IMAGE_FROM_SOURCE: u32 = 0;
+pub const OXYOS_IMAGE_FROM_DISK: u32 = 1;
+pub const OXYOS_IMAGE_FROM_MEMORY: u32 = 2;
+
+/// What `oxyos_images_open` decodes (`OxyOSImageOpen.kind`).
+pub const OXYOS_IMAGE_OPEN_FILE: u32 = 0;
+pub const OXYOS_IMAGE_OPEN_DATA: u32 = 1;
+pub const OXYOS_IMAGE_OPEN_BLURHASH: u32 = 2;
+pub const OXYOS_IMAGE_OPEN_THUMBHASH: u32 = 3;
+
 /// Results of `oxyos_images_answer`.
 pub const OXYOS_IMAGE_ANSWER: c_int = 1;
 pub const OXYOS_IMAGE_EMPTY: c_int = 0;
@@ -63,8 +75,8 @@ pub struct OxyOSImageAnswer {
     pub error: *const c_char,
     pub error_length: usize,
     /// `OXYOS_IMAGE_PICTURE` (pixels), `OXYOS_IMAGE_FAILED` (error), `OXYOS_IMAGE_PROGRESS`
-    /// (loaded of total bytes), `OXYOS_IMAGE_UNDECODED` (a remote image's bytes it does not
-    /// decode, `data`, with their `content_type` and the `error` decoding gave),
+    /// (loaded of total bytes), `OXYOS_IMAGE_UNDECODED` (a remote image's or a `data:` URI's
+    /// bytes it does not decode, `data`, with their `content_type` and the `error` decoding gave),
     /// `OXYOS_IMAGE_SIZE` or `OXYOS_IMAGE_FETCHED`. Every kind but progress ends its load.
     pub kind: u32,
     pub loaded: u64,
@@ -73,11 +85,22 @@ pub struct OxyOSImageAnswer {
     pub data_length: usize,
     pub content_type: *const c_char,
     pub content_type_length: usize,
+    /// Where a picture's or undecoded bytes came from: `OXYOS_IMAGE_FROM_*`.
+    pub from: u32,
+    /// A picture's frames, each `width` × `height`, one after the other in `pixels`: 1 for a
+    /// still image (0 for an answer that is not a picture).
+    pub frames: u32,
+    /// Each frame's duration in milliseconds, `frames` of them (a still image's a single 0).
+    pub delays: *const u32,
+    /// How many times the frames play, 0 for forever (a still image's 1).
+    pub loops: u32,
 }
 
 /// A remote image's load, as `oxyos_images_fetch` takes it: its URL, the headers sent with it,
 /// its `cache` policy, whether the memory and disk caches are used, and what it wants (its
 /// picture fitted to `width` × `height` by `fit`, as `oxyos_images_load`; its size; it fetched).
+/// `key` (NULL or empty: the URL) is what both caches hold it by; with `animated`, an animated GIF
+/// or WebP is decoded frame by frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct OxyOSImageFetch {
@@ -92,6 +115,24 @@ pub struct OxyOSImageFetch {
     pub width: u32,
     pub height: u32,
     pub fit: u32,
+    pub key: *const c_char,
+    pub key_length: usize,
+    pub animated: u8,
+}
+
+/// What `oxyos_images_open` decodes: an `OXYOS_IMAGE_OPEN_*` kind and its text (a path, a `data:`
+/// URI, a BlurHash, a ThumbHash in base64), the box it is fitted to (a BlurHash's own size), and
+/// whether an animated image is decoded frame by frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSImageOpen {
+    pub kind: u32,
+    pub text: *const c_char,
+    pub text_length: usize,
+    pub width: u32,
+    pub height: u32,
+    pub fit: u32,
+    pub animated: u8,
 }
 
 impl Default for OxyOSImageAnswer {
@@ -113,6 +154,10 @@ impl Default for OxyOSImageAnswer {
             data_length: 0,
             content_type: std::ptr::null(),
             content_type_length: 0,
+            from: OXYOS_IMAGE_FROM_SOURCE,
+            frames: 0,
+            delays: std::ptr::null(),
+            loops: 0,
         }
     }
 }
@@ -121,9 +166,18 @@ impl Default for OxyOSImageAnswer {
 #[derive(Default)]
 struct Given {
     pixels: Vec<u8>,
+    delays: Vec<u32>,
     error: String,
     data: Option<Arc<[u8]>>,
     content_type: String,
+}
+
+fn from(origin: Origin) -> u32 {
+    match origin {
+        Origin::Source => OXYOS_IMAGE_FROM_SOURCE,
+        Origin::Disk => OXYOS_IMAGE_FROM_DISK,
+        Origin::Memory => OXYOS_IMAGE_FROM_MEMORY,
+    }
 }
 
 /// The loader, owned by the caller between `oxyos_images_new` and `oxyos_images_free`; used by one
@@ -377,6 +431,15 @@ pub unsafe extern "C" fn oxyos_images_fetch(
         OXYOS_IMAGE_WANT_PREFETCH => Want::Prefetch,
         other => return fail(format!("unknown want {other}")),
     };
+    let key = if fetch.key.is_null() || fetch.key_length == 0 {
+        None
+    } else {
+        // SAFETY: forwarded caller contract.
+        match unsafe { string(fetch.key, fetch.key_length, "cache key") } {
+            Ok(key) => Some(key),
+            Err(error) => return fail(error),
+        }
+    };
     images.loader.fetch(
         id,
         Fetch {
@@ -386,9 +449,71 @@ pub unsafe extern "C" fn oxyos_images_fetch(
             memory: fetch.memory != 0,
             disk: fetch.disk != 0,
             want,
+            key,
+            animated: fetch.animated != 0,
         },
     );
     0
+}
+
+/// Starts decoding what `open` names (a file, a `data:` URI, a BlurHash, a ThumbHash), off the
+/// caller's thread; its answer, with `id`, follows (from `OXYOS_IMAGE_FROM_SOURCE`). 0 on
+/// success; fails at once for an unknown kind or fit, an empty text (or one not UTF-8 but a
+/// path), or a BlurHash without a size. A hash or URI that cannot be decoded is answered
+/// `OXYOS_IMAGE_FAILED`, with expo-image's message.
+///
+/// # Safety
+/// `images` is a live pointer from `oxyos_images_new`; `open` points to an `OxyOSImageOpen` whose
+/// `text` is valid for `text_length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_open(
+    images: *mut OxyOSImages,
+    id: u64,
+    open: *const OxyOSImageOpen,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    // SAFETY: the caller passes a readable OxyOSImageOpen or NULL.
+    let Some(open) = (unsafe { open.as_ref() }) else {
+        return fail("null open");
+    };
+    if open.text.is_null() || open.text_length == 0 {
+        return fail("empty text");
+    }
+    let fit = match self::fit(open.width, open.height, open.fit) {
+        Ok(fit) => fit,
+        Err(error) => return fail(error),
+    };
+    // SAFETY: forwarded caller contract.
+    let text = || unsafe { string(open.text, open.text_length, "text") };
+    let opened = match open.kind {
+        // SAFETY: forwarded caller contract.
+        OXYOS_IMAGE_OPEN_FILE => match unsafe { path(open.text, open.text_length) } {
+            Some(path) => Ok(Open::File(path)),
+            None => Err("null path".to_string()),
+        },
+        OXYOS_IMAGE_OPEN_DATA => text().map(Open::Data),
+        OXYOS_IMAGE_OPEN_BLURHASH if open.width == 0 || open.height == 0 => {
+            Err("a BlurHash is decoded at a width and height, not 0".to_string())
+        }
+        OXYOS_IMAGE_OPEN_BLURHASH => text().map(|hash| Open::Blurhash {
+            hash,
+            width: open.width,
+            height: open.height,
+        }),
+        OXYOS_IMAGE_OPEN_THUMBHASH => text().map(Open::Thumbhash),
+        other => Err(format!("unknown kind {other}")),
+    };
+    match opened {
+        Ok(opened) => {
+            images.loader.open(id, opened, fit, open.animated != 0);
+            0
+        }
+        Err(error) => fail(error),
+    }
 }
 
 /// Answers nothing more for the load `id`; a remote image's request stops once no load waits for
@@ -432,9 +557,81 @@ pub unsafe extern "C" fn oxyos_images_cached(
     (if memory { OXYOS_IMAGE_IN_MEMORY } else { 0 }) | (if disk { OXYOS_IMAGE_ON_DISK } else { 0 })
 }
 
-/// Where `oxyos_images_cached` finds a remote image.
+/// Where `oxyos_images_cached` finds a remote image, and the caches `oxyos_images_clear` empties.
 pub const OXYOS_IMAGE_IN_MEMORY: c_int = 1;
 pub const OXYOS_IMAGE_ON_DISK: c_int = 2;
+
+/// Empties the caches named (`OXYOS_IMAGE_IN_MEMORY`, `OXYOS_IMAGE_ON_DISK`): expo-image's
+/// `clearMemoryCache` and `clearDiskCache`. Loads on their way are not affected. 0 on success.
+///
+/// # Safety
+/// `images` is a live pointer from `oxyos_images_new`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_clear(images: *mut OxyOSImages, caches: u32) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    let known = (OXYOS_IMAGE_IN_MEMORY | OXYOS_IMAGE_ON_DISK) as u32;
+    if caches & !known != 0 {
+        return fail(format!("unknown caches {caches:#x}"));
+    }
+    images.loader.clear(
+        caches & OXYOS_IMAGE_IN_MEMORY as u32 != 0,
+        caches & OXYOS_IMAGE_ON_DISK as u32 != 0,
+    );
+    0
+}
+
+/// The file in the disk cache holding a remote image's bytes exactly as they were fetched, by its
+/// URL or cache key (expo-image's `getCachePathAsync`): its path written into `out` (at most
+/// `capacity` bytes, not terminated), its length in `*length`. 0 when it is held; 1 when it is not,
+/// or there is no disk cache; `OXYOS_ERROR` when `out` is too small (`*length` the length it
+/// needs). The file stays while the entry does.
+///
+/// # Safety
+/// `images` is a live pointer from `oxyos_images_new`; `key` points to `key_length` bytes; `out`
+/// is writable for `capacity` bytes (or NULL with 0); `length` is writable.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_images_cache_path(
+    images: *mut OxyOSImages,
+    key: *const c_char,
+    key_length: usize,
+    out: *mut c_char,
+    capacity: usize,
+    length: *mut usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(images) = (unsafe { self::images(images) }) else {
+        return fail("null loader");
+    };
+    // SAFETY: forwarded caller contract.
+    let key = match unsafe { string(key, key_length, "key") } {
+        Ok(key) => key,
+        Err(error) => return fail(error),
+    };
+    // SAFETY: the caller passes a writable length or NULL.
+    let Some(length) = (unsafe { length.as_mut() }) else {
+        return fail("null length");
+    };
+    let Some(path) = images.loader.cache_path(&key) else {
+        *length = 0;
+        return 1;
+    };
+    let bytes = path.as_os_str().as_bytes();
+    *length = bytes.len();
+    if bytes.len() > capacity || out.is_null() {
+        return fail(format!(
+            "the path takes {} bytes, more than {capacity}",
+            bytes.len()
+        ));
+    }
+    // SAFETY: `out` is writable for `capacity` bytes, at least the path's.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.cast::<u8>(), bytes.len()) };
+    0
+}
 
 /// Takes the next answer without blocking: `OXYOS_IMAGE_ANSWER` with `*out` filled,
 /// `OXYOS_IMAGE_EMPTY`, or `OXYOS_ERROR`.
@@ -465,10 +662,14 @@ pub unsafe extern "C" fn oxyos_images_answer(
     };
     let mut given = Given::default();
     match loaded.outcome {
-        Outcome::Image(image) => {
+        Outcome::Image(image, origin) => {
             (answer.width, answer.height) = (image.width, image.height);
             (answer.natural_width, answer.natural_height) = image.natural;
+            answer.from = from(origin);
+            answer.frames = image.frames() as u32;
+            answer.loops = image.loops;
             given.pixels = image.pixels;
+            given.delays = image.delays;
         }
         Outcome::Failed(error) => {
             answer.kind = OXYOS_IMAGE_FAILED;
@@ -481,9 +682,11 @@ pub unsafe extern "C" fn oxyos_images_answer(
         Outcome::Undecoded {
             bytes,
             content_type,
+            from: origin,
             error,
         } => {
             answer.kind = OXYOS_IMAGE_UNDECODED;
+            answer.from = from(origin);
             given.error = error.to_string();
             given.data = Some(bytes);
             given.content_type = content_type.unwrap_or_default();
@@ -498,6 +701,7 @@ pub unsafe extern "C" fn oxyos_images_answer(
     // into `given` does not move.
     if answer.kind == OXYOS_IMAGE_PICTURE {
         (answer.pixels, answer.length) = (given.pixels.as_ptr(), given.pixels.len());
+        answer.delays = given.delays.as_ptr();
     }
     if !given.error.is_empty() {
         (answer.error, answer.error_length) = (given.error.as_ptr().cast(), given.error.len());

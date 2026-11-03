@@ -62,6 +62,38 @@ struct Picture {
   int width = 0, height = 0;
   sk_sp<SkImage> image;
   float naturalWidth = 0, naturalHeight = 0;
+  // An animated one's frames (`image` the first), each composed as it is shown and as large as it,
+  // with each one's duration in milliseconds and how many times it plays (0: forever); empty for a
+  // still picture. Only expo-image's views animate one (images.h); React Native's Image shows its
+  // first frame.
+  std::vector<sk_sp<SkImage>> frames;
+  std::vector<uint32_t> delays;
+  uint32_t loops = 0;
+  bool animated() const { return frames.size() > 1; }
+  const sk_sp<SkImage>& frame(size_t index) const { return index < frames.size() ? frames[index] : image; }
+};
+
+// What an expo-image view draws (expo-image.h, images.h), bottom to top, as Android's
+// ExpoImageViewWrapper stacks its two ExpoImageViews: each a picture (the frame of it shown), at an
+// alpha while a transition cross-dissolves them, a placeholder or the source. Where each is drawn
+// in the box, its tint and the source's blur are the view's props as they are now, as Android
+// applies a new contentFit, position or tintColor to the view it shows. Never changed once made: a
+// frame of a transition or an animation is a new one.
+struct ExpoImageLayer {
+  std::shared_ptr<const Picture> picture;
+  size_t frame = 0;
+  float alpha = 1;
+  bool placeholder = false;
+  // A placeholder drawn by placeholderContentFit; a BlurHash's or a ThumbHash's is drawn by
+  // contentFit instead (SourceMap.usesPlaceholderContentFit).
+  bool ownFit = true;
+  // The size scale-down weighs, in logical pixels: the source's own (the picture may be a
+  // smaller decode of it).
+  float sourceWidth = 0, sourceHeight = 0;
+  bool operator==(const ExpoImageLayer&) const = default;
+};
+struct ExpoImageLayers {
+  std::vector<ExpoImageLayer> layers;
 };
 
 struct Canvas;
@@ -83,6 +115,8 @@ struct View {
   facebook::react::Tag parent = -1;
   // What an Image view shows, as Android's ReactImageView holds its bitmap; none until loaded.
   std::shared_ptr<const Picture> picture;
+  // What an expo-image view draws; none until it shows anything.
+  std::shared_ptr<const ExpoImageLayers> layers;
 };
 
 class ViewTree {
@@ -95,6 +129,10 @@ class ViewTree {
   // Gives an existing view the picture it shows (none for nullptr).
   void setPicture(facebook::react::Tag tag, std::shared_ptr<const Picture> picture) {
     if (auto it = views_.find(tag); it != views_.end()) it->second.picture = std::move(picture);
+  }
+  // Gives an existing expo-image view what it draws (none for nullptr).
+  void setLayers(facebook::react::Tag tag, std::shared_ptr<const ExpoImageLayers> layers) {
+    if (auto it = views_.find(tag); it != views_.end()) it->second.layers = std::move(layers);
   }
   // Gives an existing view new props between commits (native-animated.h's updateViewProps).
   void setProps(facebook::react::Tag tag, facebook::react::Props::Shared props) {

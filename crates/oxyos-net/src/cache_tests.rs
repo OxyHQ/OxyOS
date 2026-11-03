@@ -23,7 +23,9 @@ fn server() -> (String, Asked) {
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
-                let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
+                // Its path, without its query.
+                let target = line.split_whitespace().nth(1).unwrap_or("");
+                let path = target.split('?').next().unwrap_or("").to_string();
                 let (mut tag, mut since) = (None, None);
                 loop {
                     let mut header = String::new();
@@ -75,6 +77,7 @@ fn server() -> (String, Asked) {
                     ),
                     "/never" => ("200 OK", "Cache-Control: no-store\r\n".into(), "never".into()),
                     "/missing" => ("404 Not Found", String::new(), "missing".into()),
+                    "/moved" => ("302 Found", "Location: /fresh\r\n".into(), String::new()),
                     "/vary" => ("200 OK", "Cache-Control: max-age=600\r\nVary: Accept\r\n".into(), "varied".into()),
                     _ => ("404 Not Found", String::new(), String::new()),
                 };
@@ -106,8 +109,20 @@ fn fetched(
     request: Request,
     policy: Policy,
 ) -> Result<(Source, u16, Option<String>, String), Failure> {
+    let key = request.url.clone();
+    fetched_by(network, cache, request, &key, policy)
+}
+
+/// As `fetched`, stored by `key`.
+fn fetched_by(
+    network: &Network,
+    cache: &Cache,
+    request: Request,
+    key: &str,
+    policy: Policy,
+) -> Result<(Source, u16, Option<String>, String), Failure> {
     let got = RefCell::new((0u16, None, Vec::new()));
-    let source = network.fetch_cached(request, Some(cache), policy, &|answer| {
+    let source = network.fetch_keyed(request, key, Some(cache), policy, &|answer| {
         let mut got = got.borrow_mut();
         match answer {
             Answer::Response {
@@ -123,6 +138,13 @@ fn fetched(
     })?;
     let (status, seen, body) = got.into_inner();
     Ok((source, status, seen, String::from_utf8(body).unwrap()))
+}
+
+/// The bytes an entry stored by `key` takes: its metadata (its body's file name always as long)
+/// and its body.
+fn stored_size(key: &str, entry: &Entry) -> u64 {
+    let body = format!("{}.{}", name(key), "0".repeat(32));
+    (entry.metadata(key, &body).len() + entry.body.len()) as u64
 }
 
 fn directory(name: &str) -> PathBuf {
@@ -347,7 +369,7 @@ fn the_cache_is_bounded_least_recently_used_first_and_kept_on_disk() {
         received: UNIX_EPOCH + Duration::from_secs(2),
         body: vec![7; 1000],
     };
-    let size = entry("https://a/1").encode().len() as u64;
+    let size = stored_size("https://a/1", &entry("https://a/1"));
     let cache = Cache::open(&place, size * 5 + 10).unwrap();
     for n in 1..=5 {
         let url = format!("https://a/{n}");
@@ -381,5 +403,186 @@ fn the_cache_is_bounded_least_recently_used_first_and_kept_on_disk() {
     again.clear();
     assert_eq!(again.size(), 0);
     assert_eq!(fs::read_dir(&place).unwrap().count(), 0);
+    let _ = fs::remove_dir_all(&place);
+}
+
+#[test]
+fn a_redirected_response_is_served_from_the_cache_by_the_url_asked_for() {
+    let (base, asked) = server();
+    let network = Network::new().unwrap();
+    let cache = Cache::open(&directory("moved"), 1 << 20).unwrap();
+    let url = format!("{base}/moved");
+    let first = fetched(&network, &cache, get(1, &url), Policy::Default).unwrap();
+    assert_eq!(first, (Source::Network, 200, None, "fresh".into()));
+    // Stored by the URL asked for, though the one answered is /fresh's.
+    assert!(cache.contains(&url));
+    assert_eq!(cache.get(&url, &[]).unwrap().url, format!("{base}/fresh"));
+    let second = fetched(&network, &cache, get(2, &url), Policy::Default).unwrap();
+    assert_eq!(second, (Source::Cache, 200, None, "fresh".into()));
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        2,
+        "the redirect and /fresh, once"
+    );
+}
+
+#[test]
+fn a_response_stored_by_a_key_of_its_own_serves_another_url() {
+    let (base, asked) = server();
+    let network = Network::new().unwrap();
+    let cache = Cache::open(&directory("keyed"), 1 << 20).unwrap();
+    // Two signed URLs of one image, cached as one (expo-image's cacheKey).
+    let (one, two) = (format!("{base}/fresh?sig=1"), format!("{base}/fresh?sig=2"));
+    let first = fetched_by(&network, &cache, get(1, &one), "photo", Policy::Default).unwrap();
+    assert_eq!(first.0, Source::Network);
+    assert!(cache.contains("photo") && !cache.contains(&one));
+    let second = fetched_by(&network, &cache, get(2, &two), "photo", Policy::Default).unwrap();
+    assert_eq!(second, (Source::Cache, 200, None, "fresh".into()));
+    assert_eq!(asked.lock().unwrap().len(), 1);
+    // By its URL it is not there: asked again, and stored by it too.
+    assert_eq!(
+        fetched(&network, &cache, get(3, &two), Policy::Default)
+            .unwrap()
+            .0,
+        Source::Network
+    );
+    assert!(cache.contains(&two));
+}
+
+/// An entry of `body`, fresh for a minute.
+fn image_entry(url: &str, body: &[u8]) -> Entry {
+    Entry {
+        url: url.into(),
+        status: 200,
+        headers: vec![
+            ("Cache-Control".into(), "max-age=60".into()),
+            ("Content-Type".into(), "image/png".into()),
+        ],
+        varied: Vec::new(),
+        requested: SystemTime::now(),
+        received: SystemTime::now(),
+        body: body.to_vec(),
+    }
+}
+
+/// The files in a directory, by name.
+fn files(place: &Path) -> Vec<String> {
+    let mut files: Vec<String> = fs::read_dir(place)
+        .unwrap()
+        .map(|item| item.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+    files
+}
+
+#[test]
+fn an_entry_keeps_its_body_in_a_file_of_its_own_holding_exactly_the_bytes() {
+    let place = directory("layout");
+    let cache = Cache::open(&place, 1 << 20).unwrap();
+    let key = "https://a/photo.png";
+    let bytes = b"\x89PNG\r\n\x1a\n and the rest of the image".to_vec();
+    assert_eq!(cache.body_path(key), None);
+    cache.put(key, &image_entry(key, &bytes)).unwrap();
+    let body = cache.body_path(key).unwrap();
+    assert_eq!(fs::read(&body).unwrap(), bytes);
+    // Its metadata, named by the key's SHA-256, and its body, named by the same and a generation.
+    let file = name(key);
+    let body_name = body.file_name().unwrap().to_str().unwrap().to_string();
+    assert_eq!(body_of(&body_name), Some(file.as_str()));
+    assert_eq!(files(&place), [file.clone(), body_name.clone()]);
+    let metadata = fs::read_to_string(place.join(&file)).unwrap();
+    assert!(metadata.starts_with("OXYOS-HTTP-CACHE 2\n"), "{metadata}");
+    assert_eq!(cache.size(), stored_size(key, &image_entry(key, &bytes)));
+
+    // Replaced: a new body file, the one before removed, the size the new one's.
+    let other = b"GIF89a another image".to_vec();
+    cache.put(key, &image_entry(key, &other)).unwrap();
+    let replaced = cache.body_path(key).unwrap();
+    assert_ne!(replaced, body);
+    assert!(!body.exists(), "the body replaced is removed");
+    assert_eq!(fs::read(&replaced).unwrap(), other);
+    assert_eq!(files(&place).len(), 2);
+    assert_eq!(cache.get(key, &[]).unwrap().body, other);
+    assert_eq!(cache.size(), stored_size(key, &image_entry(key, &other)));
+
+    // Opened again (another process, say): the same entry, its size both files'.
+    drop(cache);
+    let again = Cache::open(&place, 1 << 20).unwrap();
+    assert_eq!(again.body_path(key), Some(replaced.clone()));
+    assert_eq!(again.size(), stored_size(key, &image_entry(key, &other)));
+
+    // Removed: both files go.
+    again.remove(key);
+    assert!(files(&place).is_empty());
+    assert_eq!((again.size(), again.body_path(key)), (0, None));
+    let _ = fs::remove_dir_all(&place);
+}
+
+#[test]
+fn eviction_removes_an_entry_with_its_body_and_counts_both() {
+    let place = directory("evict");
+    let entry = |n: u32| image_entry(&format!("https://a/{n}"), &[n as u8; 1000]);
+    let size = stored_size("https://a/1", &entry(1));
+    let cache = Cache::open(&place, size * 4 + 10).unwrap();
+    for n in 1..=4 {
+        cache.put(&format!("https://a/{n}"), &entry(n)).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!((cache.size(), files(&place).len()), (size * 4, 8));
+    let first = cache.body_path("https://a/1").unwrap();
+    cache.put("https://a/5", &entry(5)).unwrap();
+    assert!(!cache.contains("https://a/1") && !first.exists());
+    assert_eq!((cache.size(), files(&place).len()), (size * 4, 8));
+    let _ = fs::remove_dir_all(&place);
+}
+
+#[test]
+fn an_entry_whose_metadata_is_damaged_or_whose_body_is_missing_or_short_is_a_miss_and_removed() {
+    let place = directory("damaged");
+    let cache = Cache::open(&place, 1 << 20).unwrap();
+    for key in ["https://a/damaged", "https://a/missing", "https://a/short"] {
+        cache
+            .put(key, &image_entry(key, b"twenty bytes of body"))
+            .unwrap();
+    }
+    fs::write(place.join(name("https://a/damaged")), b"damaged").unwrap();
+    fs::remove_file(cache.body_path("https://a/missing").unwrap()).unwrap();
+    fs::write(cache.body_path("https://a/short").unwrap(), b"ten bytes!").unwrap();
+    for key in ["https://a/damaged", "https://a/missing", "https://a/short"] {
+        assert_eq!(cache.get(key, &[]), None, "{key}");
+        assert!(!cache.contains(key), "{key} is still held");
+    }
+    assert!(files(&place).is_empty(), "left {:?}", files(&place));
+    assert_eq!(cache.size(), 0);
+    let _ = fs::remove_dir_all(&place);
+}
+
+#[test]
+fn opening_removes_entries_of_the_format_before_and_bodies_left_behind() {
+    let place = directory("format");
+    fs::create_dir_all(&place).unwrap();
+    // An entry of the format before: headers and body in one file.
+    let old = name("https://a/old");
+    fs::write(
+        place.join(&old),
+        b"OXYOS-HTTP-CACHE 1\nurl https://a/old\nstatus 200\n\nbody",
+    )
+    .unwrap();
+    // Bodies no metadata names: one a process ended while storing left, long ago, and one
+    // another is storing now.
+    let abandoned = format!("{}.{}", name("https://a/abandoned"), "1".repeat(32));
+    let storing = format!("{}.{}", name("https://a/storing"), "2".repeat(32));
+    fs::write(place.join(&abandoned), b"left").unwrap();
+    fs::write(place.join(&storing), b"being stored").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(place.join(&abandoned))
+        .unwrap()
+        .set_modified(SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    let cache = Cache::open(&place, 1 << 20).unwrap();
+    assert!(!cache.contains("https://a/old"));
+    assert_eq!(files(&place), [storing]);
+    assert_eq!(cache.size(), 0);
     let _ = fs::remove_dir_all(&place);
 }

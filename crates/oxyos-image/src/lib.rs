@@ -9,18 +9,24 @@
 //! sRGB, as Android takes it. PNG's gamma and chromaticity chunks are not applied. A truncated JPEG
 //! shows what arrived, as Android's decoder (Skia) shows it; a damaged PNG is an error. An animated
 //! GIF or WebP shows its first frame, still (as React Native's Android `Image` does without
-//! Fresco's animated decoders). AVIF is recognised and refused with that reason: no AV1 decoder is
-//! part of OxyOS.
+//! Fresco's animated decoders), unless it is asked for animated (expo-image's `Image`): then every
+//! frame, composed as it is shown ([`animation`]). AVIF is recognised and refused with that reason:
+//! no AV1 decoder is part of OxyOS.
 //!
 //! Remote images (`http`, `https`) are fetched through the application's network, with a cache in
-//! memory and its HTTP cache on disk ([`remote`]).
+//! memory and its HTTP cache on disk ([`remote`]). `data:` URIs ([`data`]), BlurHashes and
+//! ThumbHashes ([`placeholder`]) are decoded as expo-image's Android implementation decodes them.
 //!
 //! A [`Loader`] decodes on threads of its own and queues what it decoded, which the caller takes
 //! from its own thread ([`Loader::answer`]); its descriptor is readable while any are queued.
 
+pub mod animation;
+pub mod data;
+pub mod placeholder;
 pub mod remote;
 
 use moxcms::{ColorProfile, Layout, TransformOptions};
+use remote::Want;
 use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Cursor, Read, Write};
@@ -33,19 +39,59 @@ use std::sync::{Arc, Mutex};
 pub const MAX_PIXELS: u64 = 16384 * 16384;
 
 /// A decoded image: `width` × `height` premultiplied RGBA pixels, rows top to bottom, reduced
-/// from the image's own `natural` size.
+/// from the image's own `natural` size. An animated one decoded as such has more than one frame,
+/// each `width` × `height` and composed as it is shown, one after the other in `pixels`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
     pub natural: (u32, u32),
     pub pixels: Vec<u8>,
+    /// Each frame's duration in milliseconds, one a frame: a still image's is a single 0.
+    pub delays: Vec<u32>,
+    /// How many times its frames play, 0 for forever; a still image's is 1.
+    pub loops: u32,
+}
+
+impl Image {
+    /// A still image of `pixels`.
+    pub fn still(width: u32, height: u32, natural: (u32, u32), pixels: Vec<u8>) -> Image {
+        Image {
+            width,
+            height,
+            natural,
+            pixels,
+            delays: vec![0],
+            loops: 1,
+        }
+    }
+
+    /// How many frames it has: 1 for a still image.
+    pub fn frames(&self) -> usize {
+        self.delays.len()
+    }
 }
 
 impl fmt::Debug for Image {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Image({}x{})", self.width, self.height)
+        write!(f, "Image({}x{}", self.width, self.height)?;
+        if self.frames() > 1 {
+            write!(f, ", {} frames", self.frames())?;
+        }
+        write!(f, ")")
     }
+}
+
+/// Where an image's bytes came from, as expo-image's `onLoad` says (its `cacheType`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Origin {
+    /// Their source itself: the network, a file, a `data:` URI, a hash.
+    #[default]
+    Source,
+    /// The HTTP cache on disk, fresh or revalidated (a `304`).
+    Disk,
+    /// The memory cache of encoded images.
+    Memory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +108,9 @@ pub enum Error {
     Io(String),
     /// A remote image could not be fetched: refused, failed, or answered with another status.
     Fetch(String),
+    /// A BlurHash or ThumbHash that cannot be decoded, or a `data:` URI that cannot be read,
+    /// with expo-image's message.
+    Source(String),
 }
 
 impl fmt::Display for Error {
@@ -72,7 +121,7 @@ impl fmt::Display for Error {
             Error::Invalid(reason) => write!(f, "invalid image: {reason}"),
             Error::TooLarge { width, height } => write!(f, "image too large: {width}x{height}"),
             Error::Io(reason) => write!(f, "cannot read the image: {reason}"),
-            Error::Fetch(reason) => write!(f, "{reason}"),
+            Error::Fetch(reason) | Error::Source(reason) => write!(f, "{reason}"),
         }
     }
 }
@@ -429,7 +478,7 @@ pub fn decode(bytes: &[u8], fit: Fit) -> Result<Image, Error> {
         }
         Format::Png | Format::Webp | Format::Gif => None,
     };
-    let (natural, (width, height, mut rgba, profile)) = match reduced {
+    let (natural, (width, height, rgba, profile)) = match reduced {
         Some(reduced) => reduced,
         None => {
             let decoded = decode_rgba(bytes)?;
@@ -437,31 +486,48 @@ pub fn decode(bytes: &[u8], fit: Fit) -> Result<Image, Error> {
         }
     };
     let target = fit.size(natural.0, natural.1);
+    let pixels = finish(rgba, (width, height), target, profile.as_deref())?;
+    Ok(Image::still(target.0, target.1, natural, pixels))
+}
+
+/// Straight RGBA of `size` in `profile`'s colour space (none: sRGB) made sRGB, premultiplied and
+/// reduced to `target`.
+fn finish(
+    mut rgba: Vec<u8>,
+    size: (u32, u32),
+    target: (u32, u32),
+    profile: Option<&[u8]>,
+) -> Result<Vec<u8>, Error> {
     // An opaque image is reduced first and converted after, on far fewer pixels; one with
     // transparency is converted while its colours are still straight, then premultiplied.
     let opaque = rgba.chunks_exact(4).all(|pixel| pixel[3] == 255);
     if !opaque {
-        if let Some(profile) = &profile {
+        if let Some(profile) = profile {
             to_srgb(&mut rgba, profile)?;
         }
         premultiply(&mut rgba);
     }
-    let mut pixels = if target == (width, height) {
+    let mut pixels = if target == size {
         rgba
     } else {
-        reduce(&rgba, (width, height), target)
+        reduce(&rgba, size, target)
     };
     if opaque {
-        if let Some(profile) = &profile {
+        if let Some(profile) = profile {
             to_srgb(&mut pixels, profile)?;
         }
     }
-    Ok(Image {
-        width: target.0,
-        height: target.1,
-        natural,
-        pixels,
-    })
+    Ok(pixels)
+}
+
+/// Decodes an image as [`decode`], but an animated GIF or WebP when `animated` is set, which
+/// comes out frame by frame ([`animation`]).
+pub fn decode_as(bytes: &[u8], fit: Fit, animated: bool) -> Result<Image, Error> {
+    if animated {
+        animation::decode(bytes, fit)
+    } else {
+        decode(bytes, fit)
+    }
 }
 
 /// A JPEG decoded at a half, a quarter or an eighth of its size from its DCT coefficients (as
@@ -494,33 +560,89 @@ fn decode_jpeg_reduced(bytes: &[u8], target: (u32, u32)) -> Option<Decoded> {
 
 /// Reads and decodes a file, as [`decode`].
 pub fn decode_file(path: &std::path::Path, fit: Fit) -> Result<Image, Error> {
+    decode(&read(path)?, fit)
+}
+
+fn read(path: &std::path::Path) -> Result<Vec<u8>, Error> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
         .and_then(|mut file| file.read_to_end(&mut bytes))
         .map_err(|error| Error::Io(error.to_string()))?;
-    decode(&bytes, fit)
+    Ok(bytes)
 }
 
 /// What a load answered.
 #[derive(Debug)]
 pub enum Outcome {
-    /// The image, decoded at the size it was wanted at.
-    Image(Image),
+    /// The image, decoded at the size it was wanted at, and where its bytes came from.
+    Image(Image, Origin),
     /// Why there is none.
     Failed(Error),
     /// What arrived of a remote image so far, and its length (Content-Length), as it arrives.
     Progress { loaded: u64, total: u64 },
-    /// A remote image this crate does not decode (an SVG document, by its `Content-Type` or
-    /// as the caller sniffs it): its bytes, its type, and the error decoding it gave.
+    /// A remote image or a `data:` URI this crate does not decode (an SVG document, by its
+    /// `Content-Type` or media type, or as the caller sniffs it): its bytes, its type, where they
+    /// came from, and the error decoding them gave.
     Undecoded {
         bytes: Arc<[u8]>,
         content_type: Option<String>,
+        from: Origin,
         error: Error,
     },
     /// A remote image's size in pixels, from its headers (`Want::Size`).
     Size(u32, u32),
     /// A remote image fetched into the caches (`Want::Prefetch`).
     Fetched,
+}
+
+/// The pixels (an animated image's frames if `animated` is set), size or confirmation a load
+/// wants of `bytes`, of the type `content_type` says, that came from `from`.
+fn outcome(
+    bytes: &Arc<[u8]>,
+    content_type: Option<&str>,
+    want: Want,
+    animated: bool,
+    from: Origin,
+) -> Outcome {
+    let undecoded = |error| Outcome::Undecoded {
+        bytes: bytes.clone(),
+        content_type: content_type.map(str::to_string),
+        from,
+        error,
+    };
+    // An SVG document is the host's to decode (Skia's SVG module), by its type or as it sniffs it.
+    let svg = content_type.is_some_and(|kind| kind.to_ascii_lowercase().contains("image/svg"));
+    match want {
+        Want::Prefetch => Outcome::Fetched,
+        _ if svg => undecoded(Error::Unsupported),
+        Want::Size => match size(bytes) {
+            Ok((width, height)) => Outcome::Size(width, height),
+            Err(Error::Unsupported) => undecoded(Error::Unsupported),
+            Err(error) => Outcome::Failed(error),
+        },
+        Want::Picture(fit) => match decode_as(bytes, fit, animated) {
+            Ok(image) => Outcome::Image(image, from),
+            Err(Error::Unsupported) => undecoded(Error::Unsupported),
+            Err(error) => Outcome::Failed(error),
+        },
+    }
+}
+
+/// What [`Loader::open`] decodes, besides a remote image.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Open {
+    /// The image file at a path.
+    File(PathBuf),
+    /// A `data:` URI ([`data`]).
+    Data(String),
+    /// A BlurHash, decoded at `width` × `height` pixels ([`placeholder::blurhash`]).
+    Blurhash {
+        hash: String,
+        width: u32,
+        height: u32,
+    },
+    /// A ThumbHash in base64, decoded at its own size ([`placeholder::thumbhash`]).
+    Thumbhash(String),
 }
 
 /// What a load answered, by its id: answers of progress, then one that ends it.
@@ -569,16 +691,17 @@ impl Loader {
 
     /// Starts decoding `path` at the size `fit` asks for; its answer follows.
     pub fn load(&self, id: u64, path: PathBuf, fit: Fit) {
+        self.open(id, Open::File(path), fit, false);
+    }
+
+    /// Starts decoding what `open` names at the size `fit` asks for (a BlurHash at its own),
+    /// an animated GIF or WebP frame by frame if `animated` is set; its answer follows, its
+    /// bytes from their source ([`Origin::Source`]).
+    pub fn open(&self, id: u64, open: Open, fit: Fit, animated: bool) {
         let shared = self.shared.clone();
         let spawned = std::thread::Builder::new()
             .name(format!("oxyos-image-{id}"))
-            .spawn(move || {
-                let outcome = match decode_file(&path, fit) {
-                    Ok(image) => Outcome::Image(image),
-                    Err(error) => Outcome::Failed(error),
-                };
-                shared.answer(id, outcome);
-            });
+            .spawn(move || shared.answer(id, opened(open, fit, animated)));
         if let Err(error) = spawned {
             self.shared.answer(
                 id,
@@ -621,11 +744,27 @@ impl Loader {
             .retain(|answer| answer.id != id);
     }
 
-    /// Whether a remote image is held in memory, and on disk.
-    pub fn cached(&self, url: &str) -> (bool, bool) {
+    /// Whether a remote image is held in memory, and on disk, by its URL or its cache key.
+    pub fn cached(&self, key: &str) -> (bool, bool) {
         self.remote
             .as_ref()
-            .map_or((false, false), |remote| remote.cached(url))
+            .map_or((false, false), |remote| remote.cached(key))
+    }
+
+    /// Empties the memory cache of remote images, and the disk cache, as asked (expo-image's
+    /// `clearMemoryCache`, `clearDiskCache`). Loads on their way are not affected.
+    pub fn clear(&self, memory: bool, disk: bool) {
+        if let Some(remote) = &self.remote {
+            remote.clear(memory, disk);
+        }
+    }
+
+    /// The file in the disk cache holding a remote image's bytes, by its URL or its cache key,
+    /// exactly as they were fetched (expo-image's `getCachePathAsync`); none if it is not held.
+    pub fn cache_path(&self, key: &str) -> Option<PathBuf> {
+        self.remote
+            .as_ref()
+            .and_then(|remote| remote.cache_path(key))
     }
 
     /// The next answer, if any; never blocks.
@@ -644,6 +783,35 @@ impl AsFd for Loader {
     /// Readable while answers are queued.
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.readable.as_fd()
+    }
+}
+
+/// Decodes what [`Loader::open`] was given, on its thread.
+fn opened(open: Open, fit: Fit, animated: bool) -> Outcome {
+    let image = match open {
+        Open::File(path) => read(&path).and_then(|bytes| decode_as(&bytes, fit, animated)),
+        Open::Data(uri) => {
+            return match data::parse(&uri) {
+                Ok((media_type, bytes)) => outcome(
+                    &bytes.into(),
+                    media_type.as_deref(),
+                    Want::Picture(fit),
+                    animated,
+                    Origin::Source,
+                ),
+                Err(error) => Outcome::Failed(error),
+            }
+        }
+        Open::Blurhash {
+            hash,
+            width,
+            height,
+        } => placeholder::blurhash(&hash, width, height),
+        Open::Thumbhash(hash) => placeholder::thumbhash(&hash, fit),
+    };
+    match image {
+        Ok(image) => Outcome::Image(image, Origin::Source),
+        Err(error) => Outcome::Failed(error),
     }
 }
 

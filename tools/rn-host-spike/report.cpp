@@ -270,6 +270,11 @@ void Report::image(const char* event, const std::string& uri) {
   write(folly::dynamic::object("kind", "image")("event", event)("uri", uri));
 }
 
+void Report::imageLayers(const ShadowView& view, const folly::dynamic& layers) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "image_layers")("target", name(view))("layers", layers));
+}
+
 void Report::refresh(uint32_t mhz) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "refresh")("mhz", mhz));

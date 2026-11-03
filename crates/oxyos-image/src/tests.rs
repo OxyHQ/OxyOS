@@ -118,7 +118,7 @@ fn the_loader_answers_each_load_on_its_own_thread() {
     answers.sort_by_key(|answer| answer.id);
     assert_eq!(
         match &answers[0].outcome {
-            Outcome::Image(image) => image.pixels.as_slice(),
+            Outcome::Image(image, Origin::Source) => image.pixels.as_slice(),
             other => panic!("{other:?}"),
         },
         &[10, 20, 30, 255]
@@ -320,4 +320,96 @@ fn an_avif_is_refused_with_its_reason() {
         "AVIF images are not supported on OxyOS"
     );
     assert_eq!(decode(b"neither", Fit::Whole), Err(Error::Unsupported));
+}
+
+#[test]
+fn the_loader_opens_files_data_uris_and_hashes_from_their_source() {
+    let directory = std::env::temp_dir().join(format!("oxyos-image-open-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    // A GIF of two frames, red then green, as a file.
+    let mut gif = Vec::new();
+    {
+        let mut encoder = gif::Encoder::new(&mut gif, 1, 1, &[255, 0, 0, 0, 255, 0]).unwrap();
+        for index in 0..2 {
+            encoder
+                .write_frame(&gif::Frame::from_indexed_pixels(1, 1, vec![index], None))
+                .unwrap();
+        }
+    }
+    let file = directory.join("two.gif");
+    std::fs::write(&file, &gif).unwrap();
+    let dot = png(1, 1, png::ColorType::Rgba, &[10, 20, 30, 255]);
+    let base64: String = {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        dot.chunks(3)
+            .flat_map(|chunk| {
+                let bits = chunk.iter().enumerate().fold(0u32, |bits, (i, &byte)| {
+                    bits | (u32::from(byte) << (16 - 8 * i))
+                });
+                (0..=chunk.len())
+                    .map(move |i| ALPHABET[((bits >> (18 - 6 * i)) & 63) as usize] as char)
+            })
+            .collect()
+    };
+    let loader = Loader::new().unwrap();
+    loader.open(1, Open::File(file.clone()), Fit::Whole, true);
+    loader.open(2, Open::File(file), Fit::Whole, false);
+    loader.open(
+        3,
+        Open::Data(format!("data:image/png;base64,{base64}")),
+        Fit::Whole,
+        false,
+    );
+    let svg = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'/>";
+    loader.open(4, Open::Data(svg.into()), Fit::Whole, false);
+    let blurhash = Open::Blurhash {
+        hash: "LEHV6nWB2yk8pyo0adR*.7kCMdnj".into(),
+        width: 8,
+        height: 6,
+    };
+    loader.open(5, blurhash, Fit::Within(2, 2), false);
+    loader.open(
+        6,
+        Open::Thumbhash("3wcKNBpwB3d3eHd3eHeAgQj4dw==".into()),
+        Fit::Whole,
+        false,
+    );
+    let invalid = Open::Blurhash {
+        hash: "LEHV6".into(),
+        width: 8,
+        height: 6,
+    };
+    loader.open(7, invalid, Fit::Whole, false);
+    let mut answers = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while answers.len() < 7 && Instant::now() < deadline {
+        match loader.answer() {
+            Some(answer) => answers.push(answer),
+            None => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    answers.sort_by_key(|answer| answer.id);
+    let image = |n: usize| match &answers[n].outcome {
+        Outcome::Image(image, Origin::Source) => image,
+        other => panic!("{n}: {other:?}"),
+    };
+    assert_eq!((image(0).frames(), image(0).pixels.len()), (2, 8));
+    assert_eq!(
+        (image(1).frames(), image(1).pixels.as_slice()),
+        (1, &[255, 0, 0, 255][..])
+    );
+    assert_eq!(image(2).pixels, [10, 20, 30, 255]);
+    assert!(matches!(
+        &answers[3].outcome,
+        Outcome::Undecoded { content_type: Some(kind), from: Origin::Source, error: Error::Unsupported, bytes }
+            if kind == "image/svg+xml;utf8" && bytes.starts_with(b"<svg")
+    ));
+    // A BlurHash at its own size, whatever the box.
+    assert_eq!((image(4).width, image(4).height), (8, 6));
+    assert_eq!((image(5).width, image(5).height), (18, 32));
+    assert!(matches!(
+        &answers[6].outcome,
+        Outcome::Failed(Error::Source(message)) if message == "Cannot decode provided blurhash 'LEHV6'"
+    ));
+    std::fs::remove_dir_all(&directory).unwrap();
 }

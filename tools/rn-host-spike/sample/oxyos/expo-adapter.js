@@ -1,10 +1,11 @@
 /**
  * OxyOS side of the Expo modules Bloom and Oxy apps reach (expo-font, expo-asset beneath it,
  * expo-clipboard, expo-notifications, expo-constants, expo-crypto, expo-linking,
- * expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity, and expo-blur's views). expo-modules-core's own global polyfill provides the
+ * expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity, expo-blur's views and
+ * expo-image's view and module). expo-modules-core's own global polyfill provides the
  * module classes; the native work is done by the host's TurboModules (OxyOSFontRegistry,
- * OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto) and host components
- * (expo-blur.h). Anything OxyOS cannot do fails loudly.
+ * OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto, OxyOSExpoImage) and host
+ * components (expo-blur.h, expo-image.h). Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
 import { launch, requestCapability } from './system';
@@ -226,17 +227,108 @@ DeviceEventEmitter.addListener('OxyOSClipboardChanged', ({ text }) =>
 );
 globalThis.expo.modules.ExpoClipboard = ExpoClipboard;
 
-// Expo's native views the host draws (expo-blur.h), by module and view, with the props each takes
-// as its Android view definition names them; React Native's view props come with every view.
+// Expo's native views the host draws (expo-blur.h, expo-image.h), by module and view, with the
+// props each takes and the events it sends as its Android view definition names them; React
+// Native's view props come with every view.
 const expoViews = {
-  'ExpoBlur.ExpoBlurView': ['blurTargetId', 'intensity', 'tint', 'blurReductionFactor', 'borderRadii', 'blurMethod'],
-  'ExpoBlur.ExpoBlurTargetView': [],
+  'ExpoBlur.ExpoBlurView': {
+    props: ['blurTargetId', 'intensity', 'tint', 'blurReductionFactor', 'borderRadii', 'blurMethod'],
+  },
+  'ExpoBlur.ExpoBlurTargetView': { props: [] },
+  ExpoImage: {
+    props: [
+      'source', 'placeholder', 'contentFit', 'placeholderContentFit', 'contentPosition', 'transition', 'tintColor',
+      'blurRadius', 'cachePolicy', 'priority', 'recyclingKey', 'autoplay', 'allowDownscaling', 'accessible',
+      'accessibilityLabel', 'focusable', 'decodeFormat', 'svgVariables',
+    ],
+    events: ['onLoadStart', 'onProgress', 'onError', 'onLoad', 'onDisplay'],
+  },
 };
 globalThis.expo.getViewConfig = (moduleName, viewName) => {
-  const props = expoViews[`${moduleName}.${viewName}`];
-  if (!props) throw new Error(`Expo's ${moduleName} ${viewName ?? 'view'} is not available on OxyOS`);
-  return { validAttributes: Object.fromEntries(props.map((prop) => [prop, true])), directEventTypes: {} };
+  const view = expoViews[viewName ? `${moduleName}.${viewName}` : moduleName];
+  if (!view) throw new Error(`Expo's ${moduleName} ${viewName ?? 'view'} is not available on OxyOS`);
+  return {
+    validAttributes: Object.fromEntries(view.props.map((prop) => [prop, true])),
+    // As Expo's native side names them: `onLoad` is the event `topLoad`.
+    directEventTypes: Object.fromEntries(
+      (view.events ?? []).map((name) => [`top${name.slice(2)}`, { registrationName: name }]),
+    ),
+  };
 };
+
+// expo-image's module (images.h, through the host's OxyOSExpoImage), as its Android module:
+// Image.prefetch into the caches its cachePolicy names, clearMemoryCache, clearDiskCache,
+// getCachePathAsync, loadAsync's ImageRef (useImage's too), and its view's functions. Writing to
+// or reading an ImageRef from the cache and generating hashes are not available on OxyOS.
+const expoImages = TurboModuleRegistry.get('OxyOSExpoImage');
+const noExpoImage = (what) => async () => {
+  throw new Error(`expo-image's ${what} is not available on OxyOS`);
+};
+// An ImageRef: a picture the host holds by its id (`__expo_shared_object_id__`, what a view's
+// `source` sends), released by release() or when JavaScript collects it (its native handle).
+const imageHandle = Symbol('handle');
+class ExpoImageRef extends globalThis.expo.SharedRef {
+  nativeRefType = 'image';
+  release() {
+    const id = this.__expo_shared_object_id__;
+    if (typeof id === 'number') expoImages?.release(id);
+  }
+}
+const imageRef = (loaded) => {
+  const ref = new ExpoImageRef();
+  Object.defineProperties(ref, {
+    __expo_shared_object_id__: { value: loaded.id },
+    [imageHandle]: { value: expoImages.refHandle(loaded) },
+    width: { value: loaded.width, enumerable: true },
+    height: { value: loaded.height, enumerable: true },
+    scale: { value: loaded.scale, enumerable: true },
+    isAnimated: { value: loaded.isAnimated, enumerable: true },
+    mediaType: { value: null, enumerable: true },
+  });
+  return ref;
+};
+const ExpoImage = new globalThis.expo.NativeModule();
+Object.assign(ExpoImage, {
+  Image: ExpoImageRef,
+  prefetch: async (urls, cachePolicy, headers) => {
+    if (!expoImages) return false;
+    return expoImages.prefetch(urls, cachePolicy ?? 'memory-disk', headers ?? null);
+  },
+  clearMemoryCache: async () => (expoImages ? expoImages.clearMemoryCache() : false),
+  clearDiskCache: async () => (expoImages ? expoImages.clearDiskCache() : false),
+  getCachePathAsync: async (cacheKey) => (expoImages ? expoImages.getCachePathAsync(String(cacheKey)) : null),
+  loadAsync: async (source, options) => {
+    if (!expoImages) throw new Error('expo-image needs a window on OxyOS');
+    return imageRef(await expoImages.loadAsync(source, options ?? {}));
+  },
+  writeToCacheAsync: noExpoImage('writeToCacheAsync'),
+  readFromCacheAsync: noExpoImage('readFromCacheAsync'),
+  generateBlurhashAsync: noExpoImage('generateBlurhashAsync'),
+  generateThumbhashAsync: noExpoImage('generateThumbhashAsync'),
+  // iOS's alone.
+  configureCache: () => {},
+  // The view's functions, called on its component with the view's tag (`nativeTag`).
+  ViewPrototypes: {
+    ExpoImage: {
+      startAnimating() {
+        return expoImages?.startAnimating(this.nativeTag);
+      },
+      stopAnimating() {
+        return expoImages?.stopAnimating(this.nativeTag);
+      },
+      lockResourceAsync() {
+        return expoImages?.lockResource(this.nativeTag);
+      },
+      unlockResourceAsync() {
+        return expoImages?.unlockResource(this.nativeTag);
+      },
+      reloadAsync() {
+        return expoImages?.reload(this.nativeTag);
+      },
+    },
+  },
+});
+globalThis.expo.modules.ExpoImage = ExpoImage;
 
 // expo-notifications (docs/adr/0026-notifications.mdx): an application's notifications are the
 // session's, posted through the host's OxyOSNotifications module. The session keeps them (the

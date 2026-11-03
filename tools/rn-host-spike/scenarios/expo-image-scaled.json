@@ -1,0 +1,669 @@
+{
+  "about": "expo-image.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), the window at 375,63 of the output: the same views to the output's pixel, the 72-pixel source chosen for the view's 80 pixels, the same cross-dissolve, cache policies and events.",
+  "module": "ExpoImageProbe",
+  "window": [
+    680,
+    700
+  ],
+  "app": {
+    "id": "so.oxy.probe.expoimage",
+    "title": "Expo Image"
+  },
+  "store": {
+    "hosts": [
+      "cloud.oxy.so"
+    ],
+    "images": {
+      "/probe/split.png": {
+        "png": [
+          160,
+          80,
+          "#2f6fed",
+          "#ffd60a"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/small.png": {
+        "png": [
+          32,
+          32,
+          "#c02020",
+          "#20a040"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/s32.png": {
+        "png": [
+          32,
+          32,
+          "#101010"
+        ]
+      },
+      "/probe/s64.png": {
+        "png": [
+          64,
+          64,
+          "#3060c0"
+        ]
+      },
+      "/probe/s72.png": {
+        "png": [
+          72,
+          72,
+          "#c08030"
+        ]
+      },
+      "/probe/fade.png": {
+        "png": [
+          96,
+          96,
+          "#e04040",
+          "#40e040"
+        ],
+        "delay_ms": 1500
+      },
+      "/probe/c-none.png": {
+        "png": [
+          48,
+          48,
+          "#a03030"
+        ],
+        "headers": {
+          "Cache-Control": "max-age=600"
+        }
+      },
+      "/probe/c-disk.png": {
+        "png": [
+          48,
+          48,
+          "#30a030"
+        ],
+        "headers": {
+          "Cache-Control": "no-cache"
+        }
+      },
+      "/probe/c-memory.png": {
+        "png": [
+          48,
+          48,
+          "#3030a0"
+        ],
+        "headers": {
+          "Cache-Control": "no-cache"
+        }
+      },
+      "/probe/c-prefetch.png": {
+        "png": [
+          48,
+          48,
+          "#a0a030"
+        ]
+      },
+      "/probe/ref.png": {
+        "png": [
+          32,
+          32,
+          "#208080"
+        ]
+      },
+      "/probe/frames.gif": {
+        "gif": [
+          16,
+          16,
+          [
+            [
+              "#e02020",
+              20
+            ],
+            [
+              "#20e020",
+              20
+            ],
+            [
+              "#2020e0",
+              20
+            ]
+          ],
+          1
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "every view drawn and told once: each contentFit, a position, a tint, the source chosen by the view's pixels, data: URIs, an asset, each cache policy's first load from the network, an ImageRef; the BlurHash placeholder shown while its image is late",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "cover: load none 160x80",
+          "contain: load none 160x80",
+          "fill: load none 160x80",
+          "scaledown: load none 160x80",
+          "none: load none 32x32",
+          "scaledownsmall: load none 32x32",
+          "position: load none 160x80",
+          "tinted: load none 160x80",
+          "sources: s72.png 72x72",
+          "fade: pending",
+          "datapng: load none 2x2",
+          "datasvg: load none 10x10",
+          "asset: load none 192x192",
+          "none-policy: load none 48x48",
+          "disk-policy: load none 48x48",
+          "memory-policy: load none 48x48",
+          "ref: 32x32 none"
+        ],
+        "react": {
+          "loadStart@cover": 1,
+          "load@cover": 1,
+          "display@cover": 1,
+          "progress@cover": [
+            0,
+            2
+          ],
+          "loadStart@contain": 1,
+          "load@contain": 1,
+          "display@contain": 1,
+          "progress@contain": [
+            0,
+            2
+          ],
+          "loadStart@fill": 1,
+          "load@fill": 1,
+          "display@fill": 1,
+          "progress@fill": [
+            0,
+            2
+          ],
+          "loadStart@scaledown": 1,
+          "load@scaledown": 1,
+          "display@scaledown": 1,
+          "progress@scaledown": [
+            0,
+            2
+          ],
+          "loadStart@none": 1,
+          "load@none": 1,
+          "display@none": 1,
+          "progress@none": [
+            0,
+            2
+          ],
+          "loadStart@scaledownsmall": 1,
+          "load@scaledownsmall": 1,
+          "display@scaledownsmall": 1,
+          "progress@scaledownsmall": [
+            0,
+            2
+          ],
+          "loadStart@position": 1,
+          "load@position": 1,
+          "display@position": 1,
+          "progress@position": [
+            0,
+            2
+          ],
+          "loadStart@tinted": 1,
+          "load@tinted": 1,
+          "display@tinted": 1,
+          "progress@tinted": [
+            0,
+            2
+          ],
+          "loadStart@datapng": 1,
+          "load@datapng": 1,
+          "display@datapng": 1,
+          "loadStart@datasvg": 1,
+          "load@datasvg": 1,
+          "display@datasvg": 1,
+          "loadStart@asset": 1,
+          "load@asset": 1,
+          "display@asset": 1,
+          "loadStart@none-policy": 1,
+          "load@none-policy": 1,
+          "display@none-policy": 1,
+          "progress@none-policy": [
+            0,
+            2
+          ],
+          "loadStart@disk-policy": 1,
+          "load@disk-policy": 1,
+          "display@disk-policy": 1,
+          "progress@disk-policy": [
+            0,
+            2
+          ],
+          "loadStart@memory-policy": 1,
+          "load@memory-policy": 1,
+          "display@memory-policy": 1,
+          "progress@memory-policy": [
+            0,
+            2
+          ],
+          "loadStart@ref": 1,
+          "load@ref": 1,
+          "display@ref": 1,
+          "loadStart@sources": 1,
+          "load@sources": 1,
+          "display@sources": 1,
+          "progress@sources": [
+            0,
+            2
+          ]
+        },
+        "served": [
+          "200 /probe/split.png",
+          "200 /probe/small.png",
+          "200 /probe/s72.png",
+          "200 /probe/c-none.png",
+          "200 /probe/c-disk.png",
+          "200 /probe/c-memory.png",
+          "200 /probe/ref.png"
+        ],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/split.png": 3,
+          "fetch https://cloud.oxy.so/probe/small.png": 2,
+          "fetch https://cloud.oxy.so/probe/s72.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-none.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-disk.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-memory.png": 1,
+          "fetch https://cloud.oxy.so/probe/ref.png": 1
+        },
+        "output_pixels": {
+          "405,123": "#2f6fed",
+          "425,123": "#2f6fed",
+          "445,123": "#ffd60a",
+          "465,123": "#ffd60a",
+          "515,113": "#2f6fed",
+          "555,133": "#ffd60a",
+          "535,93": "#e0e0e0",
+          "535,153": "#e0e0e0",
+          "605,88": "#2f6fed",
+          "625,158": "#2f6fed",
+          "645,88": "#ffd60a",
+          "665,158": "#ffd60a",
+          "715,113": "#2f6fed",
+          "755,133": "#ffd60a",
+          "735,93": "#e0e0e0",
+          "735,153": "#e0e0e0",
+          "805,123": "#e0e0e0",
+          "825,113": "#c02020",
+          "845,133": "#20a040",
+          "835,93": "#e0e0e0",
+          "905,123": "#e0e0e0",
+          "925,113": "#c02020",
+          "945,133": "#20a040",
+          "935,153": "#e0e0e0",
+          "1005,88": "#2f6fed",
+          "1065,118": "#ffd60a",
+          "1035,138": "#e0e0e0",
+          "1115,113": "#c02060",
+          "1155,133": "#c02060",
+          "1135,93": "#e0e0e0",
+          "435,233": "#c08030",
+          "665,223": "#20c0a0",
+          "745,223": "#d06010",
+          "425,363": "#a03030",
+          "505,363": "#30a030",
+          "585,363": "#3030a0",
+          "1105,363": "#208080"
+        }
+      }
+    },
+    {
+      "name": "Late: a view whose image is late shows its BlurHash placeholder (decoded by oxyos-image), covering its box, fading in",
+      "do": [
+        "press_named",
+        "Late"
+      ],
+      "expect": {
+        "react": {
+          "loadStart@fade": 1,
+          "touchStart@Late": 1,
+          "touchEnd@Late": 1
+        },
+        "images": {
+          "fetch https://cloud.oxy.so/probe/fade.png": 1
+        },
+        "served": [],
+        "image_layers": {
+          "fade": {
+            "final": [
+              {
+                "placeholder": true,
+                "alpha": 1
+              }
+            ]
+          }
+        },
+        "output_pixels": {
+          "505,203": "#4a7ab0",
+          "605,303": "#4a7ab0",
+          "550,250": "#4a7ab0"
+        }
+      }
+    },
+    {
+      "name": "the late image arrives and cross-dissolves over the placeholder for 400 ms, linearly, frame by frame; told once",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "fade: load none 96x96"
+        ],
+        "react": {
+          "display@fade": 1,
+          "load@fade": 1,
+          "progress@fade": [
+            0,
+            1
+          ]
+        },
+        "served": [
+          "200 /probe/fade.png"
+        ],
+        "image_layers": {
+          "fade": {
+            "fade": {
+              "ms": 400,
+              "timing": "linear",
+              "over": "placeholder",
+              "frames_min": 10
+            },
+            "final": [
+              {
+                "placeholder": false,
+                "alpha": 1
+              }
+            ]
+          }
+        },
+        "output_pixels": {
+          "505,203": "#e04040",
+          "545,303": "#e04040",
+          "565,203": "#40e040",
+          "605,303": "#40e040"
+        }
+      }
+    },
+    {
+      "name": "Remount: `none` fetched again, `disk` from the disk cache, `memory-disk` from memory, each told with where it came from",
+      "do": [
+        "press_named",
+        "Remount"
+      ],
+      "expect": {
+        "texts": [
+          "none-policy: load none 48x48",
+          "disk-policy: load disk 48x48",
+          "memory-policy: load memory 48x48"
+        ],
+        "react": {
+          "loadStart@none-policy": 1,
+          "load@none-policy": 1,
+          "display@none-policy": 1,
+          "progress@none-policy": [
+            0,
+            2
+          ],
+          "loadStart@disk-policy": 1,
+          "load@disk-policy": 1,
+          "display@disk-policy": 1,
+          "loadStart@memory-policy": 1,
+          "load@memory-policy": 1,
+          "display@memory-policy": 1,
+          "touchStart@Remount": 1,
+          "touchEnd@Remount": 1
+        },
+        "served": [
+          "200 /probe/c-none.png"
+        ],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/c-none.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-disk.png": 1
+        }
+      }
+    },
+    {
+      "name": "Clear memory: the memory cache emptied",
+      "do": [
+        "press_named",
+        "Clear memory"
+      ],
+      "expect": {
+        "texts": [
+          "cleared: memory true"
+        ],
+        "react": {
+          "touchStart@Clear memory": 1,
+          "touchEnd@Clear memory": 1
+        }
+      }
+    },
+    {
+      "name": "Remount after Clear memory: `memory-disk` from the disk cache now",
+      "do": [
+        "press_named",
+        "Remount"
+      ],
+      "expect": {
+        "texts": [
+          "none-policy: load none 48x48",
+          "disk-policy: load disk 48x48",
+          "memory-policy: load disk 48x48"
+        ],
+        "react": {
+          "loadStart@none-policy": 1,
+          "load@none-policy": 1,
+          "display@none-policy": 1,
+          "progress@none-policy": [
+            0,
+            2
+          ],
+          "loadStart@disk-policy": 1,
+          "load@disk-policy": 1,
+          "display@disk-policy": 1,
+          "loadStart@memory-policy": 1,
+          "load@memory-policy": 1,
+          "display@memory-policy": 1,
+          "touchStart@Remount": 1,
+          "touchEnd@Remount": 1
+        },
+        "served": [
+          "200 /probe/c-none.png"
+        ],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/c-none.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-disk.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-memory.png": 1
+        }
+      }
+    },
+    {
+      "name": "Cache path: the disk-cached image's file is kept, the uncached one's is not",
+      "do": [
+        "press_named",
+        "Cache path"
+      ],
+      "expect": {
+        "texts": [
+          "path: disk kept, none none"
+        ],
+        "react": {
+          "touchStart@Cache path": 1,
+          "touchEnd@Cache path": 1
+        }
+      }
+    },
+    {
+      "name": "Clear disk: the disk cache emptied",
+      "do": [
+        "press_named",
+        "Clear disk"
+      ],
+      "expect": {
+        "texts": [
+          "cleared: disk true"
+        ],
+        "react": {
+          "touchStart@Clear disk": 1,
+          "touchEnd@Clear disk": 1
+        }
+      }
+    },
+    {
+      "name": "Remount after Clear disk: `disk` fetched again, `memory-disk` still in memory",
+      "do": [
+        "press_named",
+        "Remount"
+      ],
+      "expect": {
+        "texts": [
+          "none-policy: load none 48x48",
+          "disk-policy: load none 48x48",
+          "memory-policy: load memory 48x48"
+        ],
+        "react": {
+          "loadStart@none-policy": 1,
+          "load@none-policy": 1,
+          "display@none-policy": 1,
+          "progress@none-policy": [
+            0,
+            2
+          ],
+          "loadStart@disk-policy": 1,
+          "load@disk-policy": 1,
+          "display@disk-policy": 1,
+          "progress@disk-policy": [
+            0,
+            2
+          ],
+          "loadStart@memory-policy": 1,
+          "load@memory-policy": 1,
+          "display@memory-policy": 1,
+          "touchStart@Remount": 1,
+          "touchEnd@Remount": 1
+        },
+        "served": [
+          "200 /probe/c-none.png",
+          "200 /probe/c-disk.png"
+        ],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/c-none.png": 1,
+          "fetch https://cloud.oxy.so/probe/c-disk.png": 1
+        }
+      }
+    },
+    {
+      "name": "Animate: an animated GIF plays its three frames 200 ms apart, twice round as it loops, and stops on its last; the same one with autoplay false stays on its first",
+      "do": [
+        "press_named",
+        "Animate"
+      ],
+      "expect": {
+        "texts": [
+          "gif: load none 16x16 animated",
+          "gifstill: load none 16x16 animated"
+        ],
+        "react": {
+          "loadStart@gif": 1,
+          "load@gif": 1,
+          "display@gif": 1,
+          "progress@gif": [
+            0,
+            2
+          ],
+          "loadStart@gifstill": 1,
+          "load@gifstill": 1,
+          "display@gifstill": 1,
+          "progress@gifstill": [
+            0,
+            2
+          ],
+          "touchStart@Animate": 1,
+          "touchEnd@Animate": 1
+        },
+        "served": [
+          "200 /probe/frames.gif"
+        ],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/frames.gif": 1
+        },
+        "image_layers": {
+          "gif": {
+            "animation": {
+              "cycle": 3,
+              "changes_min": 5,
+              "changes_max": 5,
+              "gap_ms": [
+                170,
+                270
+              ]
+            },
+            "final": [
+              {
+                "placeholder": false,
+                "alpha": 1,
+                "frame": 2
+              }
+            ]
+          },
+          "gifstill": {
+            "animation": {
+              "changes_max": 0
+            },
+            "final": [
+              {
+                "placeholder": false,
+                "alpha": 1,
+                "frame": 0
+              }
+            ]
+          }
+        },
+        "output_pixels": {
+          "905,223": "#2020e0",
+          "985,223": "#e02020"
+        }
+      }
+    },
+    {
+      "name": "Prefetch: an image fetched into the caches, then shown from memory without asking again",
+      "do": [
+        "press_named",
+        "Prefetch"
+      ],
+      "expect": {
+        "texts": [
+          "prefetch: true",
+          "prefetched: load memory 48x48"
+        ],
+        "react": {
+          "loadStart@prefetched": 1,
+          "load@prefetched": 1,
+          "display@prefetched": 1,
+          "touchStart@Prefetch": 1,
+          "touchEnd@Prefetch": 1
+        },
+        "served": [
+          "200 /probe/c-prefetch.png"
+        ],
+        "images": {
+          "fetch https://cloud.oxy.so/probe/c-prefetch.png": 2
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}
