@@ -18,7 +18,13 @@ fn the_defaults_are_what_nothing_says() {
     assert_eq!(defaults.appearance, Appearance::Auto);
     assert_eq!(defaults.accent, "oxy");
     assert_eq!(defaults.lock_after, 5);
-    assert!(defaults.clock_24h && !defaults.reduce_motion && !defaults.screen_reader);
+    assert!(!defaults.reduce_motion && !defaults.screen_reader);
+    // The system's language and region, the region's hour cycle (ADR 0040).
+    assert_eq!(
+        (defaults.language.as_deref(), defaults.region.as_deref()),
+        (None, None)
+    );
+    assert_eq!(defaults.hour_cycle, HourCycle::Auto);
     // Notifications show as banners, and the lock screen says only whose they are.
     assert!(!defaults.do_not_disturb);
     assert_eq!(defaults.notification_previews, Previews::Unlocked);
@@ -59,6 +65,17 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
     assert_eq!(preferences.lock_after, 5, "more than a day is refused");
     assert_eq!(preferences.wallpaper.as_deref(), Some("solar-gradients"));
     assert!(preferences.screen_reader);
+}
+
+#[test]
+fn the_retired_clock_24h_is_an_unknown_key_dropped_on_the_next_write() {
+    let preferences = Preferences::parse("clock_24h = false\nlock_after = 10\n");
+    assert_eq!(preferences.lock_after, 10);
+    assert!(!preferences.to_text().contains("clock_24h"));
+    assert_eq!(
+        Preferences::default().set("clock_24h", "true"),
+        Err(Refused::UnknownKey)
+    );
 }
 
 #[test]
@@ -113,7 +130,9 @@ fn what_is_written_reads_back_the_same() {
         ("wallpaper", "solar-gradients"),
         ("lock_after", "15"),
         ("screen_reader", "true"),
-        ("clock_24h", "false"),
+        ("language", "es"),
+        ("region", "MX"),
+        ("hour_cycle", "h12"),
         ("do_not_disturb", "true"),
         ("notification_previews", "always"),
     ] {

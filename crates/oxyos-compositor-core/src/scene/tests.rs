@@ -6372,7 +6372,7 @@ fn only_settings_changes_preferences_and_its_changes_are_handed_over_whole() {
         Err(ErrorCode::QuotaExceeded)
     );
     // Revoked, it asks no more; and a client that goes takes its unanswered changes.
-    set_preference(&mut h, SETTINGS, 12, "clock_24h=false").unwrap();
+    set_preference(&mut h, SETTINGS, 12, "hour_cycle=h12").unwrap();
     h.scene.revoke(
         SETTINGS,
         Grants {
@@ -6382,7 +6382,7 @@ fn only_settings_changes_preferences_and_its_changes_are_handed_over_whole() {
     );
     assert!(h.scene.take_preference_changes().is_empty());
     assert_eq!(
-        set_preference(&mut h, SETTINGS, 13, "clock_24h=false"),
+        set_preference(&mut h, SETTINGS, 13, "hour_cycle=h12"),
         Err(ErrorCode::Unauthorized)
     );
 }
