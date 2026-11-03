@@ -1,3 +1,4 @@
+import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
 import type { ImageSourcePropType } from "react-native";
@@ -37,6 +38,11 @@ export type Preferences = {
   /** Do Not Disturb: notifications are kept, none shown as a banner (docs/adr/0026-notifications.mdx). */
   doNotDisturb: boolean;
   notificationPreviews: NotificationPreviews;
+  /** The input methods added after the keyboard layout, in order (docs/adr/0041-input-methods.mdx,
+      decision 6). */
+  inputSources: InputMethod[];
+  /** The current input source: `layout`, or one of `inputSources`. */
+  inputSource: string;
 };
 
 export type Wallpaper = { id: string; name: string; preview?: ImageSourcePropType };
@@ -109,6 +115,9 @@ export type SettingsSnapshot = {
   /** Wi-Fi and networks (docs/adr/0038-networks.mdx), as the session tells them: none without the
       platform's `network` grant; null when granted but not told. */
   network?: NetworkState | null;
+  /** The input sources (docs/adr/0041-input-methods.mdx, decision 6) as the session tells them;
+      null until it has. */
+  inputSources?: InputSourcesState | null;
 };
 
 /** The keys a change names, as the session's preferences file does. */
@@ -126,6 +135,8 @@ export const PREFERENCE_KEYS = {
   hourCycle: "hour_cycle",
   doNotDisturb: "do_not_disturb",
   notificationPreviews: "notification_previews",
+  inputSources: "input_sources",
+  inputSource: "input_source",
 } as const satisfies Record<keyof Preferences, string>;
 
 /**
@@ -265,9 +276,10 @@ export function sideOfKey(key: string): Side | null {
   }
 }
 
-/** A preference's value as the session's file writes it. */
+/** A preference's value as the session's file writes it: a list as its names joined by commas. */
 export function preferenceText<K extends keyof Preferences>(value: Preferences[K]): string {
   if (value === null) return "";
+  if (Array.isArray(value)) return value.join(",");
   return String(value);
 }
 
