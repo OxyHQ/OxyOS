@@ -1,0 +1,599 @@
+{
+ "about": "The login screen's account chooser from the keyboard (docs/adr/0020-oxy-account-login.mdx; docs/adr/0039-keyboard-access.mdx), as a Mac's login window with Full Keyboard Access and VoiceOver, Bloom's ChoiceList: the Bloom host's OxyOSLogin as the login screen's one client over the login program's development path, three enrolled accounts, the screen reader on in Spanish. The accounts are one list and one Tab stop, the chosen account; the arrows move the keyboard among them without choosing (a row has no ↑ ↓; the list stops at its ends; Home, End), each said once with its place; Return or Space chooses the one focused, whose own password field then takes the focus; leaving the list without choosing gives the stop back to the chosen account. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1.25 (1600 × 1000).",
+ "shell": "OxyOSLogin",
+ "login": {
+  "password": "oxyos.correcta",
+  "accounts": [
+   {
+    "accountId": "0123456789abcdef01234567",
+    "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+    "uid": 1001,
+    "name": "Ada Lovelace"
+   },
+   {
+    "accountId": "0123456789abcdef01234568",
+    "user": "oxy-bbbbbbbbbbbbbbbbbbbb",
+    "uid": 1002,
+    "name": "Bea Ramos"
+   },
+   {
+    "accountId": "0123456789abcdef01234569",
+    "user": "oxy-cccccccccccccccccccc",
+    "uid": 1003,
+    "name": "Carlos Ruiz"
+   }
+  ],
+  "record": [
+   "session would start for oxy-bbbbbbbbbbbbbbbbbbbb (user session): "
+  ]
+ },
+ "reader": {
+  "locale": "es_ES.UTF-8"
+ },
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "the login screen with three accounts, the reader on: the first chosen, its password field focused and said; the accounts one list, each with its place",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true,
+     "signed_in": false
+    },
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "Cuentas"
+      },
+      {
+       "role": "ListItem",
+       "name": "Ada Lovelace",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Bea Ramos",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Carlos Ruiz",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "TextInput",
+       "name": "Contraseña",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": null
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: the accounts, one stop, on the chosen one, said once with its place",
+   "do": [
+    "strokes",
+    [
+     [
+      42,
+      15
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Ada Lovelace, seleccionado, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "ListItem",
+       "name": "Ada Lovelace",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-aaaaaaaaaaaaaaaaaaaa",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "→: the keyboard on Bea, not chosen: said once with her place; Ada's field stays",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Bea Ramos, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "ListItem",
+       "name": "Ada Lovelace",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Bea Ramos",
+       "state": [
+        "focused"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-bbbbbbbbbbbbbbbbbbbb",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "→: Carlos, the last",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Carlos Ruiz, 3 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "ListItem",
+       "name": "Ada Lovelace",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Carlos Ruiz",
+       "state": [
+        "focused"
+       ],
+       "position": [
+        3,
+        3
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-cccccccccccccccccccc",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "→ at the end: the list stops there, nothing said",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-cccccccccccccccccccc",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "↓: a row has no ↓; the keyboard stays on Carlos, nothing said",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-cccccccccccccccccccc",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "←: back to Bea",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Bea Ramos, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-bbbbbbbbbbbbbbbbbbbb",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Return: Bea chosen; her own password field takes the focus and the keyboard, said",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "expect": {
+    "shell": {
+     "locked": true,
+     "signed_in": false
+    },
+    "spoken": [
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "ListItem",
+       "name": "Ada Lovelace",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Bea Ramos",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "TextInput",
+       "name": "Contraseña",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-password",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: the accounts again, on the one now chosen, Bea",
+   "do": [
+    "strokes",
+    [
+     [
+      42,
+      15
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Bea Ramos, seleccionado, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-bbbbbbbbbbbbbbbbbbbb",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "End: Carlos",
+   "do": [
+    "key",
+    [
+     107
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Carlos Ruiz, 3 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-cccccccccccccccccccc",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Home: Ada",
+   "do": [
+    "key",
+    [
+     102
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Ada Lovelace, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-aaaaaaaaaaaaaaaaaaaa",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Tab without choosing: on to Bea's field; nothing chosen",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "ListItem",
+       "name": "Ada Lovelace",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Bea Ramos",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "TextInput",
+       "name": "Contraseña",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-password",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: back on the chosen account, Bea, not the one left",
+   "do": [
+    "strokes",
+    [
+     [
+      42,
+      15
+     ]
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Bea Ramos, seleccionado, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-account-oxy-bbbbbbbbbbbbbbbbbbbb",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Space on the chosen account: on to her password, as Return on a Mac's chosen account",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at": {
+     "shell": [
+      {
+       "role": "ListItem",
+       "name": "Bea Ramos",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "TextInput",
+       "name": "Contraseña",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "login-password",
+      "ring": true
+     }
+    }
+   }
+  },
+  {
+   "name": "her password, right, with Enter: the login program would start her session",
+   "do": [
+    "keyboard",
+    "oxyos.correcta\n"
+   ],
+   "expect": {
+    "shell": {
+     "locked": true,
+     "signed_in": true
+    },
+    "in_shell": {
+     "never": [
+      "oxyos.correcta"
+     ]
+    },
+    "never": [
+     "oxyos.correcta"
+    ]
+   }
+  }
+ ]
+}

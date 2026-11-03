@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, type ComponentType } from "react";
 import { Pressable, type ImageSourcePropType } from "react-native";
+import { ChoiceList } from "@oxy.so/bloom/choice-list";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../../shell/src/primitives";
 import { LockBackdrop } from "../../shell/src/components/LockScreen";
@@ -95,7 +96,10 @@ function SetupPanel({
 }
 
 /** The enrolled accounts to choose from, when there are several: each its picture and name, the
-    chosen one's bright. */
+    chosen one's bright. Bloom's `ChoiceList`, as a Mac's login window: one keyboard stop, the
+    arrows moving between the accounts without choosing, Space or Return choosing the one whose
+    password is asked for (its field then takes the focus); each said once with its place
+    ("Bea Ramos, 2 de 3"). */
 function AccountChooser({
   accounts,
   chosen,
@@ -106,24 +110,29 @@ function AccountChooser({
   choose: (user: string) => void;
 }) {
   return (
-    <Box className="flex-row" style={{ gap: 28 }}>
-      {accounts.map((account) => (
-        <Pressable
-          key={account.user}
-          testID={`login-account-${account.user}`}
-          accessibilityRole="button"
-          accessibilityLabel={account.name}
-          accessibilityState={{ selected: account.user === chosen }}
-          onPress={() => choose(account.user)}
-          style={{ alignItems: "center", opacity: account.user === chosen ? 1 : 0.6 }}
-        >
-          <UserPicture picture={account.picture} />
-          <Text style={{ ...white(15, account.user === chosen ? "600" : "400"), marginTop: 10 }}>
-            {account.name}
-          </Text>
-        </Pressable>
-      ))}
-    </Box>
+    <ChoiceList
+      label="Cuentas"
+      value={chosen}
+      onValueChange={choose}
+      options={accounts.map((account) => ({
+        value: account.user,
+        label: account.name,
+        testID: `login-account-${account.user}`,
+      }))}
+      style={{ gap: 28 }}
+      optionStyle={{ paddingHorizontal: 6, paddingVertical: 4, borderRadius: 12 }}
+      renderContent={(option, { selected }) => {
+        const account = accounts.find((one) => one.user === option.value);
+        return (
+          <Box className="items-center" style={{ opacity: selected ? 1 : 0.6 }}>
+            <UserPicture picture={account?.picture} />
+            <Text style={{ ...white(15, selected ? "600" : "400"), marginTop: 10 }}>
+              {option.label}
+            </Text>
+          </Box>
+        );
+      }}
+    />
   );
 }
 
@@ -148,6 +157,9 @@ export function LoginScreen({
   Masked?: ComponentType<MaskedProps>;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
+  // Choosing the account already chosen goes on to its password, as Return on a Mac's chosen
+  // account does: its field takes the focus again.
+  const [toPassword, setToPassword] = useState(0);
   const [setup, setSetup] = useState<Setup>("closed");
   // The first boot: no account yet, so setup is what the screen offers.
   const first = opensOnSetup(accounts);
@@ -190,7 +202,14 @@ export function LoginScreen({
         {/* Several accounts side by side, the chosen one's field under them; one alone, as
             the lock screen shows its user. */}
         {accounts.length > 1 ? (
-          <AccountChooser accounts={accounts} chosen={account.user} choose={setChosen} />
+          <AccountChooser
+            accounts={accounts}
+            chosen={account.user}
+            choose={(user) => {
+              if (user === account.user) setToPassword((count) => count + 1);
+              else setChosen(user);
+            }}
+          />
         ) : (
           <>
             <UserPicture picture={account.picture} />
@@ -206,6 +225,7 @@ export function LoginScreen({
           answer={actions.answer}
           capsLock={actions.capsLock}
           announce={actions.announce}
+          focusRequest={toPassword}
         />
         <Link testID="login-add" label="Añadir cuenta" onPress={() => setSetup("checking")} />
       </>

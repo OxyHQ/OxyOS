@@ -1457,8 +1457,9 @@ int main(int argc, char** argv) {
     // The navigation's view as last seen for the surface with the keyboard: a modal coming takes the
     // keyboard to its first control and remembers where it was; one going gives it back there.
     // A view the application moved accessibility focus to while the keyboard navigates, which is
-    // not focusable in the tree yet: made so in the commit that asks for its focus (a segmented
-    // control's newly chosen segment, its group's one Tab stop), still to be mounted. The
+    // not focusable in the tree yet, or not in it at all: made so (or created) in the commit that
+    // asks for its focus (a segmented control's newly chosen segment, its group's one Tab stop),
+    // still to be mounted. The
     // keyboard follows it once that commit is, as Android's mounting layer handles the event
     // behind the mount items queued before it.
     facebook::react::Tag keyboardAfterMount = -1;
@@ -1645,13 +1646,18 @@ int main(int argc, char** argv) {
         shellSurfaces.changed();
         // While the keyboard is navigating, the application's focus moves (Bloom giving a closed
         // menu's or dialog's trigger the focus back) take the keyboard's with them.
+        // A view not in the tree yet is created by that commit (a field mounted with the focus, the
+        // login screen's for the account just chosen): its place is known once it is mounted.
         auto scope = navigationScope(keyboardSurface);
-        if (keyboardFocus.ringShown() && scope >= 0 && view.tag != keyboardFocus.focused() &&
-            insideOf(view.tag, scope)) {
-          if (oxyos::focusable(tree, view.tag)) {
-            moveKeyboardFocus(view.tag, true, keyboardSurface);
-          } else {
+        if (keyboardFocus.ringShown() && scope >= 0 && view.tag != keyboardFocus.focused()) {
+          if (!tree.views().count(view.tag)) {
             keyboardAfterMount = view.tag;
+          } else if (insideOf(view.tag, scope)) {
+            if (oxyos::focusable(tree, view.tag)) {
+              moveKeyboardFocus(view.tag, true, keyboardSurface);
+            } else {
+              keyboardAfterMount = view.tag;
+            }
           }
         }
       }
