@@ -1,5 +1,5 @@
 {
- "about": "A field said with its description and its error (docs/adr/0039-keyboard-access.mdx): sample/FieldDescriptionProbe.tsx, a Bloom TextField in a Field with a description, and a button that shows the field's error in its place, the screen reader on in Spanish. On the web Bloom wires both with aria-describedby; React Native drops it, so Bloom gives the field the texts it names as its accessibilityHint, kept in step: the field is said, then its description politely, and its error once shown. The button's tooltip is its help, said after it, as a Mac's help tag. At 1 (1280 × 720).",
+ "about": "A field said with its description and its error (docs/adr/0039-keyboard-access.mdx): sample/FieldDescriptionProbe.tsx, a Bloom TextField in a Field with a description, and a button that shows the field's error in its place, the screen reader on in Spanish. On the web Bloom wires both with aria-describedby; React Native drops it, so Bloom gives the field the texts it names as its accessibilityHint, kept in step: the field is said, then its description politely, and its error once shown; the error, an alert, is said as it appears, once, and the description that replaces it is no alert. The button's tooltip is its help, said after it, as a Mac's help tag. At 1 (1280 × 720).",
  "module": "FieldDescriptionProbe",
  "window": [
   480,
@@ -92,7 +92,7 @@
    }
   },
   {
-   "name": "Space: the error shown in the description's place; the field's hint is now the error",
+   "name": "Space: the error shown in the description's place, an alert said at once, once; the field's hint is now the error",
    "do": [
     "key",
     [
@@ -105,8 +105,19 @@
      "target": "check",
      "ring": true
     },
-    "spoken": [],
-    "announcements": [],
+    "spoken": [
+     {
+      "text": "Ese nombre ya está en uso",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Ese nombre ya está en uso",
+      "live": true
+     }
+    ],
     "at": {
      "window": [
       {
@@ -118,6 +129,13 @@
        "role": "Button",
        "name": "Comprobar",
        "hint": "Comprueba si el nombre está libre"
+      },
+      {
+       "role": "Alert",
+       "name": "Ese nombre ya está en uso",
+       "state": [
+        "live-assertive"
+       ]
       }
      ]
     }
@@ -179,7 +197,7 @@
    }
   },
   {
-   "name": "Space hides the error",
+   "name": "Space hides the error: nothing said; the description back in its place is no alert",
    "do": [
     "key",
     [
@@ -205,6 +223,13 @@
        "role": "Button",
        "name": "Comprobar",
        "hint": "Comprueba si el nombre está libre"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Alert"
       }
      ]
     }

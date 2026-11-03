@@ -56,6 +56,46 @@ impl Node {
     }
 }
 
+/// Whether the node at `at` is within the one at `index`: its line of parents, each earlier in the
+/// tree, reaches it. A node's descendants follow it, together.
+fn within(nodes: &[Node], index: usize, mut at: usize) -> bool {
+    while at > index {
+        match nodes[at].parent {
+            Some(parent) if (parent as usize) < at => at = parent as usize,
+            _ => return false,
+        }
+    }
+    at == index
+}
+
+/// What the live region at `index` says, as the screen reader (tools/oxyos-reader) says it: its
+/// own words, else, for a container with none (a toast's row), the text it holds in order (its
+/// texts, headings and images, not its controls' names, nor a live region inside it).
+fn live_said(nodes: &[Node], index: usize) -> String {
+    let own = nodes[index].said();
+    if !own.is_empty() {
+        return own;
+    }
+    let mut parts = Vec::new();
+    for (at, node) in nodes.iter().enumerate().skip(index + 1) {
+        if !within(nodes, index, at) {
+            break;
+        }
+        let content = matches!(
+            node.role,
+            AccessibleRole::Text
+                | AccessibleRole::Heading
+                | AccessibleRole::Image
+                | AccessibleRole::Generic
+        );
+        let text = node.said();
+        if content && node.live().is_none() && !text.trim().is_empty() {
+            parts.push(text);
+        }
+    }
+    parts.join(", ")
+}
+
 /// What the reader would say, and why: an application announced it, or a live region changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Announcement {
@@ -250,28 +290,50 @@ impl Reader {
     /// A live region whose text changed since its view last showed it is announced, as TalkBack
     /// does, compared with itself as the same view (the window, or the same modal) last showed it:
     /// one hidden under a modal and shown again unchanged announces nothing. A view's first
-    /// showing announces nothing. Live regions are matched in order within a view.
+    /// showing announces nothing; a live region appearing in a view shown before (a field's
+    /// error, a toast) announces what it shows. What the view showed is matched by text, each
+    /// once, not by place, as the screen reader does; the view is its first node that is not live
+    /// content (a toast's row first in the window is not another view).
     fn live_changes(&mut self, key: SurfaceKey, nodes: &[Node]) {
+        let mut content_end = 0;
         let view = nodes
-            .first()
-            .map_or((AccessibleRole::Generic, String::new()), |root| {
+            .iter()
+            .enumerate()
+            .find(|&(index, node)| {
+                if index < content_end {
+                    return false;
+                }
+                if node.live().is_none() {
+                    return true;
+                }
+                content_end = (index + 1..nodes.len())
+                    .find(|&at| !within(nodes, index, at))
+                    .unwrap_or(nodes.len());
+                false
+            })
+            .map_or((AccessibleRole::Generic, String::new()), |(_, root)| {
                 (root.role, root.name.clone())
             });
         let now: Vec<(Politeness, String)> = nodes
             .iter()
-            .filter_map(|node| Some((node.live()?, node.said())))
+            .enumerate()
+            .filter_map(|(index, node)| Some((node.live()?, live_said(nodes, index))))
             .collect();
         let texts = now.iter().map(|(_, said)| said.clone()).collect();
-        let Some(shown) = self.lives.insert((key, view.0, view.1), texts) else {
+        let Some(mut shown) = self.lives.insert((key, view.0, view.1), texts) else {
             return;
         };
-        for (index, (politeness, said)) in now.into_iter().enumerate() {
-            if !said.is_empty() && shown.get(index) != Some(&said) {
-                self.announcements.push(Announcement {
+        for (politeness, said) in now {
+            match shown.iter().position(|was| *was == said) {
+                Some(at) => {
+                    shown.swap_remove(at);
+                }
+                None if !said.is_empty() => self.announcements.push(Announcement {
                     politeness,
                     text: said,
                     live: true,
-                });
+                }),
+                None => {}
             }
         }
     }
