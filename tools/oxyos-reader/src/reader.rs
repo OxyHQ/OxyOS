@@ -61,16 +61,22 @@ impl Node {
     }
 }
 
-/// Something to say, and whether it waits for what is being said.
+/// Something to say, whether it waits for what is being said, and the language it is in (the
+/// voice it is said with).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Utterance {
     pub text: String,
     pub politeness: Politeness,
+    pub language: Language,
 }
 
 #[derive(Debug)]
 pub struct Reader {
+    /// The language it speaks: its environment's until the session's locale says (ADR 0040).
     language: Language,
+    /// The session's locale as it arrives in chunks, and whether one has arrived whole.
+    locale: String,
+    told_locale: bool,
     /// Committed trees, by surface, in the order the compositor sent them first.
     trees: BTreeMap<Surface, Vec<Node>>,
     /// The order surfaces' trees arrived in: the cursor moves on through them.
@@ -103,6 +109,8 @@ impl Reader {
     pub fn new(language: Language) -> Self {
         Self {
             language,
+            locale: String::new(),
+            told_locale: false,
             trees: BTreeMap::new(),
             order: Vec::new(),
             receiving: BTreeMap::new(),
@@ -118,6 +126,16 @@ impl Reader {
         }
     }
 
+    /// The language it speaks now.
+    pub fn language(&self) -> Language {
+        self.language
+    }
+
+    /// Whether the session has told its locale: what it speaks from then on.
+    pub fn told_locale(&self) -> bool {
+        self.told_locale
+    }
+
     /// What it has to say since the last call, in order.
     pub fn take_said(&mut self) -> Vec<Utterance> {
         std::mem::take(&mut self.said)
@@ -130,7 +148,11 @@ impl Reader {
 
     fn say(&mut self, text: String, politeness: Politeness) {
         if !text.is_empty() {
-            self.said.push(Utterance { text, politeness });
+            self.said.push(Utterance {
+                text,
+                politeness,
+                language: self.language,
+            });
         }
     }
 
@@ -303,6 +325,17 @@ impl Reader {
                 }
                 if self.focused.is_some_and(|(surface, _)| surface == key) {
                     self.focused = None;
+                }
+            }
+            // The session's locale (ADR 0040): what is said from the next utterance is its language.
+            Event::Locale { index, last, text } => {
+                if index == 0 {
+                    self.locale.clear();
+                }
+                self.locale.push_str(text.as_str());
+                if last {
+                    self.language = Language::of_locale(&self.locale);
+                    self.told_locale = true;
                 }
             }
             Event::AccessibilityAnnouncement {

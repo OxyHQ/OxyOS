@@ -1974,6 +1974,7 @@ name = "oxyos-reader"
 version = "0.1.0"
 dependencies = [
  "oxyos-client",
+ "oxyos-ipc",
  "oxyos-protocol",
  "oxyos-speech",
  "rustix",
