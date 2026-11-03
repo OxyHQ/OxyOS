@@ -28,7 +28,11 @@ Type=notify
 NotifyAccess=main
 ExecStartPre=-/usr/bin/plymouth deactivate
 ExecStart=/usr/libexec/oxyos/oxyos-login
-# Passed on to the login screen and every session, the rest of the environment is not:
+# Passed on to the login screen and every session, the rest of the environment is not. Both stay
+# off until this unit is installed by the image with what they name (docs/adr/0020-oxy-account-login.mdx,
+# "The screen reader at the login screen"): the image ships no session, login program, reader or
+# eSpeak NG yet, and the reader at the login screen speaks as the `oxyos-login` user, whose greeter
+# session needs a PipeWire of its own, not yet verified on a machine.
 # Environment=OXYOS_WALLPAPER=/usr/share/oxyos/wallpapers/solar-gradients OXYOS_READER=/usr/libexec/oxyos/oxyos-reader
 ExecStartPost=-/usr/bin/plymouth quit --retain-splash
 Restart=always

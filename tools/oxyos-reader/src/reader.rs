@@ -78,6 +78,11 @@ pub struct Reader {
     receiving: BTreeMap<Surface, Vec<Option<Node>>>,
     /// The surfaces that are another's popups (their trees name a parent surface).
     popups: BTreeSet<Surface>,
+    /// Each view's live regions as they last showed, by surface and the view the surface's tree
+    /// is of (its first node's role and name: the window, or a modal shown over it, whose tree is
+    /// the modal's alone): a live region compared with itself as it was, so one hidden under a
+    /// modal and shown again unchanged says nothing.
+    lives: BTreeMap<(Surface, AccessibleRole, String), Vec<String>>,
     /// A popup whose title was said and nothing focused in it yet: its first focus follows the
     /// title rather than stopping it, in whichever of its trees it comes.
     titled: Option<Surface>,
@@ -97,6 +102,7 @@ impl Reader {
             order: Vec::new(),
             receiving: BTreeMap::new(),
             popups: BTreeSet::new(),
+            lives: BTreeMap::new(),
             titled: None,
             announcing: BTreeMap::new(),
             cursor: None,
@@ -267,6 +273,7 @@ impl Reader {
                 }
                 self.announcing.remove(&key);
                 self.trees.remove(&key);
+                self.lives.retain(|(surface, ..), _| *surface != key);
                 self.order.retain(|surface| *surface != key);
                 if self.cursor.is_some_and(|(surface, _)| surface == key) {
                     self.cursor = None;
@@ -322,7 +329,7 @@ impl Reader {
         // protocol's nodes have no identity but their place, and an element appearing before it
         // (a search field's clear button as the first letter is typed) moves it on.
         let kept = self.kept_focus(key, before.as_deref());
-        self.live_changes(key, before.as_deref());
+        self.live_changes(key);
         if let Some(kept) = kept {
             self.text_changes(key, before.as_deref(), kept);
             self.state_changes(key, before.as_deref(), kept);
@@ -345,6 +352,40 @@ impl Reader {
                 self.say(text, Politeness::Assertive);
                 self.titled = Some(key);
             }
+        }
+        // A dialog shown in a surface that was showing something else (a modal over a window,
+        // whose tree is then the modal's alone, ADR 0039 decision 2) is said by its title as it
+        // appears, as a popup's is and as TalkBack says a dialog's window title: Dropsea's Quick
+        // Look, which has no control to focus. What is focused in it is said after the title.
+        if !first && !self.popups.contains(&key) {
+            let dialog = |nodes: &[Node]| {
+                nodes.iter().position(|node| {
+                    node.role == AccessibleRole::Dialog && !node.name.trim().is_empty()
+                })
+            };
+            if let Some(title) = dialog(&self.trees[&key]) {
+                let name = self.trees[&key][title].name.clone();
+                let was_shown = before.as_deref().is_some_and(|nodes| {
+                    nodes
+                        .iter()
+                        .any(|node| node.role == AccessibleRole::Dialog && node.name == name)
+                });
+                if !was_shown {
+                    let text = self.describe((key, title));
+                    self.say(text, Politeness::Assertive);
+                    self.titled = Some(key);
+                }
+            }
+        }
+        // A dialog said by its title that went with nothing focused in it: what is focused next
+        // is said at once, not after a title no longer shown.
+        if self.titled == Some(key)
+            && !self.popups.contains(&key)
+            && !self.trees[&key]
+                .iter()
+                .any(|node| node.role == AccessibleRole::Dialog && !node.name.trim().is_empty())
+        {
+            self.titled = None;
         }
         // The element the application focused: the cursor goes there and says it, unless it is
         // there already (the reader's own activation focused it).
@@ -404,26 +445,31 @@ impl Reader {
         kept.then_some((was, is))
     }
 
-    /// A live region whose text changed since the surface's previous tree is said, as TalkBack
-    /// says Android's; a surface's first tree says nothing. Live regions are matched in order.
-    fn live_changes(&mut self, key: Surface, before: Option<&[Node]>) {
-        let Some(before) = before else {
+    /// A live region whose text changed since its view last showed it is said, as TalkBack says
+    /// Android's: compared with itself as the same view (the window, or the same modal) last
+    /// showed it, so a live region hidden under a modal and shown again unchanged says nothing,
+    /// as VoiceOver says a live region's changes, not its coming back. A surface's first tree says
+    /// nothing; nor does a view's first showing. Live regions are matched in order within a view.
+    fn live_changes(&mut self, key: Surface) {
+        let nodes = &self.trees[&key];
+        let view = nodes
+            .first()
+            .map_or((AccessibleRole::Generic, String::new()), |root| {
+                (root.role, root.name.clone())
+            });
+        let now: Vec<(String, Politeness)> = nodes
+            .iter()
+            .filter_map(|node| Some((node.live_text(), node.live()?)))
+            .collect();
+        let texts: Vec<String> = now.iter().map(|(text, _)| text.clone()).collect();
+        let shown = self.lives.insert((key, view.0, view.1), texts);
+        let Some(shown) = shown else {
             return;
         };
-        let before: Vec<String> = before
-            .iter()
-            .filter(|node| node.live().is_some())
-            .map(Node::live_text)
-            .collect();
-        let changed: Vec<(String, Politeness)> = self.trees[&key]
-            .iter()
-            .filter_map(|node| Some((node.live()?, node.live_text())))
-            .enumerate()
-            .filter(|(index, (_, text))| before.get(*index) != Some(text))
-            .map(|(_, (politeness, text))| (text, politeness))
-            .collect();
-        for (text, politeness) in changed {
-            self.say(text, politeness);
+        for (index, (text, politeness)) in now.into_iter().enumerate() {
+            if shown.get(index) != Some(&text) {
+                self.say(text, politeness);
+            }
         }
     }
 

@@ -1114,7 +1114,7 @@
       }
     },
     {
-      "name": "Space: the list's own Space, Quick Look of notes.txt: a dialog named by it, over the window (it holds no control, so the keyboard's focus is on none)",
+      "name": "Space: the list's own Space, Quick Look of notes.txt: a dialog named by it, over the window, said by its title as it appears (it holds no control, so the keyboard's focus is on none)",
       "do": [
         "key",
         [
@@ -1124,7 +1124,12 @@
       "allow_unchanged": true,
       "expect": {
         "keyboard_focus": null,
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "notes.txt, dialog",
+            "interrupting": true
+          }
+        ],
         "announcements": [],
         "at": {
           "window": [
@@ -1137,7 +1142,7 @@
       }
     },
     {
-      "name": "Space again: Quick Look closes, the keyboard back on the list with its ring, said; the status bar, back from under the dialog, says its count",
+      "name": "Space again: Quick Look closes, the keyboard back on the list with its ring, said at once; the status bar, back unchanged from under the dialog, says nothing again",
       "do": [
         "key",
         [
@@ -1152,21 +1157,11 @@
         },
         "spoken": [
           {
-            "text": "1 of 3 selected",
-            "interrupting": false
-          },
-          {
             "text": "home, list",
             "interrupting": true
           }
         ],
-        "announcements": [
-          {
-            "politeness": "polite",
-            "text": "1 of 3 selected",
-            "live": true
-          }
-        ]
+        "announcements": []
       }
     }
   ]
