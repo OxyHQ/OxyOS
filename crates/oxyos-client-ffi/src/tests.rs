@@ -1101,7 +1101,11 @@ fn the_header_matches_the_image_abi() {
             "data",
             "data_length",
             "content_type",
-            "content_type_length"
+            "content_type_length",
+            "from",
+            "frames",
+            "delays",
+            "loops"
         ]
     );
     let rust = [
@@ -1121,6 +1125,10 @@ fn the_header_matches_the_image_abi() {
         offset_of!(OxyOSImageAnswer, data_length),
         offset_of!(OxyOSImageAnswer, content_type),
         offset_of!(OxyOSImageAnswer, content_type_length),
+        offset_of!(OxyOSImageAnswer, from),
+        offset_of!(OxyOSImageAnswer, frames),
+        offset_of!(OxyOSImageAnswer, delays),
+        offset_of!(OxyOSImageAnswer, loops),
     ];
     assert_eq!(
         c_offsets(&answer),
@@ -1143,6 +1151,13 @@ fn the_header_matches_the_image_abi() {
         ("OXYOS_IMAGE_WANT_PICTURE", OXYOS_IMAGE_WANT_PICTURE),
         ("OXYOS_IMAGE_WANT_SIZE", OXYOS_IMAGE_WANT_SIZE),
         ("OXYOS_IMAGE_WANT_PREFETCH", OXYOS_IMAGE_WANT_PREFETCH),
+        ("OXYOS_IMAGE_FROM_SOURCE", OXYOS_IMAGE_FROM_SOURCE),
+        ("OXYOS_IMAGE_FROM_DISK", OXYOS_IMAGE_FROM_DISK),
+        ("OXYOS_IMAGE_FROM_MEMORY", OXYOS_IMAGE_FROM_MEMORY),
+        ("OXYOS_IMAGE_OPEN_FILE", OXYOS_IMAGE_OPEN_FILE),
+        ("OXYOS_IMAGE_OPEN_DATA", OXYOS_IMAGE_OPEN_DATA),
+        ("OXYOS_IMAGE_OPEN_BLURHASH", OXYOS_IMAGE_OPEN_BLURHASH),
+        ("OXYOS_IMAGE_OPEN_THUMBHASH", OXYOS_IMAGE_OPEN_THUMBHASH),
     ] {
         assert_eq!(define(name), i64::from(value), "{name}");
     }
@@ -1168,7 +1183,10 @@ fn the_header_matches_the_image_abi() {
             "want",
             "width",
             "height",
-            "fit"
+            "fit",
+            "key",
+            "key_length",
+            "animated"
         ]
     );
     let rust = [
@@ -1183,11 +1201,394 @@ fn the_header_matches_the_image_abi() {
         offset_of!(OxyOSImageFetch, width),
         offset_of!(OxyOSImageFetch, height),
         offset_of!(OxyOSImageFetch, fit),
+        offset_of!(OxyOSImageFetch, key),
+        offset_of!(OxyOSImageFetch, key_length),
+        offset_of!(OxyOSImageFetch, animated),
     ];
     assert_eq!(
         c_offsets(&fetch),
         (rust.to_vec(), size_of::<OxyOSImageFetch>())
     );
+    let open = fields("OxyOSImageOpen");
+    assert_eq!(
+        names(&open),
+        [
+            "kind",
+            "text",
+            "text_length",
+            "width",
+            "height",
+            "fit",
+            "animated"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSImageOpen, kind),
+        offset_of!(OxyOSImageOpen, text),
+        offset_of!(OxyOSImageOpen, text_length),
+        offset_of!(OxyOSImageOpen, width),
+        offset_of!(OxyOSImageOpen, height),
+        offset_of!(OxyOSImageOpen, fit),
+        offset_of!(OxyOSImageOpen, animated),
+    ];
+    assert_eq!(
+        c_offsets(&open),
+        (rust.to_vec(), size_of::<OxyOSImageOpen>())
+    );
+    let header: String = HEADER.split_whitespace().collect::<Vec<_>>().join(" ");
+    for declared in [
+        "int oxyos_images_open(OxyOSImages* images, uint64_t id, const OxyOSImageOpen* open);",
+        "int oxyos_images_clear(OxyOSImages* images, uint32_t caches);",
+        "int oxyos_images_cache_path(OxyOSImages* images, const char* key, size_t key_length, char* out, size_t capacity, size_t* length);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(*mut OxyOSImages, u64, *const OxyOSImageOpen) -> c_int =
+        oxyos_images_open;
+    let _: unsafe extern "C" fn(*mut OxyOSImages, u32) -> c_int = oxyos_images_clear;
+    let _: unsafe extern "C" fn(
+        *mut OxyOSImages,
+        *const c_char,
+        usize,
+        *mut c_char,
+        usize,
+        *mut usize,
+    ) -> c_int = oxyos_images_cache_path;
+}
+
+/// A 1 × 1 GIF of two frames, red for 100 ms then black for 200 ms, looping forever.
+const TWO_FRAMES: &[u8] = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\x00\x00\x00\x00\x00\
+    \x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00\
+    \x21\xf9\x04\x00\x0a\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\
+    \x21\xf9\x04\x00\x14\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x4c\x01\x00\
+    \x3b";
+
+/// An image answer as it was given: its kind, size, where it came from, its frames, delays and
+/// loops, its pixels, its content type and error.
+#[derive(Debug, Default, PartialEq)]
+struct ImageAnswered {
+    kind: u32,
+    size: (u32, u32),
+    from: u32,
+    frames: u32,
+    delays: Vec<u32>,
+    loops: u32,
+    pixels: Vec<u8>,
+    content_type: String,
+    error: String,
+}
+
+/// The answers that end the loads `ids`, by id; answers of progress are passed over.
+fn image_answers(
+    images: *mut images::OxyOSImages,
+    ids: &[u64],
+) -> std::collections::HashMap<u64, ImageAnswered> {
+    use images::*;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut ended = std::collections::HashMap::new();
+    while !ids.iter().all(|id| ended.contains_key(id)) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "answered only {ended:?}"
+        );
+        let mut answer = OxyOSImageAnswer::default();
+        // SAFETY: a live loader and a writable answer.
+        match unsafe { oxyos_images_answer(images, &mut answer) } {
+            OXYOS_IMAGE_ANSWER if answer.kind != OXYOS_IMAGE_PROGRESS => {
+                let bytes = |data: *const u8, length: usize| {
+                    if data.is_null() {
+                        Vec::new()
+                    } else {
+                        // SAFETY: valid for its length until the next answer.
+                        unsafe { std::slice::from_raw_parts(data, length) }.to_vec()
+                    }
+                };
+                let delays = if answer.delays.is_null() {
+                    Vec::new()
+                } else {
+                    // SAFETY: `frames` delays, valid until the next answer.
+                    unsafe { std::slice::from_raw_parts(answer.delays, answer.frames as usize) }
+                        .to_vec()
+                };
+                let text = |data: *const c_char, length| {
+                    String::from_utf8(bytes(data.cast(), length)).unwrap()
+                };
+                let answered = ImageAnswered {
+                    kind: answer.kind,
+                    size: (answer.width, answer.height),
+                    from: answer.from,
+                    frames: answer.frames,
+                    delays,
+                    loops: answer.loops,
+                    pixels: bytes(answer.pixels, answer.length),
+                    content_type: text(answer.content_type, answer.content_type_length),
+                    error: text(answer.error, answer.error_length),
+                };
+                ended.insert(answer.id, answered);
+            }
+            OXYOS_IMAGE_ANSWER => {}
+            OXYOS_IMAGE_EMPTY => std::thread::sleep(std::time::Duration::from_millis(5)),
+            other => panic!("answer failed: {other}"),
+        }
+    }
+    ended
+}
+
+/// The answer that ends the load `id`.
+fn image_answer(images: *mut images::OxyOSImages, id: u64) -> ImageAnswered {
+    image_answers(images, &[id]).remove(&id).expect("answered")
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    bytes
+        .chunks(3)
+        .flat_map(|chunk| {
+            let bits = chunk.iter().enumerate().fold(0u32, |bits, (i, &byte)| {
+                bits | (u32::from(byte) << (16 - 8 * i))
+            });
+            (0..=chunk.len()).map(move |i| ALPHABET[((bits >> (18 - 6 * i)) & 63) as usize] as char)
+        })
+        .collect()
+}
+
+#[test]
+fn files_data_uris_and_hashes_open_through_the_c_abi() {
+    use images::*;
+    let file =
+        std::env::temp_dir().join(format!("oxyos-ffi-two-frames-{}.gif", std::process::id()));
+    std::fs::write(&file, TWO_FRAMES).unwrap();
+    let path = file.to_str().unwrap().to_string();
+    let data = format!("data:image/gif;base64,{}", base64(TWO_FRAMES));
+    let svg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E";
+    let open = |kind, text: &str, width, height, animated| OxyOSImageOpen {
+        kind,
+        text: text.as_ptr().cast(),
+        text_length: text.len(),
+        width,
+        height,
+        fit: OXYOS_IMAGE_FIT_WITHIN,
+        animated,
+    };
+    let images = oxyos_images_new();
+    let opened = |id, open: OxyOSImageOpen| {
+        // SAFETY: a live loader, and an open whose text outlives the call.
+        unsafe { oxyos_images_open(images, id, &open) }
+    };
+    assert_eq!(opened(1, open(OXYOS_IMAGE_OPEN_FILE, &path, 0, 0, 1)), 0);
+    assert_eq!(opened(2, open(OXYOS_IMAGE_OPEN_DATA, &data, 0, 0, 0)), 0);
+    assert_eq!(opened(3, open(OXYOS_IMAGE_OPEN_DATA, svg, 0, 0, 0)), 0);
+    let hash = "LEHV6nWB2yk8pyo0adR*.7kCMdnj";
+    assert_eq!(opened(4, open(OXYOS_IMAGE_OPEN_BLURHASH, hash, 4, 3, 0)), 0);
+    let thumbhash = "3wcKNBpwB3d3eHd3eHeAgQj4dw==";
+    assert_eq!(
+        opened(5, open(OXYOS_IMAGE_OPEN_THUMBHASH, thumbhash, 0, 0, 0)),
+        0
+    );
+    assert_eq!(
+        opened(6, open(OXYOS_IMAGE_OPEN_BLURHASH, "LEHV6", 4, 3, 0)),
+        0
+    );
+    // Refused at once: an unknown kind, no text, a BlurHash without a size.
+    let last_error = || {
+        // SAFETY: oxyos_last_error is NUL-terminated.
+        unsafe { CStr::from_ptr(oxyos_last_error()) }
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(opened(7, open(9, hash, 4, 3, 0)), OXYOS_ERROR);
+    assert_eq!(last_error(), "unknown kind 9");
+    assert_eq!(
+        opened(7, open(OXYOS_IMAGE_OPEN_DATA, "", 0, 0, 0)),
+        OXYOS_ERROR
+    );
+    assert_eq!(last_error(), "empty text");
+    assert_eq!(
+        opened(7, open(OXYOS_IMAGE_OPEN_BLURHASH, hash, 0, 3, 0)),
+        OXYOS_ERROR
+    );
+    // SAFETY: a live loader; NULL is refused, not read.
+    let null = unsafe { oxyos_images_open(images, 7, std::ptr::null()) };
+    assert_eq!(null, OXYOS_ERROR);
+
+    let mut answered = image_answers(images, &[1, 2, 3, 4, 5, 6]);
+    let mut answer = |id| answered.remove(&id).expect("answered");
+    let animated = answer(1);
+    assert_eq!(
+        (animated.kind, animated.size, animated.from),
+        (OXYOS_IMAGE_PICTURE, (1, 1), OXYOS_IMAGE_FROM_SOURCE)
+    );
+    assert_eq!(
+        (animated.frames, animated.delays.as_slice(), animated.loops),
+        (2, &[100, 200][..], 0)
+    );
+    assert_eq!(animated.pixels, [255, 0, 0, 255, 0, 0, 0, 255]);
+    let still = answer(2);
+    assert_eq!(
+        (
+            still.frames,
+            still.delays.as_slice(),
+            still.loops,
+            still.pixels.as_slice()
+        ),
+        (1, &[0][..], 1, &[255, 0, 0, 255][..])
+    );
+    let undecoded = answer(3);
+    assert_eq!(
+        (
+            undecoded.kind,
+            undecoded.from,
+            undecoded.content_type.as_str()
+        ),
+        (
+            OXYOS_IMAGE_UNDECODED,
+            OXYOS_IMAGE_FROM_SOURCE,
+            "image/svg+xml"
+        )
+    );
+    assert_eq!(answer(4).size, (4, 3));
+    assert_eq!(answer(5).size, (18, 32));
+    let failed = answer(6);
+    assert_eq!(
+        (failed.kind, failed.error.as_str(), failed.frames),
+        (
+            OXYOS_IMAGE_FAILED,
+            "Cannot decode provided blurhash 'LEHV6'",
+            0
+        )
+    );
+    // SAFETY: a loader from oxyos_images_new, freed once.
+    unsafe { oxyos_images_free(images) };
+    let _ = std::fs::remove_file(&file);
+}
+
+#[test]
+fn a_remote_image_is_held_by_its_key_found_and_cleared_through_the_c_abi() {
+    use images::*;
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|read| read > 2) {
+                line.clear();
+            }
+            let mut stream = stream;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nContent-Length: {}\r\nCache-Control: max-age=600\r\nConnection: close\r\n\r\n",
+                TWO_FRAMES.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(TWO_FRAMES);
+        }
+    });
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-ffi-image-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    let cache = directory.to_str().unwrap();
+    let images = oxyos_images_new();
+    let network = net::oxyos_net_new();
+    // SAFETY: a live loader and network, and a directory valid for its length.
+    let connected = unsafe {
+        oxyos_images_connect(images, network, cache.as_ptr().cast(), cache.len(), 1 << 20)
+    };
+    assert_eq!(connected, 0);
+    let key = "avatar";
+    let fetch = |id, url: &str, memory, animated| {
+        let request = OxyOSImageFetch {
+            url: url.as_ptr().cast(),
+            url_length: url.len(),
+            headers: std::ptr::null(),
+            header_count: 0,
+            cache: OXYOS_IMAGE_CACHE_DEFAULT,
+            memory,
+            disk: 1,
+            want: OXYOS_IMAGE_WANT_PICTURE,
+            width: 0,
+            height: 0,
+            fit: OXYOS_IMAGE_FIT_WITHIN,
+            key: key.as_ptr().cast(),
+            key_length: key.len(),
+            animated,
+        };
+        // SAFETY: a live loader, and a fetch whose pointers outlive the call.
+        assert_eq!(unsafe { oxyos_images_fetch(images, id, &request) }, 0);
+        image_answer(images, id)
+    };
+    let first = fetch(1, &format!("{base}/a.gif?sig=1"), 1, 1);
+    assert_eq!((first.from, first.frames), (OXYOS_IMAGE_FROM_SOURCE, 2));
+    // Another URL, the same key: from memory, then (memory unused) from the disk.
+    let second = fetch(2, &format!("{base}/a.gif?sig=2"), 1, 0);
+    assert_eq!((second.from, second.frames), (OXYOS_IMAGE_FROM_MEMORY, 1));
+    let third = fetch(3, &format!("{base}/a.gif?sig=3"), 0, 1);
+    assert_eq!((third.from, third.frames), (OXYOS_IMAGE_FROM_DISK, 2));
+    let cached = || {
+        // SAFETY: a live loader and a key valid for its length.
+        unsafe { oxyos_images_cached(images, key.as_ptr().cast(), key.len()) }
+    };
+    assert_eq!(cached(), OXYOS_IMAGE_IN_MEMORY | OXYOS_IMAGE_ON_DISK);
+
+    // The file holding its bytes, exactly as fetched.
+    let mut out = vec![0u8; 4096];
+    let mut length = 0;
+    // SAFETY: a live loader, a key valid for its length, `out` writable for its length.
+    let found = unsafe {
+        oxyos_images_cache_path(
+            images,
+            key.as_ptr().cast(),
+            key.len(),
+            out.as_mut_ptr().cast(),
+            out.len(),
+            &mut length,
+        )
+    };
+    assert_eq!(found, 0);
+    let path = out[..length].to_vec();
+    let path = std::path::PathBuf::from(String::from_utf8(path).unwrap());
+    assert!(path.starts_with(&directory));
+    assert_eq!(std::fs::read(&path).unwrap(), TWO_FRAMES);
+    // Too small for it: refused, with the length it needs.
+    let mut needed = 0;
+    // SAFETY: as above, `out` writable for the 4 bytes given.
+    let small = unsafe {
+        oxyos_images_cache_path(
+            images,
+            key.as_ptr().cast(),
+            key.len(),
+            out.as_mut_ptr().cast(),
+            4,
+            &mut needed,
+        )
+    };
+    assert_eq!((small, needed), (OXYOS_ERROR, length));
+
+    // SAFETY: a live loader.
+    unsafe {
+        assert_eq!(oxyos_images_clear(images, OXYOS_IMAGE_IN_MEMORY as u32), 0);
+        assert_eq!(cached(), OXYOS_IMAGE_ON_DISK);
+        assert_eq!(oxyos_images_clear(images, OXYOS_IMAGE_ON_DISK as u32), 0);
+        assert_eq!(cached(), 0);
+        assert_eq!(oxyos_images_clear(images, 4), OXYOS_ERROR);
+        let gone = oxyos_images_cache_path(
+            images,
+            key.as_ptr().cast(),
+            key.len(),
+            out.as_mut_ptr().cast(),
+            out.len(),
+            &mut length,
+        );
+        assert_eq!((gone, length), (1, 0));
+    }
+    assert!(!path.exists());
+    // SAFETY: a loader and a network from their constructors, each freed once.
+    unsafe {
+        oxyos_images_free(images);
+        net::oxyos_net_free(network);
+    }
+    let _ = std::fs::remove_dir_all(&directory);
 }
 
 #[test]

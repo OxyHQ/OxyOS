@@ -14,9 +14,15 @@
 //!
 //! Its size is bounded: the entries least recently used are removed beyond it (each one's file's
 //! modification time is its last use, so the order outlives the process); one larger than a
-//! quarter of it is not stored. Each entry is a file named by its URL's SHA-256 (its headers as
-//! text, then its body), written beside and renamed into place, so two processes of the same
-//! application share it and a reader never sees half of one.
+//! quarter of it is not stored. An entry is stored by a key, the URL asked for unless the caller
+//! gives another (expo-image's `cacheKey`), as two files, the way OkHttp's `DiskLruCache` keeps an
+//! entry's `.0` and `.1`: its metadata (its key, its headers as text and the name and length of
+//! its body's file), named by its key's SHA-256, and its body, exactly the bytes that arrived, in a
+//! file of its own named by the same and a generation (`<sha256>.<generation>`), which an
+//! application may open or share as the image itself ([`Cache::body_path`]). Each is written beside
+//! and renamed into place, the body first and the metadata last, the commit point; a replaced
+//! entry's body is removed after. So two processes of the same application share the directory and
+//! a reader never sees half of an entry; one whose body is missing or short is a miss, and removed.
 //!
 //! [`Policy`] is how a request uses it, as React Native's `Image` source's `cache` says
 //! (`default`, `reload`, `force-cache`, `only-if-cached`).
@@ -234,10 +240,14 @@ impl Entry {
         entry
     }
 
-    fn encode(&self) -> Vec<u8> {
+    /// Its metadata stored by `key`, its body in the file `body`: its key, the body's file and
+    /// length, then its URL, status, times and headers, a line each.
+    fn metadata(&self, key: &str, body: &str) -> Vec<u8> {
         let millis = |time: SystemTime| since(time, UNIX_EPOCH).as_millis();
         let mut text = format!(
-            "{MAGIC}\nurl {}\nstatus {}\nrequested {}\nreceived {}\n",
+            "{MAGIC}\nkey {}\nbody {body} {}\nurl {}\nstatus {}\nrequested {}\nreceived {}\n",
+            escape(key),
+            self.body.len(),
             self.url,
             self.status,
             millis(self.requested),
@@ -252,20 +262,19 @@ impl Entry {
         for (name, value) in &self.headers {
             text.push_str(&format!("header {name}: {value}\n"));
         }
-        text.push('\n');
-        let mut bytes = text.into_bytes();
-        bytes.extend_from_slice(&self.body);
-        bytes
+        text.into_bytes()
     }
 
-    fn decode(bytes: &[u8]) -> Option<Entry> {
-        let end = bytes.windows(2).position(|pair| pair == b"\n\n")?;
-        let text = std::str::from_utf8(&bytes[..end]).ok()?;
+    /// An entry's metadata: what it was stored by, its body's file and length, and the entry
+    /// without its body. An entry stored without a key was stored by its URL.
+    fn decode(bytes: &[u8]) -> Option<Stored> {
+        let text = std::str::from_utf8(bytes).ok()?;
         let mut lines = text.lines();
         if lines.next()? != MAGIC {
             return None;
         }
         let time = |millis: &str| Some(UNIX_EPOCH + Duration::from_millis(millis.parse().ok()?));
+        let (mut key, mut body) = (None, None);
         let mut entry = Entry {
             url: String::new(),
             status: 0,
@@ -273,11 +282,16 @@ impl Entry {
             varied: Vec::new(),
             requested: UNIX_EPOCH,
             received: UNIX_EPOCH,
-            body: bytes[end + 2..].to_vec(),
+            body: Vec::new(),
         };
         for line in lines {
-            let (key, rest) = line.split_once(' ')?;
-            match key {
+            let (field, rest) = line.split_once(' ')?;
+            match field {
+                "key" => key = Some(unescape(rest)?),
+                "body" => {
+                    let (file, length) = rest.split_once(' ')?;
+                    body = Some((file.to_string(), length.parse().ok()?));
+                }
                 "url" => entry.url = rest.to_string(),
                 "status" => entry.status = rest.parse().ok()?,
                 "requested" => entry.requested = time(rest)?,
@@ -293,17 +307,76 @@ impl Entry {
                 _ => return None,
             }
         }
-        Some(entry)
+        let (body, length) = body?;
+        if !is_body(&body) {
+            return None;
+        }
+        Some(Stored {
+            key: key.unwrap_or_else(|| entry.url.clone()),
+            body,
+            length,
+            entry,
+        })
     }
 }
 
-/// The first line of an entry's file: its format.
-const MAGIC: &str = "OXYOS-HTTP-CACHE 1";
+/// An entry's metadata as read from its file.
+struct Stored {
+    /// What it was stored by.
+    key: String,
+    /// Its body's file name and length.
+    body: String,
+    length: u64,
+    /// The entry, its body not yet read.
+    entry: Entry,
+}
 
-/// What the cache holds, by file name: each entry's size and last use.
+/// A key on a line of its own: `%`, line feeds and carriage returns escaped as in a URL.
+fn escape(key: &str) -> String {
+    key.replace('%', "%25")
+        .replace('\n', "%0A")
+        .replace('\r', "%0D")
+}
+
+fn unescape(text: &str) -> Option<String> {
+    let mut key = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('%') {
+        key.push_str(&rest[..at]);
+        key.push(match rest.get(at + 1..at + 3)? {
+            "25" => '%',
+            "0A" => '\n',
+            "0D" => '\r',
+            _ => return None,
+        });
+        rest = &rest[at + 3..];
+    }
+    key.push_str(rest);
+    Some(key)
+}
+
+/// The first line of an entry's metadata: its format. Files of another (an entry of the format
+/// before, its headers and body in one file) are removed when the cache opens.
+const MAGIC: &str = "OXYOS-HTTP-CACHE 2";
+
+/// How old a file written beside the entries, or a body no metadata names, must be before the
+/// cache takes it for one a process ended while writing left: another's still writing is younger.
+const ABANDONED: Duration = Duration::from_secs(600);
+
+/// An entry the cache holds, by its metadata's file name.
+struct Held {
+    /// The bytes its files take: its metadata and its body.
+    size: u64,
+    used: SystemTime,
+    /// The files of its body known here: the one its metadata names, and any it replaced that
+    /// another process has not removed yet.
+    bodies: Vec<String>,
+}
+
+/// What the cache holds, by the file name of each entry's metadata.
 #[derive(Default)]
 struct Index {
-    entries: HashMap<String, (u64, SystemTime)>,
+    entries: HashMap<String, Held>,
     total: u64,
 }
 
@@ -312,14 +385,14 @@ pub struct Cache {
     directory: PathBuf,
     limit: u64,
     index: Mutex<Index>,
-    /// Numbers the files written beside an entry before they take its place.
+    /// Numbers the files written beside an entry before they take its place, and its bodies.
     written: AtomicU64,
 }
 
-/// An entry's file name: its URL's SHA-256, in hexadecimal.
-fn name(url: &str) -> String {
+/// The file name of an entry's metadata: its key's SHA-256, in hexadecimal.
+fn name(key: &str) -> String {
     use std::fmt::Write as _;
-    Sha256::digest(url.as_bytes())
+    Sha256::digest(key.as_bytes())
         .iter()
         .fold(String::with_capacity(64), |mut name, byte| {
             let _ = write!(name, "{byte:02x}");
@@ -327,29 +400,77 @@ fn name(url: &str) -> String {
         })
 }
 
+fn hex(text: &str, length: usize) -> bool {
+    text.len() == length && text.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Whether a file name is an entry's metadata's.
+fn is_metadata(file: &str) -> bool {
+    hex(file, 64)
+}
+
+/// The entry a body's file belongs to (its metadata's file name), if the name is a body's:
+/// `<sha256>.<generation>`, the generation 32 hexadecimal digits.
+fn body_of(file: &str) -> Option<&str> {
+    let (entry, generation) = file.split_once('.')?;
+    (is_metadata(entry) && hex(generation, 32)).then_some(entry)
+}
+
+fn is_body(file: &str) -> bool {
+    body_of(file).is_some()
+}
+
 impl Cache {
     /// The cache in `directory` (made if it is not there), holding at most `limit` bytes.
     pub fn open(directory: &Path, limit: u64) -> io::Result<Cache> {
         fs::create_dir_all(directory)?;
-        let mut index = Index::default();
+        let mut metadata = HashMap::new();
+        let mut bodies: HashMap<String, Vec<(String, u64, PathBuf, SystemTime)>> = HashMap::new();
         for item in fs::read_dir(directory)? {
             let item = item?;
             let file = item.file_name().to_string_lossy().into_owned();
-            let Ok(metadata) = item.metadata() else {
+            let Ok(about) = item.metadata() else {
                 continue;
             };
-            if file.len() == 64 && file.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                let used = metadata.modified().unwrap_or(UNIX_EPOCH);
-                index.total += metadata.len();
-                index.entries.insert(file, (metadata.len(), used));
-            } else if file.starts_with(".writing-") {
-                // What a process ended while writing left; another's still writing is younger.
-                let old = metadata.modified().is_ok_and(|modified| {
-                    since(SystemTime::now(), modified) > Duration::from_secs(600)
-                });
-                if old {
-                    let _ = fs::remove_file(item.path());
-                }
+            let modified = about.modified().unwrap_or(UNIX_EPOCH);
+            if is_metadata(&file) {
+                metadata.insert(file, (about.len(), modified, item.path()));
+            } else if let Some(entry) = body_of(&file) {
+                bodies.entry(entry.to_string()).or_default().push((
+                    file.clone(),
+                    about.len(),
+                    item.path(),
+                    modified,
+                ));
+            } else if file.starts_with(".writing-")
+                && since(SystemTime::now(), modified) > ABANDONED
+            {
+                let _ = fs::remove_file(item.path());
+            }
+        }
+        let mut index = Index::default();
+        for (file, (length, used, path)) in metadata {
+            // A body is written before the metadata that names it, and an entry's metadata is
+            // removed before its body: metadata without one is damaged, or of the format before.
+            let Some(files) = bodies.remove(&file) else {
+                let _ = fs::remove_file(path);
+                continue;
+            };
+            let size = length + files.iter().map(|(_, length, ..)| length).sum::<u64>();
+            index.total += size;
+            index.entries.insert(
+                file,
+                Held {
+                    size,
+                    used,
+                    bodies: files.into_iter().map(|(file, ..)| file).collect(),
+                },
+            );
+        }
+        // Bodies no metadata names: what a process ended while storing left.
+        for (_, _, path, modified) in bodies.into_values().flatten() {
+            if since(SystemTime::now(), modified) > ABANDONED {
+                let _ = fs::remove_file(path);
             }
         }
         let cache = Cache {
@@ -362,88 +483,173 @@ impl Cache {
         Ok(cache)
     }
 
-    /// The entry stored for `url` that a request with `headers` may use, if any; it is used now.
-    pub fn get(&self, url: &str, headers: &[(String, String)]) -> Option<Entry> {
-        let file = name(url);
+    /// The metadata stored for `key`, if the cache holds it and it is whole; a damaged one is
+    /// removed.
+    fn stored(&self, key: &str) -> Option<(String, Stored)> {
+        let file = name(key);
         if !self.index.lock().expect("lock").entries.contains_key(&file) {
             return None;
         }
         let path = self.directory.join(&file);
-        let Some(entry) = fs::read(&path).ok().and_then(|bytes| Entry::decode(&bytes)) else {
+        let Some(stored) = fs::read(&path).ok().and_then(|bytes| Entry::decode(&bytes)) else {
             // Gone (another process evicted it) or damaged: forgotten, and a damaged one removed.
-            let _ = fs::remove_file(&path);
-            self.forget(&file);
+            self.discard(&file);
             return None;
         };
-        if entry.url != url || !entry.serves(headers) {
+        if let Some(held) = self.index.lock().expect("lock").entries.get_mut(&file) {
+            if !held.bodies.contains(&stored.body) {
+                held.bodies.push(stored.body.clone());
+            }
+        }
+        (stored.key == key).then_some((file, stored))
+    }
+
+    /// The body `stored` names, whole. Missing or short, it is a miss: the entry is removed if
+    /// its metadata still names it, else (another process replaced the entry since, and removed
+    /// the body it replaced) left as the other made it.
+    fn body(&self, file: &str, stored: &Stored) -> Option<Vec<u8>> {
+        let read = fs::read(self.directory.join(&stored.body)).ok();
+        if let Some(body) = read.filter(|body| body.len() as u64 == stored.length) {
+            return Some(body);
+        }
+        let current = fs::read(self.directory.join(file))
+            .ok()
+            .and_then(|bytes| Entry::decode(&bytes));
+        if current.is_none_or(|current| current.body == stored.body) {
+            self.discard(file);
+        }
+        None
+    }
+
+    /// The entry stored for `key` that a request with `headers` may use, if any; it is used now.
+    pub fn get(&self, key: &str, headers: &[(String, String)]) -> Option<Entry> {
+        let (file, stored) = self.stored(key)?;
+        if !stored.entry.serves(headers) {
             return None;
         }
+        let body = self.body(&file, &stored)?;
         let now = SystemTime::now();
-        if let Some(used) = self.index.lock().expect("lock").entries.get_mut(&file) {
-            used.1 = now;
+        if let Some(held) = self.index.lock().expect("lock").entries.get_mut(&file) {
+            held.used = now;
         }
         let _ = fs::File::options()
             .write(true)
-            .open(&path)
+            .open(self.directory.join(&file))
             .and_then(|opened| opened.set_modified(now));
-        Some(entry)
+        Some(Entry {
+            body,
+            ..stored.entry
+        })
     }
 
-    /// Whether an entry is stored for `url`, without reading it.
-    pub fn contains(&self, url: &str) -> bool {
+    /// The file holding the body of the entry stored for `key`, exactly the bytes that arrived
+    /// (expo-image's `getCachePathAsync`), if the cache holds it whole. It stays while the entry
+    /// does: until it is replaced, evicted or removed.
+    pub fn body_path(&self, key: &str) -> Option<PathBuf> {
+        let (file, stored) = self.stored(key)?;
+        let path = self.directory.join(&stored.body);
+        let whole = fs::metadata(&path).is_ok_and(|about| about.len() == stored.length);
+        if !whole {
+            self.body(&file, &stored)?;
+        }
+        Some(path)
+    }
+
+    /// Whether an entry is stored for `key`, without reading it.
+    pub fn contains(&self, key: &str) -> bool {
         self.index
             .lock()
             .expect("lock")
             .entries
-            .contains_key(&name(url))
+            .contains_key(&name(key))
     }
 
-    /// Stores `entry` for `url` (the URL asked for, which may differ from the one answered after
-    /// redirects), in place of any before; one larger than a quarter of the cache is not.
-    pub fn put(&self, url: &str, entry: &Entry) -> io::Result<()> {
-        let bytes = entry.encode();
-        let size = bytes.len() as u64;
-        if size > self.limit / 4 {
-            return Ok(());
-        }
-        let file = name(url);
-        let writing = self.directory.join(format!(
+    /// A new file name beside the entries, unique to this process and this cache.
+    fn writing(&self) -> PathBuf {
+        self.directory.join(format!(
             ".writing-{}-{}",
             std::process::id(),
             self.written.fetch_add(1, Ordering::Relaxed)
-        ));
+        ))
+    }
+
+    /// Writes `bytes` beside the entries and renames the file to `path`.
+    fn write(&self, bytes: &[u8], path: &Path) -> io::Result<()> {
+        let writing = self.writing();
         let written = fs::File::create(&writing)
-            .and_then(|mut out| out.write_all(&bytes))
-            .and_then(|()| fs::rename(&writing, self.directory.join(&file)));
-        if let Err(error) = written {
+            .and_then(|mut out| out.write_all(bytes))
+            .and_then(|()| fs::rename(&writing, path));
+        if written.is_err() {
             let _ = fs::remove_file(&writing);
+        }
+        written
+    }
+
+    /// Stores `entry` by `key` (the URL asked for, which may differ from the one answered after
+    /// redirects, or the caller's own key), in place of any before; one larger than a quarter of
+    /// the cache is not. Its body is written first, then its metadata, which takes the place of
+    /// any before; the body that one named is removed after.
+    pub fn put(&self, key: &str, entry: &Entry) -> io::Result<()> {
+        let file = name(key);
+        // Unique to this process, this write and the time: never another's, even across a
+        // restart that gives the process the same id.
+        let nanos = since(SystemTime::now(), UNIX_EPOCH).as_nanos() as u64;
+        let body = format!(
+            "{file}.{:08x}{:08x}{nanos:016x}",
+            std::process::id(),
+            self.written.fetch_add(1, Ordering::Relaxed) as u32
+        );
+        let metadata = entry.metadata(key, &body);
+        let size = (metadata.len() + entry.body.len()) as u64;
+        if size > self.limit / 4 {
+            return Ok(());
+        }
+        self.write(&entry.body, &self.directory.join(&body))?;
+        let path = self.directory.join(&file);
+        let replaced = fs::read(&path)
+            .ok()
+            .and_then(|bytes| Entry::decode(&bytes))
+            .map(|stored| stored.body);
+        if let Err(error) = self.write(&metadata, &path) {
+            let _ = fs::remove_file(self.directory.join(&body));
             return Err(error);
         }
         let mut index = self.index.lock().expect("lock");
-        if let Some((before, _)) = index.entries.insert(file, (size, SystemTime::now())) {
-            index.total -= before;
+        let before = index.entries.insert(
+            file,
+            Held {
+                size,
+                used: SystemTime::now(),
+                bodies: vec![body.clone()],
+            },
+        );
+        let mut old = replaced.into_iter().collect::<Vec<_>>();
+        if let Some(before) = before {
+            index.total -= before.size;
+            old.extend(before.bodies);
         }
         index.total += size;
+        for old in old.iter().filter(|old| **old != body) {
+            let _ = fs::remove_file(self.directory.join(old));
+        }
         self.evict(&mut index);
         Ok(())
     }
 
-    /// Forgets the entry for `url`.
-    pub fn remove(&self, url: &str) {
-        let file = name(url);
-        let _ = fs::remove_file(self.directory.join(&file));
-        self.forget(&file);
+    /// Forgets the entry for `key`.
+    pub fn remove(&self, key: &str) {
+        self.discard(&name(key));
     }
 
     /// Forgets every entry.
     pub fn clear(&self) {
-        let files: Vec<String> = {
+        let entries: Vec<(String, Held)> = {
             let mut index = self.index.lock().expect("lock");
             index.total = 0;
-            index.entries.drain().map(|(file, _)| file).collect()
+            index.entries.drain().collect()
         };
-        for file in files {
-            let _ = fs::remove_file(self.directory.join(file));
+        for (file, held) in entries {
+            self.delete(&file, &held.bodies);
         }
     }
 
@@ -452,10 +658,34 @@ impl Cache {
         self.index.lock().expect("lock").total
     }
 
-    fn forget(&self, file: &str) {
+    /// Forgets an entry, leaving its files.
+    fn forget(&self, file: &str) -> Option<Held> {
         let mut index = self.index.lock().expect("lock");
-        if let Some((size, _)) = index.entries.remove(file) {
-            index.total -= size;
+        let held = index.entries.remove(file)?;
+        index.total -= held.size;
+        Some(held)
+    }
+
+    /// Forgets an entry and removes its files.
+    fn discard(&self, file: &str) {
+        let bodies = self
+            .forget(file)
+            .map(|held| held.bodies)
+            .unwrap_or_default();
+        self.delete(file, &bodies);
+    }
+
+    /// Removes an entry's files: its metadata first, so no reader finds it naming a body that is
+    /// gone, then its bodies (those known here, and the one its metadata names).
+    fn delete(&self, file: &str, bodies: &[String]) {
+        let path = self.directory.join(file);
+        let named = fs::read(&path)
+            .ok()
+            .and_then(|bytes| Entry::decode(&bytes))
+            .map(|stored| stored.body);
+        let _ = fs::remove_file(path);
+        for body in bodies.iter().chain(&named) {
+            let _ = fs::remove_file(self.directory.join(body));
         }
     }
 
@@ -465,14 +695,14 @@ impl Cache {
             let Some(oldest) = index
                 .entries
                 .iter()
-                .min_by_key(|(_, (_, used))| *used)
+                .min_by_key(|(_, held)| held.used)
                 .map(|(file, _)| file.clone())
             else {
                 break;
             };
-            let (size, _) = index.entries.remove(&oldest).expect("listed");
-            index.total -= size;
-            let _ = fs::remove_file(self.directory.join(oldest));
+            let held = index.entries.remove(&oldest).expect("listed");
+            index.total -= held.size;
+            self.delete(&oldest, &held.bodies);
         }
     }
 }
@@ -537,9 +767,24 @@ impl Network {
     /// server said it had not changed (a `304`, which is never answered itself), but that a body
     /// from the cache is answered whole ([`Answer::Data`]) even to an incremental request. Only a GET with
     /// no body and no conditions of its own uses the cache. With no cache, `only-if-cached` fails.
+    /// The response is stored by the request's URL.
     pub fn fetch_cached(
         &self,
         request: Request,
+        cache: Option<&Cache>,
+        policy: Policy,
+        answer: &dyn Fn(Answer) -> Result<(), String>,
+    ) -> Result<Source, Failure> {
+        let key = request.url.clone();
+        self.fetch_keyed(request, &key, cache, policy, answer)
+    }
+
+    /// As [`Network::fetch_cached`], the response stored by `key` rather than the request's URL
+    /// (expo-image's `cacheKey`: one image whose URL changes, a signed one say, cached as one).
+    pub fn fetch_keyed(
+        &self,
+        request: Request,
+        key: &str,
         cache: Option<&Cache>,
         policy: Policy,
         answer: &dyn Fn(Answer) -> Result<(), String>,
@@ -571,7 +816,7 @@ impl Network {
             return Ok(Source::Network);
         };
         let stored = (policy != Policy::Reload)
-            .then(|| cache.get(&request.url, &request.headers))
+            .then(|| cache.get(key, &request.headers))
             .flatten();
         if let Some(entry) = &stored {
             let revalidate =
@@ -591,7 +836,7 @@ impl Network {
         }
         let validators = stored.as_ref().map(Entry::validators).unwrap_or_default();
         let revalidating = !validators.is_empty();
-        let (url, id) = (request.url.clone(), request.id);
+        let id = request.id;
         let mut sent = request.clone();
         sent.headers.extend(validators);
         let receiving = RefCell::new(Receiving::default());
@@ -641,7 +886,7 @@ impl Network {
             let entry = stored
                 .expect("revalidated")
                 .refreshed(&headers, requested, received);
-            let _ = cache.put(&url, &entry);
+            let _ = cache.put(key, &entry);
             replay(id, &entry, answer)?;
             return Ok(Source::Revalidated);
         }
@@ -662,7 +907,7 @@ impl Network {
                 received,
                 body,
             };
-            let _ = cache.put(&url, &entry);
+            let _ = cache.put(key, &entry);
         }
         Ok(Source::Network)
     }

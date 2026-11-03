@@ -24,7 +24,8 @@ class WindowDamage {
   //   subtree both before and after (a view draws its subtree with its opacity and clip);
   // - children drawn in a new order, with their subtrees (children added or removed are new or
   //   gone views; a popup view is drawn elsewhere);
-  // - an Image view showing another picture;
+  // - an Image view showing another picture; an expo-image view drawing other layers (a frame of a
+  //   transition or an animation);
   // - the text input whose caret, selection or composition moved;
   // - the whole window while a modal animates in or out (its window moves or fades over it).
   // - a plain fill (renderer.h's drawsFlat) resized in place, only where it gained or lost area;
@@ -50,6 +51,7 @@ class WindowDamage {
     facebook::react::Rect at;  // window-local, as drawn (scroll offsets applied)
     std::vector<facebook::react::Tag> children;
     std::shared_ptr<const Picture> picture;
+    std::shared_ptr<const ExpoImageLayers> layers;
     // An SVG view's elements, as svgPicture records them.
     sk_sp<SkPicture> drawing;
   };

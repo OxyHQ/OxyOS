@@ -373,10 +373,12 @@ builds.
 The store also serves images, as Oxy's servers serve an app's icon or a person's avatar (images.h's
 remote images): `store.hosts` are more names it answers for (its certificate holds them, the proxy
 hands them to it: `cloud.oxy.so`), and `store.images` ({PATH: IMAGE}) what it answers for a path
-on any of them: {"png": [W, H, "#rrggbb"(, "#rrggbb" its right half)]} or {"svg": TEXT}, with
+on any of them: {"png": [W, H, "#rrggbb"(, "#rrggbb" its right half)]}, {"gif": [W, H, [["#rrggbb",
+hundredths], ...](, loops)]} (an animated GIF, a frame of one colour each) or {"svg": TEXT}, with
 "status" (200), "headers" (its caching headers: `Cache-Control`, `ETag`, `Last-Modified`; a
-request whose `If-None-Match` or `If-Modified-Since` matches them is answered 304) and "trickle_ms"
-(its body sent 64 bytes at a time, that long apart: an image arriving slowly). Each image answered
+request whose `If-None-Match` or `If-Modified-Since` matches them is answered 304), "trickle_ms"
+(its body sent 64 bytes at a time, that long apart: an image arriving slowly) and "delay_ms" (its
+body sent whole after that long, its headers at once: an image arriving late). Each image answered
 is recorded when its answer ends (`store/images.jsonl`), and a step's `served` expectation is what
 the store answered in it, exactly, in any order: "STATUS PATH", with " cut" when the client went
 away before the body ended (a request cancelled). `store.offline_when_shown` (a text) takes the
@@ -860,6 +862,42 @@ class ProbeServer(BaseHTTPRequestHandler):
             body = " ".join(fields)
             content_type = "multipart/form-data"
         self.reply(200, f"POST {content_type} {body}")
+
+
+def gif_bytes(width, height, frames, loops=0):
+    """An animated GIF of `frames` ([["#rrggbb", hundredths], ...]), each all one colour, played
+    `loops` times (0: forever; NETSCAPE2.0), each frame replacing the one before."""
+    colours = sorted({colour for colour, _ in frames})
+    bits = max(1, (len(colours) - 1).bit_length())
+    palette = b"".join(bytes.fromhex(c[1:]) for c in colours) + b"\0\0\0" * ((1 << bits) - len(colours))
+    out = bytearray(b"GIF89a" + struct.pack("<HHBBB", width, height, 0x80 | (bits - 1), 0, 0) + palette)
+    out += b"\x21\xff\x0bNETSCAPE2.0\x03\x01" + struct.pack("<H", loops) + b"\x00"
+    def lzw(indices, minimum):
+        # A clear code before every pixel keeps every code at minimum + 1 bits: valid, if not small.
+        clear, end, size = 1 << minimum, (1 << minimum) + 1, minimum + 1
+        codes = [code for index in indices for code in (clear, index)] + [end]
+        bitstream, count, data = 0, 0, bytearray()
+        for code in codes:
+            bitstream |= code << count
+            count += size
+            while count >= 8:
+                data.append(bitstream & 0xff)
+                bitstream >>= 8
+                count -= 8
+        if count:
+            data.append(bitstream & 0xff)
+        return bytes(data)
+    minimum = max(2, bits)
+    for colour, delay in frames:
+        out += b"\x21\xf9\x04" + struct.pack("<BHB", 1 << 2, delay, 0) + b"\x00"
+        out += b"\x2c" + struct.pack("<HHHHB", 0, 0, width, height, 0)
+        data = lzw([colours.index(colour)] * (width * height), minimum)
+        out.append(minimum)
+        for at in range(0, len(data), 255):
+            block = data[at:at + 255]
+            out += bytes([len(block)]) + block
+        out += b"\x00"
+    return bytes(out + b"\x3b")
 
 
 def png_bytes(width, height, colour, right=None):
@@ -1829,6 +1867,90 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["images"]:
             fail(f"the image loader reported {got}, expected exactly {expect['images']}")
+    if "image_layers" in expect:
+        # What expo-image views drew in the step (images.h's `image_layers` lines, each time a view's
+        # layers changed), by testID: "final", its layers at the step's end, bottom to top, each
+        # matching the keys given (alpha within 0.01, placeholder); "fade", a cross-dissolve that ran
+        # in the step: {"ms", "timing" (linear, ease-in, ease-out, ease-in-out: Android's
+        # interpolators), "over": "placeholder" or "image" (what faded out), "frames_min"}: from its
+        # first frame (the new image at alpha 0 over what fades out at its own) to its last (the new
+        # image alone, opaque), every frame's alpha where the curve is at that frame's time (within
+        # 0.02) and what fades out at its complement, lasting the duration; "animation": the frames of
+        # its top layer's picture shown in the step: "changes_min" and "changes_max" times it moved to
+        # another, each the next of "cycle" frames in order, "gap_ms" [least, most] after the one before.
+        import math
+        curves = {
+            "linear": lambda t: t,
+            "ease-in": lambda t: t * t,
+            "ease-out": lambda t: 1 - (1 - t) * (1 - t),
+            "ease-in-out": lambda t: math.cos((t + 1) * math.pi) / 2 + 0.5,
+        }
+        for target, wanted in expect["image_layers"].items():
+            lines = [line for line in report
+                     if line["kind"] == "image_layers" and line["target"] == target and start <= line["t"] <= end]
+            seen = [[(round(layer["alpha"], 3), layer["placeholder"]) for layer in line["layers"]] for line in lines]
+            if "final" in wanted:
+                final = lines[-1]["layers"] if lines else None
+                matches = final is not None and len(final) == len(wanted["final"]) and all(
+                    all(abs(got[key] - value) <= 0.01 if key == "alpha" else got[key] == value
+                        for key, value in want.items())
+                    for got, want in zip(final, wanted["final"]))
+                if not matches:
+                    fail(f"{target} drew {final} at the step's end, expected {wanted['final']}")
+            if "fade" in wanted:
+                fade = wanted["fade"]
+                curve = curves[fade.get("timing", "ease-in-out")]
+                over_placeholder = fade.get("over", "placeholder") == "placeholder"
+                begin = next((i for i, line in enumerate(lines)
+                              if len(line["layers"]) == 2 and line["layers"][1]["alpha"] == 0
+                              and line["layers"][0]["placeholder"] == over_placeholder), None)
+                if begin is None:
+                    fail(f"{target} began no cross-dissolve over a {fade.get('over', 'placeholder')} in the step: {seen}")
+                    continue
+                t0 = lines[begin]["t"]
+                frames, ended = 0, None
+                for line in lines[begin:]:
+                    layers = line["layers"]
+                    at = (line["t"] - t0) / 1e6 / fade["ms"]
+                    if len(layers) == 1:
+                        if layers[0]["placeholder"] or abs(layers[0]["alpha"] - 1) > 0.01:
+                            fail(f"{target}'s cross-dissolve ended drawing {layers}, expected the image alone, opaque")
+                        ended = line["t"]
+                        break
+                    frames += 1
+                    want = curve(min(1, at))
+                    if abs(layers[1]["alpha"] - want) > 0.02 or abs(layers[0]["alpha"] - (1 - want)) > 0.02:
+                        fail(f"{target}'s cross-dissolve at {at * fade['ms']:.1f} ms drew the image at "
+                             f"{layers[1]['alpha']:.3f} over {layers[0]['alpha']:.3f}, expected {want:.3f} "
+                             f"over {1 - want:.3f} ({fade.get('timing', 'ease-in-out')})")
+                        break
+                if ended is None:
+                    fail(f"{target}'s cross-dissolve did not end in the step: {seen[begin:]}")
+                elif (ended - t0) / 1e6 < fade["ms"] - 1:
+                    fail(f"{target}'s cross-dissolve lasted {(ended - t0) / 1e6:.1f} ms, expected {fade['ms']}")
+                if frames < fade.get("frames_min", 8):
+                    fail(f"{target}'s cross-dissolve drew {frames} frames, expected at least {fade.get('frames_min', 8)}")
+            if "animation" in wanted:
+                shown, times = [], []
+                for line in lines:
+                    frame = line["layers"][-1]["frame"] if line["layers"] else None
+                    if frame is not None and (not shown or shown[-1] != frame):
+                        shown.append(frame)
+                        times.append(line["t"])
+                animation = wanted["animation"]
+                changes = len(shown) - 1 if shown else 0
+                if changes < animation.get("changes_min", 0) or changes > animation.get("changes_max", float("inf")):
+                    fail(f"{target} changed frames {max(changes, 0)} times ({shown}), expected "
+                         f"{animation.get('changes_min', 0)} to {animation.get('changes_max', 'any')}")
+                for i in range(1, len(shown)):
+                    if "cycle" in animation and shown[i] != (shown[i - 1] + 1) % animation["cycle"]:
+                        fail(f"{target} showed frame {shown[i]} after {shown[i - 1]}, expected its frames in order ({shown})")
+                        break
+                    gap = (times[i] - times[i - 1]) / 1e6
+                    low, high = animation.get("gap_ms", [0, float("inf")])
+                    if not low <= gap <= high:
+                        fail(f"{target} showed frame {shown[i]} {gap:.1f} ms after frame {shown[i - 1]}, expected {low} to {high} ms")
+                        break
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]
@@ -2585,6 +2707,8 @@ def store_fixture(spec, out):
         wanted = spec["images"][path]
         if "png" in wanted:
             body, kind = png_bytes(*wanted["png"]), "image/png"
+        elif "gif" in wanted:
+            body, kind = gif_bytes(*wanted["gif"]), "image/gif"
         else:
             body, kind = wanted["svg"].encode(), "image/svg+xml"
         headers = dict(wanted.get("headers", {}))
@@ -2603,6 +2727,8 @@ def store_fixture(spec, out):
         handler.end_headers()
         cut = False
         try:
+            if "delay_ms" in wanted:
+                time.sleep(wanted["delay_ms"] / 1000)
             if "trickle_ms" in wanted:
                 for at in range(0, len(body), 64):
                     time.sleep(wanted["trickle_ms"] / 1000)

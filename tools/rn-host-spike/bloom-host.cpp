@@ -6,6 +6,7 @@
 #include "application.h"
 #include "damage.h"
 #include "expo-blur.h"
+#include "expo-image.h"
 #include "files.h"
 #include "frame-diagnostics.h"
 #include "keyboard-controller.h"
@@ -645,6 +646,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ExpoImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCMaskedViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<KeyboardControllerViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
@@ -688,7 +690,7 @@ int main(int argc, char** argv) {
             });
   // What Image views show (images.h), loaded at the size they are drawn; remote ones fetched with
   // the application's network, cached in its cache directory.
-  oxyos::Images images(tree);
+  oxyos::Images images(tree, refresh);
   images.connect(networking.handle(), application.cacheDirectory);
   services.images = &images;
   stage("fabric scheduler");
@@ -1744,6 +1746,13 @@ int main(int argc, char** argv) {
           animating |= animated.tick();
           animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
           animating |= pointer.tick(window->ready(oxyos::Window::kToplevel));
+          // expo-image views' transitions and animated pictures: a frame drawn again.
+          if (images.tick(window->ready(oxyos::Window::kToplevel))) {
+            animating = true;
+            dirty = true;
+            popups.changed();
+            shellSurfaces.changed();
+          }
           if (animating) diagnostics.trigger("an animation frame");
           busy |= animating;
         }
@@ -2590,7 +2599,8 @@ int main(int argc, char** argv) {
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
-                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
+                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
+                           images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
                            editing.nextBlink()}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
@@ -2651,6 +2661,8 @@ int main(int argc, char** argv) {
     busy |= animationFrames.tick(true);
     if (busy) images.sync(display.scale);
     busy |= images.deliver();
+    // A transition moves on while the render settles; an animated picture never keeps it busy.
+    images.tick(true);
     busy |= networking.deliver();
     busy |= deliverApplication(services);
     if (busy || timers->oneShotDueBefore(deadline)) {
