@@ -48,6 +48,10 @@ std::string format(const char* pattern, ...) {
 
 double round2(double value) { return std::round(value * 100) / 100; }
 
+// The diagnostics are the loop's: a part entered on another thread (none is, today) is not charged,
+// since that thread's CPU clock is not the loop's.
+thread_local bool tLoopThread = false;
+
 }  // namespace
 
 FrameDiagnostics& FrameDiagnostics::get() {
@@ -62,39 +66,40 @@ double FrameDiagnostics::percentile(const std::vector<double>& sorted, int p) {
 
 void FrameDiagnostics::start(const std::string& application) {
   started_ = true;
+  tLoopThread = true;
   application_ = application;
-  since_ = turnEnded_ = Clock::now();
+  since_ = ThreadSample::now();
+  turnEnded_ = since_.wall;
   work_.reserve(2048);
   latency_.reserve(512);
 }
 
-void FrameDiagnostics::charge(Clock::time_point now) {
-  if (turning_) parts_[static_cast<size_t>(current_)] += ms(now - since_);
+void FrameDiagnostics::charge(const ThreadSample& now) {
+  if (turning_) parts_[static_cast<size_t>(current_)] += ThreadSpan::between(since_, now);
   since_ = now;
 }
 
 FrameDiagnostics::Part FrameDiagnostics::enter(Part part) {
-  if (!started_) return Part::Other;
-  charge(Clock::now());
+  if (!started_ || !tLoopThread) return Part::Other;
+  charge(ThreadSample::now());
   Part previous = current_;
   current_ = part;
   return previous;
 }
 
 void FrameDiagnostics::leave(Part previous) {
-  if (!started_) return;
-  charge(Clock::now());
+  if (!started_ || !tLoopThread) return;
+  charge(ThreadSample::now());
   current_ = previous;
 }
 
 void FrameDiagnostics::beginTurn() {
   if (!started_) return;
-  auto now = Clock::now();
+  since_ = ThreadSample::now();
   // What the loop slept since its last turn was the compositor's when a frame waited for it.
-  if (waitedForCompositor_) waitMs_ += ms(now - turnEnded_);
+  if (waitedForCompositor_) waitMs_ += ms(since_.wall - turnEnded_);
   waitedForCompositor_ = false;
   current_ = Part::Other;
-  since_ = now;
   turning_ = true;
   presentedThisTurn_ = false;
   ++turns_;
@@ -102,8 +107,9 @@ void FrameDiagnostics::beginTurn() {
 
 void FrameDiagnostics::endTurn(bool waitingForCompositor, bool sleeping) {
   if (!started_ || !turning_) return;
-  auto now = Clock::now();
-  charge(now);
+  auto sample = ThreadSample::now();
+  auto now = sample.wall;
+  charge(sample);
   turning_ = false;
   turnEnded_ = now;
   waitedForCompositor_ = waitingForCompositor;
@@ -168,13 +174,18 @@ void FrameDiagnostics::presented(bool gpu, double syncMs) {
 }
 
 std::string FrameDiagnostics::partsText() const {
-  auto part = [&](Part p) { return parts_[static_cast<size_t>(p)]; };
+  auto part = [&](Part p) { return parts_[static_cast<size_t>(p)].wallMs; };
+  ThreadSpan all;
+  for (const auto& span : parts_) all += span;
+  const ThreadSpan& javascript = parts_[static_cast<size_t>(Part::JavaScript)];
   std::string painter = presents_ == 0 ? "" : gpu_ ? format(" on the GPU (sync %.1f)", syncMs_) : " from the CPU";
   return format("events %.1f, JavaScript %.1f (commits %.1f, of which Yoga layout %.1f and text %.1f), animation %.1f, "
-                "mount %.1f, drawing %.1f, presenting %.1f%s, other %.1f; waiting for the compositor %.1f; %d turn%s",
+                "mount %.1f, drawing %.1f, presenting %.1f%s, other %.1f; of it on the CPU %.1f (JavaScript %.1f), "
+                "blocked %.1f (JavaScript %.1f), preempted %.1f; waiting for the compositor %.1f; %d turn%s",
                 part(Part::Events), part(Part::JavaScript), commitMs_, layoutMs_, textMs_, part(Part::Animation),
-                part(Part::Mount), part(Part::Draw), part(Part::Present), painter.c_str(), part(Part::Other), waitMs_,
-                turns_, turns_ == 1 ? "" : "s");
+                part(Part::Mount), part(Part::Draw), part(Part::Present), painter.c_str(), part(Part::Other), all.cpuMs,
+                javascript.cpuMs, all.blockedMs, javascript.blockedMs, all.preemptedMs, waitMs_, turns_,
+                turns_ == 1 ? "" : "s");
 }
 
 void FrameDiagnostics::log(const std::string& line) {
@@ -192,8 +203,9 @@ void FrameDiagnostics::log(const std::string& line) {
 }
 
 void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
-  double work = 0;
-  for (double part : parts_) work += part;
+  ThreadSpan all;
+  for (const auto& span : parts_) all += span;
+  double work = all.wallMs;
   // A slow frame: its work, and what the compositor kept it waiting beyond one refresh (a frame in
   // flight is answered within one), past a refresh.
   double late = work + std::max(0.0, waitMs_ - periodMs_);
@@ -205,12 +217,22 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
 
   // The report has every frame, and work that drew none when it was slow or ran JavaScript: what
   // an event that changed nothing visible cost (the shell told of another window's change).
-  if (presented || slow || parts_[static_cast<size_t>(Part::JavaScript)] > 0) {
+  // Each part by the wall clock (`parts`), and of it on the loop thread's CPU, blocked and preempted.
+  if (presented || slow || parts_[static_cast<size_t>(Part::JavaScript)].wallMs > 0) {
     auto& report = Report::get();
     if (report.enabled()) {
-      folly::dynamic parts = folly::dynamic::object;
-      for (size_t i = 0; i < parts_.size(); ++i) parts[kPartNames[i]] = round2(parts_[i]);
-      report.diagnostic("timing", folly::dynamic::object("presented", presented)("work_ms", work)("wait_ms", waitMs_)(
+      folly::dynamic parts = folly::dynamic::object, cpu = folly::dynamic::object, blocked = folly::dynamic::object,
+                     preempted = folly::dynamic::object;
+      for (size_t i = 0; i < parts_.size(); ++i) {
+        parts[kPartNames[i]] = round2(parts_[i].wallMs);
+        cpu[kPartNames[i]] = round2(parts_[i].cpuMs);
+        blocked[kPartNames[i]] = round2(parts_[i].blockedMs);
+        preempted[kPartNames[i]] = round2(parts_[i].preemptedMs);
+      }
+      report.diagnostic("timing", folly::dynamic::object("presented", presented)("work_ms", work)(
+                                      "cpu_ms", all.cpuMs)("blocked_ms", all.blockedMs)("preempted_ms", all.preemptedMs)(
+                                      "cpu", std::move(cpu))("blocked", std::move(blocked))(
+                                      "preempted", std::move(preempted))("wait_ms", waitMs_)(
                                       "late_ms", late)("slow", slow)("dropped", dropped)(
                                       "latency_ms", latency ? folly::dynamic(*latency) : folly::dynamic(nullptr))(
                                       "trigger", what)("parts", std::move(parts))("commit_ms", commitMs_)(
@@ -267,7 +289,7 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
     operation_.reset();
   }
   if (presented) first_ = false;
-  parts_.fill(0);
+  parts_.fill(ThreadSpan{});
   waitMs_ = commitMs_ = layoutMs_ = textMs_ = syncMs_ = 0;
   turns_ = presents_ = 0;
   gpu_ = false;

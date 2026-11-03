@@ -3,7 +3,7 @@
 // directory is a directory every host writes its own report into, <application>-<pid>.jsonl (the
 // application's id, else its module): a session's applications profiled at once, each its own.
 //
-//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"busy_ms":…,"js_ms":…,"react_commits":0,"texts":[…],"focus":"reply"}
+//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"busy_ms":…,"js_ms":…,"js_cpu_ms":…,"js_blocked_ms":…,"react_commits":0,"texts":[…],"focus":"reply"}
 //   {"t":…,"kind":"layout","width":…,"height":…,"ms":…}         (the window laid out at a new size)
 //   {"t":…,"kind":"stage","name":"load script"}                    (a stage of the start begins)
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
@@ -26,6 +26,7 @@
 #pragma once
 
 #include "renderer.h"
+#include "thread-clock.h"
 
 #include <react/renderer/core/ReactPrimitives.h>
 #include <react/renderer/mounting/ShadowView.h>
@@ -69,10 +70,13 @@ class Report {
   // waiting, is written with the next frame as `busy_ms`, the work since the frame before, and
   // `js_ms`, the part of it running JavaScript (React's runtime and the worklets' UI runtime:
   // rendering, Fabric's commit and Yoga's layout among it); the rest is native (mounting,
-  // drawing, presenting, the compositor's events).
+  // drawing, presenting, the compositor's events). Both by the wall clock; of `js_ms`, `js_cpu_ms`
+  // is the loop thread's CPU time (thread-clock.h), the measure of JavaScript's work however
+  // loaded the machine, and `js_blocked_ms` the time it was blocked (waiting for another thread, a
+  // lock, a file), so that a wait is said, not hidden in the CPU's time.
   void beginTurn();
   void endTurn();
-  void javascript(double ms);
+  void javascript(const ThreadSpan& span);
   // React's commits (each render React finished, whether or not it changed a view), written with
   // the next frame as `react_commits`, those since the frame before: React's renderers announce
   // their commits to the global hook its DevTools install, which this installs in `runtime`
@@ -162,7 +166,8 @@ class Report {
   std::map<uint32_t, folly::dynamic> accessibility_;  // the tree last written per surface
   std::chrono::steady_clock::time_point turn_{};  // when the work not yet counted began
   bool turning_ = false;
-  double busyMs_ = 0, jsMs_ = 0;  // work since the last frame written
+  double busyMs_ = 0;  // work since the last frame written
+  ThreadSpan js_;      // JavaScript since the last frame written
   int reactCommits_ = 0;          // React's commits since the last frame written
 };
 

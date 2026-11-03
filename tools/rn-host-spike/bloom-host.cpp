@@ -1678,9 +1678,9 @@ int main(int argc, char** argv) {
       auto javascript = [](Part part, auto&& run) {
         Scope scope(part);
         if (!oxyos::Report::get().enabled()) return run();
-        auto started = Clock::now();
+        auto started = oxyos::ThreadSample::now();
         bool ran = run();
-        oxyos::Report::get().javascript(std::chrono::duration<double, std::milli>(Clock::now() - started).count());
+        oxyos::Report::get().javascript(oxyos::ThreadSpan::between(started, oxyos::ThreadSample::now()));
         return ran;
       };
       while (true) {

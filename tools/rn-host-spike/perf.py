@@ -8,11 +8,13 @@ step's expected result) and measures, from what the processes report and from /p
   green bubble, the overview opening with the windows drawn live in it (ADR 0022) and Settings'
   sidebar scrolled. For each, the frames the compositor composed while it ran (how long apart,
   how long composing each took) and the frames the hosts drew (their loop's work per frame,
-  `busy_ms`, and the part of it running JavaScript, `js_ms`, from the host's report), and the
-  latency from input to the frame answering it;
+  `busy_ms`, and the part of it running JavaScript, `js_ms`, from the host's report, both by the
+  wall clock, and that JavaScript's time on the host's CPU, `js_cpu_ms`), and the latency from input
+  to the frame answering it;
 - the shell: what the session's shell pays for an event (shell-events.json): another window zoomed
   and restored, which changes nothing the shell shows, and the pointer over the dock; for each, the
-  most JavaScript any one piece of the shell's work ran, against the scenario's budget;
+  most JavaScript any one piece of the shell's work ran on the shell's CPU, against the scenario's
+  budget, and the same piece's JavaScript by the wall clock and its time blocked;
 - responses: Dropsea used as a person uses it (perf-dropsea.json at 1, perf-dropsea-scaled.json at 1.25,
   perf-dropsea-home.json on a home of 360,000 files, zoomed at 1.25):
   for each input, the latency from it to the first frame that changed, against the scenario's
@@ -295,7 +297,7 @@ def interaction(options, name, scenario, steps, what, out):
     intervals, compose, reads, latency = [], [], [], []
     late = composed = 0
     refresh = refresh_ms(SCENARIOS / scenario)
-    hosts = {"window": {"busy": [], "js": [], "render": []}, "shell": {"busy": [], "js": [], "render": []}}
+    hosts = {source: {"busy": [], "js": [], "js_cpu": [], "render": []} for source in ("window", "shell")}
     peaks = {}
     for run in range(options.runs):
         summary, report, shell, sampler = run_scenario(options, SCENARIOS / scenario, out / f"{slug(name)}-{run + 1}")
@@ -321,6 +323,7 @@ def interaction(options, name, scenario, steps, what, out):
                                   ("shell", frames_between(shell, step["t_inject"], step["t_settled"]))):
                 hosts[source]["busy"] += [line["busy_ms"] for line in lines if "busy_ms" in line]
                 hosts[source]["js"] += [line["js_ms"] for line in lines if "js_ms" in line]
+                hosts[source]["js_cpu"] += [line["js_cpu_ms"] for line in lines if "js_cpu_ms" in line]
                 hosts[source]["render"] += [line["render_ms"] for line in lines]
             # A paced step's latency is its own (from each event to the frame answering it; none for
             # a window moved, which composes in the turn the motion wakes); another's, from its
@@ -361,21 +364,24 @@ def responses(options, name, scenario, out):
             frames = [line for line in frames_between(report, result["t_inject"], result["t_settled"])
                       if line["surface"] == 1]
             entry = measured.setdefault(index, {"name": step["name"], "budget_ms": step["expect"].get("latency_ms"),
-                                                "latency": [], "work": [], "js": [], "frames": []})
+                                                "latency": [], "work": [], "js": [], "js_cpu": [], "frames": []})
             if result.get("latency_ms") is not None:
                 entry["latency"].append(result["latency_ms"])
             entry["work"].append(sum(line.get("busy_ms", 0) for line in frames))
             entry["js"].append(sum(line.get("js_ms", 0) for line in frames))
+            entry["js_cpu"].append(sum(line.get("js_cpu_ms", 0) for line in frames))
             entry["frames"].append(len(frames))
     return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "latency_ms": percentiles(entry["latency"]),
              "work_ms": percentiles(entry["work"]), "js_ms": percentiles(entry["js"]),
+             "js_cpu_ms": percentiles(entry["js_cpu"]),
              "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
 
 
 def shell_responses(options, name, scenario, out):
     """Each step of `scenario` that holds the shell to a `js_work` budget, over every run: the most
-    JavaScript one piece of the shell's work ran in it (its report's `timing` lines, frames and work
-    that drew none), and the frames the shell presented."""
+    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `timing`
+    lines, frames and work that drew none), as regress.py holds it to the budget, that piece's
+    JavaScript by the wall clock and blocked, and the frames the shell presented."""
     path = SCENARIOS / scenario
     steps = json.loads(path.read_text())["steps"]
     measured = {}
@@ -389,10 +395,14 @@ def shell_responses(options, name, scenario, out):
             budget = step["expect"].get("in_shell", {}).get("js_work", {}).get("js_ms_max")
             if budget is None:
                 continue
-            entry = measured.setdefault(index, {"name": step["name"], "budget_ms": budget, "js": [], "frames": []})
-            entry["js"].append(max((line["parts"].get("javascript", 0) for line in work), default=0.0))
+            entry = measured.setdefault(index, {"name": step["name"], "budget_ms": budget, "js": [], "wall": [],
+                                                "blocked": [], "frames": []})
+            costly = max(work, key=lambda line: line["cpu"].get("javascript", 0), default=None)
+            for key, measure in (("js", "cpu"), ("wall", "parts"), ("blocked", "blocked")):
+                entry[key].append(costly[measure].get("javascript", 0) if costly else 0.0)
             entry["frames"].append(sum(1 for line in work if line["presented"]))
     return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "js_ms": percentiles(entry["js"]),
+             "js_wall_ms": percentiles(entry["wall"]), "js_blocked_ms": percentiles(entry["blocked"]),
              "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
 
 
@@ -579,10 +589,11 @@ def show(results):
         for name, r in results["interactions"].items():
             rows.append([name, r["frames_composed"], spread(r["frame_interval_ms"]), r["late_frames"],
                          spread(r["compose_ms"]), spread(r["read_ms"]), spread(r["window"]["busy"]),
-                         spread(r["window"]["js"]), spread(r["shell"]["busy"]), spread(r["latency_ms"])])
+                         spread(r["window"]["js"]), spread(r["window"].get("js_cpu")), spread(r["shell"]["busy"]),
+                         spread(r["latency_ms"])])
         print(table(rows, ["interaction", "frames", "interval ms p50/p95/max", "late", "compose ms",
-                           "of it reading clients ms", "app frame work ms", "app JS ms", "shell frame work ms",
-                           "latency ms"]))
+                           "of it reading clients ms", "app frame work ms", "app JS ms", "app JS CPU ms",
+                           "shell frame work ms", "latency ms"]))
         print()
     if "responses" in results:
         def middle(stats):
@@ -590,17 +601,20 @@ def show(results):
 
         for name, steps in results["responses"].items():
             rows = [[step["step"], middle(step["latency_ms"]), step["budget_ms"] or "—", middle(step["work_ms"]),
-                     middle(step["js_ms"])] for step in steps]
+                     middle(step["js_ms"]), middle(step.get("js_cpu_ms"))] for step in steps]
             print(f"{name}:")
-            print(table(rows, ["input", "latency ms p50 / max", "budget", "app work ms p50 / max", "app JS ms p50 / max"]))
+            print(table(rows, ["input", "latency ms p50 / max", "budget", "app work ms p50 / max", "app JS ms p50 / max",
+                               "app JS CPU ms p50 / max"]))
             print()
     if "shell" in results:
         for name, steps in results["shell"].items():
             rows = [[step["step"], f"{step['js_ms']['p50']} / {step['js_ms']['max']}", step["budget_ms"],
+                     f"{step['js_wall_ms']['p50']} / {step['js_wall_ms']['max']}",
+                     f"{step['js_blocked_ms']['p50']} / {step['js_blocked_ms']['max']}",
                      f"{step['frames']['p50']} / {step['frames']['max']}"] for step in steps]
             print(f"{name}:")
-            print(table(rows, ["event", "shell JS ms p50 / max (the most of one piece of work)", "budget",
-                               "shell frames p50 / max"]))
+            print(table(rows, ["event", "shell JS CPU ms p50 / max (the most of one piece of work)", "budget",
+                               "its JS by the clock p50 / max", "blocked p50 / max", "shell frames p50 / max"]))
             print()
     if "cold_start" in results:
         rows = [[name, spread(r["first_frame_ms"]), ", ".join(f"{k} {v}" for k, v in r["stages_ms"].items())]
@@ -639,7 +653,7 @@ def check(results):
     for name, steps in results.get("shell", {}).items():
         for step in steps:
             if step["js_ms"]["p50"] > step["budget_ms"]:
-                over.append(f"{name}: {step['step']}: {step['js_ms']['p50']} ms of JavaScript at the median "
+                over.append(f"{name}: {step['step']}: {step['js_ms']['p50']} ms of JavaScript on the CPU at the median "
                             f"(its budget is {step['budget_ms']} ms)")
     for name, processes in results.get("idle", {}).items():
         for who, m in processes.items():

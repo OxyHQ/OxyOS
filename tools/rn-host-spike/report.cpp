@@ -152,11 +152,12 @@ void Report::frame(uint32_t surface, int width, int height, double renderMs, con
     turn_ = now;
   }
   write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
-      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", jsMs_)("react_commits", reactCommits_)("damaged", damaged)(
+      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", js_.wallMs)("js_cpu_ms", js_.cpuMs)(
+      "js_blocked_ms", js_.blockedMs)("react_commits", reactCommits_)("damaged", damaged)(
       "texts", std::move(list))(
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
   busyMs_ = 0;
-  jsMs_ = 0;
+  js_ = {};
   reactCommits_ = 0;
 }
 
@@ -177,8 +178,8 @@ void Report::endTurn() {
   turning_ = false;
 }
 
-void Report::javascript(double ms) {
-  if (file_) jsMs_ += ms;
+void Report::javascript(const ThreadSpan& span) {
+  if (file_) js_ += span;
 }
 
 void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
