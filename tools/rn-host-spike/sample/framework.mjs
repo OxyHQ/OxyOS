@@ -67,12 +67,13 @@ const native = [
 // and its Expo config plugin, `app.plugin.js`, which Expo's prebuild runs under Node and which
 // needs Node's modules, as `assert`).
 const bloomManifest = JSON.parse(fs.readFileSync(path.join(bloom, 'package.json'), 'utf8'));
-// The oldest Bloom the runtime's own parts work with: 16.15.0, whose window drag regions and
-// controls take a Mac's first mouse (`ACCEPTS_FIRST_MOUSE`, docs/adr/0016-windows.mdx, decision 9):
-// older, an inactive window's title area and bubbles would only activate it, never move, zoom,
-// minimize or close it on the first click. (15.91.0 brought the ContextMenu the text fields' menu
-// hangs from a view it has no trigger around, oxyos/text-menu.js.)
-const BLOOM_AT_LEAST = [16, 15, 0];
+// The oldest Bloom the runtime's own parts work with: 17.1.0, whose MenubarItem `action` takes the
+// adapter's `editing` (docs/adr/0021-menu-bar.mdx, step 4): older, an application's Edit menu runs
+// its own onPress, never the focused field's command, and stays enabled with nothing to copy.
+// (16.15.0 brought a Mac's first mouse to window drag regions and controls, ADR 0016 decision 9;
+// 15.91.0 the ContextMenu the text fields' menu hangs from a view it has no trigger around,
+// oxyos/text-menu.js.)
+const BLOOM_AT_LEAST = [17, 1, 0];
 const bloomVersion = bloomManifest.version.split(/[.-]/).slice(0, 3).map(Number);
 const older = BLOOM_AT_LEAST.findIndex((part, index) => bloomVersion[index] !== part);
 if (older >= 0 && bloomVersion[older] < BLOOM_AT_LEAST[older]) {
