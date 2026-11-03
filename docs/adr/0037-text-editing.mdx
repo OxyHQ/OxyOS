@@ -107,7 +107,7 @@ What existed before this decision, against the two references (✓ present and t
 
 ## What remains
 
-- **Input methods for Chinese, Japanese and Korean, emoji and handwriting.** The protocol, the role and the candidates popup exist (ADR 0008, steps 1 to 3), but no input method does: one is a separate service (a port of an existing engine's core), and the session has no way to grant the role yet. Until then OxyOS has dead keys and compose sequences only; it does not have a full input method framework.
+- **Input methods for Chinese, Japanese and Korean, and emoji** are [ADR 0041](./0041-input-methods): fcitx5, run by the session as its frontend. Handwriting remains.
 - **Backspace in a compose-key sequence** cancels the whole sequence (xkbcommon's state cannot step back one key); GTK takes back the last key. A dead key followed by another dead key it does not compose with types the first accent and loses the second.
 - Spelling and text substitutions are not built; the context menu has none of a Mac's Look Up, Spelling, Substitutions, Transformations, Speech or Services. A Mac's smart insertion (spaces added or taken around a word dragged) is not built either.
 - **Astro** (Chromium, ADR 0029) keeps Chromium's Linux key bindings: Ctrl+arrows move by word there.

@@ -195,6 +195,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "latency_max_ms", the longest from a motion to the frame that followed it;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
+- transactions: the text-input transactions the application was given in the step (ADR 0008),
+  exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
+  end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
 - latency_ms: budget from injecting the input to the first changed frame;
@@ -259,6 +262,11 @@ scenario's `layout` (an XKB layout, `us` by default) is the one those expectatio
 for, and the devices type with it. A `commit` step is an input method's committed text, which
 no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
 method's whole change (ADR 0008).
+
+A scenario with `input_methods` runs the session's input methods (ADR 0041): the real engine
+(fcitx5 and its engines, `tools/input-methods/build.sh`, given with `--input-methods PREFIX` or
+`OXYOS_INPUT_METHODS`), with the scenario's `preferences` choosing the input sources; `strokes`
+steps type through it as the seat's keyboard does.
 
 A scenario with `input_method` runs with an input method the session plays: `keyboard` steps type
 through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
@@ -2037,6 +2045,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["a11y_events"]:
             fail(f"accessibility events {got}, expected exactly {expect['a11y_events']}")
+    if "transactions" in expect:
+        # The text-input transactions the application was given (ADR 0008), exactly and in order;
+        # a transaction's parts left out of the expectation are what an empty part says.
+        got = result.get("transactions", [])
+        empty = {"delete": [0, 0], "commit": "", "preedit": "", "cursor": [0, 0], "segments": []}
+        wanted = [{**empty, **want} for want in expect["transactions"]]
+        if got != wanted:
+            fail(f"transactions given {got}, expected exactly {wanted}")
     if "delivered" in expect:
         delivered = dict(result.get("delivered", {}))
         leaked = delivered.pop("leaked", 0)
@@ -3024,6 +3040,9 @@ def main():
     parser.add_argument("--client", default=None,
                         help="the native OxyOS client a scenario with `client` runs instead of the Bloom host")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--input-methods", default=None,
+                        help="the input-method engine a scenario with `input_methods` runs (ADR 0041), "
+                             "else OXYOS_INPUT_METHODS")
     parser.add_argument("--reader", default=None,
                         help="the screen reader for scenarios with `reader` (oxyos-reader beside --offscreen)")
     parser.add_argument("--seat", action="store_true",
@@ -3185,6 +3204,14 @@ def main():
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
+    if scenario.get("input_methods"):
+        # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
+        # by tools/input-methods/build.sh, run as the session runs it.
+        prefix = options.input_methods or os.environ.get("OXYOS_INPUT_METHODS")
+        if not prefix:
+            raise SystemExit(f"{options.scenario}: needs the input-method engine "
+                             "(--input-methods PREFIX or OXYOS_INPUT_METHODS; tools/input-methods/build.sh)")
+        command += ["--input-methods", prefix]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:

@@ -1403,9 +1403,8 @@ fn shortcuts_and_window_moves_do_not_wait_for_a_stalled_application() {
     assert_eq!(h.scene.focus(), Some(window));
     // APP never reads or answers from here on.
     h.clear_log();
+    // Super pressed alone: the search (ADR 0041).
     h.scene.key(SUPER, true);
-    h.scene.key(SPACE, true);
-    h.scene.key(SPACE, false);
     h.scene.key(SUPER, false);
     h.pump();
     assert_eq!(
@@ -1960,7 +1959,7 @@ fn shortcuts_reach_the_shell_through_any_surface_it_has_left() {
     h.request(SHELL, Request::Destroy { surface: 1 }).unwrap();
     h.clear_log();
     h.scene.key(SUPER, true);
-    h.scene.key(SPACE, true);
+    h.scene.key(SUPER, false);
     h.pump();
     assert!(h.events_for(SHELL).contains(&Event::SystemShortcut {
         shortcut: SystemShortcut::Search,
@@ -4233,19 +4232,31 @@ fn the_input_method_is_told_the_field_and_nothing_of_where_it_is() {
 #[test]
 fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
     let (mut h, _) = served("");
+    // The keymap's symbol for it and the modifiers in effect come first (ADR 0041).
+    h.scene.set_key_symbol(KeySymbol {
+        keysym: 0x61,
+        modifiers: 16,
+    });
     h.scene.keyboard(KEY_A, true, Some("a"));
     let events = logged(&mut h);
     assert!(to(&events, APP).is_empty());
     let a = held(&events);
     assert_eq!(
         to(&events, IME),
-        [Event::InputMethodKey {
-            serial: a,
-            key: KEY_A,
-            pressed: true,
-            text: PreeditText::new("a").unwrap(),
-            time_ns: 0,
-        }]
+        [
+            Event::InputMethodKeySymbol {
+                serial: a,
+                keysym: 0x61,
+                modifiers: 16,
+            },
+            Event::InputMethodKey {
+                serial: a,
+                key: KEY_A,
+                pressed: true,
+                text: PreeditText::new("a").unwrap(),
+                time_ns: 0,
+            }
+        ]
     );
     h.scene.keyboard(KEY_B, true, Some("b"));
     let b = held(&logged(&mut h));
@@ -4479,12 +4490,15 @@ fn shortcuts_and_an_unserved_keyboard_bypass_the_input_method() {
     logged(&mut h);
     h.scene.keyboard(SUPER, true, None);
     h.scene.keyboard(57, true, Some(" "));
+    h.scene.keyboard(57, false, None);
+    h.scene.keyboard(SUPER, false, None);
     let events = logged(&mut h);
     assert!(to(&events, IME).is_empty());
     assert!(to(&events, APP).is_empty());
-    assert!(to(&events, SHELL)
-        .iter()
-        .any(|e| matches!(e, Event::SystemShortcut { .. })));
+    assert_eq!(
+        h.scene.take_input_source_shortcuts(),
+        [InputSourceShortcut::Previous { step: 1 }]
+    );
     // A field without text input is not served: keys go straight, text as Text.
     let (mut h, _) = served("");
     h.request(APP, Request::TextInputDisable { surface: 1 })
@@ -7398,6 +7412,8 @@ mod controls;
 mod displays;
 mod dock;
 mod drag;
+/// Input sources and the candidates handed to the shell (ADR 0041).
+mod input_sources;
 /// Key repeat (ADR 0036).
 mod key_repeat;
 /// The menu bar (ADR 0021).
@@ -7829,10 +7845,13 @@ fn a_key_the_input_method_gives_back_keeps_its_own_time() {
     let a = held(&events);
     assert!(matches!(
         to(&events, IME).as_slice(),
-        [Event::InputMethodKey {
-            time_ns: 2_000_000_000,
-            ..
-        }]
+        [
+            Event::InputMethodKeySymbol { .. },
+            Event::InputMethodKey {
+                time_ns: 2_000_000_000,
+                ..
+            }
+        ]
     ));
     // Answered after a later key: it reaches the application with its own time.
     h.scene.set_input_time(2_500_000_000);
