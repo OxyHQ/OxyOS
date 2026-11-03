@@ -346,14 +346,26 @@ impl Scene {
         let Some(active) = self.active.filter(|active| self.live(*active).is_some()) else {
             return;
         };
-        self.dismiss_grab(DismissReason::OutsidePress);
+        // A menu open closes first, as a press elsewhere closes it; one of the window's own closes
+        // with the window when it goes from the screen (its parent hidden), so the window is never
+        // given the keyboard back for the instant between.
+        if !matches!(action, WindowAction::Minimize | WindowAction::Hide) {
+            self.dismiss_grab(DismissReason::OutsidePress);
+        }
         match action {
             WindowAction::Close => {
                 self.emit(active.client, Event::CloseRequested { surface: active.id })
             }
             WindowAction::Quit => self.quit_application(active),
-            WindowAction::Minimize => self.minimize(active),
-            WindowAction::Hide => self.hide_application(active),
+            WindowAction::Minimize => {
+                self.minimize(active);
+                // Any other menu (the top bar's, opened from the keyboard).
+                self.dismiss_grab(DismissReason::OutsidePress);
+            }
+            WindowAction::Hide => {
+                self.hide_application(active);
+                self.dismiss_grab(DismissReason::OutsidePress);
+            }
             WindowAction::NextWindow => self.cycle_windows(active, false),
             WindowAction::PreviousWindow => self.cycle_windows(active, true),
             WindowAction::FullScreen => {

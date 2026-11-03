@@ -16,6 +16,16 @@ let lastState = null;
 const networkListeners = new Set();
 let lastNetwork = null;
 
+/** The input sources as the session last told them (docs/adr/0041-input-methods.mdx), and who
+    follows them. */
+const inputSourcesListeners = new Set();
+let lastInputSources = null;
+
+function toldInputSources(state) {
+  lastInputSources = state;
+  for (const listener of inputSourcesListeners) listener(state);
+}
+
 function toldNetwork(state) {
   lastNetwork = state;
   for (const listener of networkListeners) listener(state);
@@ -32,6 +42,7 @@ if (native) {
     if (serial === 0) {
       if (answer && answer.updateState) told(answer.updateState);
       if (answer && answer.network) toldNetwork(answer.network);
+      if (answer && answer.inputSources) toldInputSources(answer.inputSources);
       return;
     }
     const asked = waiting.get(serial);
@@ -43,6 +54,7 @@ if (native) {
     waiting.delete(serial);
     if (answer && answer.updateState) told(answer.updateState);
     if (answer && answer.network) toldNetwork(answer.network);
+    if (answer && answer.inputSources) toldInputSources(answer.inputSources);
     asked.resolve(answer);
   });
 }
@@ -116,6 +128,32 @@ export function useNetworkState() {
   React.useEffect(() => {
     const unsubscribe = network.subscribe(setState);
     network.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
+ * The input sources (docs/adr/0041-input-methods.mdx, decision 6): the session tells Settings (its
+ * `settings` grant) and the shell the sources in effect and the input methods its engine has, as
+ * they change, and answers `{inputSources: {}}` with them. They are changed through the
+ * `input_sources` and `input_source` preferences, never asked for here.
+ */
+export const inputSources = {
+  state: () => ask({ inputSources: {} }),
+  current: () => lastInputSources,
+  subscribe(listener) {
+    inputSourcesListeners.add(listener);
+    return () => inputSourcesListeners.delete(listener);
+  },
+};
+
+/** The input sources as the session tells them, for a view: asked once, then followed. */
+export function useInputSourcesState() {
+  const [state, setState] = React.useState(lastInputSources);
+  React.useEffect(() => {
+    const unsubscribe = inputSources.subscribe(setState);
+    inputSources.state();
     return unsubscribe;
   }, []);
   return state;

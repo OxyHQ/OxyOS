@@ -698,6 +698,10 @@ fn a_menu_bar_tracks_the_pointer_while_its_menu_is_open() {
     let mut h = Harness::new();
     let other = h.toplevel(OTHER, 1, 1200, 800);
     let bar = h.toplevel(APP, 1, 400, 300);
+    // Another window of the same client, behind the bar: mapped while a menu is open it would
+    // be the active one, and the menu would close.
+    let window = h.toplevel(APP, 5, 300, 200);
+    h.activate(bar);
     let b = h.rect(bar);
     // File's title is at (10, 0) of the bar, 40x20; Edit's at (60, 0). Its menu hangs under it,
     // the bar going on tracking the pointer while it is open. Opened while the press is held.
@@ -818,7 +822,6 @@ fn a_menu_bar_tracks_the_pointer_while_its_menu_is_open() {
     let e = h.rect(edit);
     let serial = h.press(e.x + 20, e.y + 20);
     h.scene.pointer_button(BUTTON, false);
-    let window = h.toplevel(APP, 5, 300, 200);
     let stray = h.popup(window, 6, menu(Rect::new(0, 0, 10, 10), 50, 50));
     h.request(APP, Request::GrabPopup { surface: 6, serial })
         .unwrap();
@@ -1075,6 +1078,62 @@ fn parent_minimize_destroy_and_disconnect_dismiss_popups_and_release_grabs() {
             h.scene.stats().held_buffers,
             if ending == 0 { 1 } else { 0 }
         );
+    }
+}
+
+/// A window going from the screen (minimized, hidden with its application, left on another
+/// workspace) closes every menu of its group, a dialog's too: none stays grabbing the keyboard
+/// while unseen, and none is shown again when the window comes back.
+#[test]
+fn hiding_a_window_closes_its_dialogs_menus_and_restoring_reopens_none() {
+    for hiding in 0..3 {
+        let mut h = Harness::new();
+        let window = h.toplevel(APP, 1, 600, 400);
+        h.request(
+            APP,
+            Request::CreateDialog {
+                surface: 2,
+                parent: 1,
+                size: Size::new(300, 200),
+            },
+        )
+        .unwrap();
+        let dialog = key(APP, 2);
+        h.present(dialog);
+        let d = h.rect(dialog);
+        let popup = h.open_menu(
+            dialog,
+            3,
+            (d.x + 10, d.y + 10),
+            menu(Rect::new(0, 0, 40, 20), 120, 80),
+        );
+        assert_eq!(h.scene.grab_chain(), &[popup]);
+        assert_eq!(h.scene.focus(), Some(popup));
+        match hiding {
+            0 => h.scene.minimize(window),
+            1 => {
+                h.scene.add_workspace();
+                assert!(h.scene.activate_workspace(1));
+            }
+            _ => {
+                h.scene.add_workspace();
+                assert!(h.scene.move_to_workspace(window, 1));
+            }
+        }
+        h.pump();
+        assert_eq!(h.dismissed(popup), Some(DismissReason::ParentHidden));
+        assert!(h.scene.grab_chain().is_empty());
+        assert_eq!(h.scene.focus(), None);
+        // Back on the screen: the dialog has the keyboard, the menu is gone.
+        match hiding {
+            0 => h.scene.restore(window),
+            1 => assert!(h.scene.activate_workspace(0)),
+            _ => assert!(h.scene.activate_workspace(1)),
+        }
+        h.pump();
+        assert!(h.rendered(dialog));
+        assert!(!h.rendered(popup));
+        assert_eq!(h.scene.focus(), Some(dialog));
     }
 }
 

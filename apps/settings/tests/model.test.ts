@@ -25,6 +25,8 @@ test("preferences are named as the session's file names them", () => {
     "caret_blink",
     "do_not_disturb",
     "hour_cycle",
+    "input_source",
+    "input_sources",
     "language",
     "lock_after",
     "notification_previews",
@@ -38,6 +40,9 @@ test("preferences are named as the session's file names them", () => {
   assert.equal(preferenceText<"reduceMotion">(true), "true");
   assert.equal(preferenceText<"lockAfter">(15), "15");
   assert.equal(preferenceText<"notificationPreviews">("always"), "always");
+  // A list as the session's file keeps it: its names joined by commas, none for an empty one.
+  assert.equal(preferenceText<"inputSources">(["pinyin", "korean"]), "pinyin,korean");
+  assert.equal(preferenceText<"inputSources">([]), "");
   assert.equal(preferenceText<"doNotDisturb">(false), "false");
 });
 

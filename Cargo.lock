@@ -1963,10 +1963,12 @@ dependencies = [
  "oxyos-input-methods",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
  "oxyos-vt",
  "rustix",
+ "serde_json",
  "zbus",
 ]
 

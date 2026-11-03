@@ -22,11 +22,18 @@ import {
   network as systemNetwork,
   privacy,
   updates as systemUpdates,
+  useInputSourcesState,
   useNetworkState,
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
+import {
+  INPUT_METHODS,
+  inputSourcesOf,
+  parseInputSources,
+  parseInputSourcesPreference,
+} from '../../../apps/settings/src/input-sources';
 import {
   PREFERENCE_KEYS,
   preferenceText,
@@ -69,6 +76,8 @@ const FIXTURE: SettingsSnapshot = {
     hourCycle: 'auto',
     doNotDisturb: false,
     notificationPreviews: 'unlocked',
+    inputSources: [],
+    inputSource: 'layout',
   },
   wallpapers: [{ id: 'solar-gradients', name: 'Solar Gradients' }],
   system: {
@@ -187,6 +196,9 @@ function preferencesOf(values: Record<string, string>): Preferences {
     doNotDisturb: flag(PREFERENCE_KEYS.doNotDisturb),
     notificationPreviews:
       (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
+    // None added, the layout current, unless the session keeps others (docs/adr/0041-input-methods.mdx).
+    inputSources: parseInputSourcesPreference(values[PREFERENCE_KEYS.inputSources]),
+    inputSource: values[PREFERENCE_KEYS.inputSource] || 'layout',
   };
 }
 
@@ -454,11 +466,31 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
   return told ? { network: told, actions: session } : { network: undefined, actions: undefined };
 }
 
+/**
+ * The input sources (docs/adr/0041-input-methods.mdx, decision 6): in a session, as it tells them
+ * (none until it has); without one, the fixture's preferences with every input method installed.
+ */
+function useInputSources(snapshot: SettingsSnapshot, session: boolean) {
+  const told = useInputSourcesState();
+  if (!session) {
+    const { preferences, system } = snapshot;
+    return inputSourcesOf(system.keyboardLayout, preferences.inputSources, preferences.inputSource, INPUT_METHODS);
+  }
+  return parseInputSources(told);
+}
+
 export default function SettingsApp() {
   const model = useSettingsModel();
   const install = useInstallModel();
   const networks = useNetworkModel();
-  const snapshot = { ...model.snapshot, updates: install.updates, privacy: install.privacy, network: networks.network };
+  const inputSources = useInputSources(model.snapshot, model.session);
+  const snapshot = {
+    ...model.snapshot,
+    updates: install.updates,
+    privacy: install.privacy,
+    network: networks.network,
+    inputSources,
+  };
   const actions = {
     ...model.actions,
     updates: install.updatesActions,

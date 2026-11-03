@@ -12,6 +12,7 @@
 mod client;
 mod displays;
 mod ime;
+mod input_sources;
 mod launch;
 mod lock;
 mod pasteboard;
@@ -150,6 +151,8 @@ struct Session {
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
     input_methods_waker: Option<std::os::fd::RawFd>,
+    /// `--input-sources-available`: the input sources the session tells, played (input_sources.rs).
+    input_sources: Option<input_sources::InputSources>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -262,6 +265,7 @@ impl Session {
             input_methods: None,
             input_methods_waker: None,
             network_control: None,
+            input_sources: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
@@ -465,6 +469,8 @@ impl Session {
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
+        // The input sources' requests, before the install service takes what is left.
+        self.serve_input_sources();
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.serve(&mut self.compositor.scene);
@@ -685,6 +691,22 @@ impl Session {
         }
     }
 
+    /// The input sources as the session tells them (`--input-sources-available`), from the
+    /// preferences kept now.
+    fn serve_input_sources(&mut self) {
+        let Some(input_sources) = self.input_sources.as_mut() else {
+            return;
+        };
+        let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
+        let kept = self.settings.preferences();
+        input_sources.serve(
+            &mut self.compositor.scene,
+            &clients,
+            &kept.input_sources,
+            kept.input_source.as_deref(),
+        );
+    }
+
     /// The changes Settings asked for, kept as the session keeps them. The screen reader is the
     /// scenario's (`--reader`): its preference is kept and told, not followed.
     fn serve_preferences(&mut self) {
@@ -703,6 +725,7 @@ impl Session {
                 }
             }
         }
+        self.serve_input_sources();
         // And the displays' (ADR 0018), with `--displays`.
         if let Some((displays, heads)) = self.displays.as_mut() {
             displays.serve(

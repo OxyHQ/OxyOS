@@ -2380,6 +2380,9 @@ int main(int argc, char** argv) {
           editing.setWindow(key, window->drawing().dark);
         }
         editing.tick(std::chrono::steady_clock::now());
+        // A scroll view laid out again is clamped to its content before the keyboard's navigation
+        // reads the tree.
+        pointer.clampScrolls();
         // The keyboard's navigation follows a modal coming and going; its ring is drawn with the
         // focused control.
         followScope();

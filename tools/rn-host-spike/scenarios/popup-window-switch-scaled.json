@@ -1,0 +1,192 @@
+{
+  "about": "popup-window-switch.json at the ThinkPad's 1.25 (ADR 0018), on a 1600x1000 display: on a Mac a menu or a transient popover closes when its application stops being the active one (Command-Tab). EditingProbe is the scenario's application (Allo) and PopupWindowProbe (sample/PopupWindowProbe.tsx) a second application beside it (`companion`), in the session's shell. A press on the companion's Actions opens its menu; the shell's Super+Tab closes the menu as the switcher opens (the compositor dismisses the grab before telling the shell: no key reaches either application), and its release activates Allo: the companion's window hears it lost the keyboard and React nothing, and its page counts the menu closed once. The same with its popover. Each step checks the compositor's focus, what each client was delivered, exactly what each React tree heard and each popup's lifecycle.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    360,
+    200
+  ],
+  "outputs": "1600x1000@1.25",
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PopupWindowProbe",
+    "window": [
+      820,
+      600
+    ],
+    "at": [
+      20,
+      40
+    ]
+  },
+  "steps": [
+    {
+      "name": "Allo's window is moved off the companion's",
+      "do": [
+        "move-window",
+        [
+          400,
+          200
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          860,
+          486,
+          360,
+          200
+        ],
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on the companion's Actions activates it and opens its menu, which takes the keyboard",
+      "do": [
+        "press_named",
+        "Actions"
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {
+            "touchStart@menu-trigger": 1,
+            "touchEnd@menu-trigger": 1
+          },
+          "popup_events": {
+            "open@actions": 1
+          },
+          "texts": [
+            "menu opened 1, closed 0",
+            "active yes, zoomed no, full screen no"
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+Tab: the menu closes as the switcher opens and Allo is activated; neither React tree hears a key",
+      "do": [
+        "key",
+        [
+          125,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "react": {},
+        "in_companion": {
+          "react": {},
+          "popup_events": {
+            "dismissed@actions": 1,
+            "close@2": 1
+          },
+          "texts": [
+            "menu opened 1, closed 1",
+            "active no, zoomed no, full screen no"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 2,
+            "popup.done": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on the companion's Details opens its popover",
+      "do": [
+        "press_named",
+        "Details"
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {
+            "touchStart@popover-trigger": 1,
+            "touchEnd@popover-trigger": 1
+          },
+          "popup_events": {
+            "open@details": 1
+          },
+          "texts": [
+            "popover opened 1, closed 0",
+            "active yes, zoomed no, full screen no"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "focus.in": 2,
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+Tab: the popover closes the same way",
+      "do": [
+        "key",
+        [
+          125,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "react": {},
+        "in_companion": {
+          "react": {},
+          "popup_events": {
+            "dismissed@details": 1,
+            "close@3": 1
+          },
+          "texts": [
+            "popover opened 1, closed 1",
+            "active no, zoomed no, full screen no"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 2,
+            "popup.done": 1
+          }
+        }
+      }
+    }
+  ]
+}
