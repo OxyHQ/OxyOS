@@ -926,6 +926,7 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
   Size viewport = view.layoutMetrics.frame.size;
   Size content = state->getData().getContentSize();
   offsets_[tag] = next;
+  scrolledOn_[tag] = surface;
   const double dispatched = dispatchTime();
   auto data = state->getData();
   data.contentOffset = next;
@@ -947,6 +948,25 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
               << content.height << "\n";
   }
   return true;
+}
+
+void PointerInput::clampScrolls() {
+  std::vector<std::pair<Tag, Point>> back;
+  for (auto it = offsets_.begin(); it != offsets_.end();) {
+    if (!tree_.views().count(it->first)) {
+      scrolledOn_.erase(it->first);
+      it = offsets_.erase(it);
+      continue;
+    }
+    if (auto range = scrollRange(it->first)) {
+      auto [current, end] = *range;
+      if (current.x > end.x || current.y > end.y) {
+        back.emplace_back(it->first, Point{std::min(current.x, end.x) - current.x, std::min(current.y, end.y) - current.y});
+      }
+    }
+    ++it;
+  }
+  for (const auto& [tag, by] : back) scrollView(tag, by.x, by.y, scrolledOn_[tag]);
 }
 
 void PointerInput::dispatch(Phase phase, float x, float y) {
