@@ -1,5 +1,6 @@
 #include "input.h"
 
+#include "android-view-props.h"
 #include "overscroll.h"
 
 #include "report.h"
@@ -208,6 +209,52 @@ Tag hitIn(const ViewTree& tree, const SurfaceContent& content, float x, float y,
 
 Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y) {
   return hitIn(tree, content, x, y, nullptr);
+}
+
+bool acceptsFirstMouse(const ViewTree& tree, Tag target) {
+  if (target < 0) return false;
+  auto path = ancestry(tree, target);
+  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+    const auto& view = tree.views().at(*at).view;
+    if (!view.props) continue;
+    auto own = androidViewPropsOf(*view.props);
+    if (own.acceptsFirstMouse >= 0) return own.acceptsFirstMouse == 1;
+    if (view.componentName && std::string(view.componentName) == "AndroidTextInput") {
+      auto input = std::dynamic_pointer_cast<const AndroidTextInputProps>(view.props);
+      return input && input->editable;
+    }
+    if (own.focusable) return false;
+  }
+  return false;
+}
+
+bool PointerInput::withheld(const OxyOSEvent& event) {
+  if (event.kind != OXYOS_EVENT_POINTER) return false;
+  switch (event.detail) {
+    case OXYOS_POINTER_PRESS: {
+      if (!event.flag || event.code != kPrimaryButton || down_ || pinching_ || withheld_) return false;
+      auto content = surfaces_(event.surface);
+      if (!content) return false;
+      float x = event.x / 256.0f, y = event.y / 256.0f;
+      // A scroll view's scrollbar takes it, as a Mac's scroller does: a background window's
+      // content is scrolled by its scrollbar in one gesture.
+      Tag target = hitTest(tree_, *content, x, y);
+      withheld_ = !barAt(*content, x, y) && !acceptsFirstMouse(tree_, target);
+      Report::get().input(withheld_ ? "first_mouse.declined" : "first_mouse.accepted", event.surface);
+      return withheld_;
+    }
+    case OXYOS_POINTER_RELEASE:
+      if (!withheld_ || event.code != kPrimaryButton) return false;
+      withheld_ = false;
+      return true;
+    case OXYOS_POINTER_LEAVE:
+    case OXYOS_POINTER_CANCEL:
+      // The press is over elsewhere: its release goes to no one here.
+      withheld_ = false;
+      return false;
+    default:
+      return false;
+  }
 }
 
 Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y,

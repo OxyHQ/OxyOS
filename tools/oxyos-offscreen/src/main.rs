@@ -191,6 +191,9 @@ struct Session {
     chooser_clients: std::collections::BTreeSet<ClientId>,
     /// The companion application's process (`--companion`, docs/adr/0035-drag-and-drop.mdx).
     pub companion: Option<u32>,
+    /// The id the companion was launched for (`--companion-app`), recorded as the session records
+    /// a launch: the application's own makes both windows one application's.
+    pub companion_app: Option<String>,
 }
 
 impl Session {
@@ -282,6 +285,7 @@ impl Session {
             choosers_started: 0,
             chooser_clients: Default::default(),
             companion: None,
+            companion_app: None,
         })
     }
 
@@ -567,11 +571,15 @@ impl Session {
     fn serve_launches(&mut self) {
         self.serve_choosers();
         let (launcher, app) = (&self.launcher, &self.app);
+        let companion = self.companion.zip(self.companion_app.clone());
         let grant_settings = self.grant_settings.as_deref();
         let fixtures = &self.grants;
         self.compositor.name_clients(&|pid| {
-            let (id, granted) = match app {
-                Some((started, id)) if *started == pid => {
+            let (id, granted) = match (app, &companion) {
+                (Some((started, id)), _) if *started == pid => {
+                    (id.clone(), oxyos_apps::Grants::default())
+                }
+                (_, Some((started, id))) if *started == pid => {
                     (id.clone(), oxyos_apps::Grants::default())
                 }
                 _ => {

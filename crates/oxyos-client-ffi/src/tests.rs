@@ -396,6 +396,7 @@ fn events_convert_field_by_field() {
         button: 272,
         time_ns: 5_000_000_123,
         modifiers: OXYOS_MODIFIER_CONTROL | OXYOS_MODIFIER_ALT,
+        activating: false,
     })
     .unwrap();
     assert_eq!(
@@ -412,6 +413,23 @@ fn events_convert_field_by_field() {
             modifiers: OXYOS_MODIFIER_CONTROL | OXYOS_MODIFIER_ALT,
             ..OxyOSEvent::default()
         }
+    );
+    // A press that made its window the active one (version 18): `flag` says so.
+    let activating = convert(&Event::Pointer {
+        surface: 1,
+        serial: 10,
+        kind: PointerKind::Press,
+        x: 256,
+        y: 512,
+        button: 272,
+        time_ns: 0,
+        modifiers: 0,
+        activating: true,
+    })
+    .unwrap();
+    assert_eq!(
+        (activating.kind, activating.serial, activating.flag),
+        (OXYOS_EVENT_POINTER, 10, 1)
     );
     let done = convert(&Event::PopupDone {
         surface: 2,
@@ -5062,6 +5080,7 @@ fn the_client_speaks_to_a_version_2_compositor_as_it_writes() {
                     button: 272,
                     time_ns: 99,
                     modifiers: 0,
+                    activating: false,
                 },
                 None,
                 2,

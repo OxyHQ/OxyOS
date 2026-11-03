@@ -3095,6 +3095,8 @@ impl Scene {
         let Some(node) = self.nodes.get(&key) else {
             return;
         };
+        // A window closed with the keyboard: its application's next window takes it.
+        let application = (node.role == Role::Toplevel).then(|| self.application_identity(key));
         let children = node.children.clone();
         let parent = node.parent;
         let popup = node.is_popup();
@@ -3149,7 +3151,7 @@ impl Scene {
         }
         if self.focus == Some(key) {
             self.focus = None;
-            self.focus_next();
+            self.focus_after_window(key, application);
         }
         if self.focus_before_grab == Some(key) {
             self.focus_before_grab = None;
@@ -3445,6 +3447,33 @@ impl Scene {
             .unwrap_or(root)
     }
 
+    /// The keyboard after `gone`, the window that had it, was minimized or closed: the topmost
+    /// window still shown of the same application, as a Mac keeps the application active and
+    /// makes its next window the key one (ADR 0016); without one, the topmost window.
+    fn focus_after_window(
+        &mut self,
+        gone: SurfaceKey,
+        application: Option<(bool, String, Option<ClientId>)>,
+    ) {
+        let next = application
+            .filter(|_| self.grab.is_empty() && !self.locked)
+            .and_then(|of| {
+                self.roots.iter().rev().copied().find(|root| {
+                    *root != gone
+                        && self.nodes[root].role == Role::Toplevel
+                        && self.visible(*root)
+                        && self.application_identity(*root) == of
+                })
+            });
+        match next {
+            Some(root) => {
+                let target = self.focus_target(root);
+                self.set_focus(Some(target));
+            }
+            None => self.focus_next(),
+        }
+    }
+
     fn focus_next(&mut self) {
         if !self.grab.is_empty() {
             return;
@@ -3542,8 +3571,12 @@ impl Scene {
         self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.detach_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
+            // Minimized, its application's next window takes the keyboard, as a Mac's does;
+            // hidden with its application, every window of it goes, so the next one is another's.
+            let application =
+                (change == appearances::Change::Minimized).then(|| self.application_identity(key));
             self.set_focus(None);
-            self.focus_next();
+            self.focus_after_window(key, application);
         }
         // Minimized while the shell's top bar had focus: no longer the active window.
         self.update_active();
@@ -3738,6 +3771,19 @@ impl Scene {
     }
 
     fn pointer_event(&mut self, key: SurfaceKey, serial: u64, kind: PointerKind, button: u32) {
+        self.emit_pointer(key, serial, kind, button, false);
+    }
+
+    /// A pointer event for `key`; `activating` on a press that made its window the active one
+    /// (ADR 0016, decision 9: the client decides whether the view under it takes that press).
+    fn emit_pointer(
+        &mut self,
+        key: SurfaceKey,
+        serial: u64,
+        kind: PointerKind,
+        button: u32,
+        activating: bool,
+    ) {
         let (x, y) = self.local(key, self.pointer.0, self.pointer.1);
         self.emit(
             key.client,
@@ -3750,6 +3796,7 @@ impl Scene {
                 button,
                 time_ns: self.input_time_ns,
                 modifiers: self.modifiers(),
+                activating,
             },
         );
     }
@@ -4052,10 +4099,17 @@ impl Scene {
             };
             // The screenshot interface's surfaces take presses, never the keyboard: the active
             // application stays active (ADR 0024, decision 10).
+            let mut activating = false;
             if self.grab.is_empty() && !self.shows_capture_interface(target) {
                 let root = self.root_of(target);
                 let blocked = target == root && self.focus_target(root) != root;
+                let was_active = self.active;
                 self.activate(target);
+                // The press that makes a window the active one is told so, as a Mac's window
+                // server delivers it: the client's view under it may take it (a field, the
+                // window's drag region and controls) or it only activated the window (a button
+                // does not fire), AppKit's `acceptsFirstMouse:` (ADR 0016, decision 9).
+                activating = self.active == Some(root) && was_active != Some(root);
                 if blocked {
                     // Modal scope: the window behind a dialog does not receive the press.
                     self.consume_press();
@@ -4068,7 +4122,7 @@ impl Scene {
             self.capture = Some(target);
             self.set_pointer_focus(Some(target));
             self.record_press(serial, target, true);
-            self.pointer_event(target, serial, PointerKind::Press, button);
+            self.emit_pointer(target, serial, PointerKind::Press, button, activating);
         } else {
             self.buttons_down = self.buttons_down.saturating_sub(1);
             if self.resizing.is_some() {

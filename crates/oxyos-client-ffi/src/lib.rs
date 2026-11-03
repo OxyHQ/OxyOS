@@ -702,6 +702,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             button,
             time_ns,
             modifiers,
+            activating,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_POINTER,
@@ -711,6 +712,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 y,
                 detail: kind as u32,
                 code: button,
+                flag: activating as u8,
                 time_ns,
                 modifiers,
                 ..out

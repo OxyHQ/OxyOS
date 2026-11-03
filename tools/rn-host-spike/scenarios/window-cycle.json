@@ -1,0 +1,362 @@
+{
+  "about": "Super+` through an application's windows, as a Mac's ⌘` (docs/adr/0024-system-shortcuts.mdx, decision 2), and the keyboard after a window is minimized going to its application's next window (docs/adr/0016-windows.mdx, decision 10). Allo is two windows (EditingProbe, the application, and PressProbe, the `companion` the session launched for the same application), with the session's shell. Super+` makes Allo's other window the active one (past Inbox's window, between Allo's two) and again goes back; Super+Shift+` the same backwards; with Inbox (another application, from the dock) active it does nothing; Super+M minimizes Allo's window and its other window takes the keyboard although Inbox's window is above it; with one window of Allo shown Super+` and Super+Shift+` do nothing. Each step checks exactly what each window was delivered (the focus moving, never a key of Super's chords) and that neither React tree hears anything.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      780,
+      80
+    ],
+    "app": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's first window: its line takes the keyboard",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          },
+          "launched": {},
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "Inbox from the dock: another application's window, the active one",
+      "do": [
+        "press_named",
+        "Inbox"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {
+            "focus.in": 1
+          },
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+` with Inbox active: Inbox has one window, nothing happens and nobody hears a key",
+      "do": [
+        "key",
+        [
+          125,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {}
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+Tab: back to Allo, its window used last",
+      "do": [
+        "key",
+        [
+          125,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {
+            "focus.out": 1
+          },
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+`: Allo's other window is the active one, past Inbox's between them",
+      "do": [
+        "key",
+        [
+          125,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          },
+          "launched": {},
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+` again: back to the first",
+      "do": [
+        "key",
+        [
+          125,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          },
+          "launched": {},
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+Shift+`: backwards, the other one",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          },
+          "launched": {},
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+Shift+` again: back to the first, its line still focused",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          },
+          "launched": {},
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "Super+Tab: Inbox, over Allo's windows",
+      "do": [
+        "key",
+        [
+          125,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {
+            "focus.in": 1
+          },
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+Tab: Allo again, its first window over Inbox's",
+      "do": [
+        "key",
+        [
+          125,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {
+            "focus.out": 1
+          },
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+M minimizes it: Allo's other window takes the keyboard, though Inbox's is above it",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          },
+          "launched": {},
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        },
+        "window_shown": false
+      }
+    },
+    {
+      "name": "Super+` with Allo's one window shown: nothing",
+      "do": [
+        "key",
+        [
+          125,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {}
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+Shift+` with Allo's one window shown: nothing",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          41
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {},
+          "launched": {}
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    }
+  ]
+}

@@ -7300,6 +7300,179 @@ fn the_active_window_follows_focus_through_popups_and_panels_but_not_overlays_or
     assert_eq!(activations(&h), vec![(OTHER, 1, true)]);
 }
 
+/// The presses each client was delivered since the log was cleared: its surface, whether it
+/// made its window the active one, and the button.
+fn presses(h: &Harness) -> Vec<(ClientId, u32, bool, u32)> {
+    h.log
+        .iter()
+        .filter_map(|(client, event)| match event {
+            Event::Pointer {
+                surface,
+                kind: PointerKind::Press,
+                activating,
+                button,
+                ..
+            } => Some((*client, *surface, *activating, *button)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_press_says_when_it_made_its_window_the_active_one() {
+    // A Mac's first mouse (ADR 0016, decision 9): the press that activates a window reaches it
+    // marked so, and the client decides whether the view under it takes it. Nothing else is
+    // marked: not a press on the active window, a release, a popup's press, the shell's.
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    let second = h.toplevel(OTHER, 1, 300, 200);
+    let f = h.rect(first);
+    h.scene.move_window_to(second, (f.right() as i32 + 20, f.y));
+    h.present(second);
+    let (f, s) = (h.rect(first), h.rect(second));
+    assert!(!f.contains_point(s.x + 5, s.y + 5));
+    assert_eq!(h.scene.active_window(), Some(second));
+
+    h.clear_log();
+    h.click(f.x + 5, f.y + 5);
+    assert_eq!(h.scene.active_window(), Some(first));
+    assert_eq!(presses(&h), vec![(APP, 1, true, BUTTON)]);
+    assert!(
+        h.log.iter().all(|(_, event)| !matches!(
+            event,
+            Event::Pointer {
+                kind: PointerKind::Release,
+                activating: true,
+                ..
+            }
+        )),
+        "a release is never marked"
+    );
+    // Its window active, the next press is an ordinary one.
+    h.clear_log();
+    h.click(f.x + 5, f.y + 5);
+    assert_eq!(presses(&h), vec![(APP, 1, false, BUTTON)]);
+
+    // A secondary press is marked too: the client decides by its button (a context menu opens
+    // on the first click, as on a Mac).
+    h.clear_log();
+    h.scene.pointer_motion(s.x + 5, s.y + 5);
+    h.scene.pointer_button(273, true);
+    h.scene.pointer_button(273, false);
+    h.pump();
+    assert_eq!(h.scene.active_window(), Some(second));
+    assert_eq!(presses(&h), vec![(OTHER, 1, true, 273)]);
+
+    // A press in a popup of the active window, and the press outside it that dismisses it,
+    // mark nothing: the second press reaches nobody, and the window behind stays inactive.
+    h.clear_log();
+    h.open_menu(
+        second,
+        2,
+        (s.x + 10, s.y + 10),
+        menu(Rect::new(0, 0, 10, 10), 100, 100),
+    );
+    h.click(s.x + 15, s.y + 15);
+    h.click(f.x + 5, f.y + 5);
+    assert_eq!(h.scene.active_window(), Some(second));
+    assert!(presses(&h).iter().all(|(_, _, activating, _)| !activating));
+
+    // The shell's panel takes presses and the keyboard but is no window: its press is never
+    // marked, and the window it leaves active is pressed as the active one.
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Bottom,
+            output: 1,
+            size: Size::new(1, 32),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    let panel = h.rect(key(SHELL, 1));
+    h.clear_log();
+    h.click(panel.x + 5, panel.y + 5);
+    h.click(s.x + 5, s.y + 5);
+    assert_eq!(
+        presses(&h),
+        vec![(SHELL, 1, false, BUTTON), (OTHER, 1, false, BUTTON)]
+    );
+
+    // A window under a modal dialog: the press on the window reaches nobody; one on the dialog
+    // activates the window and is marked.
+    h.request(
+        APP,
+        Request::CreateDialog {
+            surface: 2,
+            parent: 1,
+            size: Size::new(100, 80),
+        },
+    )
+    .unwrap();
+    h.present(key(APP, 2));
+    h.click(s.x + 5, s.y + 5);
+    let d = h.rect(key(APP, 2));
+    h.clear_log();
+    let corner = if f.contains_point(f.x + 2, f.y + 2) && !d.contains_point(f.x + 2, f.y + 2) {
+        (f.x + 2, f.y + 2)
+    } else {
+        (f.right() as i32 - 2, f.bottom() as i32 - 2)
+    };
+    h.click(corner.0, corner.1);
+    assert_eq!(presses(&h), vec![]);
+    h.click(s.x + 5, s.y + 5);
+    h.clear_log();
+    h.click(d.x + 5, d.y + 5);
+    assert_eq!(h.scene.active_window(), Some(first));
+    assert_eq!(presses(&h), vec![(APP, 2, true, BUTTON)]);
+}
+
+#[test]
+fn a_window_minimized_or_closed_gives_the_keyboard_to_its_applications_next_window() {
+    // As a Mac's: the application stays active, its next window the key one, even when another
+    // application's window is above that one.
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 300, 200);
+    let second = h.toplevel(APP, 2, 300, 200);
+    let other = h.toplevel(OTHER, 1, 300, 200);
+    h.scene.move_window_to(first, (0, 0));
+    h.scene.move_window_to(second, (400, 0));
+    h.scene.move_window_to(other, (800, 0));
+    h.pump();
+    let s = h.rect(second);
+    h.click(s.x + 5, s.y + 5);
+    assert_eq!(h.scene.active_window(), Some(second));
+    // Stacked bottom to top: first, other, second.
+    h.scene.minimize(second);
+    h.pump();
+    assert_eq!(h.scene.active_window(), Some(first));
+    assert_eq!(h.scene.focus(), Some(first));
+
+    // Restored, then closed: the keyboard goes to the first again, not the other application's.
+    h.scene.restore(second);
+    h.pump();
+    assert_eq!(h.scene.active_window(), Some(second));
+    h.request(APP, Request::Destroy { surface: 2 }).unwrap();
+    assert_eq!(h.scene.active_window(), Some(first));
+
+    // Its last window minimized, the application gives the keyboard to the topmost window.
+    h.scene.minimize(first);
+    h.pump();
+    assert_eq!(h.scene.active_window(), Some(other));
+
+    // Hidden with its application (Super+H), every window of it goes: the next is another's.
+    h.scene.restore(first);
+    h.pump();
+    let third = h.toplevel(APP, 3, 300, 200);
+    assert_eq!(h.scene.active_window(), Some(third));
+    h.scene.hide_application(third);
+    h.pump();
+    assert_eq!(h.scene.active_window(), Some(other));
+}
+
 #[test]
 fn windows_are_drawn_as_windows_and_the_active_one_so() {
     let mut h = Harness::new();

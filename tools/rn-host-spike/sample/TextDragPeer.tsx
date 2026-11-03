@@ -7,6 +7,7 @@
 import * as React from 'react';
 import { Text, View } from 'react-native';
 import { BloomProvider } from '@oxy.so/bloom/provider';
+import { ACCEPTS_FIRST_MOUSE } from '@oxy.so/bloom/window';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 
 const surfaces = oxyosSurfaces as any;
@@ -18,6 +19,9 @@ function Row() {
   return (
     <View
       ref={ref}
+      // A drag source takes the first mouse, as an AppKit drag source accepts it: dragged from an
+      // inactive window in one gesture (docs/adr/0016-windows.mdx, decision 9).
+      {...ACCEPTS_FIRST_MOUSE}
       testID="peer-row"
       onStartShouldSetResponder={() => true}
       onResponderGrant={(event) => {

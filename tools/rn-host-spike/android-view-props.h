@@ -5,7 +5,9 @@
 // focuses it, View.setFocusable, keyboard-focus.h) and the collection a view is or is an item of
 // (`accessibilityCollection`, `accessibilityCollectionItem`, accessibility.h). The host's View descriptor keeps
 // them beside each props as Fabric makes them, as the ScrollView's keeps `overScrollMode`
-// (overscroll.h).
+// (overscroll.h). And react-native-macos's `acceptsFirstMouse` (NSView's `acceptsFirstMouse:`),
+// which no Android props parse: whether a press that activates the window reaches the view
+// (input.h, `acceptsFirstMouse`; docs/adr/0016-windows.mdx, decision 9).
 #pragma once
 
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
@@ -22,6 +24,9 @@ struct AndroidViewProps {
   // where an item is among them all.
   int collectionRows = -1, collectionColumns = -1;
   int itemRow = -1, itemColumn = -1;
+  // `acceptsFirstMouse`: 1 when the view takes the press that activates its window, 0 when it
+  // says it does not, -1 when it says nothing (its control or container decides).
+  int acceptsFirstMouse = -1;
   bool operator==(const AndroidViewProps&) const = default;
 };
 

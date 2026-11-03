@@ -9,6 +9,11 @@
  *
  * And `oxyosTextMenu`, a bubbling event: a text input asking for its context menu
  * (docs/adr/0037-text-editing.mdx), which the runtime's root hears from any input (text-menu.js).
+ *
+ * And `acceptsFirstMouse`, react-native-macos's View prop (NSView's `acceptsFirstMouse:`): a view
+ * that takes the press activating its window, as a Mac's title bar, its window buttons and its
+ * text and table views do; any other press that activates a window only activates it
+ * (docs/adr/0016-windows.mdx, decision 9). Bloom's window drag regions and controls set it.
  */
 import Android from 'react-native/Libraries/NativeComponent/BaseViewConfig.android';
 
@@ -26,6 +31,7 @@ const BaseViewConfigOxyOS = {
     onPointerDownCapture: true,
     onPointerUp: true,
     onPointerUpCapture: true,
+    acceptsFirstMouse: true,
   },
 };
 
