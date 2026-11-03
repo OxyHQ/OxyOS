@@ -121,7 +121,8 @@
        "role": "ListItem",
        "name": "notes.txt",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       }
      ]
@@ -194,7 +195,8 @@
        "role": "ListItem",
        "name": "photo.jpg",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       }
      ]
