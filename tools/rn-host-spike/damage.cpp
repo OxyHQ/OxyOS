@@ -97,7 +97,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
   for (const auto& [tag, rect] : at) {
     const View& view = *views.at(tag);
     bool svg = view.view.componentName && isSvgView(view.view.componentName);
-    now[tag] = Seen{view.view, rect, view.children, view.picture, svg ? svgPicture(tree, tag) : nullptr};
+    now[tag] = Seen{view.view, rect, view.children, view.picture, view.layers, svg ? svgPicture(tree, tag) : nullptr};
   }
 
   // A window resized at the same scale is compared view by view as at the same size: what the
@@ -121,7 +121,9 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       }
       const auto& then = old->second;
       // A new picture changes the view's own drawing, under its children.
-      if (then.picture != seen.picture || then.drawing != seen.drawing) damage.push_back(seen.at);
+      if (then.picture != seen.picture || then.layers != seen.layers || then.drawing != seen.drawing) {
+        damage.push_back(seen.at);
+      }
       bool props = !drawsTheSame(then.view, seen.view);
       bool state = then.view.state != seen.view.state;
       // OXYOS_DAMAGE_TRACE: what drew a subtree again, and why.

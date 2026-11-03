@@ -240,6 +240,9 @@ function svgCells(): Cell[] {
       <Mask id="maska" maskType="alpha"><Circle cx={48} cy={48} r={40} fill="#000000" fillOpacity={0.5} /></Mask>),
     // Bloom's squircle Avatar, as Atlas draws a store icon: react-native-svg's Image in a ClipPath.
     { id: 'svg.bloom.avatar-squircle', w: 96, h: 96, render: () => <Avatar source={STORE_ICON} shape="squircle" size={72} name="Store" /> },
+    // Bloom's circular Avatar: its BloomImage, expo-image's view on native (the browser's <img> on the
+    // web), covering a round box.
+    { id: 'svg.bloom.avatar-circle', w: 96, h: 96, render: () => <Avatar source={STORE_ICON} shape="circle" size={72} name="Store" /> },
     { id: 'svg.bloom.social-oxy', w: 72, h: 72, render: () => <SocialButton brand="oxy" iconOnly onPress={noop} accessibilityLabel="Oxy" /> },
   ];
 }

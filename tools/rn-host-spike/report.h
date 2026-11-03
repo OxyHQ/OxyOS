@@ -160,6 +160,9 @@ class Report {
   // What the image loader did with a remote image (images.h): "fetch", a request started (or
   // answered from a cache), "cancelled", one no view waits for any more.
   void image(const char* event, const std::string& uri);
+  // What an expo-image view draws now (images.h), each time it changes: its layers bottom to top,
+  // each one's alpha, whether it is a placeholder and the frame shown, with the time.
+  void imageLayers(const facebook::react::ShadowView& view, const folly::dynamic& layers);
   // A popup's lifecycle.
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());

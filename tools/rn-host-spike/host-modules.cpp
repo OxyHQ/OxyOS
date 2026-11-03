@@ -367,6 +367,52 @@ std::string hex(const std::string& bytes) {
 // An AsyncStorage callback's error, as its Android module gives one: {message}.
 folly::dynamic storageError(const std::string& message) { return folly::dynamic::object("message", message); }
 
+
+// A promise settled later, on the JavaScript thread through the module's invoker: `start` is given
+// what resolves it and what rejects it with an Error.
+using Settle = std::function<void(std::function<void(folly::dynamic)>, std::function<void(std::string)>)>;
+jsi::Value settledLater(std::shared_ptr<CallInvoker> invoker, jsi::Runtime& rt, Settle start) {
+  auto run = jsi::Function::createFromHostFunction(
+      rt, jsi::PropNameID::forAscii(rt, "settle"), 2,
+      [invoker, start](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+        auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+        auto reject = std::make_shared<jsi::Value>(rt, args[1]);
+        start(
+            [invoker, resolve](folly::dynamic value) {
+              invoker->invokeAsync([resolve, value = std::move(value)](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(rt, jsi::valueFromDynamic(rt, value));
+              });
+            },
+            [invoker, reject](std::string message) {
+              invoker->invokeAsync([reject, message = std::move(message)](jsi::Runtime& rt) {
+                auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
+                reject->asObject(rt).asFunction(rt).call(rt, error);
+              });
+            });
+        return jsi::Value::undefined();
+      });
+  return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
+}
+
+// An ImageRef's native side (expo-image's loadAsync): its picture's id and size; when JavaScript
+// collects the object holding it, or it is released, the picture is let go (on the loop's thread,
+// through `release`).
+class ExpoImageRefHandle : public jsi::HostObject {
+ public:
+  ExpoImageRefHandle(int64_t id, folly::dynamic properties, std::function<void(int64_t)> release)
+      : id_(id), properties_(std::move(properties)), release_(std::move(release)) {}
+  ~ExpoImageRefHandle() override { release_(id_); }
+  jsi::Value get(jsi::Runtime& rt, const jsi::PropNameID& name) override {
+    auto key = name.utf8(rt);
+    if (!properties_.count(key)) return jsi::Value::undefined();
+    return jsi::valueFromDynamic(rt, properties_[key]);
+  }
+
+ private:
+  int64_t id_;
+  folly::dynamic properties_;
+  std::function<void(int64_t)> release_;
+};
 }  // namespace
 
 folly::dynamic deviceDimensions(const Display& display) {
@@ -1030,35 +1076,12 @@ std::shared_ptr<TurboModule> createHostModule(
     // (oxyos-image reads them) or a remote image's, fetched; prefetches into the disk cache; where
     // remote images are cached. Promises of {width, height} in pixels, of true, and of {uri: "memory"
     // | "disk"}.
-    // A promise settled later, on the JavaScript thread through the module's invoker.
-    auto later = [invoker](jsi::Runtime& rt, std::function<void(std::function<void(folly::dynamic)>,
-                                                                std::function<void(std::string)>)> start) {
-      auto run = jsi::Function::createFromHostFunction(
-          rt, jsi::PropNameID::forAscii(rt, "imageLoader"), 2,
-          [invoker, start](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
-            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
-            auto reject = std::make_shared<jsi::Value>(rt, args[1]);
-            start(
-                [invoker, resolve](folly::dynamic value) {
-                  invoker->invokeAsync([resolve, value = std::move(value)](jsi::Runtime& rt) {
-                    resolve->asObject(rt).asFunction(rt).call(rt, jsi::valueFromDynamic(rt, value));
-                  });
-                },
-                [invoker, reject](std::string message) {
-                  invoker->invokeAsync([reject, message = std::move(message)](jsi::Runtime& rt) {
-                    auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
-                    reject->asObject(rt).asFunction(rt).call(rt, error);
-                  });
-                });
-            return jsi::Value::undefined();
-          });
-      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
-    };
+    auto later = [invoker](jsi::Runtime& rt, Settle start) { return settledLater(invoker, rt, std::move(start)); };
     auto sized = [&services, later](bool withHeaders) {
       return [&services, later, withHeaders](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
         std::string uri = count > 0 ? text(rt, args[0]) : "";
         auto source = resolveImageSource(uri);
-        if (source.remote) {
+        if (source.remote || source.data) {
           std::vector<std::pair<std::string, std::string>> headers;
           if (withHeaders && count > 1 && args[1].isObject()) {
             auto given = jsi::dynamicFromValue(rt, args[1]);
@@ -1128,6 +1151,95 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       return jsi::Value::undefined();
     });
+  } else if (name == "OxyOSExpoImage") {
+    // expo-image's module (sample/oxyos/expo-adapter.js) on the host's image pipeline (images.h):
+    // Image.prefetch, clearMemoryCache, clearDiskCache, getCachePathAsync, loadAsync (an ImageRef's
+    // handle), and its view's functions by the view's tag.
+    auto later = [invoker](jsi::Runtime& rt, Settle start) { return settledLater(invoker, rt, std::move(start)); };
+    auto headersOf = [](const folly::dynamic& given) {
+      std::vector<std::pair<std::string, std::string>> headers;
+      if (!given.isObject()) return headers;
+      for (const auto& [name, value] : given.items()) {
+        if (name.isString() && value.isString()) headers.emplace_back(name.getString(), value.getString());
+      }
+      return headers;
+    };
+    module->method("prefetch", [&services, later, headersOf](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+      if (!services.images) return rejected(rt, "images need a window on OxyOS");
+      std::vector<std::string> urls;
+      if (count > 0 && args[0].isObject()) {
+        for (const auto& url : jsi::dynamicFromValue(rt, args[0])) {
+          if (url.isString()) urls.push_back(url.getString());
+        }
+      }
+      std::string policy = count > 1 && args[1].isString() ? args[1].getString(rt).utf8(rt) : "memory-disk";
+      auto headers = count > 2 && args[2].isObject() ? headersOf(jsi::dynamicFromValue(rt, args[2]))
+                                                    : std::vector<std::pair<std::string, std::string>>{};
+      return later(rt, [&services, urls, policy, headers](auto resolve, auto) {
+        services.images->expoPrefetch(urls, policy, headers, [resolve](bool fetched) { resolve(fetched); });
+      });
+    });
+    module->method("clearMemoryCache", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return resolved(rt, jsi::Value(services.images && services.images->clearCache(OXYOS_IMAGE_IN_MEMORY)));
+    });
+    module->method("clearDiskCache", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return resolved(rt, jsi::Value(services.images && services.images->clearCache(OXYOS_IMAGE_ON_DISK)));
+    });
+    module->method("getCachePathAsync", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      std::string key = count > 0 ? text(rt, args[0]) : "";
+      auto path = services.images ? services.images->cachePath(key) : std::nullopt;
+      return resolved(rt, path ? jsi::Value(jsi::String::createFromUtf8(rt, *path)) : jsi::Value::null());
+    });
+    module->method("loadAsync", [&services, later](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+      if (!services.images) return rejected(rt, "images need a window on OxyOS");
+      folly::dynamic source = count > 0 && args[0].isObject() ? jsi::dynamicFromValue(rt, args[0]) : folly::dynamic(nullptr);
+      folly::dynamic options = count > 1 && args[1].isObject() ? jsi::dynamicFromValue(rt, args[1]) : folly::dynamic(folly::dynamic::object());
+      auto sources = expoImageSources(folly::dynamic::array(source));
+      if (sources.empty() || sources.front().uri.empty()) return rejected(rt, "loadAsync needs a source with a uri");
+      auto dimension = [&](const char* key) {
+        auto value = options.get_ptr(key);
+        return value && value->isNumber() && value->asDouble() > 0 ? static_cast<uint32_t>(value->asDouble()) : 0u;
+      };
+      uint32_t maxWidth = dimension("maxWidth"), maxHeight = dimension("maxHeight");
+      std::optional<uint32_t> tint;
+      if (auto color = options.get_ptr("tintColor"); color && color->isNumber()) {
+        tint = static_cast<uint32_t>(static_cast<int64_t>(color->asDouble()));
+      }
+      // The handle is made on the JavaScript thread, when the promise resolves.
+      auto release = services.images->releaser();
+      return later(rt, [&services, source = sources.front(), maxWidth, maxHeight, tint, release](auto resolve, auto reject) {
+        services.images->loadRef(source, maxWidth, maxHeight, tint,
+                                 [resolve, reject, release](int64_t id, std::shared_ptr<const Picture> picture,
+                                                            const std::string& error) {
+                                   if (!picture) return reject(error.empty() ? "the image could not be loaded" : error);
+                                   // Its size in pixels as decoded, at a scale of 1 (Android's Image class).
+                                   resolve(folly::dynamic::object("id", id)("width", picture->width)(
+                                       "height", picture->height)("scale", 1)("isAnimated", picture->animated()));
+                                 });
+      });
+    });
+    module->method("refHandle", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+      if (!services.images || count < 1 || !args[0].isObject()) return jsi::Value::undefined();
+      auto properties = jsi::dynamicFromValue(rt, args[0]);
+      auto id = static_cast<int64_t>(properties["id"].asDouble());
+      return jsi::Object::createFromHostObject(
+          rt, std::make_shared<ExpoImageRefHandle>(id, std::move(properties), services.images->releaser()));
+    });
+    module->method("release", [&services](jsi::Runtime&, const jsi::Value* args, size_t count) {
+      if (services.images && count > 0 && args[0].isNumber()) services.images->releaseRef(static_cast<int64_t>(args[0].getNumber()));
+      return jsi::Value::undefined();
+    });
+    auto viewFunction = [&services](std::function<void(Images&, Tag)> act) {
+      return [&services, act](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        if (services.images && count > 0 && args[0].isNumber()) act(*services.images, static_cast<Tag>(args[0].getNumber()));
+        return resolved(rt, jsi::Value::undefined());
+      };
+    };
+    module->method("startAnimating", viewFunction([](Images& images, Tag tag) { images.setAnimating(tag, true); }));
+    module->method("stopAnimating", viewFunction([](Images& images, Tag tag) { images.setAnimating(tag, false); }));
+    module->method("lockResource", viewFunction([](Images& images, Tag tag) { images.setLocked(tag, true); }));
+    module->method("unlockResource", viewFunction([](Images& images, Tag tag) { images.setLocked(tag, false); }));
+    module->method("reload", viewFunction([](Images& images, Tag tag) { images.reload(tag); }));
   } else if (name == "RNCSafeAreaContext") {
     // An OxyOS window has no system insets.
     folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);
