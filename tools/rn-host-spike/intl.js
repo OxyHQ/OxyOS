@@ -1,5 +1,7 @@
-// ECMA-402's Intl on OxyOS (intl.h): DateTimeFormat and NumberFormat, getCanonicalLocales, and the
-// Date and Number toLocale*String methods built on them, as Hermes provides them on Android. This
+// ECMA-402's Intl on OxyOS (intl.h): DateTimeFormat, NumberFormat and PluralRules,
+// getCanonicalLocales, and the Date and Number toLocale*String methods built on them, as Hermes
+// provides them on Android. The default locale (no locales given) is the host's at each call, never
+// kept here: the session's once told, so it follows a change (docs/adr/0040-language-and-region.mdx). This
 // layer reads the options as ECMA-402 does (GetOption, ToDateTimeOptions); the formatting is the
 // host's (`__oxyosIntl`, crates/oxyos-intl on ICU4X), which refuses with a RangeError what it does
 // not support yet. Intl's other constructors are left undefined, so feature detection finds them
@@ -220,9 +222,79 @@
   });
   define(NumberFormat, 'supportedLocalesOf', DateTimeFormat.supportedLocalesOf);
 
+  // PluralRules, over ICU4X's CLDR plural rules: ECMA-402's options (the type and
+  // SetNumberFormatDigitOptions' digits, which decide the operands a rule sees: 1 and 1.0 are
+  // different plurals in some languages); the rounding options at their defaults only, the others
+  // refused with a RangeError rather than ignored. selectRange is not provided yet.
+  const digits = (given, name, minimum, maximum, fallback) => {
+    const value = given[name];
+    if (value === undefined) return fallback;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < minimum || number > maximum) {
+      throw new RangeError(`${name} value is out of range`);
+    }
+    return Math.floor(number);
+  };
+  const ROUNDING_DEFAULTS = { roundingIncrement: 1, roundingMode: 'halfExpand', roundingPriority: 'auto', trailingZeroDisplay: 'auto' };
+  function PluralRules(locales, options) {
+    if (!new.target) throw new TypeError("Constructor Intl.PluralRules requires 'new'");
+    const requested = canonicalLocales(locales);
+    const given = options === undefined ? Object.create(null) : Object(options);
+    option(given, 'localeMatcher', 'string', ['lookup', 'best fit'], 'best fit');
+    const chosen = { type: option(given, 'type', 'string', ['cardinal', 'ordinal'], 'cardinal') };
+    // SetNumberFormatDigitOptions, standard notation: the integer digits, then the significant
+    // digits when either is given, else the fraction digits (0 to 3 by default).
+    chosen.minimumIntegerDigits = digits(given, 'minimumIntegerDigits', 1, 21, 1);
+    for (const [name, fallback] of Object.entries(ROUNDING_DEFAULTS)) {
+      const value = given[name];
+      if (value !== undefined && String(value) !== String(fallback)) {
+        throw new RangeError(`Intl.PluralRules' ${name} ${value} is not supported on OxyOS yet`);
+      }
+    }
+    if (given.minimumSignificantDigits !== undefined || given.maximumSignificantDigits !== undefined) {
+      chosen.minimumSignificantDigits = digits(given, 'minimumSignificantDigits', 1, 21, 1);
+      chosen.maximumSignificantDigits = digits(given, 'maximumSignificantDigits', chosen.minimumSignificantDigits, 21, 21);
+    } else {
+      let minimum = digits(given, 'minimumFractionDigits', 0, 100, undefined);
+      let maximum = digits(given, 'maximumFractionDigits', 0, 100, undefined);
+      if (minimum === undefined && maximum === undefined) [minimum, maximum] = [0, 3];
+      else if (minimum === undefined) minimum = Math.min(0, maximum);
+      else if (maximum === undefined) maximum = Math.max(3, minimum);
+      else if (minimum > maximum) throw new RangeError('minimumFractionDigits is greater than maximumFractionDigits');
+      chosen.minimumFractionDigits = minimum;
+      chosen.maximumFractionDigits = maximum;
+    }
+    const locale = native.resolve(requested.join(','));
+    const serialized = serialize(chosen);
+    // The host checks the options now, as the constructor would: a refusal throws here.
+    const resolved = parse(native.resolvePlural(locale, serialized));
+    if (typeof resolved.pluralCategories === 'string') {
+      resolved.pluralCategories = resolved.pluralCategories ? resolved.pluralCategories.split(',') : [];
+    }
+    internal.set(this, { kind: 'PluralRules', locale, options: serialized, resolved });
+  }
+  define(PluralRules.prototype, 'select', function select(value) {
+    const self = slots(this, 'PluralRules');
+    return native.selectPlural(self.locale, self.options, Number(value));
+  });
+  define(PluralRules.prototype, 'selectRange', function selectRange(start, end) {
+    slots(this, 'PluralRules');
+    if (start === undefined || end === undefined) throw new TypeError('start and end are required');
+    throw new RangeError('Intl.PluralRules.prototype.selectRange is not supported on OxyOS yet');
+  });
+  define(PluralRules.prototype, 'resolvedOptions', function resolvedOptions() {
+    const resolved = slots(this, 'PluralRules').resolved;
+    const out = Object.assign({}, resolved);
+    if (Array.isArray(resolved.pluralCategories)) out.pluralCategories = resolved.pluralCategories.slice();
+    return out;
+  });
+  define(PluralRules, 'supportedLocalesOf', DateTimeFormat.supportedLocalesOf);
+  Object.defineProperty(PluralRules.prototype, Symbol.toStringTag, { value: 'Intl.PluralRules', configurable: true });
+
   const Intl = {};
   define(Intl, 'DateTimeFormat', DateTimeFormat);
   define(Intl, 'NumberFormat', NumberFormat);
+  define(Intl, 'PluralRules', PluralRules);
   define(Intl, 'getCanonicalLocales', function getCanonicalLocales(locales) {
     return canonicalLocales(locales);
   });

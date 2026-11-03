@@ -147,6 +147,17 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         receiving_.clear();
         input(event);
       }
+    } else if (event.kind == OXYOS_EVENT_LOCALE) {
+      if (event.detail == 0) receivingLocale_.clear();
+      receivingLocale_ += event.text;
+      if (event.flag) {
+        locale_ = std::move(receivingLocale_);
+        receivingLocale_.clear();
+        if (oxyos_intl_set_default_locale(locale_.data(), locale_.size()) != 0) {
+          std::cerr << "[window] the session's locale " << locale_ << " is not Intl's: " << oxyos_last_error() << "\n";
+        }
+        input(event);
+      }
     } else if (event.kind == OXYOS_EVENT_DISPLAY_NAME) {
       auto& telling = telling_[event.code];
       if (event.detail == 0 || !telling.name) telling.name = "";

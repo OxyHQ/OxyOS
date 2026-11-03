@@ -71,11 +71,58 @@ std::string assignment(const char* path, const std::string& key) {
   return "";
 }
 
+// A tag the C ABI's Intl gives (oxyos_intl_default_locale, oxyos_intl_system_locale), "" if it
+// refuses.
+std::string intlTag(int64_t (*give)(char*, size_t)) {
+  std::string out(32, '\0');
+  for (;;) {
+    int64_t length = give(out.data(), out.size());
+    if (length < 0) return "";
+    if (static_cast<size_t>(length) < out.size()) {
+      out.resize(static_cast<size_t>(length));
+      return out;
+    }
+    out.assign(static_cast<size_t>(length) + 1, '\0');
+  }
+}
+
+// A BCP 47 tag as Android's Locale.toString() writes it, what React Native's I18nManager gives as
+// `localeIdentifier`: the language, the region after `_` and the script after `_#`
+// (`es-ES` as `es_ES`, `sr-Latn-RS` as `sr_RS_#Latn`); extensions and variants are not in it.
+std::string androidLocale(const std::string& tag) {
+  std::string language, script, region;
+  size_t start = 0;
+  for (size_t index = 0; start <= tag.size(); ++index) {
+    size_t end = tag.find('-', start);
+    if (end == std::string::npos) end = tag.size();
+    std::string subtag = tag.substr(start, end - start);
+    start = end + 1;
+    bool alpha = std::all_of(subtag.begin(), subtag.end(), [](unsigned char c) { return std::isalpha(c); });
+    bool digits = std::all_of(subtag.begin(), subtag.end(), [](unsigned char c) { return std::isdigit(c); });
+    if (index == 0) {
+      language = subtag;
+    } else if (subtag.size() == 4 && alpha && script.empty() && region.empty()) {
+      script = subtag;
+    } else if (((subtag.size() == 2 && alpha) || (subtag.size() == 3 && digits)) && region.empty()) {
+      region = subtag;
+    } else {
+      break;  // a variant or an extension: past the language, script and region
+    }
+  }
+  std::string out = language;
+  if (!region.empty() || !script.empty()) out += "_" + region;
+  if (!script.empty()) out += "_#" + script;
+  return out;
+}
+
 // What OxyOS's Settings shows of the machine (apps/settings, docs/adr/0019-settings.mdx), read
 // from where the system keeps it: the computer's name, os-release's PRETTY_NAME, the processor's
 // model and the memory (/proc), the time zone (/etc/localtime's zone), whether systemd-timesyncd
 // has set the clock, and the keyboard's layout (/etc/default/keyboard). Read only: the system's
 // services change them (ADR 0019 decision 2). The display is the session's, not the host's: "".
+// The locale is the system's (the session's environment, which the login program gives it from
+// /etc/locale.conf), as a BCP 47 tag: what Language & Region names as Automatic, never the
+// person's choice (docs/adr/0040-language-and-region.mdx, decisions 1 and 7).
 folly::dynamic systemFacts() {
   std::string processor;
   {
@@ -109,7 +156,8 @@ folly::dynamic systemFacts() {
   bool synchronized = std::filesystem::exists("/run/systemd/timesync/synchronized", error);
   return folly::dynamic::object("computerName", firstLine("/etc/hostname"))(
       "version", assignment("/etc/os-release", "PRETTY_NAME"))("processor", processor)("memoryBytes", memory)(
-      "display", "")("timeZone", zone)("automaticTime", synchronized)("keyboardLayout", layout);
+      "display", "")("timeZone", zone)("automaticTime", synchronized)("keyboardLayout", layout)(
+      "locale", intlTag(oxyos_intl_system_locale));
 }
 
 std::string text(jsi::Runtime& rt, const jsi::Value& value) {
@@ -406,8 +454,12 @@ std::shared_ptr<TurboModule> createHostModule(
     const char* url = std::getenv("OXYOS_SCRIPT_URL");
     module->constants(folly::dynamic::object("scriptURL", url ? url : ""));
   } else if (name == "I18nManager") {
+    // The session's locale as the host started with it (docs/adr/0040-language-and-region.mdx,
+    // decision 4): Intl's default, which is the one the session told at connect, else the
+    // environment's; as Android's I18nManager gives it, `es_ES`, read once as Android reads it.
+    // Both of OxyOS's languages are left to right.
     module->constants(folly::dynamic::object("isRTL", false)("doLeftAndRightSwapInRTL", true)(
-        "localeIdentifier", "en-US"));
+        "localeIdentifier", androidLocale(intlTag(oxyos_intl_default_locale))));
     module->unsupported({"allowRTL", "forceRTL", "swapLeftAndRightInRTL"});
   } else if (name == "AppState") {
     module->constants(folly::dynamic::object("initialAppState", "active"));
@@ -863,6 +915,15 @@ std::shared_ptr<TurboModule> createHostModule(
     // colour and reduce transparency (sample/oxyos/platform-surface.js). `OxyOSPreferencesChanged`.
     module->method("getState", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
       return services.settings.drawing ? jsi::valueFromDynamic(rt, services.settings.drawing()) : jsi::Value::null();
+    });
+    module->listeners();
+  } else if (name == "OxyOSLocale") {
+    // The session's locale now (docs/adr/0040-language-and-region.mdx, decision 4): Intl's default,
+    // the tag the session last told (with its hour cycle, `es-MX-u-hc-h12`), else the environment's;
+    // `OxyOSLocaleChanged` when the session tells another. expo-localization's module is built on it
+    // (oxyos/expo-adapter.js).
+    module->method("getLocale", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return jsi::String::createFromUtf8(rt, intlTag(oxyos_intl_default_locale));
     });
     module->listeners();
   } else if (name == "OxyOSSettings") {
