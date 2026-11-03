@@ -141,7 +141,7 @@
      "launched": [
       {
        "role": "Button",
-       "name": "Appearance",
+       "name": "Apariencia",
        "state": [
         "focused"
        ]
@@ -150,7 +150,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, botón",
+      "text": "Apariencia, botón",
       "interrupting": true
      }
     ],
@@ -178,7 +178,7 @@
      "launched": [
       {
        "role": "Button",
-       "name": "Wallpaper",
+       "name": "Fondo de pantalla",
        "state": [
         "focused"
        ]
@@ -187,7 +187,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, botón",
+      "text": "Fondo de pantalla, botón",
       "interrupting": true
      }
     ],
@@ -215,7 +215,7 @@
      "launched": [
       {
        "role": "Button",
-       "name": "Notifications",
+       "name": "Notificaciones",
        "state": [
         "focused"
        ]
@@ -224,7 +224,7 @@
     },
     "spoken": [
      {
-      "text": "Notifications, botón",
+      "text": "Notificaciones, botón",
       "interrupting": true
      }
     ],
@@ -252,7 +252,7 @@
      "launched": [
       {
        "role": "Button",
-       "name": "Lock Screen",
+       "name": "Pantalla de bloqueo",
        "state": [
         "focused"
        ]
@@ -261,7 +261,7 @@
     },
     "spoken": [
      {
-      "text": "Lock Screen, botón",
+      "text": "Pantalla de bloqueo, botón",
       "interrupting": true
      }
     ],
@@ -289,7 +289,7 @@
      "launched": [
       {
        "role": "Button",
-       "name": "Displays",
+       "name": "Pantallas",
        "state": [
         "focused"
        ]
@@ -298,7 +298,7 @@
     },
     "spoken": [
      {
-      "text": "Displays, botón",
+      "text": "Pantallas, botón",
       "interrupting": true
      }
     ],
@@ -326,7 +326,7 @@
      "launched": [
       {
        "role": "Button",
-       "name": "Accessibility",
+       "name": "Accesibilidad",
        "state": [
         "focused"
        ]
@@ -335,7 +335,7 @@
     },
     "spoken": [
      {
-      "text": "Accessibility, botón",
+      "text": "Accesibilidad, botón",
       "interrupting": true
      }
     ],
@@ -355,7 +355,7 @@
     "react": {},
     "in_launched": {
      "texts": [
-      "Reduce motion"
+      "Reducir movimiento"
      ]
     },
     "spoken": [],
@@ -383,7 +383,7 @@
      "launched": [
       {
        "role": "Switch",
-       "name": "Screen reader",
+       "name": "Lector de pantalla",
        "state": [
         "focused"
        ]
@@ -392,7 +392,7 @@
     },
     "spoken": [
      {
-      "text": "Screen reader, desactivado, interruptor",
+      "text": "Lector de pantalla, desactivado, interruptor",
       "interrupting": true
      }
     ],
@@ -420,7 +420,7 @@
      "launched": [
       {
        "role": "Switch",
-       "name": "Reduce motion",
+       "name": "Reducir movimiento",
        "state": [
         "focused"
        ]
@@ -429,7 +429,7 @@
     },
     "spoken": [
      {
-      "text": "Reduce motion, desactivado, interruptor",
+      "text": "Reducir movimiento, desactivado, interruptor",
       "interrupting": true
      }
     ],
@@ -460,7 +460,7 @@
      "launched": [
       {
        "role": "Switch",
-       "name": "Reduce motion",
+       "name": "Reducir movimiento",
        "state": [
         "checked",
         "focused"
@@ -497,7 +497,7 @@
     },
     "spoken": [
      {
-      "text": "Screen reader, desactivado, interruptor",
+      "text": "Lector de pantalla, desactivado, interruptor",
       "interrupting": true
      }
     ],

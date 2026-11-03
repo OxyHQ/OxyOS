@@ -52,7 +52,7 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 12",
+      "text": "Apariencia, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
@@ -79,7 +79,7 @@
     },
     "spoken": [
      {
-      "text": "Light, seleccionado, botón de opción",
+      "text": "Clara, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -109,7 +109,7 @@
      "window": [
       {
        "role": "Group",
-       "name": "Accent colour"
+       "name": "Color de acento"
       },
       {
        "role": "Radio",
@@ -121,12 +121,12 @@
       },
       {
        "role": "Radio",
-       "name": "Blue",
+       "name": "Azul",
        "state": []
       },
       {
        "role": "Radio",
-       "name": "Grey",
+       "name": "Gris",
        "state": []
       }
      ]
@@ -164,7 +164,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Blue",
+       "name": "Azul",
        "state": [
         "checked",
         "focused"
@@ -179,7 +179,7 @@
     },
     "spoken": [
      {
-      "text": "Blue, seleccionado, botón de opción",
+      "text": "Azul, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -213,7 +213,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Purple",
+       "name": "Morado",
        "state": [
         "checked",
         "focused"
@@ -221,14 +221,14 @@
       },
       {
        "role": "Radio",
-       "name": "Blue",
+       "name": "Azul",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Purple, seleccionado, botón de opción",
+      "text": "Morado, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -262,7 +262,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Blue",
+       "name": "Azul",
        "state": [
         "checked",
         "focused"
@@ -270,14 +270,14 @@
       },
       {
        "role": "Radio",
-       "name": "Purple",
+       "name": "Morado",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Blue, seleccionado, botón de opción",
+      "text": "Azul, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -319,7 +319,7 @@
       },
       {
        "role": "Radio",
-       "name": "Blue",
+       "name": "Azul",
        "state": []
       }
      ]
@@ -360,7 +360,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Grey",
+       "name": "Gris",
        "state": [
         "checked",
         "focused"
@@ -375,7 +375,7 @@
     },
     "spoken": [
      {
-      "text": "Grey, seleccionado, botón de opción",
+      "text": "Gris, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -407,7 +407,7 @@
     },
     "spoken": [
      {
-      "text": "Light, seleccionado, botón de opción",
+      "text": "Clara, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -435,7 +435,7 @@
     },
     "spoken": [
      {
-      "text": "Grey, seleccionado, botón de opción",
+      "text": "Gris, seleccionado, botón de opción",
       "interrupting": true
      }
     ],

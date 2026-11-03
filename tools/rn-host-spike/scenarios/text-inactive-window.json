@@ -267,7 +267,7 @@
         "popups": 0,
         "focus_input": "field",
         "react": {
-          "key@Context menu": 1
+          "key@Menú contextual": 1
         },
         "in_companion": {
           "react": {}

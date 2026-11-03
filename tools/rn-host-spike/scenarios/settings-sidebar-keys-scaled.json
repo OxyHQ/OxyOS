@@ -66,7 +66,7 @@
       },
       {
        "role": "ListItem",
-       "name": "Appearance",
+       "name": "Apariencia",
        "state": [
         "selected",
         "focused"
@@ -74,14 +74,14 @@
       },
       {
        "role": "ListItem",
-       "name": "Wallpaper",
+       "name": "Fondo de pantalla",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 12",
+      "text": "Apariencia, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
@@ -111,7 +111,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Wallpaper",
+       "name": "Fondo de pantalla",
        "state": [
         "selected",
         "focused"
@@ -121,13 +121,13 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 12",
+      "text": "Fondo de pantalla, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
     "announcements": [],
     "texts": [
-     "Follows the sun through the day."
+     "Sigue al sol a lo largo del día."
     ]
    }
   },
@@ -154,7 +154,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Notifications",
+       "name": "Notificaciones",
        "state": [
         "selected",
         "focused"
@@ -164,13 +164,13 @@
     },
     "spoken": [
      {
-      "text": "Notifications, seleccionado, 3 de 12",
+      "text": "Notificaciones, seleccionado, 3 de 12",
       "interrupting": true
      }
     ],
     "announcements": [],
     "texts": [
-     "Do Not Disturb"
+     "No molestar"
     ]
    }
   },
@@ -197,7 +197,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Wallpaper",
+       "name": "Fondo de pantalla",
        "state": [
         "selected",
         "focused"
@@ -207,13 +207,13 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 12",
+      "text": "Fondo de pantalla, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
     "announcements": [],
     "texts": [
-     "Follows the sun through the day."
+     "Sigue al sol a lo largo del día."
     ]
    }
   },
@@ -229,17 +229,17 @@
    "expect": {
     "react": {
      "blur@settings-nav-wallpaper": 1,
-     "focus@Wallpaper": 1
+     "focus@Fondo": 1
     },
     "keyboard_focus": {
-     "target": "Wallpaper",
+     "target": "Fondo",
      "ring": true
     },
     "at": {
      "window": [
       {
        "role": "Button",
-       "name": "Wallpaper",
+       "name": "Fondo",
        "state": [
         "focused"
        ]
@@ -248,7 +248,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, OxyOS, botón",
+      "text": "Fondo, OxyOS, botón",
       "interrupting": true
      }
     ],
@@ -267,7 +267,7 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "blur@Wallpaper": 1,
+     "blur@Fondo": 1,
      "focus@settings-nav-wallpaper": 1
     },
     "keyboard_focus": {
@@ -278,7 +278,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Wallpaper",
+       "name": "Fondo de pantalla",
        "state": [
         "selected",
         "focused"
@@ -288,7 +288,7 @@
     },
     "spoken": [
      {
-      "text": "Wallpaper, seleccionado, 2 de 12",
+      "text": "Fondo de pantalla, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -318,7 +318,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "About",
+       "name": "Información",
        "state": [
         "selected",
         "focused"
@@ -328,7 +328,7 @@
     },
     "spoken": [
      {
-      "text": "About, seleccionado, 12 de 12",
+      "text": "Información, seleccionado, 12 de 12",
       "interrupting": true
      }
     ],
@@ -379,7 +379,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Privacy",
+       "name": "Privacidad",
        "state": [
         "selected",
         "focused"
@@ -389,7 +389,7 @@
     },
     "spoken": [
      {
-      "text": "Privacy, seleccionado, 11 de 12",
+      "text": "Privacidad, seleccionado, 11 de 12",
       "interrupting": true
      }
     ],
@@ -419,7 +419,7 @@
      "window": [
       {
        "role": "ListItem",
-       "name": "Appearance",
+       "name": "Apariencia",
        "state": [
         "selected",
         "focused"
@@ -429,13 +429,13 @@
     },
     "spoken": [
      {
-      "text": "Appearance, seleccionado, 1 de 12",
+      "text": "Apariencia, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
     "announcements": [],
     "texts": [
-     "Accent colour"
+     "Color de acento"
     ]
    }
   }

@@ -1,6 +1,6 @@
 {
   "about": "Settings' Wi-Fi and Network pages as a Mac's (docs/adr/0038-networks.mdx), Settings granted `settings` and `network` as the image's policy grants it, over a NetworkManager played on the run's own bus (oxyos-fake-networkmanager): LukeSkyRouter joined (WPA2, saved), Café Libre open, Vecinos WPA2 (hunter22!), eduroam 802.1X, an Ethernet port with no cable. Wi-Fi lists the network joined, the known and the other networks (eduroam not supported) and scans; Details says the address, mask, router, DNS, IPv6 and hardware address the daemon has; choosing Vecinos asks its password in the shell's system sheet, never in Settings, and joins, the daemon alone keeping it (it is in no file and no report of Settings'); a known network is forgotten from its menu; Network says Ethernet's cable unplugged, then connected with its speed and address once one is plugged, and that VPNs are not available yet. At scale 1.25 (the ThinkPad's panel).",
-  "locale": "es_ES.UTF-8",
+  "locale": "en_US.UTF-8",
   "module": "OxyOSSettings",
   "window": [
     900,
@@ -151,7 +151,7 @@
       "do": [
         "wait_named",
         [
-          "Contraseña",
+          "Password",
           5000
         ]
       ],
@@ -161,7 +161,7 @@
           "shell": [
             {
               "role": "TextInput",
-              "name": "Contraseña"
+              "name": "Password"
             }
           ]
         }
