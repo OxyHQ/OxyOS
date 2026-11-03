@@ -41,10 +41,9 @@ import type {
   ShellApplication,
 } from "../model";
 import { belongsTo } from "../model";
-import type { WindowViewProps } from "../platform";
+import type { WindowSize, WindowViewProps } from "../platform";
 
-function aspectRatio(window: ShellWindow) {
-  const size = window.thumbnailSize;
+function aspectRatio(size: WindowSize | undefined) {
   return size &&
     Number.isFinite(size.width) &&
     Number.isFinite(size.height) &&
@@ -54,9 +53,12 @@ function aspectRatio(window: ShellWindow) {
     : 16 / 10;
 }
 
+const noSizes = (): ReadonlyMap<string, WindowSize> | undefined => undefined;
+
 function WindowThumbnail({
   window,
   app,
+  ratio,
   contentHeight,
   focus,
   close,
@@ -66,6 +68,8 @@ function WindowThumbnail({
 }: {
   window: ShellWindow;
   app?: ShellApplication;
+  /** Its card's proportions, width to height. */
+  ratio: number;
   contentHeight: number;
   focus: () => void;
   close: () => void;
@@ -74,7 +78,7 @@ function WindowThumbnail({
   /** The platform's live window (ADR 0022), preferred to a still thumbnail. */
   WindowView?: ComponentType<WindowViewProps>;
 }) {
-  const width = contentHeight * aspectRatio(window);
+  const width = contentHeight * ratio;
   const id = window.id;
   const gesture = useMemo(
     () =>
@@ -194,6 +198,7 @@ export const Overview = memo(function Overview({
   dismiss,
   escapeRequest = 0,
   WindowView,
+  useWindowSizes = noSizes,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -201,7 +206,13 @@ export const Overview = memo(function Overview({
   escapeRequest?: number;
   /** Where the platform shows windows live (docs/adr/0022-window-views.mdx). */
   WindowView?: ComponentType<WindowViewProps>;
+  /** The windows' sizes where the platform keeps them apart (ShellPlatform's). */
+  useWindowSizes?: () => ReadonlyMap<string, WindowSize> | undefined;
 }) {
+  // The windows' sizes, read here alone: a window resized renders the overview, nothing else.
+  const sizes = useWindowSizes();
+  const ratio = (window: ShellWindow) =>
+    aspectRatio(sizes?.get(window.id) ?? window.thumbnailSize);
   const { width, height } = useWindowDimensions();
   const desktops = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const positioned = useRef<string | null>(null);
@@ -427,7 +438,7 @@ export const Overview = memo(function Overview({
               >
                 {rows.map((row, index) => {
                   const ratioSum = row.reduce(
-                    (sum, window) => sum + aspectRatio(window),
+                    (sum, window) => sum + ratio(window),
                     0,
                   );
                   // One scale per row: preserve surface proportions and fit the available width.
@@ -453,6 +464,7 @@ export const Overview = memo(function Overview({
                         <WindowThumbnail
                           key={window.id}
                           window={window}
+                          ratio={ratio(window)}
                           drag={drag.controller}
                           faded={drag.dragged?.window.id === window.id}
                           WindowView={WindowView}
@@ -526,6 +538,7 @@ export const Overview = memo(function Overview({
         >
           <WindowThumbnail
             window={drag.dragged.window}
+            ratio={ratio(drag.dragged.window)}
             app={snapshot.applications.find(
               (app) => belongsTo(drag.dragged!.window, app.id),
             )}

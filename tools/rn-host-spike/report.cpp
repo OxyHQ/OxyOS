@@ -3,6 +3,7 @@
 #include <react/renderer/components/view/ViewProps.h>
 
 #include <folly/json.h>
+#include <jsi/JSIDynamic.h>
 #include <jsi/jsi.h>
 
 #include <cctype>
@@ -186,20 +187,64 @@ void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
   using namespace facebook;
   runtime.global().setProperty(
       runtime, "__oxyosReactCommitted",
-      jsi::Function::createFromHostFunction(runtime, jsi::PropNameID::forAscii(runtime, "__oxyosReactCommitted"), 0,
-                                            [this](jsi::Runtime&, const jsi::Value&, const jsi::Value*, size_t) {
-                                              ++reactCommits_;
-                                              return jsi::Value::undefined();
-                                            }));
+      jsi::Function::createFromHostFunction(
+          runtime, jsi::PropNameID::forAscii(runtime, "__oxyosReactCommitted"), 1,
+          [this](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+            ++reactCommits_;
+            // [[name, count, {name: count, …}], …]: where each re-render began, how many components
+            // it rendered and which.
+            if (count == 0 || !args[0].isObject()) return jsi::Value::undefined();
+            auto renders = jsi::dynamicFromValue(rt, args[0]);
+            if (renders.empty()) return jsi::Value::undefined();
+            write(folly::dynamic::object("kind", "react_render")("renders", std::move(renders)));
+            return jsi::Value::undefined();
+          }));
   // The smallest hook React's renderers accept (react-reconciler's injectInternals): they inject
-  // themselves, then call onCommitFiberRoot after every commit.
+  // themselves, then call onCommitFiberRoot after every commit, with the root whose `current` is
+  // the tree just committed and its `alternate` the one before. Its walk is React DevTools' own
+  // (renderer.js, updateFiberRecursively and didFiberRender): a subtree whose child is the one the
+  // tree before had was not reconciled, and nothing in it rendered; a fiber that is new mounted,
+  // and one of the tree before rendered when its PerformedWork flag (1) is set, which React
+  // clears on every fiber it begins again. Components are function (0), class (1), forwardRef
+  // (11) and simple memo (15) fibers; a memo of another kind (14) is counted by the component
+  // inside it. A component is named by its displayName, else its function's name.
   static const char* hook =
-      "globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {"
-      "  supportsFiber: true, renderers: new Map(),"
-      "  inject(internals) { const id = this.renderers.size + 1; this.renderers.set(id, internals); return id; },"
-      "  onCommitFiberRoot() { __oxyosReactCommitted(); },"
-      "  onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},"
-      "};";
+      "(() => {"
+      "  const component = (f) => f.tag === 0 || f.tag === 1 || f.tag === 11 || f.tag === 15;"
+      "  const named = (f) => {"
+      "    const t = f.type;"
+      "    if (!t) return 'Anonymous';"
+      "    if (f.tag === 11) return t.displayName || (t.render && (t.render.displayName || t.render.name)) || 'ForwardRef';"
+      "    return t.displayName || t.name || 'Anonymous';"
+      "  };"
+      "  const walk = (first, within, tops) => {"
+      "    for (let f = first; f !== null; f = f.sibling) {"
+      "      const before = f.alternate;"
+      "      let inside = within;"
+      "      if (component(f)) {"
+      "        if (before === null || (f.flags & 1) !== 0) {"
+      "          const name = named(f);"
+      "          if (within === null) { inside = [name, 0, {}]; tops.push(inside); } else inside = within;"
+      "          inside[1] += 1;"
+      "          inside[2][name] = (inside[2][name] || 0) + 1;"
+      "        } else inside = null;"
+      "      }"
+      "      if (f.child !== null && (before === null || f.child !== before.child)) walk(f.child, inside, tops);"
+      "    }"
+      "  };"
+      "  globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {"
+      "    supportsFiber: true, renderers: new Map(),"
+      "    inject(internals) { const id = this.renderers.size + 1; this.renderers.set(id, internals); return id; },"
+      "    onCommitFiberRoot(id, root) {"
+      "      const tops = [];"
+      "      const current = root && root.current;"
+      "      if (current && current.child !== null && (current.alternate === null || current.child !== current.alternate.child))"
+      "        walk(current.child, null, tops);"
+      "      __oxyosReactCommitted(tops);"
+      "    },"
+      "    onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},"
+      "  };"
+      "})();";
   runtime.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(hook), "oxyos-report-react-commits");
 }
 

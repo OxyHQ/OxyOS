@@ -139,9 +139,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the step: "react_commits_max", the most commits of React's (re-renders; a resize's own layout is
   native and is none) in the whole step, one for each threshold the window's size crosses that
   changes what the application shows; "js_ms_p95_max", the most JavaScript a frame may run on the
-  host's CPU at the 95th percentile (the events a resize delivers, onLayout and the dimensions, and nothing they
-  re-render); "busy_refreshes_p95_max", the most of a refresh of the display (`display_hz`) a
-  frame's whole work may take at the 95th percentile; "zoom_presented_ms_max", for a zoom (the
+  host's CPU at the 95th percentile (the events a resize delivers, onLayout and the dimensions,
+  and nothing they re-render); "busy_refreshes_p95_max", the most of a refresh of the display
+  (`display_hz`) a frame's whole work may take at the 95th percentile (both budgets on speed, held
+  only with --speed-budgets); "zoom_presented_ms_max", for a zoom (the
   green bubble), the most time from its being asked to its frame presented, as the host's
   diagnostics log it ("zoom (…): its configure … its frame presented N ms after");
 - stretch: a scroll view ("view", by testID) stretched past an end in the step, as Android 12's
@@ -212,8 +213,17 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   of them ran on the host's CPU (its thread's CPU time, which the machine's load does not
   lengthen; an event the shell is told that changes nothing it shows, another window's zoom,
   runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
-  JavaScript (waiting for another thread, a lock, a file); "presented", [least, most] frames presented (0: the step changed nothing
-  the host draws). In `in_shell`, the shell's;
+  JavaScript (waiting for another thread, a lock, a file), both budgets on speed held only with
+  --speed-budgets; "presented", [least, most] frames presented (0: the step changed nothing
+  the host draws); "js_wall_ms_max", the most JavaScript any one of them ran by the wall clock, a
+  backstop for a gross regression set far above what the work takes. In `in_shell`, the shell's;
+- renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
+  commit's components where a re-render began, with the components each rendered; report.h), a
+  count of work the machine's load cannot change: "tops", exactly the components the step's
+  re-renders began at, in any order ([] for none: nothing re-rendered); "components_max", the most
+  components they may render in all; "each_minute", what the wall clock's minute turning renders
+  (the shell's clock), not counted when a commit of exactly that comes in the two seconds after a
+  minute began. In `in_shell`, the shell's;
 
 A step with `until_sheet` asks the session for something it confirms in a system sheet (ADR 0030):
 it settles once the session has a sheet waiting and the shell shows a surface it did not show before
@@ -409,6 +419,16 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu"}
+
+
+# CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
+# clock's time of a report's line, for what follows the wall clock (the shell's minute).
+WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
+
+# Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
+# this machine, which its load changes. What a step must do (what it re-renders, a backstop far
+# above any machine's time) is always held (docs/performance.mdx, "What a step re-renders").
+SPEED_BUDGETS = False
 
 
 # A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish).
@@ -1629,19 +1649,50 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             return line[measure].get("javascript", 0)
         costly = max(work, key=lambda line: js(line, "cpu"), default=None)
         most = js(costly, "cpu") if costly else 0.0
-        if most > wanted.get("js_ms_max", float("inf")):
+        if SPEED_BUDGETS and most > wanted.get("js_ms_max", float("inf")):
             fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on the CPU"
                  f"{'' if costly['presented'] else ' (no frame)'} ({js(costly, 'parts'):.2f} by the clock: "
                  f"{js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} preempted), expected at most "
                  f"{wanted['js_ms_max']}")
         waited = max(work, key=lambda line: js(line, "blocked"), default=None)
-        if waited and js(waited, "blocked") > wanted.get("js_blocked_ms_max", float("inf")):
+        if SPEED_BUDGETS and waited and js(waited, "blocked") > wanted.get("js_blocked_ms_max", float("inf")):
             fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms"
                  f"{'' if waited['presented'] else ' (no frame)'} (waiting for another thread, a lock or a file; "
                  f"{js(waited, 'cpu'):.2f} on the CPU), expected at most {wanted['js_blocked_ms_max']}")
+        # A backstop by the wall clock, for a gross regression only (docs/performance.mdx, "What a
+        # step re-renders"): set far above what the work takes, so that a loaded machine never
+        # reaches it.
+        slowest = max(work, key=lambda line: js(line, "parts"), default=None)
+        if slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
+            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock"
+                 f"{'' if slowest['presented'] else ' (no frame)'} ({js(slowest, 'cpu'):.2f} on the CPU), expected at "
+                 f"most {wanted['js_wall_ms_max']} (a backstop for a gross regression)")
         presented = sum(1 for line in work if line["presented"])
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
+    if "renders" in expect:
+        # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
+        # the components each re-render began at, exactly, the same on any machine however loaded.
+        wanted = expect["renders"]
+        commits = [line for line in report if line["kind"] == "react_render" and start <= line["t"] <= end]
+        minute = sorted(wanted.get("each_minute", []))
+        def on_the_minute(line):
+            # The clock's own re-render (useMinuteClock): a commit of exactly what a minute's turn
+            # renders, within two seconds after a minute of the wall clock began.
+            since = (line["t"] + WALL_OFFSET_NS) % 60_000_000_000
+            return bool(minute) and sorted(render[0] for render in line["renders"]) == minute and since < 2_000_000_000
+        counted = [line for line in commits if not on_the_minute(line)]
+        tops = sorted(render[0] for line in counted for render in line["renders"])
+        components = sum(render[1] for line in counted for render in line["renders"])
+        def rendered(render):
+            names = sorted(render[2].items(), key=lambda item: (-item[1], item[0]))
+            return f"{render[0]} ({render[1]}: " + ", ".join(f"{name} {n}" for name, n in names[:12]) + (", …" if len(names) > 12 else "") + ")"
+        said = "; ".join(rendered(render) for line in counted for render in line["renders"]) or "nothing"
+        if "tops" in wanted and tops != sorted(wanted["tops"]):
+            fail(f"React re-rendered {said} (where each re-render began, with the components it rendered), "
+                 f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
+        if components > wanted.get("components_max", float("inf")):
+            fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]
@@ -2005,12 +2056,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # JavaScript's work on the CPU (report.h, `js_cpu_ms`); the frame's work below is a deadline,
         # by the wall clock.
         js = p95([line.get("js_cpu_ms", 0) for line in frames])
-        if js > wanted.get("js_ms_p95_max", float("inf")):
+        if SPEED_BUDGETS and js > wanted.get("js_ms_p95_max", float("inf")):
             fail(f"a frame of the resize ran {js:.1f} ms of JavaScript on the CPU at the 95th percentile "
                  f"({p95([line.get('js_ms', 0) for line in frames]):.1f} by the clock), expected at most "
                  f"{wanted['js_ms_p95_max']}")
         busy = p95([line.get("busy_ms", 0) for line in frames]) * refresh_hz / 1000
-        if busy > wanted.get("busy_refreshes_p95_max", float("inf")):
+        if SPEED_BUDGETS and busy > wanted.get("busy_refreshes_p95_max", float("inf")):
             fail(f"a frame of the resize took {busy:.2f} refreshes of work at the 95th percentile, expected at most "
                  f"{wanted['busy_refreshes_p95_max']}")
         if "zoom_presented_ms_max" in wanted:
@@ -2639,7 +2690,13 @@ def main():
                              "from the CPU frame's by more than 32 levels fails")
     parser.add_argument("--gpu-only", action="store_true",
                         help="compose on the Vulkan device alone, with no CPU reference (measures it)")
+    parser.add_argument("--speed-budgets", action="store_true",
+                        help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
+                             "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
+                             "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
+    global SPEED_BUDGETS
+    SPEED_BUDGETS = options.speed_budgets
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))

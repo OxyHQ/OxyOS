@@ -28,7 +28,9 @@ of the CPU. `--check` fails when a budget is exceeded:
 - an application or the shell doing nothing wakes at most once a second and uses at most 0.1 %
   of a core;
 - an application's first frame comes within half a second of its start;
-- each of Dropsea's responses (`responses`, below) within its scenario's budget at the median.
+- each of Dropsea's responses (`responses`, below) within its scenario's budget at the median;
+- the scenarios' own budgets on speed, which `regress.py` holds only when `perf.py` asks it to
+  (`--speed-budgets`, below, *What a step re-renders*).
 
 `responses` needs packages built with `DROPSEA_DIR` ([Expo applications from their own
 checkout](./react-native-android-adaptation#expo-applications-from-their-own-checkout)).
@@ -168,8 +170,9 @@ different questions:
 - **The loop thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's thread ran:
   JavaScript, with the Yoga layout and the text measuring it runs on the same thread, and every
   native part. Time the thread was scheduled out, or asleep waiting for something, is not in it.
-  Budgets on how much work JavaScript does (`regress.py`'s `js_work` and `resize_work`'s
-  `js_ms_p95_max`, `perf.py`'s shell budgets) are by it.
+  Budgets on how fast JavaScript does its work (`regress.py`'s `js_work.js_ms_max` and
+  `resize_work`'s `js_ms_p95_max`, `perf.py`'s shell budgets) are by it, and are held only on a
+  `perf.py` run (below).
 
 The rest of a part's wall time is not lost: it is either *preempted* (the thread ready while
 another had its CPU, the thread's `run_delay` in `/proc/thread-self/schedstat`) or *blocked* (the
@@ -203,7 +206,43 @@ A fixed loop timed the same way takes 9.2 ms by the CPU clock at the median on a
 machine, and 13–22 ms with a busy loop on every CPU: the work is the same, the CPU is slower. A
 budget on how much JavaScript does that a loaded machine cannot move needs a count of work rather
 than a time: instructions retired (a hardware counter, `perf_event_open`; none in a WSL2 guest) or
-what React rendered.
+what React rendered, which is what the gate now holds (below).
+
+### What a step re-renders
+
+Whether a step does what it claims, rendering what shows its change and nothing else, is a count,
+not a time: the same on any machine, however loaded. Each host's report has a `react_render` line
+for every commit of React's that rendered a component (`report.h`): where each re-render began (a
+component whose nearest component above did not render: its state, a context or a store it reads
+changed), how many components it rendered in all and which, read from React's own fibers as its
+DevTools read them (the PerformedWork flag React sets on a component whose render ran, and a
+subtree whose child is the one before not reconciled at all). A scenario's step holds them with
+`renders`: `tops`, exactly where the step's re-renders began ([] for none), and `components_max`,
+the most components they may render in all; a regression that renders the dock or the top bar
+again adds one of them, or their count, whatever the machine. `each_minute` names what the wall
+clock's minute turning renders (the shell's clock), not counted in the two seconds after a minute
+began.
+
+`shell-events.json` holds the shell so (`in_shell`): another window pressed, zoomed and restored
+renders no component (the windows' sizes are the overview's alone, `useWindowSizes`, so a window
+resized renders the overview when it is open and nothing while it is closed); the pointer entering
+the dock's first icon renders the icon and its button (`DockIcon`, `ButtonComponent`) and the
+tooltip (`PopupSurface`, its text `CssInterop.DisplayFaceText`), 37 components; moving over it,
+none; leaving it, the icon and its button again, 16. Each step also has a backstop on its
+JavaScript by the wall clock, two refreshes at 60 Hz (`js_work.js_wall_ms_max`: 33 ms), for a gross
+regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window change's,
+twice the most the heaviest load measured made of it (16.9 ms).
+
+Counting is done only while a report is written, about 0.03 ms a commit (the walk and the line);
+its few allocations move where Hermes' young collections fall, so a time measured with a report
+can gain or lose one (a collection of 1.5 ms fell in the dock's hover in these runs, which took 5.1
+ms of JavaScript with the count and 3.3 without it).
+
+Budgets on speed stay where a claim is about speed (`perf-dropsea-home.json`'s JavaScript per
+step, `window-resize.json`'s and `perf-dropsea-resize.json`'s per frame, the shell's in
+`perf.py`), and only `perf.py` holds them (it runs `regress.py --speed-budgets`), on the hardware
+they describe, the ThinkPad's: the deploy gate runs `regress.py` without it, so a machine loaded by
+other builds fails no budget on speed, and holds what every step must do.
 
 ## Method
 
@@ -257,13 +296,14 @@ frame, and files another program adds to the home (`home.later` with `after_ms`)
 the watch and listed again, to a budget of their own.
 
 **The shell** (`perf.py shell`). What the session's shell pays for an event, in `shell-events.json`
-on the ThinkPad's display (1600 × 1000 at 1.25): another window activated, zoomed by its green
+on the ThinkPad's display (1600 × 1000 at 1.25): another window pressed, zoomed by its green
 bubble and restored (each changes what the shell knows of that window and nothing it shows), and
-the pointer entering the dock's first icon, moving over it and leaving. For each, the most
-JavaScript any one piece of the shell's work ran on the shell's CPU (its report's `timing` lines: a
-frame's work, and work that drew none but ran JavaScript, which the report now has too), held to
-the scenario's `js_work` budget at the median: 2 ms for another window's change, 4 for the dock's
-hover; and its time blocked to a bound of its own.
+the pointer entering the dock's first icon, moving over it and leaving. What each re-renders is
+held by every run of the scenario (above, *What a step re-renders*); `perf.py` measures, for each,
+the most JavaScript any one piece of the shell's work ran on the shell's CPU (its report's `timing`
+lines: a frame's work, and work that drew none but ran JavaScript), and `--check` holds its median
+to the scenario's `js_work` budget on speed, 2 ms for another window's change and 4 for the dock's
+hover, and its time blocked to 1 ms.
 
 **Cold start.** An application's process started by the compositor to its first frame on the
 output, and the host's stages in between (its report's `stage` lines): the process reaching
@@ -523,8 +563,13 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   each part of the snapshot from the parts it reads, its Bloom providers outside what renders
   again; and the shell's regions (the top bar's menus, status, buttons and clock apart, the dock's
   icons, Launchpad, the overview, the panels) are memoized with handlers that stay the same, so a
-  change renders what shows it. `shell-events.json` holds it (`js_work`) and `perf.py shell`
+  change renders what shows it. `shell-events.json` holds it (`renders`) and `perf.py shell`
   measures it.
+- **Another window's size rendered the session's shell and its dock** (17 components for every
+  zoom, restore or resize): the windows' sizes were in the state `ShellSession` reads, for the
+  overview's cards alone. They are now apart (`useWindowSizes` in `sample/oxyos/shell-state.js`,
+  the platform's `useWindowSizes` in `apps/shell`), read by the overview only, so a window resized
+  renders no component of the shell while the overview is closed (`shell-events.json`, `renders`).
 - **The compositor read every client's whole buffer for every frame** (`Compositor::pixels`),
   though only a new frame has new pixels and the GPU path keeps what it uploaded: 3 ms a frame
   at 1600 × 1000 here, more at the ThinkPad's 1920 × 1200. A frame is now read once, when it is

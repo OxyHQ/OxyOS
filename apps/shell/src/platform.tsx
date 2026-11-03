@@ -53,6 +53,9 @@ export type MaskedProps = {
  * compositor draws the window there itself, fitted to `style`'s size in its proportions, clipped
  * as the view is, with the view's top-left corner radius. The shell never holds the pixels.
  */
+/** A window's size, in the proportions its overview card is drawn in (ADR 0022). */
+export type WindowSize = { width: number; height: number };
+
 export type WindowViewProps = {
   windowId: string;
   style?: StyleProp<ViewStyle>;
@@ -84,6 +87,11 @@ export type ShellPlatform = {
   /** Where the platform shows windows live (the overview's cards); without it, a window's
       `thumbnail` if it has one, or its icon. */
   WindowView?: ComponentType<WindowViewProps>;
+  /** The windows' sizes now, by window id, where the platform keeps them apart from the snapshot
+      (the session's shell): read by the overview alone, so that a window resized or zoomed renders
+      the overview, when it is open, and nothing else of the shell. Without it, each window's
+      `thumbnailSize`. */
+  useWindowSizes?: () => ReadonlyMap<string, WindowSize> | undefined;
   /** Says `text` to assistive technologies, politely (after what they are saying) or at once;
       without it, React Native's announcement, which interrupts. */
   announce?: (text: string, polite: boolean) => void;
