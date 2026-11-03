@@ -505,9 +505,7 @@ impl Scene {
     /// A key from the keyboard, or a repeat of the held one, where it goes.
     pub(super) fn route_keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
         self.user_input();
-        if pressed && !matches!(key, 125 | 126) {
-            self.not_super_alone();
-        }
+        self.key_with_super(key, pressed);
         self.hold_modifier(key, pressed);
         if self.reader_key(key, pressed)
             || self.hardware_key(key, pressed)

@@ -23,13 +23,29 @@
       ],
       "expect": {
         "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "transactions": [],
         "field": {
-          "text": ""
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
         }
       }
     },
     {
-      "name": "n i h a o: the engine composes ni hao, underlined, its caret at its end; React hears each change of the composition",
+      "name": "n i h a o: the engine composes ni hao, underlined, its caret at its end; React hears each change of the composition as Android's setComposingText makes it heard, and no key reaches the field but as the engine's transactions",
       "do": [
         "strokes",
         [
@@ -44,6 +60,88 @@
         "texts": [
           "Line: \"ni hao\" [6,6]"
         ],
+        "react": {
+          "change@line": 5,
+          "selectionChange@line": 5,
+          "keyPress@line": 5
+        },
+        "delivered": {
+          "1": {
+            "text_input": 5
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "n",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni h",
+            "cursor": [
+              4,
+              4
+            ],
+            "segments": [
+              [
+                0,
+                4,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni ha",
+            "cursor": [
+              5,
+              5
+            ],
+            "segments": [
+              [
+                0,
+                5,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni hao",
+            "cursor": [
+              6,
+              6
+            ],
+            "segments": [
+              [
+                0,
+                6,
+                "composing"
+              ]
+            ]
+          }
+        ],
         "field": {
           "text": "",
           "anchor": 0,
@@ -52,7 +150,7 @@
       }
     },
     {
-      "name": "Space takes the first candidate: 你好 committed, the composition gone",
+      "name": "Space takes the first candidate: 你好 committed as one change, the composition gone, the caret after it in UTF-16 units",
       "do": [
         "strokes",
         [
@@ -62,6 +160,21 @@
       "expect": {
         "texts": [
           "Line: \"你好\" [2,2]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "你好"
+          }
         ],
         "field": {
           "text": "你好",

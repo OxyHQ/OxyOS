@@ -339,3 +339,34 @@ fn while_locked_no_input_source_shortcut_acts() {
         }
     )));
 }
+
+#[test]
+fn a_super_chord_through_either_way_keys_come_is_never_the_search() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    logged(&mut h);
+    const F2: u32 = 60;
+    // Super+F2 as a client's key step sends it (`Scene::key`): the menu bar, not the search.
+    h.scene.key(SUPER, true);
+    h.scene.key(F2, true);
+    h.scene.key(F2, false);
+    h.scene.key(SUPER, false);
+    let shortcuts: Vec<SystemShortcut> = to(&logged(&mut h), SHELL)
+        .iter()
+        .filter_map(|e| match e {
+            Event::SystemShortcut { shortcut, .. } => Some(*shortcut),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shortcuts, [SystemShortcut::MenuBar]);
+    // Super alone that way is.
+    h.scene.key(SUPER, true);
+    h.scene.key(SUPER, false);
+    assert!(to(&logged(&mut h), SHELL).iter().any(|e| matches!(
+        e,
+        Event::SystemShortcut {
+            shortcut: SystemShortcut::Search,
+            ..
+        }
+    )));
+}

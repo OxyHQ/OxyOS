@@ -2042,7 +2042,8 @@ fn field_json(compositor: &Compositor) -> String {
 
 /// The text-input transactions the application was given during a step (ADR 0008), in order,
 /// each as its parts: the bytes deleted around the selection, the text committed, the
-/// composition, its cursor and its segments with their styles.
+/// composition, its cursor and its segments with their styles; for a field whose text is a
+/// secret, only `withheld`.
 fn transactions_json(session: &Session) -> String {
     let mut transactions = Vec::new();
     let (mut delete, mut commit, mut preedit) = ((0, 0), String::new(), String::new());
@@ -2070,7 +2071,32 @@ fn transactions_json(session: &Session) -> String {
                 "[{begin},{end},\"{}\"]",
                 format!("{style:?}").to_lowercase()
             )),
-            oxyos_protocol::Event::TextInputDone { .. } => {
+            oxyos_protocol::Event::TextInputDone { surface, .. } => {
+                // What is typed into a password, a PIN or a sensitive field is never written
+                // anywhere (ADR 0008, decision 4): only that a transaction was given.
+                let field = SurfaceKey {
+                    client: CLIENT,
+                    id: *surface,
+                };
+                let secret = session
+                    .compositor
+                    .scene
+                    .text_input(field)
+                    .is_none_or(|state| {
+                        matches!(
+                            state.purpose,
+                            oxyos_protocol::TextPurpose::Password
+                                | oxyos_protocol::TextPurpose::Pin
+                        ) || state.hints.contains(oxyos_protocol::TextHints::SENSITIVE)
+                    });
+                if secret {
+                    transactions.push("{\"withheld\":true}".to_string());
+                    (delete, cursor) = ((0, 0), (0, 0));
+                    commit.clear();
+                    preedit.clear();
+                    segments.clear();
+                    continue;
+                }
                 transactions.push(format!(
                     "{{\"delete\":[{},{}],\"commit\":{},\"preedit\":{},\"cursor\":[{},{}],\"segments\":[{}]}}",
                     delete.0,

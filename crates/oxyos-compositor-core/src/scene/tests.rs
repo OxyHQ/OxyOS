@@ -1403,9 +1403,8 @@ fn shortcuts_and_window_moves_do_not_wait_for_a_stalled_application() {
     assert_eq!(h.scene.focus(), Some(window));
     // APP never reads or answers from here on.
     h.clear_log();
+    // Super pressed alone: the search (ADR 0041).
     h.scene.key(SUPER, true);
-    h.scene.key(SPACE, true);
-    h.scene.key(SPACE, false);
     h.scene.key(SUPER, false);
     h.pump();
     assert_eq!(

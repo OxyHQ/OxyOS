@@ -94,6 +94,11 @@ pub struct InputMethods {
     field: Field,
     /// The key symbol the scene told before its key.
     symbol: Option<(u64, u32, u32)>,
+    /// The keys sent to the engine and not yet answered: their code and whether pressed.
+    keys: std::collections::BTreeMap<u64, (u32, bool)>,
+    /// Keys whose press the engine took: their release is taken too, so no application ever
+    /// sees half of a key the engine composed with.
+    taken: BTreeSet<u32>,
     /// The composition the field has, given again in a change that leaves it as it was.
     preedit: Option<oxyos_input_methods::Preedit>,
     emoji: Option<Emoji>,
@@ -331,6 +336,8 @@ impl InputMethods {
             connected: false,
             field: Field::default(),
             symbol: None,
+            keys: Default::default(),
+            taken: BTreeSet::new(),
             preedit: None,
             emoji: None,
             ready: false,
@@ -426,6 +433,8 @@ impl InputMethods {
                 }
                 compositor.local_clients.insert(CLIENT);
                 self.connected = true;
+                self.keys.clear();
+                self.taken.clear();
                 self.field = Field::default();
                 self.preedit = None;
             }
@@ -723,6 +732,7 @@ impl InputMethods {
                 time_ns,
                 ..
             } => {
+                self.keys.insert(serial, (key, pressed));
                 let (keysym, modifiers) = match self.symbol.take() {
                     Some((told, keysym, modifiers)) if told == serial => (keysym, modifiers),
                     _ => (0, 0),
@@ -760,6 +770,18 @@ impl InputMethods {
                 used,
                 change,
             } => {
+                let used = match self.keys.remove(&serial) {
+                    Some((code, true)) => {
+                        if used {
+                            self.taken.insert(code);
+                        } else {
+                            self.taken.remove(&code);
+                        }
+                        used
+                    }
+                    Some((code, false)) => self.taken.remove(&code) || used,
+                    None => used,
+                };
                 if self.connected {
                     self.apply(&mut compositor.scene, &change);
                     let _ = compositor

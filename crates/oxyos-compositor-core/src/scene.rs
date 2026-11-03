@@ -4251,6 +4251,7 @@ impl Scene {
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.end_repeat_for(key, pressed);
         self.user_input();
+        self.key_with_super(key, pressed);
         self.hold_modifier(key, pressed);
         if self.drag_key(key, pressed) {
             return;

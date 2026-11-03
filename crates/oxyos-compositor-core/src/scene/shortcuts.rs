@@ -205,6 +205,14 @@ impl Scene {
         self.system_keys.super_alone = false;
     }
 
+    /// A key from either way keys come in (`keyboard`, `key`), before anything takes it: a press
+    /// of any key but Super means Super is not pressed alone.
+    pub(super) fn key_with_super(&mut self, key: u32, pressed: bool) {
+        if pressed && !is_super(key) {
+            self.not_super_alone();
+        }
+    }
+
     /// Whether a press of `key` now would be the system's, as `system_key` decides, and if so
     /// whether it repeats while held (decision 8, docs/adr/0036-key-repeat.mdx): what moves does
     /// (the switcher's Tab, \`, ← and →; Super+\` through the active application's windows), what
