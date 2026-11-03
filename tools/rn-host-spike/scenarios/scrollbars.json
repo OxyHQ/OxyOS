@@ -1,0 +1,194 @@
+{
+  "about": "Overlay scrollbars as macOS draws them (sample/ScrollProbe.tsx; scrollbars.h): none at rest; a thin rounded thumb along the right edge while a list scrolls, fading out once it stops; none for a list whose indicator is hidden (showsVerticalScrollIndicator false); a persistent one (Android's persistentScrollbar) at rest; wide over a translucent track while the pointer is over it; its thumb dragged, React hearing a drag of the list as Android's View#handleScrollBarDragging gives it and no press reaching the rows; a press in its track paging. Each step checks what React received exactly, the offsets, each change of the scrollbars the host reported, and pixels of the thumb and track. At 1, in the light appearance.",
+  "module": "ScrollProbe",
+  "window": [
+    640,
+    400
+  ],
+  "steps": [
+    {
+      "name": "The wheel over the main list: its scrollbar appears, thin, and fades out once it stops; its scroll alone reaches React",
+      "do": [
+        "scroll",
+        [
+          300,
+          100,
+          50
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": 1
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            50
+          ]
+        },
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        },
+        "scrollbar_thumbs": {
+          "main": {
+            "y": [
+              451,
+              14,
+              6,
+              64
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "The wheel over a list without its vertical indicator (showsVerticalScrollIndicator false): it scrolls, and no scrollbar shows",
+      "do": [
+        "scroll",
+        [
+          540,
+          200,
+          50
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@hidden": 1
+        },
+        "scroll_offset": {
+          "hidden": [
+            0,
+            50
+          ]
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "A persistent scrollbar (Android's persistentScrollbar) shows at rest, thin, as NSScroller's knob of the appearance",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "scrollbars": {},
+        "pixels": {
+          "614,23": "#808080",
+          "605,23": "#ffffff",
+          "614,60": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "The pointer over the main list's scrollbar: it shows wide over its track and stays while the pointer is there; the pointer's moves reach the rows as before",
+      "do": [
+        "move_paced",
+        [
+          300,
+          100,
+          452,
+          100,
+          4,
+          60
+        ]
+      ],
+      "expect": {
+        "scrollbars": {
+          "shown@main": 1,
+          "wide-y@main": 1
+        },
+        "scrollbar_thumbs": {
+          "main": {
+            "y": [
+              448,
+              14,
+              9,
+              64
+            ]
+          }
+        },
+        "pixels": {
+          "452,46": "#7e7e7e",
+          "447,200": "#fbfbfb",
+          "440,200": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "The thumb dragged 50 down: the list follows, the track's free length to its content's, as Android's View#handleScrollBarDragging; React hears a drag (begin, scrolls, end) and no press reaches the rows",
+      "do": [
+        "drag",
+        [
+          452,
+          40,
+          452,
+          90
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@main": 1,
+          "scroll@main": 2,
+          "scrollEndDrag@main": 1
+        },
+        "react_presses": {},
+        "scroll_offset": {
+          "main": [
+            0,
+            269.0476
+          ]
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "A press in the track below the thumb pages down (Safari's page), animated, as NSScroller pages; no press reaches the rows",
+      "do": [
+        "press",
+        [
+          452,
+          260
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@main": [
+            6,
+            17
+          ]
+        },
+        "react_presses": {},
+        "scroll_offset": {
+          "main": [
+            0,
+            514
+          ]
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "The pointer leaving it: it fades out",
+      "do": [
+        "move_paced",
+        [
+          452,
+          100,
+          300,
+          100,
+          4,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "scrollbars": {
+          "hidden@main": 1
+        }
+      }
+    }
+  ]
+}

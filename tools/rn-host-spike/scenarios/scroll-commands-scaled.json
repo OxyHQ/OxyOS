@@ -1,0 +1,103 @@
+{
+  "about": "JavaScript's ScrollView commands (sample/ScrollProbe.tsx), as ReactScrollViewManager receives them: scrollTo animated as ReactScrollViewHelper.smoothScrollTo (250 ms, AccelerateDecelerate, its momentum events framing it), scrollToEnd at once, flashScrollIndicators showing the scrollbar and fading it, no other scroll showing it. At 1.25 (a 1600x1000 output).",
+  "module": "ScrollProbe",
+  "window": [
+    640,
+    400
+  ],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "JavaScript's animated scrollTo (Jump): as ReactScrollViewHelper.smoothScrollTo, its momentum events framing its scrolls, and no scrollbar (a Mac's programmatic scroll shows none)",
+      "do": [
+        "press",
+        [
+          50,
+          370
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@jump": 1,
+          "touchEnd@jump": 1,
+          "momentumScrollBegin@main": 1,
+          "scroll@main": [
+            6,
+            17
+          ],
+          "momentumScrollEnd@main": 1
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            400
+          ]
+        },
+        "scrollbars": {},
+        "host_input": {
+          "scroll.command": 1
+        },
+        "texts": [
+          "Pressed jump"
+        ]
+      }
+    },
+    {
+      "name": "JavaScript's scrollToEnd, not animated (Tail): at once to the end, one scroll",
+      "do": [
+        "press",
+        [
+          160,
+          370
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@tail": 1,
+          "touchEnd@tail": 1,
+          "scroll@main": 1
+        },
+        "scroll_offset": {
+          "main": [
+            0,
+            920
+          ]
+        },
+        "scrollbars": {},
+        "host_input": {
+          "scroll.command": 1
+        },
+        "texts": [
+          "Pressed tail"
+        ]
+      }
+    },
+    {
+      "name": "JavaScript's flashScrollIndicators (Flash): the scrollbar shown and faded out, nothing scrolled, as Android's awakenScrollBars",
+      "do": [
+        "press",
+        [
+          270,
+          370
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@flash": 1,
+          "touchEnd@flash": 1
+        },
+        "scroll_offset": {},
+        "scrollbars": {
+          "shown@main": 1,
+          "hidden@main": 1
+        },
+        "host_input": {
+          "scroll.command": 0
+        },
+        "texts": [
+          "Pressed flash"
+        ]
+      }
+    }
+  ]
+}

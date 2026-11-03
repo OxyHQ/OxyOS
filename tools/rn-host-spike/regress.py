@@ -161,6 +161,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   went back to none by the step's end, only ever shrinking once it began to (a spring from rest
   that does not overshoot), in at least "frames_min" changes; "caught_ms", that it was held still while it
   showed for at least that long (fingers resting on the touchpad catching it as it sprang back);
+- scrollbars: the scroll views' overlay scrollbars (scrollbars.h) changing in the step, as the host
+  reported each change, counted exactly as "event@testID": "shown" as they appear, "wide-x" or
+  "wide-y" as the pointer over one brings it wide, "hidden" once faded out; "scrollbar_thumbs",
+  where each view's thumbs were in the window (logical pixels) as last reported in the step,
+  {testID: {"x"|"y": [x, y, width, height]}};
 - glide: for a `flick` step (a `scroll_paced` whose fingers then lift), the scroll view
   ("view", by testID) the fingers flung, as Android's ScrollView flings: the velocity the host
   measured at the lift ("velocity": [least, most] in logical pixels a second, along the offset);
@@ -2078,8 +2083,29 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for line in report:
             if line["kind"] == "deliver" and line["event"] == "scroll" and start <= line["t"] <= end:
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
-        if offsets != expect["scroll_offset"]:
-            fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+        # Exactly, but for a float's precision (an offset on a 1.25 display's pixels, 4.8, is reported
+        # as the float nearest it).
+        wanted = expect["scroll_offset"]
+        if set(offsets) != set(wanted) or any(abs(a - b) > 1e-3 for k in wanted for a, b in zip(offsets[k], wanted[k])):
+            fail(f"scroll offsets {offsets}, expected exactly {wanted}")
+    if "scrollbars" in expect or "scrollbar_thumbs" in expect:
+        # The scroll views' overlay scrollbars (scrollbars.h) in this step, as the host reported them
+        # changing: "scrollbars", each change counted exactly as "event@testID" (shown, wide-x and
+        # wide-y as the pointer brings one wide, hidden once faded out); "scrollbar_thumbs", where
+        # each view's thumbs were in the window as last reported ({testID: {axis: [x, y, w, h]}}).
+        changes, thumbs = {}, {}
+        for line in report:
+            if line["kind"] == "scrollbar" and start <= line["t"] <= end:
+                key = f"{line['event']}@{line['target']}"
+                changes[key] = changes.get(key, 0) + 1
+                thumbs[line["target"]] = line.get("thumbs", {})
+        if "scrollbars" in expect and changes != expect["scrollbars"]:
+            fail(f"the scrollbars changed {changes}, expected exactly {expect['scrollbars']}")
+        for target, wanted in expect.get("scrollbar_thumbs", {}).items():
+            got = thumbs.get(target, {})
+            if any(got.get(axis) is None or any(abs(a - b) > 0.01 for a, b in zip(got[axis], rect))
+                   for axis, rect in wanted.items()):
+                fail(f"{target}'s scrollbar thumbs were last at {got}, expected {wanted}")
     if "host_input" in expect:
         # What the host reported handling in this step (Report::input), counted by name, exactly.
         counts = {}

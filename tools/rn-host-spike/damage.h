@@ -27,6 +27,8 @@ class WindowDamage {
   // - an Image view showing another picture; an expo-image view drawing other layers (a frame of a
   //   transition or an animation);
   // - the text input whose caret, selection or composition moved;
+  // - a scroll view's overlay scrollbars appearing, fading, growing or going: the bands along its
+  //   right and bottom edges they are drawn in (scrollbars.h);
   // - the whole window while a modal animates in or out (its window moves or fades over it).
   // - a plain fill (renderer.h's drawsFlat) resized in place, only where it gained or lost area;
   // - a window resized, all it gained (and, while a modal shows, all of it).
@@ -63,6 +65,7 @@ class WindowDamage {
   std::vector<std::pair<facebook::react::Tag, ModalPresentation>> presented_;
   std::vector<ViewTree::Leaving> leaving_;
   std::map<facebook::react::Tag, facebook::react::Point> stretched_;
+  std::map<facebook::react::Tag, ScrollbarShown> scrollbars_;
 };
 
 }  // namespace oxyos

@@ -1,0 +1,660 @@
+{
+  "about": "Tab bringing each control into view (sample/ScrollProbe.tsx; docs/adr/0039-keyboard-access.mdx, decision 1), as Android's ScrollView.requestChildFocus does for each scroll view a focused control is in: at once, by the least move that shows it with its focus ring (5 round it, on the display's pixels), one scroll event each, never past the content's end, and no scrollbar shown (a Mac's does not as Tab moves). Tab down the list's rows, along the chips (a scroll view in a scroll view: each brings it into view, the list the chips' row, which clips the ring) to the last row; then, with the chips and the list moved back by Home, Shift+Tab to the last chip brings it in through both. at 1.",
+  "module": "ScrollProbe",
+  "window": [
+    640,
+    400
+  ],
+  "steps": [
+    {
+      "name": "Tab: field, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@field": 1,
+          "selectionChange@field": [
+            1,
+            2
+          ]
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "field",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: stepper, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@stepper": 1,
+          "blur@field": 1,
+          "endEditing@field": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "stepper",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-0, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-0": 1,
+          "blur@stepper": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "row-0",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-1, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-1": 1,
+          "blur@row-0": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "row-1",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-2, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-2": 1,
+          "blur@row-1": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "row-2",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-3, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-3": 1,
+          "blur@row-2": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "row-3",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-4, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-4": 1,
+          "blur@row-3": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            5
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-4",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-5, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-5": 1,
+          "blur@row-4": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            45
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-5",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-6, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-6": 1,
+          "blur@row-5": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            85
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-6",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-7, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-7": 1,
+          "blur@row-6": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            125
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-7",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-8, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-8": 1,
+          "blur@row-7": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            165
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-8",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-9, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-9": 1,
+          "blur@row-8": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            205
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-9",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-10, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-10": 1,
+          "blur@row-9": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            245
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-10",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-11, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-11": 1,
+          "blur@row-10": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            285
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-11",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: chip-0, in a scroll view in a scroll view: each brings it into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@chip-0": 1,
+          "blur@row-11": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            320
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-0",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: chip-1, already in view: nothing scrolls",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@chip-1": 1,
+          "blur@chip-0": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "chip-1",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: chip-2, in a scroll view in a scroll view: each brings it into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@chip-2": 1,
+          "blur@chip-1": 1,
+          "scroll@chips": 1
+        },
+        "scroll_offset": {
+          "chips": [
+            45,
+            0
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-2",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: chip-3, in a scroll view in a scroll view: each brings it into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@chip-3": 1,
+          "blur@chip-2": 1,
+          "scroll@chips": 1
+        },
+        "scroll_offset": {
+          "chips": [
+            125,
+            0
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-3",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: chip-4, in a scroll view in a scroll view: each brings it into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@chip-4": 1,
+          "blur@chip-3": 1,
+          "scroll@chips": 1
+        },
+        "scroll_offset": {
+          "chips": [
+            205,
+            0
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-4",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: chip-5, in a scroll view in a scroll view: each brings it into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@chip-5": 1,
+          "blur@chip-4": 1,
+          "scroll@chips": 1
+        },
+        "scroll_offset": {
+          "chips": [
+            280,
+            0
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-5",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-12, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-12": 1,
+          "blur@chip-5": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            365
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-12",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Tab: row-13, brought into view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "focus@row-13": 1,
+          "blur@row-12": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            400
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-13",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    },
+    {
+      "name": "Shift+Tab: row-12, in view",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@row-13": 1,
+          "focus@row-12": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "row-12"
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: chip-5, in view",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@row-12": 1,
+          "focus@chip-5": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "chip-5"
+        }
+      }
+    },
+    {
+      "name": "Home with chip-5 focused: the chips (the scroll view it is in) to their start",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "react": {
+          "scroll@chips": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "chips": [
+            0,
+            0
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-5"
+        }
+      }
+    },
+    {
+      "name": "Tab: row-12, in view",
+      "do": [
+        "key",
+        15
+      ],
+      "expect": {
+        "react": {
+          "blur@chip-5": 1,
+          "focus@row-12": 1
+        },
+        "scroll_offset": {},
+        "keyboard_focus": {
+          "target": "row-12"
+        }
+      }
+    },
+    {
+      "name": "Home with row-12 focused: the list to its top, row-12 and the chips out of view",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "react": {
+          "scroll@list": [
+            6,
+            17
+          ]
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            0
+          ]
+        },
+        "keyboard_focus": {
+          "target": "row-12"
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: chip-5, out of view in both: the chips bring it in, then the list the chips' row, one scroll each",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "expect": {
+        "react": {
+          "blur@row-12": 1,
+          "focus@chip-5": 1,
+          "scroll@chips": 1,
+          "scroll@list": 1
+        },
+        "scroll_offset": {
+          "chips": [
+            280,
+            0
+          ],
+          "list": [
+            0,
+            320
+          ]
+        },
+        "keyboard_focus": {
+          "target": "chip-5",
+          "ring": true
+        },
+        "scrollbars": {}
+      }
+    }
+  ]
+}

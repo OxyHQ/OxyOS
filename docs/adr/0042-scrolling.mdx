@@ -1,0 +1,80 @@
+---
+title: "ADR 0042: Scrolling as on a Mac"
+description: How a scroll view on OxyOS scrolls from the wheel, the touchpad, the keyboard, its scrollbars, Tab and JavaScript, measured against macOS and React Native's Android ScrollView; overlay scrollbars as macOS draws them; keyboard scrolling; what was missing, what was built, and what remains.
+order: 51
+---
+
+# ADR 0042: Scrolling as on a Mac
+
+Status: **accepted; implemented** (the Bloom host: `input.h`, `scrollbars.h`, `scroll-physics.h`, `bloom-host.cpp`'s keys). Builds on [ADR 0039](./0039-keyboard-access) (Full Keyboard Access: which control has the keyboard, decision 1's scroll views), [ADR 0037](./0037-text-editing) (what a field does with its keys; Ctrl is the applications' ⌘) and the Scrolling and Overscroll rows of [the Android adaptation](../react-native-android-adaptation) (the wheel, the touchpad's drag and glide, the stretch).
+
+## Problem
+
+The Bloom host plays Android for what React receives (React Native's Android `ReactScrollView`, `OverScroller`, `View`'s scrollbars) and macOS for what the person sees. An audit of scrolling against both found the wheel, the touchpad's drag and glide and Android 12's stretch done and checked, and four gaps:
+
+- **No scrollbars at all.** Nothing showed where a list was or how long it was; `showsVerticalScrollIndicator` and `persistentScrollbar` were ignored, and there was nothing to drag.
+- **No keyboard scrolling.** Page Down, Space, the arrows, Home and End scrolled nothing outside a text field; a person without a touchpad or wheel could read only what Tab reached.
+- **Tab's scroll-to-focused** scrolled only the innermost scroll view, by a margin of 8 that was neither Android's (0) nor the focus ring's, and pushed the top of a control taller than its view out of it; no scenario checked it.
+- **JavaScript's ScrollView commands were dropped:** `scrollTo`, `scrollToEnd` and `flashScrollIndicators` did nothing (the host passed commands only to text inputs), so `FlatList.scrollToIndex`, a chat's jump to its end and the shell's overview, which positions its desktops with `scrollTo`, never moved.
+
+## Decision
+
+1. **A wheel's notch moves at once**, as Android's `ScrollView` takes a wheel and as AppKit's `NSScrollView` takes a mouse's discrete wheel (the smoothing a Mac user sees in a browser is the browser engine's own, and the reason utilities such as Mos exist). The adaptation's earlier remark that macOS animates it was wrong and is corrected. A touchpad's continuous scroll stays Android 14's drag and glide.
+
+2. **Overlay scrollbars, as macOS draws its overlay scrollers** (`scrollbars.h`), drawn by the host with Skia over each scroll view's content, unscrolled and unstretched, within its padding box:
+   - **What shows:** nothing at rest. A scroll the person makes (the wheel, the touchpad's drag and glide, the keyboard, the scrollbar itself, a screen reader's scroll action) shows a thin thumb along the far edge of each axis the content scrolls along; it holds 500 ms after the last movement and fades out over 250 ms (Android's fade, `ViewConfiguration.getScrollBarFadeDuration`). JavaScript's scrolls and Tab's scroll-to-focused show none, as a Mac's programmatic scrolls do not; `flashScrollIndicators` shows them and fades them, as Android's `awakenScrollBars`.
+   - **How it looks:** the thumb 6 logical pixels wide, 3 from the view's edge and from the track's ends, never shorter than 20, its length the viewport's share of the content and its place the offset's share of the way, fully rounded; with the pointer over the track (15 wide, a legacy scroller's width) it grows to 9 over 120 ms and a translucent track with a hairline on its inner edge comes in, and it stays shown while the pointer is there, as a Mac's does even over a scrollbar that was hidden. Both bars shown, each track stops short of the other's corner. Every edge is on a whole pixel of the display (`scrollbarGeometry`), so it is crisp at 1.25.
+   - **Colours:** NSScroller's knob styles: a dark thumb (black at 50%, a white hairline at 35%) in the light appearance and a light one (white at 50%, a black hairline at 25%) in the dark; `indicatorStyle` `black` or `white` chooses one. The track is near-white (#fafafa at 80%) or near-black (#2b2b2b at 80%).
+   - **Props:** `showsVerticalScrollIndicator` and `showsHorizontalScrollIndicator` hide one; Android's `persistentScrollbar` (`setScrollbarFadingEnabled(false)`) keeps them shown at rest. All three are in React Native's portable `BaseScrollViewProps`.
+   - **The pointer on it:** a press on a scrollbar that shows is the scrollbar's, as a Mac's scroller takes it: nothing under it is pressed (no pointer event, no touch). On the thumb it drags, the content following the pointer by the track's free length to the content's, as Android's `View#handleScrollBarDragging` moves a `ScrollView`; React hears what Android's `ReactScrollView` sends for it: `onScrollBeginDrag` as it is taken (`handleInterceptedTouchEvent`), `onScroll` as it moves, and `onScrollEndDrag` (velocity 0) as it is let go, which Android does not send (`View.dispatchTouchEvent` gives the release to the scrollbar before `ReactScrollView.onTouchEvent` would end the drag), so that the drag JavaScript was told began also ends. A press in the track pages towards it, animated, as NSScroller pages, and again every 100 ms after 400 ms while held, until the thumb reaches the pointer; Android's track does nothing.
+   - **Damage:** a change of what shows damages the bands along the view's right and bottom edges only, not its content.
+
+3. **Keyboard scrolling, as a Mac's scroll view takes the keys its first responder leaves** and Android's `ScrollView.executeKeyEvent` takes them for React:
+   - **The keys and their steps:** Page Down and Page Up, Space and Shift+Space, a page; ↓ and ↑ a line down a view, → and ← across one; Home and End, and Ctrl+↓ and Ctrl+↑ (a Mac's ⌘↓ and ⌘↑), to the ends. The steps are Safari's WebKit's on a Mac (and Chromium's): a line is 40 logical pixels (`Scrollbar::pixelsPerLineStep`), a page the view's length less the 40 kept in sight, at least seven eighths of it (`Scrollbar::pageStep`). Android's own steps are not taken: its page is the whole height and moves the focus into the new page, and its arrows move the focus to the next control (`arrowScroll`), which on a Mac is Tab's.
+   - **The motion:** animated as Android's `ScrollView.smoothScrollBy` animates them (`OverScroller.startScroll`: 250 ms on Scroller's viscous-fluid curve), stepped once a frame; React hears only its `onScroll` events, as Android sends for one. A key pressed while one animates (a key held down, repeating) goes on from where that one was going, so the view glides on as a Mac's does under a repeating key, where Android's `ScrollView` jumps (`ANIMATED_SCROLL_GAP`). Offsets land on the display's pixels.
+   - **Which scroll view:** the innermost around the keyboard's focus that can move that way, outward when it cannot (nested scroll views, as a key goes up Android's view tree); with the focus in no scroll view (or none at all), the window's main one, the largest that scrolls that way (the main one across for → and ←). A dialog popup's and a shell region's keys scroll theirs; a menu's keys are its own.
+   - **What keeps its keys:** a focused text field keeps every one of them ([ADR 0037](./0037-text-editing)); a focused control keeps those it uses, before scrolling: Space and Return on a button, the arrows on an adjustable control ([ADR 0039](./0039-keyboard-access)), and the keys Bloom's own controls take (offered to JavaScript first: a segmented control's arrows, a list's Space). Shift with any key but Space, Alt and Super scroll nothing.
+   - **Nothing leaked:** a key a scroll view takes reaches nothing else, nor its release. A scroll view at its end still takes the key, as a Mac's does, and nothing moves or hears it.
+
+4. **Tab brings the focused control into view in every scroll view it is in** (`PointerInput::reveal`), innermost first, as Android's `ScrollView.requestChildFocus` does for each: at once, by the least move that shows it (`computeScrollDeltaToGetChildRectOnScreen`: the bottom brought up, or the top down; a control taller than the view shows its top), never past the content's end, one scroll event each. What it brings into view is the control with its focus ring round it (`kFocusRingReach`, 5 logical pixels, on the display's pixels), so the ring is never cut by the scroll view's edge. The rectangle an outer scroll view brings in is the control's as the inner one shows it (clipped by it), as AppKit's `scrollRectToVisible` passes a rectangle up its clip views; React Native's Android `ReactScrollView.scrollToChild` brings the whole inner scroll view instead. Offsets are worked out from the host's own offsets, not the tree's, which the commit carrying an inner scroll may not have reached yet.
+
+5. **JavaScript's ScrollView commands, as `ReactScrollViewManager` receives them:** `scrollTo` [x, y, animated] and `scrollToEnd` [animated] stop a glide or an animation first (`abortAnimation`), then go at once (one `onScroll`) or animated as `ReactScrollViewHelper.smoothScrollTo` animates them: an animator of the default scroll duration (250 ms) on `AccelerateDecelerateInterpolator`, its momentum events framing it (`startFlingAnimator`; sent whether JavaScript listens or not, as the host's momentum events are, the Scrolling row). `scrollToEnd` goes to the end of the axis the content scrolls along. A press, a wheel or fingers stop an animated scroll, as a touch aborts Android's scroller.
+
+## The audit
+
+| Behaviour | macOS | Android, React Native | OxyOS before | OxyOS now | Checked by | Remains |
+| --- | --- | --- | --- | --- | --- | --- |
+| Wheel's notch | Steps at once (AppKit) | `onGenericMotionEvent`: at once | At once | At once (decision 1) | `sample`, `touchpad-scroll`, `touchpad-scroll-scaled` | — |
+| Touchpad drag, glide, resting fingers | Momentum, stopped by resting fingers | `GestureConverter` drag, `OverScroller` fling | Done | Unchanged | `touchpad-scroll`, `touchpad-hold` (each `-scaled`) | — |
+| Past the ends | Rubber band | Android 12's stretch | Stretch | Unchanged | `overscroll`, `overscroll-scaled` (not in the gate) | The rubber band is not followed |
+| Page Down, Page Up, Space, Shift+Space | A page (Safari: height − 40, ≥ ⅞) | `pageScroll`: the whole height, focus moved | Nothing | Safari's page, animated, focus kept | `scroll-keys`, `scroll-keys-scaled` | — |
+| ↑ ↓ ← → | A line (40) | `arrowScroll`: focus to the next control, else half a page | Nothing | A line, animated | `scroll-keys` (each `-scaled`) | — |
+| Home, End, ⌘↑, ⌘↓ | The ends | `MOVE_HOME`, `MOVE_END`, Alt+↑↓: `fullScroll` | Nothing | The ends (Ctrl for ⌘) | `scroll-keys` (each `-scaled`) | — |
+| Which scroll view takes a key | The responder chain | The focused view's ancestors | — | The focus's, outward; else the main one | `scroll-keys` (each `-scaled`) | — |
+| A field, a button, an adjustable control keep their keys | First responder first | Focused view first | — | Yes; nothing leaked | `scroll-keys` (each `-scaled`) | — |
+| A key held | Glides on | Jumps within 250 ms | — | Glides on | Not by a scenario (the director has no repeating key) | A scenario holding a key |
+| Overlay scrollbars while scrolling | Overlay scrollers, fading | `View` scrollbars, 300 + 250 ms | None | Thin thumb, 500 + 250 ms, whole pixels | `scrollbars`, `scrollbars-scaled` (and each scrolling scenario's report) | No flash as a scroll view first appears |
+| `showsVerticalScrollIndicator`, `showsHorizontalScrollIndicator`, `persistentScrollbar`, `indicatorStyle` | — | Honoured | Ignored | Honoured | `scrollbars` (each `-scaled`) | `scrollIndicatorInsets` (iOS's) ignored |
+| Pointer over a scrollbar | Wide, with a track | — | — | Wide over 120 ms, its track | `scrollbars` (each `-scaled`) | — |
+| Dragging the thumb | Tracks the pointer | `handleScrollBarDragging`; begin drag, scrolls, no end | — | Tracks it; begin, scrolls, end; no press below | `scrollbars` (each `-scaled`) | — |
+| A press in the track | Pages, repeating while held | Nothing | — | Pages, animated, repeating while held | `scrollbars` (each `-scaled`): one page | The repeat is checked by no scenario |
+| Dark appearance | Light knob | — | — | Light knob, dark track | `scrollbars-scaled` | — |
+| Tab to a control out of view | `scrollRectToVisible` | `requestChildFocus` in each scroll view | Innermost only, margin 8, tall controls' tops cut | Each, with the ring, Android's delta | `scroll-reveal`, `scroll-reveal-scaled` | — |
+| `scrollTo`, `scrollToEnd`, `flashScrollIndicators` | — | `ReactScrollViewManager` | Dropped | As Android's, animated or at once | `scroll-commands`, `scroll-commands-scaled` | — |
+| `snapToInterval`, `snapToOffsets`, `pagingEnabled` | — | `smoothScrollAndSnap` | Not done | Not done | — | A glide does not snap |
+
+## Tests
+
+Host scenarios at 1 and 1.25 on `sample/ScrollProbe.tsx`, each step checking exactly what React received and how often, the offsets, the keyboard's focus, what the host took and each change of the scrollbars the host reported (`scrollbars`, `scrollbar_thumbs` in `regress.py`), pixels as a complement:
+
+- `scroll-keys`, `scroll-keys-scaled`: every key above with nothing focused (the main list, the strip across), in a field (kept), on an adjustable stepper (kept), on a row (the row's list, its Space a press), at the end (taken, nothing moves), and with the focus on a button in no scroll view (the main list).
+- `scroll-reveal`, `scroll-reveal-scaled`: Tab down every row, along the chips (a scroll view in a scroll view) and back, each offset exact, one scroll event each, no scrollbar; Shift+Tab to a chip out of view in both scroll views brings it in through both.
+- `scrollbars`, `scrollbars-scaled` (light at 1, dark at 1.25): the wheel shows and fades the thumb; no bar where the indicator is hidden; a persistent bar at rest; the pointer over the bar brings it wide with its track (pixels); its thumb dragged (a drag to React, no press below, the offset by the track's ratio); a press in the track pages; the pointer leaving fades it.
+- `scroll-commands`, `scroll-commands-scaled`: `scrollTo` animated (momentum begin, scrolls, end, the offset), `scrollToEnd` at once, `flashScrollIndicators` (shown, faded, nothing scrolled), no scrollbar for the scrolls.
+
+## Not in this decision
+
+- Snapping (`snapToInterval`, `snapToOffsets`, `pagingEnabled`), a glide's end left where the spline puts it.
+- macOS's rubber band (OxyOS follows Android 12's stretch) and the thumb shrinking while it shows.
+- Scrollbars flashing as a scroll view first appears; a preference to always show scrollbars (a Mac's "Show scroll bars: Always").
+- Option+click in the track (jump to the spot), and an accessibility scroll action's animation.

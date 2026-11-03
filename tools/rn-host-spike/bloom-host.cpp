@@ -41,6 +41,7 @@
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
+#include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 #include <cxxreact/JSBigString.h>
@@ -863,6 +864,11 @@ int main(int argc, char** argv) {
       return popups.content(surface);
     });
     pointer.takesPointerModifiers(window->protocolVersion() >= 8);
+    pointer.locatesSurfaces([&](facebook::react::Tag view) {
+      uint32_t surface = popups.surfaceOf(view);
+      if (surface == oxyos::Window::kToplevel) surface = shellSurfaces.surfaceOf(view).value_or(surface);
+      return surface;
+    });
     // Drags over this client's surfaces reach the drop targets under them, and its own drags start
     // from the press it holds (drag.h).
     oxyos::DragDrop dragDrop(tree, *window, [&](uint32_t surface) -> std::optional<oxyos::SurfaceContent> {
@@ -1361,6 +1367,8 @@ int main(int argc, char** argv) {
     };
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
+      // A ScrollView's: scrollTo, scrollToEnd, flashScrollIndicators (input.h).
+      pointer.command(view, name, args);
     };
     // Keyboard focus beyond text fields (keyboard-focus.h, docs/adr/0039-keyboard-access.mdx): the
     // control Tab reached, its ring, and where it goes back to when a modal leaves.
@@ -1393,27 +1401,9 @@ int main(int argc, char** argv) {
       auto path = oxyos::ancestry(tree, tag);
       return std::find(path.begin(), path.end(), root) != path.end();
     };
-    // The scroll views around a focused control bring it into view, as Android's requestFocus asks
-    // its parents to (ScrollView.requestChildFocus).
-    auto reveal = [&](facebook::react::Tag tag, uint32_t surface) {
-      auto frame = oxyos::windowFrame(tree, tag);
-      if (!frame) return;
-      auto path = oxyos::ancestry(tree, tag);
-      for (auto at = path.rbegin() + 1; at < path.rend(); ++at) {
-        const auto& view = tree.views().at(*at).view;
-        if (std::string(view.componentName ? view.componentName : "") != "ScrollView") continue;
-        auto box = oxyos::windowFrame(tree, *at);
-        if (!box) continue;
-        constexpr float kMargin = 8;
-        float dy = 0, dx = 0;
-        if (frame->origin.y < box->origin.y) dy = frame->origin.y - box->origin.y - kMargin;
-        else if (frame->getMaxY() > box->getMaxY()) dy = frame->getMaxY() - box->getMaxY() + kMargin;
-        if (frame->origin.x < box->origin.x) dx = frame->origin.x - box->origin.x - kMargin;
-        else if (frame->getMaxX() > box->getMaxX()) dx = frame->getMaxX() - box->getMaxX() + kMargin;
-        if (dx != 0 || dy != 0) pointer.scrollView(*at, dx, dy, surface);
-        return;
-      }
-    };
+    // The scroll views around a focused control bring it and its ring into view, as Android's
+    // requestFocus asks its parents to (ScrollView.requestChildFocus), each in turn (input.h).
+    auto reveal = [&](facebook::react::Tag tag, uint32_t surface) { pointer.reveal(tag, surface, oxyos::kFocusRingReach); };
     auto redrawFocus = [&] {
       dirty = true;
       popups.changed();
@@ -1616,6 +1606,101 @@ int main(int argc, char** argv) {
         if (offers) return up ? NavigationKey::Increment : NavigationKey::Decrement;
       }
       return std::nullopt;
+    };
+    // Scrolling from the keyboard, as a Mac's scroll view takes the keys its first responder leaves
+    // (Safari's steps, scroll-physics.h) and Android's ScrollView.executeKeyEvent takes them for
+    // React: Page Down and Page Up, Space and Shift+Space a page; the arrows a line, ↑ ↓ down a
+    // view, ← → across one; Home and End, Ctrl+↑ and Ctrl+↓, to its ends; each animated as
+    // smoothScrollBy animates it.
+    // The scroll view is the innermost around the keyboard's focus that moves that way (outward
+    // when it cannot), else, with the focus in no scroll view, the window's main one (the largest
+    // that scrolls that way). A focused text field keeps every one of these keys, and a focused
+    // control keeps those it uses (Space on a button, the arrows on a slider, before this; Bloom's
+    // own keys, offered to JavaScript first). A key taken reaches nothing else, nor its release.
+    auto keyScroll = [&](const OxyOSEvent& event) -> bool {
+      if (event.kind != OXYOS_EVENT_KEY || !event.flag || heldAlt || heldMeta) return false;
+      constexpr uint32_t kSpace = 57, kPageUp = 104, kPageDown = 109, kHome = 102, kEnd = 107, kUp = 103,
+                         kDown = 108, kLeft = 105, kRight = 106;
+      if (heldShift && (event.code != kSpace || heldCtrl)) return false;
+      // Ctrl is the applications' ⌘ (docs/adr/0037-text-editing.mdx): Ctrl+↑ and Ctrl+↓ go to the
+      // ends, as ⌘↑ and ⌘↓ do in a Mac's scroll view.
+      if (heldCtrl && event.code != kUp && event.code != kDown) return false;
+      int axis = 1;
+      enum class Step { Line, Page, Edge } step;
+      int direction = 1;
+      switch (event.code) {
+        case kSpace: step = Step::Page; direction = heldShift ? -1 : 1; break;
+        case kPageDown: step = Step::Page; break;
+        case kPageUp: step = Step::Page; direction = -1; break;
+        case kDown: step = heldCtrl ? Step::Edge : Step::Line; break;
+        case kUp: step = heldCtrl ? Step::Edge : Step::Line; direction = -1; break;
+        case kRight: step = Step::Line; axis = 0; break;
+        case kLeft: step = Step::Line; axis = 0; direction = -1; break;
+        case kEnd: step = Step::Edge; break;
+        case kHome: step = Step::Edge; direction = -1; break;
+        default: return false;
+      }
+      auto scope = navigationScope(event.surface);
+      if (scope < 0) return false;
+      if (editing.focused() >= 0 && insideOf(editing.focused(), scope)) return false;
+      auto alongAxis = [&](facebook::react::Tag tag, int along) {
+        auto range = pointer.scrollRange(tag);
+        return range && (along ? range->second.y : range->second.x) > 0;
+      };
+      // Home and End go along the axis the view scrolls (a horizontal one's start and end).
+      auto scrolls = [&](facebook::react::Tag tag) {
+        return alongAxis(tag, axis) || (step == Step::Edge && alongAxis(tag, 0));
+      };
+      std::vector<facebook::react::Tag> candidates;
+      auto focused = keyboardFocus.focused();
+      if (focused >= 0 && insideOf(focused, scope)) {
+        auto path = oxyos::ancestry(tree, focused);
+        for (auto at = path.rbegin(); at != path.rend() && *at != scope; ++at) {
+          if (scrolls(*at)) candidates.push_back(*at);
+        }
+      }
+      if (candidates.empty()) {
+        // The window's main scroll view: the largest shown that scrolls that way.
+        facebook::react::Tag main = -1;
+        float largest = 0;
+        auto walk = [&](facebook::react::Tag tag, auto& self) -> void {
+          auto it = tree.views().find(tag);
+          if (it == tree.views().end()) return;
+          auto props = std::dynamic_pointer_cast<const facebook::react::ViewProps>(it->second.view.props);
+          if (props && props->opacity <= 0.001f) return;
+          const auto& name = it->second.view.componentName ? std::string(it->second.view.componentName) : std::string();
+          if (oxyos::ownSurface(name) && tag != scope) return;
+          auto size = it->second.view.layoutMetrics.frame.size;
+          if (name == "ScrollView" && scrolls(tag) && size.width * size.height > largest) {
+            largest = size.width * size.height;
+            main = tag;
+          }
+          for (auto child : it->second.children) self(child, self);
+        };
+        walk(scope, walk);
+        if (main >= 0) candidates.push_back(main);
+      }
+      if (candidates.empty()) return false;
+      facebook::react::Tag moved = -1;
+      for (auto tag : candidates) {
+        int along = alongAxis(tag, axis) ? axis : 0;
+        auto size = tree.views().at(tag).view.layoutMetrics.frame.size;
+        float length = along ? size.height : size.width;
+        float distance = step == Step::Line ? oxyos::kLineStep
+                         : step == Step::Page ? oxyos::pageStep(length)
+                                              : std::numeric_limits<float>::max() / 4;
+        float d = direction * distance;
+        if (pointer.smoothScrollBy(tag, along ? 0 : d, along ? d : 0, event.surface)) {
+          moved = tag;
+          break;
+        }
+      }
+      // A scroll view at its end still takes the key, as a Mac's does.
+      auto target = moved >= 0 ? moved : candidates.front();
+      oxyos::Report::get().input("keyboard.scroll", event.surface,
+                                 folly::dynamic::object("key", event.code)("moved", moved >= 0)(
+                                     "target", oxyos::Report::name(tree.views().at(target).view)));
+      return true;
     };
     auto navigate = [&](const OxyOSEvent& event, NavigationKey key) {
       if (key == NavigationKey::Next || key == NavigationKey::Previous) {
@@ -1937,6 +2022,12 @@ int main(int argc, char** argv) {
               // Full Keyboard Access: the key the platform took acts now, its press recorded.
               if (platformKey) {
                 navigate(event, *platformKey);
+                return;
+              }
+              // Scrolling from the keyboard (keyScroll): a key a scroll view takes, and its release,
+              // go no further.
+              if (keyScroll(event)) {
+                keyChords.taken(event.code);
                 return;
               }
               // Escape is the desktop's back: the topmost modal is asked to close, as Android's
@@ -2400,6 +2491,14 @@ int main(int argc, char** argv) {
           // scale change keeps every logical frame); the old one would be discarded.
           dirty = true;
           busy = true;
+        }
+        // A scroll view's overlay scrollbars appearing, fading, growing or going (scrollbars.h).
+        if (pointer.takeScrollbarsChanged()) {
+          tree.setScrollbars(pointer.scrollbars());
+          dirty = true;
+          busy = true;
+          popups.changed();
+          shellSurfaces.changed();
         }
         // A scroll view stretched past its end, or springing back (overscroll, input.h), draws again.
         if (pointer.takeStretchChanged()) {

@@ -1,6 +1,7 @@
 #include "damage.h"
 
 #include "expo-blur.h"
+#include "scrollbars.h"
 #include "svg.h"
 
 #include <react/renderer/components/scrollview/ScrollViewState.h>
@@ -222,6 +223,26 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     damage.insert(damage.end(), within.begin(), within.end());
   }
   stretched_ = tree.stretches();
+  // Overlay scrollbars that changed (appearing, fading, growing, going): the bands along the scroll
+  // view's right and bottom edges their tracks take, its drawing beyond its frame included (a
+  // moved thumb is its view's new offset, damaged whole with it).
+  if (same) {
+    const std::map<Tag, ScrollbarShown>* both[] = {&scrollbars_, &tree.scrollbars()};
+    for (const auto* shown : both) {
+      for (const auto& [tag, unused] : *shown) {
+        if (tree.scrollbar(tag) == (scrollbars_.count(tag) ? scrollbars_.at(tag) : ScrollbarShown{})) continue;
+        auto it = now.find(tag);
+        if (it == now.end()) continue;
+        const Rect& at = it->second.at;
+        const Size frame = it->second.view.layoutMetrics.frame.size;
+        Float band = kScrollbarTrack + 2 + std::max<Float>(0, at.size.width - frame.width);
+        Float tall = kScrollbarTrack + 2 + std::max<Float>(0, at.size.height - frame.height);
+        damage.push_back(Rect{{at.getMaxX() - band, at.origin.y}, {band, at.size.height}});
+        damage.push_back(Rect{{at.origin.x, at.getMaxY() - tall}, {at.size.width, tall}});
+      }
+    }
+  }
+  scrollbars_ = tree.scrollbars();
   if (same) {
     if (!(edit == edit_)) {
       std::vector<Tag> changed{edit_.tag, edit.tag, edit_.dropTag, edit.dropTag};
