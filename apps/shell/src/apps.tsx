@@ -18,6 +18,36 @@ function isSvgIcon(icon: ShellApplication["icon"]): icon is { svg: string } {
 const BODY = 896 / 1024;
 const CORNER = 208 / 896;
 
+/**
+ * An icon's body alone, `size` across, with nothing added around it: the dock's
+ * (docs/adr/0034-the-dock.mdx), as a Mac's Dock shows an icon. An icon drawn on the grid is drawn
+ * so that its body is `size`; a picture is clipped to the body's corners on nothing, so what shows
+ * is the picture's own: its own shape (Dropsea's), its own ground (Atlas's, Inbox's, the Trash's
+ * bin on its navy), never a ring or a plate the shell adds.
+ */
+export function IconBody({ icon, size }: { icon: ShellApplication["icon"]; size: number }) {
+  if (isSvgIcon(icon)) {
+    // The grid's canvas, its margins outside the body's box.
+    const canvas = size / BODY;
+    const margin = (size - canvas) / 2;
+    return (
+      <Box style={{ width: size, height: size }}>
+        <Box style={{ position: "absolute", left: margin, top: margin }}>
+          <SvgXml xml={icon.svg} width={canvas} height={canvas} />
+        </Box>
+      </Box>
+    );
+  }
+  // The picture rounds its own corners: a parent's do not clip what it draws on every platform.
+  return (
+    <Image
+      source={icon}
+      resizeMode="cover"
+      style={{ width: size, height: size, borderRadius: size * CORNER }}
+    />
+  );
+}
+
 /** Actual application artwork supplied by the registry. No generic recoloured glyphs. */
 export function AppIcon({
   app,

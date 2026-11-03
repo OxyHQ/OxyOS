@@ -1,0 +1,176 @@
+{
+  "about": "The dock as one surface (docs/adr/0034-the-dock.mdx), dark, on the ThinkPad's display (1600×1000 at 1.25) with the session's shell: flush with the display's sides and bottom and square at its top corners, its every edge and corner pixel the shelf's own colour (#1d1f24) to the level, with Bloom's SettingsLayout in a window (sample/WindowProbe.tsx) beside it, zoomed to the work area by its green bubble and restored. Zoomed, the window's last row is right above the dock, no desktop between them. Dropsea's and Atlas's icons are their own pictures to their tiles' edges. With the dock's one-sided top border (its outline, and a rounded bordered background kept 0.8 px inside every edge, as Android's), its rounded top corners (the wallpaper past them), or the icons on white circles with a ring, it fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "shell": "OxyOSShell",
+  "preferences": {
+    "appearance": "dark"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "The window opens between the top bar and the dock: the dock flush with the display, square, no outline; the icons their own pictures",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "0,930": "#1d1f24",
+          "0,931": "#1d1f24",
+          "0,998": "#1d1f24",
+          "0,999": "#1d1f24",
+          "1,930": "#1d1f24",
+          "1,931": "#1d1f24",
+          "1,998": "#1d1f24",
+          "1,999": "#1d1f24",
+          "800,930": "#1d1f24",
+          "800,931": "#1d1f24",
+          "800,998": "#1d1f24",
+          "800,999": "#1d1f24",
+          "1598,930": "#1d1f24",
+          "1598,931": "#1d1f24",
+          "1598,998": "#1d1f24",
+          "1598,999": "#1d1f24",
+          "1599,930": "#1d1f24",
+          "1599,931": "#1d1f24",
+          "1599,998": "#1d1f24",
+          "1599,999": "#1d1f24",
+          "0,965": "#1d1f24",
+          "1599,965": "#1d1f24",
+          "788,965": "#002b64",
+          "839,965": "#002b64",
+          "812,940": "#002b64",
+          "885,939": "#ffffff",
+          "885,990": "#ffffff"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Zoomed to the work area: its last row right above the dock at both sides, the dock as it was",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "zoomed",
+              "ended": true,
+              "eased": true
+            }
+          ],
+          "frames_min": 5
+        },
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "0,930": "#1d1f24",
+          "0,931": "#1d1f24",
+          "0,998": "#1d1f24",
+          "0,999": "#1d1f24",
+          "1,930": "#1d1f24",
+          "1,931": "#1d1f24",
+          "1,998": "#1d1f24",
+          "1,999": "#1d1f24",
+          "800,930": "#1d1f24",
+          "800,931": "#1d1f24",
+          "800,998": "#1d1f24",
+          "800,999": "#1d1f24",
+          "1598,930": "#1d1f24",
+          "1598,931": "#1d1f24",
+          "1598,998": "#1d1f24",
+          "1598,999": "#1d1f24",
+          "1599,930": "#1d1f24",
+          "1599,931": "#1d1f24",
+          "1599,998": "#1d1f24",
+          "1599,999": "#1d1f24",
+          "0,965": "#1d1f24",
+          "1599,965": "#1d1f24",
+          "0,929": "#2f0f2c",
+          "1599,929": "#1f031d",
+          "788,965": "#002b64",
+          "839,965": "#002b64",
+          "812,940": "#002b64",
+          "885,939": "#ffffff",
+          "885,990": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "Restored: the dock as it was",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "zoomed",
+              "ended": true,
+              "eased": true
+            }
+          ],
+          "frames_min": 5
+        },
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "0,930": "#1d1f24",
+          "0,931": "#1d1f24",
+          "0,998": "#1d1f24",
+          "0,999": "#1d1f24",
+          "1,930": "#1d1f24",
+          "1,931": "#1d1f24",
+          "1,998": "#1d1f24",
+          "1,999": "#1d1f24",
+          "800,930": "#1d1f24",
+          "800,931": "#1d1f24",
+          "800,998": "#1d1f24",
+          "800,999": "#1d1f24",
+          "1598,930": "#1d1f24",
+          "1598,931": "#1d1f24",
+          "1598,998": "#1d1f24",
+          "1598,999": "#1d1f24",
+          "1599,930": "#1d1f24",
+          "1599,931": "#1d1f24",
+          "1599,998": "#1d1f24",
+          "1599,999": "#1d1f24",
+          "0,965": "#1d1f24",
+          "1599,965": "#1d1f24",
+          "788,965": "#002b64",
+          "839,965": "#002b64",
+          "812,940": "#002b64",
+          "885,939": "#ffffff",
+          "885,990": "#ffffff"
+        }
+      }
+    }
+  ]
+}
