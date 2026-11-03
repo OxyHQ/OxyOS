@@ -333,8 +333,14 @@ written in it, with no grant given. A scenario
 with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
 `settings` as a session grants the system application the image's policy names. A step's `preferences` expectation checks
 what the session last told the application of how to draw (dark, reduceMotion,
-reduceTransparency, accent) by the time the step settled, each key given; the `final`
-`preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.
+reduceTransparency, accent) by the time the step settled, each key given; a step's
+`preferences_file` expectation checks the file holds each KEY = VALUE given as that step left it,
+the `final` one once the run ended.
+
+A scenario with `input_sources` ({"available": [METHOD]}) has the development compositor tell
+Settings and the shell the input sources as the session does (docs/adr/0041-input-methods.mdx,
+decision 6), from the run's preferences and its `layout`, its engine having the input methods named
+(an empty list: none installed).
 
 A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
@@ -2440,8 +2446,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if display.get(key) != value:
                     fail(f"display {output}: {key} = {display.get(key)!r}, expected {value!r}")
     if "preferences_file" in expect:
+        # The file as the step left it (the development compositor's report), else as the run did.
+        if isinstance(result.get("preferences_file"), str):
+            text = result["preferences_file"]
+        else:
+            text = preferences.read_text() if preferences and preferences.exists() else ""
         kept = {}
-        for line in (preferences.read_text().splitlines() if preferences else []):
+        for line in text.splitlines():
             if "=" in line and not line.lstrip().startswith("#"):
                 key, value = line.split("=", 1)
                 kept[key.strip()] = value.strip()
@@ -3163,6 +3174,11 @@ def main():
         # networks and the played machine's Wi-Fi are its, never the developer's machine's.
         network_address, stop_network = network_daemon(scenario["network"], out, options.offscreen)
         command += ["--network-bus", network_address]
+    if "input_sources" in scenario:
+        # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
+        # played with an engine that has the input methods named (none: none installed), from the
+        # run's preferences and its layout.
+        command += ["--input-sources-available", ",".join(scenario["input_sources"]["available"])]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.

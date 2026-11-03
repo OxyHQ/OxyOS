@@ -711,6 +711,11 @@ pub struct Launch {
     /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
     /// in a directory of the run's own with nothing learned before.
     pub input_methods: Option<PathBuf>,
+    /// `--input-sources-available METHOD,...`: what the session tells of the input sources is
+    /// played (input_sources.rs, docs/adr/0041-input-methods.mdx), its engine having these input
+    /// methods (an empty list: none installed), for scenarios that need the state alone (Settings'
+    /// Input Sources) without the engine. Refused with `--input-methods`, which tells the real one.
+    pub input_sources_available: Option<String>,
     /// `--outputs WxH[@SCALE][:HZ],...`: the session's outputs, of these pixels at these scales,
     /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
@@ -729,7 +734,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -818,6 +823,7 @@ impl Launch {
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
         let mut input_methods = None;
+        let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
         let mut runtimes = None;
@@ -924,6 +930,11 @@ impl Launch {
                 Some("--network-bus") => {
                     let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     network_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--input-sources-available") => {
+                    let methods = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    input_sources_available = Some(methods.to_string());
                     continue;
                 }
                 Some("--installed-fixture") => {
@@ -1429,6 +1440,7 @@ impl Launch {
                 controls,
                 network_bus,
                 input_methods,
+                input_sources_available,
                 outputs: screens,
                 displays,
                 login,
@@ -2934,6 +2946,15 @@ fn inject_through(
     Ok(Some(0))
 }
 
+/// The preferences file as the step left it (`--preferences`), as a JSON string; null without one
+/// or before the session first wrote it.
+fn preferences_file_json(file: Option<&Path>) -> String {
+    file.and_then(|file| fs::read_to_string(file).ok())
+        .map_or("null".to_string(), |text| {
+            serde_json::Value::String(text).to_string()
+        })
+}
+
 /// The Linux key code typing `c` on a US layout, and the text it types (none for Enter).
 fn key_for(c: char) -> Result<(u32, Option<String>)> {
     const LETTERS: [u32; 26] = [
@@ -3966,6 +3987,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None,
         )?);
     }
+    if let Some(methods) = &launch.input_sources_available {
+        // The state played or the engine run, never both telling it.
+        if launch.input_methods.is_some() {
+            return Err(
+                "--input-sources-available plays what --input-methods runs: give one".into(),
+            );
+        }
+        session.input_sources = Some(crate::input_sources::InputSources::new(
+            methods,
+            &launch.layout,
+        )?);
+    }
     if let Some(address) = &launch.network_bus {
         // The session's networks, over the played daemon on the run's own bus.
         let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
@@ -4668,7 +4701,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let urls = urls_json(&mut session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4688,6 +4721,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             session.network_state(),
+            preferences_file_json(launch.preferences.as_deref()),
             menus_json(&session.compositor),
             chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),

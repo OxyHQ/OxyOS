@@ -1,0 +1,954 @@
+{
+ "about": "Settings › Keyboard › Input Sources (docs/adr/0041-input-methods.mdx, decision 6), as a Mac's Text Input, from the keyboard and the pointer with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Settings with the shell, the session keeping 2-Set Korean added and current, its keyboard layout Spanish, its engine having Pinyin, Japanese and Korean (the development compositor plays what the session tells, `input_sources`). The sidebar to Keyboard by the arrows; Tab to the list, one stop on its selected row, said with its place and \"en uso\"; + and − named by what they do; − removes the current source, the layout becoming current and the keyboard going to + as − can remove nothing; + opens the sheet of the input methods not added, the keyboard on the first, the arrows moving through them, Tab to Add and Space adding Pinyin; then with the pointer + again, 2-Set Korean and Japanese chosen in turn and Add; Pinyin's row selected and − removing it. Every step checks the keyboard's focus, the React events, the accessibility tree, the reader's exact speech and announcements, and the preferences file as the step left it. At 1 (1280 × 720).",
+ "locale": "es_ES.UTF-8",
+ "layout": "es",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy",
+   "input_sources": "korean",
+   "input_source": "korean"
+  }
+ },
+ "input_sources": {
+  "available": [
+   "pinyin",
+   "japanese",
+   "korean"
+  ]
+ },
+ "reader": {},
+ "steps": [
+  {
+   "name": "Settings' window with the shell, the reader on, nothing of it focused; the session keeps 2-Set Korean added and current",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "preferences_file": {
+     "input_sources": "korean",
+     "input_source": "korean"
+    },
+    "announcements": [],
+    "spoken": []
+   }
+  },
+  {
+   "name": "Tab: the keyboard on the sidebar's selected row, Appearance",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@settings-nav-appearance": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-nav-appearance",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Apariencia, seleccionado, 1 de 12",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "↓ seven times: Keyboard selected and shown, said once; its Input Sources list holds the layout, named, then 2-Set Korean, in use and selected",
+   "do": [
+    "strokes",
+    [
+     108,
+     108,
+     108,
+     108,
+     108,
+     108,
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 7,
+     "blur@settings-nav-appearance": 1,
+     "focus@settings-nav-keyboard": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-nav-keyboard",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Teclado, seleccionado, 8 de 12",
+      "interrupting": true
+     }
+    ],
+    "texts": [
+     "Fuentes de entrada",
+     "Español",
+     "Coreano de 2 conjuntos",
+     "Super+Espacio cambia a la fuente de entrada usada antes."
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Fuentes de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Español",
+       "state": [],
+       "position": [
+        1,
+        2
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Coreano de 2 conjuntos, en uso",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        2
+       ]
+      }
+     ]
+    },
+    "preferences_file": {
+     "input_sources": "korean",
+     "input_source": "korean"
+    },
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: the list is one stop, its selected row, said with its state and place",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@settings-nav-keyboard": 1,
+     "focus@input-source-korean": 1
+    },
+    "keyboard_focus": {
+     "target": "input-source-korean",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Coreano de 2 conjuntos, en uso",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        2,
+        2
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Coreano de 2 conjuntos, en uso, seleccionado, 2 de 2",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: +, named by what it does",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@input-source-korean": 1,
+     "focus@input-sources-add": 1
+    },
+    "keyboard_focus": {
+     "target": "input-sources-add",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Añadir fuente de entrada",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Añadir fuente de entrada, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: −, named by the source it removes",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@input-sources-add": 1,
+     "focus@input-sources-remove": 1
+    },
+    "keyboard_focus": {
+     "target": "input-sources-remove",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Eliminar Coreano de 2 conjuntos",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Eliminar Coreano de 2 conjuntos, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space removes 2-Set Korean, the current source: the session keeps none added and the layout current; the layout alone is left, in use and selected, − can remove nothing and the keyboard goes to +; the removal is said once it is in effect",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "click@input-sources-remove": 1,
+     "blur@input-sources-remove": 1,
+     "focus@input-sources-add": 1
+    },
+    "keyboard_focus": {
+     "target": "input-sources-add",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Fuentes de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Español, en uso",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        1
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Eliminar fuente de entrada",
+       "state": [
+        "disabled"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "name": "Coreano de 2 conjuntos, en uso"
+      },
+      {
+       "name": "Coreano de 2 conjuntos"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "text": "Se ha eliminado Coreano de 2 conjuntos",
+      "politeness": "assertive"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Añadir fuente de entrada, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Se ha eliminado Coreano de 2 conjuntos",
+      "interrupting": true
+     }
+    ],
+    "preferences_file": {
+     "input_sources": "",
+     "input_source": "layout"
+    }
+   }
+  },
+  {
+   "name": "Space on +: the sheet of the input methods not added, said by its title, the keyboard on the first, chosen; its content drawn at once (the host brought the row into view during the sheet's first, narrower layout, then clamps that scroll to the content laid out: two scroll events)",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "click@input-sources-add": 1,
+     "blur@input-sources-add": 1,
+     "focus@input-source-add-pinyin": 1,
+     "scroll@ScrollView#668": 2,
+     "show@settings-page": 1
+    },
+    "keyboard_focus": {
+     "target": "input-source-add-pinyin",
+     "ring": true
+    },
+    "texts": [
+     "Añadir una fuente de entrada",
+     "Pinyin – Simplificado",
+     "Japonés – Romaji",
+     "Coreano de 2 conjuntos",
+     "Cancelar",
+     "Añadir"
+    ],
+    "output_pixels": {
+     "700,285": "#9422ae",
+     "700,400": "#fff7f9"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Métodos de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Pinyin – Simplificado",
+       "state": [
+        "selected",
+        "focused"
+       ],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Coreano de 2 conjuntos",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Añadir una fuente de entrada, diálogo",
+      "interrupting": true
+     },
+     {
+      "text": "Pinyin – Simplificado, seleccionado, 1 de 3",
+      "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "↓: the keyboard on Japanese – Romaji, not chosen, said with its place",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@input-source-add-pinyin": 1,
+     "focus@input-source-add-japanese": 1
+    },
+    "keyboard_focus": {
+     "target": "input-source-add-japanese",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Japonés – Romaji, 2 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "↑: back on Pinyin – Simplified, the one chosen",
+   "do": [
+    "key",
+    [
+     103
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@input-source-add-japanese": 1,
+     "focus@input-source-add-pinyin": 1
+    },
+    "keyboard_focus": {
+     "target": "input-source-add-pinyin",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Pinyin – Simplificado, seleccionado, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Cancel",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@input-source-add-pinyin": 1,
+     "focus@input-sources-add-cancel": 1
+    },
+    "keyboard_focus": {
+     "target": "input-sources-add-cancel",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Cancelar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab: Add",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@input-sources-add-cancel": 1,
+     "focus@input-sources-add-confirm": 1
+    },
+    "keyboard_focus": {
+     "target": "input-sources-add-confirm",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Añadir, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space adds Pinyin – Simplified: the session keeps it after the layout, which stays current; the sheet goes, the keyboard back on +, the new row selected, the addition said once it is in effect",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "click@input-sources-add-confirm": 1,
+     "focus@input-sources-add": 1
+    },
+    "keyboard_focus": {
+     "target": "input-sources-add",
+     "ring": true
+    },
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Fuentes de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Español, en uso",
+       "state": [],
+       "position": [
+        1,
+        2
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Pinyin – Simplificado",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        2
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Eliminar Pinyin – Simplificado",
+       "state": []
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "text": "Se ha añadido Pinyin – Simplificado",
+      "politeness": "assertive"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Añadir fuente de entrada, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Se ha añadido Pinyin – Simplificado",
+      "interrupting": true
+     }
+    ],
+    "preferences_file": {
+     "input_sources": "pinyin",
+     "input_source": "layout"
+    }
+   }
+  },
+  {
+   "name": "+ pressed with the pointer: the sheet again, Japanese – Romaji and 2-Set Korean left, the first chosen; the pointer takes the keyboard's focus away",
+   "do": [
+    "press_named",
+    "Añadir fuente de entrada"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@input-sources-add": 1,
+     "touchStart@input-sources-add": 1,
+     "touchEnd@input-sources-add": 1,
+     "show@settings-page": 1
+    },
+    "keyboard_focus": null,
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Métodos de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        2
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Coreano de 2 conjuntos",
+       "state": [],
+       "position": [
+        2,
+        2
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Añadir una fuente de entrada, diálogo",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "2-Set Korean pressed: chosen",
+   "do": [
+    "press_named",
+    "Coreano de 2 conjuntos"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@input-source-add-korean": 1,
+     "touchEnd@input-source-add-korean": 1
+    },
+    "keyboard_focus": null,
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Métodos de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [],
+       "position": [
+        1,
+        2
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Coreano de 2 conjuntos",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        2
+       ]
+      }
+     ]
+    },
+    "announcements": [],
+    "spoken": []
+   }
+  },
+  {
+   "name": "Japanese – Romaji pressed: chosen instead",
+   "do": [
+    "press_named",
+    "Japonés – Romaji"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@input-source-add-japanese": 1,
+     "touchEnd@input-source-add-japanese": 1
+    },
+    "keyboard_focus": null,
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Métodos de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        1,
+        2
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Coreano de 2 conjuntos",
+       "state": [],
+       "position": [
+        2,
+        2
+       ]
+      }
+     ]
+    },
+    "announcements": [],
+    "spoken": []
+   }
+  },
+  {
+   "name": "Add pressed: the session keeps Japanese – Romaji after Pinyin; the reader is back on + as the sheet goes, then says the addition; the new row selected",
+   "do": [
+    "press_named",
+    "Añadir"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@input-sources-add-confirm": 1,
+     "touchEnd@input-sources-add-confirm": 1
+    },
+    "keyboard_focus": null,
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Fuentes de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Español, en uso",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Pinyin – Simplificado",
+       "state": [],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        3,
+        3
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Dialog"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "text": "Se ha añadido Japonés – Romaji",
+      "politeness": "assertive"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Añadir fuente de entrada, botón",
+      "interrupting": true
+     },
+     {
+      "text": "Se ha añadido Japonés – Romaji",
+      "interrupting": true
+     }
+    ],
+    "preferences_file": {
+     "input_sources": "pinyin,japanese",
+     "input_source": "layout"
+    }
+   }
+  },
+  {
+   "name": "Pinyin – Simplified's row pressed: selected; − names it",
+   "do": [
+    "press_named",
+    "Pinyin – Simplificado"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@input-source-pinyin": 1,
+     "touchEnd@input-source-pinyin": 1
+    },
+    "keyboard_focus": null,
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Fuentes de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Español, en uso",
+       "state": [],
+       "position": [
+        1,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Pinyin – Simplificado",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        3
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [],
+       "position": [
+        3,
+        3
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Eliminar Pinyin – Simplificado"
+      }
+     ]
+    },
+    "announcements": [],
+    "spoken": []
+   }
+  },
+  {
+   "name": "− pressed: the session keeps Japanese – Romaji alone; the row that took its place selected; the removal said",
+   "do": [
+    "press_named",
+    "Eliminar Pinyin – Simplificado"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@input-sources-remove": 1,
+     "touchEnd@input-sources-remove": 1
+    },
+    "keyboard_focus": null,
+    "at": {
+     "window": [
+      {
+       "role": "List",
+       "name": "Fuentes de entrada"
+      },
+      {
+       "role": "ListItem",
+       "name": "Español, en uso",
+       "state": [],
+       "position": [
+        1,
+        2
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Japonés – Romaji",
+       "state": [
+        "selected"
+       ],
+       "position": [
+        2,
+        2
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Eliminar Japonés – Romaji"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "text": "Se ha eliminado Pinyin – Simplificado",
+      "politeness": "assertive"
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Se ha eliminado Pinyin – Simplificado",
+      "interrupting": true
+     }
+    ],
+    "preferences_file": {
+     "input_sources": "japanese",
+     "input_source": "layout"
+    }
+   }
+  }
+ ]
+}
