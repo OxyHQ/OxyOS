@@ -912,7 +912,12 @@ impl Worker {
                     }
                     let count = candidates.len();
                     self.tell(Outcome::Panel(Panel {
-                        candidates: candidates.into_iter().map(|(_, text)| text).collect(),
+                        // A candidate's text with its comment, which ends in a space when it
+                        // has none (QuickPhrase's emoji).
+                        candidates: candidates
+                            .into_iter()
+                            .map(|(_, text)| text.trim_end().to_owned())
+                            .collect(),
                         highlighted: usize::try_from(index).ok().filter(|index| *index < count),
                         aux_up: joined(&up),
                         aux_down: joined(&down),

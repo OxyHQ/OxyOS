@@ -129,6 +129,9 @@ for addon in testfrontend testim testui; do
   rm -f "$PREFIX/lib/fcitx5/lib$addon.so" "$PREFIX/lib/fcitx5/$addon.so" "$PREFIX/share/fcitx5/addon/$addon.conf"
 done
 
+# QuickPhrase is emoji's search here (CLDR's annotations, through the keyboard engine): not its
+# lists of kaomoji and LaTeX phrases, which would come before the emoji.
+rm -rf "$PREFIX/share/fcitx5/data/quickphrase.d"
 # Only fcitx5 itself among its programs: no configuration tool, diagnosis script or dictionary
 # tool runs on a machine.
 find "$PREFIX/bin" -mindepth 1 ! -name fcitx5 -delete
