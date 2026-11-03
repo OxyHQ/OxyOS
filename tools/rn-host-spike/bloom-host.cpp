@@ -686,8 +686,11 @@ int main(int argc, char** argv) {
                   reanimated.event(name, view, payload);
                 },
             });
-  // What Image views show (images.h), loaded at the size they are drawn.
+  // What Image views show (images.h), loaded at the size they are drawn; remote ones fetched with
+  // the application's network, cached in its cache directory.
   oxyos::Images images(tree);
+  images.connect(networking.handle(), application.cacheDirectory);
+  services.images = &images;
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());

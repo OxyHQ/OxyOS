@@ -88,6 +88,10 @@ class Networking {
   bool deliver();
   // Readable while answers wait to be emitted.
   int fd() const { return oxyos_net_fd(net_); }
+  // The network itself, which the image loader fetches remote images with (images.h): one for the
+  // application, its cookies, TLS and proxy shared, as Android's Fresco shares React Native's
+  // OkHttp client.
+  OxyOSNet* handle() const { return net_; }
 
  private:
   // A request between its start and its completion.

@@ -54,7 +54,7 @@ const PROBES: Record<string, () => unknown> = {
     require('react-native/Libraries/Utilities/NativePlatformConstantsAndroid').default.getAndroidID(),
   'Alert.alert': () => require('react-native').Alert.alert('probe', 'probe', [{ text: 'OK' }]),
   'Alert.prompt': () => require('react-native').Alert.prompt('probe'),
-  'Image.getSize': () => require('react-native').Image.getSize('https://oxy.so/probe.png'),
+  'Image.getSize': () => require('react-native').Image.getSize('data:image/png;base64,iVBORw0KGgo='),
   'AppState.currentState': () => require('react-native').AppState.currentState,
   // Accepted with no effect: nothing to apply on OxyOS, or a capability it does not have yet.
   'StatusBar.setHidden': () => require('react-native').StatusBar.setHidden(true),

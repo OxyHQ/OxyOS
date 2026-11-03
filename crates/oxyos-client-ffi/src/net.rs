@@ -122,7 +122,8 @@ impl Default for OxyOSNetAnswer {
 /// The network, owned by the caller between `oxyos_net_new` and `oxyos_net_free`; used by one thread
 /// at a time.
 pub struct OxyOSNet {
-    network: Network,
+    /// Shared with the image loader (`oxyos_images_connect`): one network for the application.
+    pub(crate) network: Arc<Network>,
     /// The answer last given, which its `OxyOSNetAnswer`'s pointers point into.
     given: Option<(Answer, Vec<OxyOSNetHeader>)>,
 }
@@ -153,7 +154,11 @@ unsafe fn bytes<'a>(data: *const u8, length: usize) -> Option<&'a [u8]> {
 /// # Safety
 /// As [`bytes`].
 #[allow(unsafe_code)]
-unsafe fn string(data: *const c_char, length: usize, what: &str) -> Result<String, String> {
+pub(crate) unsafe fn string(
+    data: *const c_char,
+    length: usize,
+    what: &str,
+) -> Result<String, String> {
     // SAFETY: forwarded caller contract.
     let bytes = unsafe { bytes(data.cast(), length) }.ok_or(format!("null {what}"))?;
     String::from_utf8(bytes.to_vec()).map_err(|_| format!("{what} is not UTF-8"))
@@ -164,7 +169,7 @@ unsafe fn string(data: *const c_char, length: usize, what: &str) -> Result<Strin
 /// # Safety
 /// `net` is NULL or a live pointer from `oxyos_net_new`, used by one thread at a time.
 #[allow(unsafe_code)]
-unsafe fn net<'a>(net: *mut OxyOSNet) -> Option<&'a mut OxyOSNet> {
+pub(crate) unsafe fn net<'a>(net: *mut OxyOSNet) -> Option<&'a mut OxyOSNet> {
     // SAFETY: per the contract, a non-null pointer is a live, exclusively used OxyOSNet.
     unsafe { net.as_mut() }
 }
@@ -175,7 +180,7 @@ unsafe fn net<'a>(net: *mut OxyOSNet) -> Option<&'a mut OxyOSNet> {
 pub extern "C" fn oxyos_net_new() -> *mut OxyOSNet {
     match Network::new() {
         Ok(network) => Box::into_raw(Box::new(OxyOSNet {
-            network,
+            network: Arc::new(network),
             given: None,
         })),
         Err(error) => {

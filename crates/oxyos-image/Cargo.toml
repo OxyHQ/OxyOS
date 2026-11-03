@@ -14,6 +14,12 @@ zune-jpeg = "0.5"
 # DCT coefficients (as libjpeg's scale-on-decode), never whole: jpeg-decoder's `scale`.
 jpeg-decoder = { version = "0.3", default-features = false }
 moxcms = "0.8"
+# WebP and GIF in Rust from the same project as png (image-rs): the first frame of an animated one.
+image-webp = "0.2"
+gif = "0.14"
+
+# Remote images, fetched with the application's network and its HTTP cache (remote.rs).
+oxyos-net = { path = "../oxyos-net" }
 
 [lints]
 workspace = true

@@ -265,6 +265,11 @@ void Report::layout(float width, float height, double ms) {
   write(folly::dynamic::object("kind", "layout")("width", width)("height", height)("ms", ms));
 }
 
+void Report::image(const char* event, const std::string& uri) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "image")("event", event)("uri", uri));
+}
+
 void Report::refresh(uint32_t mhz) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "refresh")("mhz", mhz));

@@ -1311,8 +1311,10 @@ int oxyos_net_clear_cookies(OxyOSNet* net);
 /* Takes one answer without blocking: OXYOS_NET_ANSWER with *out filled, or OXYOS_NET_EMPTY. */
 int oxyos_net_answer(OxyOSNet* net, OxyOSNetAnswer* out);
 
-/* Images (crates/oxyos-image): PNG and JPEG decoded into sRGB (from an embedded ICC profile),
- * premultiplied RGBA, reduced to the size they are drawn at, each load on a thread of its own.
+/* Images (crates/oxyos-image): PNG, JPEG, WebP and GIF (an animated one's first frame) decoded into
+ * sRGB (from an embedded ICC profile), premultiplied RGBA, reduced to the size they are drawn at,
+ * each load on a thread of its own. Remote images (oxyos_images_fetch) are fetched with the
+ * application's network (oxyos_images_connect) through a memory cache and its HTTP cache on disk.
  * Paths are a pointer and a length. A loader is used by one thread at a time. */
 typedef struct OxyOSImages OxyOSImages;
 
@@ -1325,9 +1327,34 @@ typedef struct OxyOSImages OxyOSImages;
 #define OXYOS_IMAGE_ANSWER 1
 #define OXYOS_IMAGE_EMPTY 0
 
-/* `width` x `height` premultiplied RGBA pixels, reduced from the image's natural size; `pixels` is
- * NULL when the load failed, `error` NULL when it did not. Its pointers stay valid until the next
- * oxyos_images_answer or oxyos_images_free. */
+/* What an answer is (OxyOSImageAnswer.kind). Every kind but progress ends its load. */
+#define OXYOS_IMAGE_PICTURE 0
+#define OXYOS_IMAGE_FAILED 1
+#define OXYOS_IMAGE_PROGRESS 2
+#define OXYOS_IMAGE_UNDECODED 3
+#define OXYOS_IMAGE_SIZE 4
+#define OXYOS_IMAGE_FETCHED 5
+
+/* A remote image's cache policy (OxyOSImageFetch.cache), as React Native's source's `cache`. */
+#define OXYOS_IMAGE_CACHE_DEFAULT 0
+#define OXYOS_IMAGE_CACHE_RELOAD 1
+#define OXYOS_IMAGE_CACHE_FORCE 2
+#define OXYOS_IMAGE_CACHE_ONLY_IF_CACHED 3
+
+/* What a remote image's load wants (OxyOSImageFetch.want). */
+#define OXYOS_IMAGE_WANT_PICTURE 0
+#define OXYOS_IMAGE_WANT_SIZE 1
+#define OXYOS_IMAGE_WANT_PREFETCH 2
+
+/* Where oxyos_images_cached finds a remote image (bits). */
+#define OXYOS_IMAGE_IN_MEMORY 1
+#define OXYOS_IMAGE_ON_DISK 2
+
+/* A picture (OXYOS_IMAGE_PICTURE): `width` x `height` premultiplied RGBA pixels, reduced from the
+ * image's natural size. OXYOS_IMAGE_FAILED: `error`. OXYOS_IMAGE_PROGRESS: `loaded` of `total`
+ * bytes. OXYOS_IMAGE_UNDECODED: a remote image's bytes it does not decode (`data`, an SVG document
+ * for the caller to), their `content_type` and the `error` decoding gave. OXYOS_IMAGE_SIZE: the
+ * natural size. Its pointers stay valid until the next oxyos_images_answer or oxyos_images_free. */
 typedef struct OxyOSImageAnswer {
   uint64_t id;
   uint32_t width;
@@ -1338,7 +1365,31 @@ typedef struct OxyOSImageAnswer {
   size_t length;
   const char* error;
   size_t error_length;
+  uint32_t kind;
+  uint64_t loaded;
+  uint64_t total;
+  const uint8_t* data;
+  size_t data_length;
+  const char* content_type;
+  size_t content_type_length;
 } OxyOSImageAnswer;
+
+/* A remote image's load: its URL, the headers sent with it, its cache policy, whether the memory
+ * and disk caches are used (expo-image's cachePolicy), and what it wants: its picture fitted to
+ * width x height by `fit` (as oxyos_images_load), its size, or it fetched into the caches. */
+typedef struct OxyOSImageFetch {
+  const char* url;
+  size_t url_length;
+  const OxyOSNetHeader* headers;
+  size_t header_count;
+  uint32_t cache;
+  uint8_t memory;
+  uint8_t disk;
+  uint32_t want;
+  uint32_t width;
+  uint32_t height;
+  uint32_t fit;
+} OxyOSImageFetch;
 
 /* The size in pixels of the image at `path`, from its headers alone. */
 int oxyos_image_size(const char* path, size_t path_length, uint32_t* width, uint32_t* height);
@@ -1354,6 +1405,17 @@ int oxyos_images_load(OxyOSImages* images, uint64_t id, const char* path, size_t
                     uint32_t height, uint32_t fit);
 /* Takes one answer without blocking: OXYOS_IMAGE_ANSWER with *out filled, or OXYOS_IMAGE_EMPTY. */
 int oxyos_images_answer(OxyOSImages* images, OxyOSImageAnswer* out);
+/* Fetches remote images from now on with `net`'s network (its cookies, TLS and proxy), through a
+ * disk cache of at most `cache_limit` bytes in the directory `cache` (NULL: memory only). Fails,
+ * connecting nothing, if the disk cache cannot open. */
+int oxyos_images_connect(OxyOSImages* images, OxyOSNet* net, const char* cache, size_t cache_length,
+                         uint64_t cache_limit);
+/* Starts a remote image's load; its answers, with `id`, follow. */
+int oxyos_images_fetch(OxyOSImages* images, uint64_t id, const OxyOSImageFetch* fetch);
+/* Answers nothing more for the load `id`; its request stops once no load waits for it. */
+int oxyos_images_cancel(OxyOSImages* images, uint64_t id);
+/* Where a remote image is held: OXYOS_IMAGE_IN_MEMORY | OXYOS_IMAGE_ON_DISK, or 0. */
+int oxyos_images_cached(OxyOSImages* images, const char* url, size_t url_length);
 
 /* Gesture recognition (crates/oxyos-gestures): react-native-gesture-handler's Android
  * recognizers, for the host's RNGestureHandlerModule. Pointer actions are Android's. */
