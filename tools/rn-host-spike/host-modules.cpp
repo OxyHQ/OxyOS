@@ -1047,6 +1047,22 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value(static_cast<double>(services.menuBar.setMenus(entries)));
     });
     module->listeners();
+  } else if (name == "OxyOSEditing") {
+    // The window's first responder for the Edit menu's standard actions (sample/oxyos/
+    // platform-surface.js, Bloom's `editing`; docs/adr/0021-menu-bar.mdx, decision 3): `getState()`,
+    // what the focused text input can do now or null; `perform(action)`, true if it did it.
+    // `OxyOSEditingChanged` carries the state whenever it changes.
+    module->constants(folly::dynamic::object("available", services.applicationWindow));
+    module->method("getState", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!services.editing.state) return jsi::Value::null();
+      return jsi::valueFromDynamic(rt, services.editing.state());
+    });
+    module->method("perform", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSEditing.perform: an action");
+      if (!services.editing.perform) return jsi::Value(false);
+      return jsi::Value(services.editing.perform(args[0].asString(rt).utf8(rt)));
+    });
+    module->listeners();
   } else if (name == "OxyOSKeyboard") {
     // The window's keys, offered to JavaScript before the focused view (sample/oxyos/platform-surface.js,
     // docs/adr/0021-menu-bar.mdx): `setListener(fn)`, fn({ key, code, altKey, ctrlKey, metaKey, shiftKey,

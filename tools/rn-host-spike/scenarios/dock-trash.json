@@ -98,7 +98,12 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "focus.out": 1
+          }
+        },
         "in_shell": {
           "texts": [
             "¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?",
@@ -185,7 +190,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
         "in_shell": {
           "absent": [
             "Vaciar Papelera"

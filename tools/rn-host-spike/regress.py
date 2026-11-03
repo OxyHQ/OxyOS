@@ -30,8 +30,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   memory;
 - menus: the window's menus as the shell is told them (ADR 0021): null, or by an entry's path
   ("View > Appearance > Dark") the keys given (shortcut, disabled, checked), null for an entry that
-  must not be there, and "bar", the menus of the bar exactly. A `menu` step chooses a command by
-  its path, as the shell delivers the person's choice;
+  must not be there, and "bar", the menus of the bar exactly; in `in_companion`, the companion's
+  window's. A `menu` step chooses a command of the active window's menus by its path, as the
+  shell delivers the person's choice;
 - pointer_image: the client's image the pointer shows (ADR 0029), each key given matching (width,
   height, hotspot, scale_120, middle as "#aarrggbb"), or null for a shape;
 - clipboard: what the clipboard holds once the step settled, as the session reads it from its
@@ -2011,7 +2012,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                      if path.exists() else [])
         companion_step = {"name": f"{step.get('name', step['do'][0])}, in the companion",
                           "do": step["do"], "expect": expect["in_companion"]}
-        check_step(index, companion_step, result, companion, start, failures, refresh_hz=refresh_hz)
+        # Its window's menus (ADR 0021) are the companion's own, as the shell is told them.
+        companion_result = dict(result, menus=result.get("companion_menus"))
+        check_step(index, companion_step, companion_result, companion, start, failures, refresh_hz=refresh_hz)
     if "in_launched" in expect and screenshot is not None:
         # An application the session launched (a store's open, the shell's dock), from its own
         # report beside the director's (`.launched`): its texts and React deliveries. Of two running

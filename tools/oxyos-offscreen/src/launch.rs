@@ -2199,11 +2199,8 @@ fn controls_json(fake: &oxyos_controls::Fake) -> String {
 /// Each entry of the window's menus by its path in the bar (`View > Appearance > Dark`), in
 /// order, with its chord, whether it is disabled and, for a checkable command, whether it is
 /// checked; null when the window declared none (ADR 0021).
-fn menus_json(compositor: &Compositor) -> String {
-    let Some(menus) = compositor.scene.menus(SurfaceKey {
-        client: CLIENT,
-        id: WINDOW,
-    }) else {
+fn menus_json(compositor: &Compositor, window: Option<SurfaceKey>) -> String {
+    let Some(menus) = window.and_then(|window| compositor.scene.menus(window)) else {
         return "null".to_string();
     };
     let lines: Vec<String> = menus
@@ -2246,12 +2243,21 @@ fn menu_path(entries: &[oxyos_compositor_core::scene::MenuEntry], index: usize) 
     labels.join(" > ")
 }
 
-/// Chooses the command at `path` of the window's menus, as the shell's bar does.
+/// The companion application's window (ADR 0035), the toplevel of its client, if it has one.
+fn companion_window(session: &Session) -> Option<SurfaceKey> {
+    companion_frames(session)
+        .into_iter()
+        .map(|(key, _, _)| key)
+        .find(|key| session.compositor.scene.window_number(*key).is_some())
+}
+
+/// Chooses the command at `path` of the active window's menus (the director's application's or
+/// the companion's), as the shell's bar does.
 fn choose_menu_item(compositor: &mut Compositor, path: &str) -> Result<()> {
-    let key = SurfaceKey {
-        client: CLIENT,
-        id: WINDOW,
-    };
+    let key = compositor
+        .scene
+        .active_window()
+        .ok_or("no window is active")?;
     let menus = compositor
         .scene
         .menus(key)
@@ -4541,7 +4547,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4561,7 +4567,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             session.network_state(),
-            menus_json(&session.compositor),
+            menus_json(
+                &session.compositor,
+                Some(SurfaceKey {
+                    client: CLIENT,
+                    id: WINDOW,
+                })
+            ),
+            menus_json(&session.compositor, companion_window(&session)),
             chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),

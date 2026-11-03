@@ -196,6 +196,22 @@ class TextEditing {
 
   // The input that has focus, -1 if none.
   facebook::react::Tag focused() const { return focused_; }
+  // What the focused input's editing commands may do now, as NSTextView's validateMenuItem:
+  // answers: its context menu's rows (ADR 0037, decision 8) and the Edit menu's standard actions
+  // (ADR 0021, decision 3), which the window's first responder, the focused input, takes.
+  struct Commands {
+    bool undo = false, redo = false, cut = false, copy = false, paste = false, pasteAndMatchStyle = false,
+         deleteSelection = false, selectAll = false;
+    bool operator==(const Commands&) const = default;
+  };
+  // The focused input's commands; none while no input has focus (nothing is the first responder).
+  std::optional<Commands> responder() const;
+  // A standard editing action chosen in the Edit menu (`OxyOSEditing.perform`, ADR 0021): `undo`,
+  // `redo`, `cut`, `copy`, `paste`, `pasteAndMatchStyle` (a plain text input's paste), `delete`
+  // (the selection, as one edit) or `selectAll`, performed on the focused input as its own key
+  // would, citing the person's latest input (the bar's row, or the chord) for the clipboard. False
+  // if no input has focus or the action does not apply now.
+  bool performAction(const std::string& action);
   // What the renderer draws for the focused input: its selection (or caret) and composition.
   TextInputEdit edit() const;
   // Focus moved onto an input by the keyboard (Tab, keyboard-focus.h): its whole text selected, as
@@ -213,15 +229,11 @@ class TextEditing {
   void key(uint32_t code, uint64_t serial);
   // Ctrl+V's text arriving for the input `tag`: replaces its selection, as one edit.
   void pasted(facebook::react::Tag tag, std::string text);
-  // The focused input's editing commands, from their keys (Ctrl+C, X, V, A, Z, Shift+Z) or its
-  // context menu (`oxyosEdit`): `copy`, `cut`, `paste`, `selectAll`, `undo`, `redo`. `serial` is
-  // the input that asked, which the clipboard cites. One that does not apply does nothing.
+  // The focused input's editing commands, from their keys (Ctrl+C, X, V, A, Z, Shift+Z), its
+  // context menu (`oxyosEdit`) or the Edit menu (`performAction`): `copy`, `cut`, `paste`,
+  // `delete`, `selectAll`, `undo`, `redo`. `serial` is the input that asked, which the clipboard
+  // cites. One that does not apply does nothing.
   void perform(const std::string& command, uint64_t serial);
-  // What the context menu's commands may do now, as its rows are enabled (NSTextView's
-  // validateMenuItem:).
-  struct Commands {
-    bool undo = false, redo = false, cut = false, copy = false, paste = false, selectAll = false;
-  };
   Commands commands() const;
   // What a context click at the surface point (x, y) selects in the focused input: the word whose
   // character is under it, as [start, end) in bytes; none off a word (a space, punctuation, past a

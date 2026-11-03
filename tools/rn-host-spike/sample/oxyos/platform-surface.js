@@ -16,7 +16,8 @@
  * bar while the window is active; a command chosen there comes back through `onActivate` with the
  * id Bloom gave it. Its `keyboard` offers Bloom each of the window's key presses before the
  * focused view (`OxyOSKeyboard`), so a menu's shortcut runs its item; a key Bloom takes goes no
- * further. Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
+ * further. Its `editing` is the window's first responder for the Edit menu's standard actions,
+ * the focused text input (`OxyOSEditing`). Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
  * file manager needs beyond expo-file-system.
  *
  * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
@@ -244,6 +245,33 @@ function createKeyboard() {
 }
 
 const keyboard = nativeKeyboard?.getConstants()?.available ? createKeyboard() : undefined;
+
+// The window's first responder for the Edit menu's standard actions (docs/adr/0021-menu-bar.mdx,
+// decision 3): the focused text input, whatever component draws it, as the host knows it. Bloom's
+// `MenubarItem action="copy"` is enabled exactly when it can copy and copies there, as a Mac's
+// Edit menu sends copy: to the first responder. One state object per change, so a store snapshot
+// changes only when the state does.
+const nativeEditing = TurboModuleRegistry.get('OxyOSEditing');
+
+function createEditing() {
+  let state = nativeEditing.getState() ?? null;
+  const listeners = new Set();
+  DeviceEventEmitter.addListener('OxyOSEditingChanged', (next) => {
+    state = next ?? null;
+    for (const listener of [...listeners]) listener();
+  });
+  return {
+    getState: () => state,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    perform: (action) => nativeEditing.perform(action) === true,
+  };
+}
+
+// The file chooser's sheet has no menus of its own (the asking window's stand), so no Edit menu.
+const editing = nativeEditing?.getConstants()?.available && !chooserRequest ? createEditing() : undefined;
 
 // The session's appearance (docs/adr/0019-settings.mdx) beyond light and dark, which React Native's
 // own Appearance carries: the accent colour, which seeds Bloom's palette, and reduce transparency.
@@ -485,6 +513,7 @@ export const oxyosSurfaces = {
   window,
   menuBar,
   keyboard,
+  editing,
   appearance,
   files,
   ...(drag ? { DropTarget, drag } : {}),

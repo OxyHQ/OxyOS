@@ -144,7 +144,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
         "in_shell": {
           "absent": [
             "Mantener en el Dock",
@@ -165,7 +169,11 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
         "in_shell": {
           "texts": [
             "Opciones"
@@ -283,7 +291,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
         "in_shell": {
           "absent": [
             "Abrir al iniciar sesión"
@@ -303,7 +315,11 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
         "in_shell": {
           "texts": [
             "Abrir",
@@ -376,7 +392,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
         "in_shell": {
           "absent": [
             "Mantener en el Dock"

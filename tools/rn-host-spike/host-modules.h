@@ -191,6 +191,16 @@ struct MenuBarService {
   std::function<uint32_t(const std::vector<MenuEntry>& entries)> setMenus;
 };
 
+// The window's first responder for the standard editing actions (docs/adr/0021-menu-bar.mdx,
+// decision 3), for Bloom's `editing`: what the focused text input can do now (null while none has
+// focus; else { undo, redo, cut, copy, paste, pasteAndMatchStyle, delete, selectAll }), and an
+// action performed on it. `OxyOSEditingChanged` (that state) is emitted whenever it changes. Unset
+// without an application window.
+struct EditingService {
+  std::function<folly::dynamic()> state;
+  std::function<bool(const std::string& action)> perform;
+};
+
 // The application's own window (docs/adr/0016-windows.mdx), for Bloom's `window` capability:
 // its state ({ active, maximized, fullscreen }) and what its controls and drag regions do. Unset
 // in the shell, which has no window of its own.
@@ -282,6 +292,7 @@ struct HostServices {
   FileChooserService fileChooser{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};
+  EditingService editing{};
   DragService drag{};
   // The user's files (files.h, docs/adr/0028-file-access.mdx): set for an application's window,
   // never for the shell or the login screen, whose expo-file-system and Bloom adapter have none.

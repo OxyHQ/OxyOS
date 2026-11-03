@@ -1,0 +1,1346 @@
+{
+  "about": "edit-menu.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25). The Edit menu acts on the focused text field, as a Mac's first responder takes it (docs/adr/0021-menu-bar.mdx, decision 3): sample/EditMenuProbe.tsx (launched as Allo) declares with Bloom's Menubar a Mac's Edit menu, each standard item a `MenubarItem action` (Undo, Redo, Cut, Copy, Paste, Paste and Match Style, Delete, Select All), its Copy also the application's own (it copies the page's selected item), and Find… the application's command; a second application, EditMenuPeer, is the same page. Each step checks the window's menus exactly as the shell is told them (every Edit item enabled or disabled), the field's text and selection as React receives them, exactly the React events of both applications, what each client was delivered, focus and the clipboard: with no field focused the items are the application's (its own Copy runs, once); a field focused is the first responder and each item is enabled exactly as the field validates it (Copy with a selection, Paste with text on the clipboard, Undo with an edit, Cut and Copy never in a secure field) and acts on it, from the shell's bar with the pointer or by the `menu` step; after a menu of the bar the keyboard is the window's again; the field keeps its own chords (Ctrl+A, Ctrl+X) and Bloom takes Paste and Match Style's; and the clipboard goes from one application's field to the other's and back through Edit > Copy and Paste. Without the adapter's `editing` every item but the application's own stays as the application declared it and the editing steps fail; with the top bar taking the keyboard on a press, the keys after a bar's menu and its Copy are lost.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditMenuProbe",
+  "window": [
+    380,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "EditMenuPeer",
+    "window": [
+      380,
+      420
+    ],
+    "at": [
+      860,
+      60
+    ]
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "the window is made active by a press on nothing in it: no text field has focus, so each editing item is the application's, all disabled (it has no handler for them, and no item of its own selected) but Find…, its own command",
+      "do": [
+        "press",
+        [
+          360,
+          410
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": true
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "focus_input": null,
+        "clipboard": null,
+        "react": {
+          "touchStart@edit-probe": 1,
+          "touchEnd@edit-probe": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "an item of the page selected: its own Copy is enabled, still no field's",
+      "do": [
+        "press_named",
+        "Select item"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Item selected",
+          "copies: 0, finds: 0"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": false
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": true
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "touchStart@select-item": 1,
+          "touchEnd@select-item": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Copy with no field focused runs the application's own Copy, once; the clipboard is untouched",
+      "do": [
+        "menu",
+        "Edit > Copy"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "copies: 1, finds: 0"
+        ],
+        "clipboard": null,
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "the Bloom field takes focus: it is the first responder, and the editing items are its own: Copy disabled now (no selection) though the page has its item selected, Paste disabled (the clipboard is empty), Select All too (no text)",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "line",
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": true
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "typing: Undo and Select All come on",
+      "do": [
+        "type",
+        "hola mundo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [10,10]"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        }
+      }
+    },
+    {
+      "name": "Edit opens in the shell's bar, with each command's chord as Ctrl; the window stays active and its field keeps focus",
+      "do": [
+        "press_named",
+        "Edit"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "line",
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Ctrl+Z",
+            "Select All",
+            "Ctrl+A",
+            "Paste and Match Style",
+            "Find…",
+            "Ctrl+F"
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Select All chosen with the pointer in the shell's bar selects the field's text, once, and the keyboard is the window's again: Cut, Copy and Delete come on",
+      "do": [
+        "press_named",
+        "Select All"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [0,10]"
+        ],
+        "focus_input": "line",
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": false
+          },
+          "Edit > Copy": {
+            "disabled": false
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": false
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "menuActivated@menu-bar": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1,
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "the keys reach the field again after the bar's menu: Right puts the caret at the end",
+      "do": [
+        "key",
+        106
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [10,10]"
+        ],
+        "focus_input": "line",
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A is the field's own key: it selects all, and the page's menus run nothing",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [0,10]"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": false
+          },
+          "Edit > Copy": {
+            "disabled": false
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": false
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit opens again",
+      "do": [
+        "press_named",
+        "Edit"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Copy chosen in the shell's bar copies the field's selection to the clipboard, not the page's item: Paste comes on",
+      "do": [
+        "press_named",
+        "Copy"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [0,10]",
+          "copies: 1, finds: 0"
+        ],
+        "clipboard": {
+          "types": [
+            "text/plain;charset=utf-8"
+          ],
+          "text/plain;charset=utf-8": "hola mundo"
+        },
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": false
+          },
+          "Edit > Copy": {
+            "disabled": false
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": false
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1,
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Ctrl+X is the field's own key: it cuts once, and Bloom takes nothing",
+      "do": [
+        "key",
+        [
+          29,
+          45
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "clipboard": {
+          "types": [
+            "text/plain;charset=utf-8"
+          ],
+          "text/plain;charset=utf-8": "hola mundo"
+        },
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": true
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Paste pastes the clipboard into the field, once",
+      "do": [
+        "menu",
+        "Edit > Paste"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [10,10]"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "menuActivated@menu-bar": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Undo takes the paste back: Redo comes on",
+      "do": [
+        "menu",
+        "Edit > Undo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": false
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": true
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "menuActivated@menu-bar": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Redo pastes it again",
+      "do": [
+        "menu",
+        "Edit > Redo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [10,10]"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "menuActivated@menu-bar": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Alt+Left selects the word before the caret",
+      "do": [
+        "key",
+        [
+          42,
+          56,
+          105
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [5,10]"
+        ],
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": false
+          },
+          "Edit > Copy": {
+            "disabled": false
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": false
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Delete deletes the selection, as one edit, and copies nothing",
+      "do": [
+        "menu",
+        "Edit > Delete"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola \" [5,5]"
+        ],
+        "clipboard": {
+          "types": [
+            "text/plain;charset=utf-8"
+          ],
+          "text/plain;charset=utf-8": "hola mundo"
+        },
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "menuActivated@menu-bar": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+Shift+V, Paste and Match Style's chord, is no key of the field's: Bloom takes it and the item pastes into the field, once",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          42,
+          47
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola hola mundo\" [15,15]"
+        ],
+        "react": {
+          "shortcut@menu-bar": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Find… is the application's own command: it runs once, and the field is untouched",
+      "do": [
+        "menu",
+        "Edit > Find…"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "copies: 1, finds: 1",
+          "Line: \"hola hola mundo\" [15,15]"
+        ],
+        "react": {
+          "menuActivated@menu-bar": 1
+        }
+      }
+    },
+    {
+      "name": "the secure field takes focus: Paste and Select All, nothing to undo",
+      "do": [
+        "press_named",
+        "Secret"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "secret",
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "touchStart@secret": 1,
+          "touchEnd@secret": 1,
+          "focus@secret": 1,
+          "selectionChange@secret": 1,
+          "blur@line": 1,
+          "endEditing@line": 1
+        }
+      }
+    },
+    {
+      "name": "its text selected: Delete comes on, Cut and Copy stay disabled (a password is never copied)",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": false
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "selectionChange@secret": 1
+        }
+      }
+    },
+    {
+      "name": "Done takes focus from the fields: no first responder, and the editing items are the application's again (its Copy, its item still selected)",
+      "do": [
+        "press_named",
+        "Done"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": null,
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": false
+          },
+          "Edit > Paste": {
+            "disabled": true
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": true
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": true
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "touchStart@done": 1,
+          "touchEnd@done": 1,
+          "blur@secret": 1,
+          "endEditing@secret": 1
+        }
+      }
+    },
+    {
+      "name": "the other application's field takes focus: its window is active and its menus are the bar's, Paste enabled by what the first application copied",
+      "do": [
+        "press_named",
+        "Peer line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "menus": {
+            "bar": [
+              "Edit"
+            ],
+            "Edit > Undo": {
+              "disabled": true
+            },
+            "Edit > Redo": {
+              "disabled": true
+            },
+            "Edit > Cut": {
+              "disabled": true
+            },
+            "Edit > Copy": {
+              "disabled": true
+            },
+            "Edit > Paste": {
+              "disabled": false
+            },
+            "Edit > Paste and Match Style": {
+              "disabled": false
+            },
+            "Edit > Delete": {
+              "disabled": true
+            },
+            "Edit > Select All": {
+              "disabled": true
+            },
+            "Edit > Find…": {
+              "disabled": false
+            }
+          },
+          "focus_input": "peer-line",
+          "react": {
+            "touchStart@peer-line": 1,
+            "touchEnd@peer-line": 1,
+            "focus@peer-line": 1,
+            "selectionChange@peer-line": 1
+          }
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "its Edit opens in the shell's bar",
+      "do": [
+        "press_named",
+        "Edit"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Paste chosen there pastes the first application's text into its field, once; the first application receives nothing",
+      "do": [
+        "press_named",
+        "Paste"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "texts": [
+          "Line: \"hola hola mundo\" [15,15]"
+        ],
+        "in_companion": {
+          "texts": [
+            "Line: \"hola mundo\" [10,10]"
+          ],
+          "react": {
+            "menuActivated@menu-bar": 1,
+            "change@peer-line": 1,
+            "selectionChange@peer-line": 1
+          },
+          "menus": {
+            "bar": [
+              "Edit"
+            ],
+            "Edit > Undo": {
+              "disabled": false
+            },
+            "Edit > Redo": {
+              "disabled": true
+            },
+            "Edit > Cut": {
+              "disabled": true
+            },
+            "Edit > Copy": {
+              "disabled": true
+            },
+            "Edit > Paste": {
+              "disabled": false
+            },
+            "Edit > Paste and Match Style": {
+              "disabled": false
+            },
+            "Edit > Delete": {
+              "disabled": true
+            },
+            "Edit > Select All": {
+              "disabled": false
+            },
+            "Edit > Find…": {
+              "disabled": false
+            }
+          }
+        },
+        "delivered": {
+          "companion": {
+            "menu.activated": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "typed after it, and selected with its own Ctrl+A",
+      "do": [
+        "keyboard",
+        " otra"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "texts": [
+            "Line: \"hola mundo otra\" [15,15]"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "texts": [
+            "Line: \"hola mundo otra\" [0,15]"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Edit > Copy copies its selection: the clipboard is the second application's",
+      "do": [
+        "menu",
+        "Edit > Copy"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "clipboard": {
+          "types": [
+            "text/plain;charset=utf-8"
+          ],
+          "text/plain;charset=utf-8": "hola mundo otra"
+        },
+        "in_companion": {
+          "react": {
+            "menuActivated@menu-bar": 1
+          },
+          "menus": {
+            "bar": [
+              "Edit"
+            ],
+            "Edit > Undo": {
+              "disabled": false
+            },
+            "Edit > Redo": {
+              "disabled": true
+            },
+            "Edit > Cut": {
+              "disabled": false
+            },
+            "Edit > Copy": {
+              "disabled": false
+            },
+            "Edit > Paste": {
+              "disabled": false
+            },
+            "Edit > Paste and Match Style": {
+              "disabled": false
+            },
+            "Edit > Delete": {
+              "disabled": false
+            },
+            "Edit > Select All": {
+              "disabled": false
+            },
+            "Edit > Find…": {
+              "disabled": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "back in the first application's field: its menus again",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "line",
+        "menus": {
+          "bar": [
+            "Edit"
+          ],
+          "Edit > Undo": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          },
+          "Edit > Cut": {
+            "disabled": true
+          },
+          "Edit > Copy": {
+            "disabled": true
+          },
+          "Edit > Paste": {
+            "disabled": false
+          },
+          "Edit > Paste and Match Style": {
+            "disabled": false
+          },
+          "Edit > Delete": {
+            "disabled": true
+          },
+          "Edit > Select All": {
+            "disabled": false
+          },
+          "Edit > Find…": {
+            "disabled": false
+          }
+        },
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A, then Edit > Paste replaces it with the second application's text: the round trip, once",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Edit > Paste",
+      "do": [
+        "menu",
+        "Edit > Paste"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo otra\" [15,15]"
+        ],
+        "react": {
+          "menuActivated@menu-bar": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    }
+  ]
+}

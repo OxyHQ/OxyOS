@@ -217,7 +217,14 @@ fn the_shell_is_told_the_active_windows_menus_as_activation_follows() {
     .unwrap();
     h.present(key(SHELL, 1));
     h.clear_log();
-    h.click(10, 10);
+    // A press on it leaves the keyboard on the window, as a click on a Mac's menu bar does; the
+    // shell taking the keyboard for it (Super+F2's) leaves the window active too.
+    let serial = h.press(10, 10);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(inbox));
+    h.request(SHELL, Request::FocusShellSurface { surface: 1, serial })
+        .unwrap();
     assert_eq!(h.scene.focus(), Some(key(SHELL, 1)));
     assert_eq!(bars(&logged(&mut h), SHELL), []);
     // Minimized while the top bar has focus, it is no longer active: the bar is none. Restored,

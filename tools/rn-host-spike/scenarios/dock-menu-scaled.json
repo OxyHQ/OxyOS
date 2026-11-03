@@ -429,7 +429,11 @@
         "react": {},
         "delivered": {
           "launched": {
-            "close.requested": 1
+            "close.requested": 1,
+            "focus.in": 1
+          },
+          "1": {
+            "focus.in": 1
           }
         },
         "in_shell": {
@@ -456,7 +460,7 @@
       }
     },
     {
-      "name": "Control held (the shell's dock has the keyboard since its menu closed)",
+      "name": "Control held (the active window has the keyboard again since the dock's menu closed, as on a Mac)",
       "do": [
         "key_down",
         [
@@ -466,7 +470,11 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "delivered": {}
+        "delivered": {
+          "1": {
+            "key.press": 1
+          }
+        }
       }
     },
     {
@@ -477,7 +485,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
         "in_shell": {
           "texts": [
             "Abrir",

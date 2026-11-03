@@ -112,6 +112,7 @@
         },
         "delivered": {
           "1": {
+            "focus.in": 1,
             "menu.activated": 1
           }
         }
@@ -256,6 +257,7 @@
         },
         "delivered": {
           "1": {
+            "focus.in": 1,
             "menu.activated": 1
           }
         },
@@ -406,6 +408,7 @@
         },
         "delivered": {
           "1": {
+            "focus.in": 1,
             "menu.activated": 1
           }
         }
@@ -432,7 +435,11 @@
         },
         "pixel_tolerance": 16,
         "react": {},
-        "delivered": {}
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        }
       }
     },
     {
@@ -455,6 +462,7 @@
         },
         "delivered": {
           "1": {
+            "focus.in": 1,
             "menu.activated": 1
           }
         }
