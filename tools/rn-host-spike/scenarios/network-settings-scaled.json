@@ -96,8 +96,11 @@
     {
       "name": "Wi-Fi: the switch, the network joined, the known networks and the others; it asks the daemon to scan",
       "do": [
-        "press_named",
-        "Wi-Fi"
+        "press",
+        [
+          136,
+          110
+        ]
       ],
       "expect": {
         "texts": [

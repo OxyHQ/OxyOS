@@ -488,7 +488,7 @@ typedef struct OxyOSClient OxyOSClient;
  *                      and model; `detail` its index (0 begins it), `flag` 1 on the last, `text`
  *                      the chunk.
  *   LOCALE             to every client when it connects and whenever it changes (ADR 0040,
- *                      protocol version 15; an older compositor never sends it): a chunk of the
+ *                      protocol version 16; an older compositor never sends it): a chunk of the
  *                      session's locale, one BCP 47 tag (`es-ES`, `en-US`, `es-MX-u-hc-h12`: the
  *                      hour cycle only when the person chose one), in chunks as KEYBOARD_LAYOUT:
  *                      `detail` its index (0 begins it), `flag` 1 on the last, `text` the chunk.
@@ -547,6 +547,9 @@ typedef struct OxyOSEvent {
 #define OXYOS_ROLE_GRID 26
 /* A table's or a list's column header (protocol version 14; a button to an older compositor). */
 #define OXYOS_ROLE_COLUMN_HEADER 27
+/* A level in a known range that is no progress, a battery's charge (protocol version 15; a
+   progress indicator to an older compositor). */
+#define OXYOS_ROLE_METER 28
 /* States of an accessible node (bits). */
 #define OXYOS_STATE_DISABLED 1
 #define OXYOS_STATE_SELECTED 2

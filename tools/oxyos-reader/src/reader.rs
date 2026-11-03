@@ -5,7 +5,7 @@
 use crate::editing;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Event, Politeness,
-    ReaderCommand, Request,
+    ReaderCommand, Request, NO_ACCESSIBLE_PARENT,
 };
 use oxyos_speech::{describe_change, describe_item, describe_state_change, Language};
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,6 +25,8 @@ pub struct Node {
     pub hint: String,
     /// Its place among its collection's items, 1-based, and their count (version 13).
     pub position: Option<(u32, u32)>,
+    /// The node that holds it, earlier in the tree; `NO_ACCESSIBLE_PARENT` for a root.
+    pub parent: u32,
 }
 
 impl Node {
@@ -37,6 +39,7 @@ impl Node {
             selection: None,
             hint: String::new(),
             position: None,
+            parent: NO_ACCESSIBLE_PARENT,
         }
     }
 
@@ -50,8 +53,8 @@ impl Node {
         }
     }
 
-    /// What a live region says when it changes: its name, then its value.
-    fn live_text(&self) -> String {
+    /// Its own words: its name, then its value.
+    fn own_text(&self) -> String {
         [self.name.as_str(), self.value.as_str()]
             .iter()
             .filter(|text| !text.is_empty())
@@ -59,6 +62,48 @@ impl Node {
             .collect::<Vec<_>>()
             .join(" ")
     }
+}
+
+/// Whether the node at `at` is within the one at `index`: its line of parents, each earlier in the
+/// tree, reaches it. A node's descendants follow it, together.
+fn within(nodes: &[Node], index: usize, mut at: usize) -> bool {
+    while at > index {
+        match nodes[at].parent {
+            NO_ACCESSIBLE_PARENT => return false,
+            parent => at = parent as usize,
+        }
+    }
+    at == index
+}
+
+/// What the live region at `index` says when it changes: its own words, else, for a container
+/// with none (a toast's row, Android's live ViewGroup), the text it holds, in order, as TalkBack
+/// says a live region's content and an ARIA live region's text is read: its texts, headings and
+/// images, not its controls' names (a toast's close button), nor a live region inside it, which
+/// says itself.
+fn live_text(nodes: &[Node], index: usize) -> String {
+    let own = nodes[index].own_text();
+    if !own.is_empty() {
+        return own;
+    }
+    let mut parts = Vec::new();
+    for (at, node) in nodes.iter().enumerate().skip(index + 1) {
+        if !within(nodes, index, at) {
+            break;
+        }
+        let content = matches!(
+            node.role,
+            AccessibleRole::Text
+                | AccessibleRole::Heading
+                | AccessibleRole::Image
+                | AccessibleRole::Generic
+        );
+        let text = node.own_text();
+        if content && node.live().is_none() && !text.trim().is_empty() {
+            parts.push(text);
+        }
+    }
+    parts.join(", ")
 }
 
 /// Something to say, whether it waits for what is being said, and the language it is in (the
@@ -231,12 +276,22 @@ impl Reader {
                 client,
                 surface,
                 index,
+                parent,
                 role,
                 state,
                 ..
             } => {
                 if let Some(slot) = self.slot((client, surface), index) {
-                    *slot = Some(Node::empty(role, state));
+                    // A parent is earlier in the tree, else the node is a root.
+                    let parent = if parent < index {
+                        parent
+                    } else {
+                        NO_ACCESSIBLE_PARENT
+                    };
+                    *slot = Some(Node {
+                        parent,
+                        ..Node::empty(role, state)
+                    });
                 }
             }
             Event::AccessibleSelection {
@@ -385,7 +440,6 @@ impl Reader {
         // protocol's nodes have no identity but their place, and an element appearing before it
         // (a search field's clear button as the first letter is typed) moves it on.
         let kept = self.kept_focus(key, before.as_deref());
-        self.live_changes(key);
         if let Some(kept) = kept {
             self.text_changes(key, before.as_deref(), kept);
             self.state_changes(key, before.as_deref(), kept);
@@ -395,6 +449,9 @@ impl Reader {
             }
             self.focused = Some((key, kept.1));
         }
+        // After what the focused element's change says (the letter typed), which an alert it
+        // brought (the name typed is taken) interrupts; before a new focus, which says itself.
+        self.live_changes(key);
         // A popup that appears is said by its title, as TalkBack says the pane title of a window
         // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
         // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
@@ -507,26 +564,49 @@ impl Reader {
     /// Android's: compared with itself as the same view (the window, or the same modal) last
     /// showed it, so a live region hidden under a modal and shown again unchanged says nothing,
     /// as VoiceOver says a live region's changes, not its coming back. A surface's first tree says
-    /// nothing; nor does a view's first showing. Live regions are matched in order within a view.
+    /// nothing; nor does a view's first showing. A live region appearing (a field's error, a
+    /// toast) is a change: it says what it shows, once. What the view showed is matched by text,
+    /// each once, not by place, so a region appearing before others (a toast above the last one)
+    /// does not make them say themselves again.
     fn live_changes(&mut self, key: Surface) {
         let nodes = &self.trees[&key];
+        // The view, by its first node that is not live content: a toast's row coming first in
+        // the window is not another view.
+        let mut content_end = 0;
         let view = nodes
-            .first()
-            .map_or((AccessibleRole::Generic, String::new()), |root| {
+            .iter()
+            .enumerate()
+            .find(|&(index, node)| {
+                if index < content_end {
+                    return false;
+                }
+                if node.live().is_none() {
+                    return true;
+                }
+                content_end = (index + 1..nodes.len())
+                    .find(|&at| !within(nodes, index, at))
+                    .unwrap_or(nodes.len());
+                false
+            })
+            .map_or((AccessibleRole::Generic, String::new()), |(_, root)| {
                 (root.role, root.name.clone())
             });
         let now: Vec<(String, Politeness)> = nodes
             .iter()
-            .filter_map(|node| Some((node.live_text(), node.live()?)))
+            .enumerate()
+            .filter_map(|(index, node)| Some((live_text(nodes, index), node.live()?)))
             .collect();
         let texts: Vec<String> = now.iter().map(|(text, _)| text.clone()).collect();
         let shown = self.lives.insert((key, view.0, view.1), texts);
-        let Some(shown) = shown else {
+        let Some(mut shown) = shown else {
             return;
         };
-        for (index, (text, politeness)) in now.into_iter().enumerate() {
-            if shown.get(index) != Some(&text) {
-                self.say(text, politeness);
+        for (text, politeness) in now {
+            match shown.iter().position(|was| *was == text) {
+                Some(at) => {
+                    shown.swap_remove(at);
+                }
+                None => self.say(text, politeness),
             }
         }
     }

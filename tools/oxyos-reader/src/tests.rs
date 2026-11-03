@@ -1011,3 +1011,136 @@ fn the_session_locking_is_said_then_the_lock_screens_field() {
     login.receive(&Event::LockState { locked: true });
     assert!(login.take_said().is_empty());
 }
+
+/// `tree`'s events with each node's parent as given (`NO_ACCESSIBLE_PARENT` for the root).
+fn with_parents(mut events: Vec<Event>, parents: &[u32]) -> Vec<Event> {
+    for event in &mut events {
+        if let Event::AccessibleNode { index, parent, .. } = event {
+            *parent = parents[*index as usize];
+        }
+    }
+    events
+}
+
+/// A form: its field, focused, and under it the error, while there is one (a Bloom `Field`'s
+/// error is an `alert`: an assertive live region).
+fn form(error: Option<&str>) -> Vec<Event> {
+    let mut nodes = vec![
+        (R::Generic, 0, "", ""),
+        (R::TextInput, FOCUSED, "Nombre de usuario", "ada"),
+    ];
+    if let Some(error) = error {
+        nodes.push((R::Alert, AccessibleState::LIVE_ASSERTIVE, error, ""));
+    }
+    nodes.push((R::Button, 0, "Comprobar", ""));
+    tree(WINDOW, &nodes)
+}
+
+#[test]
+fn an_alert_appearing_is_said_at_once_and_once() {
+    let mut reader = Reader::new(Language::Spanish);
+    // The field focused, as the window shows.
+    assert_eq!(
+        feed(&mut reader, &form(None)),
+        ["Nombre de usuario, ada, campo de texto"]
+    );
+    for event in &form(Some("Ese nombre ya está en uso")) {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [Utterance {
+            text: "Ese nombre ya está en uso".into(),
+            politeness: Politeness::Assertive,
+            language: Language::Spanish
+        }]
+    );
+    assert!(feed(&mut reader, &form(Some("Ese nombre ya está en uso"))).is_empty());
+    assert!(feed(&mut reader, &form(None)).is_empty());
+    // Shown again: said again, as it is an answer again.
+    assert_eq!(
+        feed(&mut reader, &form(Some("Ese nombre ya está en uso"))),
+        ["Ese nombre ya está en uso"]
+    );
+}
+
+/// A window with a toast's row while `toast` holds its title and its text: a live container (no
+/// words of its own) holding them and its close button.
+fn toasts(toast: &[(&str, &str)]) -> Vec<Event> {
+    let mut nodes = vec![(R::Generic, 0, "", ""), (R::Button, 0, "Abrir", "")];
+    let mut parents = vec![NO_ACCESSIBLE_PARENT, 0];
+    for (title, text) in toast {
+        let row = nodes.len() as u32;
+        nodes.push((R::Generic, AccessibleState::LIVE_POLITE, "", ""));
+        nodes.push((R::Text, 0, title, ""));
+        nodes.push((R::Text, 0, text, ""));
+        nodes.push((R::Button, 0, "Cerrar", ""));
+        parents.extend([0, row, row, row]);
+    }
+    with_parents(tree(WINDOW, &nodes), &parents)
+}
+
+#[test]
+fn a_live_container_says_the_text_it_holds_not_its_controls() {
+    let mut reader = Reader::new(Language::Spanish);
+    assert!(feed(&mut reader, &toasts(&[])).is_empty());
+    for event in &toasts(&[("Guardado", "Los cambios se han guardado")]) {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [Utterance {
+            text: "Guardado, Los cambios se han guardado".into(),
+            politeness: Politeness::Polite,
+            language: Language::Spanish
+        }]
+    );
+    // Another above it: that one alone, not the one already said.
+    assert_eq!(
+        feed(
+            &mut reader,
+            &toasts(&[
+                ("Copiado", "3 archivos"),
+                ("Guardado", "Los cambios se han guardado")
+            ])
+        ),
+        ["Copiado, 3 archivos"]
+    );
+    assert!(feed(&mut reader, &toasts(&[("Copiado", "3 archivos")])).is_empty());
+}
+
+/// A window with no root of its own, as the Bloom host's: a toast's row first, while there is
+/// one, then a label, a status line and a button, each a root.
+fn rootless(toast: bool, saved: &str) -> Vec<Event> {
+    let mut nodes = Vec::new();
+    let mut parents = Vec::new();
+    if toast {
+        nodes.extend([
+            (R::Generic, AccessibleState::LIVE_POLITE, "", ""),
+            (R::Text, 0, "Copiado", ""),
+            (R::Button, 0, "Cerrar", ""),
+        ]);
+        parents.extend([NO_ACCESSIBLE_PARENT, 0, 0]);
+    }
+    nodes.extend([
+        (R::Text, 0, "Nombre de usuario", ""),
+        (R::Generic, AccessibleState::LIVE_POLITE, saved, ""),
+        (R::Button, 0, "Guardar", ""),
+    ]);
+    parents.extend([NO_ACCESSIBLE_PARENT; 3]);
+    with_parents(tree(WINDOW, &nodes), &parents)
+}
+
+#[test]
+fn a_toast_first_in_the_window_is_said_alone() {
+    let mut reader = Reader::new(Language::Spanish);
+    assert!(feed(&mut reader, &rootless(false, "0 cambios guardados")).is_empty());
+    assert_eq!(
+        feed(&mut reader, &rootless(true, "0 cambios guardados")),
+        ["Copiado"]
+    );
+    assert_eq!(
+        feed(&mut reader, &rootless(false, "1 cambio guardado")),
+        ["1 cambio guardado"]
+    );
+}

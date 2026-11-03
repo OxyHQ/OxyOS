@@ -24,7 +24,7 @@ import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
 import type { ShellKeyboard } from "../platform";
-import { barClock } from "../clock";
+import { barClock, clockSaid } from "../clock";
 import { useShellLocale, useShellMessages } from "../useShellMessages";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
@@ -190,8 +190,16 @@ const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }
   const messages = useShellMessages();
   const battery = batteryLabel(power, messages);
   if (battery === undefined) return null;
+  // A level indicator, as VoiceOver reads a battery's charge: named "Batería", its charge and
+  // what it is doing its value ("Batería, 64 %, 3 h 20 min restantes, indicador de nivel").
   return (
-    <Box testID="shell-battery" accessible accessibilityLabel={messages.topBar.battery(battery)}>
+    <Box
+      testID="shell-battery"
+      accessible
+      role="meter"
+      accessibilityLabel={messages.topBar.battery}
+      accessibilityValue={{ min: 0, max: 100, now: power.percent, text: battery }}
+    >
       <BatteryIcon power={power} />
     </Box>
   );
@@ -234,6 +242,15 @@ function networkItem(network: ShellNetwork | undefined): string | undefined {
   return network.wifi === "unavailable" ? undefined : "shell-wifi";
 }
 
+/** Which panels the status items open are shown: the network's (Control Center at its Wi-Fi
+    view), Control Center (at any view), the Notification Center. */
+export interface StatusPanels {
+  network: boolean;
+  controlCenter: boolean;
+  notifications: boolean;
+}
+const NOTHING_OPEN: StatusPanels = { network: false, controlCenter: false, notifications: false };
+
 /** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx). */
 function statusItems(network: ShellNetwork | undefined): string[] {
   const first = networkItem(network);
@@ -247,10 +264,13 @@ export function firstStatusItem(network: ShellNetwork | undefined): string {
 
 const NetworkItem = memo(function NetworkItem({
   network,
+  open,
   onPress,
   onItemFocus,
 }: {
   network: ShellNetwork;
+  /** Whether what it opens (Control Center's Wi-Fi view) is shown. */
+  open: boolean;
   onPress?: () => void;
   onItemFocus?: (testID: string) => void;
 }) {
@@ -258,11 +278,14 @@ const NetworkItem = memo(function NetworkItem({
   const ethernet = network.wifi !== "connected" && network.wired;
   const wifi = ethernet ? undefined : wifiLabel(network, messages);
   if (!ethernet && wifi === undefined) return null;
-  const label = ethernet ? messages.topBar.ethernetConnected : messages.topBar.wifi(wifi!);
+  // Named by what it is, the network it is on its value, as VoiceOver says a Mac's Wi-Fi menu
+  // ("Wi-Fi, Vecinos").
+  const label = ethernet ? "Ethernet" : "Wi-Fi";
+  const value = { text: ethernet ? messages.topBar.connected : wifi };
   const testID = ethernet ? "shell-ethernet" : "shell-wifi";
   if (!onPress) {
     return (
-      <Box testID={testID} accessible accessibilityLabel={label}>
+      <Box testID={testID} accessible accessibilityLabel={label} accessibilityValue={value}>
         {ethernet ? <EthernetIcon /> : <WifiIcon network={network} />}
       </Box>
     );
@@ -275,6 +298,9 @@ const NetworkItem = memo(function NetworkItem({
       iconSize={15}
       testID={testID}
       accessibilityLabel={label}
+      accessibilityValue={value}
+      // A status menu's button says whether its menu is open, as a Mac's does.
+      aria-expanded={open}
       appearance="plain"
       style={statusStyle}
       colors={TRANSPARENT_WHITE}
@@ -294,10 +320,13 @@ const clockStyle = { ...menuStyle, paddingLeft: 4, paddingRight: 0 };
 const BarButtons = memo(function BarButtons({
   launcher,
   controlCenter,
+  controlCenterOpen,
   onItemFocus,
 }: {
   launcher: () => void;
   controlCenter: () => void;
+  /** Whether the Control Center is shown. */
+  controlCenterOpen: boolean;
   onItemFocus?: (testID: string) => void;
 }) {
   const messages = useShellMessages();
@@ -321,6 +350,7 @@ const BarButtons = memo(function BarButtons({
         iconSize={15}
         testID="shell-control-center"
         accessibilityLabel={messages.common.controlCenter}
+        aria-expanded={controlCenterOpen}
         appearance="plain"
         className="h-7 w-[22px] border-0 bg-transparent p-0"
         colors={TRANSPARENT_WHITE}
@@ -331,23 +361,33 @@ const BarButtons = memo(function BarButtons({
   );
 });
 
-/** The clock: the date and the time, which open the Notification Center. */
+/** The clock: the date and the time, which open the Notification Center. As VoiceOver says a
+    Mac's menu bar clock, it is named by what it shows, in whole words ("lunes, 3 de noviembre,
+    14:05", "Tuesday, November 3, 2:05 PM"): the date and time are what it is. What pressing it
+    does, which its name does not say, is its hint, said after it; it says whether the Notification
+    Center is open as a status menu's button does. */
 const Clock = memo(function Clock({
   now,
+  open,
   onPress,
   onItemFocus,
 }: {
   now: Date;
+  /** Whether the Notification Center is shown. */
+  open: boolean;
   onPress?: () => void;
   onItemFocus?: (testID: string) => void;
 }) {
   const messages = useShellMessages();
-  const shown = barClock(now, useShellLocale());
+  const locale = useShellLocale();
+  const shown = barClock(now, locale);
   return (
     <Button
       testID="shell-clock"
       appearance="plain"
-      accessibilityLabel={messages.common.notificationCenter}
+      accessibilityLabel={clockSaid(now, locale)}
+      accessibilityHint={onPress ? messages.topBar.clockHint : undefined}
+      aria-expanded={onPress ? open : undefined}
       onFocus={() => onItemFocus?.("shell-clock")}
       // Where the clock's text always was (its old `ml-1`), now pressable.
       style={clockStyle}
@@ -512,6 +552,7 @@ export const TopBar = memo(function TopBar({
   controlCenter,
   networkStatus,
   clock,
+  open = NOTHING_OPEN,
   keyboardRequest = 0,
   keyboardLost = 0,
   onKeyboard,
@@ -537,6 +578,9 @@ export const TopBar = memo(function TopBar({
   networkStatus?: () => void;
   /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
   clock?: () => void;
+  /** Which of the panels the status items open is shown: each item says it is expanded while
+      its own is (docs/adr/0039-keyboard-access.mdx). */
+  open?: StatusPanels;
   /** Rises at each Super+F2 (docs/adr/0024-system-shortcuts.mdx): the keyboard moves to the
       bar's first menu, as a Mac's Control-F2. */
   keyboardRequest?: number;
@@ -600,10 +644,17 @@ export const TopBar = memo(function TopBar({
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
           {power && <BatteryItem power={power} />}
-          {network && <NetworkItem network={network} onPress={networkStatus} onItemFocus={onItemFocus} />}
+          {network && (
+            <NetworkItem network={network} open={open.network} onPress={networkStatus} onItemFocus={onItemFocus} />
+          )}
         </Box>
-        <BarButtons launcher={launcher} controlCenter={controlCenter} onItemFocus={onItemFocus} />
-        <Clock now={now} onPress={clock} onItemFocus={onItemFocus} />
+        <BarButtons
+          launcher={launcher}
+          controlCenter={controlCenter}
+          controlCenterOpen={open.controlCenter}
+          onItemFocus={onItemFocus}
+        />
+        <Clock now={now} open={open.notifications} onPress={clock} onItemFocus={onItemFocus} />
       </Box>
     </Box>
   );

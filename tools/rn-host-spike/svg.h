@@ -1,9 +1,13 @@
 // react-native-svg on OxyOS: its components are built from its own C++ shadow nodes over codegen's
 // props, as on Android, and an SVG view's subtree is drawn as react-native-svg's Android views draw
-// it, through Skia: its elements' paths (transforms composed, inherited fill and stroke resolved,
-// currentColor taken from the nearest `color`, the view box fitted to the view) recorded as one
-// picture the view draws at any scale. What it does not draw yet (gradients and patterns, clip
-// paths and masks, markers, filters, text, images, `use`) is reported once, never faked.
+// it, through Skia: its elements' paths (transforms on the canvas, inherited fill and stroke
+// resolved, currentColor taken from the nearest `color`, the view box fitted to the view) recorded
+// as one picture the view draws at any scale. Fills and strokes take colours and `url(#id)`
+// references to linear and radial gradients (Skia's gradient shaders) and patterns (a picture
+// shader, tiled at the output's resolution); elements are clipped by `<ClipPath>` and masked by
+// `<Mask>` (luminance or alpha, in a layer), as its Android RenderableView does; `<Image href>`
+// draws the picture images.h loads for it, by preserveAspectRatio. What it does not draw yet
+// (markers, filters, text, `use`) is reported once, never faked.
 #pragma once
 
 #include "renderer.h"

@@ -39,6 +39,14 @@ export function barClock(now: Date, locale: string): string {
   return `${date} ${clockTime(now, locale)}`;
 }
 
+/** The top bar's clock as a screen reader says it: the same date and time in whole words, as
+    VoiceOver names a Mac's menu bar clock by what it shows ("martes, 3 de noviembre, 14:05",
+    "Tuesday, November 3, 2:05 PM"). */
+export function clockSaid(now: Date, locale: string): string {
+  const date = format(locale, { weekday: "long", day: "numeric", month: "long" }).format(now);
+  return `${date}, ${clockTime(now, locale)}`;
+}
+
 /** The lock screen's date, its first letter capitalized ("Lunes, 2 de noviembre",
     "Monday, November 2"). */
 export function lockDate(now: Date, locale: string): string {

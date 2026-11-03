@@ -7,5 +7,6 @@
   { "page": 6, "title": "App shell islands", "width": 1200, "height": 880 },
   { "page": 7, "title": "Dialog", "width": 1200, "height": 880 },
   { "page": 8, "title": "Popover, tooltip and toast", "width": 1200, "height": 880 },
-  { "page": 9, "title": "App shell", "width": 1200, "height": 880 }
+  { "page": 9, "title": "App shell", "width": 1200, "height": 880 },
+  { "page": 10, "title": "SVG images, gradients, clip paths, patterns and masks", "width": 1200, "height": 880 }
 ]

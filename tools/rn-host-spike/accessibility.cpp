@@ -18,6 +18,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <unordered_map>
+#include <utility>
 
 using namespace facebook::react;
 
@@ -88,6 +89,18 @@ folly::dynamic stateOf(const ViewProps& props) {
       break;
   }
   return state;
+}
+
+// A view's live region: Android's `accessibilityLiveRegion` (React Native's `aria-live`), else
+// the one its role implies, as ARIA's: an alert is assertive (a field's error said as it appears,
+// interrupting), a status or a log polite. The view's own politeness wins over its role's. Fabric
+// holds no `aria-live="off"` apart from none, so an alert is always one.
+const char* liveOf(const ViewProps& props, const std::string& role) {
+  if (props.accessibilityLiveRegion == AccessibilityLiveRegion::Polite) return "polite";
+  if (props.accessibilityLiveRegion == AccessibilityLiveRegion::Assertive) return "assertive";
+  if (role == "alert") return "assertive";
+  if (role == "status" || role == "log") return "polite";
+  return nullptr;
 }
 
 // Accessibility focus sent to a view that is not an element lands on the first node inside it,
@@ -184,8 +197,7 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
     node.collectionColumns = android.collectionColumns;
     node.itemRow = android.itemRow;
     node.itemColumn = android.itemColumn;
-    if (props->accessibilityLiveRegion == AccessibilityLiveRegion::Polite) node.state["live"] = "polite";
-    if (props->accessibilityLiveRegion == AccessibilityLiveRegion::Assertive) node.state["live"] = "assertive";
+    if (auto live = liveOf(*props, role)) node.state["live"] = live;
     declaredActions(*props, node);
     node.actions |= scrolls;
     if (textInput) {
@@ -211,15 +223,24 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
     for (Tag child : it->second.children) {
       walk(w, child, false, props->accessible || merged, index, depth + 1);
     }
+  } else if (!merged && name != "Paragraph" && props && liveOf(*props, role)) {
+    // A live region that is no element (a toast's row): a node with no words of its own, so the
+    // cursor passes it, holding its views' nodes; an assistive technology says the text they
+    // show as it changes, as TalkBack says a live ViewGroup's.
+    AccessibleNode node{.role = role, .id = props->testId};
+    node.state["live"] = liveOf(*props, role);
+    // Focus sent to it, or a modal's dismissal, lands on the first node it holds, not on it.
+    bool pending = std::exchange(w.pending, false), dismissable = std::exchange(w.dismissable, false);
+    int index = add(std::move(node));
+    w.pending = pending;
+    w.dismissable = dismissable;
+    for (Tag child : it->second.children) walk(w, child, false, merged, index, depth + 1);
   } else if (!merged && name == "Paragraph") {
     auto text = paragraphText(view);
     if (!text.empty()) {
       AccessibleNode node{.role = "text", .name = text};
       // Loose text can be a live region (Android's `accessibilityLiveRegion` on a TextView).
-      if (props && props->accessibilityLiveRegion == AccessibilityLiveRegion::Polite) node.state["live"] = "polite";
-      if (props && props->accessibilityLiveRegion == AccessibilityLiveRegion::Assertive) {
-        node.state["live"] = "assertive";
-      }
+      if (auto live = props ? liveOf(*props, role) : nullptr) node.state["live"] = live;
       add(std::move(node));
     }
   } else {
@@ -256,6 +277,7 @@ uint8_t protocolRole(const std::string& role) {
       {"navigation", OXYOS_ROLE_GROUP},
       {"combobox", OXYOS_ROLE_COMBO_BOX},    {"summary", OXYOS_ROLE_SUMMARY},
       {"grid", OXYOS_ROLE_GRID},             {"columnheader", OXYOS_ROLE_COLUMN_HEADER},
+      {"meter", OXYOS_ROLE_METER},
   };
   auto it = roles.find(role);
   return it == roles.end() ? OXYOS_ROLE_GENERIC : it->second;

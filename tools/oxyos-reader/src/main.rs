@@ -37,7 +37,7 @@ const SPEAKING_POLL: Duration = Duration::from_millis(20);
 const LOCALE_WAIT: Duration = Duration::from_millis(250);
 
 /// The protocol version whose compositors tell the session's locale (ADR 0033).
-const LOCALE_VERSION: u16 = 15;
+const LOCALE_VERSION: u16 = 16;
 
 /// Waits until the compositor has sent something, or `timeout` passes.
 fn wait(client: &Client, timeout: Option<Duration>) -> Result<()> {

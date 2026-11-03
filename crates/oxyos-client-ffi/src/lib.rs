@@ -382,7 +382,7 @@ pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
-/// The session's locale (ADR 0040, protocol version 15), in chunks as the keyboard layout.
+/// The session's locale (ADR 0040, protocol version 16), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA: u32 = 201;

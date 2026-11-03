@@ -71,7 +71,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
   exactly and in order: each a text, or keys matching an utterance (text, interrupting, voice:
-  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040);
+  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040); in a
+  text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
+  in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
+  minute it was said or the one before);
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
@@ -360,7 +363,9 @@ refused, so nothing of the network outside reaches the run. The server answers t
 as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
 (summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
 reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
-store that is down. It also answers NetInfo's check that the Internet is reachable
+store that is down; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
+document, as a listing's `icon` may be a file URL or path), and `{store_files}` in any answer is the
+directory holding them. It also answers NetInfo's check that the Internet is reachable
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
 told from a machine that is offline. Applications reach it as they reach the real one, with their own
 builds.
@@ -433,6 +438,43 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
 # CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
 # clock's time of a report's line, for what follows the wall clock (the shell's minute).
 WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
+
+# The time zone the run's applications tell the time in (a scenario's `tz`), else this process's.
+RUN_TZ = None
+# The run's locale (its `locale`, else FIXED_LOCALE): the language the shell says its clock in.
+RUN_LOCALE = FIXED_LOCALE
+SPANISH_WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+SPANISH_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+                  "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def clock_said(t_ns):
+    """The shell's clock as the screen reader says it at a report's time `t_ns` (its `clockSaid`,
+    apps/shell/src/clock.ts): the date and time in whole words in the run's language, "martes, 3 de
+    noviembre, 14:05" in Spain, "Tuesday, November 3, 2:05 PM" in the United States, written here
+    from the calendar rather than by the shell's Intl. Other locales are not written here."""
+    import datetime
+    import zoneinfo
+    zone = zoneinfo.ZoneInfo(RUN_TZ) if RUN_TZ else None
+    at = datetime.datetime.fromtimestamp((t_ns + WALL_OFFSET_NS) / 1e9, zone)
+    if zone is None:
+        at = at.astimezone()
+    region = RUN_LOCALE.split(".")[0]
+    if region == "es_ES":
+        return f"{SPANISH_WEEKDAYS[at.weekday()]}, {at.day} de {SPANISH_MONTHS[at.month - 1]}, {at:%H:%M}"
+    if region == "en_US":
+        # ICU's narrow no-break space before the day period.
+        return f"{at:%A}, {at:%B} {at.day}, {at.hour % 12 or 12}:{at:%M}\u202f{'AM' if at.hour < 12 else 'PM'}"
+    raise SystemExit(f"{{clock}} is not written for {RUN_LOCALE} (regress.py's clock_said)")
+
+
+def same_text(got, wanted, t_ns):
+    """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
+    `t_ns`, or in the minute before it (the clock said as its minute turned)."""
+    if not isinstance(wanted, str) or "{clock}" not in wanted:
+        return got == wanted
+    return any(got == wanted.replace("{clock}", clock_said(t_ns - back * 60_000_000_000)) for back in (0, 1))
+
 
 # Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
 # this machine, which its load changes. What a step must do (what it re-renders, a backstop far
@@ -1983,7 +2025,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for role, wanted in expect["at"].items():
             nodes = held_nodes(role)
             for node in wanted:
-                if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
+                if not any(all(same_text(n.get(k), v, end) for k, v in node.items()) for n in nodes):
                     fail(f"the assistive technology has no {role} node {node}")
     if "announcements" in expect:
         said = result.get("announcements", [])
@@ -1995,7 +2037,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # What the screen reader said between the step's input and its settling.
         said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
         wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
-        if len(said) != len(wanted) or not all(all(u.get(k) == v for k, v in w.items())
+        if len(said) != len(wanted) or not all(all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
                                                for u, w in zip(said, wanted)):
             fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
                  f"expected {expect['spoken']}")
@@ -2447,6 +2489,11 @@ def store_fixture(spec, out):
         "-out", "server.pem", "-days", "2", "-extfile", "server.ext")
     failing = dict(spec.get("unavailable_first", {}))
     lock = threading.Lock()
+    # The store's own files (`files`), where `{store_files}` in its answers names them.
+    files = (base / "files").resolve()
+    files.mkdir()
+    for name, text in spec.get("files", {}).items():
+        (files / name).write_text(text)
 
     class Store(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2461,7 +2508,7 @@ def store_fixture(spec, out):
 
         def reply(self, status, body):
             self.note(status)
-            data = json.dumps(body).encode()
+            data = json.dumps(body).replace("{store_files}", str(files)).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -2733,7 +2780,7 @@ def main():
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
-    global SPEED_BUDGETS, RENDER_COUNTS, COLLECT
+    global SPEED_BUDGETS, RENDER_COUNTS, COLLECT, RUN_TZ, RUN_LOCALE
     COLLECT = options.collect
     SPEED_BUDGETS = options.speed_budgets and not COLLECT
 
@@ -2977,13 +3024,14 @@ def main():
     # One fixed language, never the machine's (docs/adr/0040-language-and-region.mdx, decision 8).
     for variable in ("LANGUAGE", "LC_MESSAGES", "LC_TIME", "LC_NUMERIC", "LC_CTYPE"):
         env.pop(variable, None)
-    env["LANG"] = env["LC_ALL"] = scenario.get("locale", FIXED_LOCALE)
+    RUN_LOCALE = env["LANG"] = env["LC_ALL"] = scenario.get("locale", FIXED_LOCALE)
     # The session's keyboard composes with the image's compose tables (config/, as CI's tests do),
     # never the developer's machine's.
     env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /
                                      "config/includes.chroot_after_packages/usr/share/X11/locale"))
     if "tz" in scenario:
         env["TZ"] = scenario["tz"]
+        RUN_TZ = scenario["tz"]
     recorder = None
     if home_root is not None:
         report_path.unlink(missing_ok=True)

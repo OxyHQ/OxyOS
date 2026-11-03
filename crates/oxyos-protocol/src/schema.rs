@@ -657,7 +657,7 @@ messages! {
         // works out a key's meaning itself (a browser's shortcuts on a key that types nothing)
         // compiles with the same default rules and model.
         180 => KeyboardLayout { index: u8, last: bool, text: PreeditText },
-        // To every client, when it connects and whenever it changes (ADR 0040, version 15): the
+        // To every client, when it connects and whenever it changes (ADR 0040, version 16): the
         // session's locale, one BCP 47 tag (`es-ES`, `en-US`, `es-MX-u-hc-h12`: its language,
         // region and, when the person chose one, its hour cycle), in chunks as KeyboardLayout's:
         // what `Intl`'s default locale, the system's own text and the screen reader's speech are.

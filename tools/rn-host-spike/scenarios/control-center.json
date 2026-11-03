@@ -56,12 +56,14 @@
         "at": {
           "shell": [
             {
-              "role": "Generic",
-              "name": "Batería: 64 %, 3 h 20 min restantes"
+              "role": "Meter",
+              "name": "Batería",
+              "value": "64 %, 3 h 20 min restantes"
             },
             {
               "role": "Button",
-              "name": "Wi-Fi: LukeSkyRouter"
+              "name": "Wi-Fi",
+              "value": "LukeSkyRouter"
             },
             {
               "role": "Button",
@@ -345,7 +347,7 @@
         "at": {
           "shell": [
             {
-              "role": "Menu",
+              "role": "Dialog",
               "name": "Centro de control"
             },
             {
@@ -356,7 +358,8 @@
               ]
             },
             {
-              "name": "Bluetooth: 1 dispositivo"
+              "name": "Bluetooth",
+              "value": "1 dispositivo"
             },
             {
               "role": "Switch",
@@ -372,7 +375,9 @@
               "name": "Sonido"
             },
             {
-              "name": "Batería: 64 %, 3 h 20 min restantes"
+              "name": "Batería",
+              "role": "Meter",
+              "value": "64 %, 3 h 20 min restantes"
             }
           ]
         },
@@ -454,7 +459,9 @@
               "state": []
             },
             {
-              "name": "Wi-Fi: Desactivada"
+              "role": "Button",
+              "name": "Wi-Fi",
+              "value": "Desactivada"
             }
           ]
         },
@@ -496,7 +503,8 @@
               ]
             },
             {
-              "name": "Wi-Fi: LukeSkyRouter"
+              "name": "Wi-Fi",
+              "value": "LukeSkyRouter"
             }
           ]
         },
@@ -555,7 +563,7 @@
         "at_absent": {
           "shell": [
             {
-              "role": "Menu",
+              "role": "Dialog",
               "name": "Centro de control"
             }
           ]

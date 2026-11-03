@@ -89,6 +89,7 @@ fn role(language: Language, role: AccessibleRole) -> Option<&'static str> {
         R::Summary => ("summary", "resumen"),
         R::Grid => ("grid", "cuadrícula"),
         R::ColumnHeader => ("column header", "encabezado de columna"),
+        R::Meter => ("level indicator", "indicador de nivel"),
     };
     Some(language.pick(english, spanish))
 }

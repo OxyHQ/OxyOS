@@ -104,16 +104,18 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Wi-Fi: LukeSkyRouter",
+       "name": "Wi-Fi",
        "state": [
+        "collapsed",
         "focused"
-       ]
+       ],
+       "value": "LukeSkyRouter"
       }
      ]
     },
     "spoken": [
      {
-      "text": "Wi-Fi: LukeSkyRouter, botón",
+      "text": "Wi-Fi, LukeSkyRouter, contraído, botón",
       "interrupting": true
      }
     ],
@@ -466,7 +468,7 @@
     },
     "spoken": [
      {
-      "text": "Wi-Fi: Vecinos, botón",
+      "text": "Wi-Fi, Vecinos, contraído, botón",
       "interrupting": true
      }
     ],

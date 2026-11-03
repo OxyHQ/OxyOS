@@ -2252,19 +2252,53 @@ fn version_14_column_headers_are_never_sent_to_an_older_peer() {
 }
 
 #[test]
-fn version_15_the_locale_is_never_sent_to_an_older_peer() {
+fn version_15_meters_are_never_sent_to_an_older_peer() {
+    let meter = Event::AccessibleNode {
+        client: 3,
+        surface: 2,
+        index: 1,
+        parent: 0,
+        role: AccessibleRole::Meter,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 24, 12),
+    };
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &meter, 14).unwrap());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &meter, 15).unwrap());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(new.clone()), 15).unwrap(),
+        meter
+    );
+    // A version 14 reader refuses it.
+    assert!(read_event_for(&mut Cursor::new(new), 14).is_err());
+    let request = Request::AccessibleNode {
+        surface: 2,
+        index: 1,
+        parent: 0,
+        role: AccessibleRole::Meter,
+        state: AccessibleState::default(),
+        actions: AccessibleActions::default(),
+        rect: Rect::new(0, 0, 24, 12),
+    };
+    assert_eq!(request_since(&request), 15);
+}
+
+#[test]
+fn version_16_the_locale_is_never_sent_to_an_older_peer() {
     let locale = Event::Locale {
         index: 0,
         last: true,
         text: PreeditText::new("en-ES").unwrap(),
     };
-    assert_eq!(event_since(&locale), 15);
+    assert_eq!(event_since(&locale), 16);
     let mut nothing = Vec::new();
-    assert!(!write_event_for(&mut nothing, &locale, 14).unwrap());
+    assert!(!write_event_for(&mut nothing, &locale, 15).unwrap());
     assert!(nothing.is_empty());
-    let mut v15 = Vec::new();
-    assert!(write_event_for(&mut v15, &locale, 15).unwrap());
-    assert_eq!(read_event_for(&mut Cursor::new(&v15), 15).unwrap(), locale);
-    // A version 14 reader refuses it.
-    assert!(read_event_for(&mut Cursor::new(&v15), 14).is_err());
+    let mut v16 = Vec::new();
+    assert!(write_event_for(&mut v16, &locale, 16).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v16), 16).unwrap(), locale);
+    // A version 15 reader refuses it.
+    assert!(read_event_for(&mut Cursor::new(&v16), 15).is_err());
 }

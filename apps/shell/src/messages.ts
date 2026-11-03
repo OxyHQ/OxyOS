@@ -87,9 +87,12 @@ const en = (f: Formats) => ({
     oxyMenu: "Oxy Menu",
     applications: "Applications",
     lockScreen: "Lock Screen",
-    battery: (state: string) => `Battery: ${state}`,
-    wifi: (state: string) => `Wi-Fi: ${state}`,
-    ethernetConnected: "Ethernet: Connected",
+    /** The battery, a level indicator: its charge and state are its value. */
+    battery: "Battery",
+    /** The wired network's value, as the Wi-Fi item's is the network joined. */
+    connected: "Connected",
+    /** The clock's hint: what pressing it does, which its name (the date and time) does not say. */
+    clockHint: "Opens Notification Center",
   },
   /** The shell's own menus, while no application is active, and an application's own menu. */
   menus: {
@@ -335,9 +338,9 @@ const es = (f: Formats): Catalogue => ({
     oxyMenu: "Menú de Oxy",
     applications: "Aplicaciones",
     lockScreen: "Bloquear pantalla",
-    battery: (state) => `Batería: ${state}`,
-    wifi: (state) => `Wi-Fi: ${state}`,
-    ethernetConnected: "Ethernet: conectado",
+    battery: "Batería",
+    connected: "Conectado",
+    clockHint: "Abre el centro de notificaciones",
   },
   menus: {
     about: "Acerca de OxyOS",

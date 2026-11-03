@@ -1,0 +1,378 @@
+{
+ "about": "Live regions (docs/adr/0039-keyboard-access.mdx): sample/LiveRegionProbe.tsx, the screen reader on in Spanish. A Bloom Field's error is an alert, an assertive live region, as ARIA's: typed into the field, a taken name brings it, said at once, interrupting the echo, once, while the field keeps the keyboard; a status line (role status) is a polite live region, said once as it changes. Bloom's toasts: a toast's row is a live region that is no element, said by the text it holds (not its close button), politely, an error toast at once. What did not change is never said again. At 1.25 (1600 × 1000).",
+ "module": "LiveRegionProbe",
+ "window": [
+  560,
+  360
+ ],
+ "outputs": "1600x1000@1.25",
+ "locale": "es_ES.UTF-8",
+ "reader": {},
+ "steps": [
+  {
+   "name": "The form: the field, the status line (a polite live region), the buttons; nothing said, nothing focused",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "at": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Nombre de usuario"
+      },
+      {
+       "name": "0 cambios guardados",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Guardar"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Alert"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: the field, said",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "user",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Nombre de usuario, campo de texto",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "A taken name typed: the letters echoed, then the error said at once, interrupting, once, the field keeping the keyboard",
+   "do": [
+    "keyboard",
+    "ada"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "user",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "ada",
+      "interrupting": true
+     },
+     {
+      "text": "Ese nombre ya está en uso",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "Ese nombre ya está en uso",
+      "live": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Nombre de usuario",
+       "hint": "Ese nombre ya está en uso"
+      },
+      {
+       "role": "Alert",
+       "name": "Ese nombre ya está en uso",
+       "state": [
+        "live-assertive"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Another letter: the error goes, said by nothing; the status line, unchanged, is not said again",
+   "do": [
+    "keyboard",
+    "s"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "user",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "s",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "at_absent": {
+     "window": [
+      {
+       "role": "Alert"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Guardar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Guardar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space: the status line changes, said politely, once",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "1 cambio guardado",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "1 cambio guardado",
+      "live": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "name": "1 cambio guardado",
+       "state": [
+        "live-polite"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Space again: its new text, once",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "2 cambios guardados",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "2 cambios guardados",
+      "live": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "Tab: Copiar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "copy",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Copiar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space: a toast, its row a live region that is no element, said by the text it holds, politely, once; not its close button",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "copy",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Copiado, 3 archivos",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Copiado, 3 archivos",
+      "live": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Generic",
+       "name": "",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "Text",
+       "name": "Copiado"
+      },
+      {
+       "role": "Text",
+       "name": "3 archivos"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: Borrar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "delete",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Borrar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space: an error toast, important, said at once; the first toast, still shown, not said again",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "delete",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "No se ha podido borrar",
+      "interrupting": true
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "assertive",
+      "text": "No se ha podido borrar",
+      "live": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Generic",
+       "name": "",
+       "state": [
+        "live-assertive"
+       ]
+      },
+      {
+       "role": "Text",
+       "name": "No se ha podido borrar"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

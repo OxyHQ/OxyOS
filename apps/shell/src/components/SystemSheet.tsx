@@ -114,8 +114,8 @@ export const SystemSheet = memo(function SystemSheet({
         {view.error ? (
           <Text
             testID="system-sheet-error"
-            // Said with the sheet as it appears, once: no live region says it again.
-            accessibilityRole="alert"
+            // Said with the sheet as it appears, once: no live region (an alert would be one) says
+            // it again. The sheet itself is the alert dialog.
             style={{ fontSize: 13, fontWeight: "600", color: ERROR }}
           >
             {view.error}

@@ -11,6 +11,7 @@ import {
   wifiLabel,
   wifiOn,
 } from "../src/controls.ts";
+import { barClock, clockSaid } from "../src/clock.ts";
 import { shellMessages } from "../src/messages.ts";
 
 const ES = shellMessages("es-ES");
@@ -62,4 +63,12 @@ test("Wi-Fi and Bluetooth in words", () => {
   assert.equal(bluetoothLabel({ state: "on", connected: 2 }, ES), "2 dispositivos");
   assert.equal(bluetoothLabel({ state: "off", connected: 0 }, ES), "Desactivado");
   assert.equal(bluetoothLabel({ state: "unavailable", connected: 0 }, ES), undefined);
+});
+
+test("the clock is said by the date and time it shows, in whole words, in the session's language", () => {
+  const now = new Date(2026, 10, 3, 14, 5);
+  assert.equal(barClock(now, "es-ES"), `${now.toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" })} 14:05`);
+  assert.equal(clockSaid(now, "es-ES"), "martes, 3 de noviembre, 14:05");
+  assert.equal(clockSaid(new Date(2026, 0, 12, 9, 30), "es-ES"), "lunes, 12 de enero, 09:30");
+  assert.match(clockSaid(now, "en-US"), /^Tuesday, November 3, 2:05[\s\u202f]PM$/);
 });
