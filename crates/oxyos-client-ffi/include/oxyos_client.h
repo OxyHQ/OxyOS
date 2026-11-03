@@ -292,7 +292,11 @@ typedef struct OxyOSClient OxyOSClient;
  *               dialogs, has the keyboard focus; the shell's panels taking it leave it active).
  *   POPUP_DONE  detail: dismiss reason.
  *   POINTER     serial; x, y: surface-local position in 1/256 logical pixels; detail: pointer
- *               kind; code: button (Linux input code, 272 = left).
+ *               kind; code: button (Linux input code, 272 = left); flag: 1 on a press that made
+ *               its window the active one (protocol version 18; never from an older compositor):
+ *               the client decides whether the view under it takes it, as AppKit's
+ *               acceptsFirstMouse: decides, or it only activated the window
+ *               (docs/adr/0016-windows.mdx, decision 9).
  *   KEY         serial; code: key (Linux input code); flag: pressed; text: with key text
  *               (oxyos_client_set_key_text), what the session's layout typed with it, NUL-terminated
  *               (empty for a modifier, an editing key, a control character or a dead key).

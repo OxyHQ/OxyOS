@@ -14,7 +14,8 @@ use std::io::{self, Read, Write};
 /// sends the event. Version 3: each input event's device time (none) and a scroll's source and
 /// stop (pixels from a continuous source, never a stop). Version 8: a pointer event's modifiers
 /// (none held) and whether a window's process is responding (it is). Version 11: whether a text
-/// field's caret blinks (it does).
+/// field's caret blinks (it does). Version 18: whether a press made its window the active one (it
+/// did not: an older compositor delivers every press as one the view under it takes, ADR 0016).
 const GROWN: &[(u16, u8, &[u8])] = &[
     (3, 4, &[0; 8]),
     (3, 5, &[0; 8]),
@@ -26,6 +27,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
     (8, 4, &[0]),
     (8, 37, &[1]),
     (11, 53, &[1]),
+    (18, 4, &[0]),
 ];
 
 /// The opcodes each version added, by direction (a request and an event may share an opcode):

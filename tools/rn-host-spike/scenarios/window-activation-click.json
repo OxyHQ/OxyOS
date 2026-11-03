@@ -1,0 +1,808 @@
+{
+  "about": "A Mac's first click on an inactive window (docs/adr/0016-windows.mdx, decision 9): the press that activates a window reaches it marked so (protocol version 18), and only the views that take a Mac's first mouse act on it. WindowProbe (sample/WindowProbe.tsx: Bloom's SettingsLayout, its controls and drag regions Bloom's) beside PressProbe (sample/PressProbe.tsx, the `companion`: a Pressable pad, a text field). A press on an inactive window's page, its sidebar's row, its toolbar's back button or the companion's pad only activates the window: its React tree hears nothing (no touch, so nothing shows pressed), nothing is pressed, navigated or counted, and the host says it declined the first mouse; pressed again, the active window's control acts. A press on an inactive window's text field activates it and focuses the field (NSTextView's first mouse); its rail's top band moves it in one gesture; its green bubble zooms it on the first click and restores it; a hand's double click on its title area zooms it and restores it; a secondary press on the inactive companion opens its context menu at once. Each step checks the window's frame and state, what each React tree received, what each client was delivered and what each host decided, exactly. With every press delivered as an ordinary one (the compositor not marking it, or the host ignoring the mark), the declined steps fail: the pad counts a press, the sidebar navigates, React hears the page's and the back button's touches.",
+  "module": "WindowProbe",
+  "window": [
+    640,
+    480
+  ],
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      760,
+      120
+    ]
+  },
+  "steps": [
+    {
+      "name": "WindowProbe's window beside the companion, which opened last and is the active one",
+      "do": [
+        "move-window",
+        [
+          -280,
+          0
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          40,
+          120,
+          640,
+          480
+        ],
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {}
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "A press on the inactive window's page only activates it: React hears nothing, the host declines the first mouse",
+      "do": [
+        "press",
+        [
+          400,
+          350
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          },
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "A press on the inactive companion's pad only activates it: the pad hears nothing and counts nothing",
+      "do": [
+        "press_output",
+        [
+          910,
+          196
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 1,
+            "first_mouse.accepted": 0
+          },
+          "texts": [
+            "Downs: 0, presses: 0, chosen: nothing"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pressed again, the active companion's pad is pressed once",
+      "do": [
+        "press_output",
+        [
+          910,
+          196
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@pad": 1,
+            "touchEnd@pad": 1
+          },
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          },
+          "texts": [
+            "Downs: 1, presses: 1, chosen: nothing"
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press on the inactive window's About row only activates it: the page does not change",
+      "do": [
+        "press",
+        [
+          66,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "absent": [
+          "OxyOS"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Pressed again, the active window's About row opens its page",
+      "do": [
+        "press",
+        [
+          66,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "OxyOS"
+        ],
+        "react": {
+          "touchStart@settings-nav-about": 1,
+          "touchEnd@settings-nav-about": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {},
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Back to Appearance",
+      "do": [
+        "press",
+        [
+          66,
+          110
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-nav-appearance": 1,
+          "touchEnd@settings-nav-appearance": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {},
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "A press on the inactive companion's field activates it and focuses the field (a text view takes the first mouse)",
+      "do": [
+        "press_output",
+        [
+          876,
+          344
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@field": 1,
+            "touchEnd@field": 1,
+            "focus@field": 1,
+            "selectionChange@field": 1
+          },
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 1
+          },
+          "focus_input": "field"
+        }
+      }
+    },
+    {
+      "name": "A press held on the inactive window's rail, by its controls, moves it in one gesture and activates it: the drag region takes the first mouse, its touch cancelled as the compositor moves the window",
+      "do": [
+        "grab",
+        [
+          150,
+          30,
+          40,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          80,
+          150,
+          640,
+          480
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-rail-window-band": 1,
+          "touchCancel@settings-rail-window-band": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 1
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "1": {
+            "enter": 2,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "The companion's field again: the window is inactive",
+      "do": [
+        "press_output",
+        [
+          876,
+          344
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@field": 1,
+            "touchEnd@field": 1
+          },
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 1
+          },
+          "focus_input": "field"
+        }
+      }
+    },
+    {
+      "name": "A press on the inactive window's back button only activates it: the button is not pressed",
+      "do": [
+        "press",
+        [
+          255,
+          26
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 1,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "The companion's field again",
+      "do": [
+        "press_output",
+        [
+          876,
+          344
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@field": 1,
+            "touchEnd@field": 1
+          },
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 1
+          },
+          "focus_input": "field"
+        }
+      }
+    },
+    {
+      "name": "The inactive window's green bubble zooms it on the first click, to the work area, and activates it",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          0,
+          0,
+          1280,
+          720
+        ],
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-shell-window-controls-zoom": 1,
+          "touchEnd@settings-shell-window-controls-zoom": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 1
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Pressed again, it restores the window's frame",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          80,
+          150,
+          640,
+          480
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-shell-window-controls-zoom": 1,
+          "touchEnd@settings-shell-window-controls-zoom": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {},
+          "1": {
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "The companion's field again",
+      "do": [
+        "press_output",
+        [
+          876,
+          344
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {
+            "touchStart@field": 1,
+            "touchEnd@field": 1
+          },
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 1
+          },
+          "focus_input": "field"
+        }
+      }
+    },
+    {
+      "name": "A hand's double click on the inactive window's title area (each press held while the application answers it) zooms it and activates it: the first press begins a move, the second zooms",
+      "do": [
+        "double_click",
+        [
+          150,
+          30,
+          60,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          0,
+          0,
+          1280,
+          720
+        ],
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-rail-window-band": 2,
+          "touchCancel@settings-rail-window-band": 1,
+          "touchEnd@settings-rail-window-band": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 1
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "1": {
+            "enter": 2,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 2,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Double-clicked again, it restores the window's frame",
+      "do": [
+        "double_click",
+        [
+          150,
+          30,
+          60,
+          150
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          80,
+          150,
+          640,
+          480
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "react": {
+          "touchStart@settings-rail-window-band": 2,
+          "touchCancel@settings-rail-window-band": 1,
+          "touchEnd@settings-rail-window-band": 1
+        },
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {},
+          "1": {
+            "enter": 1,
+            "leave": 2,
+            "press": 2,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "A secondary press on the inactive companion's pad opens its context menu at once, with the keyboard",
+      "do": [
+        "press_secondary_output",
+        [
+          910,
+          196
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "active no, zoomed no, full screen no"
+        ],
+        "react": {},
+        "host_input": {
+          "first_mouse.declined": 0,
+          "first_mouse.accepted": 0
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 2,
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          },
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_companion": {
+          "react": {},
+          "host_input": {
+            "first_mouse.declined": 0,
+            "first_mouse.accepted": 0
+          },
+          "texts": [
+            "Rename",
+            "Duplicate"
+          ]
+        }
+      }
+    }
+  ]
+}

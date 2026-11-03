@@ -43,7 +43,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ("sheet": [x, y, width, height] on the output, "focused": it has the keyboard, "window_active":
   the application's window is the active one); `in_chooser` checks its own texts and React
   deliveries, as `in_shell` the shell's, and `delivered`'s "chooser" what it was delivered;
-- companion: with the scenario's `companion` ({"module", "window"}) started as a second application
+- companion: with the scenario's `companion` ({"module", "window", "at", "app": the id it claims,
+  the application's own making both windows one application's}) started as a second application
   once the first's window is shown (ADR 0035, the other side of a drag between applications),
   `in_companion` checks its own texts and React deliveries, `delivered`'s "companion" what the
   compositor delivered it, and "shell_drags" the drag events the shell's surfaces received;
@@ -450,7 +451,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu"}
 
@@ -653,6 +654,10 @@ def director_args(step, out):
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]
+    if kind == "double_click":
+        # A hand's double click on a title area: the first press held until the application begins
+        # a move with it (a drag region), the second after a gap, held hold_ms: [x, y, hold_ms, gap_ms].
+        return args + ["--double-click", ",".join(map(str, value))]
     if kind == "flick":
         # The same, then the fingers lifting: [x, y, dy, events, hz].
         return args + ["--flick", ",".join(map(str, value))]
@@ -3109,6 +3114,10 @@ def main():
                     f"{companion_width},{companion_height}"]
         if "at" in companion:
             command += ["--companion-at", ",".join(map(str, companion["at"]))]
+        if "app" in companion:
+            # The application id it claims: the application's own makes the two windows one
+            # application's (Super+`, docs/adr/0024-system-shortcuts.mdx).
+            command += ["--companion-app", companion["app"]]
     if scenario.get("file_chooser"):
         # The file chooser the session starts for the application's requests (ADR 0029, decision
         # 8): the module run as the file manager is, in its picker mode, its report the

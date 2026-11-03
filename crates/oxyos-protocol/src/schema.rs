@@ -416,8 +416,13 @@ messages! {
         3 => PopupDone { surface: u32, reason: DismissReason },
         // `modifiers`: the keyboard's modifiers held (`MODIFIER_*`), whichever surface has the
         // keyboard, as X11's and macOS's pointer events carry them: a Control-click or an
-        // Option-click on a surface that does not have the keyboard (the dock).
-        4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32, time_ns: u64, modifiers: u8 },
+        // Option-click on a surface that does not have the keyboard (the dock). `activating`
+        // (version 18): this press made its window the active one, as the press a Mac's window
+        // server delivers to an inactive window does; the client decides whether the view under
+        // it takes it (AppKit's `acceptsFirstMouse:`) or it only activated the window
+        // (docs/adr/0016-windows.mdx, decision 9). Never set on a release, a motion or any press
+        // to a surface of a window already active, a popup or the shell's.
+        4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32, time_ns: u64, modifiers: u8, activating: bool },
         // A press of a key already held, with no release between, is a repeat: the compositor
         // repeats a held key itself, after a delay and at a rate (docs/adr/0036-key-repeat.mdx),
         // and a client never times repeats of its own. KeyText and InputMethodKey alike.

@@ -46,11 +46,30 @@ facebook::react::Tag hitTest(const ViewTree& tree, const SurfaceContent& content
 facebook::react::Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y,
                                     const std::function<bool(facebook::react::Tag)>& reaches);
 
+// Whether the view under a press, `target`, takes the press that activates its window, as AppKit
+// asks the view under an inactive window's mouse-down (`acceptsFirstMouse:`): from the view up,
+// the first that says so with `acceptsFirstMouse` (react-native-macos's prop) decides, as
+// react-native-macos's RCTView inherits it; an editable text input takes it, as NSTextView does (the
+// caret goes where it was pressed); and a control the keyboard can focus (a button, a switch: a
+// Pressable) decides for itself and what it holds, so a toolbar's button inside a window's drag
+// region does not fire. Reaching the root, nothing took it: NSView's default.
+bool acceptsFirstMouse(const ViewTree& tree, facebook::react::Tag target);
+
 class PointerInput {
  public:
   using Surfaces = std::function<std::optional<SurfaceContent>(uint32_t surface)>;
   PointerInput(const ViewTree& tree, Surfaces surfaces) : tree_(tree), surfaces_(std::move(surfaces)) {}
 
+  // A Mac's first mouse (docs/adr/0016-windows.mdx, decision 9): whether `event` belongs to a
+  // primary press that only activated its window, which no view takes. The compositor marks the
+  // press that makes a window the active one (`flag`, protocol version 18); it reaches the view
+  // under it only if that view accepts it (`acceptsFirstMouse`, below), as AppKit gives an
+  // inactive window's mouse-down to the view only when its `acceptsFirstMouse:` says yes. True
+  // for such a press and its release, which then reach nothing of the window: no touch, no
+  // pointer event, no gesture, no caret moved and no keyboard focus changed, so a button pressed
+  // to activate its window neither fires nor shows itself pressed. Asked once for each pointer
+  // event, before it is handled.
+  bool withheld(const OxyOSEvent& event);
   // Handles a compositor pointer or scroll event. The primary button starts, moves and ends one
   // touch; a cancel or the pointer leaving cancels it. Every mouse button's press and release is
   // also a W3C pointer event (pointerdown, pointerup) to the view under the pointer, bubbling, with
@@ -188,6 +207,8 @@ class PointerInput {
   // The primary button is held as a Control-click on a text input: its press and release are the
   // secondary button's.
   bool controlClick_ = false;
+  // The primary button is held from a press that only activated the window (`withheld`).
+  bool withheld_ = false;
   std::function<void(int, const SurfaceContent&, float, float)> gestures_;
   std::function<void(uint8_t, size_t, const SurfaceContent&, const std::vector<facebook::react::Point>&)> fingers_;
   float scale_ = 1;

@@ -1869,10 +1869,17 @@ int main(int argc, char** argv) {
                 }
               }
               if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) heldShift = heldCtrl = heldAlt = heldMeta = false;
+              // A press that only activated its window (a Mac's first mouse declined, ADR 0016,
+              // decision 9), and its release, reach nothing of it: no view, no caret, no keyboard
+              // focus moved. They are still the person's input, reported as received.
+              bool withheld = pointer.withheld(event);
               // A press of the pointer hides the keyboard's ring, as Android's touch mode does, and
               // takes focus off a control that is no text input (a press focuses inputs itself).
-              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) modalFirstPending = -1;
-              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && keyboardFocus.focused() >= 0) {
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && !withheld) {
+                modalFirstPending = -1;
+              }
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && !withheld &&
+                  keyboardFocus.focused() >= 0) {
                 if (oxyos::editableInput(tree, keyboardFocus.focused())) {
                   if (keyboardFocus.ringShown()) redrawFocus();
                   keyboardFocus.pressed();
@@ -1960,6 +1967,7 @@ int main(int argc, char** argv) {
                   editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
                 }
               }
+              if (withheld) return;
               dragDrop.observe(event);
               pointer.handle(event);
               editing.handle(event);
