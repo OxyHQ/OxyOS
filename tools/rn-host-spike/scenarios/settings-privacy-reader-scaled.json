@@ -55,7 +55,7 @@
         "a11y-action",
         [
           "activate",
-          "Privacy"
+          "Privacidad"
         ]
       ],
       "allow_unchanged": true,
@@ -67,7 +67,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications for Permission",
+              "name": "Notificaciones para Permission",
               "state": []
             }
           ]
@@ -76,13 +76,13 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications"
+              "name": "Notificaciones"
             }
           ]
         },
         "texts": [
-          "Notifications",
-          "Not asked yet"
+          "Notificaciones",
+          "Aún no se ha preguntado"
         ]
       }
     },
@@ -102,7 +102,7 @@
         },
         "spoken": [
           {
-            "text": "Privacy, seleccionado, 10 de 11",
+            "text": "Privacidad, seleccionado, 11 de 12",
             "interrupting": true
           }
         ],
@@ -125,7 +125,7 @@
         },
         "spoken": [
           {
-            "text": "Notifications for Permission, desactivado, interruptor",
+            "text": "Notificaciones para Permission, desactivado, interruptor",
             "interrupting": true
           }
         ],
@@ -134,7 +134,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications for Permission",
+              "name": "Notificaciones para Permission",
               "state": [
                 "focused"
               ]
@@ -168,7 +168,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Notifications for Permission",
+              "name": "Notificaciones para Permission",
               "state": [
                 "checked",
                 "focused"
@@ -193,7 +193,7 @@
         "spoken": [],
         "announcements": [],
         "absent": [
-          "Not asked yet"
+          "Aún no se ha preguntado"
         ]
       }
     },
@@ -214,7 +214,7 @@
         },
         "spoken": [
           {
-            "text": "Privacy, seleccionado, 10 de 11",
+            "text": "Privacidad, seleccionado, 11 de 12",
             "interrupting": true
           }
         ],
@@ -237,7 +237,7 @@
         },
         "spoken": [
           {
-            "text": "Notifications for Permission, activado, interruptor",
+            "text": "Notificaciones para Permission, activado, interruptor",
             "interrupting": true
           }
         ],

@@ -70,7 +70,7 @@
         "a11y-action",
         [
           "activate",
-          "Software Update"
+          "Actualización de software"
         ]
       ],
       "allow_unchanged": true,
@@ -79,8 +79,8 @@
         "spoken": [],
         "announcements": [],
         "texts": [
-          "Check for Updates",
-          "Not checked yet"
+          "Buscar actualizaciones",
+          "Aún no se ha comprobado"
         ]
       }
     },
@@ -100,7 +100,7 @@
         },
         "spoken": [
           {
-            "text": "Software Update, seleccionado, 9 de 11",
+            "text": "Actualización de software, seleccionado, 10 de 12",
             "interrupting": true
           }
         ],
@@ -123,7 +123,7 @@
         },
         "spoken": [
           {
-            "text": "Check for Updates, botón",
+            "text": "Buscar actualizaciones, botón",
             "interrupting": true
           }
         ],
@@ -150,18 +150,18 @@
           "window": [
             {
               "role": "Button",
-              "name": "Update Inbox",
+              "name": "Actualizar Inbox",
               "state": []
             }
           ]
         },
         "texts": [
           "Inbox",
-          "Version 0.2.0 · 0 bytes"
+          "Versión 0.2.0 · 0 bytes"
         ]
       },
       "until_named": [
-        "Update Inbox",
+        "Actualizar Inbox",
         30000
       ]
     },
@@ -182,7 +182,7 @@
         },
         "spoken": [
           {
-            "text": "Update Inbox, botón",
+            "text": "Actualizar Inbox, botón",
             "interrupting": true
           }
         ],
@@ -191,7 +191,7 @@
           "window": [
             {
               "role": "Button",
-              "name": "Update Inbox",
+              "name": "Actualizar Inbox",
               "state": [
                 "focused"
               ]
@@ -216,29 +216,29 @@
         },
         "spoken": [
           {
-            "text": "Updating Inbox",
+            "text": "Actualizando Inbox",
             "interrupting": true
           },
           {
-            "text": "Inbox updated",
+            "text": "Inbox actualizada",
             "interrupting": true
           }
         ],
         "announcements": [
           {
             "politeness": "assertive",
-            "text": "Updating Inbox"
+            "text": "Actualizando Inbox"
           },
           {
             "politeness": "assertive",
-            "text": "Inbox updated"
+            "text": "Inbox actualizada"
           }
         ],
         "at": {
           "window": [
             {
               "role": "Button",
-              "name": "Inbox updated",
+              "name": "Inbox actualizada",
               "state": [
                 "focused"
               ]
@@ -246,11 +246,11 @@
           ]
         },
         "texts": [
-          "Updated"
+          "Actualizada"
         ]
       },
       "until_named": [
-        "Inbox updated",
+        "Inbox actualizada",
         60000
       ]
     },
@@ -274,7 +274,7 @@
           "window": [
             {
               "role": "Button",
-              "name": "Inbox updated",
+              "name": "Inbox actualizada",
               "state": [
                 "focused"
               ]
@@ -300,7 +300,7 @@
         },
         "spoken": [
           {
-            "text": "Software Update, seleccionado, 9 de 11",
+            "text": "Actualización de software, seleccionado, 10 de 12",
             "interrupting": true
           }
         ],
@@ -323,7 +323,7 @@
         },
         "spoken": [
           {
-            "text": "Inbox updated, botón",
+            "text": "Inbox actualizada, botón",
             "interrupting": true
           }
         ],
