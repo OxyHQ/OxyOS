@@ -203,6 +203,9 @@ pub enum Outcome {
     Change(Change),
     /// The candidates to show (empty: none).
     Panel(Panel),
+    /// The input method in use is the one asked for (`Command::Sources`), what the one before
+    /// committed as it was left already told.
+    Switched,
     /// The engine stopped; it starts again on its own.
     Stopped(String),
 }
@@ -451,7 +454,10 @@ impl Worker {
                 used: false,
                 change: Change::default(),
             }),
-            Command::Sources(sources) => self.sources = sources,
+            Command::Sources(sources) => {
+                self.sources = sources;
+                self.tell(Outcome::Switched);
+            }
             Command::Activate { capability } => self.active = Some(capability),
             Command::Deactivate => {
                 self.active = None;
@@ -639,6 +645,7 @@ impl Worker {
                     &(sources.current.as_str(),),
                 )?;
                 self.sources = sources;
+                self.tell(Outcome::Switched);
             }
             Command::Activate { capability } => {
                 self.active = Some(capability);

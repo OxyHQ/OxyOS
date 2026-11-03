@@ -1,0 +1,451 @@
+{
+  "about": "Input sources (ADR 0041) with the real engine: the layout, Pinyin – Simplified and Japanese – Romaji, switched with Super+Space (the source used before, and while Super is held each Space one further back, as a Mac's Control-Space), Super+Alt+Space (the next in the list, as a Mac's Control-Option-Space). A composition is committed as typed when its input method is left, as on a Mac; with the layout current keys type with no engine; the choice is kept as the person's preference. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "input_methods": true,
+  "preferences": {
+    "input_sources": "pinyin,japanese",
+    "input_source": "pinyin"
+  },
+  "steps": [
+    {
+      "name": "focus the line: Pinyin is current",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "transactions": [],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "n i: Pinyin composes ni",
+      "do": [
+        "strokes",
+        [
+          49,
+          23
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ni\" [2,2]"
+        ],
+        "react": {
+          "change@line": 2,
+          "selectionChange@line": 2,
+          "keyPress@line": 2
+        },
+        "delivered": {
+          "1": {
+            "text_input": 2
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "n",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "Super+Space: back to the layout, used before; ni committed as typed, no key reaching the field",
+      "do": [
+        "strokes",
+        [
+          [
+            125,
+            57
+          ]
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ni\" [2,2]"
+        ],
+        "react": {
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "ni"
+          }
+        ],
+        "field": {
+          "text": "ni",
+          "anchor": 2,
+          "cursor": 2
+        }
+      }
+    },
+    {
+      "name": "with the layout, a key types itself, with no engine",
+      "do": [
+        "strokes",
+        [
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"nia\" [3,3]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "a"
+          }
+        ],
+        "field": {
+          "text": "nia",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "Super+Space again: Pinyin, used before the layout; nothing reaches the field",
+      "do": [
+        "strokes",
+        [
+          [
+            125,
+            57
+          ]
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"nia\" [3,3]"
+        ],
+        "react": {},
+        "delivered": {},
+        "transactions": []
+      }
+    },
+    {
+      "name": "n i: Pinyin composes again",
+      "do": [
+        "strokes",
+        [
+          49,
+          23
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"niani\" [5,5]"
+        ],
+        "react": {
+          "change@line": 2,
+          "selectionChange@line": 2,
+          "keyPress@line": 2
+        },
+        "delivered": {
+          "1": {
+            "text_input": 2
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "n",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "nia"
+        }
+      }
+    },
+    {
+      "name": "Super held: Space goes back to the layout, a second Space one further, to Japanese; ni committed",
+      "do": [
+        "key_down",
+        [
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "transactions": []
+      }
+    },
+    {
+      "name": "the first Space while Super is held",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"niani\" [5,5]"
+        ],
+        "react": {
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "ni"
+          }
+        ],
+        "field": {
+          "text": "niani",
+          "anchor": 5,
+          "cursor": 5
+        }
+      }
+    },
+    {
+      "name": "the second Space while Super is held",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "transactions": []
+      }
+    },
+    {
+      "name": "Super released",
+      "do": [
+        "key_up",
+        [
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "transactions": []
+      }
+    },
+    {
+      "name": "k a: Japanese composes か",
+      "do": [
+        "strokes",
+        [
+          37,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"nianiか\" [6,6]"
+        ],
+        "react": {
+          "change@line": 2,
+          "selectionChange@line": 1,
+          "keyPress@line": 2
+        },
+        "delivered": {
+          "1": {
+            "text_input": 2
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "k",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "か",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "niani"
+        }
+      }
+    },
+    {
+      "name": "Super+Alt+Space: the next in the list after Japanese, the layout; か committed",
+      "do": [
+        "strokes",
+        [
+          [
+            125,
+            56,
+            57
+          ]
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"nianiか\" [6,6]"
+        ],
+        "react": {
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "か"
+          }
+        ],
+        "field": {
+          "text": "nianiか",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "the layout types: the choice kept as the person's preference",
+      "do": [
+        "strokes",
+        [
+          48
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"nianiかb\" [7,7]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "b"
+          }
+        ],
+        "field": {
+          "text": "nianiかb",
+          "anchor": 9,
+          "cursor": 9
+        },
+        "preferences_file": {
+          "input_sources": "pinyin,japanese",
+          "input_source": "layout"
+        }
+      }
+    }
+  ]
+}

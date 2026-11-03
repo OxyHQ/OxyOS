@@ -104,6 +104,9 @@ pub struct InputMethods {
     emoji: Option<Emoji>,
     /// Whether the engine is running (until then keys type with the layout).
     ready: bool,
+    /// Switches told the engine and not yet done: until they are, the frontend stays connected,
+    /// so what the input method left commits into the field (pinyin's composition, as a Mac's).
+    switching: usize,
     /// The state told, and to whom.
     told: Option<String>,
     told_to: BTreeSet<ClientId>,
@@ -319,8 +322,14 @@ impl InputMethods {
         let available = engine.available();
         let layout = layout_of(&compositor.scene);
         let (sources, current) = chosen(preferences, &available);
-        let mut recent = vec![LAYOUT_SOURCE.to_owned()];
-        recent.extend(sources.iter().cloned());
+        // The current source first (the one Super+Space goes back from), then the layout and the
+        // input methods in their order.
+        let mut recent = vec![current.clone().unwrap_or_else(|| LAYOUT_SOURCE.to_owned())];
+        for id in std::iter::once(LAYOUT_SOURCE.to_owned()).chain(sources.iter().cloned()) {
+            if !recent.contains(&id) {
+                recent.push(id);
+            }
+        }
         // The engine starts with the person's sources, so its first configuration is theirs.
         let first = engine_sources(&layout, language, &sources, current.as_deref(), false);
         Ok(Self {
@@ -341,6 +350,7 @@ impl InputMethods {
             preedit: None,
             emoji: None,
             ready: false,
+            switching: 0,
             told: None,
             told_to: BTreeSet::new(),
         })
@@ -387,6 +397,12 @@ impl InputMethods {
             self.recent.insert(0, id);
         }
         self.current = current;
+        self.sources_to_engine();
+    }
+
+    /// The engine told the group and the input method in use, the switch awaited.
+    fn sources_to_engine(&mut self) {
+        self.switching += 1;
         self.service.send(Command::Sources(self.engine_sources()));
     }
 
@@ -409,13 +425,14 @@ impl InputMethods {
     pub fn set_language(&mut self, language: &str) {
         if self.language != language {
             self.language = language.to_owned();
-            self.service.send(Command::Sources(self.engine_sources()));
+            self.sources_to_engine();
         }
     }
 
-    /// Whether the frontend should be connected: an input method current, or emoji wanted.
+    /// Whether the frontend should be connected: an input method current, emoji wanted, or a
+    /// switch away from an input method not yet done.
     fn wanted(&self) -> bool {
-        self.current.is_some() || self.emoji.is_some()
+        self.current.is_some() || self.emoji.is_some() || (self.connected && self.switching > 0)
     }
 
     fn connect(&mut self, compositor: &mut Compositor) {
@@ -590,7 +607,7 @@ impl InputMethods {
     /// Emoji searched no more: the input source in use again.
     fn end_emoji(&mut self) {
         self.emoji = None;
-        self.service.send(Command::Sources(self.engine_sources()));
+        self.sources_to_engine();
     }
 
     fn request(
@@ -760,6 +777,7 @@ impl InputMethods {
     fn outcome(&mut self, compositor: &mut Compositor, outcome: Outcome) {
         match outcome {
             Outcome::Ready => self.ready = true,
+            Outcome::Switched => self.switching = self.switching.saturating_sub(1),
             Outcome::Stopped(why) => {
                 eprintln!("[input methods] the engine stopped: {why}; it starts again");
                 self.ready = false;
