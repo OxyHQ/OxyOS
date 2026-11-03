@@ -1532,7 +1532,7 @@ fn a_remote_image_is_held_by_its_key_found_and_cleared_through_the_c_abi() {
     assert_eq!(cached(), OXYOS_IMAGE_IN_MEMORY | OXYOS_IMAGE_ON_DISK);
 
     // The file holding its bytes, exactly as fetched.
-    let mut out = vec![0 as c_char; 4096];
+    let mut out = vec![0u8; 4096];
     let mut length = 0;
     // SAFETY: a live loader, a key valid for its length, `out` writable for its length.
     let found = unsafe {
@@ -1540,13 +1540,13 @@ fn a_remote_image_is_held_by_its_key_found_and_cleared_through_the_c_abi() {
             images,
             key.as_ptr().cast(),
             key.len(),
-            out.as_mut_ptr(),
+            out.as_mut_ptr().cast(),
             out.len(),
             &mut length,
         )
     };
     assert_eq!(found, 0);
-    let path: Vec<u8> = out[..length].iter().map(|&c| c as u8).collect();
+    let path = out[..length].to_vec();
     let path = std::path::PathBuf::from(String::from_utf8(path).unwrap());
     assert!(path.starts_with(&directory));
     assert_eq!(std::fs::read(&path).unwrap(), TWO_FRAMES);
@@ -1558,7 +1558,7 @@ fn a_remote_image_is_held_by_its_key_found_and_cleared_through_the_c_abi() {
             images,
             key.as_ptr().cast(),
             key.len(),
-            out.as_mut_ptr(),
+            out.as_mut_ptr().cast(),
             4,
             &mut needed,
         )
@@ -1576,7 +1576,7 @@ fn a_remote_image_is_held_by_its_key_found_and_cleared_through_the_c_abi() {
             images,
             key.as_ptr().cast(),
             key.len(),
-            out.as_mut_ptr(),
+            out.as_mut_ptr().cast(),
             out.len(),
             &mut length,
         );
