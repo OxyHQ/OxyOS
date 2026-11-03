@@ -260,7 +260,7 @@ export const Shell = memo(function Shell({
         case "overview":
           view = next.action;
           break;
-        // Super+Space: the launcher, its search taking what is typed; again, it closes.
+        // Super pressed alone (ADR 0041; Super+Space before it): the launcher, its search taking what is typed; again, it closes.
         case "search":
           if (view === "launcher") {
             view = "desktop";
