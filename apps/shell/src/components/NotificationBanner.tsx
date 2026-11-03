@@ -1,4 +1,4 @@
-import React, { memo, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import { Button, CloseButton } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
@@ -14,7 +14,9 @@ export const BANNER_WIDTH = 360;
  * icon and name, when, its title, subtitle and body, and its actions. Pressing the card opens it
  * in its application (`activate(0)`); an action is `activate(n)`, and a reply action first opens a
  * field whose text goes with it. The card is one button for a screen reader, named by whose it is
- * and what it says; its actions and close are buttons of their own.
+ * and what it says; its actions and close are buttons of their own, its close named by the
+ * notification it closes ("Borrar la notificación de Allo: Ana"), as the screen reader reads it on
+ * its own, after the card.
  */
 export const NotificationCard = memo(function NotificationCard({
   notification,
@@ -22,8 +24,8 @@ export const NotificationCard = memo(function NotificationCard({
   now,
   activate,
   close,
-  closeLabel,
-  onReplying,
+  closeAction,
+  onHeld,
   testID,
 }: {
   notification: ShellNotification;
@@ -31,18 +33,25 @@ export const NotificationCard = memo(function NotificationCard({
   now: Date;
   activate: (action: number, reply?: string) => void;
   close: () => void;
-  closeLabel: string;
-  /** Whether the person is typing a reply in it (a banner then stays). */
-  onReplying?: (replying: boolean) => void;
+  /** What its close does, the verb its button is named by ("Borrar", "Ocultar"). */
+  closeAction: string;
+  /** Whether the person has it: the pointer over it, or a reply being typed in it (its field is
+      what gives a banner the keyboard). A banner stays while it is held, as a Mac's stays while
+      the pointer is on it, and leaves once it is let go. */
+  onHeld?: (held: boolean) => void;
   testID: string;
 }) {
   const { name, app } = applicationOf(notification, applications);
   const [replying, setReplying] = useState<number | null>(null);
   const [reply, setReply] = useState("");
-  const startReply = (action: number) => {
-    setReplying(action);
-    onReplying?.(true);
-  };
+  const [hovered, setHovered] = useState(false);
+  const held = hovered || replying !== null;
+  const latestHeld = useRef(onHeld);
+  latestHeld.current = onHeld;
+  useEffect(() => {
+    latestHeld.current?.(held);
+  }, [held]);
+  const startReply = (action: number) => setReplying(action);
   const send = (text: string) => {
     if (replying === null) return;
     activate(replying, text);
@@ -50,6 +59,8 @@ export const NotificationCard = memo(function NotificationCard({
   return (
     <Box
       testID={testID}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       className="overflow-hidden rounded-[18px] border border-white/70"
       style={{
         width: BANNER_WIDTH,
@@ -88,8 +99,9 @@ export const NotificationCard = memo(function NotificationCard({
         </Box>
       </PressArea>
       <CloseButton
+        testID={`${testID}-close`}
         size="xs"
-        accessibilityLabel={closeLabel}
+        accessibilityLabel={`${closeAction} la notificación de ${name}: ${notification.title}`}
         onPress={close}
         style={{ position: "absolute", top: 8, right: 8 }}
       />

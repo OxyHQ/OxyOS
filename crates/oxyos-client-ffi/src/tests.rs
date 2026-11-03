@@ -3258,6 +3258,7 @@ fn the_header_matches_the_system_shortcuts_abi() {
         ("OXYOS_SHORTCUT_MENU_BAR", OXYOS_SHORTCUT_MENU_BAR),
         ("OXYOS_SHORTCUT_DOCK", OXYOS_SHORTCUT_DOCK),
         ("OXYOS_SHORTCUT_STATUS_MENUS", OXYOS_SHORTCUT_STATUS_MENUS),
+        ("OXYOS_SHORTCUT_NOTIFICATIONS", OXYOS_SHORTCUT_NOTIFICATIONS),
         (
             "OXYOS_MANAGE_HIDE_APPLICATION",
             OXYOS_MANAGE_HIDE_APPLICATION.into(),
@@ -3287,6 +3288,7 @@ fn the_header_matches_the_system_shortcuts_abi() {
         (SystemShortcut::MenuBar, OXYOS_SHORTCUT_MENU_BAR),
         (SystemShortcut::Dock, OXYOS_SHORTCUT_DOCK),
         (SystemShortcut::StatusMenus, OXYOS_SHORTCUT_STATUS_MENUS),
+        (SystemShortcut::Notifications, OXYOS_SHORTCUT_NOTIFICATIONS),
     ] {
         let event = Event::SystemShortcut {
             shortcut,

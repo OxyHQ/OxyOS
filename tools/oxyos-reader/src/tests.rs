@@ -881,6 +881,118 @@ fn a_dialog_shown_over_a_window_is_said_by_its_title_as_it_appears() {
 }
 
 #[test]
+fn a_surface_that_appears_as_a_dialog_is_said_by_its_title_then_its_focus() {
+    const LAUNCHPAD: u32 = 9;
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &tree(WINDOW, &[(R::TextInput, 0, "Line", "")]));
+    let launchpad = |focused: u16, search: &str| {
+        tree(
+            LAUNCHPAD,
+            &[
+                (R::Dialog, 0, "Launchpad", ""),
+                (R::Search, focused, "Buscar aplicaciones", search),
+                (R::Button, 0, "Allo", ""),
+            ],
+        )
+    };
+    // It appears with its search focused: its title, then the search after it, politely.
+    for event in &launchpad(FOCUSED, "") {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Launchpad, diálogo".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Buscar aplicaciones, campo de búsqueda".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    // A folder opened over it, modal (its tree the folder's alone), then closed: Launchpad is
+    // shown again, not appearing, and says nothing of its title.
+    feed(
+        &mut reader,
+        &tree(
+            LAUNCHPAD,
+            &[
+                (R::Heading, 0, "Utilidades", ""),
+                (R::Button, FOCUSED, "Notas", ""),
+            ],
+        ),
+    );
+    assert!(!feed(&mut reader, &launchpad(0, ""))
+        .iter()
+        .any(|said| said.starts_with("Launchpad")));
+    // Gone and opened again: said again.
+    reader.receive(&Event::AccessibilityRemoved {
+        client: APP,
+        surface: LAUNCHPAD,
+    });
+    assert_eq!(
+        feed(&mut reader, &launchpad(FOCUSED, "")),
+        [
+            "Launchpad, diálogo",
+            "Buscar aplicaciones, campo de búsqueda"
+        ]
+    );
+    // A system sheet: its title, then its message (the dialog's hint) politely; the next sheet in
+    // its place, saying what went wrong, is said as it comes.
+    const SHEET: u32 = 12;
+    let sheet = |message: &str| {
+        let mut events = tree(
+            SHEET,
+            &[
+                (R::Dialog, 0, "Unirse a Vecinos", ""),
+                (R::Button, 0, "Cancelar", ""),
+            ],
+        );
+        let commit = events.pop().unwrap();
+        for text in TextChunk::split(message) {
+            events.push(Event::AccessibleText {
+                client: APP,
+                surface: SHEET,
+                index: 0,
+                field: AccessibleField::Hint,
+                text,
+            });
+        }
+        events.push(commit);
+        events
+    };
+    for event in &sheet("Escribe la contraseña.") {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Unirse a Vecinos, diálogo".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Escribe la contraseña.".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    assert!(feed(&mut reader, &sheet("Escribe la contraseña.")).is_empty());
+    assert_eq!(
+        feed(&mut reader, &sheet("Contraseña incorrecta.")),
+        ["Unirse a Vecinos, diálogo", "Contraseña incorrecta."]
+    );
+    // A window's first tree whose root is no dialog says no title.
+    assert!(feed(
+        &mut reader,
+        &tree(3, &[(R::Generic, 0, "", ""), (R::Dialog, 0, "Ajustes", "")])
+    )
+    .is_empty());
+}
+
+#[test]
 fn a_dialog_closed_with_nothing_focused_leaves_the_next_focus_said_at_once() {
     let mut reader = Reader::new(Language::English);
     feed(&mut reader, &status("1 of 3 selected"));
@@ -1066,5 +1178,48 @@ fn a_toast_first_in_the_window_is_said_alone() {
     assert_eq!(
         feed(&mut reader, &rootless(false, "1 cambio guardado")),
         ["1 cambio guardado"]
+    );
+}
+
+#[test]
+fn a_polite_live_region_is_said_after_a_new_focus_and_an_assertive_one_before() {
+    let mut reader = Reader::new(Language::Spanish);
+    let window = |search: u16, allo: u16, count: &str, alert: &str| {
+        tree(
+            WINDOW,
+            &[
+                (R::Search, search, "Buscar aplicaciones", "l"),
+                (R::Button, allo, "Allo", ""),
+                (R::Text, AccessibleState::LIVE_POLITE, count, ""),
+                (R::Text, AccessibleState::LIVE_ASSERTIVE, alert, ""),
+            ],
+        )
+    };
+    feed(&mut reader, &window(0, FOCUSED, "2 resultados", ""));
+    // The search focused again as its count changes: the search said, then the count after it,
+    // politely (said before, the focus would cut it off).
+    for event in &window(FOCUSED, 0, "1 resultado", "") {
+        reader.receive(event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Buscar aplicaciones, l, campo de búsqueda".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "1 resultado".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    // An alert with a new focus: the alert first, at once, then the focus.
+    assert_eq!(
+        feed(
+            &mut reader,
+            &window(0, FOCUSED, "1 resultado", "Sin conexión")
+        ),
+        ["Sin conexión", "Allo, botón"]
     );
 }

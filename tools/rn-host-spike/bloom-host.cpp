@@ -907,6 +907,7 @@ int main(int argc, char** argv) {
           return editing.setSelection(tag, start, end);
         },
         .selection = [&editing](facebook::react::Tag tag) { return editing.selection(tag); },
+        .text = [&editing](facebook::react::Tag tag) { return editing.text(tag); },
     });
     // The pointer's shape over each surface, as the views under it want it.
     pointer.showsShapes([&window](uint32_t surface, uint8_t shape) { window->setPointerShape(surface, shape); });
@@ -2089,8 +2090,9 @@ int main(int argc, char** argv) {
                                           "search",
                                           "menu-bar",
                                           "dock",
-                                          "status-menus"};
-          const char* action = shortcut.detail <= OXYOS_SHORTCUT_STATUS_MENUS ? actions[shortcut.detail] : "";
+                                          "status-menus",
+                                          "notifications"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_NOTIFICATIONS ? actions[shortcut.detail] : "";
           folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",

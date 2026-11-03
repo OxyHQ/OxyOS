@@ -711,16 +711,15 @@
     },
     "spoken": [
      {
-      "text": "¿Instalar Inbox?. Versión 0.1.0 · 1,7 MB",
+      "text": "¿Instalar Inbox?, dialog",
       "interrupting": true
+     },
+     {
+      "text": "Versión 0.1.0 · 1,7 MB",
+      "interrupting": false
      }
     ],
-    "announcements": [
-     {
-      "politeness": "assertive",
-      "text": "¿Instalar Inbox?. Versión 0.1.0 · 1,7 MB"
-     }
-    ]
+    "announcements": []
    },
    "until_sheet": true
   },
@@ -743,7 +742,7 @@
     "spoken": [
      {
       "text": "Cancelar, button",
-      "interrupting": true
+      "interrupting": false
      }
     ],
     "announcements": []

@@ -1,5 +1,5 @@
 {
- "about": "The overview from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+F3 and → reach the dock's overview button, Space opens the overview on its first control; each window is one button named by its title, as Mission Control's window is one element (not a title and a card doing the same), its close button the next stop; the backdrop that closes it is no stop; Space on the window goes to it. At 1.25 (1600 × 1000).",
+ "about": "The overview from the keyboard with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell. Super+F3 and → reach the dock's overview button, Space opens the overview on its first control, the desktop shown, marked selected as Mission Control marks the current desktop (\"Abrir Escritorio 1, seleccionado, botón\"); a desktop added is not; each window is one button named by its title, as Mission Control's window is one element (not a title and a card doing the same), its close button the next stop; the backdrop that closes it is no stop; Space on the window goes to it. At 1.25 (1600 × 1000).",
  "module": "EditingProbe",
  "window": [
   600,
@@ -82,7 +82,7 @@
    }
   },
   {
-   "name": "Space opens the overview, which takes the keyboard on its first control, the desktop (its backdrop is no stop); Allo's window is one button, named by its title",
+   "name": "Space opens the overview, which takes the keyboard on its first control, the desktop shown, marked selected as Mission Control marks the current desktop (its backdrop is no stop); Allo's window is one button, named by its title",
    "do": [
     "key",
     [
@@ -108,6 +108,7 @@
        "role": "Button",
        "name": "Abrir Escritorio 1",
        "state": [
+        "selected",
         "focused"
        ]
       },
@@ -139,7 +140,7 @@
       "interrupting": true
      },
      {
-      "text": "Abrir Escritorio 1, botón",
+      "text": "Abrir Escritorio 1, seleccionado, botón",
       "interrupting": true
      }
     ],
@@ -278,7 +279,153 @@
    }
   },
   {
-   "name": "Shift+Tab ×3 back to Allo's window",
+   "name": "Space on Añadir escritorio: a second desktop, not the current one; the keyboard stays, nothing said",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Añadir escritorio",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir Escritorio 1",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Abrir Escritorio 2",
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Añadir escritorio",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: the new desktop's options",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Opciones de Escritorio 2",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Opciones de Escritorio 2, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: its empty space, which opens it",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Abrir Escritorio 2 vacío",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Abrir Escritorio 2 vacío, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: the second desktop, not selected; brought into view it becomes the one shown, said selected as it changes",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "keyboard_focus": {
+      "target": "Abrir Escritorio 2",
+      "ring": true
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Abrir Escritorio 1",
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Abrir Escritorio 2",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Abrir Escritorio 2, botón",
+      "interrupting": true
+     },
+     {
+      "text": "seleccionado",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Shift+Tab: the first desktop's options",
    "do": [
     "key",
     [

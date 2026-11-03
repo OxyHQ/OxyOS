@@ -75,13 +75,18 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// reader would refuse as a value outside its set; version 13's hint of an accessible node
 /// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way; version 14's
 /// column header role (`AccessibleRole::ColumnHeader`) and version 15's meter
-/// (`AccessibleRole::Meter`), likewise.
+/// (`AccessibleRole::Meter`), likewise; and version 16's shortcut to the Notification Center
+/// (ADR 0039).
 pub fn event_since(event: &Event) -> u16 {
     match event {
         Event::SystemShortcut {
             shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
             ..
         } => 12,
+        Event::SystemShortcut {
+            shortcut: SystemShortcut::Notifications,
+            ..
+        } => 16,
         Event::AccessibleText {
             field: AccessibleField::Hint,
             ..

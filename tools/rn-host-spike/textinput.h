@@ -170,6 +170,9 @@ class TextEditing {
   // The focused input's selection, in bytes of its text, for its accessibility node; none for an
   // unfocused or a secure input (whose caret would tell how long the password is).
   std::optional<std::pair<size_t, size_t>> selection(facebook::react::Tag tag) const;
+  // The focused input's text as it is now, with that selection (its mounted state may still hold the
+  // text before the latest edit); nullopt for another input or a secure one.
+  std::optional<std::string> text(facebook::react::Tag tag) const;
 
   // The caret blinks as Android's Editor blinks it, lit and dark for kBlinkPeriod each, starting
   // lit at every change of the focused input's text, selection or composition, and rests lit once

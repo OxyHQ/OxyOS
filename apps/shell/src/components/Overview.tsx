@@ -376,9 +376,12 @@ export const Overview = memo(function Overview({
                     : undefined,
               }}
             >
+              {/* The desktop shown is marked selected, as Mission Control's Spaces bar marks the
+                  current desktop. */}
               <PressArea
                 accessibilityRole="button"
                 accessibilityLabel={`Abrir ${workspace.name}`}
+                accessibilityState={{ selected: workspace.id === snapshot.workspaceId }}
                 onPress={() => enterWorkspace(workspace.id)}
                 className="absolute inset-0"
               />
