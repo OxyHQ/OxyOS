@@ -450,7 +450,7 @@
               ]
             },
             {
-              "role": "Button",
+              "role": "ColumnHeader",
               "name": "Name, ascending"
             },
             {
