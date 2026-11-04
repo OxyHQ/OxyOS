@@ -354,9 +354,12 @@ target_link_libraries(oxyos-skia-check oxyos_skia)
 # declaration of its two numbers. ABI changes when an application must be rebuilt: React Native's
 # version (its JavaScript must be the native side's), Hermes' bytecode, or a host module whose
 # JavaScript contract breaks. API grows when the runtime adds without breaking (a host module, an
-# option). ABI 1 is React Native 0.88 with Hermes V1, as built here.
+# option, its framework's packages at newer compatible releases). ABI 1 is React Native 0.88 with
+# Hermes V1 (bytecode 99), as built here. API 2: React Native 0.88.1 (Hermes 260318099.0.5) and
+# Expo SDK 58.0.23's modules, from 0.88.0 and 58.0.20; an application built against it may need
+# them, and one built against API 1 runs on it unrebuilt.
 set(OXYOS_RUNTIME_ABI 1)
-set(OXYOS_RUNTIME_API 1)
+set(OXYOS_RUNTIME_API 2)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/runtime.json
   "{\"abi\":${OXYOS_RUNTIME_ABI},\"api\":${OXYOS_RUNTIME_API}}\n")
 set_target_properties(oxyos-bloom-host PROPERTIES INSTALL_RPATH "$ORIGIN/lib")

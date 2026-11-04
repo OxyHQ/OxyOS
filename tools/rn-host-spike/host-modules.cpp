@@ -4,6 +4,7 @@
 #include "images.h"
 #include "text.h"
 
+#include <cxxreact/ReactNativeVersion.h>
 #include <folly/dynamic.h>
 #include <folly/json.h>
 #include <oxyos_client.h>
@@ -477,12 +478,19 @@ std::shared_ptr<TurboModule> createHostModule(
   auto module = std::make_shared<HostModule>(name, invoker);
 
   if (name == "PlatformConstants") {
-    // React Native's Android spec, answered for OxyOS. `Version` is not a device's Android API
-    // level (OxyOS is not Android): it is the level whose React Native code paths the host follows,
-    // React Native 0.88's target SDK, which core compares only to trust keyboard events (OxyOS has
-    // no software keyboard and sends none). See docs/react-native-android-adaptation.mdx.
+    // React Native's Android spec, answered for OxyOS. `reactNativeVersion` is the React Native
+    // the host is built from (its ReactNativeVersion.h, as Android's ReactNativeVersion.kt is
+    // generated beside it), which its JavaScript compares with its own. `Version` is not a device's
+    // Android API level (OxyOS is not Android): it is the level whose React Native code paths the
+    // host follows, React Native 0.88's target SDK, which core compares only to trust keyboard
+    // events (OxyOS has no software keyboard and sends none). See
+    // docs/react-native-android-adaptation.mdx.
+    const auto& version = facebook::react::ReactNativeVersion;
     module->constants(folly::dynamic::object("isTesting", false)("isDisableAnimations", false)(
-        "reactNativeVersion", folly::dynamic::object("major", 0)("minor", 88)("patch", 0)("prerelease", nullptr))(
+        "reactNativeVersion", folly::dynamic::object("major", version.Major)("minor", version.Minor)(
+                                  "patch", version.Patch)("prerelease", version.Prerelease.empty()
+                                                                           ? folly::dynamic(nullptr)
+                                                                           : folly::dynamic(std::string(version.Prerelease))))(
         "Version", 36)("Release", "OxyOS")("Serial", "")("Fingerprint", "")("Model", "OxyOS")("uiMode", "normal")(
         "Brand", "Oxy")("Manufacturer", "Oxy"));
     // There is no Android ID to give: callers learn that rather than receive a fake one.
@@ -1318,11 +1326,14 @@ std::shared_ptr<TurboModule> createHostModule(
     module->method("unlockResource", viewFunction([](Images& images, Tag tag) { images.setLocked(tag, false); }));
     module->method("reload", viewFunction([](Images& images, Tag tag) { images.reload(tag); }));
   } else if (name == "RNCSafeAreaContext") {
-    // An OxyOS window has no system insets.
+    // An OxyOS window has no system insets, and the display no rounded corners (Android's
+    // getRoundedCorner has none), so the corner-adapted insets (safe-area-context 5.11) are the
+    // insets too, as Android gives them for a display without rounded corners (safe-area.h).
     folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);
     module->constants([&display, zero] {
       return folly::dynamic::object(
-          "initialWindowMetrics", folly::dynamic::object("insets", zero)(
+          "initialWindowMetrics", folly::dynamic::object("insets", zero)("verticalCornerAdaptedInsets", zero)(
+                                      "horizontalCornerAdaptedInsets", zero)(
                                       "frame", folly::dynamic::object("x", 0)("y", 0)("width", display.width)(
                                                    "height", display.height)));
     });

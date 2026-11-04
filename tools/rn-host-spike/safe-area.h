@@ -1,7 +1,11 @@
 // react-native-safe-area-context on OxyOS: its provider and view as host components. An OxyOS
 // window has no system insets (the compositor keeps panels outside the work area windows are
 // placed in), so the provider reports zero insets with its frame in the window, as Android's
-// SafeAreaProvider reports its insets and frame, and the view lays out as a plain view.
+// SafeAreaProvider reports its insets and frame, and the view lays out as a plain view. The
+// insets enlarged where a display's rounded corners reach past them (`verticalCornerAdaptedInsets`,
+// `horizontalCornerAdaptedInsets`, and a view's `cornerAdaptation`, safe-area-context 5.11) are the
+// insets themselves: Android computes them from the display's rounded corners
+// (WindowInsets.getRoundedCorner), and an OxyOS display has none.
 #pragma once
 
 #include "renderer.h"
@@ -17,8 +21,8 @@ extern const char RNCSafeAreaProviderComponentName[];
 extern const char RNCSafeAreaViewComponentName[];
 using RNCSafeAreaProviderShadowNode = ConcreteViewShadowNode<RNCSafeAreaProviderComponentName, ViewProps>;
 using RNCSafeAreaProviderComponentDescriptor = ConcreteComponentDescriptor<RNCSafeAreaProviderShadowNode>;
-// Its `mode` and `edges` would apply the insets as padding or margin; with none, they change
-// nothing, so its props are a view's.
+// Its `mode`, `edges` and `cornerAdaptation` would apply the insets as padding or margin; with
+// none, they change nothing, so its props are a view's.
 using RNCSafeAreaViewShadowNode = ConcreteViewShadowNode<RNCSafeAreaViewComponentName, ViewProps>;
 using RNCSafeAreaViewComponentDescriptor = ConcreteComponentDescriptor<RNCSafeAreaViewShadowNode>;
 
