@@ -250,6 +250,12 @@ fn requests() -> Vec<Request> {
             radius: 13,
             opacity: 64,
         },
+        Request::ClearMinimizeTargets { surface: 4 },
+        Request::PlaceMinimizeTarget {
+            surface: 4,
+            window: 7,
+            rect: Rect::new(512, 6, 42, 42),
+        },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -1688,6 +1694,19 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         8
     );
     assert_eq!(request_since(&Request::Pong { serial: 1 }), 8);
+    // Where windows minimize into (ADR 0011's genie) is version 20's: an older compositor refuses it.
+    assert_eq!(
+        request_since(&Request::ClearMinimizeTargets { surface: 1 }),
+        20
+    );
+    assert_eq!(
+        request_since(&Request::PlaceMinimizeTarget {
+            surface: 1,
+            window: 2,
+            rect: Rect::new(0, 0, 42, 42),
+        }),
+        20
+    );
     // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
     let scroll = Event::Scroll {
         surface: 1,

@@ -525,6 +525,8 @@ pub struct Scene {
     menu_bars: menus::MenuBars,
     /// The windows each shell surface shows live (ADR 0022).
     window_views: BTreeMap<SurfaceKey, window_views::SurfaceViews>,
+    /// Where the shell's surfaces say each window minimizes into (ADR 0011's genie).
+    minimize_targets: BTreeMap<SurfaceKey, minimize_targets::SurfaceTargets>,
     /// The notifications kept for the session (ADR 0026).
     notifications: notifications::Notifications,
     /// The displays as the program running the compositor said them, what Settings was told of
@@ -1681,6 +1683,9 @@ impl Scene {
             Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
                 self.window_view_request(client, request)
             }
+            Request::ClearMinimizeTargets { .. } | Request::PlaceMinimizeTarget { .. } => {
+                self.minimize_target_request(client, request)
+            }
             Request::Capture { .. }
             | Request::EndCapture { .. }
             | Request::ExcludeFromCapture { .. }
@@ -2576,6 +2581,7 @@ impl Scene {
             return Err(BufferRefusal::AttachedElsewhere { buffer }.into());
         }
         self.send_window_views(key, frame.sequence);
+        self.send_minimize_targets(key);
         self.send_secure_regions(key, frame.sequence);
         let node = self.nodes.get_mut(&key).expect("checked");
         // What the client drew into this frame since its previous one: the damage it asked for,
@@ -3167,6 +3173,7 @@ impl Scene {
         self.forget_application_window(key);
         self.forget_menus(key);
         self.forget_window_views(key);
+        self.forget_minimize_targets(key);
         self.forget_screenshot_surface(key);
         self.forget_chooser_surface(key);
         self.forget_drag_surface(key);
@@ -4898,6 +4905,7 @@ pub use notifications::{
 };
 mod appearances;
 mod menus;
+mod minimize_targets;
 mod window_views;
 pub use window_views::fitted;
 mod controls;

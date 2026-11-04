@@ -29,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 19;
+pub const VERSION: u16 = 20;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The most candidates an input method hands the system at once (InputMethodCandidate, ADR 0041),
@@ -115,6 +115,8 @@ pub const MAX_NOTIFICATION_ACTION_BYTES: usize = 64;
 pub const MAX_NOTIFICATION_REPLY_BYTES: usize = 1024;
 /// Most windows one shell surface shows live (`PlaceWindowView`, ADR 0022).
 pub const MAX_WINDOW_VIEWS: usize = 64;
+/// Most windows one shell surface says where they minimize into (`PlaceMinimizeTarget`, ADR 0011).
+pub const MAX_MINIMIZE_TARGETS: usize = 256;
 /// Most secure regions one surface leaves out of captures (`AddSecureRegion`, ADR 0024).
 pub const MAX_SECURE_REGIONS: usize = 32;
 /// The longest path of a screenshot told to the shell (`ScreenshotSaved`, ADR 0024), in bytes.
