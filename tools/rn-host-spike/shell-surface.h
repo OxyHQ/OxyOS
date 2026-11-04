@@ -21,6 +21,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 
 namespace facebook::react {
@@ -95,6 +96,10 @@ class ShellSurfaceHost {
   std::optional<uint32_t> surfaceOf(facebook::react::Tag view) const;
   // The lock screen's surface, while a "lock" region is open.
   std::optional<uint32_t> lockSurface() const;
+  // Whether this client closed `surface` itself (a region gone or made again: Control Center
+  // closed by its Escape), which keeps the keyboard as far as the client knows until the
+  // compositor gives it to the surface next in line, as popups.h's closedByApplication.
+  bool closedByApplication(uint32_t surface) const { return closed_.count(surface) != 0; }
   // The surface of the region asking for the keyboard (its `keyboard` prop), once it is open.
   std::optional<uint32_t> keyboardRegion() const;
   // The keyboard region's request for the keyboard's focus (its `focusTarget`, `focusRequest`).
@@ -144,6 +149,8 @@ class ShellSurfaceHost {
   Window& window_;
   AccessibilityBridge& accessibility_;
   std::map<facebook::react::Tag, Region> regions_;
+  // The surfaces it closed (ids are never used again).
+  std::set<uint32_t> closed_;
 };
 
 }  // namespace oxyos
