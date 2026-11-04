@@ -4238,8 +4238,10 @@ fn the_shell_says_where_windows_minimize_through_the_c_abi() {
     std::fs::remove_dir_all(directory).unwrap();
 
     // A compositor of version 19 is never sent them: the call says so and sends nothing.
-    let directory =
-        std::env::temp_dir().join(format!("oxyos-client-ffi-targets-19-{}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-targets-19-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&directory).unwrap();
     let socket = directory.join("s");
     let listener = Listener::bind(&socket).unwrap();
