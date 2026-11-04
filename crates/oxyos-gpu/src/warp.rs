@@ -243,35 +243,46 @@ pub(crate) fn weights(centre: i32, half: i32, extent: u32) -> (u32, Vec<u32>) {
     (first, weights)
 }
 
-/// The sample of `pixels` (`extent`, B, G, R, A in memory) where `fall` says, its rows' weights
-/// given (`weights`): its premultiplied colour (0x00RRGGBB) and alpha; an opaque source's alpha is
-/// 255.
-pub(crate) fn sample_rows(
+/// The source's columns blended down the rows one output row reads (`weights`): for each column,
+/// every channel's Σ weight · channel over those rows (alpha 255 for an opaque source), exactly. A
+/// sample of the row is then Σ weight · column across (`sample_columns`): the shader's sum,
+/// Σ rows (weight · Σ columns (weight · channel)), in the other order, which integers keep equal
+/// (and below 2³², `filter`'s bound), so every pixel of the row stops reading each source row.
+pub(crate) fn blend_rows(
     pixels: &[u8],
     extent: (u32, u32),
-    fall: &Fall,
     opaque: bool,
     (y0, rows): &(u32, Vec<u32>),
-) -> (u32, u32) {
-    let (x0, x1, x_low) = taps(fall.x, fall.half_x, extent.0);
-    let mut sum = [0u32; 4];
+    columns: &mut Vec<[u32; 4]>,
+) {
+    columns.clear();
+    columns.resize(extent.0 as usize, [0; 4]);
     for (y, &wy) in (*y0..).zip(rows) {
-        let mut row = [0u32; 4];
-        let mut before = 0;
-        for x in x0..=x1 {
-            let to_x = through(x, x1, x_low, fall.half_x);
-            let wx = to_x - before;
-            before = to_x;
-            let at = (y * extent.0 + x) as usize * 4;
-            let pixel = &pixels[at..at + 4];
+        let start = (y * extent.0) as usize * 4;
+        let row = &pixels[start..start + extent.0 as usize * 4];
+        for (column, pixel) in columns.iter_mut().zip(row.chunks_exact(4)) {
+            // B, G, R, A in memory.
             let alpha = if opaque { 255 } else { u32::from(pixel[3]) };
-            row[0] += wx * u32::from(pixel[2]);
-            row[1] += wx * u32::from(pixel[1]);
-            row[2] += wx * u32::from(pixel[0]);
-            row[3] += wx * alpha;
+            column[0] += wy * u32::from(pixel[2]);
+            column[1] += wy * u32::from(pixel[1]);
+            column[2] += wy * u32::from(pixel[0]);
+            column[3] += wy * alpha;
         }
-        for (sum, row) in sum.iter_mut().zip(row) {
-            *sum += wy * row;
+    }
+}
+
+/// The sample where `fall` says, from its row's blended columns (`blend_rows`): its premultiplied
+/// colour (0x00RRGGBB) and alpha.
+pub(crate) fn sample_columns(columns: &[[u32; 4]], fall: &Fall) -> (u32, u32) {
+    let (x0, x1, x_low) = taps(fall.x, fall.half_x, columns.len() as u32);
+    let mut sum = [0u32; 4];
+    let mut before = 0;
+    for x in x0..=x1 {
+        let to_x = through(x, x1, x_low, fall.half_x);
+        let wx = to_x - before;
+        before = to_x;
+        for (sum, channel) in sum.iter_mut().zip(columns[x as usize]) {
+            *sum += wx * channel;
         }
     }
     let round = |sum: u32| (sum + (1 << 23)) >> 24;

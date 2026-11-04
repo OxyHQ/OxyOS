@@ -1918,11 +1918,35 @@ impl Compositor {
         let mut transition_drawn: Vec<oxyos_gpu::Rect> = Vec::new();
         let shadows = &self.shadows;
         // A window zooming is drawn in its rectangle as a window of that size (`zoomed`): its
-        // corners and shadow are not scaled.
+        // corners and shadow are not scaled. A window through the genie's mesh (`genie`, its
+        // shadow's opacity) is drawn in the mesh's rectangle alone, without a shadow there, and its
+        // shadow is where the window is while it shows: going, once it has faded, nothing of the
+        // window's own rectangle changes but what the mesh leaves, which the frame before drew.
         let mut in_transition = |rect: Rect,
                                  placed: Rect,
                                  look: Option<WindowLook>,
-                                 zoomed: bool| {
+                                 zoomed: bool,
+                                 genie: Option<u8>| {
+            if let Some(shadow) = genie {
+                if shadow > 0 {
+                    transition_drawn.push(match look {
+                        Some(look) => window::extent(look, rect, rect, shadows),
+                        None => oxyos_gpu::Rect {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                        },
+                    });
+                }
+                transition_drawn.push(oxyos_gpu::Rect {
+                    x: placed.x,
+                    y: placed.y,
+                    width: placed.width,
+                    height: placed.height,
+                });
+                return;
+            }
             for at in [rect, placed] {
                 transition_drawn.push(match look {
                     Some(look) => window::extent(look, if zoomed { at } else { rect }, at, shadows),
@@ -2012,7 +2036,15 @@ impl Compositor {
                         let genie = arriving.genie(rect);
                         let placed = zoomed.unwrap_or_else(|| arriving.place(rect));
                         if self.transitions.is_arriving(key) || zoomed.is_some() {
-                            in_transition(rect, placed, look, zoomed.is_some());
+                            in_transition(
+                                rect,
+                                placed,
+                                look,
+                                zoomed.is_some(),
+                                // Coming out, it ends in its own rectangle, which the frame after
+                                // its last draws it in: damaged throughout.
+                                genie.as_ref().map(|_| u8::MAX),
+                            );
                         }
                         if arriving.opacity < 255 && self.transitions.lock_arriving(key) {
                             contents.push(Content::cover(rect));
@@ -2047,7 +2079,10 @@ impl Compositor {
                             };
                             shadow.owner = Some(key);
                             shadow.captured = captured;
-                            contents.push(shadow);
+                            // Faded under the genie: not drawn at all.
+                            if genie.is_none() || shadow.opacity > 0 {
+                                contents.push(shadow);
+                            }
                             match genie {
                                 Some(_) => source_radius(corner, rect, extent),
                                 None => radius,
@@ -2216,7 +2251,13 @@ impl Compositor {
             };
             let genie = at.genie(snapshot.rect);
             let placed = at.place(snapshot.rect);
-            in_transition(snapshot.rect, placed, snapshot.look, false);
+            in_transition(
+                snapshot.rect,
+                placed,
+                snapshot.look,
+                false,
+                genie.as_ref().map(|_| at.shadow_opacity()),
+            );
             let radius = snapshot.look.map_or(0, |look| {
                 let corner = window::corner(look);
                 let (mut shadow, radius) = match genie {
@@ -2233,7 +2274,9 @@ impl Compositor {
                     }
                 };
                 shadow.captured = snapshot.captured;
-                out.push(shadow);
+                if genie.is_none() || shadow.opacity > 0 {
+                    out.push(shadow);
+                }
                 match genie {
                     Some(_) => source_radius(corner, snapshot.rect, snapshot.extent),
                     None => radius,

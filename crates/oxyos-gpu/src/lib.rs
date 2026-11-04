@@ -552,13 +552,16 @@ fn draw_warp_cpu(
     let y1 = (i64::from(layer.y) + i64::from(layer.height))
         .min(i64::from(height))
         .min(clip.bottom());
+    let mut columns = Vec::new();
     for y in i64::from(y0)..y1 {
         let ly = (y - i64::from(layer.y)) as u32;
-        // What the row's pixels share: where the mesh is across it, and the source rows they read.
+        // What the row's pixels share: where the mesh is across it, and the source rows they read,
+        // blended once.
         let Some(span) = warp::span(&rows, ly, layer.extent) else {
             continue;
         };
         let weights = warp::weights(span.source_y(), span.half_y(), layer.extent.1);
+        warp::blend_rows(pixels, layer.extent, opaque, &weights, &mut columns);
         let (start, end) = span.pixels();
         let from = i64::from(x0).max(i64::from(layer.x) + i64::from(start));
         let to = x1.min(i64::from(layer.x) + i64::from(end));
@@ -571,7 +574,7 @@ fn draw_warp_cpu(
             if coverage == 0 {
                 continue;
             }
-            let (source, alpha) = warp::sample_rows(pixels, layer.extent, &fall, opaque, &weights);
+            let (source, alpha) = warp::sample_columns(&columns, &fall);
             let index = y as usize * width as usize + x as usize;
             let opacity = u32::from(layer.opacity) * coverage / 255;
             let keep = 255 - alpha * opacity / 255;

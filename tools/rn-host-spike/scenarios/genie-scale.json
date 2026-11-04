@@ -145,7 +145,7 @@
               "last": 255,
               "ended": true,
               "linear_ms": 500,
-              "frames": [
+              "refresh_frames": [
                 54,
                 61
               ]
@@ -175,7 +175,7 @@
               "first": 255,
               "ended": true,
               "linear_ms": 500,
-              "frames": [
+              "refresh_frames": [
                 54,
                 61
               ]

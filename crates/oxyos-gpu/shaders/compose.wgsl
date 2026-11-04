@@ -323,7 +323,8 @@ fn warp_through(at: u32, last: u32, low: i32, half: i32) -> u32 {
     return (u32(end) * ONE + u32(half)) / (2u * u32(half));
 }
 
-// `warp::sample_rows` with `warp::weights`: premultiplied, its alpha in the high byte.
+// `warp::blend_rows` and `warp::sample_columns` (the same sums, in the other order): premultiplied,
+// its alpha in the high byte.
 fn warp_sample(i: u32, f: Fall, opaque: bool) -> u32 {
     let columns = warp_taps(f.x, f.half_x, layers[i].src_width);
     let rows = warp_taps(f.y, f.half_y, layers[i].src_height);

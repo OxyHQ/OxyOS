@@ -424,16 +424,16 @@ def rate_claims(scenario, summary, report):
         if "composed_gap_ms" in wanted:
             claims[(index, "ms between them, median")] = ((drag.get("composed_gap_ms") or {}).get("median"),
                                                           wanted["composed_gap_ms"])
-        # Each transition's frames against its claim (`frames`, the genie's): one a refresh.
+        # Each transition's frames against its claim (`refresh_frames`, the genie's): one a refresh.
         seen = list((result.get("transitions") or {}).get("seen", []))
         for wanted in expect.get("transitions", {}).get("seen", []):
-            if "frames" in wanted:
+            if "refresh_frames" in wanted:
                 match = next((t for t in seen if t["kind"] == wanted.get("kind", t["kind"])
                               and t["change"] == wanted.get("change", t["change"])), None)
                 if match:
                     seen.remove(match)
                 claims[(index, f"frames its {wanted.get('change', 'transition')} drew")] = (
-                    None if match is None else match["frames"], wanted["frames"])
+                    None if match is None else match["frames"], wanted["refresh_frames"])
         if "frames_min" in expect.get("transitions", {}):
             claims[(index, "frames composed in its transitions")] = (
                 (result.get("transitions") or {}).get("frames", 0), [expect["transitions"]["frames_min"], None])

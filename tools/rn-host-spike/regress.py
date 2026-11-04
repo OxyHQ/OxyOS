@@ -134,7 +134,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "frame_gap_ms", [median, most] for the time between its frames (at display rate: 16.7 at 60 Hz,
   8.3 at 120); "linear_ms", every frame's size and place where a linear motion of that length is
   at the frame's time (a window into the dock: the frame clock drives it, whatever the load);
-  "frames", [least, most] it drew, the most always (one a refresh at most, which no load adds) and
+  "refresh_frames", [least, most] it drew, the most always (one a refresh at most, which no load adds) and
   the least only with --speed-budgets, each frame at a later time and a further place than the
   one before; "still",
   its size and place never changing (reduce motion's crossfade);
@@ -1633,7 +1633,7 @@ def check_animated(expect, report, start, end, fail, kind="animated", refresh_hz
                         break
 
 
-CURVE_KEYS = ("eased", "still", "lasts_ms", "frame_gap_ms", "linear_ms", "frames")
+CURVE_KEYS = ("eased", "still", "lasts_ms", "frame_gap_ms", "linear_ms", "refresh_frames")
 
 
 def check_curve(wanted, seen, fail, refresh_hz=60.0):
@@ -1689,10 +1689,10 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
                if not 1000 * ms / length - 1 <= m <= min(1000, 1000 * (ms + 1) / length) + 1]
         if off:
             fail(f"{name} was not where a linear motion of {length} ms is at its frames' times: {off}")
-    if "frames" in wanted:
+    if "refresh_frames" in wanted:
         # Composed for each refresh while it runs: no more frames than refreshes in it (no load
         # adds one), and, held only with --speed-budgets, at least so many (the machine's rate).
-        least, most = wanted["frames"]
+        least, most = wanted["refresh_frames"]
         count = seen.get("frames", len(path))
         if count > most or count < frames_least(least):
             fail(f"{name} drew {count} frames, expected {frames_least(least)} to {most}")
