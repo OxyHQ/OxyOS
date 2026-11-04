@@ -28,6 +28,11 @@ step's expected result) and measures, from what the processes report and from /p
 - the display's rate: windows dragged and zoomed, and animations, on a 120 Hz output and a 60 Hz one
   (refresh-*.json): how many frames each step's motion composed and how far apart they came, against
   its claims, which the gate checks only as functional (regress.py, --speed-budgets);
+- the genie: a window minimized into the dock and restored out of it through the Dock's mesh
+  (genie*.json, docs/adr/0043-the-genie.mdx) on a 120 Hz output at 1 and a 60 Hz one at 1.25: the
+  frames the compositor composed while it ran, how far apart and how long composing each took, and
+  how many each transition drew against its claim (one a refresh, which the gate holds only as at
+  most);
 - applications side by side: the shell, Settings and three more applications on one compositor, and
   each host's memory from /proc/PID/smaps_rollup once all have drawn: RSS, PSS (a shared page's
   size divided among the processes mapping it) and USS (its private pages), and what of each
@@ -48,7 +53,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--check]
-               [interactions] [responses] [shell] [cold-start] [idle] [applications] [refresh]
+               [interactions] [responses] [shell] [cold-start] [idle] [applications] [refresh] [genie]
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -103,6 +108,16 @@ REFRESH = [
     ("windows at 120 Hz", "refresh-120-windows.json"),
     ("windows at 60 Hz", "refresh-60-windows.json"),
     ("animations at 120 Hz", "refresh-120-animations.json"),
+]
+
+# The genie (docs/adr/0043-the-genie.mdx): (name, scenario, the steps measured (1-based), what
+# happens): the steps whose window goes into the dock or comes out of it on the compositor's own
+# clock, never held.
+GENIE = [
+    ("genie at 120 Hz", "genie.json", [10, 11],
+     "GenieProbe's 800x500 window restored out of Allo's icon and minimized into it, 500 ms each, beside the shell"),
+    ("genie at 1.25", "genie-scaled.json", [10, 11],
+     "the same on a 1600x1000 output at 1.25 and 60 Hz, the ThinkPad's"),
 ]
 
 # Responses: (name, scenario). Each step with an input is measured; its budget is the scenario's own
@@ -409,6 +424,16 @@ def rate_claims(scenario, summary, report):
         if "composed_gap_ms" in wanted:
             claims[(index, "ms between them, median")] = ((drag.get("composed_gap_ms") or {}).get("median"),
                                                           wanted["composed_gap_ms"])
+        # Each transition's frames against its claim (`frames`, the genie's): one a refresh.
+        seen = list((result.get("transitions") or {}).get("seen", []))
+        for wanted in expect.get("transitions", {}).get("seen", []):
+            if "frames" in wanted:
+                match = next((t for t in seen if t["kind"] == wanted.get("kind", t["kind"])
+                              and t["change"] == wanted.get("change", t["change"])), None)
+                if match:
+                    seen.remove(match)
+                claims[(index, f"frames its {wanted.get('change', 'transition')} drew")] = (
+                    None if match is None else match["frames"], wanted["frames"])
         if "frames_min" in expect.get("transitions", {}):
             claims[(index, "frames composed in its transitions")] = (
                 (result.get("transitions") or {}).get("frames", 0), [expect["transitions"]["frames_min"], None])
@@ -438,10 +463,23 @@ def rate_claims(scenario, summary, report):
 def refresh(options, name, scenario, out):
     """Every run's rate claims, each judged at the median of the runs."""
     runs = []
-    steps = json.loads((SCENARIOS / scenario).read_text())["steps"]
     for run in range(options.runs):
         summary, report, _, _ = run_scenario(options, SCENARIOS / scenario, out / f"{slug(name)}-{run + 1}")
         runs.append(rate_claims(json.loads((SCENARIOS / scenario).read_text()), summary, report))
+    return judged(scenario, runs)
+
+
+def genie(options, name, scenario, steps, what, out):
+    """The genie's steps as an interaction (the compositor's frames), and its transitions' claims
+    judged at the median of the same runs."""
+    runs = []
+    measured = interaction(options, name, scenario, steps, what, out, claims=runs)
+    return {**measured, "claims": judged(scenario, runs)}
+
+
+def judged(scenario, runs):
+    """Each rate claim of `runs` (one `rate_claims` each), judged at the median of the runs."""
+    steps = json.loads((SCENARIOS / scenario).read_text())["steps"]
     entries = []
     for key in sorted({key for run in runs for key in run}):
         index, claim = key
@@ -460,8 +498,9 @@ def frames_between(report, start, end):
             and start <= line["t"] <= end]
 
 
-def interaction(options, name, scenario, steps, what, out):
-    """Every run's measured steps, pooled: the compositor's frames and the hosts'."""
+def interaction(options, name, scenario, steps, what, out, claims=None):
+    """Every run's measured steps, pooled: the compositor's frames and the hosts'; with `claims` a
+    list, each run's rate claims (`rate_claims`) appended to it."""
     intervals, compose, reads, latency = [], [], [], []
     late = composed = 0
     refresh = refresh_ms(SCENARIOS / scenario)
@@ -469,6 +508,8 @@ def interaction(options, name, scenario, steps, what, out):
     peaks = {}
     for run in range(options.runs):
         summary, report, shell, sampler = run_scenario(options, SCENARIOS / scenario, out / f"{slug(name)}-{run + 1}")
+        if claims is not None:
+            claims.append(rate_claims(json.loads((SCENARIOS / scenario).read_text()), summary, report))
         for key, value in sampler.peaks().items():
             peaks[key] = max(peaks.get(key, 0), value)
         for index in steps:
@@ -801,6 +842,16 @@ def show(results):
                  ", ".join(f"{name} {kib['Rss']} resident, {kib['Pss']} PSS" for name, kib in m.get("bytecode", {}).items())]
                 for who, m in results["applications"].items()]
         print(table(rows, ["side by side", "RSS MiB", "PSS MiB", "USS MiB", "bytecode mapped (MiB)"]))
+    if "genie" in results:
+        rows = [[name, r["frames_composed"], spread(r["frame_interval_ms"]), r["late_frames"],
+                 spread(r["compose_ms"]), spread(r["read_ms"])] for name, r in results["genie"].items()]
+        print(table(rows, ["genie", "frames", "interval ms p50/p95/max", "late", "compose ms p50/p95/max",
+                           "of it reading clients ms"]))
+        rows = [[name, e["step"], e["claim"], e["measured"], f"{e['least']} to {e['most']}",
+                 ", ".join(str(v) for v in e["runs"]), "yes" if e["held"] else "NO"]
+                for name, r in results["genie"].items() for e in r["claims"]]
+        print(table(rows, ["genie", "step", "claim", "median", "bound", "runs", "held"]))
+        print()
     if "refresh" in results:
         rows = [[name, e["step"], e["claim"], e["measured"],
                  f"{e['least']} to {e['most']}" if e["most"] is not None else f"at least {e['least']}",
@@ -841,7 +892,12 @@ def check(results):
                 over.append(f"idle {name}: {who} woke {m['wakeups_per_s']:.1f} times a second")
             if m["cpu_percent"] > BUDGETS["idle_host_cpu_percent"]:
                 over.append(f"idle {name}: {who} used {m['cpu_percent']:.2f}% CPU")
-    for name, entries in results.get("refresh", {}).items():
+    for name, r in results.get("genie", {}).items():
+        refresh = r["refresh_ms"]
+        if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
+            over.append(f"{name}: composing took {r['compose_ms']['p95']} ms at p95 (a refresh is {refresh} ms)")
+    claims = {name: r["claims"] for name, r in results.get("genie", {}).items()}
+    for name, entries in [*results.get("refresh", {}).items(), *claims.items()]:
         for e in entries:
             if not e["held"]:
                 over.append(f"{name} step {e['step']}: {e['claim']} {e['measured']}, the median of the runs "
@@ -855,7 +911,7 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, applications, refresh (all by default)")
+                        help="interactions, responses, shell, cold-start, idle, applications, refresh, genie (all by default)")
     parser.add_argument("--offscreen", required=True)
     parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
     parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
@@ -866,7 +922,7 @@ def main():
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    every = ["interactions", "responses", "shell", "cold-start", "idle", "applications", "refresh"]
+    every = ["interactions", "responses", "shell", "cold-start", "idle", "applications", "refresh", "genie"]
     parts = options.parts or every
     if not set(parts) <= set(every):
         parser.error(f"unknown parts {parts}")
@@ -889,6 +945,9 @@ def main():
         results["applications"] = applications(options, out)
     if "refresh" in parts:
         results["refresh"] = {name: refresh(options, name, scenario, out) for name, scenario in REFRESH}
+    if "genie" in parts:
+        results["genie"] = {name: genie(options, name, scenario, steps, what, out)
+                            for name, scenario, steps, what in GENIE}
     results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)
