@@ -129,10 +129,13 @@ fn a_quarter_in_the_sides_are_the_cosine_from_the_windows_corners_to_the_slots()
     );
     // The page's own code's values for it, to the float.
     assert_eq!(
-        quarter[4],
-        [400.813_38, 358.290_07, 1_093.664_1, 125.000_015],
-        "{:?}",
-        quarter[4]
+        quarter[4].map(f64::from),
+        [
+            400.813_385_009_765_6,
+            358.290_069_580_078_1,
+            1_093.664_062_5,
+            125.000_015_258_789_06
+        ],
     );
 }
 

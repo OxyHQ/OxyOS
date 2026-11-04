@@ -2525,7 +2525,9 @@ fn vulkan_draws_meshes_as_the_reference_does() {
     };
     let (window, popup) = frame();
     let gradient: Vec<u32> = (0..200 * 150)
-        .map(|i: u32| 0xff00_0000 | ((i % 200) * 255 / 199) << 16 | ((i / 200) * 255 / 149) << 8)
+        .map(|i: u32| {
+            0xff00_0000 | (((i % 200) * 255 / 199) << 16) | (((i / 200) * 255 / 149) << 8)
+        })
         .collect();
     let gradient = pixels(&gradient);
     let funnels = [
