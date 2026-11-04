@@ -246,9 +246,14 @@ measured 5.1 ms of JavaScript instead of 3.3. Without it, a host counts React's 
 
 Budgets on speed stay where a claim is about speed (`perf-dropsea-home.json`'s JavaScript per
 step, `window-resize.json`'s and `perf-dropsea-resize.json`'s per frame, the shell's in
-`perf.py`), and only `perf.py --check` holds them, over its runs (above, *Running it*), on the
+`perf.py`, and the display's rate: how many frames fit in a motion and how far apart they come,
+`refresh-*.json`'s, `perf.py refresh`), and only `perf.py --check` holds them, over its runs (above, *Running it*), on the
 hardware they describe, the ThinkPad's: the deploy gate runs `regress.py` without them, so a machine
-loaded by other builds fails no budget on speed, and holds what every step must do.
+loaded by other builds fails no budget on speed, and holds what every step must do. Of the
+display's rate it holds what no load moves: a motion in more than one frame, no more frames than
+a claim allows, requestAnimationFrame never faster than its interval, and on a paced output
+(`check_pacing`) the window told the display's refresh before its first frame and the client's
+frames following on one by one, each answered once by the compositor, in order.
 `regress.py --speed-budgets` holds them in one run, for a look at one machine.
 
 ## Method
@@ -608,6 +613,23 @@ it is named, and the median decides. Dropsea's latencies, at the median, ms (bud
 and the big home's JavaScript (`js_work`, the most of one piece on the CPU): its launch 164.2 ms
 (budget 250), the press back to the home 144.2 (250), half a minute alone 0.01 (16.7), each file
 another program adds 35.4 (100).
+
+`perf.py refresh --check`, 5 runs, the same way on 4 November 2026 (no GPU, the session
+untouched): every claim on the display's rate held at the median, each run within a frame of it.
+
+| | step | claim | ThinkPad, median (each run) |
+|---|---|---|---|
+| windows at 120 Hz | zoom, restore | frames composed (at least 10) | 31, 34 |
+| | drag, 100 motions at 125 Hz | frames composed (at least 80) | 97 (97 97 97 97 96) |
+| | | ms apart, median (8.0 to 8.9) | 8.32 (8.32 8.31 8.32 8.33 8.31) |
+| windows at 60 Hz | zoom, restore | frames composed (at least 10) | 27, 30 |
+| | drag | frames composed (at least 42) | 49 (49 49 49 50 49) |
+| | | ms apart, median (16.4 to 17.3) | 16.64 (16.65 16.65 16.64 16.62 16.64) |
+| animations at 120 Hz | Animated's native driver, 600 ms | frames animated (60 to 80) | 71 |
+| | | frames the window presented (60 to 80) | 72 |
+| | Animated.timing in JavaScript | frames committed (60 to 80) | 70 (71 70 70 70 71) |
+| | | requestAnimationFrame's frames (60 to 80) | 70 |
+| | | ms apart, median (8.0 to 9.0) | 8.53 (8.54 8.60 8.53 8.53 8.51) |
 
 ## What was fixed
 
