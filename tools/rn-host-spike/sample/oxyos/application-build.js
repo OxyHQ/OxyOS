@@ -37,30 +37,67 @@ function checkoutOf(dir) {
 
 /**
  * Its TypeScript `paths` (`@/*`), which Expo's Metro resolves for the application's own sources
- * (`tsconfigPaths`), read by its own TypeScript (`extends` followed): each pattern's prefix and
- * suffix around its `*`, and the absolute targets to try in order.
+ * (`tsconfigPaths`), read from its tsconfig.json (`extends` followed): each pattern's prefix and
+ * suffix around its `*`, and the absolute targets to try in order. Read by the application's own
+ * TypeScript while it has the compiler API (TypeScript 5 and 6); TypeScript 7, the native
+ * compiler, has none, and then by the reader its own Expo's Metro uses for the same aliases
+ * (`_loadTsConfigWithExtends`, which needs no TypeScript), over the file system as it is.
  */
 function pathAliases(dir, appRequire) {
-  let ts;
-  try {
-    ts = appRequire('typescript');
-  } catch {
-    return [];
-  }
-  const file = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.json');
-  if (!file || path.dirname(file) !== dir) return [];
-  const read = ts.readConfigFile(file, ts.sys.readFile);
-  if (read.error) fail(`its tsconfig.json cannot be read: ${ts.flattenDiagnosticMessageText(read.error.messageText, '\n')}`);
-  const { options } = ts.parseJsonConfigFileContent(read.config, ts.sys, dir);
-  const base = options.baseUrl ?? options.pathsBasePath ?? dir;
-  return Object.entries(options.paths ?? {}).map(([pattern, targets]) => {
+  const file = path.join(dir, 'tsconfig.json');
+  if (!fs.existsSync(file)) return [];
+  const paths = typescriptPaths(dir, file, appRequire) ?? expoPaths(dir, file, appRequire);
+  if (!paths) fail('its tsconfig.json cannot be read: neither its TypeScript nor its Expo reads one');
+  return Object.entries(paths.paths ?? {}).map(([pattern, targets]) => {
     const star = pattern.indexOf('*');
     return {
       prefix: star < 0 ? pattern : pattern.slice(0, star),
       suffix: star < 0 ? null : pattern.slice(star + 1),
-      targets: targets.map((target) => path.resolve(base, target)),
+      targets: targets.map((target) => path.resolve(paths.base, target)),
     };
   });
+}
+
+/** The `paths` and the directory they are relative to, by the application's TypeScript's API; null without it. */
+function typescriptPaths(dir, file, appRequire) {
+  let ts;
+  try {
+    ts = appRequire('typescript');
+  } catch {
+    return null;
+  }
+  if (!ts.sys || typeof ts.readConfigFile !== 'function') return null;
+  const read = ts.readConfigFile(file, ts.sys.readFile);
+  if (read.error) fail(`its tsconfig.json cannot be read: ${ts.flattenDiagnosticMessageText(read.error.messageText, '\n')}`);
+  const { options } = ts.parseJsonConfigFileContent(read.config, ts.sys, dir);
+  return { paths: options.paths, base: options.baseUrl ?? options.pathsBasePath ?? dir };
+}
+
+/** The same by the application's Expo's own tsconfig reader; null if its Expo has none. */
+function expoPaths(dir, file, appRequire) {
+  let reader;
+  try {
+    reader = appRequire('@expo/cli/build/src/start/server/metro/createTypescriptResolver')._loadTsConfigWithExtends;
+  } catch {
+    return null;
+  }
+  if (typeof reader !== 'function') return null;
+  // Metro's file system, as far as the reader asks it: a file looked up, and one looked up in each
+  // directory from `from` up (an `extends` naming a package).
+  const lookup = (at) => {
+    const stat = fs.statSync(at, { throwIfNoEntry: false });
+    return stat ? { exists: true, type: stat.isFile() ? 'f' : 'd', realPath: fs.realpathSync(at) } : { exists: false };
+  };
+  const hierarchicalLookup = (from, subpath) => {
+    for (let at = from; ; at = path.dirname(at)) {
+      const candidate = path.join(at, subpath);
+      if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) return { absolutePath: candidate };
+      if (path.dirname(at) === at) return null;
+    }
+  };
+  const read = reader(dir, file, { _fileSystem: { lookup, hierarchicalLookup } });
+  // Its baseUrl is absolute; the targets are relative to it, or to the config that set `paths`.
+  return read && { paths: read.paths, base: read.baseUrl ?? read.pathsBasePath ?? dir };
 }
 
 /** What `alias` (one of pathAliases) makes of `name`: the paths to try, or null if it does not match. */

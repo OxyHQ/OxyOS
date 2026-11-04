@@ -1297,9 +1297,41 @@ void TextEditing::perform(const std::string& command, uint64_t serial) {
     if (props->editable && clipboard_.paste) {
       clipboard_.paste(serial, [this, tag = focused_](std::string text) { pasted(tag, std::move(text)); });
     }
+  } else if (command == "delete") {
+    // Edit › Delete: the selection, as one edit, as Backspace on it deletes it.
+    if (from == to || !props->editable) return;
+    merging_ = false;
+    replace(from, to, "", "");
+    merging_ = false;
   } else if (command == "selectAll") {
     selectRange(0, text_.size());
   }
+}
+
+std::optional<TextEditing::Commands> TextEditing::responder() const {
+  if (focused_ < 0 || !tree_.views().count(focused_)) return std::nullopt;
+  return commands();
+}
+
+bool TextEditing::performAction(const std::string& action) {
+  auto now = responder();
+  if (!now) return false;
+  // A plain text input has no style to match: Paste and Match Style is its paste, as a Mac's plain
+  // NSTextView takes pasteAsPlainText: as paste:.
+  const std::pair<const char*, bool> actions[] = {
+      {"undo", now->undo},         {"redo", now->redo},
+      {"cut", now->cut},           {"copy", now->copy},
+      {"paste", now->paste},       {"pasteAndMatchStyle", now->pasteAndMatchStyle},
+      {"delete", now->deleteSelection}, {"selectAll", now->selectAll},
+  };
+  for (const auto& [name, applies] : actions) {
+    if (action != name) continue;
+    if (!applies) return false;
+    if (tracing()) std::cerr << "[text] edit action " << action << " " << focused_ << "\n";
+    perform(action == "pasteAndMatchStyle" ? "paste" : action, inputSerial_ ? inputSerial_() : 0);
+    return true;
+  }
+  return false;
 }
 
 TextEditing::Commands TextEditing::commands() const {
@@ -1315,6 +1347,8 @@ TextEditing::Commands TextEditing::commands() const {
   commands.cut = selected && !secure && editable;
   commands.copy = selected && !secure;
   commands.paste = editable && clipboard_.hasText && clipboard_.hasText();
+  commands.pasteAndMatchStyle = commands.paste;
+  commands.deleteSelection = selected && editable;
   commands.selectAll = !text_.empty();
   return commands;
 }

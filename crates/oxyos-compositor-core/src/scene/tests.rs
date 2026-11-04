@@ -7222,6 +7222,169 @@ fn a_window_minimizes_itself_as_the_shell_minimizes_it() {
 }
 
 #[test]
+fn a_window_quit_from_the_docks_menu_gives_the_keyboard_to_the_next_whichever_goes_first() {
+    // Inbox quit from the dock's menu: the shell closes the menu and Inbox closes its window,
+    // two clients whose requests come in either order. Either way the keyboard ends on the
+    // window next in line (Allo's), never on nothing.
+    for window_first in [false, true] {
+        let mut h = Harness::new();
+        let allo = h.toplevel(OTHER, 1, 300, 200);
+        let inbox = h.toplevel(APP, 1, 400, 300);
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface: 1,
+                kind: ShellKind::Panel,
+                edge: PanelEdge::Bottom,
+                output: 1,
+                size: Size::new(1, 56),
+                exclusive: 56,
+            },
+        )
+        .unwrap();
+        h.present(key(SHELL, 1));
+        assert_eq!(h.scene.focus(), Some(inbox));
+        let dock = h.rect(key(SHELL, 1));
+        let menu = h.open_menu(
+            key(SHELL, 1),
+            2,
+            (dock.x + 10, dock.y + 10),
+            menu(Rect::new(0, 0, 40, 40), 100, 100),
+        );
+        assert_eq!(h.scene.focus(), Some(menu));
+        let close = [
+            (APP, Request::Destroy { surface: 1 }),
+            (SHELL, Request::Destroy { surface: 2 }),
+        ];
+        let order: Vec<_> = if window_first {
+            close.into_iter().collect()
+        } else {
+            close.into_iter().rev().collect()
+        };
+        for (client, request) in order {
+            h.request(client, request).unwrap();
+        }
+        h.pump();
+        assert_eq!(h.scene.focus(), Some(allo), "window first: {window_first}");
+    }
+}
+
+#[test]
+fn a_menu_of_the_top_bar_gives_the_keyboard_back_to_the_active_window() {
+    // As a Mac's: a menu opened from the menu bar has the keys while it is open (its arrows,
+    // Return), and the key window has them again as it closes, chosen or dismissed, so what is
+    // typed after Edit > Select All goes to the window's field, and its Edit > Copy is the
+    // window's own clipboard offer (docs/adr/0021-menu-bar.mdx, decision 3).
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size: Size::new(1, 28),
+            exclusive: 28,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    // The dock, a panel shown after the bar, so above it until the bar is pressed.
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 3,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Bottom,
+            output: 1,
+            size: Size::new(1, 56),
+            exclusive: 56,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 3));
+    assert_eq!(h.scene.focus(), Some(window));
+    for close in ["chosen", "outside"] {
+        let input = type_key(&mut h);
+        h.clear_log();
+        let menu = h.open_menu(
+            key(SHELL, 1),
+            2,
+            (10, 10),
+            menu(Rect::new(0, 0, 40, 28), 100, 100),
+        );
+        assert_eq!(h.scene.focus(), Some(menu), "the open menu has the keys");
+        assert_eq!(h.scene.active_window(), Some(window));
+        // The press raised the bar within the panels: its menu is drawn over the dock.
+        let order: Vec<SurfaceKey> = h
+            .scene
+            .render_list()
+            .into_iter()
+            .filter_map(|item| match item {
+                RenderItem::Surface { key, .. } => Some(key),
+                _ => None,
+            })
+            .collect();
+        let at = |surface| order.iter().position(|key| *key == surface).unwrap();
+        assert!(
+            at(menu) > at(key(SHELL, 3)),
+            "{close}: the menu over the dock"
+        );
+        // The window still copies while the menu has the keys (its Edit > Copy, arriving before
+        // the menu closes); another client does not.
+        h.request(APP, Request::ClipboardClear { serial: input })
+            .unwrap();
+        for (client, offer) in [(OTHER, 7), (APP, 8)] {
+            for request in [
+                Request::ClipboardOffer {
+                    offer,
+                    serial: input,
+                },
+                Request::ClipboardType {
+                    offer,
+                    mime: mime(PLAIN),
+                },
+                Request::ClipboardCommit { offer },
+            ] {
+                h.request(client, request).unwrap();
+            }
+            if client == OTHER {
+                assert!(h.scene.clipboard().is_none(), "{close}: not another client");
+            }
+        }
+        assert!(h.scene.clipboard().is_some(), "{close}: the window copied");
+        match close {
+            "chosen" => h.request(SHELL, Request::Destroy { surface: 2 }).unwrap(),
+            _ => {
+                let w = h.rect(window);
+                h.click(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+                h.request(SHELL, Request::Destroy { surface: 2 }).unwrap();
+            }
+        }
+        h.pump();
+        assert_eq!(
+            h.scene.focus(),
+            Some(window),
+            "{close}: the window has the keys again"
+        );
+        assert_eq!(h.scene.active_window(), Some(window));
+        let events = to(&logged(&mut h), APP);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Focus { focused: true, .. }))
+                .count(),
+            1,
+            "{close}: the window told once"
+        );
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, Event::Activated { .. })));
+    }
+}
+
+#[test]
 fn the_active_window_follows_focus_through_popups_and_panels_but_not_overlays_or_the_lock() {
     let mut h = Harness::new();
     let first = h.toplevel(APP, 1, 400, 300);
@@ -7262,7 +7425,14 @@ fn the_active_window_follows_focus_through_popups_and_panels_but_not_overlays_or
     }
     h.present(key(SHELL, 1));
     h.clear_log();
-    h.click(10, 10);
+    // A press on the panel leaves the keyboard on the window (a Mac's menu bar and Dock leave the
+    // key window key); the shell asking for it, as Super+F2 does, gives the panel the keyboard.
+    let serial = h.press(10, 10);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(second));
+    h.request(SHELL, Request::FocusShellSurface { surface: 1, serial })
+        .unwrap();
     assert_eq!(h.scene.focus(), Some(key(SHELL, 1)));
     assert_eq!(h.scene.active_window(), Some(second));
     assert_eq!(activations(&h), vec![]);

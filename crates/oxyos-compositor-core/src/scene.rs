@@ -1514,7 +1514,7 @@ impl Scene {
                 let types = self.offers.remove(&(client, offer));
                 // The clipboard changes only for the client the user is typing into.
                 if let Some(types) = types.filter(|types| !types.is_empty()) {
-                    if self.focused_client() == Some(client) {
+                    if self.typing_into(client) {
                         self.selections += 1;
                         self.clipboard = Some(Clipboard {
                             owner: client,
@@ -1543,8 +1543,7 @@ impl Scene {
                 // A paste: by the client the user is typing into, with an input of its own, of
                 // the content it was told about, in one of its types. Anything else is refused,
                 // and the receiver's pipe is closed unanswered.
-                let allowed =
-                    self.focused_client() == Some(client) && self.recent_input(client, serial);
+                let allowed = self.typing_into(client) && self.recent_input(client, serial);
                 let send = self.clipboard.as_ref().filter(|clipboard| {
                     allowed && clipboard.selection == selection && clipboard.types.contains(&mime)
                 });
@@ -2643,6 +2642,29 @@ impl Scene {
         self.focus.map(|key| key.client)
     }
 
+    /// Whether `client` is the one the user is typing into, for the clipboard: the keyboard's, or
+    /// the active window's while the keyboard is on a shell panel or a menu of one (the top bar's
+    /// Edit menu acting for it), which leave it the key window as a Mac's menu bar does (ADR 0037,
+    /// decision 6): its Edit > Copy and Paste are its own.
+    fn typing_into(&self, client: ClientId) -> bool {
+        if self.focused_client() == Some(client) {
+            return true;
+        }
+        let Some(focus) = self.focus else {
+            return false;
+        };
+        let on_panel = self.nodes.get(&self.root_of(focus)).is_some_and(|node| {
+            matches!(
+                node.role,
+                Role::Shell {
+                    kind: ShellKind::Panel,
+                    ..
+                }
+            )
+        });
+        on_panel && self.active.is_some_and(|active| active.client == client)
+    }
+
     /// Tells the client with keyboard focus what the clipboard holds, if it was not told yet:
     /// its types under the name it has for receivers, or that it is empty.
     fn tell_clipboard(&mut self) {
@@ -3122,6 +3144,11 @@ impl Scene {
                 if self.grab.is_empty() {
                     let restore = self.focus_before_grab.take();
                     self.set_focus(restore.filter(|k| *k != key && self.focusable(*k)));
+                    // Nothing to give it back to (the window it was opened over has gone): the
+                    // next window, as when the menu is dismissed.
+                    if self.focus.is_none() {
+                        self.focus_next();
+                    }
                 } else {
                     let top = self.grab.last().copied();
                     self.set_focus(top);
@@ -3151,10 +3178,15 @@ impl Scene {
         }
         if self.focus == Some(key) {
             self.focus = None;
-            self.focus_after_window(key, application);
+            self.focus_after_window(key, application.clone());
         }
+        // The window a menu will give the keyboard back to, closed while the menu is open (Inbox
+        // quit from the dock's menu, its window gone before the menu): the menu gives it where the
+        // window's closing would have, its application's next window, or the next window once
+        // the menu closes (none here: then `focus_next`).
         if self.focus_before_grab == Some(key) {
-            self.focus_before_grab = None;
+            self.focus_before_grab =
+                application.and_then(|of| self.application_window_after(key, of));
         }
         // An input in a popup that closes is its parent's input from then on: the surface the menu
         // belonged to, so what the person opens next with it (the top bar's next menu from an open
@@ -3456,22 +3488,35 @@ impl Scene {
         application: Option<(bool, String, Option<ClientId>)>,
     ) {
         let next = application
-            .filter(|_| self.grab.is_empty() && !self.locked)
-            .and_then(|of| {
-                self.roots.iter().rev().copied().find(|root| {
-                    *root != gone
-                        && self.nodes[root].role == Role::Toplevel
-                        && self.visible(*root)
-                        && self.application_identity(*root) == of
-                })
-            });
+            .filter(|_| self.grab.is_empty())
+            .and_then(|of| self.application_window_after(gone, of));
         match next {
-            Some(root) => {
-                let target = self.focus_target(root);
-                self.set_focus(Some(target));
-            }
+            Some(target) => self.set_focus(Some(target)),
             None => self.focus_next(),
         }
+    }
+
+    /// Where the keyboard goes in the application of a window `gone` (ADR 0016, decision 10): its
+    /// topmost other window shown, at what it focuses; none while locked.
+    fn application_window_after(
+        &self,
+        gone: SurfaceKey,
+        of: (bool, String, Option<ClientId>),
+    ) -> Option<SurfaceKey> {
+        if self.locked {
+            return None;
+        }
+        self.roots
+            .iter()
+            .rev()
+            .copied()
+            .find(|root| {
+                *root != gone
+                    && self.nodes[root].role == Role::Toplevel
+                    && self.visible(*root)
+                    && self.application_identity(*root) == of
+            })
+            .map(|root| self.focus_target(root))
     }
 
     fn focus_next(&mut self) {
@@ -3519,6 +3564,23 @@ impl Scene {
             }
             self.dismiss_grab(DismissReason::OutsidePress);
         }
+        self.raise_in_layer(root);
+        if self.grab.is_empty() && self.focusable(root) {
+            let target = self.focus_target(root);
+            self.set_focus(Some(target));
+        }
+    }
+
+    /// Raises a window group to the top of its layer, focus left as it is; its root, or none
+    /// when it cannot be raised (gone, or not the lock screen's while locked).
+    fn raise_in_layer(&mut self, key: SurfaceKey) -> Option<SurfaceKey> {
+        let root = self.root_of(key);
+        if !self.nodes.contains_key(&root)
+            || self.locked && layer_of(&self.nodes[&root].role) != Layer::Lock
+        {
+            return None;
+        }
+        let layer = layer_of(&self.nodes[&root].role);
         self.roots.retain(|r| *r != root);
         let index = self
             .roots
@@ -3526,10 +3588,7 @@ impl Scene {
             .position(|r| layer_of(&self.nodes[r].role) > layer)
             .unwrap_or(self.roots.len());
         self.roots.insert(index, root);
-        if self.grab.is_empty() && self.focusable(root) {
-            let target = self.focus_target(root);
-            self.set_focus(Some(target));
-        }
+        Some(root)
     }
 
     fn lower_below_focus(&mut self, key: SurfaceKey) {
@@ -3576,7 +3635,7 @@ impl Scene {
             let application =
                 (change == appearances::Change::Minimized).then(|| self.application_identity(key));
             self.set_focus(None);
-            self.focus_after_window(key, application);
+            self.focus_after_window(key, application.clone());
         }
         // Minimized while the shell's top bar had focus: no longer the active window.
         self.update_active();
@@ -4100,7 +4159,21 @@ impl Scene {
             // The screenshot interface's surfaces take presses, never the keyboard: the active
             // application stays active (ADR 0024, decision 10).
             let mut activating = false;
-            if self.grab.is_empty() && !self.shows_capture_interface(target) {
+            // A press on a shell panel (the top bar, the dock) raises it within the panel layer
+            // but leaves the keyboard where it is, as a click on a Mac's menu bar or Dock leaves
+            // the key window key: a menu it opens grabs the keyboard and gives it back to the
+            // window as it closes, and the shell takes the keyboard for a panel only by asking
+            // (`FocusShellSurface`: Super+F2, F3, F8).
+            let panel = matches!(
+                self.nodes[&self.root_of(target)].role,
+                Role::Shell {
+                    kind: ShellKind::Panel,
+                    ..
+                }
+            );
+            if panel && self.grab.is_empty() {
+                self.raise_in_layer(target);
+            } else if self.grab.is_empty() && !self.shows_capture_interface(target) {
                 let root = self.root_of(target);
                 let blocked = target == root && self.focus_target(root) != root;
                 let was_active = self.active;

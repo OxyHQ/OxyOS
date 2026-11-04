@@ -816,7 +816,9 @@ impl Session {
             std::thread::sleep(std::time::Duration::from_millis(10));
             fds = open_descriptors()?;
         }
-        if fds != self.baseline_fds {
+        // Fewer than at the start is no leak: a descriptor another thread held for a moment as the
+        // baseline was counted (the network bus's D-Bus connection being set up) has gone since.
+        if fds > self.baseline_fds {
             // What each is, to say what leaked.
             let open: Vec<String> = fs::read_dir("/proc/self/fd")?
                 .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())

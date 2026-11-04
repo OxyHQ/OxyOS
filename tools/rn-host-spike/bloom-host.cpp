@@ -1087,6 +1087,22 @@ int main(int argc, char** argv) {
           },
       };
     }
+    // The focused text input as the window's first responder for the Edit menu's standard actions
+    // (docs/adr/0021-menu-bar.mdx, decision 3): Bloom's `editing`, told each change below.
+    auto responderState = [&editing]() -> folly::dynamic {
+      auto now = editing.responder();
+      if (!now) return nullptr;
+      return folly::dynamic::object("undo", now->undo)("redo", now->redo)("cut", now->cut)("copy", now->copy)(
+          "paste", now->paste)("pasteAndMatchStyle", now->pasteAndMatchStyle)("delete", now->deleteSelection)(
+          "selectAll", now->selectAll);
+    };
+    std::optional<std::optional<oxyos::TextEditing::Commands>> toldResponder;
+    if (!shellMode) {
+      services.editing = {
+          .state = responderState,
+          .perform = [&editing](const std::string& action) { return editing.performAction(action); },
+      };
+    }
     // The window's menus (docs/adr/0021-menu-bar.mdx): each change a new commit, its serial
     // rising, which a choice in the shell's bar names.
     if (!shellMode) {
@@ -1925,11 +1941,14 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_FOCUS) {
                 if (event.flag) {
                   keyboardSurface = event.surface;
-                } else if (keyboardSurface == event.surface && !popups.closedByApplication(event.surface)) {
-                  // A popup this client closed itself (a menu replaced by the next one, the top
-                  // bar's Right) keeps the keyboard as far as this client knows until the
-                  // compositor gives it to the surface next in line: never, between the two, to
-                  // nothing, which would read as the keyboard gone elsewhere.
+                } else if (keyboardSurface == event.surface && !popups.closedByApplication(event.surface) &&
+                           !shellSurfaces.closedByApplication(event.surface)) {
+                  // A popup or a shell region this client closed itself (a menu replaced by the
+                  // next one, the top bar's Right, Control Center closed by its Escape) keeps the
+                  // keyboard as far as this client knows until the compositor gives it to the
+                  // surface next in line: never, between the two, to nothing, which would read as
+                  // the keyboard gone elsewhere (the region asking for it then let go, if the two
+                  // events are read in two turns, as a loaded machine has them).
                   keyboardSurface = 0;
                 }
               }
@@ -2391,6 +2410,23 @@ int main(int argc, char** argv) {
         // A scroll view laid out again is clamped to its content before the keyboard's navigation
         // reads the tree.
         pointer.clampScrolls();
+        // What the window's first responder can do, told to Bloom's `editing` as it changes (focus,
+        // the input's text, selection or history, the clipboard), so the Edit menu's items are
+        // enabled as the field validates them, in the shell's bar too.
+        if (!shellMode) {
+          auto responder = editing.responder();
+          if (!toldResponder || *toldResponder != responder) {
+            bool first = !toldResponder.has_value();
+            toldResponder = responder;
+            if (!first || responder) {
+              auto payload = responderState();
+              oxyos::Report::get().input("editing.responder", 0,
+                                         folly::dynamic::object("state", payload));
+              instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                             folly::dynamic::array("OxyOSEditingChanged", payload));
+            }
+          }
+        }
         // The keyboard's navigation follows a modal coming and going; its ring is drawn with the
         // focused control.
         followScope();

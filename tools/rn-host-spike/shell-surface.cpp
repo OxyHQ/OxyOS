@@ -195,6 +195,7 @@ void ShellSurfaceHost::sync() {
       // A surface's role and size are fixed when it is made: a new strip is a new surface.
       if (open != regions_.end()) {
         window_.destroy(open->second.surface);
+        closed_.insert(open->second.surface);
         accessibility_.forget(open->second.surface);
         Report::get().popup("shell.close", open->second.surface, &view);
       }
@@ -230,6 +231,7 @@ void ShellSurfaceHost::sync() {
       continue;
     }
     window_.destroy(it->second.surface);
+    closed_.insert(it->second.surface);
     accessibility_.forget(it->second.surface);
     Report::get().popup("shell.close", it->second.surface, nullptr);
     it = regions_.erase(it);
