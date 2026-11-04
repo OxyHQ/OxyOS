@@ -138,13 +138,12 @@ function accepted(requester, name, file) {
   const version = manifestOf(file)?.json.version;
   return !version || semver.satisfies(version, range, { includePrerelease: true });
 }
-const SAMPLE_MODULES = path.join(__dirname, 'node_modules') + path.sep;
 const SAMPLE_ORIGIN = path.join(__dirname, 'package.json');
-// The runtime's own JavaScript in its framework: the framework's entry (framework.mjs's generated/)
-// and the runtime's modules (oxyos/). Its requests share the one copy as the packages' do: resolved
+// This folder's own JavaScript: the framework's entry (framework.mjs's generated/), the runtime's
+// modules (oxyos/) and the probes. Its requests share the one copy as the packages' do: resolved
 // from here alone, a package this folder and the Bloom tree both have would be this folder's while
 // Bloom's packages took the Bloom tree's (one expo-constants 58.0.15 in each: two copies).
-const RUNTIME_SOURCES = ['generated', 'oxyos'].map((dir) => path.join(__dirname, dir) + path.sep);
+const SAMPLE_SOURCES = __dirname + path.sep;
 /**
  * The runtime's one copy of a package (docs/adr/0030-installing-applications.mdx, decision 17):
  * Bloom's tree and this folder's node_modules (the Expo modules the host implements) may each have
@@ -326,10 +325,9 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
       try {
         if (APP && (APP_ENTRIES.has(context.originModulePath) || APP.owns(context.originModulePath))) {
           result = applicationRequest(context, moduleName, platform, context.resolveRequest);
-        } else if (inBloom(context.originModulePath) || context.originModulePath.startsWith(SAMPLE_MODULES) ||
-            RUNTIME_SOURCES.some((dir) => context.originModulePath.startsWith(dir))) {
+        } else if (inBloom(context.originModulePath) || context.originModulePath.startsWith(SAMPLE_SOURCES)) {
           // The runtime's own packages (this folder's node_modules: the Expo modules the host
-          // implements) and its own JavaScript share the Bloom tree's copy of a package they
+          // implements) and this folder's own JavaScript share the Bloom tree's copy of a package they
           // accept, so the runtime and its framework have one copy of each (one expo-constants,
           // one expo-modules-core).
           result = sharedRequest(context, moduleName, platform);
