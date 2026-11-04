@@ -11,6 +11,9 @@
     "title": "Allo"
   },
   "outputs": "1280x720:120",
+  "preferences": {
+    "dock": "so.oxy.allo"
+  },
   "settings": {
     "app": "so.oxy.settings",
     "preferences": {
@@ -94,7 +97,7 @@
         "window_shown": false,
         "output_pixels": {
           "640,346": "!#c8209a",
-          "738,716": "#64717a"
+          "709,716": "#64717a"
         }
       }
     },

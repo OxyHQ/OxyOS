@@ -1,5 +1,5 @@
 {
-  "about": "The scale effect (docs/adr/0043-the-genie.mdx, decision 6; Settings › Dock's Minimise windows using, the session's minimize_effect = scale): Allo's window, one colour, minimized into Allo's icon and restored out of it with the genie's timing. With the transitions' clock held 200 ms in (0.4 of the way, eased by half a cosine to 0.3455), the window is the rectangle that far from its own (240, 96, 800 × 500) to the icon's of its proportions (717, 680, 42 × 26): (405, 298) to (943, 634), its colour inside and anything else past each edge; unbent; at the end gone into the icon. On the compositor's clock, restored and minimized again, each linearly over 500 ms, the window fading in its last 30 %: restored, its first frame unseen.",
+  "about": "The scale effect (docs/adr/0043-the-genie.mdx, decision 6; Settings › Dock's Minimise windows using, the session's minimize_effect = scale): Allo's window, one colour, minimized into Allo's icon and restored out of it with the genie's timing. With the transitions' clock held 200 ms in (0.4 of the way, eased by half a cosine to 0.3455), the window is the rectangle that far from its own (240, 96, 800 × 500) to the icon's of its proportions (688, 680, 42 × 26): (395, 298) to (933, 634), its colour inside and anything else past each edge; unbent; at the end gone into the icon. On the compositor's clock, restored and minimized again, each linearly over 500 ms, the window fading in its last 30 %: restored, its first frame unseen.",
   "module": "GenieProbe",
   "window": [
     800,
@@ -11,6 +11,9 @@
     "title": "Allo"
   },
   "outputs": "1280x720:120",
+  "preferences": {
+    "dock": "so.oxy.allo"
+  },
   "settings": {
     "app": "so.oxy.settings",
     "preferences": {
@@ -31,7 +34,7 @@
         "focus_surface": 1,
         "window_shown": true,
         "minimize_target": [
-          717,
+          688,
           672,
           42,
           42
@@ -85,15 +88,15 @@
       "expect": {
         "window_shown": false,
         "output_pixels": {
-          "674,466": "#c8209a",
-          "420,320": "#c8209a",
-          "925,615": "#c8209a",
-          "420,615": "#c8209a",
-          "925,320": "#c8209a",
-          "395,466": "!#c8209a",
-          "953,466": "!#c8209a",
-          "674,288": "!#c8209a",
-          "674,644": "!#c8209a",
+          "664,466": "#c8209a",
+          "410,320": "#c8209a",
+          "918,615": "#c8209a",
+          "410,615": "#c8209a",
+          "918,320": "#c8209a",
+          "385,466": "!#c8209a",
+          "943,466": "!#c8209a",
+          "664,288": "!#c8209a",
+          "664,644": "!#c8209a",
           "300,150": "!#c8209a",
           "1000,560": "!#c8209a"
         }
@@ -109,7 +112,7 @@
         "window_shown": false,
         "output_pixels": {
           "640,346": "!#c8209a",
-          "738,716": "#64717a"
+          "709,716": "#64717a"
         },
         "at": {
           "shell": [
