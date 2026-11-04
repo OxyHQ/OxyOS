@@ -22,8 +22,9 @@ void SafeAreas::sync(const ViewTree& tree) {
     if (!frame) continue;
     now[tag] = *frame;
     if (auto told = told_.find(tag); told != told_.end() && told->second == *frame) continue;
-    folly::dynamic payload = folly::dynamic::object(
-        "insets", folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0))(
+    folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);
+    folly::dynamic payload = folly::dynamic::object("insets", zero)("verticalCornerAdaptedInsets", zero)(
+        "horizontalCornerAdaptedInsets", zero)(
         "frame", folly::dynamic::object("x", frame->origin.x)("y", frame->origin.y)("width", frame->size.width)(
                      "height", frame->size.height));
     view.eventEmitter->dispatchEvent("insetsChange", std::move(payload));

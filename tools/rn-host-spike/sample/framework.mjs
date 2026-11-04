@@ -23,6 +23,7 @@
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
@@ -148,6 +149,23 @@ execFileSync(path.join(runtime, 'hermesc'), ['-emit-binary', '-O', '-w', '-out',
 fs.rmSync(source);
 
 const manifest = JSON.parse(fs.readFileSync(path.join(out, 'framework.json'), 'utf8'));
+// React Native and the packages whose native side the host implements are its Expo SDK's: each at a
+// version the SDK's `bundledNativeModules.json` names, as an Expo application's native build takes
+// them (`expo install --check`). A runtime tracks its SDK's patch releases, as Android and iOS
+// applications do; a version the SDK does not name (one an application chose past it) is refused
+// here rather than given to every application.
+const bloomRequire = createRequire(path.join(bloom, 'package.json'));
+const semver = bloomRequire('semver');
+const sdk = bloomRequire('expo/bundledNativeModules.json');
+const packageOf = (name) => name.split('/').slice(0, name.startsWith('@') ? 2 : 1).join('/');
+const outsideSdk = [...new Set([...core, ...native].map(packageOf))]
+  .filter((name) => sdk[name] && manifest.packages[name])
+  .flatMap((name) => manifest.packages[name]
+    .filter((version) => !semver.satisfies(version, sdk[name]))
+    .map((version) => `${name} ${version} (Expo ${manifest.packages.expo} names ${sdk[name]})`));
+if (outsideSdk.length > 0) {
+  throw new Error(`the framework's native packages are not its Expo SDK's: ${outsideSdk.join(', ')}`);
+}
 if (previousManifest) {
   const previous = JSON.parse(fs.readFileSync(previousManifest, 'utf8'));
   if (previous.runtime.abi !== level.abi || previous.runtime.api >= level.api) {
