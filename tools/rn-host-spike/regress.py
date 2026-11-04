@@ -88,6 +88,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- minimize_target: where the application's window minimizes into, as the shell's dock says it
+  (ADR 0011's genie): [x, y, width, height] in the global space (logical pixels), or null where
+  no shell surface shown says, exactly;
 - urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say
   so fails;
@@ -2534,6 +2537,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
+    if "minimize_target" in expect and result.get("minimize_target") != expect["minimize_target"]:
+        fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]
