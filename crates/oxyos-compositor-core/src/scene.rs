@@ -3144,6 +3144,11 @@ impl Scene {
                 if self.grab.is_empty() {
                     let restore = self.focus_before_grab.take();
                     self.set_focus(restore.filter(|k| *k != key && self.focusable(*k)));
+                    // Nothing to give it back to (the window it was opened over has gone): the
+                    // next window, as when the menu is dismissed.
+                    if self.focus.is_none() {
+                        self.focus_next();
+                    }
                 } else {
                     let top = self.grab.last().copied();
                     self.set_focus(top);
@@ -3173,10 +3178,15 @@ impl Scene {
         }
         if self.focus == Some(key) {
             self.focus = None;
-            self.focus_after_window(key, application);
+            self.focus_after_window(key, application.clone());
         }
+        // The window a menu will give the keyboard back to, closed while the menu is open (Inbox
+        // quit from the dock's menu, its window gone before the menu): the menu gives it where the
+        // window's closing would have, its application's next window, or the next window once
+        // the menu closes (none here: then `focus_next`).
         if self.focus_before_grab == Some(key) {
-            self.focus_before_grab = None;
+            self.focus_before_grab =
+                application.and_then(|of| self.application_window_after(key, of));
         }
         // An input in a popup that closes is its parent's input from then on: the surface the menu
         // belonged to, so what the person opens next with it (the top bar's next menu from an open
@@ -3478,22 +3488,35 @@ impl Scene {
         application: Option<(bool, String, Option<ClientId>)>,
     ) {
         let next = application
-            .filter(|_| self.grab.is_empty() && !self.locked)
-            .and_then(|of| {
-                self.roots.iter().rev().copied().find(|root| {
-                    *root != gone
-                        && self.nodes[root].role == Role::Toplevel
-                        && self.visible(*root)
-                        && self.application_identity(*root) == of
-                })
-            });
+            .filter(|_| self.grab.is_empty())
+            .and_then(|of| self.application_window_after(gone, of));
         match next {
-            Some(root) => {
-                let target = self.focus_target(root);
-                self.set_focus(Some(target));
-            }
+            Some(target) => self.set_focus(Some(target)),
             None => self.focus_next(),
         }
+    }
+
+    /// Where the keyboard goes in the application of a window `gone` (ADR 0016, decision 10): its
+    /// topmost other window shown, at what it focuses; none while locked.
+    fn application_window_after(
+        &self,
+        gone: SurfaceKey,
+        of: (bool, String, Option<ClientId>),
+    ) -> Option<SurfaceKey> {
+        if self.locked {
+            return None;
+        }
+        self.roots
+            .iter()
+            .rev()
+            .copied()
+            .find(|root| {
+                *root != gone
+                    && self.nodes[root].role == Role::Toplevel
+                    && self.visible(*root)
+                    && self.application_identity(*root) == of
+            })
+            .map(|root| self.focus_target(root))
     }
 
     fn focus_next(&mut self) {
@@ -3612,7 +3635,7 @@ impl Scene {
             let application =
                 (change == appearances::Change::Minimized).then(|| self.application_identity(key));
             self.set_focus(None);
-            self.focus_after_window(key, application);
+            self.focus_after_window(key, application.clone());
         }
         // Minimized while the shell's top bar had focus: no longer the active window.
         self.update_active();

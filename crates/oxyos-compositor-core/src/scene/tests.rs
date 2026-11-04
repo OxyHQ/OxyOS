@@ -7222,6 +7222,54 @@ fn a_window_minimizes_itself_as_the_shell_minimizes_it() {
 }
 
 #[test]
+fn a_window_quit_from_the_docks_menu_gives_the_keyboard_to_the_next_whichever_goes_first() {
+    // Inbox quit from the dock's menu: the shell closes the menu and Inbox closes its window,
+    // two clients whose requests come in either order. Either way the keyboard ends on the
+    // window next in line (Allo's), never on nothing.
+    for window_first in [false, true] {
+        let mut h = Harness::new();
+        let allo = h.toplevel(OTHER, 1, 300, 200);
+        let inbox = h.toplevel(APP, 1, 400, 300);
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface: 1,
+                kind: ShellKind::Panel,
+                edge: PanelEdge::Bottom,
+                output: 1,
+                size: Size::new(1, 56),
+                exclusive: 56,
+            },
+        )
+        .unwrap();
+        h.present(key(SHELL, 1));
+        assert_eq!(h.scene.focus(), Some(inbox));
+        let dock = h.rect(key(SHELL, 1));
+        let menu = h.open_menu(
+            key(SHELL, 1),
+            2,
+            (dock.x + 10, dock.y + 10),
+            menu(Rect::new(0, 0, 40, 40), 100, 100),
+        );
+        assert_eq!(h.scene.focus(), Some(menu));
+        let close = [
+            (APP, Request::Destroy { surface: 1 }),
+            (SHELL, Request::Destroy { surface: 2 }),
+        ];
+        let order: Vec<_> = if window_first {
+            close.into_iter().collect()
+        } else {
+            close.into_iter().rev().collect()
+        };
+        for (client, request) in order {
+            h.request(client, request).unwrap();
+        }
+        h.pump();
+        assert_eq!(h.scene.focus(), Some(allo), "window first: {window_first}");
+    }
+}
+
+#[test]
 fn a_menu_of_the_top_bar_gives_the_keyboard_back_to_the_active_window() {
     // As a Mac's: a menu opened from the menu bar has the keys while it is open (its arrows,
     // Return), and the key window has them again as it closes, chosen or dismissed, so what is

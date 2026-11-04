@@ -20,7 +20,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
-  launched received, by kind (exact; "close.requested" among them);
+  launched received, by kind (exact; "close.requested" among them; a list of them: any one, for
+  an order of two clients' requests neither decides);
 - popups: how many popups of the application are shown after the step; popup_rects, where each
   is on the output ([x, y, width, height]), exactly and in the order they opened (a submenu's
   popup beside its menu's);
@@ -2114,8 +2115,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"the companion was delivered {companion}, expected exactly {expect['delivered']['companion']}")
         if "shell_drags" in wanted and shell_drags != wanted.pop("shell_drags"):
             fail(f"the shell was delivered drag events {shell_drags}, expected exactly {expect['delivered']['shell_drags']}")
-        if "launched" in wanted and launched != wanted.pop("launched"):
-            fail(f"the launched applications were delivered {launched}, expected exactly {expect['delivered']['launched']}")
+        # A list: any one of them, for a step whose launched application is told what it is in an
+        # order of two clients' requests that is neither's to decide (Inbox quit from the dock's
+        # menu: its window may close before or after the menu does, and has the keyboard back
+        # for that moment only in the second).
+        if "launched" in wanted:
+            either = wanted.pop("launched")
+            if launched not in (either if isinstance(either, list) else [either]):
+                fail(f"the launched applications were delivered {launched}, expected exactly {expect['delivered']['launched']}")
         if "chooser" in wanted and chooser != wanted.pop("chooser"):
             fail(f"the file chooser was delivered {chooser}, expected exactly {expect['delivered']['chooser']}")
         if leaked:
