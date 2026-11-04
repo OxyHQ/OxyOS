@@ -66,6 +66,7 @@ const FIXTURE: SettingsSnapshot = {
     appearance: 'auto',
     accent: 'oxy',
     reduceMotion: false,
+    minimizeEffect: 'genie',
     reduceTransparency: false,
     caretBlink: true,
     wallpaper: 'solar-gradients',
@@ -183,6 +184,8 @@ function preferencesOf(values: Record<string, string>): Preferences {
     appearance: (values[PREFERENCE_KEYS.appearance] as Appearance) ?? 'auto',
     accent: values[PREFERENCE_KEYS.accent] ?? 'oxy',
     reduceMotion: flag(PREFERENCE_KEYS.reduceMotion),
+    // The genie unless the session keeps the scale (crates/oxyos-preferences).
+    minimizeEffect: values[PREFERENCE_KEYS.minimizeEffect] === 'scale' ? 'scale' : 'genie',
     reduceTransparency: flag(PREFERENCE_KEYS.reduceTransparency),
     // On unless the session keeps it off (crates/oxyos-preferences).
     caretBlink: values[PREFERENCE_KEYS.caretBlink] !== 'false',

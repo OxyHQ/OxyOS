@@ -37,6 +37,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         },
         Layer {
             x: 70,
@@ -51,6 +52,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         },
         Layer {
             x: 100,
@@ -65,6 +67,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         },
     ]
 }
@@ -113,6 +116,7 @@ fn invalid_layers_are_skipped() {
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         },
         Layer {
             x: 0,
@@ -127,6 +131,7 @@ fn invalid_layers_are_skipped() {
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -658,6 +663,7 @@ fn changed_rows_alone_are_uploaded() {
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         }
     }
     let first = pixels(&words(1));
@@ -741,6 +747,7 @@ fn dot(paint: Paint<'_>, opacity: u8) -> Layer<'_> {
         radius: 0,
         filter: Filter::Nearest,
         clip: None,
+        warp: None,
     }
 }
 
@@ -893,6 +900,7 @@ fn rounded_square(radius: u32, opacity: u8) -> Vec<u32> {
             radius,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         }],
     )
 }
@@ -989,6 +997,7 @@ fn shadow_frame(profile: &ShadowProfile, radius: u32, beneath: (i32, i32), scale
             radius: 0,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         }],
     )
 }
@@ -1074,6 +1083,7 @@ fn shadowed<'a>(
         radius: 0,
         filter: Filter::Nearest,
         clip: None,
+        warp: None,
     };
     layers[0].radius = radius;
     layers[1].radius = radius / 2;
@@ -1141,7 +1151,7 @@ fn a_frame_file_keeps_corners_and_shadows_and_reads_the_second_format() {
     let layers = shadowed(&window, &popup, &profile, 16, 200, 246);
     let mut bytes = Vec::new();
     frame_file::write(&mut bytes, 120, 90, 0x00e0_e0e0, &layers).unwrap();
-    assert_eq!(&bytes[..9], b"OXYFRAME4");
+    assert_eq!(&bytes[..9], b"OXYFRAME5");
     let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
     assert_eq!(
         frame.layers().iter().map(|l| l.radius).collect::<Vec<_>>(),
@@ -1189,6 +1199,7 @@ fn reduced(paint: Paint<'_>, extent: (u32, u32), size: (u32, u32), filter: Filte
         radius: 0,
         filter,
         clip: None,
+        warp: None,
     }
 }
 
@@ -1986,6 +1997,7 @@ fn an_opaque_layer_at_its_own_size_is_its_pixels_as_drawn_from_any_other() {
         radius: 9,
         filter: Filter::Nearest,
         clip,
+        warp: None,
     };
     let under = pixels(&vec![0xff20_4060; 80 * 60]);
     let below = drawn(Paint::Opaque(&under), (80, 60), (80, 60));
@@ -2258,6 +2270,7 @@ fn a_client_buffer_is_acquired_once_per_frame_shown_and_released_once() {
         radius: 0,
         filter: Filter::Nearest,
         clip: None,
+        warp: None,
     };
     let handed = |acquired, released, sampled| Handovers {
         acquired,
@@ -2332,5 +2345,315 @@ fn the_modifiers_are_offered_tiled_then_linear_then_compressed() {
             (intel(6), 2),
             (intel(8), 3),
         ]
+    );
+}
+
+/// A layer of `pixels` (`extent`) drawn through `rows` within (`x`, `y`, `width`, `height`).
+fn warped<'a>(
+    rect: (i32, i32, u32, u32),
+    extent: (u32, u32),
+    paint: Paint<'a>,
+    rows: &'a [WarpRow],
+) -> Layer<'a> {
+    Layer {
+        x: rect.0,
+        y: rect.1,
+        width: rect.2,
+        height: rect.3,
+        extent,
+        paint,
+        source: None,
+        changed: None,
+        opacity: 255,
+        radius: 0,
+        filter: Filter::Box,
+        clip: None,
+        warp: Some(Warp { rows }),
+    }
+}
+
+/// The rectangle as a mesh: its top and bottom rows, the source's whole height between.
+const WHOLE: [WarpRow; 2] = [
+    WarpRow {
+        y: 0.0,
+        left: 0.0,
+        right: 1.0,
+        source: 0.0,
+    },
+    WarpRow {
+        y: 1.0,
+        left: 0.0,
+        right: 1.0,
+        source: 1.0,
+    },
+];
+
+/// A funnel as the genie's: rows down a cosine from the whole width at the top to a slot's at the
+/// bottom, the source spread evenly over them.
+fn funnel(count: usize, slot: (f32, f32)) -> Vec<WarpRow> {
+    (0..count)
+        .map(|k| {
+            let t = k as f32 / (count - 1) as f32;
+            let bend = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
+            WarpRow {
+                y: t,
+                left: slot.0 * bend,
+                right: 1.0 - (1.0 - slot.1) * bend,
+                source: t,
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn a_rectangle_drawn_through_itself_is_its_pixels() {
+    // A mesh that is the layer's rectangle, at its pixels' size, draws each pixel as it is: the
+    // same frame as the layer drawn plainly, opaque and premultiplied, with rounded corners too.
+    let (window, popup) = frame();
+    for (paint, extent) in [
+        (Paint::Opaque(&window), (64, 48)),
+        (Paint::Premultiplied(&popup), (20, 30)),
+    ] {
+        for radius in [0, 6] {
+            let plain = Layer {
+                radius,
+                ..warped((7, 5, extent.0, extent.1), extent, paint, &WHOLE)
+            };
+            let through = Layer {
+                warp: None,
+                ..plain
+            };
+            assert_eq!(
+                compose_cpu(90, 70, 0x0011_2233, &[plain]),
+                compose_cpu(90, 70, 0x0011_2233, &[through]),
+                "radius {radius}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_quad_is_filled_bilinearly_not_as_two_triangles() {
+    // A source of 64 columns, each its own red level (4·column), drawn into a trapezoid: the top
+    // 64 pixels wide at x 0, the bottom 16 wide at x 24 (a funnel's narrowing), 64 rows tall. A
+    // bilinear fill maps each output row to the whole source width between the sides there: at
+    // the middle row the sides are at 12 and 52, so x 32 (40 px wide, its centre) shows the source's
+    // middle. Two triangles split along a diagonal would put the source's middle there only on one
+    // side of the split.
+    let source: Vec<u32> = (0..64 * 2)
+        .map(|i| 0xff00_0000 | ((4 * (i % 64)) << 16))
+        .collect();
+    let source = pixels(&source);
+    let rows = [
+        WarpRow {
+            y: 0.0,
+            left: 0.0,
+            right: 1.0,
+            source: 0.0,
+        },
+        WarpRow {
+            y: 1.0,
+            left: 24.0 / 64.0,
+            right: 40.0 / 64.0,
+            source: 1.0,
+        },
+    ];
+    let layer = warped((0, 0, 64, 64), (64, 2), Paint::Opaque(&source), &rows);
+    let out = compose_cpu(64, 64, 0, &[layer]);
+    let red = |x: usize, y: usize| (out[y * 64 + x] >> 16) & 0xff;
+    // Row 32's centre (32.5) is 2080/4096 of the way down: the sides at 195/16 and 829/16 (12.19
+    // and 51.81). Pixel 31's centre (31.5, 504/16) is then source column 499/16 (31.19), sampled
+    // over a box 24/16 wide (the footprint, 1.6, in sixteenths): from 30.44 to 31.94, 9/24 of
+    // column 30 (120) and 15/24 of column 31 (124), 122.5, rounded to 123.
+    assert_eq!(red(31, 32), 123);
+    // Each output row is the source's whole width, left to right, between the sides: rising
+    // across, the same share across giving the same level on every row.
+    for y in [0, 16, 32, 48, 63] {
+        // The pixels within the sides whole (an edge's are by the part covered, over black).
+        let side = 24.0 * (y as f64 + 0.5) / 64.0;
+        let within = side.ceil() as usize + 1..(64.0 - side).floor() as usize - 1;
+        let row: Vec<u32> = within.map(|x| red(x, y)).collect();
+        assert!(
+            row.windows(2).all(|pair| pair[1] >= pair[0]),
+            "row {y}: {row:?}"
+        );
+    }
+    // The middle of each row is the source's middle (126, columns 31 and 32), whatever its width.
+    for y in [8, 24, 40, 56] {
+        let at = red(31, y).max(red(32, y));
+        assert!((120..=132).contains(&at), "row {y}: {at}");
+    }
+    // Outside the sides, nothing: the background.
+    assert_eq!(out[63 * 64 + 10], 0);
+    assert_eq!(out[63 * 64 + 50], 0);
+}
+
+#[test]
+fn a_flat_colour_squeezed_through_a_funnel_stays_exactly_that_colour() {
+    // A window of one colour drawn through a funnel into a slot a tenth of its width: every pixel
+    // the mesh covers whole is the colour, opaque; its edges are the colour by the part covered.
+    let flat = pixels(&vec![0xff30_6090u32; 400 * 300]);
+    let rows = funnel(16, (0.45, 0.55));
+    let layer = warped((10, 10, 400, 300), (400, 300), Paint::Opaque(&flat), &rows);
+    let out = compose_cpu(420, 320, 0x0000_0000, &[layer]);
+    // Down the funnel's middle and across its top, the colour exactly.
+    for (x, y) in [(210, 12), (210, 150), (210, 305), (20, 11), (400, 11)] {
+        assert_eq!(out[y * 420 + x], 0x0030_6090, "({x}, {y})");
+    }
+    // Beside its narrow end, nothing.
+    assert_eq!(out[305 * 420 + 20], 0);
+    // At a side, part of the colour over black: never another hue.
+    let edge = (0..420)
+        .map(|x| out[150 * 420 + x])
+        .find(|&p| p != 0 && p != 0x0030_6090)
+        .expect("an anti-aliased edge");
+    let (r, g, b) = ((edge >> 16) & 0xff, (edge >> 8) & 0xff, edge & 0xff);
+    assert!(
+        r <= 0x30 && g <= 0x60 && b <= 0x90 && g > r && b > g,
+        "{edge:06x}"
+    );
+}
+
+#[test]
+fn vulkan_draws_meshes_as_the_reference_does() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let gradient: Vec<u32> = (0..200 * 150)
+        .map(|i: u32| {
+            0xff00_0000 | (((i % 200) * 255 / 199) << 16) | (((i / 200) * 255 / 149) << 8)
+        })
+        .collect();
+    let gradient = pixels(&gradient);
+    let funnels = [
+        funnel(16, (0.45, 0.55)),
+        funnel(5, (0.1, 0.3)),
+        funnel(40, (0.8, 0.95)),
+    ];
+    // Rows at one height (a genie's clamped rows) and a last one further down.
+    let clamped = [
+        WHOLE[0],
+        WarpRow {
+            y: 0.7,
+            left: 0.4,
+            right: 0.6,
+            source: 0.6,
+        },
+        WarpRow {
+            y: 0.7,
+            left: 0.4,
+            right: 0.6,
+            source: 0.62,
+        },
+        WarpRow {
+            y: 1.0,
+            left: 0.4,
+            right: 0.6,
+            source: 1.0,
+        },
+    ];
+    for (rows, rect) in funnels
+        .iter()
+        .map(|rows| (rows.as_slice(), (5, 3, 110, 80)))
+        .chain([
+            (&clamped[..], (-20, 10, 160, 70)),
+            (&WHOLE[..], (30, 20, 64, 48)),
+        ])
+    {
+        for opacity in [255, 128, 7] {
+            for radius in [0, 9] {
+                let layers = [
+                    layers(&window, &popup)[0],
+                    Layer {
+                        opacity,
+                        radius,
+                        ..warped(rect, (200, 150), Paint::Opaque(&gradient), rows)
+                    },
+                    Layer {
+                        opacity,
+                        radius,
+                        ..warped(
+                            (60, 30, 50, 60),
+                            (20, 30),
+                            Paint::Premultiplied(&popup),
+                            rows,
+                        )
+                    },
+                ];
+                let cpu = compose_cpu(120, 90, 0x0011_2233, &layers);
+                let vulkan = gpu.compose(120, 90, 0x0011_2233, &layers).unwrap();
+                assert_eq!(
+                    vulkan,
+                    cpu,
+                    "{} rows at {opacity}, radius {radius}",
+                    rows.len()
+                );
+                // Clipped, and from damage.
+                let clipped = [Layer {
+                    clip: Some(Rect {
+                        x: 20,
+                        y: 15,
+                        width: 50,
+                        height: 40,
+                    }),
+                    ..layers[1]
+                }];
+                assert_eq!(
+                    gpu.compose(120, 90, 0, &clipped).unwrap(),
+                    compose_cpu(120, 90, 0, &clipped)
+                );
+                let damage = [Rect {
+                    x: 10,
+                    y: 10,
+                    width: 30,
+                    height: 50,
+                }];
+                let mut expected = compose_cpu(120, 90, 0, &clipped);
+                compose_cpu_damaged(&mut expected, 120, 90, 0, &layers, &damage);
+                assert_eq!(
+                    gpu.compose_damaged(120, 90, 0, &layers, &damage).unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_mesh_that_cannot_be_drawn_draws_nothing() {
+    let flat = pixels(&[0xffff_ffffu32; 4]);
+    let backwards = [WHOLE[1], WHOLE[0]];
+    let one = [WHOLE[0]];
+    let mut nan = WHOLE;
+    nan[1].left = f32::NAN;
+    for rows in [&backwards[..], &one[..], &nan[..]] {
+        let layer = warped((0, 0, 4, 4), (2, 2), Paint::Opaque(&flat), rows);
+        assert_eq!(compose_cpu(4, 4, 5, &[layer]), vec![5; 16]);
+    }
+}
+
+#[test]
+fn a_frame_file_keeps_each_layers_mesh() {
+    let flat = pixels(&vec![0xff80_4020u32; 20 * 10]);
+    let rows = funnel(7, (0.3, 0.6));
+    let layers = [warped(
+        (3, 4, 60, 40),
+        (20, 10),
+        Paint::Opaque(&flat),
+        &rows,
+    )];
+    let mut bytes = Vec::new();
+    frame_file::write(&mut bytes, 80, 50, 0, &layers).unwrap();
+    let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
+    let read = frame.layers();
+    assert_eq!(read[0].warp.unwrap().rows, rows.as_slice());
+    assert_eq!(
+        compose_cpu(80, 50, 0, &read),
+        compose_cpu(80, 50, 0, &layers)
     );
 }

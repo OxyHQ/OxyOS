@@ -1,0 +1,275 @@
+{
+  "about": "The genie (docs/adr/0043-the-genie.mdx): Allo's window, one colour edge to edge (GenieProbe, as Salaja recorded a magenta window), minimized into Allo's icon in the dock and restored out of it, beside Inbox's window (PressProbe) and the session's shell. With the transitions' clock held, the output's pixels at chosen points of the funnel a quarter, half and three quarters of the way, worked out from the page's own mesh code for this window and this icon: the window's colour inside and anything else ten pixels past either side and where its top was once it has slid, the funnel going under the dock; the window leaves the scene at once, the keyboard going to the next window (Inbox's, PressProbe) as the genie begins, and a press on the funnel reaches Inbox's window beneath it, never the window; at the end the window is gone, into the icon, its running mark still under it. Then on the compositor's own clock: restored out of the icon and minimized into it again, each linearly over 500 ms, every frame where a linear motion is at its time, one frame a refresh at most (at least 54 at 120 Hz with --speed-budgets).",
+  "module": "GenieProbe",
+  "window": [
+    800,
+    500
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      300,
+      200
+    ],
+    "at": [
+      40,
+      60
+    ],
+    "app": "so.oxy.inbox"
+  },
+  "outputs": "1280x720:120",
+  "preferences": {
+    "dock": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's window takes a press; the dock says where it minimizes into: Allo's icon",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_shown": true,
+        "minimize_target": [
+          659,
+          672,
+          42,
+          42
+        ]
+      }
+    },
+    {
+      "name": "the transitions' clock held",
+      "do": [
+        "transition_clock",
+        "hold"
+      ],
+      "expect": {
+        "window_shown": true
+      }
+    },
+    {
+      "name": "Super+M: the window leaves the scene at once and the next window, Inbox's, takes the keyboard; the genie begins, the window whole where it was",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          },
+          "launched": {},
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "first": 255
+            }
+          ]
+        },
+        "output_pixels": {
+          "640,346": "#c8209a"
+        }
+      }
+    },
+    {
+      "name": "a quarter of the way (125 ms): the sides bent toward the icon, the window's top where it was",
+      "do": [
+        "transition_clock",
+        125
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "644,246": "#c8209a",
+          "270,246": "!#c8209a",
+          "1017,246": "!#c8209a",
+          "653,396": "#c8209a",
+          "365,396": "!#c8209a",
+          "941,396": "!#c8209a",
+          "661,546": "#c8209a",
+          "455,546": "!#c8209a",
+          "868,546": "!#c8209a"
+        }
+      }
+    },
+    {
+      "name": "a press on the funnel reaches Inbox's window beneath it, never the window going",
+      "do": [
+        "press_output",
+        [
+          300,
+          200
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "react": {},
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "half of the way (250 ms): bent whole, sliding down the funnel and under the dock",
+      "do": [
+        "transition_clock",
+        250
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "657,357": "#c8209a",
+          "409,357": "!#c8209a",
+          "905,357": "!#c8209a",
+          "671,486": "#c8209a",
+          "550,486": "!#c8209a",
+          "791,486": "!#c8209a",
+          "679,615": "#c8209a",
+          "639,615": "!#c8209a",
+          "719,615": "!#c8209a",
+          "640,104": "!#c8209a"
+        }
+      }
+    },
+    {
+      "name": "three quarters of the way (375 ms): the rest of it pouring into the icon",
+      "do": [
+        "transition_clock",
+        375
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "677,563": "#c8209a",
+          "613,563": "!#c8209a",
+          "740,563": "!#c8209a",
+          "679,604": "#c8209a",
+          "634,604": "!#c8209a",
+          "723,604": "!#c8209a",
+          "680,644": "#c8209a",
+          "646,644": "!#c8209a",
+          "713,644": "!#c8209a",
+          "640,104": "!#c8209a"
+        }
+      }
+    },
+    {
+      "name": "the clock running again: the window is gone into Allo's icon, which still says Allo runs",
+      "do": [
+        "transition_clock",
+        "run"
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "640,346": "!#c8209a",
+          "680,716": "#64717a"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "value": "running"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Allo in the dock: the window comes back out of its icon along the same mesh, linearly over 500 ms, a frame a refresh",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "react": {},
+        "output_pixels": {
+          "640,346": "#c8209a"
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "first": 255,
+              "ended": true,
+              "linear_ms": 500,
+              "refresh_frames": [
+                54,
+                61
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+M on the compositor's clock: into the icon again, linearly over 500 ms, a frame a refresh",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "expect": {
+        "window_shown": false,
+        "react": {},
+        "output_pixels": {
+          "640,346": "!#c8209a"
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "first": 255,
+              "ended": true,
+              "linear_ms": 500,
+              "refresh_frames": [
+                54,
+                61
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

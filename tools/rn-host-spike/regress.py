@@ -88,6 +88,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- minimize_target: where the application's window minimizes into, as the shell's dock says it
+  (ADR 0011's genie): [x, y, width, height] in the global space (logical pixels), or null where
+  no shell surface shown says, exactly;
 - urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say
   so fails;
@@ -129,7 +132,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   in the first half of its time, half again ahead of a linear motion of the same length (eased
   out, as a spring from rest is; a linear one fails); "lasts_ms", [least, most] for its last frame's time;
   "frame_gap_ms", [median, most] for the time between its frames (at display rate: 16.7 at 60 Hz,
-  8.3 at 120); "still",
+  8.3 at 120); "linear_ms", every frame's size and place where a linear motion of that length is
+  at the frame's time (a window into the dock: the frame clock drives it, whatever the load);
+  "refresh_frames", [least, most] it drew, the most always (one a refresh at most, which no load adds) and
+  the least only with --speed-budgets, each frame at a later time and a further place than the
+  one before; "still",
   its size and place never changing (reduce motion's crossfade);
   "count", how many it ran, exactly ("change" is also "zoomed": a window's frame zooming, ADR 0016);
 - drag: for a `drag_paced` step (a press moved on the output in N motions at a rate, the compositor
@@ -206,7 +213,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
 - latency_ms: budget from injecting the input to the first changed frame;
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
-  scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default).
+  scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
+  colour further than that from it.
 - pixels_match: pairs of points, as `pixels` gives them, that show the same colour (each channel
   within `pixel_tolerance`): an edge drawn one way matching the same edge drawn another (a child
   clipped to a rounded box and a rounded background, anti-aliased alike); `output_pixels_match`
@@ -476,7 +484,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu"}
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock"}
 
 
 # CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
@@ -784,6 +792,11 @@ def director_args(step, out):
     if kind == "wait":
         # Milliseconds of real time with no input: what fades on its own clock (a bezel, ADR 0025).
         return args + ["--wait", str(value)]
+    if kind == "transition_clock":
+        # The clock the compositor's transitions run on (ADR 0011): "hold" where it is now, so many
+        # milliseconds after where it was held (a transition looked at at an exact point of it,
+        # whatever the machine's load), or "run" with the monotonic clock again.
+        return args + ["--transition-clock", str(value)]
     if kind == "wait_named":
         # Real time until the assistive technology holds a node of this name, at most so many
         # milliseconds: [name, ms] (an answer on the application's own clock).
@@ -1312,10 +1325,15 @@ def check_pixels(name, expect, screenshot, window, fail):
     tolerance = expect.get("pixel_tolerance", 3)
     for point, colour in expect["pixels"].items():
         x, y = (int(value) for value in point.split(","))
+        # "!#rrggbb": anything but that colour (a window gone from where it was, over whatever
+        # is beneath it).
+        unlike = colour.startswith("!")
+        colour = colour.lstrip("!")
         want = tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
         got = pixel(window[0] + x, window[1] + y)
-        if any(abs(a - b) > tolerance for a, b in zip(got, want)):
-            fail(f"pixel {point} is #{''.join(f'{c:02x}' for c in got)}, expected {colour}")
+        if any(abs(a - b) > tolerance for a, b in zip(got, want)) != unlike:
+            fail(f"pixel {point} is #{''.join(f'{c:02x}' for c in got)}, expected "
+                 f"{'anything but ' if unlike else ''}{colour}")
 
 
 def android_fling_distance(velocity, friction):
@@ -1615,7 +1633,7 @@ def check_animated(expect, report, start, end, fail, kind="animated", refresh_hz
                         break
 
 
-CURVE_KEYS = ("eased", "still", "lasts_ms", "frame_gap_ms")
+CURVE_KEYS = ("eased", "still", "lasts_ms", "frame_gap_ms", "linear_ms", "refresh_frames")
 
 
 def check_curve(wanted, seen, fail, refresh_hz=60.0):
@@ -1660,6 +1678,26 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
                       if 34 <= ms <= span / 2 and v + end * 0.02 < min(end, 1.5 * end * ms / span)]
             if behind:
                 fail(f"{name}'s {label} was behind a linear motion at {behind}: not eased out ({values})")
+    if "linear_ms" in wanted:
+        # Driven by the frame clock, linearly (a window into the dock, ADR 0011): every frame's
+        # size and place are where a linear motion of that length is at the frame's time, to the
+        # thousandth it is recorded in, whenever the frame came.
+        # A frame's time is recorded in whole milliseconds, cut short (`Step::ms`): its place is
+        # between where the motion is at that millisecond and the next, to the thousandth.
+        length = wanted["linear_ms"]
+        off = [(ms, m) for ms, _, m in path
+               if not 1000 * ms / length - 1 <= m <= min(1000, 1000 * (ms + 1) / length) + 1]
+        if off:
+            fail(f"{name} was not where a linear motion of {length} ms is at its frames' times: {off}")
+    if "refresh_frames" in wanted:
+        # Composed for each refresh while it runs: no more frames than refreshes in it (no load
+        # adds one), and, held only with --speed-budgets, at least so many (the machine's rate).
+        least, most = wanted["refresh_frames"]
+        count = seen.get("frames", len(path))
+        if count > most or count < frames_least(least):
+            fail(f"{name} drew {count} frames, expected {frames_least(least)} to {most}")
+        if any(b[0] <= a[0] or b[2] <= a[2] for a, b in zip(path, path[1:])):
+            fail(f"{name} drew a frame twice at one time or one place: {path}")
     if wanted.get("still") and any(m != 1000 for _, _, m in path):
         fail(f"{name} grew, shrank or moved ({[m for _, _, m in path]}): expected a crossfade alone")
 
@@ -2534,6 +2572,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
+    if "minimize_target" in expect and result.get("minimize_target") != expect["minimize_target"]:
+        fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]

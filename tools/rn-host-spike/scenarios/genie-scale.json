@@ -1,0 +1,191 @@
+{
+  "about": "The scale effect (docs/adr/0043-the-genie.mdx, decision 6; Settings › Dock's Minimise windows using, the session's minimize_effect = scale): Allo's window, one colour, minimized into Allo's icon and restored out of it with the genie's timing. With the transitions' clock held 200 ms in (0.4 of the way, eased by half a cosine to 0.3455), the window is the rectangle that far from its own (240, 96, 800 × 500) to the icon's of its proportions (688, 680, 42 × 26): (395, 298) to (933, 634), its colour inside and anything else past each edge; unbent; at the end gone into the icon. On the compositor's clock, restored and minimized again, each linearly over 500 ms, the window fading in its last 30 %: restored, its first frame unseen.",
+  "module": "GenieProbe",
+  "window": [
+    800,
+    500
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1280x720:120",
+  "preferences": {
+    "dock": "so.oxy.allo"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "minimize_effect": "scale"
+    }
+  },
+  "steps": [
+    {
+      "name": "Allo's window; the dock says where it minimizes into",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_shown": true,
+        "minimize_target": [
+          688,
+          672,
+          42,
+          42
+        ]
+      }
+    },
+    {
+      "name": "the transitions' clock held",
+      "do": [
+        "transition_clock",
+        "hold"
+      ],
+      "expect": {
+        "window_shown": true
+      }
+    },
+    {
+      "name": "Super+M: the window leaves the scene and starts into the icon, whole where it was",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "react": {},
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "first": 255
+            }
+          ]
+        },
+        "output_pixels": {
+          "640,346": "#c8209a"
+        }
+      }
+    },
+    {
+      "name": "200 ms in: the window's rectangle 0.3455 of the way to the icon's, unbent and whole",
+      "do": [
+        "transition_clock",
+        200
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "664,466": "#c8209a",
+          "410,320": "#c8209a",
+          "918,615": "#c8209a",
+          "410,615": "#c8209a",
+          "918,320": "#c8209a",
+          "385,466": "!#c8209a",
+          "943,466": "!#c8209a",
+          "664,288": "!#c8209a",
+          "664,644": "!#c8209a",
+          "300,150": "!#c8209a",
+          "1000,560": "!#c8209a"
+        }
+      }
+    },
+    {
+      "name": "the clock running again: gone into Allo's icon, which still says Allo runs",
+      "do": [
+        "transition_clock",
+        "run"
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "640,346": "!#c8209a",
+          "709,716": "#64717a"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "value": "running"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Allo in the dock: back out of its icon, scaled, linearly over 500 ms, unseen at first",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "react": {},
+        "output_pixels": {
+          "640,346": "#c8209a"
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "first": 0,
+              "last": 255,
+              "ended": true,
+              "linear_ms": 500,
+              "refresh_frames": [
+                54,
+                61
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+M on the compositor's clock: into the icon again, fading in its last 150 ms",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "expect": {
+        "window_shown": false,
+        "react": {},
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "first": 255,
+              "ended": true,
+              "linear_ms": 500,
+              "refresh_frames": [
+                54,
+                61
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

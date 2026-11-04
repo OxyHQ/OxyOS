@@ -75,6 +75,7 @@
               "kind": "window",
               "change": "minimized",
               "first": 255,
+              "linear_ms": 500,
               "ended": true
             }
           ]
@@ -117,7 +118,8 @@
             {
               "kind": "window",
               "change": "restored",
-              "first": 0,
+              "first": 255,
+              "linear_ms": 500,
               "ended": true
             }
           ]

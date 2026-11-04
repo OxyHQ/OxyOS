@@ -176,7 +176,7 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
                                             "ViewManagerAdapter_ExpoImage",
-                                            kWindowViewComponent};
+                                            kWindowViewComponent, kMinimizeTargetComponent};
 // The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
 // number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -944,6 +944,15 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
             *window, rect, Rect{{kept.x0, kept.y0}, {kept.x1 - kept.x0, kept.y1 - kept.y0}}, radius * toSurface.a,
             opacity});
       }
+    }
+  }
+
+  // Where windows minimize into (docs/adr/0011-transitions.mdx, the genie): the view's own frame,
+  // whatever it draws and whatever clips it, as a Mac's Dock gives an icon's whole rectangle.
+  if (name == kMinimizeTargetComponent && draw.placesWindows) {
+    Rect rect = draw.toSurface.bounds(Rect{{x, y}, {w, h}});
+    for (uint32_t window : minimizeTargetWindows(view)) {
+      stats.minimizeTargets.push_back(RenderStats::MinimizeTarget{window, rect});
     }
   }
 

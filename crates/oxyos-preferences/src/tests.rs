@@ -31,6 +31,20 @@ fn the_defaults_are_what_nothing_says() {
 }
 
 #[test]
+fn a_window_minimizes_with_the_genie_or_scaled() {
+    let mut preferences = Preferences::default();
+    assert_eq!(preferences.minimize_effect, MinimizeEffect::Genie);
+    assert_eq!(
+        preferences.set("minimize_effect", "suck"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(preferences, Preferences::default());
+    assert_eq!(preferences.set("minimize_effect", "scale"), Ok(()));
+    assert_eq!(preferences.minimize_effect, MinimizeEffect::Scale);
+    assert_eq!(preferences.get("minimize_effect").as_deref(), Some("scale"));
+}
+
+#[test]
 fn notifications_previews_are_always_or_once_unlocked() {
     let mut preferences = Preferences::default();
     assert_eq!(
@@ -125,6 +139,7 @@ fn what_is_written_reads_back_the_same() {
         ("appearance", "dark"),
         ("accent", "jade"),
         ("reduce_motion", "true"),
+        ("minimize_effect", "scale"),
         ("reduce_transparency", "true"),
         ("caret_blink", "false"),
         ("wallpaper", "solar-gradients"),

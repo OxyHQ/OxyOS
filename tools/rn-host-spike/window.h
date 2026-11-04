@@ -236,6 +236,10 @@ class Window {
   // The windows a shell surface shows live (docs/adr/0022-window-views.mdx), bottom to top,
   // shown with its next present. Throws on failure.
   void showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views);
+  // Where each window minimizes into, as a shell surface says it (docs/adr/0011-transitions.mdx,
+  // the genie), held from its next present; a compositor of protocol version 20 or later. Throws
+  // on failure.
+  void setMinimizeTargets(uint32_t id, const std::vector<OxyOSMinimizeTarget>& targets);
   // Where a surface takes input: a surface-local logical rectangle.
   void setInputRegion(uint32_t id, const OxyOSRect& region);
   // The parts of a surface never captured, its secure text fields (surface-local logical

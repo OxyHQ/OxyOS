@@ -218,6 +218,15 @@ messages! {
         // the surface's next Submit. The shell never receives a window's pixels.
         90 => ClearWindowViews { surface: u32 },
         91 => PlaceWindowView { surface: u32, window: u32, rect: Rect, clip: Rect, radius: u32, opacity: u8 },
+        // The session's shell (its `shell` grant, version 20): where on one of its shell surfaces
+        // each window minimizes into and is restored out of (the dock's icon of its application,
+        // ADR 0011's genie), by the number the compositor gave it, `rect` in surface-local logical
+        // pixels, as Wayland's foreign-toplevel `set_rectangle` and Plasma's minimized geometry
+        // say it. ClearMinimizeTargets begins the surface's list anew, each PlaceMinimizeTarget
+        // adds one (at most MAX_MINIMIZE_TARGETS; a window placed again is where it was placed
+        // last), and the list holds from the surface's next Submit.
+        92 => ClearMinimizeTargets { surface: u32 },
+        93 => PlaceMinimizeTarget { surface: u32, window: u32, rect: Rect },
         // A login screen (ADR 0020): the account a lock surface's next password is for, by its
         // Unix user's name (at most 31 bytes), given before the password's chunks while locked;
         // without it the password is the session's own user's. The authentication path decides

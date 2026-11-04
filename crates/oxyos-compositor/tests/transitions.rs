@@ -29,6 +29,7 @@ fn white_at(opacity: u8) -> u32 {
         radius: 0,
         filter: oxyos_gpu::Filter::Box,
         clip: None,
+        warp: None,
     };
     oxyos_gpu::compose_cpu(1, 1, DESKTOP, &[layer])[0]
 }
@@ -286,15 +287,50 @@ fn a_transition_is_composed_from_its_damage_alone() {
 }
 
 #[test]
-fn a_window_minimized_shrinks_into_the_dock_and_a_workspace_slides_aside() {
+fn a_window_minimized_pours_through_the_genie_into_the_dock_and_a_workspace_slides_aside() {
     let (mut s, centre) = session("minimize");
     let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
     assert_eq!(s.at(500, centre), WHITE);
-    // Minimized: it shrinks toward the dock (without a shell, the output's bottom edge's centre)
-    // and fades as it is nearly there, from its damage alone, and is gone once its 380 ms
-    // spring is at rest, 559 ms after.
+    let rect = s.compositor.surface_rect(1, 1).unwrap();
+    // Minimized: it pours through the genie's funnel into the dock (without a shell, a 42-point
+    // square past the output's bottom edge's centre), linearly over half a second, every frame
+    // from its damage alone.
     s.compositor.scene.minimize(window);
-    for ms in [500, 530, 580, 650, 720, 900] {
+    assert!(s.damage_covers_changes(500));
+    // A quarter in (125 ms), as the Dock's mesh has it: its top has slid down, the output
+    // where it was is the desktop's, and down the funnel's middle it is the window, white.
+    assert!(s.damage_covers_changes(625));
+    let points = |r: Rect| {
+        oxyos_compositor::genie::Rect::new(
+            f64::from(r.x),
+            f64::from(r.y),
+            f64::from(r.width),
+            f64::from(r.height),
+        )
+    };
+    let mesh = oxyos_compositor::genie::mesh(
+        0.25,
+        points(rect),
+        points(Rect::new(299, 480, 42, 42)),
+        oxyos_compositor::genie::Edge::Bottom,
+    );
+    let (top, bottom) = (mesh.points[0][3], mesh.points[2 * mesh.rows - 1][3]);
+    assert!(top > rect.y as f32 + 4.0, "{top}");
+    assert_eq!(s.compositor.pixel(rect.x + 2, rect.y + 1), DESKTOP);
+    let middle = 2 * (mesh.rows / 2);
+    let (left, right, y) = (
+        mesh.points[middle][2],
+        mesh.points[middle + 1][2],
+        mesh.points[middle][3],
+    );
+    assert_eq!(
+        s.compositor.pixel(((left + right) / 2.0) as i32, y as i32),
+        WHITE
+    );
+    // Beside the funnel at that height, the desktop: the sides bent in.
+    assert!(left > rect.x as f32 + 2.0 || right < (rect.x + rect.width as i32) as f32 - 2.0);
+    assert!(bottom > (rect.y + rect.height as i32) as f32);
+    for ms in [700, 800, 900, 999] {
         assert!(s.damage_covers_changes(ms), "minimizing, at {ms} ms");
     }
     assert!(s.damage_covers_changes(1100));

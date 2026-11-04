@@ -50,7 +50,7 @@ Every surface appears and goes at once: a window is there on the frame its first
 4. **More of a Mac's motions**, on the same mechanism: a window minimized goes into the dock and comes back out of it; a switch of workspace slides the windows aside; a notification slides in.
 
    *Done.* A motion moves a surface as well as scaling and fading it (`Shift`): toward a point, by a distance, or by a share of its own size, and it may not fade.
-   - **Minimizing:** the window shrinks to a tenth of its size as it goes to the dock's centre (the shell's bottom panel, `Scene::dock`; without one, the output's bottom edge's centre), fading, 300 ms; restoring brings it back out of the dock the same way. This is the transition, not a Mac's genie warp: composition draws a surface as a rectangle, never bent.
+   - **Minimizing:** the window shrinks to a tenth of its size as it goes to the dock's centre (the shell's bottom panel, `Scene::dock`; without one, the output's bottom edge's centre), fading, 300 ms; restoring brings it back out of the dock the same way. This is the transition, not a Mac's genie warp: composition draws a surface as a rectangle, never bent. *Superseded on 4 November 2026 by [ADR 0043](./0043-the-genie):* a window minimized now pours through the genie, the Dock's own mesh drawn through a mesh warp, linearly over 500 ms into its application's icon, or scales into it with the Scale effect (Settings › Dock).
    - **A switch of workspace:** the scene reports the windows hidden and shown as moved aside (`WorkspaceOut`, `WorkspaceIn`), not gone: the windows left slide out by the output's width, to the left going to a later workspace and to the right going back, and those of the workspace shown slide in from the other side, 300 ms, whole, never faded, as a Mac's spaces. A window moved to another workspace is hidden, not slid: the overview it is moved from covers it.
    - **Notifications** (`ShellKind::Notification`, a kind of their own): they slide in from beside themselves, a tenth beyond their own width, as they fade in, 250 ms, and fade out, 200 ms.
 
@@ -105,7 +105,7 @@ Every surface appears and goes at once: a window is there on the frame its first
    | An overlay arriving (Launchpad's icons, the overview) | 320 ms, 1 | 200 ms | 104 % | 199 ms | 471 ms |
    | An overlay going | 240 ms, 1 | 160 ms | 104 % | 149 ms | 353 ms |
    | A backdrop arriving / going | — | 300 / 240 ms | — | 186 / 149 ms | 441 / 353 ms |
-   | Into the dock / out of it | 380 ms, 1 | 160 ms after 180 ms / 120 ms | a tenth, at the dock | 236 ms | 559 ms |
+   | Into the dock / out of it ([ADR 0043](./0043-the-genie): linear, 500 ms) | 380 ms, 1 | 160 ms after 180 ms / 120 ms | a tenth, at the dock | 236 ms | 559 ms |
    | A switch of workspace | 380 ms, 1 | — | the output's width | 236 ms | 559 ms |
    | A zoom (and its corners, [ADR 0016](./0016-windows)) | 340 ms, 1 | — | the new frame | 211 ms | 500 ms |
    | A notification arriving | 400 ms, 0.82 (an overshoot of 1.1 %) | 200 ms | beside itself | 195 ms | 580 ms |
@@ -131,7 +131,7 @@ Every surface appears and goes at once: a window is there on the frame its first
 
 ## Not in this decision
 
-- A Mac's genie (bending a window as it goes into the dock), and a slide for a window moved to another workspace.
+- A slide for a window moved to another workspace. (A Mac's genie, bending a window as it goes into the dock, is [ADR 0043](./0043-the-genie).)
 - Mission Control's windows flying from their places on the desktop to their cards: the overview settles as an overlay does.
 - A backdrop blurring what is under it (a Mac blurs the windows behind Launchpad too): the compositor composes no blur, so Launchpad's backdrop is the wallpaper alone, blurred by the shell.
 - Transitions an application asks for: none is needed yet.

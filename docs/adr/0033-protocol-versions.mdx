@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 19). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 20). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -58,6 +58,7 @@ A platform cannot break installed applications on every change of its protocol. 
    | 17 | The session's locale (`Locale`, event 181, [ADR 0040](./0040-language-and-region)): one BCP 47 tag in chunks, as `KeyboardLayout`'s, told to every client when it connects and whenever it changes. A client of version 16 or older is not told it and goes on with its environment's locale, as before. |
    | 18 | Input methods' candidates drawn by the shell and a key's symbol ([ADR 0041](./0041-input-methods)): events 59 to 64 and requests 63 to 67, both ways, sent only to an input method or the shell, never to a client of version 17. |
    | 19 | `activating` at the end of `Pointer` ([ADR 0016](./0016-windows), decision 9): the press made its window the active one, and the client decides whether the view under it takes it, as AppKit's `acceptsFirstMouse:`. A version 18 reader reads that it did not, which is what every press of an older compositor meant (each reached the view under it); the C ABI's POINTER `flag` is never set from an older compositor. |
+   | 20 | Where each window minimizes into (`ClearMinimizeTargets`, `PlaceMinimizeTarget`, requests 92 and 93, [ADR 0043](./0043-the-genie)): the session's shell lists, on its dock, the rectangle each window goes into and comes back out of. The client library refuses them to a compositor of version 19 or older, and the Bloom host does not send them there; a compositor of version 20 told nothing (a shell of an older version) minimizes a window into a place in the middle of the dock. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

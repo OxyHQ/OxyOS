@@ -1,6 +1,6 @@
 //! The user's preferences while a session runs (docs/adr/0019-settings.mdx), for the program
 //! running the compositor: the session authority, and the preferences file's one writer. It
-//! applies them (reduce motion to the transitions, `lock_after` to the idle lock), tells the scene what they are (every client
+//! applies them (reduce motion and the minimize effect to the transitions, `lock_after` to the idle lock), tells the scene what they are (every client
 //! the ones it draws with, Settings every one) and takes the changes Settings asks for: each is
 //! validated, written to the file whole, applied and told, or refused with nothing changed.
 //!
@@ -134,6 +134,9 @@ impl Settings {
         compositor
             .transitions
             .set_reduce_motion(preferences.reduce_motion);
+        compositor
+            .transitions
+            .set_minimize_effect(preferences.minimize_effect);
         compositor.set_lock_after(preferences.lock_after);
         // Notifications (docs/adr/0026-notifications.mdx): Do Not Disturb and the lock screen's
         // previews.

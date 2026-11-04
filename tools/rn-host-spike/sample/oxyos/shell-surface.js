@@ -4,7 +4,9 @@
  * renders the `OxyOSShellSurface` host component. Its subtree stays in the shell's React tree; the
  * Bloom host, run as the shell (`--shell`), draws it in a panel or an overlay of its own, where the
  * shell's layout put it (docs/adr/0009-session-shell.mdx). The overview's cards show each window
- * live through `WindowView` (docs/adr/0022-window-views.mdx). A `backdrop` region is an overlay's,
+ * live through `WindowView` (docs/adr/0022-window-views.mdx), and the dock's icons say where each
+ * application's windows minimize into through `MinimizeTarget` (docs/adr/0011-transitions.mdx, the
+ * genie). A `backdrop` region is an overlay's,
  * beneath it, which the compositor fades and never scales (docs/adr/0011-transitions.mdx).
  */
 import * as React from 'react';
@@ -111,6 +113,28 @@ function WindowView({ windowId, style, accessibilityLabel }) {
   );
 }
 
+// Where windows minimize into (docs/adr/0011-transitions.mdx, the genie): the OxyOSMinimizeTarget
+// host component, whose frame in the shell surface it is in is where each window it names (by the
+// number the compositor gave it, the shell's window id) goes when minimized and comes back out of
+// when restored. The dock wraps each application's icon in it, naming that application's windows.
+const OxyOSMinimizeTarget = NativeComponentRegistry.get('OxyOSMinimizeTarget', () => ({
+  uiViewClassName: 'OxyOSMinimizeTarget',
+  validAttributes: {
+    windows: true,
+  },
+}));
+
+function MinimizeTarget({ windowIds, style, children }) {
+  const windows = React.useMemo(() => windowIds.map(Number), [windowIds]);
+  return (
+    // Never flattened away: the host finds the target's frame by its view. Presses and the pointer
+    // go through it to what holds it (the icon's button), as if it were not there.
+    <OxyOSMinimizeTarget windows={windows} style={style} pointerEvents="box-none" collapsable={false}>
+      {children}
+    </OxyOSMinimizeTarget>
+  );
+}
+
 // The keys the shell's surfaces receive, offered before the focused field (the host's
 // OxyOSKeyboard, as an application's window has it): Launchpad's arrows and Return.
-export const oxyosShell = { Surface, Masked, WindowView, keyboard: oxyosSurfaces.keyboard };
+export const oxyosShell = { Surface, Masked, WindowView, MinimizeTarget, keyboard: oxyosSurfaces.keyboard };

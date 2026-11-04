@@ -2697,6 +2697,63 @@ pub unsafe extern "C" fn oxyos_client_show_windows(
     0
 }
 
+/// Where a window minimizes into and is restored out of (docs/adr/0011-transitions.mdx, the
+/// genie): the window's number and its rectangle in the shell surface (logical pixels), its
+/// application's icon in the dock.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSMinimizeTarget {
+    pub window: u32,
+    pub rect: OxyOSRect,
+}
+
+/// Where each window minimizes into, as the shell's surface `surface` says, replacing what it
+/// said: `count` (at most 256) `OxyOSMinimizeTarget`s at `targets` (any pointer when 0), held
+/// from the surface's next present. Only the session's shell may (the `shell` grant). 0 on
+/// success; OXYOS_ERROR, sending nothing, to a compositor older than protocol version 20.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `targets` points to `count` readable
+/// `OxyOSMinimizeTarget`s when `count` is not 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_minimize_targets(
+    client: *mut OxyOSClient,
+    surface: u32,
+    targets: *const OxyOSMinimizeTarget,
+    count: usize,
+) -> c_int {
+    if count > oxyos_protocol::MAX_MINIMIZE_TARGETS {
+        return fail("too many minimize targets");
+    }
+    let targets = if count == 0 {
+        &[][..]
+    } else {
+        // SAFETY: per the contract, `targets` points to `count` readable targets.
+        unsafe { std::slice::from_raw_parts(targets, count) }
+    };
+    // An older compositor refuses the first and is sent none of them (the client's `send`).
+    // SAFETY: forwarded caller contract.
+    let cleared = unsafe { send(client, Request::ClearMinimizeTargets { surface }) };
+    if cleared != 0 {
+        return cleared;
+    }
+    for target in targets {
+        let r = target.rect;
+        let request = Request::PlaceMinimizeTarget {
+            surface,
+            window: target.window,
+            rect: Rect::new(r.x, r.y, r.width, r.height),
+        };
+        // SAFETY: forwarded caller contract.
+        let sent = unsafe { send(client, request) };
+        if sent != 0 {
+            return sent;
+        }
+    }
+    0
+}
+
 /// The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0 on success, or
 /// OXYOS_ERROR for a shape that is not one.
 ///

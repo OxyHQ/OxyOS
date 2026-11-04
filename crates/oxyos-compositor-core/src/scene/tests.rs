@@ -7820,6 +7820,8 @@ mod input_sources;
 mod key_repeat;
 /// The menu bar (ADR 0021).
 mod menus;
+/// Where each window minimizes into (ADR 0011's genie).
+mod minimize_targets;
 mod notifications;
 mod screenshots;
 mod shortcuts;

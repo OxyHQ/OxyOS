@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 radius: 16,
                 filter,
                 clip: None,
+                warp: None,
             };
             let (mut device, mut cpu) = (Vec::new(), Vec::new());
             // The first frame uploads the window; the others compose it from the device.

@@ -229,6 +229,12 @@ pub enum Step {
     /// Milliseconds of real time with no input, the session served all along: what fades on its
     /// own clock (a hardware key's bezel, ADR 0025) has the time to.
     Wait(u64),
+    /// The clock the compositor's transitions run on (`Compositor::clock`, ADR 0011), for a
+    /// scenario to look at a transition at an exact point of it, whatever the machine's load:
+    /// held where it is now, set to so many milliseconds after where it was held, or following
+    /// the monotonic clock again (a transition held then ends at once). The session is served
+    /// meanwhile; nothing else waits.
+    TransitionClock(TransitionClock),
     /// Real time, the session served all along, until the assistive technology holds a node named
     /// `name` on a shown surface, at most `ms` milliseconds: an answer that comes on the
     /// application's own clock (a store that is down asked again until it says it could not be
@@ -378,6 +384,13 @@ impl Step {
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
             Step::Wait(ms) => format!("{ms} ms waited"),
+            Step::TransitionClock(TransitionClock::Hold) => "the transitions' clock held".to_string(),
+            Step::TransitionClock(TransitionClock::At(ms)) => {
+                format!("the transitions' clock {ms} ms after it was held")
+            }
+            Step::TransitionClock(TransitionClock::Run) => {
+                "the transitions' clock running".to_string()
+            }
             Step::WaitNamed { name, ms } => format!("waiting for {name:?} (at most {ms} ms)"),
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
             Step::Network(what) => format!("the network daemon: {what}"),
@@ -558,6 +571,13 @@ impl Step {
                 format!("\"clipboard\":[{}]", types.join(","))
             }
             Step::Wait(ms) => format!("\"wait\":{ms}"),
+            Step::TransitionClock(TransitionClock::Hold) => {
+                "\"transition_clock\":\"hold\"".to_string()
+            }
+            Step::TransitionClock(TransitionClock::At(ms)) => format!("\"transition_clock\":{ms}"),
+            Step::TransitionClock(TransitionClock::Run) => {
+                "\"transition_clock\":\"run\"".to_string()
+            }
             Step::WaitNamed { name, ms } => {
                 format!("\"wait_named\":[{},{ms}]", json_string(name))
             }
@@ -755,7 +775,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1362,6 +1382,18 @@ impl Launch {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Wait(ms.parse()?)
                 }
+                Some("--transition-clock") => {
+                    let at = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    // Nothing of the application changes: the step's answer is the frame.
+                    settling.may_stay = true;
+                    Step::TransitionClock(match at {
+                        "hold" => TransitionClock::Hold,
+                        "run" => TransitionClock::Run,
+                        ms => TransitionClock::At(
+                            ms.parse().map_err(|_| "--transition-clock hold|run|MS")?,
+                        ),
+                    })
+                }
                 Some("--wait-named") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     let ms = ms.parse().map_err(|_| "--wait-named MS NAME")?;
@@ -1879,6 +1911,19 @@ fn paced_time(origin: i64, due: Duration) -> u64 {
     u64::try_from(origin).unwrap_or(0) + u64::try_from(due.as_nanos()).unwrap_or(u64::MAX)
 }
 
+/// `Step::TransitionClock`'s settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransitionClock {
+    Hold,
+    At(u64),
+    Run,
+}
+
+thread_local! {
+    /// Where `--transition-clock hold` held the transitions' clock.
+    static HELD: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
 /// When a step's answer first appeared, when it settled, and the window then.
 struct Settled {
     window: Rect,
@@ -2061,6 +2106,19 @@ fn beyond(window: Rect, popup: Rect) -> [i64; 4] {
         (popup.right() - window.right()).max(0),
         (popup.bottom() - window.bottom()).max(0),
     ]
+}
+
+/// Where the application's window minimizes into, as the shell's dock says it (ADR 0011's genie):
+/// `[x, y, width, height]` in the global space, or null.
+fn minimize_target_json(compositor: &Compositor) -> String {
+    let window = SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    };
+    match compositor.scene.minimize_target(window) {
+        Some(r) => format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
+        None => "null".to_string(),
+    }
 }
 
 /// The surface of the application holding keyboard focus, or null.
@@ -3970,6 +4028,20 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             client: CLIENT,
             id: WINDOW,
         }),
+        Step::TransitionClock(clock) => {
+            compositor.clock = match clock {
+                TransitionClock::Hold => {
+                    let now = oxyos_compositor::monotonic();
+                    HELD.set(Some(now));
+                    Some(now)
+                }
+                TransitionClock::At(ms) => Some(
+                    HELD.get().ok_or("--transition-clock MS before hold")?
+                        + Duration::from_millis(*ms),
+                ),
+                TransitionClock::Run => None,
+            }
+        }
         // No input: the idle lock's time passes, and the next turn follows it.
         Step::Idle(seconds) => compositor.idle.pass(Duration::from_secs(*seconds)),
         Step::Scale(scale) => compositor
@@ -4816,7 +4888,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let urls = urls_json(&mut session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4831,6 +4903,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
+            minimize_target_json(&session.compositor),
             session.compositor.scene.pointer_shape(),
             pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),

@@ -43,7 +43,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// in its collection (`AccessiblePosition`, ADR 0039), both ways, sent with every snapshot;
 /// version 17, the session's locale (`Locale`, ADR 0040), told to every client; version 18, input
 /// methods' candidates drawn by the shell and a key's symbol (ADR 0041), both ways, sent only to
-/// an input method or the shell.
+/// an input method or the shell; version 20, where the shell's dock has each window minimize into
+/// (`ClearMinimizeTargets`, `PlaceMinimizeTarget`, ADR 0011's genie).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -68,6 +69,7 @@ const REQUESTS_ADDED: Added = &[
     (10, 240..=247),
     (13, 251..=251),
     (18, 63..=67),
+    (20, 92..=93),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

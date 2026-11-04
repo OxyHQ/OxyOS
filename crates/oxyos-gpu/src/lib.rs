@@ -88,6 +88,10 @@ pub struct Layer<'a> {
     pub filter: Filter,
     /// The part of the output it is drawn in, if not all of it: nothing outside is touched.
     pub clip: Option<Rect>,
+    /// A mesh its pixels are drawn through instead of the rectangle (`warp`, the genie,
+    /// docs/adr/0011-transitions.mdx, step 7): its rectangle holds the mesh, its pixels are
+    /// sampled through it, and its `radius` is the source's corners', in source pixels.
+    pub warp: Option<Warp<'a>>,
 }
 
 /// How a layer drawn at another size than its pixels' samples them.
@@ -166,11 +170,24 @@ impl Layer<'_> {
                 }
                 _ => true,
             }
+            && self.warp.is_none_or(|warp| {
+                warp.valid()
+                    && matches!(
+                        self.paint,
+                        Paint::Opaque(_) | Paint::Premultiplied(_) | Paint::Imported { .. }
+                    )
+                    && [self.width, self.height, self.extent.0, self.extent.1]
+                        .iter()
+                        .all(|&length| length <= filter::MAX_FILTERED)
+            })
     }
 
-    /// The radius its corners are drawn with.
+    /// The radius its corners are drawn with: a mesh's are its source's.
     fn corner_radius(&self) -> u32 {
-        shape::radius_on(self.radius, self.width, self.height)
+        match self.warp {
+            Some(_) => shape::radius_on(self.radius, self.extent.0, self.extent.1),
+            None => shape::radius_on(self.radius, self.width, self.height),
+        }
     }
 
     /// Whether its pixels are filtered: they are drawn at another size (beyond rounding, on an
@@ -334,6 +351,9 @@ pub fn compose_cpu_damaged(
 
 /// Draws `layer` onto `out` (`width` × `height`) within `within`.
 fn draw_cpu(out: &mut [u32], width: u32, height: u32, layer: &Layer<'_>, within: Rect) {
+    if let Some(warp) = layer.warp {
+        return draw_warp_cpu(out, width, height, layer, &warp, within);
+    }
     // Within the output, the layer's clip and `within`.
     let Some(clip) = layer
         .clip
@@ -501,6 +521,74 @@ fn draw_cpu(out: &mut [u32], width: u32, height: u32, layer: &Layer<'_>, within:
     }
 }
 
+/// Draws a layer through its mesh (`warp`) onto `out` within `within`: each pixel the mesh covers,
+/// by how much, sampled where it falls in the source, then blended as any layer's pixel is.
+fn draw_warp_cpu(
+    out: &mut [u32],
+    width: u32,
+    height: u32,
+    layer: &Layer<'_>,
+    warp: &Warp<'_>,
+    within: Rect,
+) {
+    let Some(clip) = layer
+        .clip
+        .map_or(Some(within), |clip| clip.intersect(&within))
+    else {
+        return;
+    };
+    let (pixels, opaque) = match layer.paint {
+        Paint::Opaque(pixels) => (pixels, true),
+        Paint::Premultiplied(pixels) => (pixels, false),
+        _ => return,
+    };
+    let rows = warp.fixed(layer.width, layer.height, layer.extent);
+    let radius = layer.corner_radius();
+    let x0 = layer.x.max(0).max(clip.x);
+    let y0 = layer.y.max(0).max(clip.y);
+    let x1 = (i64::from(layer.x) + i64::from(layer.width))
+        .min(i64::from(width))
+        .min(clip.right());
+    let y1 = (i64::from(layer.y) + i64::from(layer.height))
+        .min(i64::from(height))
+        .min(clip.bottom());
+    let mut columns = Vec::new();
+    for y in i64::from(y0)..y1 {
+        let ly = (y - i64::from(layer.y)) as u32;
+        // What the row's pixels share: where the mesh is across it, and the source rows they read,
+        // blended once.
+        let Some(span) = warp::span(&rows, ly, layer.extent) else {
+            continue;
+        };
+        let weights = warp::weights(span.source_y(), span.half_y(), layer.extent.1);
+        warp::blend_rows(pixels, layer.extent, opaque, &weights, &mut columns);
+        let (start, end) = span.pixels();
+        let from = i64::from(x0).max(i64::from(layer.x) + i64::from(start));
+        let to = x1.min(i64::from(layer.x) + i64::from(end));
+        for x in from..to {
+            let lx = (x - i64::from(layer.x)) as u32;
+            let Some(fall) = span.fall(lx) else {
+                continue;
+            };
+            let coverage = fall.coverage * warp::corner(&fall, layer.extent, radius) / 255;
+            if coverage == 0 {
+                continue;
+            }
+            let (source, alpha) = warp::sample_columns(&columns, &fall);
+            let index = y as usize * width as usize + x as usize;
+            let opacity = u32::from(layer.opacity) * coverage / 255;
+            let keep = 255 - alpha * opacity / 255;
+            let under = out[index];
+            let channel = |shift: u32| {
+                let s = ((source >> shift) & 0xff) * opacity / 255;
+                let d = (under >> shift) & 0xff;
+                (s + d * keep / 255).min(255) << shift
+            };
+            out[index] = channel(16) | channel(8) | channel(0);
+        }
+    }
+}
+
 /// How much of a shadow's pixel (`x`, `y`) what it is beneath covers, 0 to 255.
 fn beneath(x: u32, y: u32, shadow: &Shadow) -> u32 {
     let clip = &shadow.clip;
@@ -518,7 +606,9 @@ fn beneath(x: u32, y: u32, shadow: &Shadow) -> u32 {
 pub mod filter;
 pub mod frame_file;
 pub mod shape;
+pub mod warp;
 pub use shape::{ShadowProfile, MAX_SHADOW_SCALE};
+pub use warp::{Warp, WarpRow};
 mod vulkan;
 #[cfg(target_os = "linux")]
 pub use vulkan::ScanoutTarget;
