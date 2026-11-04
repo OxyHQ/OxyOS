@@ -47,7 +47,7 @@
       "name": "The pointer enters the dock over its first application's icon: its hover renders the icon and its button, and the dock's tooltip (its popup surface and its text), nothing else",
       "do": ["move_output", [692, 772]],
       "expect": {
-        "in_shell": {"renders": {"tops": ["DockIcon", "ButtonComponent", "PopupSurface", "CssInterop.DisplayFaceText"], "components_max": 37, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 4, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": ["DockIcon", "ButtonComponent", "PopupSurface"], "components_max": 32, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 4, "js_blocked_ms_max": 1}}
       },
       "allow_unchanged": true
     },
