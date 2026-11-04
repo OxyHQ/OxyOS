@@ -17,7 +17,7 @@ import { Tooltip, TooltipTextBubble, TooltipTrigger } from "@oxy.so/bloom/toolti
 import { DropZone, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
 import { Box, Scroll } from "../primitives";
-import type { ShellKeyboard } from "../platform";
+import type { MinimizeTargetProps, ShellKeyboard } from "../platform";
 import { IconBody } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
@@ -29,6 +29,8 @@ import {
   openAtLogin,
   trashMenu,
   trashedByDrop,
+  windowIdsByApp,
+  windowIdsKey,
   type DockAbilities,
   type DockCommand,
   type DockMenuItem,
@@ -125,6 +127,7 @@ function MenuRows({
 }
 
 const ICON_ROW = { height: ROW, width: ICON } as const;
+const ICON_BOX = { height: ICON, width: ICON } as const;
 const SCROLL_STYLE = { flexGrow: 0, maxWidth: "100%" } as const;
 
 /**
@@ -137,8 +140,11 @@ const SCROLL_STYLE = { flexGrow: 0, maxWidth: "100%" } as const;
  * - a long press (half a second, still), a secondary click or a Control-click opens its menu above
  *   it, Bloom's context menu in the platform's popup, driven from the keyboard and announced as a
  *   menu named by the icon; Option held as it opens makes Quit Force Quit.
+ * - an application's picture is where its windows minimize into and are restored out of, where the
+ *   platform says so (its MinimizeTarget, docs/adr/0011-transitions.mdx: the genie).
  * Memoized with handlers that stay the same: the pointer moving over the dock, or a window changing
- * size, renders none of them again, and hovering one renders it alone.
+ * size, renders none of them again, and hovering one renders it alone; a window opening or closing
+ * renders its application's alone.
  */
 const DockIcon = memo(function DockIcon({
   id,
@@ -154,6 +160,8 @@ const DockIcon = memo(function DockIcon({
   app,
   register,
   onFocusIcon,
+  windowIds,
+  MinimizeTarget,
 }: {
   id: string;
   name: string;
@@ -177,6 +185,11 @@ const DockIcon = memo(function DockIcon({
   register?: (id: string, open: (() => void) | null) => void;
   /** The keyboard's focus reached the icon. */
   onFocusIcon?: (testID: string) => void;
+  /** Its application's windows' ids, one a line (`windowIdsKey`'s): a string, the same from one
+      render to the next while the same windows are open. */
+  windowIds?: string;
+  /** Where the platform minimizes windows into a view; an application's picture is one. */
+  MinimizeTarget?: React.ComponentType<MinimizeTargetProps>;
 }) {
   // What the screen reader says of it after its name and state, as VoiceOver gives a Dock item its
   // help: the key that opens its menu with the keyboard on the dock (Super+F3, then ↑).
@@ -228,6 +241,7 @@ const DockIcon = memo(function DockIcon({
   const hoverOut = useCallback(() => setHovered(false), []);
   // A press hides the name until the pointer leaves and comes back, as a desktop's tooltip.
   const pressIn = useCallback(() => setHovered(false), []);
+  const minimizing = useMemo(() => (windowIds ? windowIds.split("\n") : []), [windowIds]);
   // The icon's button, made again only when what it shows or does changes: the tooltip showing or
   // going renders the tooltip, not the button (whose own hover is Bloom's).
   const trigger = useMemo(
@@ -246,12 +260,20 @@ const DockIcon = memo(function DockIcon({
           onFocus={onFocus}
           className="h-[42px] w-[42px] overflow-visible rounded-[10px] border-0 bg-transparent p-0"
         >
-          {/* Its icon as it is, a Mac's Dock's: no ring or plate around it. */}
-          <IconBody icon={app ? app.icon : TRASH_ICON} body={app?.iconBody} size={ICON} />
+          {/* Its icon as it is, a Mac's Dock's: no ring or plate around it. An application's,
+              even with no window yet, is where its windows minimize into: its own box, 42 × 42,
+              not the taller row. */}
+          {app && MinimizeTarget ? (
+            <MinimizeTarget windowIds={minimizing} style={ICON_BOX}>
+              <IconBody icon={app.icon} body={app.iconBody} size={ICON} />
+            </MinimizeTarget>
+          ) : (
+            <IconBody icon={app ? app.icon : TRASH_ICON} body={app?.iconBody} size={ICON} />
+          )}
         </Button>
       </ContextMenuTrigger>
     ),
-    [testID, label, status, menuHint, press, pressIn, hoverIn, hoverOut, onFocus, app],
+    [testID, label, status, menuHint, press, pressIn, hoverIn, hoverOut, onFocus, app, MinimizeTarget, minimizing],
   );
   // Its menu's panel, made again only as the menu opens, closes or changes.
   const content = useMemo(
@@ -343,6 +365,7 @@ export const Dock = memo(function Dock({
   keys,
   moveFocus,
   leave,
+  MinimizeTarget,
 }: {
   applications: readonly ShellApplication[];
   windows: readonly ShellWindow[];
@@ -366,6 +389,9 @@ export const Dock = memo(function Dock({
   moveFocus?: (testID: string) => void;
   /** Leaves the dock, the keyboard back with the window. */
   leave?: () => void;
+  /** Where the platform minimizes windows into a view (the platform's MinimizeTarget): each
+      application's icon, for its windows. */
+  MinimizeTarget?: React.ComponentType<MinimizeTargetProps>;
 }) {
   const colors = DOCK_COLORS[useColorScheme() === "dark" ? "dark" : "light"];
   const messages = useShellMessages();
@@ -379,6 +405,10 @@ export const Dock = memo(function Dock({
     () => applications.filter((app) => app.pinned || running.has(app.id)),
     [applications, running],
   );
+  // Each icon's windows, where the platform minimizes into icons: changed only as windows open or
+  // close, and then only for their application's icon.
+  const windowsKey = MinimizeTarget ? windowIdsKey(apps, windows) : "";
+  const windowIds = useMemo(() => windowIdsByApp(windowsKey), [windowsKey]);
   const abilities = useMemo<DockAbilities>(
     () => ({
       hide: !!actions.hideApp,
@@ -558,6 +588,8 @@ export const Dock = memo(function Dock({
             app={app}
             register={register}
             onFocusIcon={onFocusIcon}
+            windowIds={windowIds.get(app.id)}
+            MinimizeTarget={MinimizeTarget}
           />
         ))}
         {trash && (
@@ -599,7 +631,7 @@ export const Dock = memo(function Dock({
         )}
       </Scroll>
     ),
-    [apps, running, colors, messages, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon],
+    [apps, running, colors, messages, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon, windowIds, MinimizeTarget],
   );
   return (
     <Box

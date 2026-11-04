@@ -41,6 +41,7 @@ import { inPlace, type ShellPlatform } from "./platform";
 import { belongsTo } from "./model";
 export type { ShellCommand } from "./model";
 export type {
+  MinimizeTargetProps,
   ShellPlatform,
   ShellSurfaceProps,
   WindowViewProps,
@@ -729,6 +730,7 @@ export const Shell = memo(function Shell({
               keys={dockKeys && !sheet ? keyboard : undefined}
               moveFocus={moveDockFocus}
               leave={leaveDock}
+              MinimizeTarget={platform.MinimizeTarget}
             />
           </Surface>
         )}
