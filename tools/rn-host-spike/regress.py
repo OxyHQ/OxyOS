@@ -509,9 +509,27 @@ def clock_said(t_ns):
     raise SystemExit(f"{{clock}} is not written for {RUN_LOCALE} (regress.py's clock_said)")
 
 
+# The applications' packages (--packages), whose sizes "{size:ID}" in an expected text names.
+PACKAGES = None
+
+
+def package_size(package):
+    """The package `package`'s size as Atlas says it in English (its lib/format.ts: decimal units,
+    one decimal under 10): the bytes of the files its manifest lists, which the machine fetches."""
+    manifest = json.loads((PACKAGES / package / "manifest.json").read_text())
+    value, unit, units = float(sum(f["size"] for f in manifest["files"])), 0, ["bytes", "KB", "MB", "GB"]
+    while value >= 1000 and unit < len(units) - 1:
+        value, unit = value / 1000, unit + 1
+    digits = 0 if unit == 0 or value >= 10 else 1
+    return f"{value:,.{digits}f} {units[unit]}"
+
+
 def same_text(got, wanted, t_ns):
     """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
-    `t_ns`, or in the minute before it (the clock said as its minute turned)."""
+    `t_ns`, or in the minute before it (the clock said as its minute turned), and "{size:ID}" the
+    size of the package ID as built (package_size), which every change to its bundle moves."""
+    if isinstance(wanted, str) and "{size:" in wanted:
+        wanted = re.sub(r"\{size:([^}]+)\}", lambda match: package_size(match.group(1)), wanted)
     if not isinstance(wanted, str) or "{clock}" not in wanted:
         return got == wanted
     return any(got == wanted.replace("{clock}", clock_said(t_ns - back * 60_000_000_000)) for back in (0, 1))
@@ -1602,6 +1620,19 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
         fail(f"{name} grew, shrank or moved ({[m for _, _, m in path]}): expected a crossfade alone")
 
 
+def ended_report(path):
+    """The report of a host the director ended (a file chooser, the companion, an application the
+    session launched): its lines, but a last one cut short with no newline, which a host stopped
+    while writing it leaves; the director's own report is complete when read."""
+    if not path.exists():
+        return []
+    text = path.read_text()
+    lines = text.split("\n")
+    if not text.endswith("\n"):
+        lines = lines[:-1]
+    return [json.loads(line) for line in lines if line.strip()]
+
+
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
                shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None):
     expect = step.get("expect", {})
@@ -2010,9 +2041,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "in_chooser" in expect and screenshot is not None:
         # The file chooser the session started (ADR 0029, decision 8), from its own report beside
         # the director's (`.chooser.N`, one a request): their texts and React deliveries, in time.
-        chooser = sorted((json.loads(line)
+        chooser = sorted((line
                           for path in pathlib.Path(screenshot).parent.glob("host-report.jsonl.chooser.*")
-                          for line in path.read_text().splitlines() if line.strip()),
+                          for line in ended_report(path)),
                          key=lambda line: line["t"])
         chooser_step = {"name": f"{step.get('name', step['do'][0])}, in the file chooser",
                         "do": step["do"], "expect": expect["in_chooser"]}
@@ -2032,8 +2063,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # The companion application (ADR 0035), from its own report beside the director's
         # (`.companion`): its texts and React deliveries.
         path = pathlib.Path(screenshot).parent / "host-report.jsonl.companion"
-        companion = ([json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-                     if path.exists() else [])
+        companion = ended_report(path)
         companion_step = {"name": f"{step.get('name', step['do'][0])}, in the companion",
                           "do": step["do"], "expect": expect["in_companion"]}
         # Its window's menus (ADR 0021) are the companion's own, as the shell is told them.
@@ -2045,8 +2075,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # at once (the store, and an application it opened), the first: the second's host writes
         # beside it (report.cpp).
         path = pathlib.Path(screenshot).parent / "host-report.jsonl.launched"
-        launched = ([json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-                    if path.exists() else [])
+        launched = ended_report(path)
         launched_step = {"name": f"{step.get('name', step['do'][0])}, in the launched application",
                          "do": step["do"], "expect": expect["in_launched"]}
         check_step(index, launched_step, result, launched, start, failures, refresh_hz=refresh_hz)
@@ -3097,6 +3126,8 @@ def main():
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
+    global PACKAGES
+    PACKAGES = pathlib.Path(options.packages) if options.packages else None
     global SPEED_BUDGETS, RENDER_COUNTS, COLLECT, RUN_TZ, RUN_LOCALE
     COLLECT = options.collect
     SPEED_BUDGETS = options.speed_budgets and not COLLECT
@@ -3435,8 +3466,7 @@ def main():
             failures.append(f"the host's frame drawn from its damage differs in {line['pixels']} pixels")
     # A frame drawn on the GPU that does not look as the CPU draws it (ADR 0031, decision 13).
     launched_path = out / "host-report.jsonl.launched"
-    launched_report = ([json.loads(line) for line in launched_path.read_text().splitlines() if line.strip()]
-                       if launched_path.exists() else [])
+    launched_report = ended_report(launched_path)
     checked = [line for line in list(report) + list(shell_report or []) + launched_report
                if line["kind"] == "render_check"]
     # Skia's raster and Vulkan backends anti-alias edges, glyphs and blurs each their own way (up to 76
