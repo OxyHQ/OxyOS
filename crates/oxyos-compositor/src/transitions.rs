@@ -401,7 +401,7 @@ impl Frame {
         if let Shift::Dock { slot, genie } = self.shift {
             return match self.genie(rect) {
                 Some(mesh) if genie => mesh.bounds,
-                _ => scaled_into(rect, slot, self.into_dock()),
+                _ => scaled_into(rect, slot, self.docked()),
             };
         }
         if let Shift::Between { from, to } = self.shift {
@@ -458,7 +458,7 @@ impl Frame {
 
 impl Frame {
     /// How far into the dock a window is (0 open, 1 in its slot), for a dock's motion.
-    pub fn into_dock(&self) -> f64 {
+    pub fn docked(&self) -> f64 {
         f64::from(self.shift_permille.clamp(0, 1000)) / 1000.0
     }
 
@@ -478,7 +478,7 @@ impl Frame {
             )
         };
         let mesh = genie::mesh(
-            self.into_dock(),
+            self.docked(),
             points(rect),
             points(slot),
             genie::Edge::Bottom,
@@ -517,7 +517,7 @@ impl Frame {
     pub fn shadow_opacity(&self) -> u8 {
         match self.shift {
             Shift::Dock { genie: true, .. } => {
-                let left = 1.0 - (self.into_dock() / GENIE_SHADOW).clamp(0.0, 1.0);
+                let left = 1.0 - (self.docked() / GENIE_SHADOW).clamp(0.0, 1.0);
                 (f64::from(self.opacity) * left).round() as u8
             }
             _ => self.opacity,
@@ -722,7 +722,7 @@ impl Transitions {
         let now = match motion.shift {
             Shift::Dock { .. } => {
                 let into = self
-                    .into_dock(appearance.key, now)
+                    .docked(appearance.key, now)
                     .unwrap_or(if appearance.arrived() { 1.0 } else { 0.0 });
                 let done = if appearance.arrived() {
                     1.0 - into
@@ -754,19 +754,19 @@ impl Transitions {
     }
 
     /// How far into the dock `key` is at `now` while it goes into it or comes out of it.
-    fn into_dock(&self, key: SurfaceKey, now: Duration) -> Option<f64> {
+    fn docked(&self, key: SurfaceKey, now: Duration) -> Option<f64> {
         let docking = |running: &Running| matches!(running.motion.shift, Shift::Dock { .. });
         if let Some((_, running, _)) = self
             .going
             .iter()
             .find(|(going, running, _)| *going == key && docking(running))
         {
-            return Some(going_at(running, running.elapsed(now)).into_dock());
+            return Some(going_at(running, running.elapsed(now)).docked());
         }
         self.arriving
             .get(&key)
             .filter(|running| docking(running))
-            .map(|running| arriving_at(running, running.elapsed(now)).into_dock())
+            .map(|running| arriving_at(running, running.elapsed(now)).docked())
     }
 
     /// `key` arrives with its first frame, as the ADR's motion for its kind.
