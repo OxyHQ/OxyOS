@@ -261,7 +261,7 @@ fn between(start: i32, end: i32, share: u32) -> i32 {
     return start + (((end - start) * i32(share) + 2048) >> 12u);
 }
 
-// `warp::fall`.
+// `warp::span` and `Span::fall`, for one pixel.
 fn fall(i: u32, lx: u32, ly: u32) -> Fall {
     let none = Fall(0u, 0, 0, 0, 0);
     let count = layers[i].warp_rows;
@@ -323,7 +323,7 @@ fn warp_through(at: u32, last: u32, low: i32, half: i32) -> u32 {
     return (u32(end) * ONE + u32(half)) / (2u * u32(half));
 }
 
-// `warp::sample`: premultiplied, its alpha in the high byte.
+// `warp::sample_rows` with `warp::weights`: premultiplied, its alpha in the high byte.
 fn warp_sample(i: u32, f: Fall, opaque: bool) -> u32 {
     let columns = warp_taps(f.x, f.half_x, layers[i].src_width);
     let rows = warp_taps(f.y, f.half_y, layers[i].src_height);

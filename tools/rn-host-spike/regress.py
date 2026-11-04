@@ -1682,8 +1682,11 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
         # Driven by the frame clock, linearly (a window into the dock, ADR 0011): every frame's
         # size and place are where a linear motion of that length is at the frame's time, to the
         # thousandth it is recorded in, whenever the frame came.
+        # A frame's time is recorded in whole milliseconds, cut short (`Step::ms`): its place is
+        # between where the motion is at that millisecond and the next, to the thousandth.
         length = wanted["linear_ms"]
-        off = [(ms, m) for ms, _, m in path if abs(m - min(1000, 1000 * ms / length)) > 1]
+        off = [(ms, m) for ms, _, m in path
+               if not 1000 * ms / length - 1 <= m <= min(1000, 1000 * (ms + 1) / length) + 1]
         if off:
             fail(f"{name} was not where a linear motion of {length} ms is at its frames' times: {off}")
     if "frames" in wanted:

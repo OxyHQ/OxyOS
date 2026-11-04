@@ -554,16 +554,24 @@ fn draw_warp_cpu(
         .min(clip.bottom());
     for y in i64::from(y0)..y1 {
         let ly = (y - i64::from(layer.y)) as u32;
-        for x in i64::from(x0)..x1 {
+        // What the row's pixels share: where the mesh is across it, and the source rows they read.
+        let Some(span) = warp::span(&rows, ly, layer.extent) else {
+            continue;
+        };
+        let weights = warp::weights(span.source_y(), span.half_y(), layer.extent.1);
+        let (start, end) = span.pixels();
+        let from = i64::from(x0).max(i64::from(layer.x) + i64::from(start));
+        let to = x1.min(i64::from(layer.x) + i64::from(end));
+        for x in from..to {
             let lx = (x - i64::from(layer.x)) as u32;
-            let Some(fall) = warp::fall(&rows, lx, ly, layer.extent) else {
+            let Some(fall) = span.fall(lx) else {
                 continue;
             };
             let coverage = fall.coverage * warp::corner(&fall, layer.extent, radius) / 255;
             if coverage == 0 {
                 continue;
             }
-            let (source, alpha) = warp::sample(pixels, layer.extent, &fall, opaque);
+            let (source, alpha) = warp::sample_rows(pixels, layer.extent, &fall, opaque, &weights);
             let index = y as usize * width as usize + x as usize;
             let opacity = u32::from(layer.opacity) * coverage / 255;
             let keep = 255 - alpha * opacity / 255;

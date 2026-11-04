@@ -102,9 +102,25 @@ pub(crate) struct Fall {
     pub half_y: i32,
 }
 
-/// Output pixel (`lx`, `ly`) of a layer drawn through `rows` (`Warp::fixed`), its source
-/// `extent` wide and tall: where it falls, or `None` where the mesh does not cover it.
-pub(crate) fn fall(rows: &[Fixed], lx: u32, ly: u32, extent: (u32, u32)) -> Option<Fall> {
+/// One output row of a layer drawn through a mesh: how much of its height the mesh covers, the
+/// two sides there (sixteenths, relative to the layer), how many source sixteenths an output
+/// sixteenth across is (in 4096ths), the source height its centre shows and the half widths of a
+/// pixel's box along each axis. All of a pixel's mapping but where it is across: worked out once
+/// for the row on the CPU, and per pixel in the shader, with the same arithmetic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Span {
+    covered_y: i32,
+    left: i32,
+    right: i32,
+    rate: u32,
+    y: i32,
+    half_x: i32,
+    half_y: i32,
+}
+
+/// Output row `ly` of a layer drawn through `rows` (`Warp::fixed`), its source `extent`: none
+/// where the mesh covers nothing of it.
+pub(crate) fn span(rows: &[Fixed], ly: u32, extent: (u32, u32)) -> Option<Span> {
     let count = rows.len();
     let (top, bottom) = (rows[0][0], rows[count - 1][0]);
     let centre_y = ly as i32 * SUB + SUB / 2;
@@ -132,28 +148,59 @@ pub(crate) fn fall(rows: &[Fixed], lx: u32, ly: u32, extent: (u32, u32)) -> Opti
         from + (((to - from) * share as i32 + (1 << (SHARE_BITS - 1))) >> SHARE_BITS)
     };
     let (left, right) = (between(a[1], b[1]), between(a[2], b[2]));
-    let centre_x = lx as i32 * SUB + SUB / 2;
-    let covered_x =
-        ((centre_x + SUB / 2).min(right) - (centre_x - SUB / 2).max(left)).clamp(0, SUB);
-    if covered_x == 0 {
+    if right <= left {
         return None;
     }
     let across = (right - left) as u32;
     // Source sixteenths per output sixteenth, in 4096ths: at most the source's width · 2¹⁶.
     let rate = (extent.0 << 16) / across;
-    let x = ((((centre_x.clamp(left, right) - left) as u32) * rate) >> SHARE_BITS) as i32;
-    let y = between(a[3], b[3]);
     // A pixel's footprint is a source sixteenth's rate times 16 along x, the quad's source height
     // over its height along y; half of it, at least half a source pixel.
-    let half_x = ((rate >> 9) as i32).clamp(SUB / 2, MAX_HALF);
-    let half_y = ((b[3] - a[3]) * (SUB / 2) / down as i32).clamp(SUB / 2, MAX_HALF);
-    Some(Fall {
-        coverage: ((covered_x * covered_y) as u32 * 255 + 128) >> 8,
-        x,
-        y,
-        half_x,
-        half_y,
+    Some(Span {
+        covered_y,
+        left,
+        right,
+        rate,
+        y: between(a[3], b[3]),
+        half_x: ((rate >> 9) as i32).clamp(SUB / 2, MAX_HALF),
+        half_y: ((b[3] - a[3]) * (SUB / 2) / down as i32).clamp(SUB / 2, MAX_HALF),
     })
+}
+
+impl Span {
+    /// The output pixels of the row the mesh covers any of: from `start` to before `end`.
+    pub(crate) fn pixels(&self) -> (i32, i32) {
+        (self.left / SUB, (self.right + SUB - 1) / SUB)
+    }
+
+    /// The source height its pixels' centres show, and their boxes' half height there.
+    pub(crate) fn source_y(&self) -> i32 {
+        self.y
+    }
+
+    pub(crate) fn half_y(&self) -> i32 {
+        self.half_y
+    }
+
+    /// Where the row's pixel `lx` falls: none where the mesh does not cover it.
+    pub(crate) fn fall(&self, lx: u32) -> Option<Fall> {
+        let centre_x = lx as i32 * SUB + SUB / 2;
+        let covered_x = ((centre_x + SUB / 2).min(self.right)
+            - (centre_x - SUB / 2).max(self.left))
+        .clamp(0, SUB);
+        if covered_x == 0 {
+            return None;
+        }
+        let x = ((((centre_x.clamp(self.left, self.right) - self.left) as u32) * self.rate)
+            >> SHARE_BITS) as i32;
+        Some(Fall {
+            coverage: ((covered_x * self.covered_y) as u32 * 255 + 128) >> 8,
+            x,
+            y: self.y,
+            half_x: self.half_x,
+            half_y: self.half_y,
+        })
+    }
 }
 
 /// The source pixels a box centred at `centre` with half width `half` (sixteenths) averages along
@@ -180,17 +227,35 @@ pub(crate) fn through(at: u32, last: u32, low: i32, half: i32) -> u32 {
     (end as u32 * ONE + half as u32) / (2 * half as u32)
 }
 
-/// The sample of `pixels` (`extent`, B, G, R, A in memory) where `fall` says: its premultiplied
-/// colour (0x00RRGGBB) and alpha; an opaque source's alpha is 255.
-pub(crate) fn sample(pixels: &[u8], extent: (u32, u32), fall: &Fall, opaque: bool) -> (u32, u32) {
+/// The source rows a sample centred at `centre` with half height `half` averages, and their
+/// weights (`through`'s differences): the same for every pixel of an output row.
+pub(crate) fn weights(centre: i32, half: i32, extent: u32) -> (u32, Vec<u32>) {
+    let (first, last, low) = taps(centre, half, extent);
+    let mut before = 0;
+    let weights = (first..=last)
+        .map(|at| {
+            let to = through(at, last, low, half);
+            let weight = to - before;
+            before = to;
+            weight
+        })
+        .collect();
+    (first, weights)
+}
+
+/// The sample of `pixels` (`extent`, B, G, R, A in memory) where `fall` says, its rows' weights
+/// given (`weights`): its premultiplied colour (0x00RRGGBB) and alpha; an opaque source's alpha is
+/// 255.
+pub(crate) fn sample_rows(
+    pixels: &[u8],
+    extent: (u32, u32),
+    fall: &Fall,
+    opaque: bool,
+    (y0, rows): &(u32, Vec<u32>),
+) -> (u32, u32) {
     let (x0, x1, x_low) = taps(fall.x, fall.half_x, extent.0);
-    let (y0, y1, y_low) = taps(fall.y, fall.half_y, extent.1);
     let mut sum = [0u32; 4];
-    let mut above = 0;
-    for y in y0..=y1 {
-        let to_y = through(y, y1, y_low, fall.half_y);
-        let wy = to_y - above;
-        above = to_y;
+    for (y, &wy) in (*y0..).zip(rows) {
         let mut row = [0u32; 4];
         let mut before = 0;
         for x in x0..=x1 {

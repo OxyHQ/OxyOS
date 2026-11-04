@@ -1,0 +1,129 @@
+{
+  "about": "A window minimized and restored with Reduce motion (docs/adr/0043-the-genie.mdx, decision 7; ADR 0011's crossfade): neither the genie nor the scale effect, as a Mac's Reduce Motion: Allo's window fades out where it is, nothing bent, scaled or moved, and comes back fading in where it was. With the transitions' clock held 100 ms into the minimize, the window's whole rectangle is the window half faded over what is beneath, from its top corners to its bottom ones: neither its colour nor gone, nowhere bent toward the dock; on the compositor's clock the restore stays still as it fades in.",
+  "module": "GenieProbe",
+  "window": [
+    800,
+    500
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1280x720:120",
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "reduce_motion": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "Allo's window",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_shown": true
+      }
+    },
+    {
+      "name": "the transitions' clock held",
+      "do": [
+        "transition_clock",
+        "hold"
+      ],
+      "expect": {
+        "window_shown": true
+      }
+    },
+    {
+      "name": "Super+M: the window leaves the scene, and fades where it is",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "react": {},
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "first": 255
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "100 ms in: the whole window half faded where it was, its corners too, nothing bent toward the dock",
+      "do": [
+        "transition_clock",
+        100
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "640,346": "!#c8209a",
+          "260,110": "!#c8209a",
+          "1020,110": "!#c8209a",
+          "260,580": "!#c8209a",
+          "1020,580": "!#c8209a"
+        }
+      }
+    },
+    {
+      "name": "the clock running again: gone",
+      "do": [
+        "transition_clock",
+        "run"
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "640,346": "!#c8209a",
+          "738,716": "#64717a"
+        }
+      }
+    },
+    {
+      "name": "Allo in the dock: it fades in where it was, still",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "react": {},
+        "output_pixels": {
+          "640,346": "#c8209a"
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "first": 0,
+              "ended": true,
+              "still": true
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

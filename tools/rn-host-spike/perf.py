@@ -114,9 +114,9 @@ REFRESH = [
 # happens): the steps whose window goes into the dock or comes out of it on the compositor's own
 # clock, never held.
 GENIE = [
-    ("genie at 120 Hz", "genie.json", [10, 11],
+    ("genie at 120 Hz", "genie.json", [9, 10],
      "GenieProbe's 800x500 window restored out of Allo's icon and minimized into it, 500 ms each, beside the shell"),
-    ("genie at 1.25", "genie-scaled.json", [10, 11],
+    ("genie at 1.25", "genie-scaled.json", [9, 10],
      "the same on a 1600x1000 output at 1.25 and 60 Hz, the ThinkPad's"),
 ]
 
