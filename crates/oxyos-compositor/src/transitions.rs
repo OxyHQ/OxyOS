@@ -717,6 +717,22 @@ impl Transitions {
             *genie = self.minimize_effect == MinimizeEffect::Genie;
         }
         let motion = self.reduce(motion);
+        // Into the dock and back are one mesh: a window restored as it goes in (or minimized as it
+        // comes out) turns back from where it is, never from either end.
+        let now = match motion.shift {
+            Shift::Dock { .. } => {
+                let into = self
+                    .into_dock(appearance.key, now)
+                    .unwrap_or(if appearance.arrived() { 1.0 } else { 0.0 });
+                let done = if appearance.arrived() {
+                    1.0 - into
+                } else {
+                    into
+                };
+                now.saturating_sub(DOCK_DURATION.mul_f64(done))
+            }
+            _ => now,
+        };
         if appearance.arrived() {
             self.start_arriving(
                 appearance.key,
@@ -735,6 +751,22 @@ impl Transitions {
                 snapshot,
             );
         }
+    }
+
+    /// How far into the dock `key` is at `now` while it goes into it or comes out of it.
+    fn into_dock(&self, key: SurfaceKey, now: Duration) -> Option<f64> {
+        let docking = |running: &Running| matches!(running.motion.shift, Shift::Dock { .. });
+        if let Some((_, running, _)) = self
+            .going
+            .iter()
+            .find(|(going, running, _)| *going == key && docking(running))
+        {
+            return Some(going_at(running, running.elapsed(now)).into_dock());
+        }
+        self.arriving
+            .get(&key)
+            .filter(|running| docking(running))
+            .map(|running| arriving_at(running, running.elapsed(now)).into_dock())
     }
 
     /// `key` arrives with its first frame, as the ADR's motion for its kind.
@@ -1453,6 +1485,44 @@ mod tests {
         assert_eq!(back.shift_permille, 250);
         assert_eq!(back.genie(rect).unwrap(), quarter);
         assert_eq!(t.arriving(KEY, start + DOCK_DURATION), Frame::WHOLE);
+    }
+
+    #[test]
+    fn a_window_restored_as_it_goes_in_turns_back_from_where_it_is() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        let rect = Rect::new(100, 100, 200, 100);
+        t.appear(
+            appearance(Change::Minimized),
+            start,
+            Some(snapshot()),
+            &PLACE,
+        );
+        let gone = t
+            .going(start + Duration::from_millis(150))
+            .next()
+            .unwrap()
+            .2;
+        assert_eq!(gone.shift_permille, 300);
+        // Restored 150 ms in: from the same mesh, back out, 200 ms in all.
+        let now = start + Duration::from_millis(150);
+        t.appear(appearance(Change::Restored), now, None, &PLACE);
+        let back = t.arriving(KEY, now);
+        assert_eq!(back.shift_permille, 300);
+        assert_eq!(back.genie(rect), gone.genie(rect));
+        assert_eq!(
+            t.arriving(KEY, now + Duration::from_millis(100))
+                .shift_permille,
+            100
+        );
+        assert_eq!(
+            t.arriving(KEY, now + Duration::from_millis(150)),
+            Frame::WHOLE
+        );
+        // Minimized again halfway out: in again from there.
+        let now = now + Duration::from_millis(75);
+        t.appear(appearance(Change::Minimized), now, Some(snapshot()), &PLACE);
+        assert_eq!(t.going(now).next().unwrap().2.shift_permille, 150);
     }
 
     #[test]
