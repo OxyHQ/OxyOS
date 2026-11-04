@@ -36,6 +36,7 @@ pub use gpu_buffers::GpuFrame;
 pub mod choosers;
 pub mod displays;
 pub mod idle;
+pub mod genie;
 pub mod input_methods;
 pub mod installs;
 pub mod login;
