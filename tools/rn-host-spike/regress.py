@@ -138,8 +138,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   showed; "bounded", no more configures than frames shown; "steady", the window's edges ("left",
   "top", "right", "bottom") that must not move in any frame shown; "composed_min", the fewest frames
   composed in the drag (a window moved is a frame for each motion, or for each refresh of a paced
-  output slower than the hand); "composed_gap_ms", [least, most] for the median time between the
-  frames composed while the hand moved (a paced output's refresh); "bytes_read_max", the most
+  output slower than the hand; with --speed-budgets, else two); "composed_gap_ms", [least, most]
+  for the median time between the frames composed while the hand moved (a paced output's refresh;
+  with --speed-budgets); "bytes_read_max", the most
   of the application's pixels the compositor may read in the drag (0 for a window moved: it shows
   nothing new);
   and always, no frame composed in the drag drawing the window at another size than its
@@ -449,6 +450,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import collections
 import json
 import math
 import re
@@ -537,9 +539,21 @@ def same_text(got, wanted, t_ns):
 
 
 # Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
-# this machine, which its load changes. What a step must do (what it re-renders, a backstop far
-# above any machine's time) is always held (docs/performance.mdx, "What a step re-renders").
+# this machine, which its load changes, and the display's rate (how many frames fit in a motion,
+# how far apart they come: a drag's `composed_min` and `composed_gap_ms`, a transition's
+# `frames_min` and `frame_gap_ms`, `window_frames`', `animated_frames`' and `committed_frames`'
+# least, `animation_frames`' count and median interval), which perf.py's `refresh` judges on the
+# machine itself. What a step must do (what it re-renders, a backstop far above any machine's time,
+# a motion in more than one frame, the window told the display's refresh, each frame answered once
+# and in order: check_pacing) is always held (docs/performance.mdx, "What a step re-renders").
 SPEED_BUDGETS = False
+
+
+def frames_least(least):
+    """The fewest frames a step may show for a claim of `least`: all of them under --speed-budgets
+    (how many fit in the time is the machine's rate, which a loaded one does not hold), else two:
+    what moved did so in more than one frame, not one jump, which no load changes."""
+    return least if SPEED_BUDGETS else min(least, 2)
 
 # Whether the steps' budgets on time are left to the caller (--collect, perf.py's): every one of
 # them, latency and backstops too, is measured over several runs and judged at the median there,
@@ -576,6 +590,34 @@ SLOW_LINE = re.compile(
 def percentile(ordered, p):
     """The percentile as the host's summary picks it (FrameDiagnostics::percentile)."""
     return ordered[min(len(ordered) * p // 100, len(ordered) - 1)] if ordered else None
+
+
+def check_pacing(report, hz, end, failures):
+    """A display paced at a refresh (`outputs`' ":HZ"): what no load changes, where the rate itself
+    is a speed budget (--speed-budgets). The window is told the display's refresh before its first
+    frame, and the client's frames, numbered across its surfaces, follow on one by one (none
+    skipped, none twice), each answered once by the compositor (shown, or discarded as the protocol
+    says: drawn for a configure since replaced, or superseded), in order."""
+    refresh = [line for line in report if line["kind"] == "refresh"]
+    presents = [line for line in report if line["kind"] == "present" and "sequence" in line]
+    feedback = [line for line in report if line["kind"] == "feedback"]
+    if not refresh or refresh[0]["mhz"] != round(hz * 1000):
+        failures.append(f"the window was told a refresh of {refresh[0]['mhz'] if refresh else None} mHz, "
+                        f"the display's being {round(hz * 1000)}")
+    elif presents and refresh[0]["t"] > presents[0]["t"]:
+        failures.append("the window was told the display's refresh after its first frame")
+    sequences = [line["sequence"] for line in presents]
+    if any(b != a + 1 for a, b in zip(sequences, sequences[1:])):
+        failures.append(f"the client's frames skipped or repeated a number: {sequences}")
+    answers = collections.Counter(line["sequence"] for line in feedback)
+    # A frame presented as the run ends may go unanswered: the host is stopped first.
+    unanswered = [line["sequence"] for line in presents if line["t"] <= end and answers[line["sequence"]] != 1]
+    if unanswered:
+        failures.append(f"frames not answered exactly once by the compositor: {unanswered} "
+                        f"({[answers[n] for n in unanswered]} times)")
+    answered = [line["sequence"] for line in feedback]
+    if answered != sorted(answered):
+        failures.append(f"the compositor answered the client's frames out of order: {answered}")
 
 
 def check_diagnostics(report, log_text, failures, who="the application"):
@@ -1525,6 +1567,7 @@ def check_animated(expect, report, start, end, fail, kind="animated", refresh_hz
                     fail(f"the native driver moved {view} {prop} ({[value for _, value in frames]}), which the step does not list")
     bounds, linear_ms = expect.get(f"{kind}_frames", 8), expect.get(f"{kind}_linear_ms")
     least, most = bounds if isinstance(bounds, list) else (bounds, None)
+    least = frames_least(least)
 
     def channels(value):
         return [int(value[i:i + 2], 16) for i in (1, 3, 5)] if isinstance(value, str) else [value]
@@ -1591,7 +1634,7 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
         # Its last frame drawn in it, within a display frame of its end.
         if not low <= times[-1] <= high:
             fail(f"{name} drew its last frame {times[-1]} ms in, expected {low} to {high}")
-    if "frame_gap_ms" in wanted:
+    if "frame_gap_ms" in wanted and SPEED_BUDGETS:
         gaps = sorted(b - a for a, b in zip(times, times[1:]))
         median, most = gaps[len(gaps) // 2], gaps[-1]
         if median > wanted["frame_gap_ms"][0] or most > wanted["frame_gap_ms"][1]:
@@ -1810,13 +1853,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         wanted = expect["animation_frames"]
         frames = [line for line in report if line["kind"] == "animation_frame" and start <= line["t"] <= end]
         low, high = wanted.get("count", [0, float("inf")])
-        if not low <= len(frames) <= high:
+        if not frames_least(low) <= len(frames) <= high:
             fail(f"requestAnimationFrame ran {len(frames)} frames, expected {low} to {high}")
         stamps = [line["timestamp"] for line in frames]
         gaps = [b - a for a, b in zip(stamps, stamps[1:])]
         if gaps and min(gaps) < wanted.get("interval_ms", 0):
             fail(f"requestAnimationFrame's frames came {min(gaps):.2f} ms apart, expected at least {wanted['interval_ms']}")
-        if "median_interval_ms" in wanted:
+        if "median_interval_ms" in wanted and SPEED_BUDGETS:
             low, high = wanted["median_interval_ms"]
             median = statistics.median(gaps) if gaps else None
             if median is None or not low <= median <= high:
@@ -2013,7 +2056,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         low, high = expect["window_frames"]
         count = sum(1 for line in report if line["kind"] == "frame" and line.get("surface") == 1
                     and line.get("presented", True) and start <= line["t"] <= end)
-        if not low <= count <= high:
+        if not frames_least(low) <= count <= high:
             fail(f"the window presented {count} frames, expected between {low} and {high}")
     if "gestures" in expect:
         got = gesture_events(report, start, end)
@@ -2343,7 +2386,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "transitions" in expect:
         ran = result.get("transitions") or {"frames": 0, "seen": []}
         wanted = expect["transitions"]
-        if ran["frames"] < wanted.get("frames_min", 0):
+        if ran["frames"] < frames_least(wanted.get("frames_min", 0)):
             fail(f"{ran['frames']} frames composed in transitions, expected at least {wanted['frames_min']}")
         if "count" in wanted and len(ran["seen"]) != wanted["count"]:
             fail(f"{len(ran['seen'])} transitions ran, expected {wanted['count']}: {ran['seen']}")
@@ -2367,12 +2410,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if drag.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {drag.get('presented', 0)} frames in the drag, expected at least "
                  f"{wanted['presented_min']}")
-        if drag.get("composed", 0) < wanted.get("composed_min", 0):
+        if drag.get("composed", 0) < frames_least(wanted.get("composed_min", 0)):
             fail(f"{drag.get('composed', 0)} frames were composed in the drag, expected at least {wanted['composed_min']}")
         if "composed_gap_ms" in wanted:
             low, high = wanted["composed_gap_ms"]
             median = (drag.get("composed_gap_ms") or {}).get("median")
-            if median is None or not low <= median <= high:
+            if SPEED_BUDGETS and (median is None or not low <= median <= high):
                 fail(f"the frames composed in the drag came {median} ms apart (median), expected {low} to {high}")
         if drag.get("bytes_read", 0) > wanted.get("bytes_read_max", float("inf")):
             fail(f"the compositor read {drag['bytes_read']} bytes of the application's pixels in the drag, expected at most "
@@ -3465,6 +3508,9 @@ def main():
                            out / "preferences", refresh_hz, recorder)
     # Each host's frame diagnostics against its report, and the log they wrote to.
     check_diagnostics(report, run.stdout + run.stderr, failures)
+    primary = (scenario.get("outputs") or "").split(",")[0]
+    if ":" in primary and summary["steps"]:
+        check_pacing(report, display_hz(scenario), summary["steps"][-1].get("t_settled", 0), failures)
     if shell_report:
         check_diagnostics(shell_report, run.stdout + run.stderr, failures, "the shell")
     # A frame the host drew from its damage that differs from the frame drawn whole.

@@ -119,6 +119,7 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     } else if (event.kind == OXYOS_EVENT_REFRESH) {
       if (target) target->refreshMhz = event.detail;
     } else if (event.kind == OXYOS_EVENT_FEEDBACK) {
+      Report::get().feedback(event.surface, event.serial, event.detail == OXYOS_OUTCOME_PRESENTED);
       if (target && event.serial == target->inFlight) {
         target->inFlight = 0;
         if (event.detail == OXYOS_OUTCOME_PRESENTED) {
@@ -363,6 +364,9 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
     parts["total_ms"] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
   }
   FrameDiagnostics::get().presented(onGpu, onGpu ? times.sync_ms : 0);
+  // The frame's sequence, the client's for every surface's frames, which the compositor's
+  // feedback names (regress.py: each answered once, in order, none skipped).
+  parts["sequence"] = sequence;
   Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
