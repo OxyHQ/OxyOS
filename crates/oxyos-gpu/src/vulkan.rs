@@ -111,10 +111,14 @@ struct Push {
     /// A client's GPU buffer's slot in the shader's images, plus one; 0: pixels in the source
     /// buffer (docs/adr/0031-gpu-buffers.mdx).
     image: u32,
+    /// A mesh it is drawn through (`warp`): its rows' count (0: none) and their offset in the
+    /// source buffer, in words.
+    warp_rows: u32,
+    warp_offset: u32,
 }
 
-/// A layer table entry's size: 30 words.
-const PUSH_BYTES: usize = 30 * 4;
+/// A layer table entry's size: 32 words.
+const PUSH_BYTES: usize = 32 * 4;
 
 /// The push constants of `shaders/compose.wgsl`'s `Frame`: the region a dispatch composes, the
 /// output's size, the background and the layers' count. 8 words, within the 128 bytes every
@@ -206,6 +210,8 @@ impl Push {
             self.scale,
             self.filter,
             self.image,
+            self.warp_rows,
+            self.warp_offset,
         ];
         let mut bytes = [0; PUSH_BYTES];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
@@ -1125,11 +1131,27 @@ impl VulkanCompositor {
         let uploads = |layer: &Layer<'_>| {
             layer.pixels().is_some() && !matches!(layer.paint, Paint::Imported { .. })
         };
+        // A mesh's rows, worked out in the layer's pixels as the CPU reference does: uploaded with
+        // every frame (a transition's mesh changes every frame), four words a row.
+        let meshes: Vec<Option<Vec<crate::warp::Fixed>>> = layers
+            .iter()
+            .map(|layer| {
+                layer
+                    .warp
+                    .map(|warp| warp.fixed(layer.width, layer.height, layer.extent))
+            })
+            .collect();
+        let mesh_words: u64 = meshes
+            .iter()
+            .flatten()
+            .map(|rows| 4 * rows.len() as u64)
+            .sum();
         let frame_words: u64 = layers
             .iter()
             .filter(|layer| uploads(layer))
             .map(|layer| words(layer))
-            .sum();
+            .sum::<u64>()
+            + mesh_words;
         let out_words = width as usize * height as usize;
         if out_words == 0 {
             return Ok(None);
@@ -1163,7 +1185,8 @@ impl VulkanCompositor {
                     && updatable(&self.resident, layer).is_none()
             })
             .map(|layer| words(layer))
-            .sum();
+            .sum::<u64>()
+            + mesh_words;
         if self.source_next + new_words > capacity {
             // Full: every layer is uploaded again, from the start.
             self.resident.clear();
@@ -1215,7 +1238,7 @@ impl VulkanCompositor {
         let mut layer_pushes = Vec::with_capacity(layers.len());
         let mut copies = Vec::new();
         let mut uploaded = 0u64;
-        for layer in &layers {
+        for (layer, mesh) in layers.iter().zip(&meshes) {
             let mut push = Push {
                 x: layer.x,
                 y: layer.y,
@@ -1337,6 +1360,30 @@ impl VulkanCompositor {
                     };
                     push.src_offset = offset as u32;
                 }
+            }
+            if let Some(rows) = mesh {
+                let row_words: Vec<u32> = rows.iter().flatten().map(|&v| v as u32).collect();
+                let length = row_words.len() as u64;
+                let offset = self.source_next;
+                self.source_next += length;
+                // SAFETY: `upload` is mapped for at least `frame_words` words, which count every
+                // mesh's words, and the frame uploads no more.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        row_words.as_ptr(),
+                        (upload.mapped as *mut u32).add(uploaded as usize),
+                        row_words.len(),
+                    );
+                }
+                copies.push(
+                    vk::BufferCopy::default()
+                        .src_offset(uploaded * 4)
+                        .dst_offset(offset * 4)
+                        .size(length * 4),
+                );
+                uploaded += length;
+                push.warp_rows = rows.len() as u32;
+                push.warp_offset = offset as u32;
             }
             // The whole layer, or the part of it within its clip (none: nothing is dispatched).
             let push = push.whole();

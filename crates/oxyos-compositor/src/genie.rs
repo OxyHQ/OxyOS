@@ -243,7 +243,9 @@ impl Rows {
     }
 
     fn get(&self, index: usize) -> f64 {
-        self.0.get(index).map_or(f64::NAN, |&value| f64::from(value))
+        self.0
+            .get(index)
+            .map_or(f64::NAN, |&value| f64::from(value))
     }
 }
 
@@ -403,8 +405,18 @@ fn build(rows: &Rows, count: usize, window: Rect, edge: Edge) -> Mesh {
     }
     let start = rows.get(3 * if reversed { count - 1 } else { 0 });
     let end = rows.get(3 * if reversed { 0 } else { count - 1 });
-    let along = fround(if vertical { window.height } else { window.width } / (end - start));
-    let across = if vertical { window.width } else { window.height };
+    let along = fround(
+        if vertical {
+            window.height
+        } else {
+            window.width
+        } / (end - start),
+    );
+    let across = if vertical {
+        window.width
+    } else {
+        window.height
+    };
     let across_f32 = fround(across);
     let origin = if vertical { window.x } else { window.y };
     for t in 0..count {

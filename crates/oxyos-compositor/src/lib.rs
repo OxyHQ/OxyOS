@@ -35,8 +35,8 @@ pub mod screenshots;
 pub use gpu_buffers::GpuFrame;
 pub mod choosers;
 pub mod displays;
-pub mod idle;
 pub mod genie;
+pub mod idle;
 pub mod input_methods;
 pub mod installs;
 pub mod login;
@@ -2272,6 +2272,7 @@ impl Compositor {
                 // output's scale), filtered (ADR 0011, step 5; ADR 0022).
                 filter: oxyos_gpu::Filter::Box,
                 clip: content.clip,
+                warp: None,
             })
             .collect();
         // Frames older than those composed are never shown again.
@@ -2398,6 +2399,7 @@ impl Compositor {
                         radius: 0,
                         filter: oxyos_gpu::Filter::Box,
                         clip: content.clip,
+                        warp: None,
                     },
                 ));
             }
@@ -4355,6 +4357,7 @@ mod tests {
             radius: 6,
             filter: oxyos_gpu::Filter::Box,
             clip: None,
+            warp: None,
         };
         let placed = right.layer(&layer).expect("on the screen");
         // A clip is placed as the layer is: one that is the layer's rectangle is the placed one.

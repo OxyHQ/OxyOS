@@ -1,20 +1,23 @@
 //! A composed frame's layers in a file, so frames composed by one machine's compositor can be
 //! composed again elsewhere (on another device, or another OS's Vulkan driver) and compared.
 //!
-//! Format, little-endian: `OXYFRAME4`, then width, height, background and the layer count (u32
+//! Format, little-endian: `OXYFRAME5`, then width, height, background and the layer count (u32
 //! each); per layer x, y (i32), width, height, extent width, extent height (u32), kind (u8:
 //! 0 opaque, 1 premultiplied, 2 fill, 3 shadow), opacity (u8), radius (u32), a shadow's shape
 //! and what it is beneath (x, y as i32, width, height and radius as u32, each) and its scale
 //! (u32), its filter (u8: 0 nearest, 1 box) and clip (u8: 1 if it has one, then x, y as i32 and
-//! width, height as u32), colour (u32), byte length (u64) and the pixels. `OXYFRAME3` files,
+//! width, height as u32), colour (u32), byte length (u64) and the pixels, then its mesh (`warp`,
+//! the genie): its rows' count (u32, 0 for none) and each row's height, left, right and source
+//! height (f32 each). `OXYFRAME4` files, from before meshes, are read with none; `OXYFRAME3` files,
 //! from before filters and clips, are read with every layer nearest and unclipped; `OXYFRAME2`
 //! files, from before corners and shadows, also with every radius 0; `OXYFRAME1` files, from
 //! before opacities, also with every layer at 255.
 
-use crate::{Filter, Layer, Paint, Rect, Shadow};
+use crate::{Filter, Layer, Paint, Rect, Shadow, Warp, WarpRow};
 use std::io::{self, Read, Write};
 
-const MAGIC: &[u8; 9] = b"OXYFRAME4";
+const MAGIC: &[u8; 9] = b"OXYFRAME5";
+const MAGIC_4: &[u8; 9] = b"OXYFRAME4";
 const MAGIC_3: &[u8; 9] = b"OXYFRAME3";
 const MAGIC_2: &[u8; 9] = b"OXYFRAME2";
 const MAGIC_1: &[u8; 9] = b"OXYFRAME1";
@@ -24,7 +27,7 @@ pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub background: u32,
-    layers: Vec<(Layer<'static>, Kind, Vec<u8>)>,
+    layers: Vec<(Layer<'static>, Kind, Vec<u8>, Vec<WarpRow>)>,
 }
 
 /// What a layer read paints with its pixels.
@@ -40,13 +43,14 @@ impl Frame {
     pub fn layers(&self) -> Vec<Layer<'_>> {
         self.layers
             .iter()
-            .map(|(layer, kind, pixels)| Layer {
+            .map(|(layer, kind, pixels, rows)| Layer {
                 paint: match kind {
                     Kind::Opaque => Paint::Opaque(pixels),
                     Kind::Premultiplied => Paint::Premultiplied(pixels),
                     Kind::Fill => layer.paint,
                     Kind::Shadow(shadow) => Paint::Shadow(pixels, *shadow),
                 },
+                warp: (!rows.is_empty()).then_some(Warp { rows }),
                 ..*layer
             })
             .collect()
@@ -111,6 +115,13 @@ pub fn write(
         out.write_all(&color.to_le_bytes())?;
         out.write_all(&(pixels.len() as u64).to_le_bytes())?;
         out.write_all(pixels)?;
+        let rows = layer.warp.map_or(&[][..], |warp| warp.rows);
+        out.write_all(&(rows.len() as u32).to_le_bytes())?;
+        for row in rows {
+            for value in [row.y, row.left, row.right, row.source] {
+                out.write_all(&value.to_le_bytes())?;
+            }
+        }
     }
     Ok(())
 }
@@ -129,9 +140,10 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
     let mut magic = [0; 9];
     input.read_exact(&mut magic)?;
     // The version: 1 without opacities, 2 without corners and shadows, 3 without filters and
-    // clips.
+    // clips, 4 without meshes.
     let version = match &magic {
-        magic if magic == MAGIC => 4,
+        magic if magic == MAGIC => 5,
+        magic if magic == MAGIC_4 => 4,
         magic if magic == MAGIC_3 => 3,
         magic if magic == MAGIC_2 => 2,
         magic if magic == MAGIC_1 => 1,
@@ -193,6 +205,22 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
         }
         let mut pixels = vec![0; length as usize];
         input.read_exact(&mut pixels)?;
+        let mut rows = Vec::new();
+        if version >= 5 {
+            let count = u32s(input, 1)?[0] as usize;
+            if count > crate::warp::MAX_ROWS {
+                return Err(invalid("mesh too large"));
+            }
+            rows = u32s(input, 4 * count)?
+                .chunks_exact(4)
+                .map(|row| WarpRow {
+                    y: f32::from_bits(row[0]),
+                    left: f32::from_bits(row[1]),
+                    right: f32::from_bits(row[2]),
+                    source: f32::from_bits(row[3]),
+                })
+                .collect();
+        }
         let layer = Layer {
             x: fields[0] as i32,
             y: fields[1] as i32,
@@ -206,6 +234,7 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
             radius: shape[0],
             filter,
             clip,
+            warp: None,
         };
         let kind = match kind[0] {
             0 => Kind::Opaque,
@@ -214,7 +243,7 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
             3 if version >= 3 => Kind::Shadow(shadow),
             _ => return Err(invalid("unknown layer kind")),
         };
-        layers.push((layer, kind, pixels));
+        layers.push((layer, kind, pixels, rows));
     }
     Ok(Frame {
         width,

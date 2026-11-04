@@ -29,6 +29,7 @@ fn white_at(opacity: u8) -> u32 {
         radius: 0,
         filter: oxyos_gpu::Filter::Box,
         clip: None,
+        warp: None,
     };
     oxyos_gpu::compose_cpu(1, 1, DESKTOP, &[layer])[0]
 }

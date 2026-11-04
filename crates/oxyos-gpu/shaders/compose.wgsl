@@ -52,6 +52,11 @@ struct Layer {
     // A client's GPU buffer the layer is drawn from (docs/adr/0031-gpu-buffers.mdx): its slot in
     // `images`, plus one; 0, its pixels are in `src`.
     image: u32,
+    // A mesh the layer is drawn through (`src/warp.rs`, the genie): its rows' count (0: none) and
+    // where they start in `src`, in words, four each (height, left, right, source height, in
+    // sixteenths of a pixel, as `Warp::fixed` gives them).
+    warp_rows: u32,
+    warp_offset: u32,
 }
 
 // The region of the output a dispatch composes, the output's size, its background and how many
@@ -232,6 +237,131 @@ fn sample(i: u32, lx: u32, ly: u32, opaque: bool) -> u32 {
     return (rounded.w << 24u) | (rounded.x << 16u) | (rounded.y << 8u) | rounded.z;
 }
 
+// `warp::SUB`, sixteenths of a pixel; the widest half box (`warp::MAX_HALF`).
+const SUB: i32 = 16;
+const MAX_HALF: i32 = 512;
+
+// Row `r` of layer `i`'s mesh: height, left, right, source height.
+fn warp_row(i: u32, r: u32) -> vec4<i32> {
+    let at = layers[i].warp_offset + 4u * r;
+    return vec4<i32>(i32(src[at]), i32(src[at + 1u]), i32(src[at + 2u]), i32(src[at + 3u]));
+}
+
+// `warp::Fall`: coverage 0 is none.
+struct Fall {
+    coverage: u32,
+    x: i32,
+    y: i32,
+    half_x: i32,
+    half_y: i32,
+}
+
+// `between` in `warp::fall`: `share` 4096ths of the way from `start` to `end`.
+fn between(start: i32, end: i32, share: u32) -> i32 {
+    return start + (((end - start) * i32(share) + 2048) >> 12u);
+}
+
+// `warp::fall`.
+fn fall(i: u32, lx: u32, ly: u32) -> Fall {
+    let none = Fall(0u, 0, 0, 0, 0);
+    let count = layers[i].warp_rows;
+    let top = warp_row(i, 0u).x;
+    let bottom = warp_row(i, count - 1u).x;
+    let centre_y = i32(ly) * SUB + SUB / 2;
+    let covered_y = clamp(min(centre_y + SUB / 2, bottom) - max(centre_y - SUB / 2, top), 0, SUB);
+    if (covered_y == 0) {
+        return none;
+    }
+    let y = clamp(centre_y, top, bottom - 1);
+    var upper = 0u;
+    var lower = count - 1u;
+    while (lower - upper > 1u) {
+        let middle = (upper + lower) / 2u;
+        if (warp_row(i, middle).x <= y) {
+            upper = middle;
+        } else {
+            lower = middle;
+        }
+    }
+    let a = warp_row(i, upper);
+    let b = warp_row(i, lower);
+    let down = u32(b.x - a.x);
+    let share = (u32(y - a.x) << 12u) / down;
+    let left = between(a.y, b.y, share);
+    let right = between(a.z, b.z, share);
+    let centre_x = i32(lx) * SUB + SUB / 2;
+    let covered_x = clamp(min(centre_x + SUB / 2, right) - max(centre_x - SUB / 2, left), 0, SUB);
+    if (covered_x == 0) {
+        return none;
+    }
+    let across = u32(right - left);
+    let rate = (layers[i].src_width << 16u) / across;
+    let x = i32((u32(clamp(centre_x, left, right) - left) * rate) >> 12u);
+    let half_x = clamp(i32(rate >> 9u), SUB / 2, MAX_HALF);
+    let half_y = clamp((b.w - a.w) * (SUB / 2) / i32(down), SUB / 2, MAX_HALF);
+    return Fall((u32(covered_x * covered_y) * 255u + 128u) >> 8u, x, between(a.w, b.w, share), half_x, half_y);
+}
+
+// `warp::taps`: the first and last source pixels, and the box's start.
+fn warp_taps(centre: i32, half: i32, extent: u32) -> vec3<i32> {
+    let low = centre - half;
+    let high = centre + half;
+    var first = 0u;
+    if (low > 0) {
+        first = min(u32(low) / u32(SUB), extent - 1u);
+    }
+    let last = min(u32(max(high - 1, 0)) / u32(SUB), extent - 1u);
+    return vec3<i32>(i32(first), i32(last), low);
+}
+
+// `warp::through`.
+fn warp_through(at: u32, last: u32, low: i32, half: i32) -> u32 {
+    if (at == last) {
+        return ONE;
+    }
+    let end = (i32(at) + 1) * SUB - low;
+    return (u32(end) * ONE + u32(half)) / (2u * u32(half));
+}
+
+// `warp::sample`: premultiplied, its alpha in the high byte.
+fn warp_sample(i: u32, f: Fall, opaque: bool) -> u32 {
+    let columns = warp_taps(f.x, f.half_x, layers[i].src_width);
+    let rows = warp_taps(f.y, f.half_y, layers[i].src_height);
+    var sum = vec4<u32>(0u);
+    var above = 0u;
+    for (var y = u32(rows.x); y <= u32(rows.y); y++) {
+        let to_y = warp_through(y, u32(rows.y), rows.z, f.half_y);
+        let wy = to_y - above;
+        above = to_y;
+        var row = vec4<u32>(0u);
+        var before = 0u;
+        for (var x = u32(columns.x); x <= u32(columns.y); x++) {
+            let to_x = warp_through(x, u32(columns.y), columns.z, f.half_x);
+            let wx = to_x - before;
+            before = to_x;
+            let pixel = texel(i, x, y);
+            var alpha = pixel >> 24u;
+            if (opaque) {
+                alpha = 255u;
+            }
+            row += wx * vec4<u32>((pixel >> 16u) & 0xffu, (pixel >> 8u) & 0xffu, pixel & 0xffu, alpha);
+        }
+        sum += wy * row;
+    }
+    let rounded = (sum + vec4<u32>(1u << 23u)) >> vec4<u32>(24u);
+    return (rounded.w << 24u) | (rounded.x << 16u) | (rounded.y << 8u) | rounded.z;
+}
+
+// `warp::corner`.
+fn warp_corner(i: u32, f: Fall) -> u32 {
+    if (layers[i].radius == 0u) {
+        return 255u;
+    }
+    let px = min(u32(max(f.x, 0) / SUB), layers[i].src_width - 1u);
+    let py = min(u32(max(f.y, 0) / SUB), layers[i].src_height - 1u);
+    return corner_coverage(px, py, layers[i].src_width, layers[i].src_height, layers[i].radius);
+}
+
 fn channel(source: u32, under: u32, keep: u32, shift: u32, opacity: u32) -> u32 {
     let s = ((source >> shift) & 0xffu) * opacity / 255u;
     let d = (under >> shift) & 0xffu;
@@ -307,7 +437,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var first = 0u;
     for (var above = frame.layers; above > 0u; above--) {
         let i = above - 1u;
-        if ((layers[i].mode != 0u && layers[i].mode != 2u) || layers[i].opacity != 255u) {
+        if ((layers[i].mode != 0u && layers[i].mode != 2u) || layers[i].opacity != 255u || layers[i].warp_rows != 0u) {
             continue;
         }
         let at = within(i, x, y);
@@ -320,6 +450,23 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var i = first; i < frame.layers; i++) {
         let at = within(i, x, y);
         if (at.z == 0u) {
+            continue;
+        }
+        // Through its mesh: the part of the pixel it covers, sampled where it falls.
+        if (layers[i].warp_rows != 0u) {
+            let f = fall(i, at.x, at.y);
+            let covered = f.coverage * warp_corner(i, f) / 255u;
+            if (covered == 0u) {
+                continue;
+            }
+            let pixel = warp_sample(i, f, layers[i].mode == 0u);
+            var alpha = 255u;
+            if (layers[i].mode == 1u) {
+                alpha = pixel >> 24u;
+            }
+            let opacity = layers[i].opacity * covered / 255u;
+            let keep = 255u - alpha * opacity / 255u;
+            color = channel(pixel, color, keep, 16u, opacity) | channel(pixel, color, keep, 8u, opacity) | channel(pixel, color, keep, 0u, opacity);
             continue;
         }
         let coverage = coverage_of(i, at.x, at.y);

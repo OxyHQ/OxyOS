@@ -103,8 +103,16 @@ fn a_quarter_in_the_sides_are_the_cosine_from_the_windows_corners_to_the_slots()
     let side = |y: f64| 0.5 - 0.5 * ((y - 140.0) * PI / 974.0).cos();
     for row in &quarter {
         let y = f64::from(row[0]);
-        assert!(close(f64::from(row[1]), 300.0 + 690.0 * bent * side(y), 1e-3));
-        assert!(close(f64::from(row[2]), 1100.0 - 75.0 * bent * side(y), 1e-3));
+        assert!(close(
+            f64::from(row[1]),
+            300.0 + 690.0 * bent * side(y),
+            1e-3
+        ));
+        assert!(close(
+            f64::from(row[2]),
+            1100.0 - 75.0 * bent * side(y),
+            1e-3
+        ));
     }
     assert!(close(f64::from(quarter[0][0]), 140.0 + slid, 1e-3));
     assert!(close(f64::from(quarter[9][0]), 640.0 + slid, 1e-3));

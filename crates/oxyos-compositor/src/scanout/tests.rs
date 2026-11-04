@@ -16,6 +16,7 @@ fn layer(paint: oxyos_gpu::Paint<'_>) -> oxyos_gpu::Layer<'_> {
         radius: 0,
         filter: oxyos_gpu::Filter::Box,
         clip: None,
+        warp: None,
     }
 }
 

@@ -566,6 +566,7 @@ fn layers<'a>(paint: impl Fn(usize) -> Paint<'a>) -> Vec<Layer<'a>> {
             radius,
             filter: Filter::Nearest,
             clip: None,
+            warp: None,
         })
         .collect()
 }
