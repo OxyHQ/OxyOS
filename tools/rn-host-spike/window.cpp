@@ -600,6 +600,12 @@ void Window::showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views)
   }
 }
 
+void Window::setMinimizeTargets(uint32_t id, const std::vector<OxyOSMinimizeTarget>& targets) {
+  if (oxyos_client_set_minimize_targets(client_, id, targets.data(), targets.size()) != 0) {
+    failed("cannot say where windows minimize into");
+  }
+}
+
 void Window::reposition(uint32_t id, const OxyOSPositioner& positioner) {
   if (oxyos_client_reposition(client_, id, &positioner) != 0) failed("cannot reposition a popup");
 }
