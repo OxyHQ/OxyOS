@@ -15,6 +15,9 @@ export type NotificationPreviews = "always" | "unlocked";
 export type LanguagePreference = "" | "en" | "es";
 /** Twelve or 24 hours: the region's (`auto`), or the person's choice. */
 export type HourCycle = "auto" | "h12" | "h23";
+/** How a window minimized goes into the dock and comes back out (docs/adr/0011-transitions.mdx), as
+    a Mac's *Minimise windows using*: poured through the genie's funnel, or scaled into its place. */
+export type MinimizeEffect = "genie" | "scale";
 
 /** The user's preferences, as `crates/oxyos-preferences` keeps them. */
 export type Preferences = {
@@ -22,6 +25,8 @@ export type Preferences = {
   /** One of Bloom's accent colours, by name. */
   accent: string;
   reduceMotion: boolean;
+  /** Reduce motion makes either a crossfade. */
+  minimizeEffect: MinimizeEffect;
   reduceTransparency: boolean;
   /** A text field's caret blinks (docs/adr/0037-text-editing.mdx); off, it stays lit. */
   caretBlink: boolean;
@@ -125,6 +130,7 @@ export const PREFERENCE_KEYS = {
   appearance: "appearance",
   accent: "accent",
   reduceMotion: "reduce_motion",
+  minimizeEffect: "minimize_effect",
   reduceTransparency: "reduce_transparency",
   caretBlink: "caret_blink",
   wallpaper: "wallpaper",
@@ -291,6 +297,9 @@ export function prefersSteadyCaret(preferences: Pick<Preferences, "caretBlink">)
 
 /** The choices of how long before the session locks, in minutes (0: never). */
 export const LOCK_AFTER_CHOICES = [1, 2, 5, 10, 15, 30, 60, 0] as const;
+
+/** How a window may be minimized, in the order a Mac's menu offers them. */
+export const MINIMIZE_EFFECTS = ["genie", "scale"] as const satisfies readonly MinimizeEffect[];
 
 /** The accent colours offered, in the order a Mac offers its own: Bloom's preset names. */
 export const ACCENTS = ["oxy", "blue", "purple", "pink", "red", "orange", "yellow", "green", "gray"] as const;
