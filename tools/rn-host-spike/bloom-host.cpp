@@ -652,6 +652,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<KeyboardControllerViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSWindowViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyOSMinimizeTargetComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
   oxyos::addSvgComponents(*providers);

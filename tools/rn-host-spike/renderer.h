@@ -221,6 +221,16 @@ struct RenderStats {
     bool operator==(const WindowView&) const = default;
   };
   std::vector<WindowView> windowViews;
+  // Where windows minimize into in what was drawn (docs/adr/0011-transitions.mdx, the genie): for
+  // each window an OxyOSMinimizeTarget names, its number and the view's frame (in the canvas's
+  // logical pixels, unclipped, whether it draws anything or not), in drawing order. Views under a
+  // transform that turns or skews them, a mask or a blur, or fully transparent, are not among them.
+  struct MinimizeTarget {
+    uint32_t window = 0;
+    facebook::react::Rect rect;
+    bool operator==(const MinimizeTarget&) const = default;
+  };
+  std::vector<MinimizeTarget> minimizeTargets;
 };
 
 // A canvas drawn on the GPU (docs/adr/0031-gpu-buffers.mdx, decision 12): a Skia surface on the
@@ -360,6 +370,11 @@ inline constexpr const char* kShellSurfaceComponent = "OxyOSShellSurface";
 inline constexpr const char* kWindowViewComponent = "OxyOSWindowView";
 // The window an OxyOSWindowView shows: its number, if it names one.
 std::optional<uint32_t> windowViewNumber(const facebook::react::ShadowView& view);
+// Component whose frame is where windows minimize into (shell-surface.h, the dock's icon of their
+// application, docs/adr/0011-transitions.mdx).
+inline constexpr const char* kMinimizeTargetComponent = "OxyOSMinimizeTarget";
+// The windows an OxyOSMinimizeTarget names: their numbers, in its order, none twice.
+std::vector<uint32_t> minimizeTargetWindows(const facebook::react::ShadowView& view);
 // Whether a view's subtree is drawn in a surface of its own, never in its root's.
 inline bool ownSurface(const std::string& name) { return name == kPopupComponent || name == kShellSurfaceComponent; }
 // React Native's Modal: on Android a window of its own over the activity's. Here its subtree is

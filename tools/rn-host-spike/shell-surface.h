@@ -23,6 +23,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace facebook::react {
 
@@ -72,6 +73,25 @@ class OxyOSWindowViewProps final : public ViewProps {
 
 using OxyOSWindowViewShadowNode = ConcreteViewShadowNode<OxyOSWindowViewComponentName, OxyOSWindowViewProps>;
 using OxyOSWindowViewComponentDescriptor = ConcreteComponentDescriptor<OxyOSWindowViewShadowNode>;
+
+// Where windows minimize into (docs/adr/0011-transitions.mdx, the genie): the view's frame, in the
+// shell surface it is drawn in, is where each window it names (`windows`, their numbers) goes when
+// minimized and comes back out of when restored, as a Mac's Dock tells the window server its
+// icons' rectangles. The view is drawn as any other; what it holds (the dock's icon) is its own.
+extern const char OxyOSMinimizeTargetComponentName[];
+
+class OxyOSMinimizeTargetProps final : public ViewProps {
+ public:
+  OxyOSMinimizeTargetProps() = default;
+  OxyOSMinimizeTargetProps(const PropsParserContext& context, const OxyOSMinimizeTargetProps& sourceProps,
+                           const RawProps& rawProps);
+
+  std::vector<int> windows;  // 0 or less names none
+};
+
+using OxyOSMinimizeTargetShadowNode =
+    ConcreteViewShadowNode<OxyOSMinimizeTargetComponentName, OxyOSMinimizeTargetProps>;
+using OxyOSMinimizeTargetComponentDescriptor = ConcreteComponentDescriptor<OxyOSMinimizeTargetShadowNode>;
 
 }  // namespace facebook::react
 
@@ -136,6 +156,8 @@ class ShellSurfaceHost {
     WindowDamage damage;
     // The windows it shows live, as last sent to the compositor (ADR 0022).
     std::vector<RenderStats::WindowView> windows;
+    // Where the windows it names minimize into, as last sent to the compositor (ADR 0011).
+    std::vector<RenderStats::MinimizeTarget> targets;
     // Whether the compositor was told to leave its surface out of captures (ADR 0024).
     bool excluded = false;
   };
@@ -145,6 +167,9 @@ class ShellSurfaceHost {
   void exclude(Region& region, const facebook::react::OxyOSShellSurfaceProps& props);
   // Sends a region's windows shown live if they changed since last sent; true if they did.
   bool showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows);
+  // Sends where a region's windows minimize into if it changed since last sent (held from the
+  // region's next present); true if it did.
+  bool placeMinimizeTargets(Region& region, const std::vector<RenderStats::MinimizeTarget>& targets);
   const ViewTree& tree_;
   Window& window_;
   AccessibilityBridge& accessibility_;

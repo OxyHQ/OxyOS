@@ -24,6 +24,14 @@ OxyOSWindowViewProps::OxyOSWindowViewProps(const PropsParserContext& context, co
     : ViewProps(context, sourceProps, rawProps),
       window(convertRawProp(context, rawProps, "window", sourceProps.window, 0)) {}
 
+const char OxyOSMinimizeTargetComponentName[] = "OxyOSMinimizeTarget";
+
+OxyOSMinimizeTargetProps::OxyOSMinimizeTargetProps(const PropsParserContext& context,
+                                                   const OxyOSMinimizeTargetProps& sourceProps,
+                                                   const RawProps& rawProps)
+    : ViewProps(context, sourceProps, rawProps),
+      windows(convertRawProp(context, rawProps, "windows", sourceProps.windows, {})) {}
+
 OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context,
                                                const OxyOSShellSurfaceProps& sourceProps, const RawProps& rawProps)
     : ViewProps(context, sourceProps, rawProps),
@@ -46,24 +54,60 @@ std::optional<uint32_t> windowViewNumber(const ShadowView& view) {
   return static_cast<uint32_t>(props->window);
 }
 
+std::vector<uint32_t> minimizeTargetWindows(const ShadowView& view) {
+  std::vector<uint32_t> windows;
+  auto props = std::dynamic_pointer_cast<const OxyOSMinimizeTargetProps>(view.props);
+  if (!props) return windows;
+  for (int window : props->windows) {
+    auto number = static_cast<uint32_t>(window);
+    if (window > 0 && std::find(windows.begin(), windows.end(), number) == windows.end()) windows.push_back(number);
+  }
+  return windows;
+}
+
+namespace {
+
+// A rectangle in surface-local logical pixels, its edges rounded to the nearest.
+OxyOSRect surfacePixels(const Rect& rect) {
+  auto x0 = static_cast<int32_t>(std::lround(rect.origin.x));
+  auto y0 = static_cast<int32_t>(std::lround(rect.origin.y));
+  auto x1 = static_cast<int32_t>(std::lround(rect.origin.x + rect.size.width));
+  auto y1 = static_cast<int32_t>(std::lround(rect.origin.y + rect.size.height));
+  return OxyOSRect{x0, y0, static_cast<uint32_t>(std::max(0, x1 - x0)), static_cast<uint32_t>(std::max(0, y1 - y0))};
+}
+
+}  // namespace
+
+bool ShellSurfaceHost::placeMinimizeTargets(Region& region, const std::vector<RenderStats::MinimizeTarget>& targets) {
+  // Only a shell surface says where windows minimize into (the protocol's version 20); the lock
+  // screen never does.
+  if (targets == region.targets || region.placed.kind == kLock || window_.protocolVersion() < 20) return false;
+  std::vector<OxyOSMinimizeTarget> placed;
+  for (const auto& target : targets) {
+    if (placed.size() == 256) break;  // the protocol's most
+    placed.push_back(OxyOSMinimizeTarget{.window = target.window, .rect = surfacePixels(target.rect)});
+  }
+  window_.setMinimizeTargets(region.surface, placed);
+  region.targets = targets;
+  folly::dynamic said = folly::dynamic::array();
+  for (const auto& target : placed) {
+    said.push_back(folly::dynamic::object("window", target.window)("x", target.rect.x)("y", target.rect.y)(
+        "width", target.rect.width)("height", target.rect.height));
+  }
+  Report::get().popup("shell.minimize_targets", region.surface, nullptr, folly::dynamic::object("targets", said));
+  return true;
+}
+
 bool ShellSurfaceHost::showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows) {
   // Only a shell surface shows windows; the lock screen never does.
   if (windows == region.windows || region.placed.kind == kLock) return false;
-  // Surface-local logical pixels, edges rounded to the nearest.
-  auto pixels = [](const Rect& rect) {
-    auto x0 = static_cast<int32_t>(std::lround(rect.origin.x));
-    auto y0 = static_cast<int32_t>(std::lround(rect.origin.y));
-    auto x1 = static_cast<int32_t>(std::lround(rect.origin.x + rect.size.width));
-    auto y1 = static_cast<int32_t>(std::lround(rect.origin.y + rect.size.height));
-    return OxyOSRect{x0, y0, static_cast<uint32_t>(std::max(0, x1 - x0)), static_cast<uint32_t>(std::max(0, y1 - y0))};
-  };
   std::vector<OxyOSWindowView> views;
   for (const auto& window : windows) {
     if (views.size() == 64) break;  // the protocol's most
     views.push_back(OxyOSWindowView{
         .window = window.window,
-        .rect = pixels(window.rect),
-        .clip = pixels(window.clip),
+        .rect = surfacePixels(window.rect),
+        .clip = surfacePixels(window.clip),
         .radius = static_cast<uint32_t>(std::lround(std::max(0.0f, window.radius))),
         .opacity = static_cast<uint8_t>(std::lround(std::clamp(window.opacity, 0.0f, 1.0f) * 255)),
     });
@@ -274,6 +318,18 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
           for (const auto& window : *list) damage->push_back(window.clip);
         }
       }
+      // Where windows minimize into, held from the frame that goes with it (a window opened for an
+      // application whose icon shows as it did): the targets that changed are drawn again, as
+      // they were, so that a frame goes with it.
+      auto placedBefore = region.targets;
+      if (placeMinimizeTargets(region, walked.minimizeTargets)) {
+        for (const auto* list : {&placedBefore, &walked.minimizeTargets}) {
+          const auto* other = list == &placedBefore ? &walked.minimizeTargets : &placedBefore;
+          for (const auto& target : *list) {
+            if (std::find(other->begin(), other->end(), target) == other->end()) damage->push_back(target.rect);
+          }
+        }
+      }
     }
     if (damage && damage->empty()) {
       // Nothing visible changed (another region did): nothing is drawn or presented. The check
@@ -297,8 +353,10 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     }
     auto stats = damage ? drawRegionDamaged(tree_, tag, at, display, region.canvas, edit, *damage)
                         : drawRegion(tree_, tag, at, display, region.canvas, edit);
-    // Its windows shown live, sent with this frame when they changed (ADR 0022).
+    // Its windows shown live, sent with this frame when they changed (ADR 0022), and where windows
+    // minimize into (ADR 0011).
     showWindows(region, stats.windowViews);
+    placeMinimizeTargets(region, stats.minimizeTargets);
     double renderMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (checkDamage && damage) {

@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  appWindowIds,
   dockApps,
   dockMenu,
   keepInDock,
   openAtLogin,
   trashMenu,
   trashedByDrop,
+  windowIdsByApp,
+  windowIdsKey,
   type DockAbilities,
   type DockMenuItem,
 } from "../src/dock.ts";
@@ -155,4 +158,31 @@ test("a drop on the Trash puts in it the dropped files with a file URI, once eac
     ["file:///home/ana/informe.txt", "FILE:///home/ana/Fotos/"],
   );
   assert.deepEqual(trashedByDrop([]), []);
+});
+
+test("an application's icon is where its windows minimize into, the minimized ones among them", () => {
+  const windows = [
+    window("7", "allo"),
+    window("8", "inbox"),
+    window("9", "allo", { minimized: true }),
+    window("10", "allo", { launched: false }),
+  ];
+  // A window the session did not start is no registry application's.
+  assert.deepEqual(appWindowIds(windows, "allo"), ["7", "9"]);
+  assert.deepEqual(appWindowIds(windows, "dropsea"), []);
+  const applications = dockApps(snapshot(windows));
+  const key = windowIdsKey(applications, windows);
+  assert.deepEqual(
+    [...windowIdsByApp(key)],
+    [
+      ["dropsea", ""],
+      ["inbox", "8"],
+      ["allo", "7\n9"],
+    ],
+  );
+  assert.deepEqual([...windowIdsByApp("")], []);
+  // The same while the same windows are open, whatever else of them changes; not once one opens.
+  const retitled = windows.map((win) => ({ ...win, title: `${win.title} (2)`, minimized: !win.minimized }));
+  assert.equal(windowIdsKey(applications, retitled), key);
+  assert.notEqual(windowIdsKey(applications, [...windows, window("11", "inbox")]), key);
 });

@@ -973,6 +973,20 @@ typedef struct OxyOSWindowView {
  * `shell` grant); nothing of them shows while the session is locked. 0, or OXYOS_ERROR. */
 int oxyos_client_show_windows(OxyOSClient* client, uint32_t surface, const OxyOSWindowView* views, size_t count);
 
+/* Where a window minimizes into and is restored out of (docs/adr/0011-transitions.mdx, the genie):
+ * the window's number and its rectangle in the shell surface (logical pixels), its application's
+ * icon in the dock. */
+typedef struct OxyOSMinimizeTarget {
+  uint32_t window;
+  OxyOSRect rect;
+} OxyOSMinimizeTarget;
+
+/* Where each window minimizes into, as the shell's surface says, replacing what it said: `count`
+ * (at most 256) targets, held from the surface's next present. Only the session's shell may (the
+ * `shell` grant). 0, or OXYOS_ERROR; OXYOS_ERROR, sending nothing, to a compositor older than
+ * protocol version 20 (see oxyos_client_protocol_version). */
+int oxyos_client_set_minimize_targets(OxyOSClient* client, uint32_t surface, const OxyOSMinimizeTarget* targets, size_t count);
+
 /* The parts of a surface never captured, its secure text fields (docs/adr/0024-system-shortcuts.mdx,
  * decision 10): `count` (at most 32) rectangles, surface-local and logical, replacing those it had,
  * with the surface's next present. A screenshot draws them opaque black. 0, or OXYOS_ERROR. */

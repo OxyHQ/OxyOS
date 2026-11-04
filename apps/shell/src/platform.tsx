@@ -62,6 +62,18 @@ export type WindowViewProps = {
   accessibilityLabel?: string;
 };
 
+/**
+ * Where windows minimize into (docs/adr/0011-transitions.mdx, the genie): the platform's
+ * compositor has each window `windowIds` names go into the view's box when it is minimized and
+ * come back out of it when it is restored, as a Mac's Dock tells the window server where each
+ * window's icon is. The view lays out and draws `children` as any view; `style` sizes it.
+ */
+export type MinimizeTargetProps = {
+  windowIds: readonly string[];
+  style?: StyleProp<ViewStyle>;
+  children?: ReactNode;
+};
+
 /** A key press as the platform offers it before the focused field (W3C names). */
 export type ShellKeyEvent = {
   key: string;
@@ -87,6 +99,9 @@ export type ShellPlatform = {
   /** Where the platform shows windows live (the overview's cards); without it, a window's
       `thumbnail` if it has one, or its icon. */
   WindowView?: ComponentType<WindowViewProps>;
+  /** Where the platform minimizes windows into a view (the dock's icon of their application);
+      without it, the dock's icons are only pictures and the platform minimizes as it does. */
+  MinimizeTarget?: ComponentType<MinimizeTargetProps>;
   /** The windows' sizes now, by window id, where the platform keeps them apart from the snapshot
       (the session's shell): read by the overview alone, so that a window resized or zoomed renders
       the overview, when it is open, and nothing else of the shell. Without it, each window's

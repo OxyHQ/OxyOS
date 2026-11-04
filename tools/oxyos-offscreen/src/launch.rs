@@ -2108,6 +2108,19 @@ fn beyond(window: Rect, popup: Rect) -> [i64; 4] {
     ]
 }
 
+/// Where the application's window minimizes into, as the shell's dock says it (ADR 0011's genie):
+/// `[x, y, width, height]` in the global space, or null.
+fn minimize_target_json(compositor: &Compositor) -> String {
+    let window = SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    };
+    match compositor.scene.minimize_target(window) {
+        Some(r) => format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
+        None => "null".to_string(),
+    }
+}
+
 /// The surface of the application holding keyboard focus, or null.
 fn focus_json(compositor: &Compositor) -> String {
     match compositor.scene.focus() {
@@ -4875,7 +4888,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let urls = urls_json(&mut session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4890,6 +4903,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
+            minimize_target_json(&session.compositor),
             session.compositor.scene.pointer_shape(),
             pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),

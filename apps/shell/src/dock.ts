@@ -75,6 +75,24 @@ export function appWindows(snapshot: DockState, id: string): ShellWindow[] {
   return snapshot.windows.filter((win) => belongsTo(win, id));
 }
 
+/** The ids of the application `id`'s windows, oldest first, the minimized ones among them: those
+    that minimize into its icon (docs/adr/0011-transitions.mdx, the genie). */
+export function appWindowIds(windows: readonly ShellWindow[], id: string): string[] {
+  return windows.filter((win) => belongsTo(win, id)).map((win) => win.id);
+}
+
+/** Each application's window ids (`appWindowIds`, one a line) by its id, as one string: the same
+    while the same windows are open, whatever else of them changes (a size, a title), so that the
+    dock renders an icon again only when its application's windows come or go. */
+export function windowIdsKey(applications: readonly ShellApplication[], windows: readonly ShellWindow[]): string {
+  return JSON.stringify(applications.map((app) => [app.id, appWindowIds(windows, app.id).join("\n")]));
+}
+
+/** `windowIdsKey`'s strings by application id; an application with no window has the empty string. */
+export function windowIdsByApp(key: string): Map<string, string> {
+  return new Map(key ? (JSON.parse(key) as [string, string][]) : []);
+}
+
 /**
  * The menu of the application `id`'s icon, as a Mac's Dock has it:
  * - a running application's windows, its current one checked; then Show All Windows and Hide;
