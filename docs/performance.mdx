@@ -631,6 +631,37 @@ untouched): every claim on the display's rate held at the median, each run withi
 | | | requestAnimationFrame's frames (60 to 80) | 70 |
 | | | ms apart, median (8.0 to 9.0) | 8.53 (8.54 8.60 8.53 8.53 8.51) |
 
+### The genie, on the ThinkPad
+
+`perf.py genie --check`, 5 runs, the same way on 4 November 2026 (no GPU: the development
+compositor composing on the CPU, the reference, and the hosts drawing on the CPU; the session
+untouched, the directory removed afterwards): `genie.json` (an 800 × 500 window restored out of
+Allo's dock icon and minimized into it, 500 ms each, on a 1280 × 720 output at 120 Hz) and
+`genie-scaled.json` (the same on a 1600 × 1000 output at 1.25 and 60 Hz, the ThinkPad's), the two
+steps on the compositor's own clock ([ADR 0043](./adr/0043-the-genie)).
+
+| | frames composed | ms apart p50 / p95 / max | late | composing ms p50 / p95 / max |
+|---|---|---|---|---|
+| at 120 Hz, 1280 × 720 | 585 | 8.34 / 16.53 / 16.94 | 34 | 3.99 / 9.20 / 10.03 |
+| at 60 Hz, 1600 × 1000 at 1.25 | 315 | 16.66 / 16.89 / 22.82 | 0 | 6.24 / 14.66 / 15.86 |
+
+| | step | claim (one a refresh) | ThinkPad, median (each run) |
+|---|---|---|---|
+| at 120 Hz | restored | frames drawn (54 to 61) | 58 (58 58 58 58 58) |
+| | minimized | frames drawn (54 to 61) | 57 (57 57 57 57 57) |
+| at 60 Hz, 1.25 | restored | frames drawn (27 to 31) | 31 (31 31 31 31 31) |
+| | minimized | frames drawn (27 to 31) | 30 (30 30 30 30 30) |
+
+Every claim on the rate held. At 60 Hz every frame of the genie was composed within its refresh on
+the CPU. At 120 Hz the CPU composes the median frame in 4 ms but the 95th percentile in 9.2, over
+the 8.3 ms refresh (`--check` names it): the frames of the genie's first 50 ms, where the window's
+fading shadow is drawn under it and the window's whole rectangle is composed, take the longest.
+The session composes on the Iris Xe, where the mesh is a compute pass's binary search and a few
+taps per pixel; that the device holds 120 Hz is to be measured with a display that runs at it. Two
+changes measured here brought the CPU from 6.5 ms (median) and 46 frames of 61 to these: a mesh's
+row blends the source rows its pixels read once (`warp::blend_rows`), and a window going through
+the genie damages its own rectangle only while its shadow shows.
+
 ## What was fixed
 
 - **Every change the compositor told the shell rendered the whole shell again**, 16 to 20 ms of
