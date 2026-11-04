@@ -57,6 +57,8 @@ pub type Looks = HashMap<SurfaceKey, WindowLook>;
 pub const DESKTOP: u32 = 0x10_14_18;
 /// Events a client may leave unread before it is disconnected as unresponsive.
 const MAX_OUTBOX: usize = 1024;
+/// The side of the place in the dock a window minimizes into when the shell says none: its icons'.
+const DOCK_SLOT: u32 = 42;
 /// The most requests read from one client in a turn: a burst (a window's menus, an accessibility
 /// snapshot, hundreds of packets) is read in a few turns, not one turn a packet, so a frame sent
 /// after it is not left waiting behind it.
@@ -349,7 +351,12 @@ impl Screen {
             width: (x1 - x0) as u32,
             height: (y1 - y0) as u32,
             paint,
-            radius: length(layer.radius),
+            // A mesh's corners are its pixels', whatever the screen's scale.
+            radius: if layer.warp.is_some() {
+                layer.radius
+            } else {
+                length(layer.radius)
+            },
             // A clip is of the global space too.
             clip: layer.clip.map(|clip| {
                 let (cx0, cy0, cx1, cy1) = self.place(clip.x, clip.y, clip.width, clip.height);
@@ -711,6 +718,9 @@ struct Content {
     clip: Option<oxyos_gpu::Rect>,
     /// Its pixels are those of the content at this index (the same window's frame, read once).
     shares: Option<usize>,
+    /// The genie's mesh it is drawn through (ADR 0011, step 7), within `placed`; its `radius` is
+    /// then its pixels' corners', in its pixels.
+    warp: Option<Vec<oxyos_gpu::WarpRow>>,
     /// The surface it draws, or draws for (a window's shadow, the windows a shell surface shows
     /// live), and whether a capture shows it (docs/adr/0024-system-shortcuts.mdx, decision 10);
     /// a surface's secure regions (surface-local, logical), drawn black in a capture.
@@ -736,6 +746,7 @@ impl Content {
             look: None,
             clip: None,
             shares: None,
+            warp: None,
             owner: None,
             captured: true,
             secure: Vec::new(),
@@ -769,6 +780,7 @@ impl Content {
             look: None,
             clip: None,
             shares: None,
+            warp: None,
             owner: None,
             captured: true,
             secure: Vec::new(),
@@ -877,6 +889,13 @@ fn read_frame(
     let pixels = Rc::new(pixels);
     frames_read.insert(key, ((sequence, buffer), extent, format, pixels.clone()));
     Some((extent, format, pixels))
+}
+
+/// A window's corners (`corner`, logical pixels, of a window at `rect`) in its pixels (`extent`):
+/// what a window drawn through the genie's mesh is rounded by, its corners bending with it.
+fn source_radius(corner: u32, rect: Rect, extent: Size) -> u32 {
+    let scale = f64::from(extent.width) / f64::from(rect.width.max(1));
+    (f64::from(corner) * scale).round() as u32
 }
 
 /// `inner`, a part of a surface at `rect`, where it is drawn when the surface is drawn at
@@ -1745,12 +1764,17 @@ impl Compositor {
         // Surfaces arriving start their transitions in this frame; those going are drawn from
         // their last frame composed (ADR 0011). Locked, nothing of the session is drawn going.
         let now = self.now();
-        // A window minimized goes into the dock, the shell's bottom panel, and comes back out
-        // of it; a workspace's windows slide by the width of the output they are on.
+        // A window minimized goes into its place in the dock and comes back out of it: where the
+        // shell says (its application's icon, ADR 0011's genie), else a square in the middle of
+        // the dock, the shell's bottom panel; a workspace's windows slide by the width of the
+        // output they are on.
         let dock = self.scene.dock().map(|dock| {
-            (
-                dock.x + dock.width as i32 / 2,
-                dock.y + dock.height as i32 / 2,
+            let side = dock.height.min(DOCK_SLOT);
+            Rect::new(
+                dock.x + (dock.width / 2) as i32 - (side / 2) as i32,
+                dock.y + (dock.height as i32 - side as i32) / 2,
+                side,
+                side,
             )
         });
         let drawn_at = |list: &[RenderItem], key: SurfaceKey| {
@@ -1844,7 +1868,8 @@ impl Compositor {
                 })
                 .or_else(|| self.scene.outputs().first().copied())
                 .map_or(Rect::new(0, 0, 1, 1), |output| output.rect);
-            let place = transitions::Place { output, dock };
+            let slot = self.scene.minimize_target(appearance.key).or(dock);
+            let place = transitions::Place { output, slot };
             self.transitions.appear(appearance, now, snapshot, &place);
         }
         if self.scene.is_locked() {
@@ -1916,7 +1941,19 @@ impl Compositor {
         // places it and at what opacity; and the windows each shell surface showed live.
         let mut surfaces_at: HashMap<SurfaceKey, (usize, Rect, Rect, u8)> = HashMap::new();
         let mut views_shown: HashMap<SurfaceKey, Vec<ShownView>> = HashMap::new();
+        // Where the surfaces drawn above every window begin (the shell's panels and overlays, the
+        // lock): a window going into the dock is drawn beneath them, as a Mac's genie goes under
+        // the Dock.
+        let mut under_panels = None;
         for item in list.iter().copied() {
+            let above = match item {
+                RenderItem::Surface { key, .. } => self.scene.above_windows(key),
+                RenderItem::Cover { .. } => true,
+                RenderItem::View { .. } => false,
+            };
+            if above && under_panels.is_none() {
+                under_panels = Some(contents.len());
+            }
             match item {
                 RenderItem::Surface { key, rect, frame } => match read_frame(
                     (&mut self.frames_read, &mut self.bytes_read),
@@ -1971,6 +2008,8 @@ impl Compositor {
                         let look = looks.get(&key).copied();
                         let zooming = self.transitions.zooming(key, now);
                         let zoomed = zooming.map(|(at, _)| at);
+                        // Restored through the genie: out of the dock along its mesh.
+                        let genie = arriving.genie(rect);
                         let placed = zoomed.unwrap_or_else(|| arriving.place(rect));
                         if self.transitions.is_arriving(key) || zoomed.is_some() {
                             in_transition(rect, placed, look, zoomed.is_some());
@@ -1983,21 +2022,36 @@ impl Compositor {
                         // A window's shadow beneath it, and its corners: a window zooming has
                         // them as a window of the size it is drawn at, its corners on their way
                         // from one radius to the other.
+                        // Through the genie, the shadow stays where the window is, fading, and the
+                        // corners are its pixels'.
                         let radius = look.map_or(0, |look| {
                             let cast = if zoomed.is_some() { placed } else { rect };
                             let corner = zooming.map_or_else(|| window::corner(look), |(_, r)| r);
-                            let (mut shadow, radius) = Content::shadow(
-                                shadows,
-                                look,
-                                corner,
-                                cast,
-                                placed,
-                                arriving.opacity,
-                            );
+                            let (mut shadow, radius) = match genie {
+                                Some(_) => Content::shadow(
+                                    shadows,
+                                    look,
+                                    corner,
+                                    rect,
+                                    rect,
+                                    arriving.shadow_opacity(),
+                                ),
+                                None => Content::shadow(
+                                    shadows,
+                                    look,
+                                    corner,
+                                    cast,
+                                    placed,
+                                    arriving.opacity,
+                                ),
+                            };
                             shadow.owner = Some(key);
                             shadow.captured = captured;
                             contents.push(shadow);
-                            radius
+                            match genie {
+                                Some(_) => source_radius(corner, rect, extent),
+                                None => radius,
+                            }
                         });
                         contents.push(Content {
                             owner: Some(key),
@@ -2017,6 +2071,7 @@ impl Compositor {
                             look,
                             clip: None,
                             shares: None,
+                            warp: genie.map(|genie| genie.rows),
                         });
                         surfaces_at
                             .insert(key, (contents.len() - 1, rect, placed, arriving.opacity));
@@ -2110,6 +2165,7 @@ impl Compositor {
                             height: clip.height,
                         }),
                         shares,
+                        warp: None,
                     });
                 }
             }
@@ -2143,36 +2199,57 @@ impl Compositor {
                 look: None,
                 clip: None,
                 shares: None,
+                warp: None,
             });
         }
-        // Surfaces going, over what stays, from their last frames.
+        // Surfaces going, over what stays, from their last frames; a window going into the dock
+        // beneath the shell's panels (`under_panels`), drawn through the genie's mesh or scaled,
+        // from its last frame, which stays on the device (its `source`).
+        let under_panels = under_panels.unwrap_or(contents.len());
+        let mut into_dock = Vec::new();
         for (snapshot, _, at) in self.transitions.going(now) {
+            let docking = matches!(at.shift, transitions::Shift::Dock { .. });
+            let out = if docking {
+                &mut into_dock
+            } else {
+                &mut contents
+            };
+            let genie = at.genie(snapshot.rect);
             let placed = at.place(snapshot.rect);
             in_transition(snapshot.rect, placed, snapshot.look, false);
             let radius = snapshot.look.map_or(0, |look| {
-                let (mut shadow, radius) = Content::shadow(
-                    shadows,
-                    look,
-                    window::corner(look),
-                    snapshot.rect,
-                    placed,
-                    at.opacity,
-                );
+                let corner = window::corner(look);
+                let (mut shadow, radius) = match genie {
+                    Some(_) => Content::shadow(
+                        shadows,
+                        look,
+                        corner,
+                        snapshot.rect,
+                        snapshot.rect,
+                        at.shadow_opacity(),
+                    ),
+                    None => {
+                        Content::shadow(shadows, look, corner, snapshot.rect, placed, at.opacity)
+                    }
+                };
                 shadow.captured = snapshot.captured;
-                contents.push(shadow);
-                radius
+                out.push(shadow);
+                match genie {
+                    Some(_) => source_radius(corner, snapshot.rect, snapshot.extent),
+                    None => radius,
+                }
             });
-            contents.push(Content {
+            out.push(Content {
                 owner: None,
                 captured: snapshot.captured,
                 secure: snapshot.secure.clone(),
                 key: None,
                 rect: snapshot.rect,
-                placed: at.place(snapshot.rect),
+                placed,
                 extent: snapshot.extent,
                 format: Some(snapshot.format),
                 pixels: snapshot.pixels.clone(),
-                source: None,
+                source: if docking { snapshot.source } else { None },
                 changed: None,
                 opacity: at.opacity,
                 radius,
@@ -2180,6 +2257,7 @@ impl Compositor {
                 look: None,
                 clip: None,
                 shares: None,
+                warp: genie.map(|genie| genie.rows),
             });
             // The windows it showed live go with it (ADR 0022).
             for view in &snapshot.views {
@@ -2207,8 +2285,22 @@ impl Compositor {
                         height: clip.height,
                     }),
                     shares: None,
+                    warp: None,
                 });
             }
+        }
+        if !into_dock.is_empty() {
+            let count = into_dock.len();
+            for content in &mut contents {
+                if let Some(index) = content
+                    .shares
+                    .as_mut()
+                    .filter(|index| **index >= under_panels)
+                {
+                    *index += count;
+                }
+            }
+            contents.splice(under_panels..under_panels, into_dock);
         }
         if self.records {
             self.reads
@@ -2272,7 +2364,7 @@ impl Compositor {
                 // output's scale), filtered (ADR 0011, step 5; ADR 0022).
                 filter: oxyos_gpu::Filter::Box,
                 clip: content.clip,
-                warp: None,
+                warp: content.warp.as_deref().map(|rows| oxyos_gpu::Warp { rows }),
             })
             .collect();
         // Frames older than those composed are never shown again.
@@ -2340,6 +2432,7 @@ impl Compositor {
                         extent: content.extent,
                         format: content.format?,
                         pixels: content.pixels,
+                        source: content.source,
                         look: content.look,
                         views: Vec::new(),
                         captured: content.captured,

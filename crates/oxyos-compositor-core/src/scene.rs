@@ -3263,6 +3263,15 @@ impl Scene {
         }
     }
 
+    /// Whether `key` is drawn above every window: a shell panel or overlay, a notification, the
+    /// lock and what goes with it. A window going into the dock is drawn beneath them, as a Mac's
+    /// genie goes under the Dock.
+    pub fn above_windows(&self, key: SurfaceKey) -> bool {
+        self.nodes
+            .get(&key)
+            .is_some_and(|node| layer_of(&node.role) > Layer::Normal)
+    }
+
     /// Displayed global geometry.
     pub fn global_rect(&self, key: SurfaceKey) -> Option<Rect> {
         let node = self.nodes.get(&key)?;
