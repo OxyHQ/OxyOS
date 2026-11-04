@@ -28,6 +28,7 @@ const en = {
     wallpaper: "Wallpaper",
     notifications: "Notifications",
     lockScreen: "Lock Screen",
+    dock: "Dock",
     displays: "Displays",
     keyboard: "Keyboard",
     dateTime: "Date & Time",
@@ -74,6 +75,13 @@ const en = {
       n === 60
         ? plural("en", 1, { one: (c) => `${c} hour`, other: (c) => `${c} hours` })
         : plural("en", n, { one: (c) => `${c} minute`, other: (c) => `${c} minutes` }),
+  },
+  /** The Dock, as a Mac's Desktop & Dock names its row and choices. */
+  dock: {
+    minimizeEffect: "Minimise windows using",
+    genie: "Genie effect",
+    scale: "Scale effect",
+    reduceMotion: "With Reduce motion turned on in Accessibility, windows fade in and out instead.",
   },
   displays: {
     arrangement: "Arrangement",
@@ -194,7 +202,7 @@ const en = {
     screenReader: "Screen reader",
     screenReaderDescription: "Speaks what is on the screen. Super+F5 turns it on and off.",
     reduceMotion: "Reduce motion",
-    reduceMotionDescription: "Windows, menus and the lock screen appear and go at once.",
+    reduceMotionDescription: "Windows, menus and the lock screen fade in and out instead of moving.",
     reduceTransparency: "Reduce transparency",
     reduceTransparencyDescription: "Glass is drawn opaque.",
     steadyCaret: "Prefer non-blinking cursor",
@@ -323,6 +331,7 @@ const es: Messages = {
     wallpaper: "Fondo de pantalla",
     notifications: "Notificaciones",
     lockScreen: "Pantalla de bloqueo",
+    dock: "Dock",
     displays: "Pantallas",
     keyboard: "Teclado",
     dateTime: "Fecha y hora",
@@ -370,6 +379,13 @@ const es: Messages = {
       n === 60
         ? plural("es", 1, { one: (c) => `${c} hora`, other: (c) => `${c} horas` })
         : plural("es", n, { one: (c) => `${c} minuto`, other: (c) => `${c} minutos` }),
+  },
+  dock: {
+    minimizeEffect: "Minimizar ventanas usando",
+    genie: "Efecto genio",
+    scale: "Efecto escala",
+    reduceMotion:
+      "Con Reducir movimiento activado en Accesibilidad, las ventanas aparecen y se van con un fundido.",
   },
   displays: {
     arrangement: "Disposición",
@@ -484,7 +500,8 @@ const es: Messages = {
     screenReader: "Lector de pantalla",
     screenReaderDescription: "Lee en voz alta lo que hay en la pantalla. Super+F5 lo activa y desactiva.",
     reduceMotion: "Reducir movimiento",
-    reduceMotionDescription: "Las ventanas, los menús y la pantalla de bloqueo aparecen y se van al instante.",
+    reduceMotionDescription:
+      "Las ventanas, los menús y la pantalla de bloqueo aparecen y se van con un fundido, sin moverse.",
     reduceTransparency: "Reducir transparencia",
     reduceTransparencyDescription: "El cristal se dibuja opaco.",
     steadyCaret: "Preferir cursor sin parpadeo",

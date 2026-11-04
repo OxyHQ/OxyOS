@@ -1,0 +1,145 @@
+{
+  "about": "Settings' Dock page (apps/settings), where a Mac's Desktop & Dock stands, just before Displays: *Minimise windows using*, the session's `minimize_effect` (crates/oxyos-preferences; docs/adr/0011-transitions.mdx), a choice of Genie effect, the default, and Scale effect, with a footer saying that Reduce motion makes windows fade instead. Granted `settings`, Settings reads the preference as the session keeps it: the page, opened from the sidebar, has Genie effect chosen. Scale effect pressed with the pointer: the session keeps `minimize_effect = scale` in the preferences file, and the control shows Scale effect chosen; Genie effect pressed: kept again, shown chosen. Each step checks exactly the React events Settings received, what the assistive technology holds and the file as the step left it. At scale 1.25.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "outputs": "1600x1000@1.25",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy",
+      "minimize_effect": "genie"
+    }
+  },
+  "steps": [
+    {
+      "name": "Dock, from the sidebar between Lock Screen and Displays: Minimise windows using, Genie effect chosen as the session keeps it, and the footer on Reduce motion",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Dock"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "click@settings-nav-dock": 1
+        },
+        "texts": [
+          "Dock",
+          "Minimise windows using",
+          "Genie effect",
+          "Scale effect",
+          "With Reduce motion turned on in Accessibility, windows fade in and out instead."
+        ],
+        "preferences_file": {
+          "minimize_effect": "genie"
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Dock",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Radio",
+              "name": "Genie effect",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Radio",
+              "name": "Scale effect",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Scale effect pressed: the session keeps minimize_effect = scale, and the control shows it chosen",
+      "do": [
+        "press_named",
+        "Scale effect"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "touchStart@minimize-effect-scale": 1,
+          "touchEnd@minimize-effect-scale": 1
+        },
+        "preferences_file": {
+          "minimize_effect": "scale"
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Radio",
+              "name": "Genie effect",
+              "state": []
+            },
+            {
+              "role": "Radio",
+              "name": "Scale effect",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Genie effect pressed: kept again, shown chosen",
+      "do": [
+        "press_named",
+        "Genie effect"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "touchStart@minimize-effect-genie": 1,
+          "touchEnd@minimize-effect-genie": 1
+        },
+        "preferences_file": {
+          "minimize_effect": "genie"
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Radio",
+              "name": "Genie effect",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Radio",
+              "name": "Scale effect",
+              "state": []
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "minimize_effect": "genie",
+      "reduce_motion": "false"
+    }
+  }
+}
