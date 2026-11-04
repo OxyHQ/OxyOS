@@ -4150,6 +4150,131 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
 }
 
 #[test]
+fn the_header_matches_the_minimize_targets_abi() {
+    // The target as C lays it out: the window's number, then its rectangle of four 4-byte fields.
+    assert!(HEADER.contains(
+        "typedef struct OxyOSMinimizeTarget {\n  uint32_t window;\n  OxyOSRect rect;\n} OxyOSMinimizeTarget;"
+    ));
+    assert_eq!(
+        [
+            offset_of!(OxyOSMinimizeTarget, window),
+            offset_of!(OxyOSMinimizeTarget, rect),
+            size_of::<OxyOSMinimizeTarget>(),
+        ],
+        [0, 4, 20]
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_set_minimize_targets(OxyOSClient* client, uint32_t surface, const OxyOSMinimizeTarget* targets, size_t count);"
+    ));
+}
+
+#[test]
+fn the_shell_says_where_windows_minimize_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-targets-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..4)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let target = |window, x, y| OxyOSMinimizeTarget {
+        window,
+        rect: OxyOSRect {
+            x,
+            y,
+            width: 42,
+            height: 42,
+        },
+    };
+    let targets = [target(7, 512, 6), target(8, 570, 6)];
+    let too_many = vec![targets[0]; oxyos_protocol::MAX_MINIMIZE_TARGETS + 1];
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the targets
+    // outlive the calls.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_set_minimize_targets(client, 3, too_many.as_ptr(), too_many.len()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_set_minimize_targets(client, 3, targets.as_ptr(), 2),
+            0
+        );
+        assert_eq!(
+            oxyos_client_set_minimize_targets(client, 3, std::ptr::null(), 0),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests,
+            [
+                Request::ClearMinimizeTargets { surface: 3 },
+                Request::PlaceMinimizeTarget {
+                    surface: 3,
+                    window: 7,
+                    rect: Rect::new(512, 6, 42, 42),
+                },
+                Request::PlaceMinimizeTarget {
+                    surface: 3,
+                    window: 8,
+                    rect: Rect::new(570, 6, 42, 42),
+                },
+                Request::ClearMinimizeTargets { surface: 3 },
+            ]
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+
+    // A compositor of version 19 is never sent them: the call says so and sends nothing.
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-targets-19-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        server.recv_request().unwrap();
+        server
+            .send_event_for(&Event::Welcome { version: 19 }, None, 19)
+            .unwrap();
+        server.recv_request().map(|(request, _)| request)
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: as above.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_protocol_version(client), 19);
+        assert_eq!(
+            oxyos_client_set_minimize_targets(client, 3, targets.as_ptr(), 2),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_set_minimize_targets(client, 3, std::ptr::null(), 0),
+            OXYOS_ERROR
+        );
+        oxyos_client_close(client);
+    }
+    assert!(
+        compositor.join().unwrap().is_err(),
+        "nothing was sent before the connection closed"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn the_header_matches_the_controls_abi() {
     for (name, value) in [
         ("OXYOS_EVENT_CONTROL_LEVEL", OXYOS_EVENT_CONTROL_LEVEL),
