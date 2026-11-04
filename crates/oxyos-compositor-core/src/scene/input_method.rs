@@ -253,6 +253,22 @@ impl Scene {
         Ok(())
     }
 
+    /// A candidates surface of the client's at a new size: configured anew, its content kept
+    /// until a frame of that size, then placed by it.
+    pub(super) fn resize_candidates(
+        &mut self,
+        key: SurfaceKey,
+        size: Size,
+    ) -> Result<(), ErrorCode> {
+        let node = self.live(key).ok_or(ErrorCode::UnknownSurface)?;
+        if !matches!(node.role, Role::Candidates) {
+            return Err(ErrorCode::InvalidRole);
+        }
+        self.reconfigure(key, None, size);
+        self.place_candidates();
+        Ok(())
+    }
+
     /// The shell that draws the candidates handed to the system now: the one showing the
     /// output the served field's caret is on (none while no list is shown).
     fn candidates_shell(&self) -> Option<ClientId> {

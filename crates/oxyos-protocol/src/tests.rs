@@ -191,6 +191,10 @@ fn requests() -> Vec<Request> {
         },
         Request::ChooseInputCandidate { index: 0 },
         Request::TurnInputCandidatesPage { forward: true },
+        Request::ResizeInputCandidates {
+            surface: 3,
+            size: Size::new(320, 64),
+        },
         Request::SetTitle {
             surface: 1,
             index: 0,
@@ -2433,6 +2437,25 @@ fn version_18_input_methods_candidates_and_key_symbols_are_never_sent_to_an_olde
     ] {
         assert_eq!(request_since(&request), 18);
     }
+}
+
+#[test]
+fn version_21_the_candidate_window_is_resized_only_by_a_peer_that_knows_it() {
+    // A compositor of version 20 or older closes the connection on an unknown request: the client
+    // library never sends it one (`request_since`), and the shell makes its window anew instead.
+    let resize = Request::ResizeInputCandidates {
+        surface: 3,
+        size: Size::new(320, 64),
+    };
+    assert_eq!(request_since(&resize), 21);
+    assert_eq!(
+        request_since(&Request::CreateInputCandidates {
+            surface: 3,
+            size: Size::new(320, 64),
+        }),
+        2
+    );
+    assert_eq!(VERSION, 21);
 }
 
 #[test]
