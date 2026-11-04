@@ -307,6 +307,11 @@ void Report::present(uint32_t surface, int width, int height, bool gpu, const fo
   write(std::move(line));
 }
 
+void Report::feedback(uint32_t surface, uint64_t sequence, bool presented) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "feedback")("surface", surface)("sequence", sequence)("presented", presented));
+}
+
 void Report::input(const char* event, uint32_t surface, const folly::dynamic& extra) {
   if (!file_) return;
   folly::dynamic line = extra;

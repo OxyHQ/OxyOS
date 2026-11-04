@@ -25,6 +25,9 @@ step's expected result) and measures, from what the processes report and from /p
 - idle: the CPU time and the wakeups (context switches, every thread) of every process while
   nothing happens, after the session settled;
 - memory: every process's resident memory (anonymous and file-backed) while idle, and its peak;
+- the display's rate: windows dragged and zoomed, and animations, on a 120 Hz output and a 60 Hz one
+  (refresh-*.json): how many frames each step's motion composed and how far apart they came, against
+  its claims, which the gate checks only as functional (regress.py, --speed-budgets);
 - applications side by side: the shell, Settings and three more applications on one compositor, and
   each host's memory from /proc/PID/smaps_rollup once all have drawn: RSS, PSS (a shared page's
   size divided among the processes mapping it) and USS (its private pages), and what of each
@@ -45,7 +48,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--check]
-               [interactions] [responses] [shell] [cold-start] [idle] [applications]
+               [interactions] [responses] [shell] [cold-start] [idle] [applications] [refresh]
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -65,7 +68,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 SCENARIOS = HERE / "scenarios"
 sys.path.insert(0, str(HERE))
-from regress import display_hz  # noqa: E402  (beside this file)
+from regress import animated_values, display_hz  # noqa: E402  (beside this file)
 
 
 def refresh_ms(scenario):
@@ -90,6 +93,16 @@ INTERACTIONS = [
      "the overview opening, Allo's window drawn live in its card (ADR 0022)"),
     ("Settings scroll", "perf-settings-scroll.json", [1, 2],
      "Settings' sidebar scrolled 240 px down and back at a touchpad's 60 Hz"),
+]
+
+# The display's rate (docs/adr/0018-several-displays.mdx): windows and animations at 120 and at 60 Hz.
+# What the gate's regress.py holds only as functional (a frame in more than one, never faster than a
+# refresh, each frame answered once and in order) is measured here over every run and judged at the
+# median of the runs: how many frames fit, and how far apart they came.
+REFRESH = [
+    ("windows at 120 Hz", "refresh-120-windows.json"),
+    ("windows at 60 Hz", "refresh-60-windows.json"),
+    ("animations at 120 Hz", "refresh-120-animations.json"),
 ]
 
 # Responses: (name, scenario). Each step with an input is measured; its budget is the scenario's own
@@ -379,6 +392,66 @@ def step_budgets():
                             "budget": budget, "limit": limit, "measured": round(measured, 2), "how": how,
                             "runs": [round(v, 2) for v in each],
                             "slow_runs": [run + 1 for run, v in enumerate(each) if v > limit]})
+    return entries
+
+
+def rate_claims(scenario, summary, report):
+    """One run's measure of each step's claims on the display's rate (regress.py checks them only
+    under --speed-budgets): {(step index, claim): (value, [least, most])}, `most` None for none."""
+    claims = {}
+    start = summary["t_launch"]
+    for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
+        end = result["t_settled"]
+        expect = step.get("expect", {})
+        drag, wanted = result.get("drag") or {}, expect.get("drag", {})
+        if "composed_min" in wanted:
+            claims[(index, "frames composed in the drag")] = (drag.get("composed", 0), [wanted["composed_min"], None])
+        if "composed_gap_ms" in wanted:
+            claims[(index, "ms between them, median")] = ((drag.get("composed_gap_ms") or {}).get("median"),
+                                                          wanted["composed_gap_ms"])
+        if "frames_min" in expect.get("transitions", {}):
+            claims[(index, "frames composed in its transitions")] = (
+                (result.get("transitions") or {}).get("frames", 0), [expect["transitions"]["frames_min"], None])
+        if "window_frames" in expect:
+            count = sum(1 for line in report if line["kind"] == "frame" and line.get("surface") == 1
+                        and line.get("presented", True) and start <= line["t"] <= end)
+            claims[(index, "frames the window presented")] = (count, expect["window_frames"])
+        wanted = expect.get("animation_frames", {})
+        stamps = [line["timestamp"] for line in report if line["kind"] == "animation_frame" and start <= line["t"] <= end]
+        if "count" in wanted:
+            claims[(index, "requestAnimationFrame's frames")] = (len(stamps), wanted["count"])
+        if "median_interval_ms" in wanted:
+            gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+            claims[(index, "ms between them, median")] = (statistics.median(gaps) if gaps else None,
+                                                          wanted["median_interval_ms"])
+        for kind in ("animated", "committed"):
+            if kind in expect:
+                bounds = expect.get(f"{kind}_frames", 8)
+                got = animated_values(report, start, end, kind)
+                counts = [len(got.get(view, {}).get(prop, [])) for view, props in expect[kind].items() for prop in props]
+                claims[(index, f"frames {kind}, fewest of its values")] = (
+                    min(counts, default=0), bounds if isinstance(bounds, list) else [bounds, None])
+        start = end
+    return claims
+
+
+def refresh(options, name, scenario, out):
+    """Every run's rate claims, each judged at the median of the runs."""
+    runs = []
+    steps = json.loads((SCENARIOS / scenario).read_text())["steps"]
+    for run in range(options.runs):
+        summary, report, _, _ = run_scenario(options, SCENARIOS / scenario, out / f"{slug(name)}-{run + 1}")
+        runs.append(rate_claims(json.loads((SCENARIOS / scenario).read_text()), summary, report))
+    entries = []
+    for key in sorted({key for run in runs for key in run}):
+        index, claim = key
+        values = [run[key][0] for run in runs if key in run and run[key][0] is not None]
+        least, most = next(run[key][1] for run in runs if key in run)
+        measured = statistics.median(values) if values else None
+        held = measured is not None and measured >= least and (most is None or measured <= most)
+        entries.append({"scenario": scenario, "step": index + 1, "name": steps[index].get("name", ""), "claim": claim,
+                        "least": least, "most": most, "measured": None if measured is None else round(measured, 2),
+                        "runs": [round(v, 2) for v in values], "held": held})
     return entries
 
 
@@ -728,6 +801,12 @@ def show(results):
                  ", ".join(f"{name} {kib['Rss']} resident, {kib['Pss']} PSS" for name, kib in m.get("bytecode", {}).items())]
                 for who, m in results["applications"].items()]
         print(table(rows, ["side by side", "RSS MiB", "PSS MiB", "USS MiB", "bytecode mapped (MiB)"]))
+    if "refresh" in results:
+        rows = [[name, e["step"], e["claim"], e["measured"],
+                 f"{e['least']} to {e['most']}" if e["most"] is not None else f"at least {e['least']}",
+                 ", ".join(str(v) for v in e["runs"]), "yes" if e["held"] else "NO"]
+                for name, entries in results["refresh"].items() for e in entries]
+        print(table(rows, ["display rate", "step", "claim", "median", "bound", "runs", "held"]))
     if "idle" in results:
         rows = [[name, who, f"{m['cpu_percent']:.2f}", f"{m['wakeups_per_s']:.1f}", f"{m['rss_mib']:.0f}",
                  f"{m['anon_mib']:.0f}", f"{m['file_mib']:.0f}", m["peak_rss_mib"]]
@@ -762,6 +841,11 @@ def check(results):
                 over.append(f"idle {name}: {who} woke {m['wakeups_per_s']:.1f} times a second")
             if m["cpu_percent"] > BUDGETS["idle_host_cpu_percent"]:
                 over.append(f"idle {name}: {who} used {m['cpu_percent']:.2f}% CPU")
+    for name, entries in results.get("refresh", {}).items():
+        for e in entries:
+            if not e["held"]:
+                over.append(f"{name} step {e['step']}: {e['claim']} {e['measured']}, the median of the runs "
+                            f"{e['runs']}, outside {e['least']} to {e['most']}")
     for name, r in results.get("cold_start", {}).items():
         if r["first_frame_ms"]["p50"] > BUDGETS["first_frame_ms_median"]:
             over.append(f"cold start {name}: first frame after {r['first_frame_ms']['p50']} ms")
@@ -771,7 +855,7 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, applications (all by default)")
+                        help="interactions, responses, shell, cold-start, idle, applications, refresh (all by default)")
     parser.add_argument("--offscreen", required=True)
     parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
     parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
@@ -782,7 +866,7 @@ def main():
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    every = ["interactions", "responses", "shell", "cold-start", "idle", "applications"]
+    every = ["interactions", "responses", "shell", "cold-start", "idle", "applications", "refresh"]
     parts = options.parts or every
     if not set(parts) <= set(every):
         parser.error(f"unknown parts {parts}")
@@ -803,6 +887,8 @@ def main():
         results["idle"] = {name: idle(options, name, scenario, out) for name, scenario in IDLES}
     if "applications" in parts:
         results["applications"] = applications(options, out)
+    if "refresh" in parts:
+        results["refresh"] = {name: refresh(options, name, scenario, out) for name, scenario in REFRESH}
     results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)
