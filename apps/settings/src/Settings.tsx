@@ -42,20 +42,10 @@ import {
   SegmentedControlItem,
   SegmentedControlItemText,
 } from "@oxy.so/bloom/segmented-control";
-import {
-  Select,
-  SelectContent,
-  SelectIcon,
-  SelectItem,
-  SelectItemIndicator,
-  SelectItemText,
-  SelectTrigger,
-  SelectValue,
-} from "@oxy.so/bloom/select";
 import { Button } from "@oxy.so/bloom/button";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
 import { useWindowKeys } from "@oxy.so/bloom/kbd";
-import { SettingsLayout } from "@oxy.so/bloom/settings-modal";
+import { SettingsLayout, SettingsSelect } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
 import { RadioGroup } from "@oxy.so/bloom/radio";
 import { Switch } from "@oxy.so/bloom/switch";
@@ -161,49 +151,6 @@ function ToggleItem({
   );
 }
 
-function Choice<T extends string>({
-  label,
-  value,
-  items,
-  onChange,
-  testID,
-}: {
-  label: string;
-  value: T;
-  items: readonly { value: T; label: string }[];
-  onChange: (value: T) => void;
-  testID: string;
-}) {
-  return (
-    <Select value={value} onValueChange={(next) => onChange(next as T)}>
-      <SelectTrigger label={label} testID={testID}>
-        <SelectValue>
-          {(chosen) => {
-            // The Select gives back the chosen item, or its value before one is chosen.
-            const key =
-              typeof chosen === "object" && chosen !== null && "value" in chosen
-                ? (chosen as { value: string }).value
-                : chosen;
-            return items.find((item) => item.value === key)?.label ?? String(key);
-          }}
-        </SelectValue>
-        <SelectIcon />
-      </SelectTrigger>
-      <SelectContent
-        label={label}
-        items={items}
-        valueExtractor={(item) => item.value}
-        renderItem={(item) => (
-          <SelectItem value={item.value} label={item.label}>
-            <SelectItemIndicator />
-            <SelectItemText>{item.label}</SelectItemText>
-          </SelectItem>
-        )}
-      />
-    </Select>
-  );
-}
-
 const PAGE = { gap: 24 } as const;
 
 function AppearancePage({ snapshot, actions, strings }: PageProps) {
@@ -268,7 +215,7 @@ function WallpaperPage({ snapshot, actions, strings }: PageProps) {
       <GroupedSectionItem
         title={strings.wallpaper.current}
         rightElement={
-          <Choice
+          <SettingsSelect
             label={strings.wallpaper.current}
             value={snapshot.preferences.wallpaper ?? ""}
             items={items}
@@ -333,7 +280,7 @@ function LockScreenPage({ snapshot, actions, strings }: PageProps) {
       <GroupedSectionItem
         title={words.lockAfter}
         rightElement={
-          <Choice
+          <SettingsSelect
             label={words.lockAfter}
             value={String(snapshot.preferences.lockAfter)}
             items={items}
@@ -734,7 +681,7 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
         <GroupedSectionItem
           title={words.resolution}
           rightElement={
-            <Choice
+            <SettingsSelect
               label={words.resolution}
               value={mode ? `${mode.width}x${mode.height}` : ""}
               items={sizes.map((size) => {
@@ -750,7 +697,7 @@ function DisplaysPage({ snapshot, actions, strings }: PageProps) {
           <GroupedSectionItem
             title={words.refresh}
             rightElement={
-              <Choice
+              <SettingsSelect
                 label={words.refresh}
                 value={String(mode?.refreshMhz ?? "")}
                 items={rates.map((rate) => ({ value: String(rate.refreshMhz), label: formatRefresh(rate.refreshMhz) }))}
@@ -1072,7 +1019,7 @@ function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
           title={words.language}
           testID="language-row"
           rightElement={
-            <Choice<LanguagePreference>
+            <SettingsSelect<LanguagePreference>
               label={words.language}
               value={preferences.language}
               items={languageItems(words, system.locale)}
@@ -1085,7 +1032,7 @@ function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
           title={words.region}
           testID="region-row"
           rightElement={
-            <Choice
+            <SettingsSelect
               label={words.region}
               value={preferences.region}
               items={regionItems(words, system.locale, preferences.region)}
@@ -1098,7 +1045,7 @@ function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
           title={words.timeFormat}
           testID="time-format-row"
           rightElement={
-            <Choice<HourCycle>
+            <SettingsSelect<HourCycle>
               label={words.timeFormat}
               value={preferences.hourCycle}
               items={timeFormatItems(words, preferences, system.locale)}
