@@ -2617,6 +2617,26 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         wanted = {name: count for name, count in expect["host_input"].items() if count}
         if counts != wanted:
             fail(f"the host handled {counts}, expected exactly {wanted}")
+    if "first_order" in expect:
+        # The order in which things first reached the host in this step: each named one's first
+        # occurrence, in this order (what a scenario's `host_order` forces). A name is a Report::input
+        # ("focus.in", "test.keyboard.held") or an accessibility event from JavaScript as the host
+        # took it, "a11y_event:focus@shell-topbar".
+        firsts = {}
+        for line in report:
+            if not start <= line["t"] <= end:
+                continue
+            if line["kind"] == "input":
+                key = line["event"]
+            elif line["kind"] == "a11y_event":
+                key = f"a11y_event:{line['event']}@{line.get('within') or line['target']}"
+            else:
+                continue
+            firsts.setdefault(key, line["t"])
+        wanted = expect["first_order"]
+        got = sorted((name for name in wanted if name in firsts), key=lambda name: firsts[name])
+        if got != wanted:
+            fail(f"the host first had {got}, expected {wanted} in that order")
     if "text_scroll" in expect:
         # How far each text input's text was scrolled in this step, by testID: the last value.
         scrolls = {}
@@ -3874,6 +3894,14 @@ def main():
     if "tz" in scenario:
         env["TZ"] = scenario["tz"]
         RUN_TZ = scenario["tz"]
+    # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
+    # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first" or
+    # "grant-first" (docs/adr/0039-keyboard-access.mdx, decision 26).
+    env.pop("OXYOS_HOST_TEST_ORDER", None)
+    if "host_order" in scenario:
+        if scenario["host_order"] not in ("focus-first", "grant-first"):
+            raise ValueError(f"unknown host_order {scenario['host_order']!r}")
+        env["OXYOS_HOST_TEST_ORDER"] = scenario["host_order"]
     recorder = None
     if home_root is not None:
         report_path.unlink(missing_ok=True)

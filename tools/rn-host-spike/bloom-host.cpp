@@ -220,12 +220,18 @@ class Mounter : public SchedulerDelegate {
   int transactions = 0;
   void schedulerDidFinishTransaction(const std::shared_ptr<const MountingCoordinator>& coordinator) override {
     coordinators_[coordinator->getSurfaceId()] = coordinator;
+    unmounted_ = true;
   }
   void schedulerShouldRenderTransactions(
       const std::shared_ptr<const MountingCoordinator>& coordinator) override {
     coordinators_[coordinator->getSurfaceId()] = coordinator;
+    if (mountAtFrame) return;
     pull();
   }
+  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): commits mount only at the
+  // host's frame, after everything JavaScript runs in the turn, so what an effect sends in the same
+  // turn as its commit (React flushing passive effects synchronously) comes before the mount.
+  bool mountAtFrame = false;
   // The host's frame: pull whatever each surface committed since the last frame.
   bool pull() {
     bool mounted = false;
@@ -256,7 +262,14 @@ class Mounter : public SchedulerDelegate {
         changed_ = true;
       }
     }
-    return mounted;
+    unmounted_ = false;
+    // JavaScript's accessibility events that came while a commit before them was still to be
+    // mounted, now that it is (schedulerDidSendAccessibilityEvent).
+    bool delivered = !accessibilityEvents_.empty();
+    for (auto& [view, type] : std::exchange(accessibilityEvents_, {})) {
+      if (onAccessibilityEvent) onAccessibilityEvent(view, type);
+    }
+    return mounted || delivered;
   }
   // Whether the tree changed since the last call, whether the mount came from the host's loop or
   // from the Scheduler's own callback.
@@ -275,9 +288,21 @@ class Mounter : public SchedulerDelegate {
     if (onCommand) onCommand(view, name, args);
   }
   // Accessibility events from JavaScript (AccessibilityInfo.sendAccessibilityEvent): moving
-  // accessibility focus, for the host's accessibility state.
+  // accessibility focus, for the host's accessibility state. They are handled in order with the
+  // mounting of the commits made before them, as Android's mounting layer runs its
+  // SendAccessibilityEventMountItem behind the mount items queued before it and as React Native's
+  // own Scheduler orders view commands: the Scheduler hands them over at once, while it mounts a
+  // commit only at the end of the JavaScript task, so an effect React flushes with its commit (a
+  // re-render from a layout effect flushes the passive effects before it) would otherwise be
+  // handled against the tree before that commit (docs/adr/0039-keyboard-access.mdx, decision 26:
+  // the menu bar's title focused by the same commit that asks for the keyboard).
   std::function<void(const ShadowView&, const std::string&)> onAccessibilityEvent;
   void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
+    if (unmounted_) {
+      accessibilityEvents_.emplace_back(view, type);
+      oxyos::Report::get().input("a11y.event.queued", 0);
+      return;
+    }
     if (onAccessibilityEvent) onAccessibilityEvent(view, type);
   }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
@@ -295,6 +320,9 @@ class Mounter : public SchedulerDelegate {
   oxyos::ViewTree& tree_;
   const Scheduler* scheduler_ = nullptr;
   bool changed_ = false;
+  // A commit is still to be mounted, and the accessibility events that came after it.
+  bool unmounted_ = false;
+  std::vector<std::pair<ShadowView, std::string>> accessibilityEvents_;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
@@ -449,6 +477,18 @@ int main(int argc, char** argv) {
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
   // The session's shell (docs/adr/0009-session-shell.mdx) is a window of another kind.
   const bool shellMode = outPath == "--shell";
+  // For a scenario only (regress.py's `host_order`), the order in which the keyboard reaching a
+  // shell region and JavaScript's accessibility focus moving into it arrive, forced
+  // (docs/adr/0039-keyboard-access.mdx, decision 26): "focus-first", the focus sent before the
+  // commit asking for the keyboard is mounted and the keyboard asked for only once the region's
+  // tree is published with that focus; "grant-first", the focus held until the compositor has
+  // given the region the keyboard. Unset, nothing is forced.
+  const std::string testOrder = [] {
+    const char* order = std::getenv("OXYOS_HOST_TEST_ORDER");
+    return std::string(order ? order : "");
+  }();
+  const bool focusFirst = shellMode && testOrder == "focus-first";
+  const bool grantFirst = shellMode && testOrder == "grant-first";
   const bool windowed = outPath == "--window" || shellMode;
   const uint32_t output = shellMode && argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4])) : 1;
   const char* socket = std::getenv("OXYOS_COMPOSITOR_SOCKET");
@@ -706,6 +746,7 @@ int main(int argc, char** argv) {
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
+  mounter.mountAtFrame = focusFirst;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -1032,6 +1073,8 @@ int main(int argc, char** argv) {
     // The region that gave the keyboard back (the bar left), until the keyboard is on it again:
     // JavaScript's accessibility focus moves into it are declined meanwhile (releaseFocus below).
     uint32_t releasedRegion = 0;
+    // A scenario's "focus-first" order: the region's request for the keyboard waits for its focus.
+    bool keyboardHeldForFocus = false;
     // expo-clipboard's reads and writes carry the serial of the latest key or press the app
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
@@ -1802,9 +1845,23 @@ int main(int argc, char** argv) {
                                      folly::dynamic::object("actionName", action));
       }
     };
+    // A scenario's "grant-first" order (OXYOS_HOST_TEST_ORDER): JavaScript's focus moves into a
+    // shell region that asks for the keyboard and does not have it yet wait for it, and are
+    // delivered once the compositor has given it (or the region no longer asks).
+    std::vector<std::pair<ShadowView, std::string>> heldForGrant;
+    auto waitsForGrant = [&](const ShadowView& view, const std::string& type) {
+      if (!grantFirst || type != "focus" || !tree.views().count(view.tag)) return false;
+      auto in = shellSurfaces.surfaceOf(view.tag);
+      return in && shellSurfaces.keyboardRegion() == *in && keyboardSurface != *in;
+    };
     // Accessibility focus, as Android's accessibility focus (separate from input focus): the
-    // view a screen reader would be on. No assistive technology reads it yet; the tree marks it.
+    // view a screen reader would be on, which the tree marks and the screen reader follows.
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
+      if (waitsForGrant(view, type)) {
+        if (heldForGrant.empty()) oxyos::Report::get().input("test.focus.held", *shellSurfaces.surfaceOf(view.tag));
+        heldForGrant.emplace_back(view, type);
+        return;
+      }
       std::string within;
       auto path = oxyos::ancestry(tree, view.tag);
       for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
@@ -2408,6 +2465,12 @@ int main(int argc, char** argv) {
         // overview) is told to JavaScript, which leaves the bar: what has the keyboard is never a
         // bar that no longer receives keys.
         if (shellMode) {
+          // A scenario's "grant-first" order: the focus moves held for the keyboard, delivered now
+          // that it is here (or no longer asked for).
+          if (!heldForGrant.empty() && !waitsForGrant(heldForGrant.front().first, heldForGrant.front().second)) {
+            auto held = std::exchange(heldForGrant, {});
+            for (auto& [view, type] : held) mounter.onAccessibilityEvent(view, type);
+          }
           uint32_t wanted = shellSurfaces.keyboardRegion().value_or(0);
           // The region gives the keyboard back (the bar left by Escape or a row chosen) or loses it
           // (a press elsewhere): the accessibility focus its keys moved over its titles goes with
@@ -2433,7 +2496,14 @@ int main(int argc, char** argv) {
             regionAskedFor = wanted;
             regionHeldKeyboard = false;
             if (wanted != 0 && wanted != keyboardSurface) {
-              if (auto* shown = window->surface(wanted); shown && shown->shown) {
+              if (focusFirst && !accessibility.publishedFocus(wanted)) {
+                // A scenario's "focus-first" order: asked for once the region's tree is published
+                // with the focus JavaScript moved into it.
+                if (!keyboardHeldForFocus) oxyos::Report::get().input("test.keyboard.held", wanted);
+                keyboardHeldForFocus = true;
+                regionAskedFor = 0;
+              } else if (auto* shown = window->surface(wanted); shown && shown->shown) {
+                keyboardHeldForFocus = false;
                 window->focusShellSurface(wanted, lastPress);
                 oxyos::Report::get().input("focus.asked", wanted);
               } else {

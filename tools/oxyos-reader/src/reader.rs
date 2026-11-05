@@ -149,6 +149,12 @@ pub struct Reader {
     announcing: BTreeMap<Surface, (String, Politeness)>,
     /// The element under the cursor.
     cursor: Option<(Surface, usize)>,
+    /// Whether the reader's own commands put the cursor where it is, and said what is there, with
+    /// no focus arriving there since: a focus arriving there next is the reader's own activation's,
+    /// said already. A cursor a focus put there (a menu bar's title) stays on it after the focus
+    /// leaves without moving it (a press in a window, which says nothing): that title focused again
+    /// is a new focus, said again.
+    reached: bool,
     /// The element last focused, as the trees said: a new one moves the cursor.
     focused: Option<(Surface, usize)>,
     said: Vec<Utterance>,
@@ -171,6 +177,7 @@ impl Reader {
             own_dialogs: BTreeMap::new(),
             announcing: BTreeMap::new(),
             cursor: None,
+            reached: false,
             focused: None,
             said: Vec::new(),
         }
@@ -383,6 +390,7 @@ impl Reader {
                 self.order.retain(|surface| *surface != key);
                 if self.cursor.is_some_and(|(surface, _)| surface == key) {
                     self.cursor = None;
+                    self.reached = false;
                 }
                 if self.focused.is_some_and(|(surface, _)| surface == key) {
                     self.focused = None;
@@ -447,6 +455,7 @@ impl Reader {
             let count = self.trees[&key].len();
             if surface == key && index >= count {
                 self.cursor = count.checked_sub(1).map(|last| (key, last));
+                self.reached = false;
             }
         }
         let first = before.is_none();
@@ -478,6 +487,7 @@ impl Reader {
             // Followed where it went: the same element, not a new focus to say.
             if self.cursor == self.focused {
                 self.cursor = Some((key, kept.1));
+                self.reached = false;
             }
             self.focused = Some((key, kept.1));
         }
@@ -570,14 +580,21 @@ impl Reader {
                 } else {
                     Politeness::Assertive
                 };
-                // The cursor on it already (its place holding the same element as before): the
-                // reader's own activation focused it, and it was said as the cursor reached it.
+                // The cursor on it already, put there by the reader's own commands (its place
+                // holding the same element as before): the reader's own activation focused it, and
+                // it was said as the cursor reached it. Only once: whatever focuses it again, it is
+                // a new focus. A cursor a focus left there is no reason for silence: what is said
+                // as the focus arrives never depends on where the focus was in between (a menu bar
+                // taking the keyboard again on the title it had, docs/adr/0039-keyboard-access.mdx,
+                // decision 26).
                 let new = &self.trees[&key][at.1];
-                let under_cursor = self.cursor == Some(at)
+                let under_cursor = self.reached
+                    && self.cursor == Some(at)
                     && before
                         .as_deref()
                         .and_then(|nodes| nodes.get(at.1))
                         .is_some_and(|old| old.role == new.role && old.name == new.name);
+                self.reached = false;
                 if !under_cursor {
                     self.cursor = Some(at);
                     self.say_reached(at, focus);
@@ -777,6 +794,7 @@ impl Reader {
                 let at = *next?;
                 self.titled = None;
                 self.cursor = Some(at);
+                self.reached = true;
                 self.say_reached(at, Politeness::Assertive);
                 None
             }

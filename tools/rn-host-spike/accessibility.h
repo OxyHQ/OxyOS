@@ -114,6 +114,11 @@ class AccessibilityBridge {
   // Publishes `surface`'s snapshot (its content under `root`, the root at `at` in the surface) if
   // it changed, and reports it.
   void publish(uint32_t surface, facebook::react::Tag root, facebook::react::Point at = {});
+  // Whether the snapshot last published for `surface` has a node with accessibility focus.
+  bool publishedFocus(uint32_t surface) const {
+    auto it = focusPublished_.find(surface);
+    return it != focusPublished_.end() && it->second;
+  }
   // An assistive technology's action (OXYOS_EVENT_ACCESSIBILITY_ACTION), as TalkBack's are
   // performed on Android: activate is React Native's accessibility click (Pressability's
   // onPress), or its "activate" accessibility action where the node declares one; focus moves
@@ -126,6 +131,7 @@ class AccessibilityBridge {
   void forget(uint32_t surface) {
     published_.erase(surface);
     nodes_.erase(surface);
+    focusPublished_.erase(surface);
   }
 
  private:
@@ -143,6 +149,7 @@ class AccessibilityBridge {
   // Per surface: the snapshot last published, and its nodes by index.
   std::map<uint32_t, folly::dynamic> published_;
   std::map<uint32_t, std::vector<Published>> nodes_;
+  std::map<uint32_t, bool> focusPublished_;
 };
 
 }  // namespace oxyos
