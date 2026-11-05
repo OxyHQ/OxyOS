@@ -1,12 +1,12 @@
 ---
 title: "ADR 0042: Scrolling as on a Mac"
-description: How a scroll view on OxyOS scrolls from the wheel, the touchpad, the keyboard, its scrollbars, Tab and JavaScript, measured against macOS and React Native's Android ScrollView; overlay scrollbars as macOS draws them; keyboard scrolling; what was missing, what was built, and what remains.
+description: How a scroll view on OxyOS scrolls from the wheel, the touchpad, the keyboard, its scrollbars, Tab and JavaScript, measured against macOS and React Native's Android ScrollView; overlay scrollbars as macOS draws them; keyboard scrolling; natural scrolling, a trackpad's and a mouse's, set by libinput; what was missing, what was built, and what remains.
 order: 51
 ---
 
 # ADR 0042: Scrolling as on a Mac
 
-Status: **accepted; implemented** (the Bloom host: `input.h`, `scrollbars.h`, `scroll-physics.h`, `bloom-host.cpp`'s keys). Builds on [ADR 0039](./0039-keyboard-access) (Full Keyboard Access: which control has the keyboard, decision 1's scroll views), [ADR 0037](./0037-text-editing) (what a field does with its keys; Ctrl is the applications' ⌘) and the Scrolling and Overscroll rows of [the Android adaptation](../react-native-android-adaptation) (the wheel, the touchpad's drag and glide, the stretch).
+Status: **accepted; implemented** (the Bloom host: `input.h`, `scrollbars.h`, `scroll-physics.h`, `bloom-host.cpp`'s keys; natural scrolling, decision 6: `oxyos-preferences`, `oxyos-input`, Settings' Mouse and Trackpad pages). Builds on [ADR 0039](./0039-keyboard-access) (Full Keyboard Access: which control has the keyboard, decision 1's scroll views), [ADR 0037](./0037-text-editing) (what a field does with its keys; Ctrl is the applications' ⌘) and the Scrolling and Overscroll rows of [the Android adaptation](../react-native-android-adaptation) (the wheel, the touchpad's drag and glide, the stretch).
 
 ## Problem
 
@@ -16,6 +16,8 @@ The Bloom host plays Android for what React receives (React Native's Android `Re
 - **No keyboard scrolling.** Page Down, Space, the arrows, Home and End scrolled nothing outside a text field; a person without a touchpad or wheel could read only what Tab reached.
 - **Tab's scroll-to-focused** scrolled only the innermost scroll view, by a margin of 8 that was neither Android's (0) nor the focus ring's, and pushed the top of a control taller than its view out of it; no scenario checked it.
 - **JavaScript's ScrollView commands were dropped:** `scrollTo`, `scrollToEnd` and `flashScrollIndicators` did nothing (the host passed commands only to text inputs), so `FlatList.scrollToIndex`, a chat's jump to its end and the shell's overview, which positions its desktops with `scrollTo`, never moved.
+
+A fifth was found on 5 November 2026, and decision 6 added for it: **no natural scrolling.** Every device scrolled as libinput leaves it, traditionally: a touchpad's two fingers moved up moved the content down, against them, where a Mac's content follows them, and nothing could change it.
 
 ## Decision
 
@@ -40,6 +42,14 @@ The Bloom host plays Android for what React receives (React Native's Android `Re
 
 5. **JavaScript's ScrollView commands, as `ReactScrollViewManager` receives them:** `scrollTo` [x, y, animated] and `scrollToEnd` [animated] stop a glide or an animation first (`abortAnimation`), then go at once (one `onScroll`) or animated as `ReactScrollViewHelper.smoothScrollTo` animates them: an animator of the default scroll duration (250 ms) on `AccelerateDecelerateInterpolator`, its momentum events framing it (`startFlingAnimator`; sent whether JavaScript listens or not, as the host's momentum events are, the Scrolling row). `scrollToEnd` goes to the end of the axis the content scrolls along. A press, a wheel or fingers stop an animated scroll, as a touch aborts Android's scroller.
 
+6. **Natural scrolling, a trackpad's and a mouse's, set by libinput** (Settings › Trackpad and Settings › Mouse; the preferences `trackpad_natural_scrolling` and `mouse_natural_scrolling`, [ADR 0019](./0019-settings)):
+   - **What it turns:** with natural scrolling the content follows the hand: two fingers moved up move the content up (the view down, its offset growing), a wheel turned toward the person moves it down. Off, the view follows the hand, as a wheel has always scrolled. Only scrolling turns: a pinch, resting fingers and the three- and four-finger swipes (Mission Control and App Exposé, [ADR 0045](./0045-app-expose)) are the same either way, as a Mac's are.
+   - **Two switches, not one.** macOS shares one switch between its Trackpad and Mouse pages: turning either turns both. OxyOS keeps them apart, because a wheel's notch turned toward the person scrolling down is what every mouse has done and every mouse user expects, while a touchpad's content following the fingers is how a Mac ships; one switch would make whoever uses both give one up. So the trackpad's is on by default, as a Mac's, and the mouse's off.
+   - **Which device is which:** libinput's own. A device that offers tapping (`libinput_device_config_tap_get_finger_count` above 0) is a touchpad, as sway tells touchpads apart, and follows the trackpad's switch; every other device that has the choice (`libinput_device_config_scroll_has_natural_scroll`: a mouse's wheel, a trackpoint, a button's scrolling) follows the mouse's. A device without it (a keyboard, a touchscreen, a tablet) is left as it is.
+   - **Where it is applied:** by libinput, the proven engine, as GNOME, KDE and sway apply it (`libinput_device_config_scroll_set_natural_scroll_enabled`). `oxyos-input` sets it on each device as libinput adds it (as the seat opens, a device plugged in, and every device again after a terminal switch's resume), before libinput reads the device's first events, and on every device at once when either preference changes (`Input::set_natural_scrolling`, given by `Settings::apply` through `Compositor::set_natural_scrolling`, and to the devices as the program running the compositor gives them, `Compositor::set_input`): no restart, the next scroll goes the new way. Nothing after libinput turns anything. The scene, every client, the Bloom host's scroll views, its drag and glide, the scrollbars and the dock receive scrolls already in the chosen direction, "down" (`dy` above 0) still the view moving down; the protocol is unchanged.
+   - **The dock's icons** ([ADR 0045](./0045-app-expose), decision 3) read the scroll as delivered, as a Mac's Dock does: up (`dy` below 0) opens the application's App Exposé. With a trackpad's natural scrolling, two fingers moved down on an icon open it and up close it, as on a Mac; a wheel turned away opens it, unless the mouse's natural scrolling is on.
+   - **Settings:** Mouse and Trackpad after Keyboard, as a Mac's System Settings lists them (`RiMouseLine`; `RiHand` for the trackpad, Remix having no trackpad), each with a "Natural scrolling" switch and macOS's line under it, the same on both as macOS has it: "Content tracks finger movement" ("Desplazamiento natural", "El contenido sigue el movimiento de los dedos"). Each is a Settings switch as every other is, named by its title and reached from the keyboard ([ADR 0039](./0039-keyboard-access)). The sidebar has fifteen rows.
+
 ## The audit
 
 | Behaviour | macOS | Android, React Native | OxyOS before | OxyOS now | Checked by | Remains |
@@ -62,6 +72,7 @@ The Bloom host plays Android for what React receives (React Native's Android `Re
 | Tab to a control out of view | `scrollRectToVisible` | `requestChildFocus` in each scroll view | Innermost only, margin 8, tall controls' tops cut | Each, with the ring, Android's delta; none outside its modal or popup | `scroll-reveal`, `scroll-reveal-scaled` | — |
 | `scrollTo`, `scrollToEnd`, `flashScrollIndicators` | — | `ReactScrollViewManager` | Dropped | As Android's, animated or at once | `scroll-commands`, `scroll-commands-scaled` | — |
 | `snapToInterval`, `snapToOffsets`, `pagingEnabled` | — | `smoothScrollAndSnap` | Not done | Not done | — | A glide does not snap |
+| Natural scrolling | On, one switch for the trackpad and the mouse | — | libinput's default: traditional on every device | Two switches, the trackpad's on and the mouse's off, set by libinput at once (decision 6) | `natural-scrolling`, `natural-scrolling-dock` (each `-scaled`) | — |
 
 ## Tests
 
@@ -71,6 +82,13 @@ Host scenarios at 1 and 1.25 on `sample/ScrollProbe.tsx`, each step checking exa
 - `scroll-reveal`, `scroll-reveal-scaled`: a sheet (a `Modal` inside the main list in the tree) opened from the keyboard, Tab through it and Escape, nothing behind it scrolling; Tab down every row, along the chips (a scroll view in a scroll view) and back, each offset exact, one scroll event each, no scrollbar; Shift+Tab to a chip out of view in both scroll views brings it in through both.
 - `scrollbars`, `scrollbars-scaled` (light at 1, dark at 1.25): the wheel shows and fades the thumb; no bar where the indicator is hidden; a persistent bar at rest; the pointer over the bar brings it wide with its track (pixels); its thumb dragged (a drag to React, no press below, the offset by the track's ratio); a press in the track pages; the pointer leaving fades it.
 - `scroll-commands`, `scroll-commands-scaled`: `scrollTo` animated (momentum begin, scrolls, end, the offset), `scrollToEnd` at once, `flashScrollIndicators` (shown, faded, nothing scrolled), no scrollbar for the scrolls.
+
+Natural scrolling (decision 6) is libinput's, so its scenarios scroll through it: the development compositor's virtual touchpad and wheel mouse (`--uinput`, a scenario's `uinput`), which only root may make. The touchpad scrolls with two fingers 20 mm apart moving together (`Devices::two_fingers`), resting before they lift so nothing is flung; a `scroll`, `scroll_output` or `scroll_named` step through the devices is the hand's, the wheel turned toward the person or the fingers moved down for a positive `dy`. Each step checks the scrolls the client's host received (`scroll_input`: every one that moved one way, and how many), React's events and that the scroll view only moved that way (`scroll_moved`):
+
+- `natural-scrolling`, `natural-scrolling-scaled` (in Spanish, at 1.25): Settings with ScrollProbe beside it. Two fingers moved up scroll its `main` list down, its content following them (the trackpad's default), and the wheel turned toward the person scrolls it down (the mouse's); Settings › Trackpad's switch, on, turned off, kept in the file, and the same fingers scroll the list up at once; Settings › Mouse's, off, turned on, and the same wheel scrolls it up. Settings hears none of the scrolls.
+- `natural-scrolling-dock`, `natural-scrolling-dock-scaled` (at 1.25 with both preferences turned from the defaults): Allo's two windows and the shell. Two fingers moved down on Allo's dock icon open its App Exposé and up close it, the wheel turned away opens it and toward closes it; at 1.25, the other way round for each. The shell's host receives every scroll up, or down, as the step says; neither application's React tree hears anything.
+
+Unit tests: the two preferences' defaults, file and refused values (`oxyos-preferences`); a touchpad following the trackpad's switch and every other device the mouse's (`oxyos-input`); the compositor given the preferences as they are and at once on a change Settings asks for (`settings.rs`).
 
 ## Not in this decision
 
