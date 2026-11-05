@@ -27,7 +27,7 @@ import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
-import { sourceName } from "./input-sources";
+import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
 import type { SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
 import { hasWifiView } from "./network";
@@ -546,17 +546,18 @@ export const Shell = memo(function Shell({
     else AccessibilityInfo.announceForAccessibility(said);
   }, [joined]);
   // Each switch of input source is said, politely, by the new source's name, as VoiceOver says a
-  // Mac's (docs/adr/0041-input-methods.mdx, decision 6): the first state told is no switch.
-  const currentSource = inputSources ? inputSources.current : null;
-  const saidSource = useRef(currentSource);
+  // Mac's (docs/adr/0041-input-methods.mdx, decision 6): not the first state told, nor a change of
+  // the list that moved the source in use, which Settings says itself (`switchedSource`).
+  const toldSources = useRef<InputSourcesState | null>(inputSources ?? null);
   useEffect(() => {
-    const before = saidSource.current;
-    saidSource.current = currentSource;
-    if (!inputSources || currentSource === null || before === null || currentSource === before) return;
-    const said = sourceName(currentSource, inputSources, messages);
+    const before = toldSources.current;
+    toldSources.current = inputSources ?? null;
+    const switched = switchedSource(before, inputSources ?? null);
+    if (!inputSources || switched === null) return;
+    const said = sourceName(switched, inputSources, messages);
     if (platform.announce) platform.announce(said, true);
     else AccessibilityInfo.announceForAccessibility(said);
-  }, [currentSource]);
+  }, [inputSources]);
   const openSettings = useCallback(() => menuCommand("system.settings"), [menuCommand]);
   const setDoNotDisturb = notifications?.setDoNotDisturb;
   const doNotDisturbOn = !!notifications?.doNotDisturb;

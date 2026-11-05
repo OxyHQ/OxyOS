@@ -7,6 +7,7 @@ import {
   showsInputSources,
   sourceMark,
   sourceName,
+  switchedSource,
   type CandidateList,
   type InputSourcesState,
 } from "../src/input-sources.ts";
@@ -79,4 +80,19 @@ test("the list says its highlighted candidate with its place and the count", () 
   // Nothing highlighted: the list is named by what it is.
   assert.equal(candidatesSaid(list({ highlighted: -1 }), ES), "Candidatos");
   assert.equal(candidatesSaid(list({ highlighted: -1 }), EN), "Candidates");
+});
+
+test("a switch of the source in use is said; the first state and a list change are not", () => {
+  const pinyin = state({ current: "pinyin" });
+  // Super+Space, or the top bar's menu: the list as it was.
+  assert.equal(switchedSource(pinyin, state({ current: "japanese" })), "japanese");
+  assert.equal(switchedSource(pinyin, state({ current: "layout" })), "layout");
+  // The first state told, and a state told again unchanged.
+  assert.equal(switchedSource(null, pinyin), null);
+  assert.equal(switchedSource(pinyin, state({ current: "pinyin" })), null);
+  // The source in use removed in Settings: the session moves to the layout, and Settings says the
+  // removal itself.
+  assert.equal(switchedSource(pinyin, state({ current: "layout", sources: ["layout", "japanese", "korean"] })), null);
+  // A source added while another is in use is no switch either.
+  assert.equal(switchedSource(pinyin, state({ current: "pinyin", sources: ["layout", "pinyin"] })), null);
 });

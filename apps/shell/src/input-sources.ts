@@ -78,3 +78,19 @@ export function candidatesSaid(list: CandidateList, messages: ShellMessages): st
   if (list.highlighted < 0 || list.highlighted >= list.candidates.length) return messages.candidates.list;
   return candidateLabel(list, list.highlighted, messages);
 }
+
+/**
+ * The source to say when the session tells a new state, or null: a switch of the source in use with
+ * the list as it was (Super+Space, the top bar's menu), said by the new source's name as VoiceOver
+ * says a Mac's. The first state told is no switch, and neither is a change of the list that moved the
+ * source in use (the current one removed in Settings, which says the removal itself).
+ */
+export function switchedSource(
+  before: Pick<InputSourcesState, "current" | "sources"> | null,
+  after: Pick<InputSourcesState, "current" | "sources"> | null,
+): string | null {
+  if (!before || !after || before.current === after.current) return null;
+  const sameList =
+    before.sources.length === after.sources.length && before.sources.every((id, index) => id === after.sources[index]);
+  return sameList ? after.current : null;
+}

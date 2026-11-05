@@ -728,7 +728,6 @@ impl Session {
                 }
             }
         }
-        self.serve_input_sources();
         // And the displays' (ADR 0018), with `--displays`.
         if let Some((displays, heads)) = self.displays.as_mut() {
             displays.serve(
