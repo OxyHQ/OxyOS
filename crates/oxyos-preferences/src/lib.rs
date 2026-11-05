@@ -84,6 +84,12 @@ pub struct Preferences {
     /// *Play user interface sound effects* (docs/adr/0044-system-sounds.mdx): the Trash's sounds
     /// play; off, they do not. Notifications' are alerts, which it does not silence.
     pub ui_sounds: bool,
+    /// *Natural scrolling* on a touchpad (docs/adr/0042-scrolling.mdx, decision 6): the content
+    /// follows the fingers, as a Mac's trackpad ships. Applied by libinput to every touchpad.
+    pub trackpad_natural_scrolling: bool,
+    /// *Natural scrolling* on every other pointing device (a mouse's wheel, a trackpoint): off, a
+    /// wheel's notch turned toward the person scrolls down, as every mouse has.
+    pub mouse_natural_scrolling: bool,
     /// The wallpaper: a folder under the wallpapers' directory; none is the session's own.
     pub wallpaper: Option<String>,
     /// Minutes idle before the session locks; 0, never.
@@ -130,6 +136,8 @@ impl Default for Preferences {
             reduce_transparency: false,
             caret_blink: true,
             ui_sounds: true,
+            trackpad_natural_scrolling: true,
+            mouse_natural_scrolling: false,
             wallpaper: None,
             lock_after: 5,
             screen_reader: false,
@@ -230,6 +238,8 @@ pub const KEYS: &[&str] = &[
     "reduce_transparency",
     "caret_blink",
     "ui_sounds",
+    "trackpad_natural_scrolling",
+    "mouse_natural_scrolling",
     "wallpaper",
     "lock_after",
     "screen_reader",
@@ -281,6 +291,8 @@ impl Preferences {
             "reduce_transparency" => self.reduce_transparency = boolean(value)?,
             "caret_blink" => self.caret_blink = boolean(value)?,
             "ui_sounds" => self.ui_sounds = boolean(value)?,
+            "trackpad_natural_scrolling" => self.trackpad_natural_scrolling = boolean(value)?,
+            "mouse_natural_scrolling" => self.mouse_natural_scrolling = boolean(value)?,
             "wallpaper" => {
                 self.wallpaper = if value.is_empty() {
                     None
@@ -347,6 +359,8 @@ impl Preferences {
             "reduce_transparency" => self.reduce_transparency.to_string(),
             "caret_blink" => self.caret_blink.to_string(),
             "ui_sounds" => self.ui_sounds.to_string(),
+            "trackpad_natural_scrolling" => self.trackpad_natural_scrolling.to_string(),
+            "mouse_natural_scrolling" => self.mouse_natural_scrolling.to_string(),
             "wallpaper" => self.wallpaper.clone().unwrap_or_default(),
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),
