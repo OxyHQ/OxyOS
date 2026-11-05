@@ -2238,7 +2238,7 @@ impl Compositor {
             });
         }
         // Surfaces going, over what stays, from their last frames; a window going into the dock
-        // beneath the shell's panels (`under_panels`), drawn through the genie's mesh or scaled,
+        // beneath the shell's panels (`under_panels`), drawn through the genie's mesh,
         // from its last frame, which stays on the device (its `source`).
         let under_panels = under_panels.unwrap_or(contents.len());
         let mut into_dock = Vec::new();

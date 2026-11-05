@@ -7,7 +7,6 @@ import {
   formatRefresh,
   LOCK_AFTER_CHOICES,
   looksLike,
-  MINIMIZE_EFFECTS,
   placeOf,
   PREFERENCE_KEYS,
   preferenceText,
@@ -30,7 +29,6 @@ test("preferences are named as the session's file names them", () => {
     "input_sources",
     "language",
     "lock_after",
-    "minimize_effect",
     "notification_previews",
     "reduce_motion",
     "reduce_transparency",
@@ -46,27 +44,16 @@ test("preferences are named as the session's file names them", () => {
   assert.equal(preferenceText<"inputSources">(["pinyin", "korean"]), "pinyin,korean");
   assert.equal(preferenceText<"inputSources">([]), "");
   assert.equal(preferenceText<"doNotDisturb">(false), "false");
-  assert.equal(preferenceText<"minimizeEffect">("scale"), "scale");
 });
 
-test("the Dock's minimize effects are the session's, named as a Mac names them", () => {
-  assert.equal(PREFERENCE_KEYS.minimizeEffect, "minimize_effect");
-  // The genie first and the default (crates/oxyos-preferences), the scale second, as a Mac's menu.
-  assert.deepEqual(MINIMIZE_EFFECTS, ["genie", "scale"]);
-  const en = messagesFor("en");
-  assert.equal(en.pages.dock, "Dock");
-  assert.equal(en.dock.minimizeEffect, "Minimise windows using");
-  assert.equal(en.dock.genie, "Genie effect");
-  assert.equal(en.dock.scale, "Scale effect");
-  const es = messagesFor("es");
-  assert.equal(es.pages.dock, "Dock");
-  assert.equal(es.dock.minimizeEffect, "Minimizar ventanas usando");
-  assert.equal(es.dock.genie, "Efecto genio");
-  assert.equal(es.dock.scale, "Efecto escala");
-  // Reduce motion turns either into a crossfade, as the footer and Accessibility both say.
-  assert.match(en.dock.reduceMotion, /Reduce motion/);
-  assert.match(es.dock.reduceMotion, /Reducir movimiento/);
-  assert.doesNotMatch(en.accessibility.reduceMotionDescription, /at once/);
+test("Reduce motion is said as the crossfade it is", () => {
+  // A window minimized fades where it is (docs/adr/0043-the-genie.mdx, decision 7): nothing is at
+  // once. The genie is the only other way a window goes into the dock, so Settings has no choice of
+  // it (5 November 2026) and no Dock page.
+  assert.doesNotMatch(messagesFor("en").accessibility.reduceMotionDescription, /at once/);
+  assert.match(messagesFor("es").accessibility.reduceMotionDescription, /fundido/);
+  assert.equal("dock" in messagesFor("en").pages, false);
+  assert.equal("minimizeEffect" in PREFERENCE_KEYS, false);
 });
 
 test("Prefer non-blinking cursor is the session's caret_blink turned around", () => {

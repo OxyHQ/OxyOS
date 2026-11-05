@@ -268,43 +268,6 @@
    }
   },
   {
-   "name": "Tab: Dock, the next row",
-   "do": [
-    "key",
-    [
-     15
-    ]
-   ],
-   "allow_unchanged": true,
-   "expect": {
-    "react": {},
-    "in_launched": {
-     "keyboard_focus": {
-      "target": "settings-nav-dock",
-      "ring": true
-     }
-    },
-    "at": {
-     "launched": [
-      {
-       "role": "Button",
-       "name": "Dock",
-       "state": [
-        "focused"
-       ]
-      }
-     ]
-    },
-    "spoken": [
-     {
-      "text": "Dock, botón",
-      "interrupting": true
-     }
-    ],
-    "announcements": []
-   }
-  },
-  {
    "name": "Tab: Displays, the next row",
    "do": [
     "key",

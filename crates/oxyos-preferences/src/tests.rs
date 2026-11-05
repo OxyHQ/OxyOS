@@ -31,20 +31,6 @@ fn the_defaults_are_what_nothing_says() {
 }
 
 #[test]
-fn a_window_minimizes_with_the_genie_or_scaled() {
-    let mut preferences = Preferences::default();
-    assert_eq!(preferences.minimize_effect, MinimizeEffect::Genie);
-    assert_eq!(
-        preferences.set("minimize_effect", "suck"),
-        Err(Refused::BadValue)
-    );
-    assert_eq!(preferences, Preferences::default());
-    assert_eq!(preferences.set("minimize_effect", "scale"), Ok(()));
-    assert_eq!(preferences.minimize_effect, MinimizeEffect::Scale);
-    assert_eq!(preferences.get("minimize_effect").as_deref(), Some("scale"));
-}
-
-#[test]
 fn notifications_previews_are_always_or_once_unlocked() {
     let mut preferences = Preferences::default();
     assert_eq!(
@@ -90,6 +76,45 @@ fn the_retired_clock_24h_is_an_unknown_key_dropped_on_the_next_write() {
         Preferences::default().set("clock_24h", "true"),
         Err(Refused::UnknownKey)
     );
+}
+
+/// `minimize_effect` (4 November 2026, ADR 0043) chose the genie or a scale; since 5 November the
+/// genie is the only one. A file written with it, either value, still reads whole, the line
+/// dropped on the next write.
+#[test]
+fn the_retired_minimize_effect_is_an_unknown_key_dropped_on_the_next_write() {
+    let directory = scratch("retired-minimize-effect");
+    std::fs::create_dir_all(&directory).unwrap();
+    let file = directory.join("preferences");
+    for effect in ["scale", "genie"] {
+        std::fs::write(
+            &file,
+            format!(
+                "# OxyOS preferences, written by the session.\n\
+                 appearance = dark\n\
+                 reduce_motion = true\n\
+                 minimize_effect = {effect}\n\
+                 reduce_transparency = true\n\
+                 lock_after = 10\n"
+            ),
+        )
+        .unwrap();
+        let preferences = Preferences::load(&file);
+        assert_eq!(preferences.appearance, Appearance::Dark);
+        assert!(preferences.reduce_motion && preferences.reduce_transparency);
+        assert_eq!(preferences.lock_after, 10, "the lines after it are read");
+        preferences.save(&file).unwrap();
+        let written = std::fs::read_to_string(&file).unwrap();
+        assert!(!written.contains("minimize_effect"), "{written}");
+        assert_eq!(Preferences::load(&file), preferences);
+    }
+    assert!(!KEYS.contains(&"minimize_effect"));
+    assert_eq!(
+        Preferences::default().set("minimize_effect", "genie"),
+        Err(Refused::UnknownKey)
+    );
+    assert_eq!(Preferences::default().get("minimize_effect"), None);
+    let _ = std::fs::remove_dir_all(&directory);
 }
 
 #[test]
@@ -139,7 +164,6 @@ fn what_is_written_reads_back_the_same() {
         ("appearance", "dark"),
         ("accent", "jade"),
         ("reduce_motion", "true"),
-        ("minimize_effect", "scale"),
         ("reduce_transparency", "true"),
         ("caret_blink", "false"),
         ("wallpaper", "solar-gradients"),

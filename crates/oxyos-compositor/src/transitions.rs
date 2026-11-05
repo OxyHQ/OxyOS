@@ -9,18 +9,17 @@
 //! (docs/adr/0016-windows.mdx): its content, old or new, stretched into the rectangle between,
 //! its corners squaring or rounding as it goes.
 //!
-//! A window minimized goes into its place in the dock, and comes back out of it restored, as the
-//! user chose (`MinimizeEffect`, a Mac's *Minimize windows using*): poured through the genie's
-//! funnel, the Dock's own mesh (`genie.rs`), drawn bent from its last frame; or scaled into its
-//! place. Both run linearly over half a second, as a Mac's does, on the frame clock; neither is a
-//! spring.
+//! A window minimized goes into its place in the dock, and comes back out of it restored, poured
+//! through the genie's funnel, the Dock's own mesh (`genie.rs`), drawn bent from its last frame
+//! (docs/adr/0043-the-genie.mdx): linearly over half a second, as a Mac's does, on the frame clock,
+//! never a spring. The genie is the only way (5 November 2026); with reduce motion it is the
+//! crossfade.
 
 use crate::genie;
 use crate::motion::{self, Fade, Spring};
 use oxyos_compositor_core::{
     Appearance, AppearanceChange as Change, AppearanceKind as Kind, SurfaceKey,
 };
-pub use oxyos_preferences::MinimizeEffect;
 use oxyos_protocol::{Format, Rect, Size};
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -50,29 +49,21 @@ pub enum Shift {
         from: Rect,
         to: Rect,
     },
-    /// Into the dock's `slot` (where the window minimizes into, the global space's): through the
-    /// genie's mesh, or scaled. `shift_permille` is how far into the slot it is, linearly (0 the
-    /// window open, 1000 in the slot), going and coming back alike.
+    /// Into the dock's `slot` (where the window minimizes into, the global space's), through the
+    /// genie's mesh. `shift_permille` is how far into the slot it is, linearly (0 the window
+    /// open, 1000 in the slot), going and coming back alike.
     Dock {
         slot: Rect,
-        genie: bool,
     },
 }
 
 /// How long a window takes into the dock or back out: half a second, linearly, as a Mac's genie
 /// (the page measured 495 ms to minimize and 497 to restore, each within half a percent of a
-/// straight line). The scale effect takes the same.
+/// straight line).
 pub const DOCK_DURATION: Duration = Duration::from_millis(500);
 /// The share of the way into the dock over which a window's shadow fades as the genie bends it
 /// (its first 50 ms; coming back, its last): a Mac draws the window bent without one.
 const GENIE_SHADOW: f64 = 0.1;
-/// The share of the way, at the end, over which the scale effect fades the window into its place.
-const SCALE_FADES: f64 = 0.3;
-
-/// Half a cosine from 0 to 1, as the Dock eases its phases: `0.5 − 0.5·cos(πt)`.
-fn ease(t: f64) -> f64 {
-    0.5 - 0.5 * (std::f64::consts::PI * t.clamp(0.0, 1.0)).cos()
-}
 
 /// A window through the genie's mesh: the rectangle holding it (the global space's, whole logical
 /// pixels) and the mesh's rows within it.
@@ -168,9 +159,8 @@ const NO_DOCK_SLOT: u32 = 42;
 
 /// The ADR's motions for a surface of `kind` arriving or going by `change`.
 pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
-    // Into the dock's slot and out of it, a Mac's minimize (the genie unless the user chose the
-    // scale effect, `Transitions::set_minimize_effect`); without a dock, past the output's bottom
-    // edge's centre.
+    // Into the dock's slot and out of it through the genie, a Mac's minimize; without a dock, past
+    // the output's bottom edge's centre.
     let slot = place.slot.unwrap_or(Rect::new(
         place.output.x + (place.output.width / 2) as i32 - (NO_DOCK_SLOT / 2) as i32,
         place.output.y + place.output.height as i32,
@@ -183,7 +173,7 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
             moves: None,
             fades: None,
             scale_permille: 1000,
-            shift: Shift::Dock { slot, genie: true },
+            shift: Shift::Dock { slot },
         },
         // A workspace's windows slide by the output's width, a Mac's spaces: the later
         // workspace's from the right, the one left to the left; they do not fade.
@@ -398,11 +388,10 @@ impl Frame {
     /// `rect` drawn at this scale about its centre, then moved along its shift; with a zoom's
     /// shift, the rectangle `shift_permille` of the way between its two, edge by edge.
     pub fn place(&self, rect: Rect) -> Rect {
-        if let Shift::Dock { slot, genie } = self.shift {
-            return match self.genie(rect) {
-                Some(mesh) if genie => mesh.bounds,
-                _ => scaled_into(rect, slot, self.docked()),
-            };
+        // Through the genie, the mesh's rectangle; where it gives no mesh to draw through, the
+        // slot, behind the dock's icon or past the output's edge.
+        if let Shift::Dock { slot } = self.shift {
+            return self.genie(rect).map_or(slot, |mesh| mesh.bounds);
         }
         if let Shift::Between { from, to } = self.shift {
             let k = f64::from(self.shift_permille.clamp(0, 1000)) / 1000.0;
@@ -466,7 +455,7 @@ impl Frame {
     /// Dock's mesh for it going into its slot (`genie::mesh`, the dock at the bottom), in the
     /// rectangle holding it. None for any other motion, or where the mesh holds nothing.
     pub fn genie(&self, rect: Rect) -> Option<Genie> {
-        let Shift::Dock { slot, genie: true } = self.shift else {
+        let Shift::Dock { slot } = self.shift else {
             return None;
         };
         let points = |r: Rect| {
@@ -516,35 +505,13 @@ impl Frame {
     /// genie's mesh, which bends the window without one, fading over its first stretch.
     pub fn shadow_opacity(&self) -> u8 {
         match self.shift {
-            Shift::Dock { genie: true, .. } => {
+            Shift::Dock { .. } => {
                 let left = 1.0 - (self.docked() / GENIE_SHADOW).clamp(0.0, 1.0);
                 (f64::from(self.opacity) * left).round() as u8
             }
             _ => self.opacity,
         }
     }
-}
-
-/// `rect` scaled `into` of the way into `slot` (eased by half a cosine, as the genie's phases):
-/// at the end the largest rectangle of its proportions within the slot, centred in it.
-fn scaled_into(rect: Rect, slot: Rect, into: f64) -> Rect {
-    let end = oxyos_compositor_core::scene::fitted(
-        slot,
-        oxyos_protocol::Size::new(rect.width.max(1), rect.height.max(1)),
-    )
-    .unwrap_or(slot);
-    let k = ease(into);
-    let along = |a: i64, b: i64| (a as f64 + (b - a) as f64 * k).round() as i64;
-    let left = along(i64::from(rect.x), i64::from(end.x));
-    let top = along(i64::from(rect.y), i64::from(end.y));
-    let right = along(rect.right(), end.right()).max(left + 1);
-    let bottom = along(rect.bottom(), end.bottom()).max(top + 1);
-    Rect::new(
-        left as i32,
-        top as i32,
-        (right - left) as u32,
-        (bottom - top) as u32,
-    )
 }
 
 fn opacity(share: f64) -> u8 {
@@ -558,16 +525,11 @@ fn scale_between(from: u32, to: u32, moved: f64) -> u32 {
         .max(1.0) as u32
 }
 
-/// A window `into` of the way into the dock (0 open, 1 in its slot): the genie is whole
-/// throughout, the scale effect fades in its last stretch.
+/// A window `into` of the way into the dock (0 open, 1 in its slot): whole throughout, the genie
+/// bending it.
 fn dock_frame(shift: Shift, into: f64) -> Frame {
-    let genie = matches!(shift, Shift::Dock { genie: true, .. });
     Frame {
-        opacity: if genie {
-            255
-        } else {
-            opacity(1.0 - ease((into - (1.0 - SCALE_FADES)) / SCALE_FADES))
-        },
+        opacity: 255,
         scale_permille: 1000,
         shift,
         shift_permille: (1000.0 * into).round() as i32,
@@ -642,8 +604,6 @@ pub struct Transitions {
     seen: BTreeMap<u64, Seen>,
     /// Reduce motion (docs/adr/0019-settings.mdx): every transition is a crossfade.
     reduced: bool,
-    /// How a window minimized goes into the dock (the user's choice, ADR 0019).
-    minimize_effect: MinimizeEffect,
 }
 
 impl Transitions {
@@ -656,17 +616,6 @@ impl Transitions {
 
     pub fn reduce_motion(&self) -> bool {
         self.reduced
-    }
-
-    /// How a window minimized from now on goes into the dock and comes back out of it: through
-    /// the genie, or scaled (the user's `minimize_effect`). With reduce motion either is the
-    /// crossfade. What is running finishes as it began.
-    pub fn set_minimize_effect(&mut self, effect: MinimizeEffect) {
-        self.minimize_effect = effect;
-    }
-
-    pub fn minimize_effect(&self) -> MinimizeEffect {
-        self.minimize_effect
     }
 
     fn reduce(&self, motion: Motion) -> Motion {
@@ -712,11 +661,7 @@ impl Transitions {
         if appearance.change == Change::Zoomed {
             return;
         }
-        let mut motion = motions(appearance.kind, appearance.change, place);
-        if let Shift::Dock { genie, .. } = &mut motion.shift {
-            *genie = self.minimize_effect == MinimizeEffect::Genie;
-        }
-        let motion = self.reduce(motion);
+        let motion = self.reduce(motions(appearance.kind, appearance.change, place));
         // Into the dock and back are one mesh: a window restored as it goes in (or minimized as it
         // comes out) turns back from where it is, never from either end.
         let now = match motion.shift {
@@ -1430,7 +1375,6 @@ mod tests {
     #[test]
     fn a_window_minimized_pours_through_the_genie_linearly_over_half_a_second_and_back() {
         let mut t = Transitions::default();
-        assert_eq!(t.minimize_effect(), MinimizeEffect::Genie);
         let start = Duration::from_secs(1);
         let rect = Rect::new(100, 100, 200, 100);
         t.appear(
@@ -1443,13 +1387,7 @@ mod tests {
         // Linear: a quarter of the way at 125 ms, half at 250, whole at 500; whole throughout.
         for (ms, permille) in [(0, 0), (125, 250), (250, 500), (375, 750), (499, 998)] {
             let frame = at(&t, ms);
-            assert_eq!(
-                frame.shift,
-                Shift::Dock {
-                    slot: SLOT,
-                    genie: true
-                }
-            );
+            assert_eq!(frame.shift, Shift::Dock { slot: SLOT });
             assert_eq!(
                 (frame.shift_permille, frame.opacity),
                 (permille, 255),
@@ -1526,32 +1464,23 @@ mod tests {
     }
 
     #[test]
-    fn with_the_scale_effect_a_window_shrinks_into_its_icon_and_fades_as_it_arrives() {
+    fn a_window_the_genie_has_no_mesh_for_is_drawn_in_its_slot_and_never_faded() {
+        // No size to bend: nothing to draw through, so it is where the genie would leave it, the
+        // icon's rectangle, behind the dock, whole as the genie's window is.
         let mut t = Transitions::default();
-        t.set_minimize_effect(MinimizeEffect::Scale);
         let start = Duration::from_secs(1);
-        let rect = Rect::new(100, 100, 200, 100);
+        let rect = Rect::new(100, 100, 0, 0);
         t.appear(
             appearance(Change::Minimized),
             start,
             Some(snapshot()),
             &PLACE,
         );
-        let at = |ms| t.going(start + Duration::from_millis(ms)).next().unwrap().2;
-        assert_eq!(at(0).genie(rect), None);
-        assert_eq!(at(0).place(rect), rect);
-        // Half a cosine of the way, from the window to the icon's rectangle of its proportions
-        // (42 × 21, centred in it: (619, 681)): at 200 ms, 0.5 − 0.5·cos(0.4π) = 0.3455 of it, so
-        // left 100 + 519·0.3455, top 100 + 581·0.3455, right 300 + 361·0.3455 and bottom
-        // 200 + 502·0.3455, each rounded.
-        assert_eq!(at(200).place(rect), Rect::new(279, 301, 146, 72));
-        assert_eq!(at(500).place(rect), Rect::new(619, 681, 42, 21));
-        // Whole until its last 30 % (150 ms), then fading out, eased.
-        assert_eq!(at(340).opacity, 255);
-        // At 400 ms a third of that stretch: 0.5 − 0.5·cos(π/3) = a quarter faded.
-        assert_eq!(at(400).opacity, 191);
-        assert_eq!(at(500).opacity, 0);
-        assert_eq!(lasts(Kind::Window, Change::Minimized), DOCK_DURATION);
+        for ms in [0, 250, 499] {
+            let frame = t.going(start + Duration::from_millis(ms)).next().unwrap().2;
+            assert_eq!(frame.genie(rect), None);
+            assert_eq!((frame.place(rect), frame.opacity), (SLOT, 255), "{ms} ms");
+        }
     }
 
     #[test]

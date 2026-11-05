@@ -1,7 +1,7 @@
 /**
- * One colour edge to edge, for the genie (docs/adr/0011-transitions.mdx, step 7) and the scale
- * effect: scenarios/genie*.json minimize it into the dock and look at the output's pixels at chosen
- * points of its funnel, as Salaja recorded a magenta window minimizing. The whole window is one
+ * One colour edge to edge, for the genie (docs/adr/0043-the-genie.mdx) and Reduce motion's
+ * crossfade: scenarios/genie*.json minimize it into the dock and look at the output's pixels at
+ * chosen points of its funnel, as Salaja recorded a magenta window minimizing. The whole window is one
  * press target, so a press anywhere on it while it goes is told (it never should be).
  */
 import * as React from 'react';

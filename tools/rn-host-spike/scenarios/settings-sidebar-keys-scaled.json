@@ -81,7 +81,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 13",
+      "text": "Apariencia, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
@@ -121,7 +121,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 13",
+      "text": "Fondo de pantalla, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -164,7 +164,7 @@
     },
     "spoken": [
      {
-      "text": "Notificaciones, seleccionado, 3 de 13",
+      "text": "Notificaciones, seleccionado, 3 de 12",
       "interrupting": true
      }
     ],
@@ -207,7 +207,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 13",
+      "text": "Fondo de pantalla, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -288,7 +288,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 13",
+      "text": "Fondo de pantalla, seleccionado, 2 de 12",
       "interrupting": true
      }
     ],
@@ -296,7 +296,7 @@
    }
   },
   {
-   "name": "End: the last row, About, across into the General group, the sidebar scrolled to show it",
+   "name": "End: the last row, About, across into the General group",
    "do": [
     "key",
     [
@@ -308,8 +308,7 @@
     "react": {
      "shortcut@menu-bar": 1,
      "blur@settings-nav-wallpaper": 1,
-     "focus@settings-nav-about": 1,
-     "scroll@ScrollView#188": 1
+     "focus@settings-nav-about": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-about",
@@ -329,7 +328,7 @@
     },
     "spoken": [
      {
-      "text": "Información, seleccionado, 13 de 13",
+      "text": "Información, seleccionado, 12 de 12",
       "interrupting": true
      }
     ],
@@ -390,7 +389,7 @@
     },
     "spoken": [
      {
-      "text": "Privacidad, seleccionado, 12 de 13",
+      "text": "Privacidad, seleccionado, 11 de 12",
       "interrupting": true
      }
     ],
@@ -430,7 +429,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 13",
+      "text": "Apariencia, seleccionado, 1 de 12",
       "interrupting": true
      }
     ],
