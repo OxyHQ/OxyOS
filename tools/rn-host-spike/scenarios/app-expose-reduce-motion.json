@@ -1,0 +1,118 @@
+{
+  "about": "App Exposé with Reduce Motion (docs/adr/0045-app-expose.mdx, decision 2), at 1.25 (1600 × 1000): Allo alone, one window, with the shell and the session's preferences asking for reduced motion. Super+↓ opens App Exposé for its one window, as a Mac's does for an application with a single window: the window shown live in the middle, but nothing flies: the dimmed desktop and the overlay crossfade in where they are (nothing grown, shrunk or moved), and the window's view, a copy, fades in with them. Escape crossfades it out, nothing flying back, the window where it was with the keyboard. With reduce motion ignored the windows would fly, and it fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "reduce_motion": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "Allo's window",
+      "do": [
+        "press",
+        [
+          300,
+          200
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "Super+↓: App Exposé of its one window, crossfading in, nothing flying",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1
+          ],
+          "moved": true,
+          "within": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        },
+        "flights": {
+          "none": true
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": true,
+              "ended": true,
+              "still": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": true,
+              "ended": true,
+              "eased": true,
+              "still": true
+            }
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Escape: it crossfades out, nothing flying back, the window where it was with the keyboard",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "none": true
+        },
+        "windows_placed_as": 1,
+        "focus_surface": 1,
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": false,
+              "ended": true,
+              "still": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": false,
+              "ended": true,
+              "still": true
+            }
+          ]
+        },
+        "react": {}
+      }
+    }
+  ]
+}

@@ -24,6 +24,7 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
     focusTarget: true,
     focusRequest: true,
     excludeFromCapture: true,
+    movesWindows: true,
   },
 }));
 
@@ -33,6 +34,9 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
 // is never in one (docs/adr/0024-system-shortcuts.mdx, decision 10).
 // Once it has the keyboard, the host puts the keyboard's focus on `focusTarget` ("first", its first
 // control, or a control's testID), again for each new `focusRequest` (docs/adr/0039-keyboard-access.mdx).
+// A region that moves its windows into its views (`movesWindows`: App Exposé) has each window it shows
+// drawn there alone while it shows, flying there as it arrives and back as it goes
+// (docs/adr/0045-app-expose.mdx).
 function Surface({
   kind,
   edge,
@@ -41,6 +45,7 @@ function Surface({
   focusTarget,
   focusRequest,
   excludeFromCapture,
+  movesWindows,
   onKeyboardLost,
   style,
   children,
@@ -62,6 +67,7 @@ function Surface({
       focusTarget={focusTarget ?? ''}
       focusRequest={focusRequest ?? 0}
       excludeFromCapture={!!excludeFromCapture}
+      movesWindows={!!movesWindows}
       style={style}
       collapsable={false}
     >
@@ -135,6 +141,55 @@ function MinimizeTarget({ windowIds, style, children }) {
   );
 }
 
+// What takes the scrolls no scroll view within it took (docs/adr/0045-app-expose.mdx): the
+// OxyOSScrollTarget host component, which the host hands such a scroll with the number given it
+// here, as an Android view takes the scroll events its children left (the OxyOSScrollTarget event:
+// { target, dx, dy, finger, end }). The dock wraps each application's icon in it: a scroll up opens
+// its App Exposé.
+const OxyOSScrollTarget = NativeComponentRegistry.get('OxyOSScrollTarget', () => ({
+  uiViewClassName: 'OxyOSScrollTarget',
+  validAttributes: {
+    target: true,
+  },
+}));
+
+const scrollTargets = new Map();
+let scrollTargetCount = 0;
+let scrollSubscription = null;
+
+function ScrollTarget({ onScroll, style, children }) {
+  const [target] = React.useState(() => ++scrollTargetCount);
+  const latest = React.useRef(onScroll);
+  latest.current = onScroll;
+  React.useEffect(() => {
+    scrollTargets.set(target, (event) =>
+      latest.current?.({ dx: event.dx, dy: event.dy, finger: !!event.finger, end: !!event.end }),
+    );
+    if (!scrollSubscription) {
+      scrollSubscription = DeviceEventEmitter.addListener('OxyOSScrollTarget', (event) =>
+        scrollTargets.get(event.target)?.(event),
+      );
+    }
+    return () => {
+      scrollTargets.delete(target);
+    };
+  }, [target]);
+  return (
+    // Never flattened away: the host finds the target by its view. Presses and the pointer go
+    // through it to what it holds.
+    <OxyOSScrollTarget target={target} style={style} pointerEvents="box-none" collapsable={false}>
+      {children}
+    </OxyOSScrollTarget>
+  );
+}
+
 // The keys the shell's surfaces receive, offered before the focused field (the host's
 // OxyOSKeyboard, as an application's window has it): Launchpad's arrows and Return.
-export const oxyosShell = { Surface, Masked, WindowView, MinimizeTarget, keyboard: oxyosSurfaces.keyboard };
+export const oxyosShell = {
+  Surface,
+  Masked,
+  WindowView,
+  MinimizeTarget,
+  ScrollTarget,
+  keyboard: oxyosSurfaces.keyboard,
+};

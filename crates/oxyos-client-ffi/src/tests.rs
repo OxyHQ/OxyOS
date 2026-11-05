@@ -4077,6 +4077,11 @@ fn the_header_matches_the_system_shortcuts_abi() {
         ("OXYOS_SHORTCUT_STATUS_MENUS", OXYOS_SHORTCUT_STATUS_MENUS),
         ("OXYOS_SHORTCUT_NOTIFICATIONS", OXYOS_SHORTCUT_NOTIFICATIONS),
         (
+            "OXYOS_SHORTCUT_MISSION_CONTROL",
+            OXYOS_SHORTCUT_MISSION_CONTROL,
+        ),
+        ("OXYOS_SHORTCUT_APP_EXPOSE", OXYOS_SHORTCUT_APP_EXPOSE),
+        (
             "OXYOS_MANAGE_HIDE_APPLICATION",
             OXYOS_MANAGE_HIDE_APPLICATION.into(),
         ),
@@ -4106,6 +4111,11 @@ fn the_header_matches_the_system_shortcuts_abi() {
         (SystemShortcut::Dock, OXYOS_SHORTCUT_DOCK),
         (SystemShortcut::StatusMenus, OXYOS_SHORTCUT_STATUS_MENUS),
         (SystemShortcut::Notifications, OXYOS_SHORTCUT_NOTIFICATIONS),
+        (
+            SystemShortcut::MissionControl,
+            OXYOS_SHORTCUT_MISSION_CONTROL,
+        ),
+        (SystemShortcut::AppExpose, OXYOS_SHORTCUT_APP_EXPOSE),
     ] {
         let event = Event::SystemShortcut {
             shortcut,
@@ -4282,7 +4292,7 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..4)
+        (0..5)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
@@ -4321,6 +4331,8 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         );
         assert_eq!(oxyos_client_show_windows(client, 3, views.as_ptr(), 2), 0);
         assert_eq!(oxyos_client_show_windows(client, 3, std::ptr::null(), 0), 0);
+        // App Exposé's windows moved into their views (ADR 0045).
+        assert_eq!(oxyos_client_move_windows_to_views(client, 3, true), 0);
         let requests = compositor.join().unwrap();
         assert_eq!(
             requests,
@@ -4343,8 +4355,15 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
                     opacity: 64,
                 },
                 Request::ClearWindowViews { surface: 3 },
+                Request::MoveWindowsToViews {
+                    surface: 3,
+                    moved: true,
+                },
             ]
         );
+        assert!(HEADER.contains(
+            "int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);"
+        ));
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();

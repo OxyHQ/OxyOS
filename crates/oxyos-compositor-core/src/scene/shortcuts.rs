@@ -11,8 +11,9 @@
 //! full screen. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
-//! choice), and Super pressed and released alone opens the launcher's search (ADR 0041, which
-//! moved it from Super+Space). Input sources are the program's (ADR 0041): Super+Space chooses
+//! choice), Super pressed and released alone opens the launcher's search (ADR 0041, which
+//! moved it from Super+Space), and Super+↑ and Super+↓ open Mission Control and App Exposé (ADR
+//! 0044), as a touchpad's swipes up and down do (`swipes.rs`). Input sources are the program's (ADR 0041): Super+Space chooses
 //! the one used before (each further Space while Super is held, the one before that),
 //! Super+Alt+Space the next in the list, Control+Super+Space and the emoji key emoji. Screenshots are decision 10's
 //! (`screenshots.rs`): Super+Shift+3 is the compositor's, Super+Shift+4 and 5 open the shell's
@@ -60,8 +61,10 @@ const EMOJI_PICKER: u32 = 0x249;
 const F2: u32 = 60;
 const F3: u32 = 61;
 const F8: u32 = 66;
+const UP: u32 = 103;
 const LEFT: u32 = 105;
 const RIGHT: u32 = 106;
+const DOWN: u32 = 108;
 
 fn is_super(key: u32) -> bool {
     matches!(key, LEFT_SUPER | RIGHT_SUPER)
@@ -314,6 +317,21 @@ impl Scene {
                 }
                 return;
             }
+            // Mission Control and App Exposé, as a Mac's Control-↑ and Control-↓ (ADR 0045): the
+            // shell shows them, as it does for the touchpad's swipes; a menu open closes first.
+            (UP | DOWN, false, false) => {
+                self.dismiss_grab(DismissReason::OutsidePress);
+                let output = self.shortcut_output();
+                if let Some(client) = self.shortcut_shell(output) {
+                    let shortcut = if key == UP {
+                        SystemShortcut::MissionControl
+                    } else {
+                        SystemShortcut::AppExpose
+                    };
+                    self.tell_shortcut(client, output, shortcut);
+                }
+                return;
+            }
             // The keyboard to the top bar's menus, as a Mac's Control-F2: the shell takes it with
             // `FocusShellSurface`, citing this shortcut. A menu open in a window closes first.
             (F2 | F3 | F8 | N, false, false) => {
@@ -414,7 +432,12 @@ impl Scene {
     }
 
     /// Sends a shortcut to a shell: its serial is the shell's input, as a key press is.
-    fn tell_shortcut(&mut self, client: ClientId, output: OutputId, shortcut: SystemShortcut) {
+    pub(super) fn tell_shortcut(
+        &mut self,
+        client: ClientId,
+        output: OutputId,
+        shortcut: SystemShortcut,
+    ) {
         if !self.clients.contains_key(&client) {
             return;
         }

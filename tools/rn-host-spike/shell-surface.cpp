@@ -32,6 +32,13 @@ OxyOSMinimizeTargetProps::OxyOSMinimizeTargetProps(const PropsParserContext& con
     : ViewProps(context, sourceProps, rawProps),
       windows(convertRawProp(context, rawProps, "windows", sourceProps.windows, {})) {}
 
+const char OxyOSScrollTargetComponentName[] = "OxyOSScrollTarget";
+
+OxyOSScrollTargetProps::OxyOSScrollTargetProps(const PropsParserContext& context,
+                                               const OxyOSScrollTargetProps& sourceProps, const RawProps& rawProps)
+    : ViewProps(context, sourceProps, rawProps),
+      target(convertRawProp(context, rawProps, "target", sourceProps.target, 0)) {}
+
 OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context,
                                                const OxyOSShellSurfaceProps& sourceProps, const RawProps& rawProps)
     : ViewProps(context, sourceProps, rawProps),
@@ -42,7 +49,8 @@ OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context
       focusTarget(convertRawProp(context, rawProps, "focusTarget", sourceProps.focusTarget, std::string())),
       focusRequest(convertRawProp(context, rawProps, "focusRequest", sourceProps.focusRequest, 0)),
       excludeFromCapture(
-          convertRawProp(context, rawProps, "excludeFromCapture", sourceProps.excludeFromCapture, false)) {}
+          convertRawProp(context, rawProps, "excludeFromCapture", sourceProps.excludeFromCapture, false)),
+      movesWindows(convertRawProp(context, rawProps, "movesWindows", sourceProps.movesWindows, false)) {}
 
 }  // namespace facebook::react
 
@@ -123,13 +131,23 @@ bool ShellSurfaceHost::showWindows(Region& region, const std::vector<RenderStats
   return true;
 }
 
-void ShellSurfaceHost::exclude(Region& region, const OxyOSShellSurfaceProps& props) {
+void ShellSurfaceHost::tellFlags(Region& region, const OxyOSShellSurfaceProps& props) {
   // The lock screen is never captured at all: the compositor captures nothing while locked.
   bool excluded = props.excludeFromCapture && region.placed.kind != kLock;
-  if (excluded == region.excluded) return;
-  window_.excludeFromCapture(region.surface, excluded);
-  region.excluded = excluded;
-  Report::get().popup("shell.capture", region.surface, nullptr, folly::dynamic::object("excluded", excluded));
+  if (excluded != region.excluded) {
+    window_.excludeFromCapture(region.surface, excluded);
+    region.excluded = excluded;
+    Report::get().popup("shell.capture", region.surface, nullptr, folly::dynamic::object("excluded", excluded));
+  }
+  // Only a shell surface shows windows; a compositor of version 23 or older knows no moved views,
+  // and shows copies.
+  bool moves = props.movesWindows && region.placed.kind != kLock && region.placed.kind != kCandidates &&
+               window_.protocolVersion() >= 24;
+  if (moves != region.moves) {
+    window_.moveWindowsToViews(region.surface, moves);
+    region.moves = moves;
+    Report::get().popup("shell.moves", region.surface, nullptr, folly::dynamic::object("moves", moves));
+  }
 }
 
 bool ShellSurfaceHost::Placement::operator==(const Placement& other) const {
@@ -237,7 +255,7 @@ void ShellSurfaceHost::sync() {
     auto open = regions_.find(tag);
     const auto& props = *std::static_pointer_cast<const OxyOSShellSurfaceProps>(view.props);
     if (open != regions_.end() && open->second.placed == *placed) {
-      exclude(open->second, props);
+      tellFlags(open->second, props);
       continue;
     }
     // The candidate window changes size in place (protocol version 21); with an older compositor,
@@ -269,8 +287,9 @@ void ShellSurfaceHost::sync() {
       }
       window_.setInputRegion(surface, placed->input);
       regions_[tag] = Region{.surface = surface, .placed = *placed};
-      // Before its first frame: a surface left out of captures never shows in one.
-      exclude(regions_[tag], props);
+      // Before its first frame: a surface left out of captures never shows in one, and its
+      // windows fly into its views as it arrives.
+      tellFlags(regions_[tag], props);
       Report::get().popup("shell.open", surface, &view,
                           folly::dynamic::object("kind", placed->kind == kLock                      ? "lock"
                                                          : placed->kind == kCandidates                ? "candidates"
@@ -290,7 +309,7 @@ void ShellSurfaceHost::sync() {
       window_.setInputRegion(open->second.surface, placed->input);
       open->second.placed = *placed;
       open->second.dirty = true;
-      exclude(open->second, props);
+      tellFlags(open->second, props);
     }
   }
   for (auto it = regions_.begin(); it != regions_.end();) {

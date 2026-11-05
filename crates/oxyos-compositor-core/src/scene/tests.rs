@@ -7909,6 +7909,8 @@ mod controls;
 mod displays;
 mod dock;
 mod drag;
+/// Mission Control and App Exposé (ADR 0045).
+mod expose;
 /// Input sources and the candidates handed to the shell (ADR 0041).
 mod input_sources;
 /// Key repeat (ADR 0036).

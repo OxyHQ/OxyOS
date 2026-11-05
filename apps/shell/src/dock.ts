@@ -202,3 +202,31 @@ export function trashMenu(
     ...(canEmpty ? [{ id: "empty" as const, label: messages.dock.emptyTrash, enabled: (items ?? 0) > 0 }] : []),
   ];
 }
+
+/** How far a touchpad's two fingers scroll on a dock icon before it acts (logical pixels). */
+export const ICON_SCROLL = 12;
+
+/** A scroll going on over a dock icon: how far it went, and whether it acted. */
+export type IconScroll = { moved: number; acted: boolean };
+export const NO_ICON_SCROLL: IconScroll = { moved: 0, acted: false };
+
+/**
+ * A scroll on a dock icon (docs/adr/0045-app-expose.mdx), as a Mac's Dock takes one: up (as a
+ * wheel turned away, the content's view moving up) opens the application's App Exposé, down closes
+ * it. A wheel's notch acts at once; a touchpad's fingers once they have gone `ICON_SCROLL` one way,
+ * once until they lift. Across does nothing.
+ */
+export function iconScroll(
+  state: IconScroll,
+  event: { dx: number; dy: number; finger: boolean; end: boolean },
+): { state: IconScroll; direction: "up" | "down" | null } {
+  if (event.end) return { state: NO_ICON_SCROLL, direction: null };
+  const vertical = Math.abs(event.dy) > Math.abs(event.dx);
+  if (!event.finger) {
+    return { state: NO_ICON_SCROLL, direction: vertical && event.dy !== 0 ? (event.dy < 0 ? "up" : "down") : null };
+  }
+  if (state.acted) return { state, direction: null };
+  const moved = state.moved + (vertical ? event.dy : 0);
+  if (Math.abs(moved) < ICON_SCROLL) return { state: { moved, acted: false }, direction: null };
+  return { state: { moved, acted: true }, direction: moved < 0 ? "up" : "down" };
+}

@@ -1,0 +1,466 @@
+{
+  "about": "App Exposé (docs/adr/0045-app-expose.mdx) from the dock and the pointer, at 1 (1280 × 720): Allo is two windows (EditingProbe, 600 × 360, and PressProbe, the `companion` the session launched for the same application, titled Companion, 460 × 300 at (700, 300)), with the session's shell. The dock's menu's Show All Windows opens App Exposé: the two windows live, moved into their places (never copies), apart and inside the work area, the one used last first, each flying there from where it is (its first frame exactly its window, its last its place, every edge only ever going one way), the dimmed desktop fading in beneath and the overlay settling; where the windows were the dimmed desktop shows, nothing of them. A press on Allo's window brings it forward with the keyboard and closes App Exposé, both windows flying back to where they are, which never changed. Super+M minimizes Allo; Super+↓ opens App Exposé on the companion, its one open window, with Allo's minimized window alone in the row below it, which does not fly (it is in the dock); a press on it restores it out of the dock through the genie, with the keyboard. Again, a press on nothing closes it, everything where it was. Each step checks that neither application's React tree hears anything, what each window is delivered (focus and the pointer's crossing, never a press or a key), and what the shell re-renders (its components, exactly where each re-render began).",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      700,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's two windows, nothing shown live",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {}
+        }
+      }
+    },
+    {
+      "name": "a long press on Allo's icon opens its menu, Show All Windows in it",
+      "do": [
+        "hold_named",
+        [
+          "Allo",
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Mostrar todas las ventanas"
+          ],
+          "renders": {}
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Show All Windows: App Exposé, the windows themselves flying to their places, apart, inside the work area; where they were, the dimmed desktop",
+      "do": [
+        "press_named",
+        "Mostrar todas las ventanas"
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            636
+          ]
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": true,
+              "ended": true,
+              "eased": true,
+              "still": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": true,
+              "ended": true,
+              "eased": true
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "Companion"
+          ],
+          "renders": {}
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Dialog",
+              "name": "Ventanas de Allo"
+            },
+            {
+              "role": "List",
+              "name": "Ventanas abiertas"
+            },
+            {
+              "role": "Button",
+              "name": "Companion"
+            },
+            {
+              "role": "Button",
+              "name": "Allo"
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Ventanas minimizadas"
+            }
+          ]
+        },
+        "output_pixels": {
+          "450,520": "!#ffffff",
+          "1000,560": "!#ffffff"
+        },
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on Allo's window: it comes forward with the keyboard, App Exposé closes, both fly back to where they are, which never changed",
+      "do": [
+        "press_output",
+        [
+          886,
+          346
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "focus_surface": 1,
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": false,
+              "ended": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": false,
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+M minimizes Allo into the dock, the companion taking the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 156,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+↓: App Exposé of the active application, the companion's window open and Allo's minimized alone in the row below, which does not fly",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "below": [
+            1
+          ]
+        },
+        "flights": {
+          "arriving": [
+            2
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "Ventanas abiertas"
+            },
+            {
+              "role": "Button",
+              "name": "Companion"
+            },
+            {
+              "role": "List",
+              "name": "Ventanas minimizadas"
+            },
+            {
+              "role": "Button",
+              "name": "Allo"
+            }
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 435,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on the minimized window restores it out of the dock through the genie, with the keyboard",
+      "do": [
+        "press_output",
+        [
+          640,
+          585
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            2
+          ]
+        },
+        "focus_surface": 1,
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+↓ again: both open, Allo first",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            636
+          ]
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 418,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on nothing closes it, nothing chosen: everything where it was, Allo with the keyboard again",
+      "do": [
+        "press_output",
+        [
+          640,
+          644
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -260,6 +260,10 @@ fn requests() -> Vec<Request> {
             window: 7,
             rect: Rect::new(512, 6, 42, 42),
         },
+        Request::MoveWindowsToViews {
+            surface: 2,
+            moved: true,
+        },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -1262,7 +1266,15 @@ fn menu_kinds_fields_and_flags_are_closed_sets() {
 #[test]
 fn system_shortcuts_are_a_closed_set() {
     assert!(SystemShortcut::from_raw(0).is_none());
-    assert!(SystemShortcut::from_raw(12).is_none());
+    assert!(SystemShortcut::from_raw(14).is_none());
+    assert_eq!(
+        SystemShortcut::from_raw(12),
+        Some(SystemShortcut::MissionControl)
+    );
+    assert_eq!(
+        SystemShortcut::from_raw(13),
+        Some(SystemShortcut::AppExpose)
+    );
     assert_eq!(SystemShortcut::from_raw(7), Some(SystemShortcut::Search));
     assert_eq!(SystemShortcut::from_raw(8), Some(SystemShortcut::MenuBar));
     assert_eq!(SystemShortcut::from_raw(9), Some(SystemShortcut::Dock));
@@ -2298,6 +2310,48 @@ fn version_16_notification_center_shortcut_is_never_sent_to_an_older_client() {
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &dock, 15).unwrap());
     assert_eq!(read_event_for(&mut Cursor::new(old), 15).unwrap(), dock);
+}
+
+#[test]
+fn version_24_mission_control_app_expose_and_moved_views_are_only_a_peer_of_version_24s() {
+    // Mission Control's and App Exposé's shortcuts are values a version 23 reader would refuse:
+    // never sent to it. The shortcuts it has are.
+    for shortcut in [SystemShortcut::MissionControl, SystemShortcut::AppExpose] {
+        let event = Event::SystemShortcut {
+            shortcut,
+            serial: 4,
+            output: 1,
+        };
+        assert_eq!(event_since(&event), 24);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 23).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 24).unwrap());
+        assert_eq!(
+            read_event_for(&mut Cursor::new(new.clone()), 24).unwrap(),
+            event
+        );
+        assert!(read_event_for(&mut Cursor::new(new), 23).is_err());
+    }
+    let notifications = Event::SystemShortcut {
+        shortcut: SystemShortcut::Notifications,
+        serial: 4,
+        output: 1,
+    };
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &notifications, 23).unwrap());
+    // A compositor of version 23 closes the connection on an unknown request: the client library
+    // never sends it one.
+    let moved = Request::MoveWindowsToViews {
+        surface: 2,
+        moved: true,
+    };
+    assert_eq!(request_since(&moved), 24);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &moved).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), moved);
+    assert_eq!(request_since(&Request::ClearWindowViews { surface: 2 }), 2);
 }
 
 #[test]

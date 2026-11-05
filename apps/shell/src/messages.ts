@@ -239,6 +239,13 @@ const en = (f: Formats) => ({
     addDesktop: "Add Desktop",
     newDesktop: "New Desktop",
   },
+  /** App Exposé (docs/adr/0045-app-expose.mdx): a dialog named by its application. */
+  appExpose: {
+    title: "App Exposé",
+    label: (name: string) => `${name} Windows`,
+    open: "Open Windows",
+    minimized: "Minimized Windows",
+  },
   switcher: { label: "Application Switcher" },
   /** Banners, the Notification Center and the lock screen's summary (notifications.ts). */
   notifications: {
@@ -511,6 +518,12 @@ const es = (f: Formats): Catalogue => ({
     noWindows: "No hay ventanas abiertas",
     addDesktop: "Añadir escritorio",
     newDesktop: "Nuevo escritorio",
+  },
+  appExpose: {
+    title: "App Exposé",
+    label: (name) => `Ventanas de ${name}`,
+    open: "Ventanas abiertas",
+    minimized: "Ventanas minimizadas",
   },
   switcher: { label: "Cambiar de aplicación" },
   notifications: {

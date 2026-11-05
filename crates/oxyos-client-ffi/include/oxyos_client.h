@@ -111,6 +111,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_DOCK 9
 #define OXYOS_SHORTCUT_STATUS_MENUS 10
 #define OXYOS_SHORTCUT_NOTIFICATIONS 11
+/* Super+Up and Super+Down, or three or four fingers swiped up and down: Mission Control and App
+ * Exposé (protocol version 24, docs/adr/0045-app-expose.mdx). */
+#define OXYOS_SHORTCUT_MISSION_CONTROL 12
+#define OXYOS_SHORTCUT_APP_EXPOSE 13
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
@@ -747,6 +751,11 @@ int oxyos_client_end_capture(OxyOSClient* client, uint64_t serial);
 /* One of the shell's own shell surfaces left out of every capture (its screenshot interface, its
  * thumbnail), or put back. */
 int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, bool excluded);
+/* The windows one of the shell's own shell surfaces shows live moved into their views, as App
+ * Exposé moves a Mac's windows (docs/adr/0045-app-expose.mdx): drawn there alone while it is
+ * shown, flying from where they are as it arrives and back as it goes; or copies again. Said
+ * before its first frame. -1 to a compositor of version 23 or older. */
+int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
 int oxyos_client_open_screenshot(OxyOSClient* client, uint32_t screenshot, uint64_t serial);

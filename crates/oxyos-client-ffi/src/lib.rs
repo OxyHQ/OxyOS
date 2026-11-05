@@ -261,6 +261,10 @@ pub const OXYOS_SHORTCUT_DOCK: u32 = 9;
 pub const OXYOS_SHORTCUT_STATUS_MENUS: u32 = 10;
 /// Super+N: the Notification Center, as a Mac's Fn-N (protocol version 16, ADR 0039).
 pub const OXYOS_SHORTCUT_NOTIFICATIONS: u32 = 11;
+/// Super+↑ and Super+↓, or three or four fingers swiped up and down on a touchpad: Mission Control
+/// and App Exposé, as a Mac's Control-↑ and Control-↓ (protocol version 24, ADR 0045).
+pub const OXYOS_SHORTCUT_MISSION_CONTROL: u32 = 12;
+pub const OXYOS_SHORTCUT_APP_EXPOSE: u32 = 13;
 /// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
 /// screenshot interface to show or change (serial: a user input of its own, the same until the
 /// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:
@@ -3538,6 +3542,26 @@ pub unsafe extern "C" fn oxyos_client_exclude_from_capture(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::ExcludeFromCapture { surface, excluded }) }
+}
+
+/// Moves the windows one of the shell's own shell surfaces shows live into their views
+/// (`moved`), as App Exposé and Mission Control move a Mac's windows, or makes the views copies
+/// again (docs/adr/0045-app-expose.mdx): while the surface is shown, a moved window is drawn in
+/// its view alone, flying there from where it is as the surface arrives and back as it goes.
+/// Said before the surface's first frame, it holds from its arrival. 0 on success; -1 to a
+/// compositor of version 23 or older, which is sent nothing.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_move_windows_to_views(
+    client: *mut OxyOSClient,
+    surface: u32,
+    moved: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::MoveWindowsToViews { surface, moved }) }
 }
 
 /// The parts of `surface` never captured, its secure text fields: `count` (at most 32) rectangles

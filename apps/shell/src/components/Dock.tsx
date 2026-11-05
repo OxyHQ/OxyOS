@@ -24,7 +24,7 @@ import { Tooltip, TooltipTextBubble, TooltipTrigger } from "@oxy.so/bloom/toolti
 import { DropZone, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
 import { Box, Scroll } from "../primitives";
-import type { MinimizeTargetProps, ShellKeyboard } from "../platform";
+import type { MinimizeTargetProps, ScrollTargetProps, ShellKeyboard, ShellScrollEvent } from "../platform";
 import { CORNER, IconBody } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
@@ -32,7 +32,9 @@ import { TRASH_ICON } from "./trash-icon";
 import { belongsTo } from "../model";
 import {
   dockMenu,
+  iconScroll,
   keepInDock,
+  NO_ICON_SCROLL,
   openAtLogin,
   trashMenu,
   trashedByDrop,
@@ -338,6 +340,39 @@ const DockIcon = memo(function DockIcon({
   );
 });
 
+/**
+ * An application's dock icon taking the scrolls over it (docs/adr/0045-app-expose.mdx), where the
+ * platform hands them (its ScrollTarget): up opens its App Exposé, down closes it, once a touchpad's
+ * scroll (dock.ts, `iconScroll`). Apart from the icon, so the pointer over the icon (its own state)
+ * renders the icon alone.
+ */
+const IconScroll = memo(function IconScroll({
+  id,
+  scroll,
+  ScrollTarget,
+  children,
+}: {
+  id: string;
+  scroll: (id: string, up: boolean) => void;
+  ScrollTarget: React.ComponentType<ScrollTargetProps>;
+  children: React.ReactNode;
+}) {
+  const scrolled = useRef(NO_ICON_SCROLL);
+  const onScroll = useCallback(
+    (event: ShellScrollEvent) => {
+      const next = iconScroll(scrolled.current, event);
+      scrolled.current = next.state;
+      if (next.direction) scroll(id, next.direction === "up");
+    },
+    [scroll, id],
+  );
+  return (
+    <ScrollTarget onScroll={onScroll} style={ICON_ROW}>
+      {children}
+    </ScrollTarget>
+  );
+});
+
 const TRASH_ACCEPT = ["files"] as const;
 const TRASH_ACTIONS = ["move"] as const;
 /** How much the Trash grows while a drag it would take is over it (docs/adr/0044-system-sounds.mdx):
@@ -488,6 +523,8 @@ export const Dock = memo(function Dock({
   leave,
   MinimizeTarget,
   useDisplayCovered,
+  scrollIcon,
+  ScrollTarget,
 }: {
   applications: readonly ShellApplication[];
   windows: readonly ShellWindow[];
@@ -499,8 +536,12 @@ export const Dock = memo(function Dock({
   actions: ShellActions;
   view: string;
   activateApp: (id: string) => void;
-  /** The application's windows alone in the overview, as a Mac's App Exposé. */
+  /** The application's App Exposé (docs/adr/0045-app-expose.mdx): its windows alone, large. */
   showAllWindows?: (id: string) => void;
+  /** A scroll up (or down) on an application's icon: its App Exposé opens (or closes), as a
+      Mac's Dock can; and where the platform hands an icon the scrolls over it. */
+  scrollIcon?: (id: string, up: boolean) => void;
+  ScrollTarget?: React.ComponentType<ScrollTargetProps>;
   toggleLauncher: () => void;
   toggleOverview: () => void;
   /** The dock's keys while it has the keyboard (Super+F3, docs/adr/0039-keyboard-access.mdx): ← →
@@ -689,26 +730,36 @@ export const Dock = memo(function Dock({
           iconSize={22}
           colors={{ background: colors.overview, foreground: colors.overviewIcon }}
         />
-        {apps.map((app) => (
-          <DockIcon
-            key={app.id}
-            id={app.id}
-            name={app.name}
-            testID={`dock-${app.id}`}
-            label={app.name}
-            status={running.has(app.id) ? words.running : undefined}
-            menu={menu?.id === app.id ? menu : null}
-            setMenu={setMenu}
-            activate={activateApp}
-            runningColor={running.has(app.id) ? colors.running : undefined}
-            rows={menu?.id === app.id ? rows : null}
-            app={app}
-            register={register}
-            onFocusIcon={onFocusIcon}
-            windowIds={windowIds.get(app.id)}
-            MinimizeTarget={MinimizeTarget}
-          />
-        ))}
+        {apps.map((app) => {
+          const icon = (
+            <DockIcon
+              key={app.id}
+              id={app.id}
+              name={app.name}
+              testID={`dock-${app.id}`}
+              label={app.name}
+              status={running.has(app.id) ? words.running : undefined}
+              menu={menu?.id === app.id ? menu : null}
+              setMenu={setMenu}
+              activate={activateApp}
+              runningColor={running.has(app.id) ? colors.running : undefined}
+              rows={menu?.id === app.id ? rows : null}
+              app={app}
+              register={register}
+              onFocusIcon={onFocusIcon}
+              windowIds={windowIds.get(app.id)}
+              MinimizeTarget={MinimizeTarget}
+            />
+          );
+          // Its scrolls, where the platform hands them.
+          return scrollIcon && ScrollTarget ? (
+            <IconScroll key={app.id} id={app.id} scroll={scrollIcon} ScrollTarget={ScrollTarget}>
+              {icon}
+            </IconScroll>
+          ) : (
+            icon
+          );
+        })}
         {trash && (
           <>
             {/* The Trash sits past a divider at the dock's end, as a Mac's. */}
@@ -748,7 +799,7 @@ export const Dock = memo(function Dock({
         )}
       </Scroll>
     ),
-    [apps, running, colors, messages, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon, windowIds, MinimizeTarget],
+    [apps, running, colors, messages, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon, windowIds, MinimizeTarget, scrollIcon, ScrollTarget],
   );
   return (
     <DockShelf color={colors.shelf} useDisplayCovered={useDisplayCovered}>

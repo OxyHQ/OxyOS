@@ -1,0 +1,642 @@
+{
+  "about": "App Exposé (docs/adr/0045-app-expose.mdx) from the keyboard alone with the screen reader on in Spanish (docs/adr/0039-keyboard-access.mdx), at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo's two windows (EditingProbe and the companion, PressProbe, titled Companion) with the shell. Super+↓ opens App Exposé with the keyboard on the window used last, said after the dialog's name, each window said by its title and its place among the open windows (\"Companion, botón, 1 de 2\"); → and ← go from window to window, each said once; Return chooses Allo's, which comes forward with the keyboard. With Allo minimized (Super+M), Super+↓ shows the companion open and Allo in the minimized row; Tab goes between the two areas, each one stop (\"Allo, botón, 1 de 1\" in Ventanas minimizadas); Return restores Allo out of the dock with the keyboard. Escape closes it with nothing chosen, the keyboard back with the window. No application hears a key of any of it.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      700,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "reader": {},
+  "steps": [
+    {
+      "name": "Allo's two windows; the reader on",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [],
+        "announcements": [],
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {}
+        }
+      }
+    },
+    {
+      "name": "Super+↓: App Exposé with the keyboard on the window used last, said after the dialog",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-2",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 418,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Ventanas de Allo, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "Companion, botón, 1 de 2",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "→: Allo's window, 2 de 2",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-1",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 187,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Allo, botón, 2 de 2",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "→ again: no window past it, the keyboard stays and nothing is said",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-1",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 54,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "spoken": [],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "←: back to the companion's window",
+      "do": [
+        "key",
+        [
+          105
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-2",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 130,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Companion, botón, 1 de 2",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "→ to Allo's",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-1",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 130,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Allo, botón, 2 de 2",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Return chooses it: Allo comes forward with the keyboard, App Exposé closes, the windows fly back",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+M minimizes Allo",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "expect": {
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 156,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+↓: the companion open, Allo in the minimized row; the keyboard on the companion's, 1 de 1",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            716
+          ],
+          "below": [
+            1
+          ]
+        },
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-2",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 435,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Ventanas de Allo, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "Companion, botón, 1 de 1",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Tab: the minimized row, one stop, Allo's window 1 de 1",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-1",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 44,
+            "each_minute": [
+              "SessionShell"
+            ],
+            "tops": [
+              "CssInterop.DisplayFaceText",
+              "CssInterop.View",
+              "CssInterop.View",
+              "ExposeWindow",
+              "ExposeWindow"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Allo, botón, 1 de 1",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Tab: back to the open windows (each area one stop)",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-2",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 44,
+            "each_minute": [
+              "SessionShell"
+            ],
+            "tops": [
+              "CssInterop.DisplayFaceText",
+              "CssInterop.View",
+              "CssInterop.View",
+              "ExposeWindow",
+              "ExposeWindow"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Companion, botón, 1 de 1",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Shift+Tab: the minimized row again",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "expose-window-1",
+            "ring": true
+          },
+          "renders": {
+            "components_max": 44,
+            "each_minute": [
+              "SessionShell"
+            ],
+            "tops": [
+              "CssInterop.DisplayFaceText",
+              "CssInterop.View",
+              "CssInterop.View",
+              "ExposeWindow",
+              "ExposeWindow"
+            ]
+          }
+        },
+        "spoken": [
+          {
+            "text": "Allo, botón, 1 de 1",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Return restores Allo out of the dock, with the keyboard",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "focus_surface": 1,
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+↓, then Escape closes it with nothing chosen: the keyboard back with Allo",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true
+        },
+        "spoken": [
+          {
+            "text": "Ventanas de Allo, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "Allo, botón, 1 de 2",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 418,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

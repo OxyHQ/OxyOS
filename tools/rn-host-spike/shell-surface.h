@@ -60,6 +60,9 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // Whether its surface is left out of every screenshot (the screenshot interface itself and its
   // thumbnail, docs/adr/0024-system-shortcuts.mdx, decision 10).
   bool excludeFromCapture{false};
+  // Whether the windows its views show are moved into them (App Exposé, docs/adr/0045-app-expose.mdx):
+  // drawn there alone while it shows, flying from where they are as it arrives and back as it goes.
+  bool movesWindows{false};
 };
 
 using OxyOSShellSurfaceShadowNode = ConcreteViewShadowNode<OxyOSShellSurfaceComponentName, OxyOSShellSurfaceProps>;
@@ -101,6 +104,24 @@ class OxyOSMinimizeTargetProps final : public ViewProps {
 using OxyOSMinimizeTargetShadowNode =
     ConcreteViewShadowNode<OxyOSMinimizeTargetComponentName, OxyOSMinimizeTargetProps>;
 using OxyOSMinimizeTargetComponentDescriptor = ConcreteComponentDescriptor<OxyOSMinimizeTargetShadowNode>;
+
+// What takes the pointer's scrolls no scroll view under it takes (the dock's icons, whose scroll up
+// opens App Exposé, docs/adr/0045-app-expose.mdx): as Android's View takes the ACTION_SCROLL
+// generic motion events nothing within it handled. Each is told to JavaScript with `target`, the
+// number JavaScript gave it. Drawn and laid out as any view.
+extern const char OxyOSScrollTargetComponentName[];
+
+class OxyOSScrollTargetProps final : public ViewProps {
+ public:
+  OxyOSScrollTargetProps() = default;
+  OxyOSScrollTargetProps(const PropsParserContext& context, const OxyOSScrollTargetProps& sourceProps,
+                         const RawProps& rawProps);
+
+  int target{0};
+};
+
+using OxyOSScrollTargetShadowNode = ConcreteViewShadowNode<OxyOSScrollTargetComponentName, OxyOSScrollTargetProps>;
+using OxyOSScrollTargetComponentDescriptor = ConcreteComponentDescriptor<OxyOSScrollTargetShadowNode>;
 
 }  // namespace facebook::react
 
@@ -169,13 +190,16 @@ class ShellSurfaceHost {
     std::vector<RenderStats::WindowView> windows;
     // Where the windows it names minimize into, as last sent to the compositor (ADR 0011).
     std::vector<RenderStats::MinimizeTarget> targets;
-    // Whether the compositor was told to leave its surface out of captures (ADR 0024).
+    // Whether the compositor was told to leave its surface out of captures (ADR 0024), and to
+    // move the windows it shows into their views (ADR 0045).
     bool excluded = false;
+    bool moves = false;
   };
   // The region asking for the keyboard: of several, the newest.
   std::optional<facebook::react::Tag> keyboardTag() const;
-  // Tells the compositor a region's `excludeFromCapture` when it differs from what it was told.
-  void exclude(Region& region, const facebook::react::OxyOSShellSurfaceProps& props);
+  // Tells the compositor a region's `excludeFromCapture` and `movesWindows` when they differ from
+  // what it was told.
+  void tellFlags(Region& region, const facebook::react::OxyOSShellSurfaceProps& props);
   // Sends a region's windows shown live if they changed since last sent; true if they did.
   bool showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows);
   // Sends where a region's windows minimize into if it changed since last sent (held from the

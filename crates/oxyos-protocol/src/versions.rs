@@ -48,7 +48,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// candidate window resized in place (`ResizeInputCandidates`, ADR 0041); version 22, whether a
 /// zoomed or full-screen window covers an output (`OutputCovered`, ADR 0034), told to the shell;
 /// version 23, system sounds (`PlaySystemSound`, `NotificationSound`,
-/// docs/adr/0044-system-sounds.mdx), asked by any client.
+/// docs/adr/0044-system-sounds.mdx), asked by any client;
+/// version 24, the shell's windows moved into their views (`MoveWindowsToViews`, ADR 0045).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -77,6 +78,7 @@ const REQUESTS_ADDED: Added = &[
     (20, 92..=93),
     (21, 68..=68),
     (23, 236..=237),
+    (24, 94..=94),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -93,10 +95,15 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way; version 14's
 /// column header role (`AccessibleRole::ColumnHeader`) and version 15's meter
 /// (`AccessibleRole::Meter`), likewise; and version 16's shortcut to the Notification Center
-/// (ADR 0039); and version 23's list of applications whose notifications play no sound
-/// (`ApplicationListKind::NotificationSoundsOff`).
+/// (ADR 0039); version 23's list of applications whose notifications play no sound
+/// (`ApplicationListKind::NotificationSoundsOff`); and version 24's shortcuts to Mission Control and
+/// App Exposé (ADR 0045).
 pub fn event_since(event: &Event) -> u16 {
     match event {
+        Event::SystemShortcut {
+            shortcut: SystemShortcut::MissionControl | SystemShortcut::AppExpose,
+            ..
+        } => 24,
         Event::SystemShortcut {
             shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
             ..

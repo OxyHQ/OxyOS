@@ -91,6 +91,13 @@ class PointerInput {
   void scrollsText(std::function<bool(facebook::react::Tag, float dx, float dy)> scrollText) {
     scrollText_ = std::move(scrollText);
   }
+  // A scroll that no scroll view or text input under the pointer takes goes to the innermost
+  // OxyOSScrollTarget around it (renderer.h), as an Android view takes the scroll events nothing
+  // within it handled: (dx, dy) as the scroll went, whether a touchpad's fingers made it, and, once
+  // they lift, its end (nothing moved).
+  void scrollsTargets(std::function<void(facebook::react::Tag, float dx, float dy, bool finger, bool end)> target) {
+    scrollTarget_ = std::move(target);
+  }
   // A secondary press on a text input, or a Control-click on one (which is a secondary press there,
   // as on a Mac: its pointer events say button 2, and it is no touch), opens the input's context
   // menu (TextEditing::contextMenu), after its pointerdown: `open` with the input, the surface and
@@ -188,7 +195,8 @@ class PointerInput {
   bool takeStretchChanged() { return std::exchange(stretchChanged_, false); }
 
  private:
-  void scroll(float dx, float dy);
+  // `finger`: a touchpad's drag no scroll view took, which goes to a scroll target as such.
+  void scroll(float dx, float dy, bool finger = false);
   // A touchpad's scroll (OXYOS_SCROLL_FINGER), as Android 14 gives two fingers' swipe to a
   // ScrollView (inputflinger's GestureConverter: a finger dragged): its first event begins a drag
   // of the innermost scroll view that can move its way (onScrollBeginDrag), which every event
@@ -268,6 +276,10 @@ class PointerInput {
   const ViewTree& tree_;
   Surfaces surfaces_;
   std::function<bool(facebook::react::Tag, float, float)> scrollText_;
+  std::function<void(facebook::react::Tag, float, float, bool, bool)> scrollTarget_;
+  // The scroll target a touchpad's drag that no scroll view took went to, told its end when the
+  // fingers lift.
+  facebook::react::Tag fingerTarget_ = -1;
   std::function<void(facebook::react::Tag, uint32_t, float, float)> textMenu_;
   // The primary button is held as a Control-click on a text input: its press and release are the
   // secondary button's.

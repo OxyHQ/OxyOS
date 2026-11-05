@@ -130,6 +130,18 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   [least, most]; "interval_ms", the least time between two; "median_interval_ms", [least, most]
   for the median time between them (a frame of the display: 8.3 at 120 Hz); their timestamps rise
   and are performance.now()'s clock (within a millisecond of the report's, CLOCK_MONOTONIC);
+- window_views: the windows the shell's surfaces show live once the step settled (ADR 0022), by
+  their numbers: "windows", exactly those; "moved", each moved into its view (App Exposé, ADR 0045)
+  or each a copy; "apart", no two overlapping; "within", each inside [x, y, width, height] (logical
+  pixels of the global space); "below", those windows each below every other one shown (App
+  Exposé's minimized row);
+- flights: the windows that flew to their views and back in the step (ADR 0045): "arriving" and
+  "going", exactly those windows; "none", nothing flew; and always, each flight in more than one
+  frame, every edge only ever going toward its end, an arriving one beginning where its window is
+  and ending in its view (within a pixel: where its spring came to rest), a going one beginning in
+  its view's place the step before and ending where its window is;
+- windows_placed_as: every window where it was once step N settled (1-based): nothing of App
+  Exposé's moved a window;
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
   by a distinct one having every key given ("kind": window, popup, overlay, backdrop, panel,
@@ -314,6 +326,12 @@ A `drag_hold` step ([x0, y0, x1, y1, motions, hz]) is a `drag_paced` whose butto
 drag goes on into the steps after it, each step's frame showing it midway (`move_output` moves it,
 `key_down` holds a modifier that changes its action), until a `release_output` ([x, y]) moves the
 pointer there and releases it, dropping it or ending it over nothing.
+
+A `swipe` step ([fingers, dx, dy, steps]) is three or four fingers swiped on the touchpad, the
+system's (Mission Control up, App Exposé down, ADR 0045); a `scroll_named` step ([name, dy] a
+wheel's notch, [name, dy, events] a touchpad's two fingers in that many events, then lifted)
+scrolls on the node of that accessible name (a dock icon), and a `scroll_output` step ([x, y, dy]
+or [x, y, dy, events]) at a point of the output.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
 `press_secondary_named` and `move_named` (a name) and `hold_named` ([name, ms]) are the output's
@@ -516,7 +534,8 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock"}
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
+             "scroll_output", "swipe"}
 
 
 # CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
@@ -732,6 +751,19 @@ def director_args(step, out):
         return args + ["--double-drag", ",".join(map(str, value))]
     if kind == "scroll":
         return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
+    if kind == "scroll_named":
+        # A scroll by DY on the node of this accessible name (a dock icon's, ADR 0045): [name, dy]
+        # a wheel's notch, or [name, dy, events] a touchpad's two fingers in that many events.
+        events = value[2] if len(value) > 2 else 0
+        return args + ["--scroll-named", f"{value[1]},{events}", value[0]]
+    if kind == "scroll_output":
+        # The same at a point of the output: [x, y, dy] or [x, y, dy, events].
+        events = value[3] if len(value) > 3 else 0
+        return args + ["--scroll-output", f"{value[0]},{value[1]},{value[2]},{events}"]
+    if kind == "swipe":
+        # Fingers swiped on the touchpad (Mission Control, App Exposé, ADR 0045): [fingers, dx, dy,
+        # steps].
+        return args + ["--swipe", ",".join(map(str, value))]
     if kind == "pinch":
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
@@ -1778,6 +1810,102 @@ def ended_report(path):
     if not text.endswith("\n"):
         lines = lines[:-1]
     return [json.loads(line) for line in lines if line.strip()]
+
+
+def overlaps(a, b):
+    """Whether two [x, y, width, height] rectangles share any pixel."""
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def within(inner, outer):
+    return (inner[0] >= outer[0] and inner[1] >= outer[1] and inner[0] + inner[2] <= outer[0] + outer[2]
+            and inner[1] + inner[3] <= outer[1] + outer[3])
+
+
+def check_views(index, step, result, results, failures):
+    """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
+    as the director reported them once the step settled: `window_views` ("windows", exactly those
+    window numbers shown, in any order; "moved", each moved into its view or not; "apart", no two
+    overlapping; "within", each inside [x, y, width, height]; "below", those windows each below
+    every other one shown: App Exposé's minimized row), `flights` ("arriving" and "going", exactly
+    the windows that flew to their views and back in the step; each flight's frames only ever going
+    toward its end, edge by edge, in more than one frame; an arriving one beginning where its window
+    is and ending in its view, a going one beginning in its view's place and ending where its window
+    is; "none", nothing flew) and `windows_placed_as` (every window where it was once step N
+    settled, 1-based: nothing moved)."""
+    expect = step.get("expect", {})
+    name = f"step {index + 1} ({step.get('name', step['do'][0])})"
+
+    def fail(message):
+        failures.append(f"{name}: {message}")
+
+    views = result.get("window_views", [])
+    placed = result.get("windows_placed", {})
+    wanted = expect.get("window_views")
+    if wanted is not None:
+        shown = sorted(view["window"] for view in views)
+        if "windows" in wanted and shown != sorted(wanted["windows"]):
+            fail(f"the shell shows windows {shown} live, expected {sorted(wanted['windows'])}")
+        if "moved" in wanted and any(view["moved"] != wanted["moved"] for view in views):
+            fail(f"views moved {[view['moved'] for view in views]}, expected all {wanted['moved']}")
+        if wanted.get("apart"):
+            for i, a in enumerate(views):
+                for b in views[i + 1:]:
+                    if overlaps(a["rect"], b["rect"]):
+                        fail(f"windows {a['window']} {a['rect']} and {b['window']} {b['rect']} overlap")
+        if "within" in wanted:
+            for view in views:
+                if not within(view["rect"], wanted["within"]):
+                    fail(f"window {view['window']} at {view['rect']} is outside {wanted['within']}")
+        for number in wanted.get("below", []):
+            mine = next((view for view in views if view["window"] == number), None)
+            if mine is None:
+                fail(f"window {number} is not shown")
+                continue
+            for other in views:
+                if other["window"] != number and other["window"] not in wanted["below"] and \
+                        mine["rect"][1] < other["rect"][1] + other["rect"][3]:
+                    fail(f"window {number} at {mine['rect']} is not below window {other['window']} {other['rect']}")
+    flights = result.get("flights", [])
+    wanted = expect.get("flights")
+    if wanted is not None:
+        if wanted.get("none") and flights:
+            fail(f"windows flew: {flights}")
+        for kind, arriving in (("arriving", True), ("going", False)):
+            if kind not in wanted:
+                continue
+            flew = sorted(flight["window"] for flight in flights if flight["arriving"] == arriving)
+            if flew != sorted(wanted[kind]):
+                fail(f"windows {flew} flew {'to their views' if arriving else 'back'}, expected {sorted(wanted[kind])}")
+        before = results[index - 1] if index > 0 else {}
+        for flight in flights:
+            path = flight["path"]
+            who = f"window {flight['window']}'s flight {'to its view' if flight['arriving'] else 'back'}"
+            if len(path) < 2:
+                fail(f"{who} drew {len(path)} frame(s)")
+                continue
+            first, last = path[0], path[-1]
+            for edge in range(4):
+                # Left, top, right and bottom.
+                values = [(f[0], f[1], f[0] + f[2], f[1] + f[3])[edge] for f in path]
+                rising = values[-1] >= values[0]
+                if any((b < a) if rising else (b > a) for a, b in zip(values, values[1:])):
+                    fail(f"{who} went back and forth: {path}")
+                    break
+            view = next((view for view in (views if flight["arriving"] else before.get("window_views", []))
+                         if view["window"] == flight["window"]), None)
+            home = (before if flight["arriving"] else result).get("windows_placed", {}).get(str(flight["window"]))
+            start, end = (home, view and view["rect"]) if flight["arriving"] else (view and view["rect"], home)
+            if start is not None and first != start:
+                fail(f"{who} began at {first}, not at {start}")
+            # Its last frame is where its spring came to rest, within a thousandth of the way:
+            # a pixel at most from its end.
+            if end is not None and any(abs(a - b) > 1 for a, b in zip(last, end)):
+                fail(f"{who} ended at {last}, not at {end}")
+    if "windows_placed_as" in expect:
+        then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})
+        if placed != then:
+            fail(f"the windows are at {placed}, not where they were after step {expect['windows_placed_as']}: {then}")
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
@@ -3634,6 +3762,7 @@ def main():
         start = check_step(index, step, result, report, start, failures, options.uinput,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
                            out / "preferences", refresh_hz, recorder)
+        check_views(index, step, result, summary["steps"], failures)
     # Each host's frame diagnostics against its report, and the log they wrote to.
     check_diagnostics(report, run.stdout + run.stderr, failures)
     primary = (scenario.get("outputs") or "").split(",")[0]

@@ -758,6 +758,10 @@ void Window::excludeFromCapture(uint32_t id, bool excluded) {
   if (oxyos_client_exclude_from_capture(client_, id, excluded) != 0) failed("cannot leave a surface out of captures");
 }
 
+void Window::moveWindowsToViews(uint32_t id, bool moved) {
+  if (oxyos_client_move_windows_to_views(client_, id, moved) != 0) failed("cannot move windows into their views");
+}
+
 bool Window::openScreenshot(uint32_t screenshot, uint64_t serial) {
   return oxyos_client_open_screenshot(client_, screenshot, serial) == 0;
 }

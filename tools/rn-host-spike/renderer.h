@@ -373,6 +373,9 @@ std::optional<uint32_t> windowViewNumber(const facebook::react::ShadowView& view
 // Component whose frame is where windows minimize into (shell-surface.h, the dock's icon of their
 // application, docs/adr/0011-transitions.mdx).
 inline constexpr const char* kMinimizeTargetComponent = "OxyOSMinimizeTarget";
+// Component that takes the scrolls no scroll view within it takes (shell-surface.h, the dock's icons,
+// docs/adr/0045-app-expose.mdx).
+inline constexpr const char* kScrollTargetComponent = "OxyOSScrollTarget";
 // The windows an OxyOSMinimizeTarget names: their numbers, in its order, none twice.
 std::vector<uint32_t> minimizeTargetWindows(const facebook::react::ShadowView& view);
 // Whether a view's subtree is drawn in a surface of its own, never in its root's.

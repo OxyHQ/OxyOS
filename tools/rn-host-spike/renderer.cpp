@@ -176,7 +176,8 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
                                             "ViewManagerAdapter_ExpoImage",
-                                            kWindowViewComponent, kMinimizeTargetComponent};
+                                            kWindowViewComponent, kMinimizeTargetComponent,
+                                            kScrollTargetComponent};
 // The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
 // number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
