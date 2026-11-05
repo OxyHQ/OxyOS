@@ -307,6 +307,7 @@ const InputSourceItem = memo(function InputSourceItem({
   onOpenSettings,
   onItemFocus,
   onOpenChange,
+  restoreFocus,
 }: {
   state: InputSourcesState;
   onSelect?: (id: string) => void;
@@ -315,6 +316,10 @@ const InputSourceItem = memo(function InputSourceItem({
   onItemFocus?: (testID: string) => void;
   /** Its menu opened or closed. */
   onOpenChange?: (open: boolean) => void;
+  /** Whether the screen reader's focus comes back to the item as its menu closes: opened from the
+      status items' keys, yes; opened with the pointer, the keyboard goes back to the window
+      instead (`returnKeyboard`), which a restore 50 ms later would take back. */
+  restoreFocus: boolean;
 }) {
   const messages = useShellMessages();
   const [open, setOpenState] = useState(false);
@@ -328,7 +333,7 @@ const InputSourceItem = memo(function InputSourceItem({
   const current = state.sources.includes(state.current) ? state.current : "layout";
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
+      <DropdownMenuTrigger asChild restoreFocus={restoreFocus}>
         <Button
           appearance="plain"
           testID={INPUT_SOURCE_ITEM}
@@ -783,6 +788,7 @@ export const TopBar = memo(function TopBar({
               onOpenSettings={openKeyboardSettings}
               onItemFocus={onItemFocus}
               onOpenChange={inputMenuChanged}
+              restoreFocus={!!statusKeys}
             />
           )}
         </Box>
