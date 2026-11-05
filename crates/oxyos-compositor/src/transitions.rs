@@ -280,6 +280,13 @@ pub struct Snapshot {
 /// and where they were drawn (on the output, as the surface was at `Snapshot::rect`).
 #[derive(Clone, Debug)]
 pub struct ViewSnapshot {
+    /// The window, and where it goes back to if it was moved into the view and flew there (ADR
+    /// 0044): its rectangle where it is drawn now and its corners' radius. Until the surface is
+    /// gone, the window is drawn here alone. `stack`: its place among the windows drawn, bottom
+    /// to top, so they land in their order.
+    pub window: SurfaceKey,
+    pub home: Option<(Rect, u32)>,
+    pub stack: usize,
     pub rect: Rect,
     pub clip: Rect,
     pub radius: u32,

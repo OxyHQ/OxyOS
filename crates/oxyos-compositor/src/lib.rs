@@ -21,7 +21,7 @@ use oxyos_protocol::{
 };
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -683,6 +683,13 @@ pub struct Compositor {
     drag_badges: HashMap<(u8, u32, u32), Option<DragBadgePicture>>,
     /// The windows each shell surface showed live in the frame composed last (ADR 0022).
     shown_views: HashMap<SurfaceKey, Vec<ShownView>>,
+    /// Windows moved into a shell surface's views (ADR 0044), by the surface and the window:
+    /// where the window was drawn, and its corners' radius, when its view first showed while its
+    /// surface arrived (none: it was not drawn then, or its surface had arrived, and it does not fly).
+    flights: HashMap<(SurfaceKey, SurfaceKey), Option<(Rect, u32)>>,
+    /// Each frame of each window flying to its view or back (ADR 0044), as the development
+    /// compositor reports them, until `take_flights`.
+    flights_seen: Vec<FlightSeen>,
     /// Frames composed while a transition ran, as the development compositor reports them.
     pub transition_frames: u64,
     /// The time transitions and the idle lock run on: `CLOCK_MONOTONIC`, or a test's.
@@ -843,12 +850,43 @@ impl Content {
 #[derive(Clone, Copy, Debug)]
 struct ShownView {
     window: SurfaceKey,
+    /// The window was moved into the view and flew there from its place (ADR 0044).
+    flown: bool,
     sequence: u64,
     buffer: u64,
     rect: Rect,
     clip: Rect,
     radius: u32,
     opacity: u8,
+}
+
+/// A window flying between where it is and its view on a shell surface (ADR 0044), as the
+/// development compositor reports it: arriving (to its view) or going (back), and where it was
+/// drawn in each frame composed (the global space's, logical pixels), at most `MAX_FLIGHT_PATH`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlightSeen {
+    pub window: SurfaceKey,
+    pub arriving: bool,
+    pub path: Vec<Rect>,
+}
+
+const MAX_FLIGHT_PATH: usize = 96;
+const MAX_FLIGHTS_SEEN: usize = 64;
+
+/// `from` `share` of the way to `to`, edge by edge, rounded to whole pixels (a window flying
+/// between its place and its view, ADR 0044).
+fn between(from: Rect, to: Rect, share: f64) -> Rect {
+    let along = |a: i64, b: i64| (a as f64 + (b - a) as f64 * share).round() as i64;
+    let left = along(i64::from(from.x), i64::from(to.x));
+    let top = along(i64::from(from.y), i64::from(to.y));
+    let right = along(from.right(), to.right()).max(left + 1);
+    let bottom = along(from.bottom(), to.bottom()).max(top + 1);
+    Rect::new(
+        left as i32,
+        top as i32,
+        (right - left) as u32,
+        (bottom - top) as u32,
+    )
 }
 
 /// A frame's pixels as the compositor read them, and the client's GPU buffer they are in when it
@@ -1084,6 +1122,8 @@ impl Compositor {
             shown: HashMap::new(),
             drag_badges: HashMap::new(),
             shown_views: HashMap::new(),
+            flights: HashMap::new(),
+            flights_seen: Vec::new(),
             transition_frames: 0,
             clock: None,
             idle: idle::Idle::default(),
@@ -1892,7 +1932,28 @@ impl Compositor {
                                 view.sequence,
                                 view.buffer,
                             )?;
+                            // A window moved into the view that flew there goes back to where
+                            // it is drawn now (ADR 0044); one coming out of the dock as it goes
+                            // (a minimized window restored from it) does so through the genie.
+                            let stack = list.iter().position(|item| {
+                                matches!(item, RenderItem::Surface { key, .. } if *key == view.window)
+                            });
+                            let home = drawn_at(&list, view.window)
+                                .filter(|_| {
+                                    view.flown
+                                        && !self.transitions.reduce_motion()
+                                        && !self.transitions.is_arriving(view.window)
+                                })
+                                .map(|rect| {
+                                    let corner = looks
+                                        .get(&view.window)
+                                        .map_or(0, |&look| window::corner(look));
+                                    (rect, corner)
+                                });
                             Some(transitions::ViewSnapshot {
+                                window: view.window,
+                                home,
+                                stack: stack.unwrap_or(usize::MAX),
                                 rect: view.rect,
                                 clip: view.clip,
                                 radius: view.radius,
@@ -1934,6 +1995,47 @@ impl Compositor {
             }
         }
         let animating = self.transitions.advance(now);
+        // Windows moved into a shell surface's views (ADR 0044), drawn there alone, not where they
+        // are, as Mission Control and App Exposé move a Mac's windows: those whose view is shown,
+        // and those flying back to their place from a surface going. A view first shown while its
+        // surface arrives flies from where its window is drawn. With reduce motion nothing flies,
+        // and the views are copies that crossfade with their surface; a window coming out of the
+        // dock (the genie) is drawn as it comes.
+        let flying = !self.transitions.reduce_motion();
+        let mut moved_out: HashSet<SurfaceKey> = HashSet::new();
+        let mut viewed: HashSet<(SurfaceKey, SurfaceKey)> = HashSet::new();
+        for item in &list {
+            let RenderItem::View {
+                surface,
+                window,
+                moved: true,
+                ..
+            } = *item
+            else {
+                continue;
+            };
+            viewed.insert((surface, window));
+            if !flying || self.transitions.is_arriving(window) {
+                continue;
+            }
+            let Some(at) = drawn_at(&list, window) else {
+                self.flights.entry((surface, window)).or_insert(None);
+                continue;
+            };
+            moved_out.insert(window);
+            let arriving = self.transitions.is_arriving(surface);
+            let corner = looks.get(&window).map_or(0, |&look| window::corner(look));
+            self.flights
+                .entry((surface, window))
+                .or_insert_with(|| arriving.then_some((at, corner)));
+        }
+        self.flights.retain(|pair, _| viewed.contains(pair));
+        for (snapshot, _, _) in self.transitions.going(now) {
+            for view in snapshot.views.iter().filter(|view| view.home.is_some()) {
+                moved_out.insert(view.window);
+            }
+        }
+        let mut flights_seen: Vec<(SurfaceKey, bool, Rect)> = Vec::new();
         let changed = ready.iter().zip(&started).any(|(&index, &started)| {
             let screen = &self.screens[index];
             started > 0 || screen.recompose || list != screen.composed || looks != screen.looks
@@ -2037,6 +2139,9 @@ impl Compositor {
                 under_panels = Some(contents.len());
             }
             match item {
+                // A window moved into a view is drawn there, with its popups and dialogs nowhere.
+                RenderItem::Surface { key, .. } if moved_out.contains(&self.scene.root_of(key)) => {
+                }
                 RenderItem::Surface { key, rect, frame } => match read_frame(
                     (&mut self.frames_read, &mut self.bytes_read),
                     (
@@ -2221,12 +2326,18 @@ impl Compositor {
                     clip,
                     radius,
                     opacity,
+                    moved,
                 } => {
                     let Some(&(_, surface_rect, surface_placed, surface_opacity)) =
                         surfaces_at.get(&surface)
                     else {
                         continue;
                     };
+                    // Moved into the view and flying there: from where it was drawn, on the
+                    // surface's own spring, whole (ADR 0044).
+                    let flight = (moved && flying)
+                        .then(|| self.flights.get(&(surface, window)).copied().flatten())
+                        .flatten();
                     // The window's frame, read once: shared with its own layer when it is drawn.
                     let drawn = list.iter().any(|item| {
                         matches!(item, RenderItem::Surface { key, frame: drawn, .. }
@@ -2265,6 +2376,7 @@ impl Compositor {
                         });
                     views_shown.entry(surface).or_default().push(ShownView {
                         window,
+                        flown: flight.is_some(),
                         sequence: frame.sequence,
                         buffer: frame.buffer,
                         rect,
@@ -2272,8 +2384,28 @@ impl Compositor {
                         radius,
                         opacity,
                     });
-                    let placed = placed_within(surface_rect, surface_placed, rect);
-                    let clip = placed_within(surface_rect, surface_placed, clip);
+                    let rest = (rect, clip);
+                    let mut placed = placed_within(surface_rect, surface_placed, rect);
+                    let mut clip = placed_within(surface_rect, surface_placed, clip);
+                    let mut radius = radius;
+                    let mut drawn_opacity =
+                        (u32::from(opacity) * u32::from(surface_opacity) / 255) as u8;
+                    if let Some((from, from_radius)) = flight {
+                        let along = self.transitions.arriving(surface, now).shift_permille;
+                        let share = 1.0 - f64::from(along.clamp(0, 1000)) / 1000.0;
+                        // To the view's place as it is at rest: the overlay's own settle from 104 %
+                        // moves what it draws, not the windows flying into it.
+                        placed = between(from, rest.0, share);
+                        clip = between(from, rest.1, share);
+                        radius = (f64::from(from_radius)
+                            + (f64::from(radius) - f64::from(from_radius)) * share)
+                            .round() as u32;
+                        drawn_opacity = opacity;
+                        if self.transitions.is_arriving(surface) {
+                            in_transition(clip, clip, None, false, None);
+                            flights_seen.push((window, true, placed));
+                        }
+                    }
                     contents.push(Content {
                         owner: Some(surface),
                         captured: self.scene.captured(surface),
@@ -2286,7 +2418,7 @@ impl Compositor {
                         pixels,
                         source,
                         changed: None,
-                        opacity: (u32::from(opacity) * u32::from(surface_opacity) / 255) as u8,
+                        opacity: drawn_opacity,
                         radius,
                         shadow: None,
                         look: None,
@@ -2399,23 +2531,42 @@ impl Compositor {
                 shares: None,
                 warp: genie.map(|genie| genie.rows),
             });
-            // The windows it showed live go with it (ADR 0022).
-            for view in &snapshot.views {
-                let clip = placed_within(snapshot.rect, placed, view.clip);
+            // The windows it showed live go with it (ADR 0022); those moved into it fly back to
+            // where they are, whole, landing in their order (ADR 0044).
+            let mut views: Vec<&transitions::ViewSnapshot> = snapshot.views.iter().collect();
+            views.sort_by_key(|view| view.home.map(|_| view.stack));
+            for view in views {
+                let mut clip = placed_within(snapshot.rect, placed, view.clip);
+                let mut drawn = placed_within(snapshot.rect, placed, view.rect);
+                let mut radius = view.radius;
+                let mut opacity = (u32::from(view.opacity) * u32::from(at.opacity) / 255) as u8;
+                if let Some((home, home_radius)) = view.home {
+                    // From its place at rest: the overlay growing back to 104 % as it goes moves
+                    // what it draws, not the windows flying home.
+                    let share = f64::from(at.shift_permille.clamp(0, 1000)) / 1000.0;
+                    drawn = between(view.rect, home, share);
+                    clip = between(view.clip, home, share);
+                    radius = (f64::from(view.radius)
+                        + (f64::from(home_radius) - f64::from(view.radius)) * share)
+                        .round() as u32;
+                    opacity = view.opacity;
+                    in_transition(clip, clip, None, false, None);
+                    flights_seen.push((view.window, false, drawn));
+                }
                 contents.push(Content {
                     owner: None,
                     captured: snapshot.captured,
                     secure: Vec::new(),
                     key: None,
-                    rect: view.rect,
-                    placed: placed_within(snapshot.rect, placed, view.rect),
+                    rect: drawn,
+                    placed: drawn,
                     extent: view.extent,
                     format: Some(view.format),
                     pixels: view.pixels.clone(),
                     source: None,
                     changed: None,
-                    opacity: (u32::from(view.opacity) * u32::from(at.opacity) / 255) as u8,
-                    radius: view.radius,
+                    opacity,
+                    radius,
                     shadow: None,
                     look: None,
                     clip: Some(oxyos_gpu::Rect {
@@ -2582,6 +2733,37 @@ impl Compositor {
             })
             .collect();
         self.shown_views = views_shown;
+        // Each window's flight, frame by frame, for the development compositor's report.
+        for (window, arriving, at) in flights_seen {
+            let seen = match self
+                .flights_seen
+                .iter_mut()
+                .rev()
+                .find(|seen| seen.window == window && seen.arriving == arriving)
+            {
+                Some(seen) => seen,
+                None => {
+                    if self.flights_seen.len() >= MAX_FLIGHTS_SEEN {
+                        self.flights_seen.remove(0);
+                    }
+                    self.flights_seen.push(FlightSeen {
+                        window,
+                        arriving,
+                        path: Vec::new(),
+                    });
+                    self.flights_seen.last_mut().expect("pushed")
+                }
+            };
+            if seen.path.len() < MAX_FLIGHT_PATH {
+                seen.path.push(at);
+            }
+        }
+    }
+
+    /// Each window that flew to a shell surface's view or back since the last call (ADR 0044),
+    /// and where it was drawn in each frame.
+    pub fn take_flights(&mut self) -> Vec<FlightSeen> {
+        std::mem::take(&mut self.flights_seen)
     }
 
     /// Composes the captures asked for from this frame's layers (ADR 0024, decision 10): what the
@@ -3386,6 +3568,23 @@ impl Compositor {
                 },
                 (scale.max(0.0) * 65536.0).round() as u32,
                 (rotation * 256.0).round() as i32,
+            ),
+            // Mission Control and App Exposé (ADR 0044), in the protocol's 1/256 of a pixel.
+            oxyos_input::Action::Swipe {
+                phase,
+                fingers,
+                dx,
+                dy,
+            } => self.scene.pointer_swipe(
+                match phase {
+                    oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
+                    oxyos_input::GesturePhase::Update => GesturePhase::Update,
+                    oxyos_input::GesturePhase::End => GesturePhase::End,
+                    oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
+                },
+                u8::try_from(fingers).unwrap_or(u8::MAX),
+                (dx * 256.0).round() as i32,
+                (dy * 256.0).round() as i32,
             ),
             oxyos_input::Action::Hold { phase, fingers } => self.scene.pointer_hold(
                 match phase {
