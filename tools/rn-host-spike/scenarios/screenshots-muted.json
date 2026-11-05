@@ -1,0 +1,109 @@
+{
+  "about": "No system sound while the output is muted (docs/adr/0044-system-sounds.mdx): the ThinkPad played with its output muted (`controls`), Super+Shift+3 saves the display to the Desktop as ever, its thumbnail shown and said, and the shutter does not play. With the output's mute ignored, it plays and the step fails (screenshots.json plays it once a capture).",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "screenshots": true,
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": true,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+Shift+3 with the output muted: the display saved to the Desktop, its thumbnail said; silent",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          4
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Captura de pantalla guardada"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Captura de pantalla"
+            }
+          ]
+        },
+        "screenshots": {
+          "saved": [
+            {
+              "name": "Captura de pantalla \\d{4}-\\d{2}-\\d{2} a las \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "folder": "Desktop",
+              "output": 1,
+              "width": 1280,
+              "height": 720,
+              "alpha": false,
+              "pixels": {
+                "640,480": "#ffffff",
+                "100,100": "#497cff"
+              }
+            }
+          ],
+          "opened": []
+        },
+        "sounds": []
+      }
+    }
+  ]
+}

@@ -4685,7 +4685,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
     session.installed_fixture = launch.installed_fixture.clone();
     if let Some(folder) = &launch.screenshots {
-        // Written as the session writes them, into the run's own folders, with no shutter.
+        // Written as the session writes them, into the run's own folders; the shutter recorded
+        // with the system's other sounds (`sounds`).
         let (desktop, documents) = (folder.join("Desktop"), folder.join("Documents"));
         session.compositor.screenshots = Some(oxyos_compositor::screenshots::Writer::spawn(
             Box::new(move |destination| match destination {
@@ -4693,7 +4694,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 oxyos_protocol::CaptureDestination::Documents => documents.clone(),
             }),
             oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
-            None,
         )?);
     }
     if let Some(methods) = &launch.input_sources_available {

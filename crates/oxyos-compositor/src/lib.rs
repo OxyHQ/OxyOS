@@ -3046,6 +3046,8 @@ impl Compositor {
             if shot.captures.is_empty() {
                 continue;
             }
+            // The shutter, once a capture, as it is taken (docs/adr/0044-system-sounds.mdx).
+            self.play_sound(oxyos_sound::Sound::ScreenCapture);
             match &mut self.screenshots {
                 Some(writer) => {
                     writer.save(shot);
@@ -4092,14 +4094,29 @@ impl Compositor {
     /// session last knew it. The program running the compositor calls it too after what it serves
     /// itself asks for one (the Trash's), so a sound never waits for the next turn.
     pub fn play_sounds(&mut self) {
-        let silent = self
-            .controls
-            .as_ref()
-            .is_some_and(controls::Controls::output_silent);
+        let silent = self.output_silent();
         match self.sounds.as_mut() {
             Some(sounds) => sounds.serve(&mut self.scene, silent),
             None => drop(self.scene.take_system_sounds()),
         }
+    }
+
+    /// Plays one of the compositor's own sounds now (a screenshot's shutter), as [`play_sounds`]
+    /// would.
+    ///
+    /// [`play_sounds`]: Self::play_sounds
+    fn play_sound(&mut self, sound: oxyos_sound::Sound) {
+        let silent = self.output_silent();
+        if let Some(sounds) = self.sounds.as_mut() {
+            sounds.play(sound, silent);
+        }
+    }
+
+    /// Whether the output is muted, or at no volume, as the session last knew it.
+    fn output_silent(&self) -> bool {
+        self.controls
+            .as_ref()
+            .is_some_and(controls::Controls::output_silent)
     }
 
     pub fn serve(&mut self, listener: &Listener) -> Result<()> {

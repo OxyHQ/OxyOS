@@ -1,8 +1,10 @@
 OxyOS's system sounds (/usr/share/sounds/oxyos, docs/adr/0044-system-sounds.mdx)
 
-Both sounds were supplied by the OxyOS owner for OxyOS on 5 November 2026. No other
-provenance was given with them, and no ownership or relicensing of them is asserted here.
-Their licence must be resolved with the repository's before any release (README.md).
+The Trash's and the notification's sounds were supplied by the OxyOS owner for OxyOS on
+5 November 2026. No other provenance was given with them, and no ownership or relicensing of
+them is asserted here. Their licence must be resolved with the repository's before any release
+(README.md). The screenshot's shutter is the freedesktop.org sound theme's, under its own
+licence (below).
 
 stereo/trash-empty.oga (and stereo/file-trash.oga, a link to it: one sound for putting items
 in the Trash and for emptying it)
@@ -24,3 +26,24 @@ stereo/message-new-instant.oga (a notification arriving)
           floor (peaks below -73 dBFS, -86 dBFS RMS) and a click in its last 50 ms (-42 dBFS)
           cut at the sample; frames 0 to 163171 of 192000 kept unchanged (3.40 s); Ogg Vorbis,
           libvorbis quality 10.
+
+stereo/screen-capture.oga (a screenshot taken)
+  Source: the freedesktop.org sound theme 0.8, stereo/camera-shutter.oga (the theme installs
+          it as screen-capture.oga too), Ogg Vorbis, 96 kHz stereo, 0.87 s, 23142 bytes,
+          SHA-256 72dbfcb2e4f25f9ff4855358127d8268dcecf8f133ac01509502be4b1746933f; from
+          sound-theme-freedesktop_0.8.orig.tar.bz2 (Debian, SHA-256
+          cb518b20eef05ec2e82dda1fa89a292c1760dc023aba91b8aa69bafac85e8a14), the same file
+          as Debian 13's sound-theme-freedesktop 0.8-6~deb13u1 ships.
+  Copyright: freesound user horsthorstensen
+          (http://www.freesound.org/samplesViewSingle.php?id=72714), as the theme's CREDITS
+          records it.
+  License: CC-BY-SA (relicensed with permission from author), as the theme's CREDITS records
+          it; Debian's copyright file for the theme gives Creative Commons
+          Attribution-ShareAlike 3.0 Unported
+          (https://creativecommons.org/licenses/by-sa/3.0/). This file, cut from it, is under
+          the same licence.
+  Made:   scripts/import-system-sound.py SOURCE screen-capture.oga
+          The source decoded to 16-bit PCM (ffmpeg 7.1.5); the 60.6 ms of silence before the
+          sound and the 492.9 ms after it, below -80 dBFS (peaks at -84 dBFS before it, -90 dBFS
+          after), cut at the sample; frames 5816 to 36418 of 83734 kept unchanged (0.32 s);
+          Ogg Vorbis, libvorbis quality 10.

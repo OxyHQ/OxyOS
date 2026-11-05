@@ -5,7 +5,7 @@
 //! which is disconnected once it has drained, so nothing keeps the device awake between sounds.
 //! The connection is made at the first sound and made again after PipeWire went away.
 
-use crate::{decode, find, name, Pcm, Player, SystemSound, SOUNDS};
+use crate::{decode, find, name, Pcm, Player, Sound, SOUNDS};
 use pipewire as pw;
 use pw::properties::properties;
 use pw::spa;
@@ -21,7 +21,7 @@ const MAX_PLAYING: usize = 4;
 const LATENCY: &str = "256/48000";
 
 enum Command {
-    Play(SystemSound),
+    Play(Sound),
     Quit,
 }
 
@@ -50,7 +50,7 @@ impl PipeWire {
 }
 
 impl Player for PipeWire {
-    fn play(&mut self, sound: SystemSound) {
+    fn play(&mut self, sound: Sound) {
         let _ = self.sender.send(Command::Play(sound));
     }
 }
@@ -94,7 +94,7 @@ struct State {
 fn run(receiver: pw::channel::Receiver<Command>, data_dirs: &[PathBuf]) -> Result<(), pw::Error> {
     pw::init();
     // Each sound decoded once, before any is asked for.
-    let mut decoded: Vec<(SystemSound, Arc<Pcm>)> = Vec::new();
+    let mut decoded: Vec<(Sound, Arc<Pcm>)> = Vec::new();
     for sound in SOUNDS {
         match find(data_dirs, sound) {
             Some(path) => match decode(&path) {
@@ -158,7 +158,7 @@ fn connect(context: &pw::context::ContextRc) -> Result<Connection, pw::Error> {
 fn play(
     context: &pw::context::ContextRc,
     state: &mut State,
-    sound: SystemSound,
+    sound: Sound,
     pcm: Arc<Pcm>,
 ) -> Result<(), pw::Error> {
     state.playing.retain(|playing| !playing.done.get());

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Imports a sound the owner supplied as one of the system's sounds (docs/adr/0044-system-sounds.mdx).
+"""Imports a sound (one the owner supplied, or another sound theme's) as one of the system's sounds
+(docs/adr/0044-system-sounds.mdx).
 
 The source is decoded to 16-bit PCM at its own rate and channels (ffmpeg), the silence before and
 after the sound is cut away sample-exactly (nothing between the first and the last sample louder
