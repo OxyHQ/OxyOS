@@ -1,0 +1,339 @@
+{
+  "about": "menu-bar-reader-focus-first.json on a 1600x1000 output at 1.25 (ADR 0018), the same steps and expectations.",
+  "locale": "es_ES.UTF-8",
+  "module": "MenuBarProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "reader": {},
+  "host_order": "focus-first",
+  "steps": [
+    {
+      "name": "Allo's window with its menus in the bar; the reader on, nothing focused in the bar",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [],
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2 (the first time): the keyboard on the Oxy menu, its title focused and said once, the title's focus first: Bloom's focus move reaches the host before the commit asking for the keyboard is mounted (as when React flushes its effects with the commit), waits behind that mount, and the region asks for the keyboard only once its tree is published with the focus",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Menú de Oxy, contraído, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "in_shell": {
+          "a11y_events": {
+            "focus@shell-topbar": 1
+          },
+          "host_input": {
+            "a11y.focus.declined": 0,
+            "a11y.focus.released": 0
+          },
+          "first_order": [
+            "a11y.event.queued",
+            "a11y_event:focus@shell-topbar",
+            "test.keyboard.held",
+            "focus.asked",
+            "focus.in"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right: the application's menu, said once: the bar has the keyboard",
+      "do": [
+        "key",
+        106
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Allo, contraído, botón",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escape leaves the bar, the assistive technology's focus with it; nothing said",
+      "do": [
+        "key",
+        1
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "spoken": [],
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2 (again, after Escape gave the keyboard back: the bar it was released from): the keyboard on the Oxy menu, its title focused and said once, the title's focus first: Bloom's focus move reaches the host before the commit asking for the keyboard is mounted (as when React flushes its effects with the commit), waits behind that mount, and the region asks for the keyboard only once its tree is published with the focus",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Menú de Oxy, contraído, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "in_shell": {
+          "a11y_events": {
+            "focus@shell-topbar": 1
+          },
+          "host_input": {
+            "a11y.focus.declined": 0,
+            "a11y.focus.released": 0
+          },
+          "first_order": [
+            "a11y.event.queued",
+            "a11y_event:focus@shell-topbar",
+            "test.keyboard.held",
+            "focus.asked",
+            "focus.in"
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press in the window takes the keyboard from the bar, the assistive technology's focus with it",
+      "do": [
+        "press",
+        [
+          100,
+          90
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2 (once more, after a press took the keyboard): the keyboard on the Oxy menu, its title focused and said once, the title's focus first: Bloom's focus move reaches the host before the commit asking for the keyboard is mounted (as when React flushes its effects with the commit), waits behind that mount, and the region asks for the keyboard only once its tree is published with the focus",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Menú de Oxy, contraído, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "in_shell": {
+          "a11y_events": {
+            "focus@shell-topbar": 1
+          },
+          "host_input": {
+            "a11y.focus.declined": 0,
+            "a11y.focus.released": 0
+          },
+          "first_order": [
+            "a11y.event.queued",
+            "a11y_event:focus@shell-topbar",
+            "test.keyboard.held",
+            "focus.asked",
+            "focus.in"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape leaves the bar; nothing said",
+      "do": [
+        "key",
+        1
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "spoken": [],
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

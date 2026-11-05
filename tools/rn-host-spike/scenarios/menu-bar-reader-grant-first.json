@@ -1,0 +1,335 @@
+{
+  "about": "The menu bar taking the keyboard (Super+F2, docs/adr/0024-system-shortcuts.mdx, decision 9) with the screen reader on, in the order forced by the shell's host (`host_order` \"grant-first\", docs/adr/0039-keyboard-access.mdx, decision 26): the keyboard first: the title's focus move waits until the compositor has given the bar the keyboard. Allo (sample/MenuBarProbe.tsx) in Spanish. Each time the bar takes the keyboard, the first time and after it gave the keyboard back (Escape) or lost it (a press in the window), its first title has the assistive technology's focus and is said exactly once, no focus move into it is declined, and the order was the one forced.",
+  "locale": "es_ES.UTF-8",
+  "module": "MenuBarProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "reader": {},
+  "host_order": "grant-first",
+  "steps": [
+    {
+      "name": "Allo's window with its menus in the bar; the reader on, nothing focused in the bar",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [],
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2 (the first time): the keyboard on the Oxy menu, its title focused and said once, the keyboard first: the title's focus move waits until the compositor has given the bar the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Menú de Oxy, contraído, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "in_shell": {
+          "a11y_events": {
+            "focus@shell-topbar": 1
+          },
+          "host_input": {
+            "a11y.focus.declined": 0,
+            "a11y.focus.released": 0
+          },
+          "first_order": [
+            "test.focus.held",
+            "focus.asked",
+            "focus.in",
+            "a11y_event:focus@shell-topbar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right: the application's menu, said once: the bar has the keyboard",
+      "do": [
+        "key",
+        106
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Allo, contraído, botón",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escape leaves the bar, the assistive technology's focus with it; nothing said",
+      "do": [
+        "key",
+        1
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "spoken": [],
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2 (again, after Escape gave the keyboard back: the bar it was released from): the keyboard on the Oxy menu, its title focused and said once, the keyboard first: the title's focus move waits until the compositor has given the bar the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Menú de Oxy, contraído, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "in_shell": {
+          "a11y_events": {
+            "focus@shell-topbar": 1
+          },
+          "host_input": {
+            "a11y.focus.declined": 0,
+            "a11y.focus.released": 0
+          },
+          "first_order": [
+            "test.focus.held",
+            "focus.asked",
+            "focus.in",
+            "a11y_event:focus@shell-topbar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press in the window takes the keyboard from the bar, the assistive technology's focus with it",
+      "do": [
+        "press",
+        [
+          100,
+          90
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+F2 (once more, after a press took the keyboard): the keyboard on the Oxy menu, its title focused and said once, the keyboard first: the title's focus move waits until the compositor has given the bar the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Menú de Oxy, contraído, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "in_shell": {
+          "a11y_events": {
+            "focus@shell-topbar": 1
+          },
+          "host_input": {
+            "a11y.focus.declined": 0,
+            "a11y.focus.released": 0
+          },
+          "first_order": [
+            "test.focus.held",
+            "focus.asked",
+            "focus.in",
+            "a11y_event:focus@shell-topbar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape leaves the bar; nothing said",
+      "do": [
+        "key",
+        1
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "spoken": [],
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -232,6 +232,60 @@ fn the_focused_element_is_said_once_and_takes_the_cursor() {
     assert!(feed(&mut reader, &probe(Some(3), "Nivel 5")).is_empty());
 }
 
+/// The shell's top bar: the Oxy menu's title and the application's, `focused` the focused one.
+fn bar(focused: Option<usize>) -> Vec<Event> {
+    let mut nodes = vec![
+        (R::Generic, 0, "", ""),
+        (R::Button, AccessibleState::COLLAPSED, "Menú de Oxy", ""),
+        (R::Button, AccessibleState::COLLAPSED, "Allo", ""),
+    ];
+    if let Some(index) = focused {
+        nodes[index].1 |= FOCUSED;
+    }
+    tree(BAR, &nodes)
+}
+
+const BAR: u32 = 3;
+
+#[test]
+fn a_title_focused_again_after_its_focus_left_is_said_again() {
+    // The menu bar takes the keyboard (Super+F2): its first title is focused and said.
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &probe(None, "Nivel 5"));
+    assert!(feed(&mut reader, &bar(None)).is_empty());
+    assert_eq!(
+        feed(&mut reader, &bar(Some(1))),
+        ["Menú de Oxy, contraído, botón"]
+    );
+    // A press in the window takes the keyboard: the bar's focus goes, nothing is said and the
+    // cursor stays on the title. The bar taking the keyboard again focuses the same title: said
+    // again, exactly once, whatever the cursor was left on (docs/adr/0039-keyboard-access.mdx,
+    // decision 26).
+    assert!(feed(&mut reader, &bar(None)).is_empty());
+    assert_eq!(
+        feed(&mut reader, &bar(Some(1))),
+        ["Menú de Oxy, contraído, botón"]
+    );
+    assert!(feed(&mut reader, &bar(Some(1))).is_empty());
+    // The same with the window's tree committed between, the focus never in it.
+    assert!(feed(&mut reader, &bar(None)).is_empty());
+    assert!(feed(&mut reader, &probe(None, "Nivel 5")).is_empty());
+    assert_eq!(
+        feed(&mut reader, &bar(Some(1))),
+        ["Menú de Oxy, contraído, botón"]
+    );
+    // The reader's own cursor on a title it said, then focused by its activation: not said twice;
+    // focused again after its focus left, it is.
+    assert!(feed(&mut reader, &bar(None)).is_empty());
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Allo, contraído, botón"]
+    );
+    assert!(feed(&mut reader, &bar(Some(2))).is_empty());
+    assert!(feed(&mut reader, &bar(None)).is_empty());
+    assert_eq!(feed(&mut reader, &bar(Some(2))), ["Allo, contraído, botón"]);
+}
+
 #[test]
 fn the_cursor_follows_its_element_as_the_tree_changes_before_it() {
     // Settings' Resolution choices as Bloom commits them (settings-displays-keys-scaled): the

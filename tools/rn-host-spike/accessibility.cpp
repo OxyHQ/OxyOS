@@ -502,6 +502,9 @@ void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
   auto it = published_.find(surface);
   if (it != published_.end() && it->second == compared) return;
   published_[surface] = compared;
+  focusPublished_[surface] = std::any_of(nodes.begin(), nodes.end(), [](const AccessibleNode& node) {
+    return node.state.getDefault("focused", false).asBool();
+  });
   Report::get().accessibility(surface, reported);
 
   std::vector<OxyOSAccessibleNode> wire;
