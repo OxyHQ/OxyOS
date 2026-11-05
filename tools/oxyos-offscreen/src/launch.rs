@@ -673,6 +673,9 @@ pub struct Launch {
     pub launch_settle: Duration,
     /// `--input-method`: the session plays an input method (ime.rs).
     pub input_method: bool,
+    /// `--im-candidates horizontal|vertical`: it hands the system candidates for what it
+    /// composes, which the session's shell draws (ADR 0041).
+    pub im_candidates: Option<crate::ime::Layout>,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
@@ -774,7 +777,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -854,6 +857,7 @@ impl Launch {
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let mut launch_settle = SETTLE;
         let (mut seat, mut input_method) = (false, false);
+        let mut im_candidates = None;
         let mut shell = None;
         let mut file_chooser = None;
         let mut companion = None;
@@ -959,6 +963,14 @@ impl Launch {
                 }
                 Some("--input-method") => {
                     input_method = true;
+                    continue;
+                }
+                Some("--im-candidates") => {
+                    let layout = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    im_candidates = Some(
+                        crate::ime::Layout::named(layout)
+                            .ok_or_else(|| format!("--im-candidates {layout:?}\n{USAGE}"))?,
+                    );
                     continue;
                 }
                 Some("--preferences") => {
@@ -1490,6 +1502,7 @@ impl Launch {
                 layout,
                 launch_settle,
                 input_method,
+                im_candidates,
                 shell,
                 file_chooser,
                 companion,
@@ -1860,8 +1873,14 @@ fn shell_json(compositor: &Compositor) -> String {
         .iter()
         .map(|(id, r)| format!("\"{id}\":{}", rect(r)))
         .collect();
+    // The candidates surface shown (ADR 0041): where the compositor placed it, on the output.
+    let candidates = compositor
+        .scene
+        .shown_candidates()
+        .first()
+        .map_or("null".to_string(), |(_, r)| rect(r));
     format!(
-        "{{\"surfaces\":[{}],\"work_area\":{area},\"work_areas\":{{{}}},\"locked\":{},\"signed_in\":{}}}",
+        "{{\"surfaces\":[{}],\"candidates\":{candidates},\"work_area\":{area},\"work_areas\":{{{}}},\"locked\":{},\"signed_in\":{}}}",
         surfaces.join(","),
         areas.join(","),
         compositor.scene.is_locked(),
@@ -4221,7 +4240,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.controls = Some(fake);
     }
     if launch.input_method {
-        session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
+        let mut ime = crate::ime::Ime::connect(&mut session.compositor)?;
+        ime.candidates = launch.im_candidates;
+        session.ime = Some(ime);
+    } else if launch.im_candidates.is_some() {
+        return Err("--im-candidates needs --input-method".into());
     }
     session
         .compositor
@@ -4639,6 +4662,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let mut moved = None;
         if let Some(ime) = session.ime.as_mut() {
             (ime.keys, ime.given_back) = (0, 0);
+            ime.chosen.clear();
+            ime.turned.clear();
+        }
+        if let Some(sources) = session.input_sources.as_mut() {
+            sources.selected.clear();
+            sources.emoji = 0;
         }
         let typed_as_text = match devices.as_mut() {
             _ if matches!(step, Step::Keyboard { .. } | Step::ImChange { .. }) => {
@@ -4888,7 +4917,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let urls = urls_json(&mut session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -4901,6 +4930,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             accessibility_json(&session.reader),
             field_json(&session.compositor),
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
+            session
+                .input_sources
+                .as_ref()
+                .map_or("null".to_string(), |sources| sources.json()),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             minimize_target_json(&session.compositor),

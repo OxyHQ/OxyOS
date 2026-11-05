@@ -827,6 +827,20 @@ std::shared_ptr<TurboModule> createHostModule(
       ready(rt);
       return jsi::Value(services.shell.openScreenshot(number(rt, args, count, 0)));
     });
+    // The candidate window (docs/adr/0041-input-methods.mdx): (index) a candidate of the list
+    // `OxyOSShellCandidates` told pressed; (forward) a chevron pressed. Each says whether it was sent.
+    module->method("chooseInputCandidate", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
+                                                                       size_t count) {
+      ready(rt);
+      uint32_t index = number(rt, args, count, 0);
+      if (index > 255) return jsi::Value(false);
+      return jsi::Value(services.shell.chooseCandidate(static_cast<uint8_t>(index)));
+    });
+    module->method("turnInputCandidatesPage", [&services, ready](jsi::Runtime& rt, const jsi::Value* args,
+                                                                  size_t count) {
+      ready(rt);
+      return jsi::Value(services.shell.turnCandidatesPage(count > 0 && args[0].isBool() && args[0].getBool()));
+    });
     // (text, polite): to assistive technologies, after what they are saying or at once.
     module->method("announce", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);

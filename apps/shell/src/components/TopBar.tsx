@@ -16,6 +16,14 @@ import {
 } from "@oxy.so/bloom/menubar";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
 import { RiArrowLeftRightLine } from "@oxy.so/bloom/icons/RiArrowLeftRightLine";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+} from "@oxy.so/bloom/dropdown-menu";
 
 import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
@@ -26,6 +34,7 @@ import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../mo
 import type { ShellKeyboard } from "../platform";
 import { barClock, clockSaid } from "../clock";
 import { useShellLocale, useShellMessages } from "../useShellMessages";
+import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
     and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
@@ -252,15 +261,108 @@ export interface StatusPanels {
 const NOTHING_OPEN: StatusPanels = { network: false, controlCenter: false, notifications: false };
 
 /** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx). */
-function statusItems(network: ShellNetwork | undefined): string[] {
+function statusItems(network: ShellNetwork | undefined, inputSources?: InputSourcesState | null): string[] {
   const first = networkItem(network);
-  return [...(first ? [first] : []), "shell-search", "shell-control-center", "shell-clock"];
+  return [
+    ...(first ? [first] : []),
+    ...(showsInputSources(inputSources) ? [INPUT_SOURCE_ITEM] : []),
+    "shell-search",
+    "shell-control-center",
+    "shell-clock",
+  ];
 }
 
 /** The status item Super+F8 puts the keyboard on, as a Mac's Control-F8 its first status menu. */
-export function firstStatusItem(network: ShellNetwork | undefined): string {
-  return statusItems(network)[0];
+export function firstStatusItem(network: ShellNetwork | undefined, inputSources?: InputSourcesState | null): string {
+  return statusItems(network, inputSources)[0];
 }
+
+const INPUT_SOURCE_ITEM = "shell-input-source";
+/** The input source's mark, as a Mac's Input menu draws a source with no flag: its letters or
+    character in a rounded outline, white over the wallpaper. */
+const sourceMarkBox = {
+  minWidth: 20,
+  height: 16,
+  paddingHorizontal: 3,
+  borderRadius: 4,
+  borderWidth: 1,
+  borderColor: "#ffffffd9",
+  alignItems: "center",
+  justifyContent: "center",
+} as const;
+const sourceMarkText = { color: "#fff", fontSize: 11, lineHeight: 14, fontWeight: "600" } as const;
+const INPUT_MENU_WIDTH = 248;
+
+/**
+ * The input source's status item (docs/adr/0041-input-methods.mdx, decision 6), as a Mac's Input
+ * menu: shown only with more than one source, it shows the current one (`ES`, 拼, あ, 한) and opens
+ * a menu of the sources, the current one checked, then "Show Emoji & Symbols" and "Open Keyboard
+ * Settings…". Named by what it is, the source in effect its value ("Input source, Pinyin –
+ * Simplified"), as the Wi-Fi item is named.
+ */
+const InputSourceItem = memo(function InputSourceItem({
+  state,
+  onSelect,
+  onShowEmoji,
+  onOpenSettings,
+  onItemFocus,
+  onOpenChange,
+  restoreFocus,
+}: {
+  state: InputSourcesState;
+  onSelect?: (id: string) => void;
+  onShowEmoji?: () => void;
+  onOpenSettings?: () => void;
+  onItemFocus?: (testID: string) => void;
+  /** Its menu opened or closed. */
+  onOpenChange?: (open: boolean) => void;
+  /** Whether the screen reader's focus comes back to the item as its menu closes: opened from the
+      status items' keys, yes; opened with the pointer, the keyboard goes back to the window
+      instead (`returnKeyboard`), which a restore 50 ms later would take back. */
+  restoreFocus: boolean;
+}) {
+  const messages = useShellMessages();
+  const [open, setOpenState] = useState(false);
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+  const current = state.sources.includes(state.current) ? state.current : "layout";
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild restoreFocus={restoreFocus}>
+        <Button
+          appearance="plain"
+          testID={INPUT_SOURCE_ITEM}
+          accessibilityLabel={messages.inputSources.item}
+          accessibilityValue={{ text: sourceName(current, state, messages) }}
+          aria-expanded={open}
+          style={{ ...menuStyle, paddingLeft: 2, paddingRight: 2 }}
+          colors={TRANSPARENT_WHITE}
+          hitSlop={STATUS_SLOP}
+          onFocus={() => onItemFocus?.(INPUT_SOURCE_ITEM)}
+        >
+          <Box style={sourceMarkBox}>
+            <Text style={sourceMarkText}>{sourceMark(current, state)}</Text>
+          </Box>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent label={messages.inputSources.item} sideOffset={MENU_SIDE_OFFSET} minWidth={INPUT_MENU_WIDTH}>
+        {state.sources.map((id) => (
+          <DropdownMenuCheckboxItem key={id} checked={id === current} onCheckedChange={() => onSelect?.(id)}>
+            {sourceName(id, state, messages)}
+          </DropdownMenuCheckboxItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onPress={() => onShowEmoji?.()}>{messages.inputSources.showEmoji}</DropdownMenuItem>
+        <DropdownMenuItem onPress={() => onOpenSettings?.()}>{messages.inputSources.openKeyboardSettings}</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+});
 
 const NetworkItem = memo(function NetworkItem({
   network,
@@ -560,6 +662,11 @@ export const TopBar = memo(function TopBar({
   statusKeys,
   moveStatusFocus,
   leaveStatus,
+  inputSources,
+  selectInputSource,
+  showEmoji,
+  openKeyboardSettings,
+  onInputMenuChange,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
@@ -595,10 +702,22 @@ export const TopBar = memo(function TopBar({
   statusKeys?: ShellKeyboard;
   moveStatusFocus?: (testID: string) => void;
   leaveStatus?: () => void;
+  /** The input sources as the session tells them (docs/adr/0041-input-methods.mdx): the item is
+      shown with more than one. A source chosen, the emoji picker and Keyboard settings asked for. */
+  inputSources?: InputSourcesState | null;
+  selectInputSource?: (id: string) => void;
+  showEmoji?: () => void;
+  openKeyboardSettings?: () => void;
+  /** The input source's menu opened or closed: while open, its keys (Escape among them) are its
+      own. */
+  onInputMenuChange?: (open: boolean) => void;
 }) {
   // The status item the keyboard is on, as the platform focuses it.
   const focusedItem = useRef<string | null>(null);
-  const items = statusItems(network);
+  // Whether the input source's menu is open: its keys are its own (its rows, Escape), not the
+  // status items'.
+  const inputMenuOpen = useRef(false);
+  const items = statusItems(network, inputSources);
   const latestItems = useRef(items);
   latestItems.current = items;
   useEffect(() => {
@@ -607,6 +726,7 @@ export const TopBar = memo(function TopBar({
       return undefined;
     }
     return statusKeys.subscribe((event) => {
+      if (inputMenuOpen.current) return false;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
       if (event.key === "Escape") {
         leaveStatus?.();
@@ -624,6 +744,19 @@ export const TopBar = memo(function TopBar({
   const onItemFocus = useCallback((testID: string) => {
     focusedItem.current = testID;
   }, []);
+  // The input source's menu closed: opened with the pointer, the keyboard goes back to the window
+  // that had it, as a Mac's Input menu leaves it; from the status items (Super+F8) it stays on the
+  // item, as Escape from Control Center leaves it.
+  const fromKeyboard = useRef(!!statusKeys);
+  fromKeyboard.current = !!statusKeys;
+  const inputMenuChanged = useCallback(
+    (open: boolean) => {
+      inputMenuOpen.current = open;
+      onInputMenuChange?.(open);
+      if (!open && !fromKeyboard.current) returnKeyboard?.();
+    },
+    [returnKeyboard, onInputMenuChange],
+  );
   return (
     <Box
       testID="shell-topbar"
@@ -646,6 +779,17 @@ export const TopBar = memo(function TopBar({
           {power && <BatteryItem power={power} />}
           {network && (
             <NetworkItem network={network} open={open.network} onPress={networkStatus} onItemFocus={onItemFocus} />
+          )}
+          {showsInputSources(inputSources) && (
+            <InputSourceItem
+              state={inputSources}
+              onSelect={selectInputSource}
+              onShowEmoji={showEmoji}
+              onOpenSettings={openKeyboardSettings}
+              onItemFocus={onItemFocus}
+              onOpenChange={inputMenuChanged}
+              restoreFocus={!!statusKeys}
+            />
           )}
         </Box>
         <BarButtons

@@ -230,12 +230,12 @@ AttributedString inputText(const AndroidTextInputProps& props, const std::string
 SkFont skiaFont(const Face* face) {
   static sk_sp<SkFontMgr> fonts = SkFontMgr_New_Custom_Empty();
   // Each file at each weight and optical size it is drawn at, as the text engine set them.
-  static std::map<std::tuple<std::string, int, int>, sk_sp<SkTypeface>> typefaces;
-  auto key = std::make_tuple(face->path, face->variable ? face->weight : 0,
+  static std::map<std::tuple<std::string, int, int, int>, sk_sp<SkTypeface>> typefaces;
+  auto key = std::make_tuple(face->path, face->index, face->variable ? face->weight : 0,
                              static_cast<int>(std::lround(face->opticalSize * 64)));
   auto it = typefaces.find(key);
   if (it == typefaces.end()) {
-    sk_sp<SkTypeface> typeface = fonts->makeFromFile(face->path.c_str(), 0);
+    sk_sp<SkTypeface> typeface = fonts->makeFromFile(face->path.c_str(), face->index);
     std::vector<SkFontArguments::VariationPosition::Coordinate> coordinates;
     if (face->variable) coordinates.push_back({SkSetFourByteTag('w', 'g', 'h', 't'), static_cast<float>(face->weight)});
     if (face->opticalSize > 0) coordinates.push_back({SkSetFourByteTag('o', 'p', 's', 'z'), face->opticalSize});

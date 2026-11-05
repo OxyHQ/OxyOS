@@ -152,6 +152,10 @@ messages! {
         // before or after asked for with its chevrons; passed to the input method.
         66 => ChooseInputCandidate { index: u8 },
         67 => TurnInputCandidatesPage { forward: bool },
+        // The client's own candidates surface at a new size (version 21): the shell's candidate
+        // window grows and shrinks with its list. Configured anew; what it showed stays until a
+        // frame of the new size is presented, placed by that size from then.
+        68 => ResizeInputCandidates { surface: u32, size: Size },
         // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
         // `index` 0 begins it, `last` applies it. The application id is the application's own
         // claim until launch records give it; the shell shows it, nothing is authorized by it.

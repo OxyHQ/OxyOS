@@ -1306,6 +1306,9 @@ impl Scene {
             Request::CreateInputCandidates { surface, size } => {
                 self.create_candidates(client, key(surface), size)
             }
+            Request::ResizeInputCandidates { surface, size } => {
+                self.resize_candidates(key(surface), size)
+            }
             Request::CreateToplevel { surface, size } => {
                 self.check_new(key(surface))?;
                 // A file chooser's window is the sheet of the window it chooses for (ADR 0029,

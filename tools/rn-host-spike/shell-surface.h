@@ -7,6 +7,14 @@
 // edge to the far side of its region (kept out of the work area when `exclusive`), an overlay the
 // whole output; the region is drawn at its own place in it, and the surface takes input only over
 // the region, so the rest is transparent and lets presses through.
+//
+// A "candidates" region is the candidate window (docs/adr/0041-input-methods.mdx): the shell's
+// candidates surface, exactly the region's size (outward to whole pixels), which the compositor
+// places at the caret of the field an input method serves, never where the shell's layout put it.
+// Its size follows the region's in place (the compositor shows the frame of the old size until
+// one of the new is presented; a compositor before protocol version 21 has it made anew), and the
+// shell keeps the region mounted, holding a point while it has no list, so the screen reader holds
+// the same window from one list to the next.
 #pragma once
 
 #include "accessibility.h"
@@ -35,7 +43,8 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   OxyOSShellSurfaceProps(const PropsParserContext& context, const OxyOSShellSurfaceProps& sourceProps,
                          const RawProps& rawProps);
 
-  // "panel", "overlay", "notification" or "lock" (docs/adr/0010-lock-screen.mdx)
+  // "panel", "overlay", "backdrop", "notification", "lock" (docs/adr/0010-lock-screen.mdx) or
+  // "candidates" (docs/adr/0041-input-methods.mdx)
   std::string kind{"panel"};
   // A panel's: "top", "bottom", "left" or "right"; a notification at the right is a banner
   // (docs/adr/0026-notifications.mdx), any other a bezel.
@@ -136,6 +145,8 @@ class ShellSurfaceHost {
  private:
   // A lock region's kind, beside OXYOS_SHELL_*: a lock surface, not a shell surface.
   static constexpr uint8_t kLock = 0;
+  // A candidates region's: the candidates surface, placed by the compositor at the caret.
+  static constexpr uint8_t kCandidates = 255;
   // Where a region's surface is: the strip in root coordinates, the region within it.
   struct Placement {
     uint8_t kind = 0, edge = 0;

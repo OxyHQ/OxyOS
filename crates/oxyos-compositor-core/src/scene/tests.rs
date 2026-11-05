@@ -4782,6 +4782,101 @@ fn a_press_on_the_candidates_reaches_the_input_method_and_leaves_focus_in_the_fi
         .any(|e| matches!(e, Event::InputMethodKey { .. })));
 }
 
+/// A served field with its caret at (10, 20), the input method handing a list of two to the
+/// system (ADR 0041), and the shell's candidates surface, of `size`, drawing it.
+fn shell_candidates(size: Size) -> (Harness, SurfaceKey, SurfaceKey) {
+    let (mut h, window) = served("");
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size: Size::new(1, 28),
+            exclusive: 28,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    move_caret(&mut h, window, Rect::new(10, 20, 2, 18), 2);
+    for (index, text) in ["你好", "拟好"].into_iter().enumerate() {
+        h.request(
+            IME,
+            Request::InputMethodCandidate {
+                index: index as u8,
+                text: TextChunk::new(text).unwrap(),
+            },
+        )
+        .unwrap();
+    }
+    h.request(
+        IME,
+        Request::InputMethodCandidates {
+            count: 2,
+            highlighted: 0,
+            flags: 0,
+        },
+    )
+    .unwrap();
+    h.request(SHELL, Request::CreateInputCandidates { surface: 7, size })
+        .unwrap();
+    let candidates = key(SHELL, 7);
+    h.present(candidates);
+    logged(&mut h);
+    (h, window, candidates)
+}
+
+#[test]
+fn the_shells_candidates_resize_in_place_and_keep_their_frame_until_the_new_one() {
+    let (mut h, window, candidates) = shell_candidates(Size::new(120, 40));
+    let w = h.rect(window);
+    assert_eq!(h.rect(candidates), Rect::new(w.x + 10, w.y + 38, 120, 40));
+    h.request(
+        SHELL,
+        Request::ResizeInputCandidates {
+            surface: 7,
+            size: Size::new(200, 64),
+        },
+    )
+    .unwrap();
+    let configures: Vec<Rect> = to(&logged(&mut h), SHELL)
+        .iter()
+        .filter_map(|e| match e {
+            Event::Configure {
+                surface: 7, rect, ..
+            } => Some(*rect),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(configures, [Rect::new(0, 0, 200, 64)]);
+    // The window shows its frame of the old size until one of the new is presented.
+    assert_eq!(h.rect(candidates), Rect::new(w.x + 10, w.y + 38, 120, 40));
+    h.present(candidates);
+    assert_eq!(h.rect(candidates), Rect::new(w.x + 10, w.y + 38, 200, 64));
+    // Placed by its new size: near the output's bottom, above the caret by its new height.
+    h.scene
+        .move_window_to(window, (w.x, SCREEN.bottom() as i32 - 100));
+    let low = h.rect(window);
+    assert_eq!(
+        h.rect(candidates),
+        Rect::new(low.x + 10, low.y + 20 - 64, 200, 64)
+    );
+}
+
+#[test]
+fn only_a_candidates_surface_of_ones_own_is_resized() {
+    let (mut h, _, _) = shell_candidates(Size::new(120, 40));
+    let resize = |surface| Request::ResizeInputCandidates {
+        surface,
+        size: Size::new(10, 10),
+    };
+    // The shell's panel is no candidates surface; another client's surface 7 is not the shell's.
+    assert_eq!(h.request(SHELL, resize(1)), Err(ErrorCode::InvalidRole));
+    assert_eq!(h.request(APP, resize(7)), Err(ErrorCode::UnknownSurface));
+    assert_eq!(h.request(SHELL, resize(8)), Err(ErrorCode::UnknownSurface));
+}
+
 // ---- workspaces (ADR 0009) -------------------------------------------------------------------
 
 #[test]

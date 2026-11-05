@@ -59,6 +59,15 @@ pub const OXYOS_EVENT_CLIPBOARD_EMPTY: u32 = 22;
 /// A transaction for a field with text input enabled is complete (its Done's opcode); its
 /// contents come from `oxyos_client_text_transaction`.
 pub const OXYOS_EVENT_TEXT_INPUT: u32 = 29;
+/// To the session's shell (ADR 0041): the candidates an input method hands the system, one page,
+/// complete (InputCandidates's opcode); `oxyos_client_input_candidates` gives them. `detail`: how
+/// many (0: hide the window); `code`: the highlighted one (OXYOS_NO_CANDIDATE for none); `flag`:
+/// OXYOS_CANDIDATES_* bits.
+pub const OXYOS_EVENT_INPUT_CANDIDATES: u32 = 61;
+pub const OXYOS_NO_CANDIDATE: u32 = oxyos_protocol::NO_CANDIDATE as u32;
+pub const OXYOS_CANDIDATES_PREVIOUS: u8 = oxyos_protocol::CANDIDATES_PREVIOUS;
+pub const OXYOS_CANDIDATES_NEXT: u8 = oxyos_protocol::CANDIDATES_NEXT;
+pub const OXYOS_CANDIDATES_VERTICAL: u8 = oxyos_protocol::CANDIDATES_VERTICAL;
 /// To the session's shell (ADR 0009): a window's state, a chunk of its title or application id,
 /// its closing, and the workspaces.
 pub const OXYOS_EVENT_WINDOW_STATE: u32 = 37;
@@ -608,12 +617,39 @@ pub struct OxyOSTextTransaction {
     pub segment_count: usize,
 }
 
+/// One of an input method's candidates, as `oxyos_client_input_candidates` gives it: UTF-8, not
+/// NUL-terminated.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSInputCandidate {
+    pub text: *const c_char,
+    pub length: usize,
+}
+
+/// The page of candidates the INPUT_CANDIDATES event just returned completed (ADR 0041), in the
+/// input method's order (the shell numbers them 1 to 9, then 0): `count` of them, the auxiliary
+/// text (a reading, a mode; `aux_length` 0 for none), the highlighted one's index
+/// (OXYOS_NO_CANDIDATE for none) and OXYOS_CANDIDATES_* flags. Its strings and candidates stay
+/// valid until the next `oxyos_client_poll`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSInputCandidates {
+    pub candidates: *const OxyOSInputCandidate,
+    pub count: usize,
+    pub aux: *const c_char,
+    pub aux_length: usize,
+    pub highlighted: u32,
+    pub flags: u8,
+}
+
 /// An opaque connection, owned by the caller between `oxyos_client_connect` and
 /// `oxyos_client_close`.
 pub struct OxyOSClient {
     client: Client,
     /// The segments of the transaction last completed, as C reads them.
     segments: Vec<OxyOSPreeditSegment>,
+    /// The candidates of the list last completed, as C reads them.
+    candidates: Vec<OxyOSInputCandidate>,
 }
 
 thread_local! {
@@ -1101,10 +1137,26 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::InputMethodKeySymbol { .. }
         | Event::InputMethodCandidateChosen { .. }
         | Event::InputMethodCandidatesPage { .. } => return None,
-        // The shell's candidates (ADR 0041): not yet in the C ABI.
-        Event::InputCandidate { .. }
-        | Event::InputCandidatesAux { .. }
-        | Event::InputCandidates { .. } => return None,
+        // The shell's candidates (ADR 0041): their parts are collected by the client library;
+        // the closing InputCandidates completes them.
+        Event::InputCandidate { .. } | Event::InputCandidatesAux { .. } => return None,
+        Event::InputCandidates {
+            count,
+            highlighted,
+            flags,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_INPUT_CANDIDATES,
+                detail: u32::from(count),
+                code: if highlighted < count {
+                    u32::from(highlighted)
+                } else {
+                    OXYOS_NO_CANDIDATE
+                },
+                flag: flags,
+                ..out
+            }
+        }
         Event::WindowState {
             window,
             workspace,
@@ -1889,6 +1941,7 @@ pub unsafe extern "C" fn oxyos_client_connect(path: *const c_char) -> *mut OxyOS
         Ok(client) => Box::into_raw(Box::new(OxyOSClient {
             client,
             segments: Vec::new(),
+            candidates: Vec::new(),
         })),
         Err(error) => {
             fail(error);
@@ -4417,4 +4470,124 @@ pub unsafe extern "C" fn oxyos_client_text_transaction(
         segment_count: wrapper.segments.len(),
     };
     1
+}
+
+/// Fills `*out` with the candidates the INPUT_CANDIDATES event just returned completed (ADR
+/// 0041): 1, or 0 if the last event was not one. Its strings (not NUL-terminated) and candidates
+/// stay valid until the next `oxyos_client_poll`.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `out` points to a writable
+/// `OxyOSInputCandidates`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_input_candidates(
+    client: *mut OxyOSClient,
+    out: *mut OxyOSInputCandidates,
+) -> c_int {
+    // SAFETY: per the contract, a non-null pointer is a live, exclusively used OxyOSClient.
+    let Some(wrapper) = (unsafe { client.as_mut() }) else {
+        return fail("null client");
+    };
+    // SAFETY: the caller passes writable candidates or NULL.
+    let Some(out) = (unsafe { out.as_mut() }) else {
+        return fail("null candidates");
+    };
+    let Some(list) = wrapper.client.candidates() else {
+        return 0;
+    };
+    wrapper.candidates = list
+        .candidates
+        .iter()
+        .map(|text| OxyOSInputCandidate {
+            text: text.as_ptr().cast(),
+            length: text.len(),
+        })
+        .collect();
+    *out = OxyOSInputCandidates {
+        candidates: wrapper.candidates.as_ptr(),
+        count: wrapper.candidates.len(),
+        aux: list.aux.as_ptr().cast(),
+        aux_length: list.aux.len(),
+        highlighted: list.highlighted.map_or(OXYOS_NO_CANDIDATE, u32::from),
+        flags: list.flags,
+    };
+    1
+}
+
+/// The session's shell (ADR 0041): its candidates surface, of the given logical size, one per
+/// connection, where it draws the candidates an input method hands the system. The compositor
+/// places it at the caret of the field being served (below it, above it with no room, on the
+/// caret's output) while it tells this shell a list, hides it otherwise, and never gives it focus;
+/// its configure carries its size alone. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_create_input_candidates(
+    client: *mut OxyOSClient,
+    surface: u32,
+    width: u32,
+    height: u32,
+) -> c_int {
+    let size = Size::new(width, height);
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::CreateInputCandidates { surface, size }) }
+}
+
+/// The shell's candidates surface at a new logical size: configured anew, what it showed stays
+/// until a frame of that size is presented. 0 on success; refused (not sent) to a compositor of
+/// protocol version 20 or older, which knows no such request: make the surface anew there.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_resize_input_candidates(
+    client: *mut OxyOSClient,
+    surface: u32,
+    width: u32,
+    height: u32,
+) -> c_int {
+    let size = Size::new(width, height);
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::ResizeInputCandidates { surface, size }) }
+}
+
+/// A candidate of the list the shell draws pressed (its index in the list): the input method
+/// chooses it. A list hidden since is ignored. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_choose_input_candidate(
+    client: *mut OxyOSClient,
+    index: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::ChooseInputCandidate { index }) }
+}
+
+/// A chevron of the candidate window pressed: the input method turns to the page after
+/// (`forward` non-zero) or before. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_turn_input_candidates_page(
+    client: *mut OxyOSClient,
+    forward: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::TurnInputCandidatesPage {
+                forward: forward != 0,
+            },
+        )
+    }
 }

@@ -1,0 +1,714 @@
+{
+ "about": "The shell's candidate window (docs/adr/0041-input-methods.mdx, decision 5) for an input method that hands its candidates to the system: the development compositor's (`im_candidates`, twelve candidates five a page, an emoji among them) with Bloom's fields (sample/ImeProbe.tsx), the screen reader on in Spanish. Composing shows the window exactly below the caret's bottom-left corner, as the compositor holds it, following the caret; its candidates numbered, the highlighted one on the accent, the reading above, a chevron for the page after (and before); its CJK text and emoji drawn, not missing glyphs. → moves the highlight, ↑ and the chevrons turn the page, a press or a digit chooses, Escape cancels. The list is named by its highlighted candidate with its place, a polite live region the reader says at each change; its rows are list items, the highlighted one selected. No key reaches the field while composing: only the input method's transactions, with React's exact events. At 1 (1280 × 720), light, the accent OxyOS's own.",
+ "locale": "es_ES.UTF-8",
+ "module": "ImeProbe",
+ "window": [
+  800,
+  480
+ ],
+ "shell": "OxyOSShell",
+ "input_method": true,
+ "im_candidates": "horizontal",
+ "reader": {},
+ "steps": [
+  {
+   "name": "ImeProbe's fields with the shell, the screen reader on: no candidates",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "candidates": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "the line focused: the input method serves it, nothing to show",
+   "do": [
+    "press",
+    [
+     400,
+     42
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "line",
+    "react": {
+     "touchStart@line": 1,
+     "touchEnd@line": 1,
+     "focus@line": 1,
+     "selectionChange@line": 1
+    },
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "press": 1,
+      "release": 1
+     }
+    },
+    "im": {
+     "active": true,
+     "candidates": null
+    },
+    "shell": {
+     "candidates": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "n i h a o composed: the window below the caret, its first candidate highlighted and said; no key reaches the field",
+   "do": [
+    "compose_keys",
+    "nihao"
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"nihao\" [5,5]"
+    ],
+    "react": {
+     "change@line": 5,
+     "selectionChange@line": 5,
+     "keyPress@line": 5
+    },
+    "delivered": {
+     "1": {
+      "text_input": 5
+     }
+    },
+    "im": {
+     "keys": 10,
+     "given_back": 0,
+     "composing": "nihao",
+     "candidates": {
+      "page": 0,
+      "highlighted": 0,
+      "list": [
+       "你好",
+       "👋",
+       "拟好",
+       "你号",
+       "倪浩"
+      ]
+     }
+    },
+    "shell": {
+     "candidates": [
+      312,
+      157,
+      325,
+      67
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "你好, 1 de 5",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "你好",
+       "position": [
+        1,
+        5
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "👋",
+       "position": [
+        2,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "拟好",
+       "position": [
+        3,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "你号",
+       "position": [
+        4,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "倪浩",
+       "position": [
+        5,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Página siguiente"
+      }
+     ]
+    },
+    "output_pixels": {
+     "325,186": "#9422ae",
+     "347,190": "#fce7fa",
+     "410,200": "#ffca28",
+     "531,190": "#2a1132",
+     "321,170": "#fff7f9"
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "你好, 1 de 5",
+      "live": true
+     }
+    ],
+    "spoken": [
+     {
+      "text": "你好, 1 de 5",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "→ highlights the next, said with its place; the field hears nothing",
+   "do": [
+    "strokes",
+    [
+     106
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"nihao\" [5,5]"
+    ],
+    "react": {},
+    "delivered": {},
+    "im": {
+     "keys": 2,
+     "given_back": 0,
+     "candidates": {
+      "page": 0,
+      "highlighted": 1,
+      "list": [
+       "你好",
+       "👋",
+       "拟好",
+       "你号",
+       "倪浩"
+      ]
+     }
+    },
+    "shell": {
+     "candidates": [
+      312,
+      157,
+      325,
+      67
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "👋, 2 de 5",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "你好",
+       "position": [
+        1,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "👋",
+       "position": [
+        2,
+        5
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "拟好",
+       "position": [
+        3,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "你号",
+       "position": [
+        4,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "倪浩",
+       "position": [
+        5,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Página siguiente"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "👋, 2 de 5",
+      "live": true
+     }
+    ],
+    "spoken": [
+     {
+      "text": "👋, 2 de 5",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "the next page's chevron pressed: the page after, the window narrower, its first said; the field keeps the keyboard",
+   "do": [
+    "press_named",
+    "Página siguiente"
+   ],
+   "expect": {
+    "focus_input": "line",
+    "texts": [
+     "Line: \"nihao\" [5,5]"
+    ],
+    "react": {},
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "leave": 1
+     }
+    },
+    "im": {
+     "keys": 0,
+     "candidates": {
+      "page": 1,
+      "highlighted": 0,
+      "list": [
+       "你",
+       "尼",
+       "妮",
+       "霓",
+       "呢"
+      ]
+     },
+     "turned": [
+      true
+     ]
+    },
+    "shell": {
+     "candidates": [
+      312,
+      157,
+      277,
+      67
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "你, 1 de 5",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "你",
+       "position": [
+        1,
+        5
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "尼",
+       "position": [
+        2,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "妮",
+       "position": [
+        3,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "霓",
+       "position": [
+        4,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "呢",
+       "position": [
+        5,
+        5
+       ],
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Página anterior"
+      },
+      {
+       "role": "Button",
+       "name": "Página siguiente"
+      }
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "你, 1 de 5",
+      "live": true
+     }
+    ],
+    "spoken": [
+     {
+      "text": "你, 1 de 5",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "↑ turns back a page",
+   "do": [
+    "strokes",
+    [
+     103
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"nihao\" [5,5]"
+    ],
+    "react": {},
+    "delivered": {
+     "1": {
+      "leave": 1
+     }
+    },
+    "im": {
+     "keys": 2,
+     "given_back": 0,
+     "candidates": {
+      "page": 0,
+      "highlighted": 0,
+      "list": [
+       "你好",
+       "👋",
+       "拟好",
+       "你号",
+       "倪浩"
+      ]
+     },
+     "turned": []
+    },
+    "shell": {
+     "candidates": [
+      312,
+      157,
+      325,
+      67
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "你好, 1 de 5",
+      "live": true
+     }
+    ],
+    "spoken": [
+     {
+      "text": "你好, 1 de 5",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "a candidate pressed is chosen: committed in place of the letters, the window gone",
+   "do": [
+    "press_named",
+    "你号"
+   ],
+   "expect": {
+    "focus_input": "line",
+    "texts": [
+     "Line: \"你号\" [2,2]"
+    ],
+    "react": {
+     "keyPress@line": 1,
+     "change@line": 1,
+     "selectionChange@line": 1
+    },
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "text_input": 1
+     }
+    },
+    "im": {
+     "composing": "",
+     "candidates": null,
+     "chosen": [
+      3
+     ],
+     "text": "你号"
+    },
+    "shell": {
+     "candidates": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "m a: the window again under the moved caret, its first said again",
+   "do": [
+    "compose_keys",
+    "ma"
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"你号ma\" [4,4]"
+    ],
+    "react": {
+     "change@line": 2,
+     "selectionChange@line": 2,
+     "keyPress@line": 2
+    },
+    "delivered": {
+     "1": {
+      "leave": 1,
+      "text_input": 2
+     }
+    },
+    "im": {
+     "keys": 4,
+     "given_back": 0,
+     "composing": "ma",
+     "candidates": {
+      "page": 0,
+      "highlighted": 0,
+      "list": [
+       "你好",
+       "👋",
+       "拟好",
+       "你号",
+       "倪浩"
+      ]
+     },
+     "chosen": []
+    },
+    "shell": {
+     "candidates": [
+      324,
+      159,
+      325,
+      67
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "你好, 1 de 5",
+      "live": true
+     }
+    ],
+    "spoken": [
+     {
+      "text": "你好, 1 de 5",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "2 chooses the second candidate of the page",
+   "do": [
+    "compose_keys",
+    "2"
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"你号👋\" [4,4]"
+    ],
+    "react": {
+     "keyPress@line": 1,
+     "change@line": 1
+    },
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "text_input": 1
+     }
+    },
+    "im": {
+     "keys": 2,
+     "given_back": 0,
+     "composing": "",
+     "candidates": null
+    },
+    "shell": {
+     "candidates": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "n i composed again",
+   "do": [
+    "compose_keys",
+    "ni"
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"你号👋ni\" [6,6]"
+    ],
+    "react": {
+     "change@line": 2,
+     "selectionChange@line": 2,
+     "keyPress@line": 2
+    },
+    "delivered": {
+     "1": {
+      "leave": 1,
+      "text_input": 2
+     }
+    },
+    "im": {
+     "composing": "ni",
+     "candidates": {
+      "page": 0,
+      "highlighted": 0,
+      "list": [
+       "你好",
+       "👋",
+       "拟好",
+       "你号",
+       "倪浩"
+      ]
+     }
+    },
+    "shell": {
+     "candidates": [
+      333,
+      159,
+      325,
+      67
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "你好, 1 de 5",
+      "live": true
+     }
+    ],
+    "spoken": [
+     {
+      "text": "你好, 1 de 5",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "Escape cancels: the letters gone, the window gone, no key reaching the field",
+   "do": [
+    "strokes",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Line: \"你号👋\" [4,4]"
+    ],
+    "react": {
+     "change@line": 1,
+     "selectionChange@line": 1,
+     "keyPress@line": 1
+    },
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "text_input": 1
+     }
+    },
+    "im": {
+     "keys": 2,
+     "given_back": 0,
+     "composing": "",
+     "candidates": null
+    },
+    "shell": {
+     "candidates": null
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  }
+ ]
+}

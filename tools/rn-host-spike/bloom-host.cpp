@@ -459,8 +459,15 @@ int main(int argc, char** argv) {
   const float width = !shellMode && argc > 5 ? std::stof(argv[4]) : 1024;
   const float height = !shellMode && argc > 5 ? std::stof(argv[5]) : 640;
 
+  // What the application's fonts lack: Latin, Greek and Cyrillic and symbols (DejaVu, Noto Sans),
+  // Chinese, Japanese and Korean (Noto Sans CJK, Debian's fonts-noto-cjk: a collection of a face
+  // for each language, its regular and bold, docs/adr/0041-input-methods.mdx), and emoji in colour
+  // (Noto Color Emoji, fonts-noto-color-emoji). A file missing is skipped.
   for (const char* path : {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                           "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"}) {
+                           "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+                           "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                           "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                           "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"}) {
     if (std::ifstream(path).good()) oxyos::TextEngine::shared().addFallback(path);
   }
   ReactNativeFeatureFlags::override(std::make_unique<Flags>());
@@ -1212,6 +1219,19 @@ int main(int argc, char** argv) {
                                        folly::dynamic::object("screenshot", screenshot)("sent", sent));
             return sent;
           },
+          // The candidate window (docs/adr/0041-input-methods.mdx): a press on a candidate or a
+          // chevron, which the compositor passes to the input method.
+          .chooseCandidate = [&window](uint8_t index) {
+            bool sent = window->chooseCandidate(index);
+            oxyos::Report::get().input("candidates.choose", 0, folly::dynamic::object("index", index)("sent", sent));
+            return sent;
+          },
+          .turnCandidatesPage = [&window](bool forward) {
+            bool sent = window->turnCandidatesPage(forward);
+            oxyos::Report::get().input("candidates.page", 0,
+                                       folly::dynamic::object("forward", forward)("sent", sent));
+            return sent;
+          },
           // The dock's application menu (docs/adr/0034-the-dock.mdx): a list's change is a
           // preference change, numbered with the Control Center's; a URL cites the press that chose
           // it, numbered with the launches.
@@ -1874,6 +1894,9 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> preferenceResults;
         std::vector<OxyOSEvent> menuChoices;
         std::vector<OxyOSEvent> systemShortcuts;
+        // The latest page of candidates an input method handed the system, for the candidate
+        // window (docs/adr/0041-input-methods.mdx): only the last of a turn counts.
+        std::optional<oxyos::Window::Candidates> candidates;
         // The screenshot interface's changes and the window under the pointer, in order, and the
         // screenshots saved with their paths (docs/adr/0024-system-shortcuts.mdx, decision 10).
         std::vector<OxyOSEvent> captures;
@@ -1912,6 +1935,9 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
+              if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
+                if (auto list = window->inputCandidates()) candidates = std::move(*list);
+              }
               if (event.kind == OXYOS_EVENT_CAPTURE_MODE || event.kind == OXYOS_EVENT_CAPTURE_TARGET) {
                 captures.push_back(event);
               }
@@ -2265,6 +2291,18 @@ int main(int argc, char** argv) {
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellShortcut", payload));
+        }
+        // The candidates to show, or none (docs/adr/0041-input-methods.mdx): { candidates, aux,
+        // highlighted (-1: none), previous, next, vertical }.
+        if (candidates) {
+          folly::dynamic texts = folly::dynamic::array();
+          for (const auto& text : candidates->candidates) texts.push_back(text);
+          folly::dynamic payload = folly::dynamic::object("candidates", texts)("aux", candidates->aux)(
+              "highlighted", candidates->highlighted)("previous", candidates->previous)("next", candidates->next)(
+              "vertical", candidates->vertical);
+          oxyos::Report::get().input("candidates", 0, payload);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSShellCandidates", payload));
         }
         // The screenshot interface (docs/adr/0024-system-shortcuts.mdx, decision 10): its changes
         // and the window under the pointer, to JavaScript in order; then the screenshots saved.

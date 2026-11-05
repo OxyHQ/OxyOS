@@ -1,3 +1,4 @@
+import type { CandidateList, InputSourcesState } from "./input-sources";
 import type { ImageSourcePropType } from "react-native";
 import type { NetworkState } from "./network";
 
@@ -288,4 +289,26 @@ export type ShellScreenshots = {
   end: () => void;
   /** Opens a saved screenshot in the application that opens it. */
   open: (id: number) => void;
+};
+
+/**
+ * Input methods as the platform has them (docs/adr/0041-input-methods.mdx): the page of candidates
+ * an input method hands the system, which the shell draws at the caret, and the person's input
+ * sources, which the top bar shows when there is more than one.
+ */
+export type ShellInputMethod = {
+  /** The page to show; null while there is none (the window is hidden). */
+  candidates: CandidateList | null;
+  /** A candidate pressed (its index on the page): the input method chooses it. */
+  choose: (index: number) => void;
+  /** A chevron pressed: the page after (`forward`), or before. */
+  turnPage: (forward: boolean) => void;
+  /** The input sources as the session tells them; null until it has. */
+  sources: InputSourcesState | null;
+  /** A source chosen in the top bar's menu. */
+  selectSource: (id: string) => void;
+  /** "Show Emoji & Symbols": the session's emoji picker, in the field being typed in. */
+  showEmoji: () => void;
+  /** "Open Keyboard Settings…": Settings, at its Keyboard page where it can be. */
+  openKeyboardSettings: () => void;
 };

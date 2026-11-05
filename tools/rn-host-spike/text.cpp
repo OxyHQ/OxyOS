@@ -57,6 +57,63 @@ bool covers(const Face& face, uint32_t cp) {
   return hb_font_get_nominal_glyph(face.hb, cp, &glyph) && glyph != 0;
 }
 
+// The language a CJK face is drawn for: the same ideograph is written differently in Japan, Korea,
+// mainland China, Taiwan and Hong Kong, and a collection (Noto Sans CJK) holds a face for each.
+enum class CjkLanguage { None, Japanese, Korean, SimplifiedChinese, TraditionalChinese, HongKong };
+
+// The CJK language a face is for, by its family name's last word, as Noto and Source Han name them
+// ("Noto Sans CJK JP"); None for any other face.
+CjkLanguage cjkLanguageOf(const std::string& family) {
+  auto space = family.rfind(' ');
+  std::string last = space == std::string::npos ? family : family.substr(space + 1);
+  if (last == "JP") return CjkLanguage::Japanese;
+  if (last == "KR") return CjkLanguage::Korean;
+  if (last == "SC") return CjkLanguage::SimplifiedChinese;
+  if (last == "TC") return CjkLanguage::TraditionalChinese;
+  if (last == "HK") return CjkLanguage::HongKong;
+  return CjkLanguage::None;
+}
+
+bool isKana(uint32_t cp) {
+  return (cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x31f0 && cp <= 0x31ff) || (cp >= 0xff66 && cp <= 0xff9f);
+}
+
+bool isHangul(uint32_t cp) {
+  return (cp >= 0xac00 && cp <= 0xd7af) || (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x3130 && cp <= 0x318f) ||
+         (cp >= 0xa960 && cp <= 0xa97f) || (cp >= 0xd7b0 && cp <= 0xd7ff);
+}
+
+// What the CJK faces are told apart for: ideographs and their punctuation, kana, Hangul, Bopomofo,
+// the fullwidth forms.
+bool isCjk(uint32_t cp) {
+  return (cp >= 0x2e80 && cp <= 0x2fdf) || (cp >= 0x3000 && cp <= 0x9fff) || (cp >= 0xf900 && cp <= 0xfaff) ||
+         (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xffef) || (cp >= 0x20000 && cp <= 0x3ffff) ||
+         isHangul(cp);
+}
+
+// The language a paragraph's CJK text is drawn in, as Chromium and Android choose a CJK face when
+// the text names none: Japanese where it has kana, Korean where it has Hangul (and no kana), else
+// the session's language (the default locale: Japanese, Korean, Traditional Chinese for Taiwan and
+// Macau or a Hant script, Hong Kong's), else Simplified Chinese.
+CjkLanguage paragraphLanguage(const std::string& text) {
+  bool hangul = false;
+  for (size_t i = 0; i < text.size();) {
+    uint32_t cp = next(text, i);
+    if (isKana(cp)) return CjkLanguage::Japanese;
+    hangul = hangul || isHangul(cp);
+  }
+  if (hangul) return CjkLanguage::Korean;
+  const icu::Locale& locale = icu::Locale::getDefault();
+  std::string language = locale.getLanguage(), country = locale.getCountry(), script = locale.getScript();
+  if (language == "ja") return CjkLanguage::Japanese;
+  if (language == "ko") return CjkLanguage::Korean;
+  if (language == "zh" && country == "HK") return CjkLanguage::HongKong;
+  if (language == "zh" && (script == "Hant" || country == "TW" || country == "MO")) {
+    return CjkLanguage::TraditionalChinese;
+  }
+  return CjkLanguage::SimplifiedChinese;
+}
+
 // The OpenType features `fontVariant` asks for, as Android's ReactTypefaceUtils turns each into
 // Paint.setFontFeatureSettings.
 std::vector<hb_feature_t> features(const TextAttributes& attributes) {
@@ -126,16 +183,27 @@ std::string transformed(const std::string& text, const TextAttributes& attribute
 
 struct TextEngine::Impl {
   std::map<std::string, std::string> families;
-  std::vector<std::string> fallbacks;
+  // Each face of the fallback files, in the order added: its file and index, its family, the CJK
+  // language it is for and its weight.
+  struct Fallback {
+    std::string path;
+    int index = 0;
+    std::string family;
+    CjkLanguage language = CjkLanguage::None;
+    int weight = 400;
+  };
+  std::vector<Fallback> fallbacks;
   // Each file's HarfBuzz face, opened once, and what it is: its axes of weight and optical size,
   // whether it is italic, and its weight (OS/2's usWeightClass).
   struct File {
     hb_face_t* hb = nullptr;
     bool weightAxis = false, opticalAxis = false, italic = false;
     int weight = 400;
+    std::string family;
   };
-  std::map<std::string, File> files;
-  std::map<std::tuple<std::string, int, int, bool>, Face> faces;
+  // By file and face index.
+  std::map<std::pair<std::string, int>, File> files;
+  std::map<std::tuple<std::string, int, int, int, bool>, Face> faces;
   std::recursive_mutex mutex;
   // ICU's line break iterator, opened once (its rules are loaded when it is).
   UBreakIterator* lineBreaks = nullptr;
@@ -160,11 +228,12 @@ struct TextEngine::Impl {
   std::list<std::pair<LayoutKey, ParagraphLayout>> recent;
   std::unordered_map<LayoutKey, std::list<std::pair<LayoutKey, ParagraphLayout>>::iterator, LayoutHash> layouts;
 
-  File* file(const std::string& path) {
-    if (auto it = files.find(path); it != files.end()) return it->second.hb ? &it->second : nullptr;
+  File* file(const std::string& path, int index = 0) {
+    auto id = std::make_pair(path, index);
+    if (auto it = files.find(id); it != files.end()) return it->second.hb ? &it->second : nullptr;
     File entry;
     if (hb_blob_t* blob = hb_blob_create_from_file_or_fail(path.c_str())) {
-      hb_face_t* face = hb_face_create(blob, 0);
+      hb_face_t* face = hb_face_create(blob, static_cast<unsigned>(index));
       hb_blob_destroy(blob);
       // A file that is not a font gives an empty face: no glyphs.
       if (hb_face_get_glyph_count(face) > 0) {
@@ -174,8 +243,17 @@ struct TextEngine::Impl {
       }
     }
     if (!entry.hb) {
-      files[path] = entry;
+      files[id] = entry;
       return nullptr;
+    }
+    // Its family, as the name table says it in English (the typographic family where it has one).
+    for (hb_ot_name_id_t name : {HB_OT_NAME_ID_TYPOGRAPHIC_FAMILY, HB_OT_NAME_ID_FONT_FAMILY}) {
+      char family[256];
+      unsigned length = sizeof family;
+      if (hb_ot_name_get_utf8(entry.hb, name, hb_language_from_string("en", -1), &length, family) > 0) {
+        entry.family.assign(family, length);
+        break;
+      }
     }
     hb_ot_var_axis_info_t axis;
     entry.weightAxis = hb_ot_var_find_axis_info(entry.hb, HB_TAG('w', 'g', 'h', 't'), &axis);
@@ -192,13 +270,13 @@ struct TextEngine::Impl {
       entry.italic = (u16(62) & 0x201) != 0;
     }
     hb_blob_destroy(os2);
-    return &(files[path] = entry);
+    return &(files[id] = entry);
   }
 
-  Face* face(const std::string& path, int weight, float size, bool italic) {
-    auto key = std::make_tuple(path, weight, static_cast<int>(std::lround(size * 64)), italic);
+  Face* face(const std::string& path, int index, int weight, float size, bool italic) {
+    auto key = std::make_tuple(path, index, weight, static_cast<int>(std::lround(size * 64)), italic);
     if (auto it = faces.find(key); it != faces.end()) return it->second.hb ? &it->second : nullptr;
-    File* source = file(path);
+    File* source = file(path, index);
     if (!source) {
       if (!path.empty()) std::cerr << "[text] cannot open font " << path << "\n";
       faces[key] = Face{};
@@ -206,6 +284,7 @@ struct TextEngine::Impl {
     }
     Face entry;
     entry.path = path;
+    entry.index = index;
     entry.weight = weight;
     entry.variable = source->weightAxis;
     entry.size = size;
@@ -249,12 +328,42 @@ struct TextEngine::Impl {
     return &(faces[key] = std::move(entry));
   }
 
-  std::string pathFor(const std::string& family) {
+  // The file and face a family is drawn with: its own, else Inter's, else the first fallback.
+  std::pair<std::string, int> fileFor(const std::string& family) {
     auto it = families.find(family);
-    if (it != families.end()) return it->second;
+    if (it != families.end()) return {it->second, 0};
     it = families.find("Inter");
-    if (it != families.end()) return it->second;
-    return fallbacks.empty() ? std::string() : fallbacks.front();
+    if (it != families.end()) return {it->second, 0};
+    return fallbacks.empty() ? std::make_pair(std::string(), 0)
+                             : std::make_pair(fallbacks.front().path, fallbacks.front().index);
+  }
+
+  // The fallback face for a code point the text's own face lacks (TextEngine::addFallback): of the
+  // faces that have it, those of the paragraph's CJK language first for a CJK code point; then the
+  // first one's family, at the weight nearest the text's (a bold file before a fake bold). Null if
+  // none has it.
+  Face* fallbackFor(uint32_t cp, CjkLanguage language, int weight, float size, bool italic) {
+    std::vector<const Fallback*> having;
+    for (const auto& fallback : fallbacks) {
+      Face* candidate = face(fallback.path, fallback.index, 400, size, false);
+      if (candidate && covers(*candidate, cp)) having.push_back(&fallback);
+    }
+    if (having.empty()) return nullptr;
+    if (isCjk(cp)) {
+      std::vector<const Fallback*> own;
+      for (const auto* fallback : having) {
+        if (fallback->language == language) own.push_back(fallback);
+      }
+      if (!own.empty()) having = std::move(own);
+    }
+    const Fallback* chosen = having.front();
+    for (const auto* fallback : having) {
+      if (fallback->family == chosen->family &&
+          std::abs(fallback->weight - weight) < std::abs(chosen->weight - weight)) {
+        chosen = fallback;
+      }
+    }
+    return face(chosen->path, chosen->index, weight, size, italic);
   }
 };
 
@@ -277,7 +386,20 @@ bool TextEngine::registerFamily(const std::string& family, const std::string& pa
 
 void TextEngine::addFallback(const std::string& path) {
   std::lock_guard lock(impl_->mutex);
-  impl_->fallbacks.push_back(path);
+  unsigned count = 1;
+  if (hb_blob_t* blob = hb_blob_create_from_file_or_fail(path.c_str())) {
+    count = std::max(1u, hb_face_count(blob));
+    hb_blob_destroy(blob);
+  }
+  for (unsigned index = 0; index < count; ++index) {
+    auto* file = impl_->file(path, static_cast<int>(index));
+    if (!file) {
+      std::cerr << "[text] cannot open font " << path << " (" << index << ")\n";
+      continue;
+    }
+    impl_->fallbacks.push_back(Impl::Fallback{.path = path, .index = static_cast<int>(index), .family = file->family,
+                                              .language = cjkLanguageOf(file->family), .weight = file->weight});
+  }
 }
 
 namespace {
@@ -412,6 +534,8 @@ ParagraphLayout TextEngine::layoutUncached(
     shown.push_back(fragment.isAttachment() ? fragment.string : transformed(fragment.string, fragment.textAttributes));
     whole += shown.back();
   }
+  // The language its CJK text is drawn in, the face of a code point its own font lacks chosen for it.
+  const CjkLanguage cjkLanguage = paragraphLanguage(whole);
   std::vector<bool> breakable(whole.size() + 1, false);
   {
     UErrorCode status = U_ZERO_ERROR;
@@ -448,7 +572,8 @@ ParagraphLayout TextEngine::layoutUncached(
     if (!std::isnan(attributes.fontSizeMultiplier)) size *= attributes.fontSizeMultiplier;
     int weight = attributes.fontWeight ? static_cast<int>(*attributes.fontWeight) : 400;
     bool italic = attributes.fontStyle && *attributes.fontStyle != FontStyle::Normal;
-    Face* primary = impl_->face(impl_->pathFor(attributes.fontFamily), weight, size, italic);
+    auto [primaryPath, primaryIndex] = impl_->fileFor(attributes.fontFamily);
+    Face* primary = impl_->face(primaryPath, primaryIndex, weight, size, italic);
     if (!primary) continue;
     uint32_t color = argb(attributes.foregroundColor);
     // Android's letter spacing (Paint.setLetterSpacing, em = letterSpacing / fontSize, as React
@@ -514,13 +639,7 @@ ParagraphLayout TextEngine::layoutUncached(
         uint32_t cp = next(s, probe);
         Face* face = primary;
         if (cp != ' ' && !covers(*primary, cp)) {
-          for (const auto& path : impl_->fallbacks) {
-            Face* candidate = impl_->face(path, weight, size, italic);
-            if (candidate && covers(*candidate, cp)) {
-              face = candidate;
-              break;
-            }
-          }
+          if (Face* fallback = impl_->fallbackFor(cp, cjkLanguage, weight, size, italic)) face = fallback;
         }
         size_t end = probe;
         while (end < i) {

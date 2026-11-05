@@ -19,10 +19,12 @@ use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
 use std::path::Path;
 
+mod candidates;
 mod gpu;
 #[cfg(test)]
 mod tests;
 mod text_input;
+pub use candidates::Candidates;
 pub use gpu::{GpuChange, GpuTable, SyncPoints, MAX_PLANES};
 pub use text_input::{Field, Transaction};
 
@@ -89,6 +91,8 @@ pub struct Client {
     drags: std::collections::VecDeque<(u32, Offer)>,
     next_drag: u32,
     text_inputs: text_input::TextInputs,
+    /// The input method's candidates being received (the shell's, ADR 0041).
+    candidate_lists: candidates::CandidateLists,
     /// GPU buffers: the compositor's tables and this connection's timelines (ADR 0031).
     gpu: gpu::Gpu,
 }
@@ -145,6 +149,7 @@ impl Client {
             drags: std::collections::VecDeque::new(),
             next_drag: 0,
             text_inputs: text_input::TextInputs::default(),
+            candidate_lists: candidates::CandidateLists::default(),
             gpu: gpu::Gpu::default(),
         })
     }
@@ -1280,6 +1285,7 @@ impl Client {
     /// Frees released buffers for reuse; a protocol error ends the connection.
     fn observe(&mut self, event: Event) -> io::Result<Event> {
         self.observe_text_input(&event);
+        self.observe_candidates(&event);
         self.gpu.observe(&event);
         match event {
             // A paste of what this client copied: written into its pipe from a thread, so a

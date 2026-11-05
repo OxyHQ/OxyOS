@@ -857,3 +857,92 @@ fn a_compositor_of_version_12_is_sent_no_hint_nor_position_nor_column_header_nor
         }
     }
 }
+
+#[test]
+fn a_candidate_list_is_collected_until_its_close_and_an_empty_one_hides() {
+    let (mut client, server) = connected();
+    let chunk = |text| TextChunk::new(text).unwrap();
+    // A candidate longer than a chunk comes in two with its index repeated.
+    let long = "长".repeat(11);
+    let (head, tail) = long.split_at(30);
+    for event in [
+        Event::InputCandidate {
+            index: 0,
+            text: chunk("你好"),
+        },
+        Event::InputCandidate {
+            index: 1,
+            text: chunk(head),
+        },
+        Event::InputCandidate {
+            index: 1,
+            text: chunk(tail),
+        },
+        Event::InputCandidatesAux {
+            text: chunk("ni'hao"),
+        },
+        Event::InputCandidates {
+            count: 2,
+            highlighted: 1,
+            flags: oxyos_protocol::CANDIDATES_NEXT,
+        },
+        Event::Focus {
+            surface: 1,
+            focused: false,
+        },
+        Event::InputCandidates {
+            count: 0,
+            highlighted: oxyos_protocol::NO_CANDIDATE,
+            flags: 0,
+        },
+    ] {
+        server.send_event(&event, None).unwrap();
+    }
+    let mut completed = Vec::new();
+    for _ in 0..7 {
+        client.next_event().unwrap();
+        completed.push(client.candidates().cloned());
+    }
+    assert!(completed[..4].iter().all(Option::is_none));
+    assert_eq!(
+        completed[4],
+        Some(Candidates {
+            candidates: vec!["你好".to_string(), long.clone()],
+            aux: "ni'hao".to_string(),
+            highlighted: Some(1),
+            flags: oxyos_protocol::CANDIDATES_NEXT,
+        })
+    );
+    // The next event drops it; an empty list is a list to hide, nothing highlighted.
+    assert_eq!(completed[5], None);
+    assert_eq!(completed[6], Some(Candidates::default()));
+}
+
+#[test]
+fn the_shells_candidate_requests_are_sent_as_asked() {
+    let (client, server) = connected();
+    client
+        .create_input_candidates(4, Size::new(180, 44))
+        .unwrap();
+    client
+        .resize_input_candidates(4, Size::new(220, 44))
+        .unwrap();
+    client.choose_input_candidate(2).unwrap();
+    client.turn_input_candidates_page(false).unwrap();
+    let sent: Vec<Request> = (0..4).map(|_| server.recv_request().unwrap().0).collect();
+    assert_eq!(
+        sent,
+        [
+            Request::CreateInputCandidates {
+                surface: 4,
+                size: Size::new(180, 44),
+            },
+            Request::ResizeInputCandidates {
+                surface: 4,
+                size: Size::new(220, 44),
+            },
+            Request::ChooseInputCandidate { index: 2 },
+            Request::TurnInputCandidatesPage { forward: false },
+        ]
+    );
+}

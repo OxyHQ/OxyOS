@@ -151,6 +151,10 @@ struct ShellService {
       capture;
   std::function<bool(uint64_t serial)> endCapture;
   std::function<bool(uint32_t screenshot)> openScreenshot;
+  // The candidate window (docs/adr/0041-input-methods.mdx): a candidate of the list it shows
+  // pressed (its index), a chevron pressed (the page after, or before). False if not sent.
+  std::function<bool(uint8_t index)> chooseCandidate;
+  std::function<bool(bool forward)> turnCandidatesPage;
   // The dock's application menu (docs/adr/0034-the-dock.mdx): the application of a window
   // force-quit (the session ends what it started for it), one of the person's lists of
   // applications replaced (OXYOS_APPLICATION_LIST_*; the ids in order), and a URL opened in the

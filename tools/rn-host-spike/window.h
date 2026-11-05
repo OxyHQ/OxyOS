@@ -191,6 +191,25 @@ class Window {
   // password typed in a lock surface, for the session to check (false if it could not be sent:
   // longer than 512 bytes). The compositor's AUTHENTICATION_RESULT answers.
   void openLockSurface(uint32_t id);
+  // The candidate window (docs/adr/0041-input-methods.mdx): the shell's candidates surface, of the
+  // given logical size, one per connection, which the compositor places at the caret of the field
+  // an input method serves while it tells this shell a list, hides otherwise and never focuses
+  // (throws on failure); the same surface at a new size, what it showed staying until a frame of
+  // that size; a candidate of the list pressed (its index); a chevron pressed (the page after, or
+  // before). False if not sent.
+  void openCandidates(uint32_t id, uint32_t width, uint32_t height);
+  void resizeCandidates(uint32_t id, uint32_t width, uint32_t height);
+  bool chooseCandidate(uint8_t index);
+  bool turnCandidatesPage(bool forward);
+  // The page of candidates the INPUT_CANDIDATES event being dispatched completed: no candidates
+  // to hide the window; `highlighted` -1 for none.
+  struct Candidates {
+    std::vector<std::string> candidates;
+    std::string aux;
+    int highlighted = -1;
+    bool previous = false, next = false, vertical = false;
+  };
+  std::optional<Candidates> inputCandidates();
   void lockSession();
   // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a level (OXYOS_CONTROL_*,
   // 0 to 65536), a volume's mute, Wi-Fi, the appearance (a PREFERENCE_RESULT with `serial`

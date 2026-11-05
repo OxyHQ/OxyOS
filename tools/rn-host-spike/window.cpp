@@ -416,6 +416,35 @@ void Window::openLockSurface(uint32_t id) {
   surfaces_[id] = Surface{};
 }
 
+void Window::openCandidates(uint32_t id, uint32_t width, uint32_t height) {
+  if (!shell_) failed("only the shell draws the candidates handed to the system");
+  if (oxyos_client_create_input_candidates(client_, id, width, height) != 0) failed("cannot open the candidates");
+  surfaces_[id] = Surface{};
+}
+
+void Window::resizeCandidates(uint32_t id, uint32_t width, uint32_t height) {
+  if (oxyos_client_resize_input_candidates(client_, id, width, height) != 0) failed("cannot resize the candidates");
+}
+
+bool Window::chooseCandidate(uint8_t index) { return oxyos_client_choose_input_candidate(client_, index) == 0; }
+
+bool Window::turnCandidatesPage(bool forward) {
+  return oxyos_client_turn_input_candidates_page(client_, forward ? 1 : 0) == 0;
+}
+
+std::optional<Window::Candidates> Window::inputCandidates() {
+  OxyOSInputCandidates list{};
+  if (oxyos_client_input_candidates(client_, &list) != 1) return std::nullopt;
+  Candidates out;
+  for (size_t i = 0; i < list.count; ++i) out.candidates.emplace_back(list.candidates[i].text, list.candidates[i].length);
+  if (list.aux_length) out.aux.assign(list.aux, list.aux_length);
+  out.highlighted = list.highlighted == OXYOS_NO_CANDIDATE ? -1 : static_cast<int>(list.highlighted);
+  out.previous = list.flags & OXYOS_CANDIDATES_PREVIOUS;
+  out.next = list.flags & OXYOS_CANDIDATES_NEXT;
+  out.vertical = list.flags & OXYOS_CANDIDATES_VERTICAL;
+  return out;
+}
+
 bool Window::launch(uint32_t serial, const std::string& id) {
   return oxyos_client_launch(client_, serial, id.data(), id.size()) == 0;
 }

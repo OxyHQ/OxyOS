@@ -2002,6 +2002,186 @@ fn text_input_through_the_c_abi() {
 }
 
 #[test]
+fn the_header_matches_the_input_candidates_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_INPUT_CANDIDATES",
+            i64::from(OXYOS_EVENT_INPUT_CANDIDATES),
+        ),
+        ("OXYOS_NO_CANDIDATE", i64::from(OXYOS_NO_CANDIDATE)),
+        (
+            "OXYOS_CANDIDATES_PREVIOUS",
+            i64::from(OXYOS_CANDIDATES_PREVIOUS),
+        ),
+        ("OXYOS_CANDIDATES_NEXT", i64::from(OXYOS_CANDIDATES_NEXT)),
+        (
+            "OXYOS_CANDIDATES_VERTICAL",
+            i64::from(OXYOS_CANDIDATES_VERTICAL),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    let closing = Event::InputCandidates {
+        count: 0,
+        highlighted: 0,
+        flags: 0,
+    };
+    assert_eq!(
+        i64::from(closing.opcode()),
+        define("OXYOS_EVENT_INPUT_CANDIDATES")
+    );
+    let candidate = fields("OxyOSInputCandidate");
+    assert_eq!(names(&candidate), ["text", "length"]);
+    let rust = [
+        offset_of!(OxyOSInputCandidate, text),
+        offset_of!(OxyOSInputCandidate, length),
+    ];
+    assert_eq!(
+        c_offsets(&candidate),
+        (rust.to_vec(), size_of::<OxyOSInputCandidate>())
+    );
+    let list = fields("OxyOSInputCandidates");
+    assert_eq!(
+        names(&list),
+        [
+            "candidates",
+            "count",
+            "aux",
+            "aux_length",
+            "highlighted",
+            "flags"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSInputCandidates, candidates),
+        offset_of!(OxyOSInputCandidates, count),
+        offset_of!(OxyOSInputCandidates, aux),
+        offset_of!(OxyOSInputCandidates, aux_length),
+        offset_of!(OxyOSInputCandidates, highlighted),
+        offset_of!(OxyOSInputCandidates, flags),
+    ];
+    assert_eq!(
+        c_offsets(&list),
+        (rust.to_vec(), size_of::<OxyOSInputCandidates>())
+    );
+}
+
+#[test]
+fn input_candidates_through_the_c_abi() {
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-candidates-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let requests: Vec<Request> = (0..4).map(|_| server.recv_request().unwrap().0).collect();
+        let chunk = |text| TextChunk::new(text).unwrap();
+        for event in [
+            Event::InputCandidate {
+                index: 0,
+                text: chunk("你好"),
+            },
+            Event::InputCandidate {
+                index: 1,
+                text: chunk("拟好"),
+            },
+            Event::InputCandidatesAux {
+                text: chunk("ni'hao"),
+            },
+            Event::InputCandidates {
+                count: 2,
+                highlighted: 0,
+                flags: oxyos_protocol::CANDIDATES_NEXT,
+            },
+            Event::InputCandidates {
+                count: 0,
+                highlighted: oxyos_protocol::NO_CANDIDATE,
+                flags: 0,
+            },
+        ] {
+            server.send_event(&event, None).unwrap();
+        }
+        requests
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_create_input_candidates(client, 6, 180, 44), 0);
+        assert_eq!(oxyos_client_resize_input_candidates(client, 6, 220, 44), 0);
+        assert_eq!(oxyos_client_choose_input_candidate(client, 1), 0);
+        assert_eq!(oxyos_client_turn_input_candidates_page(client, 1), 0);
+        let mut event = OxyOSEvent::default();
+        let mut list: OxyOSInputCandidates = std::mem::zeroed();
+        let mut next = || loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT => break event,
+                OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll returned {other}"),
+            }
+        };
+        // The parts are not events of their own: the first is the completed list.
+        let shown = next();
+        assert_eq!(
+            (shown.kind, shown.detail, shown.code, shown.flag),
+            (OXYOS_EVENT_INPUT_CANDIDATES, 2, 0, OXYOS_CANDIDATES_NEXT)
+        );
+        assert_eq!(oxyos_client_input_candidates(client, &mut list), 1);
+        let candidates = std::slice::from_raw_parts(list.candidates, list.count);
+        let texts: Vec<String> = candidates
+            .iter()
+            .map(|candidate| seen(candidate.text, candidate.length))
+            .collect();
+        assert_eq!(texts, ["你好", "拟好"]);
+        assert_eq!(
+            (
+                seen(list.aux, list.aux_length),
+                list.highlighted,
+                list.flags
+            ),
+            ("ni'hao".to_string(), 0, OXYOS_CANDIDATES_NEXT)
+        );
+        // An empty list hides the window: nothing highlighted, no reading.
+        let hidden = next();
+        assert_eq!(
+            (hidden.kind, hidden.detail, hidden.code),
+            (OXYOS_EVENT_INPUT_CANDIDATES, 0, OXYOS_NO_CANDIDATE)
+        );
+        assert_eq!(oxyos_client_input_candidates(client, &mut list), 1);
+        assert_eq!(
+            (list.count, list.aux_length, list.highlighted),
+            (0, 0, OXYOS_NO_CANDIDATE)
+        );
+        assert_eq!(
+            compositor.join().unwrap(),
+            [
+                Request::CreateInputCandidates {
+                    surface: 6,
+                    size: Size::new(180, 44),
+                },
+                Request::ResizeInputCandidates {
+                    surface: 6,
+                    size: Size::new(220, 44),
+                },
+                Request::ChooseInputCandidate { index: 1 },
+                Request::TurnInputCandidatesPage { forward: true },
+            ]
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn the_header_matches_the_shell_surface_abi() {
     for (name, value) in [
         ("OXYOS_SHELL_BACKGROUND", ShellKind::Background as i64),

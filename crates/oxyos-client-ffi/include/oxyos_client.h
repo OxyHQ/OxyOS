@@ -35,6 +35,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CLIPBOARD_TYPE 21
 #define OXYOS_EVENT_CLIPBOARD_EMPTY 22
 #define OXYOS_EVENT_TEXT_INPUT 29
+#define OXYOS_EVENT_INPUT_CANDIDATES 61
 #define OXYOS_EVENT_WINDOW_STATE 37
 #define OXYOS_EVENT_WINDOW_TITLE 38
 #define OXYOS_EVENT_WINDOW_APP_ID 39
@@ -337,6 +338,10 @@ typedef struct OxyOSClient OxyOSClient;
  *   TEXT_INPUT  serial: the input's (a user input when it commits text, as a key press);
  *               detail: the field's commit serial it was made for. A transaction for a field with
  *               text input enabled is complete: oxyos_client_text_transaction gives it.
+ *   INPUT_CANDIDATES  to the session's shell (ADR 0041): the candidates an input method hands the
+ *               system, one page, complete: oxyos_client_input_candidates gives them. detail: how
+ *               many (0: hide the candidate window); code: the highlighted one's index
+ *               (OXYOS_NO_CANDIDATE for none); flag: OXYOS_CANDIDATES_* bits.
  *   To the session's shell (ADR 0009):
  *   WINDOW_STATE  code: the window's number; detail: its workspace; flag: OXYOS_WINDOW_* bits.
  *   WINDOW_TITLE, WINDOW_APP_ID  code: the window; detail: the chunk's index (0 begins it);
@@ -1230,6 +1235,47 @@ typedef struct OxyOSTextTransaction {
 
 /* The transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_text_transaction(OxyOSClient* client, OxyOSTextTransaction* out);
+
+/* Input methods' candidates, drawn by the session's shell (docs/adr/0041-input-methods.mdx). */
+#define OXYOS_NO_CANDIDATE 255
+/* A page before the one shown, a page after it, a vertical list. */
+#define OXYOS_CANDIDATES_PREVIOUS 1
+#define OXYOS_CANDIDATES_NEXT 2
+#define OXYOS_CANDIDATES_VERTICAL 4
+
+/* One candidate: UTF-8, not NUL-terminated. */
+typedef struct OxyOSInputCandidate {
+  const char* text;
+  size_t length;
+} OxyOSInputCandidate;
+
+/* The page of candidates an INPUT_CANDIDATES event completed, in the input method's order (the
+ * shell numbers them 1 to 9, then 0, the digit keys that choose them in the engine): `count` of
+ * them (0: hide the window), the auxiliary text (a reading such as pinyin's "ni'hao", a mode;
+ * `aux_length` 0 for none), the highlighted one (OXYOS_NO_CANDIDATE for none) and
+ * OXYOS_CANDIDATES_* flags. Strings and candidates stay valid until the next oxyos_client_poll. */
+typedef struct OxyOSInputCandidates {
+  const OxyOSInputCandidate* candidates;
+  size_t count;
+  const char* aux;
+  size_t aux_length;
+  uint32_t highlighted;
+  uint8_t flags;
+} OxyOSInputCandidates;
+
+/* The candidates the INPUT_CANDIDATES event just returned completed: 1 with `*out` filled, or 0. */
+int oxyos_client_input_candidates(OxyOSClient* client, OxyOSInputCandidates* out);
+/* The shell's candidates surface, of the given logical size, one per connection: the compositor
+ * places it at the served field's caret (below it, above it with no room, on the caret's output)
+ * while it tells this shell a list, hides it otherwise, and never gives it focus; its configure
+ * carries its size alone. Resizing it keeps what it showed until a frame of the new size (protocol
+ * version 21; refused by an older compositor, where the surface is made anew instead). */
+int oxyos_client_create_input_candidates(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height);
+int oxyos_client_resize_input_candidates(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height);
+/* A candidate of the list shown pressed (its index), or a chevron (the page after when `forward`
+ * is non-zero, else the one before): the input method chooses it, or turns the page. */
+int oxyos_client_choose_input_candidate(OxyOSClient* client, uint8_t index);
+int oxyos_client_turn_input_candidates_page(OxyOSClient* client, uint8_t forward);
 
 /* HTTP (crates/oxyos-net): the engine behind React Native's networking. Each request runs on a
  * thread of its own (TLS through rustls against the system's certificates, redirects, gzip and
