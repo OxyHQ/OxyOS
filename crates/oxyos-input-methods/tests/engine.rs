@@ -48,15 +48,19 @@ fn key(c: char) -> (u32, u32) {
 struct Typing {
     service: Service,
     serial: u64,
+    /// What the engines learn, kept with the person's data.
+    data: std::path::PathBuf,
 }
 
 impl Typing {
     fn start(engine: Engine, name: &str, current: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("oxyos-im-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         let paths = Paths {
             runtime: dir.join("run"),
             data: dir.join("data"),
         };
+        let data = paths.data.clone();
         let sources = Sources {
             layout: "us".into(),
             group: vec!["keyboard-us".into(), current.into()],
@@ -65,6 +69,7 @@ impl Typing {
         let mut typing = Self {
             service: Service::spawn(engine, paths, sources).unwrap(),
             serial: 0,
+            data,
         };
         typing.wait(|outcome| matches!(outcome, Outcome::Ready));
         typing.service.send(Command::Activate { capability: 0 });
@@ -178,6 +183,16 @@ fn anthy_turns_romaji_into_kana_and_kana_into_kanji() {
     // Return commits it.
     let change = typing.type_text("\n");
     assert_eq!(change.commit, "日本語");
+    // What Anthy learned from it is kept with the person's input-method data (its `.anthy` is
+    // under `$HOME`), never in the home of whoever ran the session.
+    let data = typing.data.clone();
+    drop(typing);
+    let learned = data.join(".anthy");
+    assert!(
+        std::fs::read_dir(&learned).is_ok_and(|mut entries| entries.next().is_some()),
+        "nothing learned in {}",
+        learned.display()
+    );
 }
 
 fn descriptors() -> Vec<String> {
