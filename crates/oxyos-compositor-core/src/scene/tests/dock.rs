@@ -334,3 +334,124 @@ fn a_pointer_event_carries_the_modifiers_held_whoever_has_the_keyboard() {
         .collect();
     assert_eq!(modifiers, [MODIFIER_CONTROL]);
 }
+
+/// What the shell was told of each output's cover since the last call, in order.
+fn covers_told(h: &mut Harness) -> Vec<(u32, bool)> {
+    to(&logged(h), SHELL)
+        .iter()
+        .filter_map(|event| match event {
+            Event::OutputCovered { output, covered } => Some((*output, *covered)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_shell_is_told_each_output_a_zoomed_or_full_screen_window_covers() {
+    let mut h = Harness::new();
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: Rect::new(1920, 0, 1280, 720),
+            scale_120: 150,
+            refresh_mhz: 60_000,
+        })
+        .unwrap();
+    // Each output is told uncovered after its Output, once.
+    assert_eq!(covers_told(&mut h), [(1, false), (2, false)]);
+    let window = h.toplevel(APP, 1, 400, 300);
+    let number = h.scene.window_number(window).unwrap();
+    assert!(
+        covers_told(&mut h).is_empty(),
+        "a window not zoomed covers nothing"
+    );
+    let request = |h: &mut Harness, client, request| {
+        h.request(client, request).unwrap();
+        h.present(window);
+    };
+    let zoom = |h: &mut Harness, enabled| {
+        request(
+            h,
+            APP,
+            Request::SetMaximized {
+                surface: 1,
+                enabled,
+            },
+        );
+    };
+    // Zoomed, its output alone is covered; told once, however many frames follow.
+    zoom(&mut h, true);
+    assert_eq!(covers_told(&mut h), [(1, true)]);
+    h.present(window);
+    assert!(covers_told(&mut h).is_empty());
+    // Minimized it covers nothing, and restored it covers its output again.
+    request(&mut h, SHELL, Request::MinimizeWindow { window: number });
+    assert_eq!(covers_told(&mut h), [(1, false)]);
+    request(&mut h, SHELL, Request::FocusWindow { window: number });
+    assert_eq!(covers_told(&mut h), [(1, true)]);
+    // On a workspace not shown it covers nothing.
+    request(&mut h, SHELL, Request::AddWorkspace {});
+    request(&mut h, SHELL, Request::ActivateWorkspace { workspace: 1 });
+    assert_eq!(covers_told(&mut h), [(1, false)]);
+    request(&mut h, SHELL, Request::ActivateWorkspace { workspace: 0 });
+    assert_eq!(covers_told(&mut h), [(1, true)]);
+    // Hidden with its application, nor; activated again, it does.
+    request(&mut h, SHELL, Request::HideApplication { window: number });
+    assert_eq!(covers_told(&mut h), [(1, false)]);
+    request(&mut h, SHELL, Request::FocusWindow { window: number });
+    assert_eq!(covers_told(&mut h), [(1, true)]);
+    // The lock leaves the desktop as it is beneath.
+    h.scene.lock();
+    h.pump();
+    assert!(covers_told(&mut h).is_empty());
+    h.scene.unlock();
+    h.pump();
+    assert!(covers_told(&mut h).is_empty());
+    // Restored, uncovered.
+    zoom(&mut h, false);
+    assert_eq!(covers_told(&mut h), [(1, false)]);
+    // Full screen covers it too, until it leaves full screen.
+    let fullscreen = |h: &mut Harness, enabled| {
+        request(
+            h,
+            APP,
+            Request::SetFullscreen {
+                surface: 1,
+                enabled,
+            },
+        );
+    };
+    fullscreen(&mut h, true);
+    assert_eq!(covers_told(&mut h), [(1, true)]);
+    fullscreen(&mut h, false);
+    assert_eq!(covers_told(&mut h), [(1, false)]);
+    // A window on the other output covers that one alone; closed, it covers nothing.
+    h.scene.pointer_motion(2000, 100);
+    let right = h.toplevel(OTHER, 1, 400, 300);
+    h.request(
+        OTHER,
+        Request::SetMaximized {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.present(right);
+    assert_eq!(covers_told(&mut h), [(2, true)]);
+    h.request(OTHER, Request::Destroy { surface: 1 }).unwrap();
+    assert_eq!(covers_told(&mut h), [(2, false)]);
+    // A shell that connects is told each output's cover as it is now.
+    zoom(&mut h, true);
+    logged(&mut h);
+    h.scene.disconnect(SHELL);
+    h.scene
+        .connect(
+            SHELL,
+            Grants {
+                shell: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(covers_told(&mut h), [(1, true), (2, false)]);
+}

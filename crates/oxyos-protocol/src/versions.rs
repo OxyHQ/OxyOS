@@ -45,7 +45,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// methods' candidates drawn by the shell and a key's symbol (ADR 0041), both ways, sent only to
 /// an input method or the shell; version 20, where the shell's dock has each window minimize into
 /// (`ClearMinimizeTargets`, `PlaceMinimizeTarget`, ADR 0011's genie); version 21, the shell's
-/// candidate window resized in place (`ResizeInputCandidates`, ADR 0041).
+/// candidate window resized in place (`ResizeInputCandidates`, ADR 0041); version 22, whether a
+/// zoomed or full-screen window covers an output (`OutputCovered`, ADR 0034), told to the shell.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -59,6 +60,7 @@ const EVENTS_ADDED: Added = &[
     (13, 251..=251),
     (17, 181..=181),
     (18, 59..=64),
+    (22, 81..=81),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

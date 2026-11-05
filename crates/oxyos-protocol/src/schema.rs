@@ -608,6 +608,12 @@ messages! {
         // To the session's shell (ADR 0022): a window's size in logical pixels, when it is first
         // told and whenever it changes, so the shell shows it in its proportions.
         80 => WindowSize { window: u32, size: Size },
+        // To the session's shell (ADR 0034, version 22), after the output's Output when it is
+        // first told and whenever it changes: whether a window shown on it covers it, zoomed to
+        // fill its work area (ADR 0016) or full screen: on the active workspace, neither
+        // minimized nor hidden with its application. The dock's top corners are square while one
+        // does, as the window's own are.
+        81 => OutputCovered { output: u32, covered: bool },
         // To the session's shell of `output` (its `shortcuts` grant, ADR 0024): a system shortcut
         // the compositor took from the keyboard, for the shell to show: the application switcher's
         // and the search's. `serial` is a user input of the shell's, as a key press's is.

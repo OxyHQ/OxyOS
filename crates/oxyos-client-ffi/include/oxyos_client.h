@@ -42,6 +42,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WINDOW_CLOSED 40
 #define OXYOS_EVENT_WORKSPACES 41
 #define OXYOS_EVENT_WINDOW_SIZE 80
+/* Whether a zoomed or full-screen window covers an output (docs/adr/0034-the-dock.mdx, version
+   22): code the output, flag 1 while one does. */
+#define OXYOS_EVENT_OUTPUT_COVERED 81
 #define OXYOS_EVENT_SYSTEM_SHORTCUT 100
 #define OXYOS_EVENT_WINDOW_USE 101
 /* Notifications (docs/adr/0026-notifications.mdx). */
