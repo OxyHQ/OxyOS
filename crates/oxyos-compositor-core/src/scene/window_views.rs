@@ -12,7 +12,7 @@
 //! which draws the motion, leaves the window out of where it is.
 
 use super::{ClientId, RenderItem, Request, Role, Scene, SurfaceKey};
-use oxyos_protocol::{ErrorCode, Rect, Size, MAX_WINDOW_VIEWS};
+use oxyos_protocol::{ErrorCode, GestureOverlay, Rect, Size, MAX_WINDOW_VIEWS};
 
 /// One window shown on a shell surface, as the shell placed it (surface-local logical pixels).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +34,8 @@ pub(super) struct SurfaceViews {
     shown: Vec<Placed>,
     /// Whether the windows are moved into the views (`MoveWindowsToViews`).
     moved: bool,
+    /// Which view a touchpad's swipe drives the surface is (`SetGestureOverlay`, ADR 0046).
+    pub(super) gesture: GestureOverlay,
 }
 
 /// The largest rectangle of `size`'s proportions within `rect`, centred in it (none if either
@@ -58,8 +60,8 @@ pub fn fitted(rect: Rect, size: Size) -> Option<Rect> {
 }
 
 impl Scene {
-    /// ClearWindowViews, PlaceWindowView and MoveWindowsToViews: only the shell's, on its own
-    /// shell surfaces.
+    /// ClearWindowViews, PlaceWindowView, MoveWindowsToViews and SetGestureOverlay: only the
+    /// shell's, on its own shell surfaces.
     pub(super) fn window_view_request(
         &mut self,
         client: ClientId,
@@ -71,7 +73,8 @@ impl Scene {
         let surface = match request {
             Request::ClearWindowViews { surface }
             | Request::PlaceWindowView { surface, .. }
-            | Request::MoveWindowsToViews { surface, .. } => SurfaceKey {
+            | Request::MoveWindowsToViews { surface, .. }
+            | Request::SetGestureOverlay { surface, .. } => SurfaceKey {
                 client,
                 id: surface,
             },
@@ -85,6 +88,7 @@ impl Scene {
         match request {
             Request::ClearWindowViews { .. } => views.making = Some(Vec::new()),
             Request::MoveWindowsToViews { moved, .. } => views.moved = moved,
+            Request::SetGestureOverlay { overlay, .. } => views.gesture = overlay,
             Request::PlaceWindowView {
                 window,
                 rect,

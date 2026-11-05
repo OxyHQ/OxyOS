@@ -101,6 +101,11 @@ pub(super) fn kind(role: &Role) -> Kind {
 impl Scene {
     /// The surfaces that arrived or went since the last call, in order: what the compositor
     /// starts transitions for, before it composes the frame they first (or last) show in.
+    /// How `key` arrives and goes (its kind of motion), if it is a surface.
+    pub fn appearance_kind(&self, key: SurfaceKey) -> Option<Kind> {
+        self.nodes.get(&key).map(|node| kind(&node.role))
+    }
+
     pub fn take_appearances(&mut self) -> Vec<Appearance> {
         std::mem::take(&mut self.appearances)
     }

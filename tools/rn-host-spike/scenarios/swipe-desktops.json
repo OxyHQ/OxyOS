@@ -1,0 +1,313 @@
+{
+  "about": "Three fingers across slide the desktops with them (docs/adr/0046-interactive-gestures.mdx), at 1 (1280 × 720): Allo's two windows on the first desktop, a second added in Mission Control. Left a quarter, half and three quarters of the swipe's 400 pixels hold the first desktop's windows slid that share of the width, in the frame after the motion; lifted slowly past halfway, the second desktop is the active one. Right a quarter brings the first desktop's windows in from the left as far; lifted short it goes back, and a fast short flick goes through, every window exactly where it was. Past the first desktop the windows pull against the end, less and less (half a desktop of the fingers, a tenth of the width), and come back. No application hears anything of it.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      700,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's two windows on the first desktop",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+↑: Mission Control",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "texts": [
+            "Escritorio 1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a second desktop added",
+      "do": [
+        "press_named",
+        "Añadir escritorio"
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "texts": [
+            "Escritorio 2"
+          ]
+        },
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "Super+↑ again: closed",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "absent": [
+            "Escritorio 1"
+          ]
+        },
+        "drawn_home": true
+      }
+    },
+    {
+      "name": "three fingers left a quarter of the way, held: the first desktop's windows slid a quarter of the width",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          -100,
+          0,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "slid": [
+          0.25,
+          1280
+        ],
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "on to half way",
+      "do": [
+        "swipe_move",
+        [
+          -100,
+          0,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "slid": [
+          0.5,
+          1280
+        ],
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "on to three quarters",
+      "do": [
+        "swipe_move",
+        [
+          -100,
+          0,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "slid": [
+          0.75,
+          1280
+        ],
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "lifted slowly past halfway: the second desktop",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "workspaces": [
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "name": "three fingers right a quarter, held: the first desktop's windows come in from the left as far",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          100,
+          0,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "slid": [
+          0.75,
+          1280
+        ],
+        "workspaces": [
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "name": "lifted slowly short of halfway: back on the second",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "workspaces": [
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "name": "a fast short flick right: the first desktop, its windows exactly where they were",
+      "do": [
+        "swipe",
+        [
+          3,
+          60,
+          0,
+          3,
+          120
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "workspaces": [
+          2,
+          0
+        ],
+        "drawn_home": true,
+        "windows_placed_as": 1
+      }
+    },
+    {
+      "name": "right past the first desktop, held: it pulls against the end, a tenth of the width for half a desktop",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          200,
+          0,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "slid": [
+          -0.097059,
+          1280
+        ],
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "lifted: back where it is",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "workspaces": [
+          2,
+          0
+        ],
+        "drawn_home": true,
+        "windows_placed_as": 1
+      }
+    }
+  ]
+}

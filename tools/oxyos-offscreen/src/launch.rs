@@ -54,13 +54,18 @@ pub enum Step {
         dy: i32,
         events: u32,
     },
-    /// Three or more fingers swiped on the touchpad by (dx, dy) in `steps` even steps, then lifted
-    /// (Mission Control and App Exposé, ADR 0045).
+    /// Three or more fingers swiped on the touchpad by (dx, dy) in `steps` even steps, `hz` a
+    /// second, through the compositor's input as libinput's swipe gesture is (Mission Control, App
+    /// Exposé and the desktops, ADR 0045, ADR 0046): `fingers` put down first (none: they are down
+    /// since an earlier step's), and lifted `lift` milliseconds after their last motion (none:
+    /// they stay down into the next steps, the swipe partway).
     Swipe {
-        fingers: u8,
+        fingers: Option<u8>,
         dx: i32,
         dy: i32,
         steps: u32,
+        hz: u32,
+        lift: Option<u32>,
     },
     /// A secondary (right) button press and release at a window-local logical point: a context
     /// menu's.
@@ -319,7 +324,13 @@ impl Step {
                 dx,
                 dy,
                 steps,
-            } => format!("{fingers} fingers swiped by ({dx}, {dy}) in {steps} steps"),
+                hz,
+                lift,
+            } => format!(
+                "{} swiped by ({dx}, {dy}) in {steps} steps at {hz} Hz{}",
+                fingers.map_or("the fingers".to_string(), |n| format!("{n} fingers")),
+                lift.map_or(", held".to_string(), |ms| format!(", lifted {ms} ms after"))
+            ),
             Step::MoveOutput { x, y } => format!("pointer to ({x}, {y}) on the output"),
             Step::ReleaseOutput { x, y } => format!("release at ({x}, {y}) on the output"),
             Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
@@ -459,7 +470,19 @@ impl Step {
                 dx,
                 dy,
                 steps,
-            } => format!("\"swipe\":[{fingers},{dx},{dy},{steps}]"),
+                hz,
+                lift,
+            } => match (fingers, lift) {
+                (Some(n), Some(0)) => format!("\"swipe\":[{n},{dx},{dy},{steps},{hz}]"),
+                (Some(n), None) => format!("\"swipe_begin\":[{n},{dx},{dy},{steps},{hz}]"),
+                (None, None) => format!("\"swipe_move\":[{dx},{dy},{steps},{hz}]"),
+                (_, Some(ms)) if *steps == 0 => format!("\"swipe_end\":{ms}"),
+                (_, lift) => format!(
+                    "\"swipe\":[{},{dx},{dy},{steps},{hz},{}]",
+                    fingers.map_or(0, u32::from),
+                    lift.unwrap_or(0)
+                ),
+            },
             Step::MoveOutput { x, y } => format!("\"move_output\":[{x},{y}]"),
             Step::ReleaseOutput { x, y } => format!("\"release_output\":[{x},{y}]"),
             Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
@@ -840,7 +863,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -905,6 +928,20 @@ fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>>
         return Err(format!("{value:?}: expected {count} numbers").into());
     }
     Ok(numbers)
+}
+
+/// `least` to `most` comma-separated numbers.
+fn numbers_within(
+    value: Option<&std::ffi::OsString>,
+    least: usize,
+    most: usize,
+) -> Result<Vec<i32>> {
+    let given = value
+        .and_then(|v| v.to_str())
+        .ok_or(USAGE)?
+        .split(',')
+        .count();
+    numbers(value, given.clamp(least, most))
 }
 
 impl Launch {
@@ -1153,13 +1190,38 @@ impl Launch {
                     let n = numbers(args.next(), 2)?;
                     Step::PressSecondaryOutput { x: n[0], y: n[1] }
                 }
-                Some("--swipe") => {
-                    let n = numbers(args.next(), 4)?;
+                Some(flag @ ("--swipe" | "--swipe-begin")) => {
+                    // F,DX,DY,STEPS[,HZ]: 60 a second unless said.
+                    let n = numbers_within(args.next(), 4, 5)?;
                     Step::Swipe {
-                        fingers: u8::try_from(n[0])?,
+                        fingers: Some(u8::try_from(n[0])?),
                         dx: n[1],
                         dy: n[2],
                         steps: u32::try_from(n[3])?.max(1),
+                        hz: n.get(4).map_or(Ok(60), |hz| u32::try_from(*hz))?.max(1),
+                        lift: (flag == "--swipe").then_some(0),
+                    }
+                }
+                Some("--swipe-move") => {
+                    let n = numbers_within(args.next(), 3, 4)?;
+                    Step::Swipe {
+                        fingers: None,
+                        dx: n[0],
+                        dy: n[1],
+                        steps: u32::try_from(n[2])?.max(1),
+                        hz: n.get(3).map_or(Ok(60), |hz| u32::try_from(*hz))?.max(1),
+                        lift: None,
+                    }
+                }
+                Some("--swipe-end") => {
+                    let n = numbers(args.next(), 1)?;
+                    Step::Swipe {
+                        fingers: None,
+                        dx: 0,
+                        dy: 0,
+                        steps: 0,
+                        hz: 60,
+                        lift: Some(u32::try_from(n[0])?),
                     }
                 }
                 Some("--scroll-output") => {
@@ -2021,6 +2083,17 @@ fn composed_since(compositor: &Compositor, from_ns: i64) -> String {
     format!("[{}]", frames.join(","))
 }
 
+/// Where the frame composed last drew each window, in order.
+fn drawn_windows(compositor: &Compositor) -> Vec<(SurfaceKey, Rect)> {
+    let mut drawn: Vec<(SurfaceKey, Rect)> = compositor
+        .windows_drawn
+        .iter()
+        .map(|(key, rect)| (*key, *rect))
+        .collect();
+    drawn.sort_by_key(|(key, _)| (key.client, key.id));
+    drawn
+}
+
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
@@ -2042,6 +2115,8 @@ pub enum TransitionClock {
 }
 
 thread_local! {
+    /// The fingers a `Step::Swipe` left down.
+    static SWIPING: std::cell::Cell<Option<(u8, u64)>> = const { std::cell::Cell::new(None) };
     /// Where `--transition-clock hold` held the transitions' clock.
     static HELD: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
 }
@@ -2095,6 +2170,9 @@ fn settle(
     // The companion's frames count as the application's do: it is an application the person
     // opened, and what it shows (a caret blinking in its field) answers a step as much.
     let mut companion_last = companion_frames(session);
+    // Where the compositor draws the windows (ADR 0046): a swipe's answer is the windows moved,
+    // which no client draws.
+    let mut drawn_last = drawn_windows(&session.compositor);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -2128,7 +2206,11 @@ fn settle(
         let companion_now = companion_frames(session);
         let companion_changed = companion_now != companion_last;
         companion_last = companion_now;
-        let shell_changed = shell_now != shell_last || launched_changed || companion_changed;
+        let drawn_now = drawn_windows(&session.compositor);
+        let drawn_changed = drawn_now != drawn_last;
+        drawn_last = drawn_now;
+        let shell_changed =
+            shell_now != shell_last || launched_changed || companion_changed || drawn_changed;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -3068,11 +3150,33 @@ fn views_json(compositor: &mut Compositor) -> String {
             )
         })
         .collect();
+    // Where the frame composed last drew each window (ADR 0046): in its view, on its way there or
+    // back, or slid with its desktop, with its desktop's number.
+    let mut drawn: Vec<(u32, String)> = compositor
+        .windows_drawn
+        .iter()
+        .filter_map(|(&key, &at)| {
+            let n = compositor.scene.window_number(key)?;
+            let desktop = compositor.scene.window_workspace(key)?;
+            let home = compositor.scene.global_rect(key)?;
+            Some((
+                n,
+                format!(
+                    "\"{n}\":{{\"rect\":{},\"home\":{},\"workspace\":{desktop}}}",
+                    rect(at),
+                    rect(home)
+                ),
+            ))
+        })
+        .collect();
+    drawn.sort();
+    let (count, active) = compositor.scene.workspaces();
     format!(
-        ",\"window_views\":[{}],\"windows_placed\":{{{}}},\"flights\":[{}]",
+        ",\"window_views\":[{}],\"windows_placed\":{{{}}},\"flights\":[{}],\"windows_drawn\":{{{}}},\"workspaces\":[{count},{active}]",
         views.join(","),
         placed.join(","),
-        flights.join(",")
+        flights.join(","),
+        drawn.into_iter().map(|(_, json)| json).collect::<Vec<_>>().join(",")
     )
 }
 
@@ -3746,6 +3850,76 @@ fn drag_paced(
     ))
 }
 
+/// A paced swipe (`Step::Swipe`, ADR 0046) through the compositor's input, as libinput's swipe
+/// gesture reaches it: `fingers` put down (none: they are down since an earlier step), each of
+/// `steps` even motions by (dx, dy) when its time comes (`hz` a second) with its device's time, the
+/// compositor serving everything until then and the turn the motion wakes composing at once, as a
+/// touchpad's wakes a session's; the fingers lifted `lift` milliseconds after their last motion
+/// (none: they stay down into the next steps).
+fn swipe_paced(
+    session: &mut Session,
+    fingers: Option<u8>,
+    (dx, dy): (i32, i32),
+    (steps, hz): (u32, u32),
+    lift: Option<u32>,
+) -> Result<()> {
+    let start = Instant::now();
+    let origin = monotonic_ns();
+    let idle_wait = session.compositor.idle_wait;
+    let held = SWIPING.get().map(|(n, _)| n);
+    let fingers_down = fingers.or(held).ok_or("no fingers down to swipe")?;
+    let swipe = |phase, dx: f64, dy: f64| oxyos_input::Action::Swipe {
+        phase,
+        fingers: u32::from(fingers_down),
+        dx,
+        dy,
+    };
+    let act = |session: &mut Session, due: Duration, action| -> Result<()> {
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+        }
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
+        session.compositor.apply_input(action);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        Ok(())
+    };
+    if fingers.is_some() {
+        act(
+            session,
+            Duration::ZERO,
+            swipe(oxyos_input::GesturePhase::Begin, 0.0, 0.0),
+        )?;
+        SWIPING.set(Some((fingers_down, 0)));
+    }
+    let interval = Duration::from_secs(1) / hz.max(1);
+    for i in 1..=steps {
+        act(
+            session,
+            interval * i,
+            swipe(
+                oxyos_input::GesturePhase::Update,
+                f64::from(dx) / f64::from(steps),
+                f64::from(dy) / f64::from(steps),
+            ),
+        )?;
+    }
+    if let Some(ms) = lift {
+        act(
+            session,
+            interval * steps + Duration::from_millis(u64::from(ms)),
+            swipe(oxyos_input::GesturePhase::End, 0.0, 0.0),
+        )?;
+        SWIPING.set(None);
+    }
+    session.compositor.idle_wait = idle_wait;
+    Ok(())
+}
+
 /// A paced scroll (`Step::ScrollPaced`) on the scene: the pointer over the window at `at`, each
 /// event when its time comes with the compositor serving the application until then and the turn
 /// the event wakes composing at once, as a touchpad's wakes a session's; then the compositor
@@ -4208,23 +4382,6 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                     .pointer_scroll(0, 0, ScrollSource::Finger, true);
             }
         }
-        Step::Swipe {
-            fingers,
-            dx,
-            dy,
-            steps,
-        } => {
-            let scene = &mut compositor.scene;
-            scene.pointer_swipe(GesturePhase::Begin, *fingers, 0, 0);
-            let (each_x, each_y) = (
-                dx.saturating_mul(256) / *steps as i32,
-                dy.saturating_mul(256) / *steps as i32,
-            );
-            for _ in 0..*steps {
-                scene.pointer_swipe(GesturePhase::Update, *fingers, each_x, each_y);
-            }
-            scene.pointer_swipe(GesturePhase::End, *fingers, 0, 0);
-        }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
@@ -4386,6 +4543,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Accessibility { .. }
         | Step::Grab { .. }
         | Step::DragPaced { .. }
+        | Step::Swipe { .. }
         | Step::ScrollPaced { .. }
         | Step::MovePaced { .. }
         | Step::HoldOutput { .. }
@@ -5093,6 +5251,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Swipe { .. }) => {
+                if let Step::Swipe {
+                    fingers,
+                    dx,
+                    dy,
+                    steps,
+                    hz,
+                    lift,
+                } = step
+                {
+                    swipe_paced(&mut session, *fingers, (*dx, *dy), (*steps, *hz), *lift)?;
+                }
+                0
+            }
             _ if matches!(step, Step::HoldOutput { .. }) => {
                 if let Step::HoldOutput { x, y, ms } = step {
                     hold_output(&mut session, (*x, *y), *ms)?;
@@ -5194,7 +5366,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             &mut session,
             &mut children,
             &before,
-            *may_stay,
+            // A swipe answers as it is paced, the compositor drawing the windows as the fingers
+            // go: what settles is that nothing moves any more.
+            *may_stay || matches!(step, Step::Swipe { .. }),
             Wait {
                 deadline: Instant::now()
                     + settling

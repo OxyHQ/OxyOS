@@ -264,6 +264,10 @@ fn requests() -> Vec<Request> {
             surface: 2,
             moved: true,
         },
+        Request::SetGestureOverlay {
+            surface: 2,
+            overlay: GestureOverlay::MissionControl,
+        },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -1053,6 +1057,7 @@ fn events() -> Vec<Event> {
             shortcut: SystemShortcut::SwitcherPrevious,
             serial: 41,
             output: 2,
+            intent: ShortcutIntent::Toggle,
         },
         Event::WindowUse {
             window: 7,
@@ -1293,6 +1298,7 @@ fn system_shortcuts_are_a_closed_set() {
             shortcut: SystemShortcut::SwitcherNext,
             serial: 1,
             output: 1,
+            intent: ShortcutIntent::Toggle,
         },
     )
     .unwrap();
@@ -2258,6 +2264,7 @@ fn version_12_shortcuts_are_never_sent_to_an_older_client() {
             shortcut,
             serial: 3,
             output: 1,
+            intent: ShortcutIntent::Toggle,
         };
         let mut old = Vec::new();
         assert!(!write_event_for(&mut old, &event, 11).unwrap());
@@ -2276,6 +2283,7 @@ fn version_12_shortcuts_are_never_sent_to_an_older_client() {
         shortcut: SystemShortcut::MenuBar,
         serial: 3,
         output: 1,
+        intent: ShortcutIntent::Toggle,
     };
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &menu_bar, 11).unwrap());
@@ -2288,6 +2296,7 @@ fn version_16_notification_center_shortcut_is_never_sent_to_an_older_client() {
         shortcut: SystemShortcut::Notifications,
         serial: 3,
         output: 1,
+        intent: ShortcutIntent::Toggle,
     };
     assert_eq!(event_since(&event), 16);
     let mut old = Vec::new();
@@ -2306,10 +2315,58 @@ fn version_16_notification_center_shortcut_is_never_sent_to_an_older_client() {
         shortcut: SystemShortcut::Dock,
         serial: 3,
         output: 1,
+        intent: ShortcutIntent::Toggle,
     };
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &dock, 15).unwrap());
     assert_eq!(read_event_for(&mut Cursor::new(old), 15).unwrap(), dock);
+}
+
+#[test]
+fn version_25_a_swipe_opens_and_closes_and_marks_its_overlays_only_for_version_25() {
+    // A swipe's Open and Close are version 25's: a version 24 shell would take them for a toggle,
+    // so they are never sent to it. A key's toggle is every version's, its intent left out.
+    for intent in [ShortcutIntent::Open, ShortcutIntent::Close] {
+        let event = Event::SystemShortcut {
+            shortcut: SystemShortcut::MissionControl,
+            serial: 4,
+            output: 1,
+            intent,
+        };
+        assert_eq!(event_since(&event), 25);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 24).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 25).unwrap());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 25).unwrap(), event);
+    }
+    let toggle = Event::SystemShortcut {
+        shortcut: SystemShortcut::AppExpose,
+        serial: 4,
+        output: 1,
+        intent: ShortcutIntent::Toggle,
+    };
+    assert_eq!(event_since(&toggle), 24);
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &toggle, 24).unwrap());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &toggle, 25).unwrap());
+    // Version 24's is one byte shorter: the intent it lacks, read back as the toggle it meant.
+    assert_eq!(old.len() + 1, new.len());
+    assert_eq!(read_event_for(&mut Cursor::new(old), 24).unwrap(), toggle);
+    // The overlay a swipe drives is version 25's request, its values a closed set.
+    let marked = Request::SetGestureOverlay {
+        surface: 3,
+        overlay: GestureOverlay::AppExpose,
+    };
+    assert_eq!(request_since(&marked), 25);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &marked).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), marked);
+    assert_eq!(GestureOverlay::from_raw(0), Some(GestureOverlay::None));
+    assert!(GestureOverlay::from_raw(3).is_none());
+    assert!(ShortcutIntent::from_raw(3).is_none());
 }
 
 #[test]
@@ -2321,6 +2378,7 @@ fn version_24_mission_control_app_expose_and_moved_views_are_only_a_peer_of_vers
             shortcut,
             serial: 4,
             output: 1,
+            intent: ShortcutIntent::Toggle,
         };
         assert_eq!(event_since(&event), 24);
         let mut old = Vec::new();
@@ -2338,6 +2396,7 @@ fn version_24_mission_control_app_expose_and_moved_views_are_only_a_peer_of_vers
         shortcut: SystemShortcut::Notifications,
         serial: 4,
         output: 1,
+        intent: ShortcutIntent::Toggle,
     };
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &notifications, 23).unwrap());

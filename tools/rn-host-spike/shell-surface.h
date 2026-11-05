@@ -63,6 +63,9 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // Whether the windows its views show are moved into them (App Exposé, docs/adr/0045-app-expose.mdx):
   // drawn there alone while it shows, flying from where they are as it arrives and back as it goes.
   bool movesWindows{false};
+  // Which view a touchpad's swipe drives it is (docs/adr/0046-interactive-gestures.mdx): "" none,
+  // "mission-control" or "app-expose": the swipe draws it as far as the fingers have it.
+  std::string gesture;
 };
 
 using OxyOSShellSurfaceShadowNode = ConcreteViewShadowNode<OxyOSShellSurfaceComponentName, OxyOSShellSurfaceProps>;
@@ -194,11 +197,13 @@ class ShellSurfaceHost {
     // move the windows it shows into their views (ADR 0045).
     bool excluded = false;
     bool moves = false;
+    // The view a swipe drives it is, as last told (OXYOS_GESTURE_OVERLAY_*).
+    uint8_t gesture = 0;
   };
   // The region asking for the keyboard: of several, the newest.
   std::optional<facebook::react::Tag> keyboardTag() const;
-  // Tells the compositor a region's `excludeFromCapture` and `movesWindows` when they differ from
-  // what it was told.
+  // Tells the compositor a region's `excludeFromCapture`, `movesWindows` and `gesture` when they
+  // differ from what it was told.
   void tellFlags(Region& region, const facebook::react::OxyOSShellSurfaceProps& props);
   // Sends a region's windows shown live if they changed since last sent; true if they did.
   bool showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows);

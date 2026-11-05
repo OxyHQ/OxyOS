@@ -317,20 +317,33 @@ export const Shell = memo(function Shell({
         case "overview":
           view = next.action;
           break;
-        // Super+↑ or three or four fingers swiped up: Mission Control; again, or from App Exposé
-        // (the other way's gesture), it closes (docs/adr/0045-app-expose.mdx).
+        // Super+↑: Mission Control; again, or from App Exposé, it closes
+        // (docs/adr/0045-app-expose.mdx). Three or four fingers swiped up open it as they begin to
+        // drive it, and close it if they let it go back; the swipe down closes it
+        // (docs/adr/0046-interactive-gestures.mdx).
         case "mission-control":
-          view = view === "desktop" || view === "launcher" ? "overview" : "desktop";
+          if (next.intent === "open") view = "overview";
+          else if (next.intent === "close") view = view === "overview" ? "desktop" : view;
+          else view = view === "desktop" || view === "launcher" ? "overview" : "desktop";
           break;
-        // Super+↓ or the swipe down: App Exposé of the frontmost application; again, or from
-        // Mission Control, it closes.
+        // Super+↓: App Exposé of the frontmost application; again, or from Mission Control, it
+        // closes. The swipe down opens it, the swipe up closes it.
         case "app-expose": {
           const front = now.snapshot.activeAppId;
-          if (view === "overview" || view === "app-expose") {
+          const opens = () => {
+            if (front && exposes(front)) {
+              view = "app-expose";
+              expose = front;
+            }
+          };
+          if (next.intent === "open") {
+            if (view !== "app-expose") opens();
+          } else if (next.intent === "close") {
+            if (view === "app-expose") view = "desktop";
+          } else if (view === "overview" || view === "app-expose") {
             view = "desktop";
-          } else if (front && exposes(front)) {
-            view = "app-expose";
-            expose = front;
+          } else {
+            opens();
           }
           break;
         }
@@ -713,9 +726,14 @@ export const Shell = memo(function Shell({
           pointerEvents={view === "desktop" ? "box-none" : "auto"}
         >
           {view === "overview" && (
+            // Mission Control's windows are the windows themselves, moved into its cards and
+            // flying there and back as App Exposé's do, and the swipe up drives it
+            // (docs/adr/0046-interactive-gestures.mdx).
             <Surface
               kind="overlay"
               style={WHOLE}
+              movesWindows
+              gesture="mission-control"
               keyboard={!sheet}
               focusTarget={overviewKeys > 0 ? "first" : undefined}
               focusRequest={overviewKeys}
@@ -736,7 +754,7 @@ export const Shell = memo(function Shell({
             application's windows, moved into its surface (`movesWindows`), which the compositor
             flies from where they are and back. */}
         {view === "app-expose" && exposeApp && (
-          <Surface kind="backdrop" style={exposeArea}>
+          <Surface kind="backdrop" style={exposeArea} gesture="app-expose">
             <AppExposeBackdrop wallpaper={wallpaper} />
           </Surface>
         )}
@@ -745,6 +763,7 @@ export const Shell = memo(function Shell({
             kind="overlay"
             style={exposeArea}
             movesWindows
+            gesture="app-expose"
             keyboard={!sheet}
             focusTarget={exposeKeys?.target}
             focusRequest={exposeKeys?.request}

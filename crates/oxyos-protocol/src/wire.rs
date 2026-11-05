@@ -206,6 +206,28 @@ wire_enum! {
     }
 }
 wire_enum! {
+    /// What a system shortcut asks of what the shell shows for it (docs/adr/0046-interactive-gestures.mdx,
+    /// version 25): a key's, to toggle it (what is shown goes, what is not opens: Super+↑ again
+    /// closes Mission Control); a touchpad's swipe, to open it as the fingers begin to drive it, or
+    /// to close it (the swipe let go short of opening, or the swipe back let go past closing).
+    /// Opening what is open, or closing what is not, changes nothing.
+    ShortcutIntent: u8 { Toggle = 0, Open = 1, Close = 2 }
+}
+wire_enum! {
+    /// Which of the views a touchpad's vertical swipe drives a shell surface is
+    /// (docs/adr/0046-interactive-gestures.mdx, version 25): none, Mission Control's (three or four
+    /// fingers up) or App Exposé's (down). While a swipe drives it, such a surface arrives, and goes,
+    /// as far as the fingers have gone, its moved windows with it.
+    GestureOverlay: u8 { None = 0, MissionControl = 1, AppExpose = 2 }
+}
+// No overlay is the default; `wire_enum!` derives its own set, so it is written here.
+#[allow(clippy::derivable_impls)]
+impl Default for GestureOverlay {
+    fn default() -> Self {
+        GestureOverlay::None
+    }
+}
+wire_enum! {
     /// The screenshot interface the compositor asks the session's shell to show or change (ADR
     /// 0024, decision 10), from Super+Shift+4 or Super+Shift+5 until a capture or its end: the
     /// crosshair that drags a rectangle (`Selection`), picking a window instead (`Window`, Space

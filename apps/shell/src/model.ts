@@ -179,6 +179,10 @@ export type ShellNotifications = {
     and the launcher's search. */
 export type ShellCommand = {
   id: number;
+  /** What a system shortcut asks of what it shows (docs/adr/0046-interactive-gestures.mdx): a key's
+      toggles it (none says so too); a touchpad's swipe opens Mission Control or App Exposé as its
+      fingers begin to drive it, and closes it when they let it go back. */
+  intent?: "toggle" | "open" | "close";
   action:
     | "dismiss"
     | "launcher"

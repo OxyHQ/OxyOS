@@ -2092,7 +2092,11 @@ int main(int argc, char** argv) {
                   // And a notification the person pressed (ADR 0026): its response may copy.
                   event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE ||
                   // And a drop (ADR 0035): the dock's Trash cites it to put the files in the Trash.
-                  event.kind == OXYOS_EVENT_DRAG_DROP) {
+                  event.kind == OXYOS_EVENT_DRAG_DROP ||
+                  // And, in the shell, a scroll (a dock icon's opens App Exposé, which takes the
+                  // keyboard citing it, docs/adr/0045-app-expose.mdx); an application's scroll
+                  // authorizes nothing.
+                  (asShell && event.kind == OXYOS_EVENT_SCROLL)) {
                 lastPress = event.serial;
               }
               report(event);
@@ -2322,7 +2326,13 @@ int main(int argc, char** argv) {
                                           "mission-control",
                                           "app-expose"};
           const char* action = shortcut.detail <= OXYOS_SHORTCUT_APP_EXPOSE ? actions[shortcut.detail] : "";
-          folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
+          // What it asks of what it shows (docs/adr/0046-interactive-gestures.mdx): a key's toggle,
+          // or a swipe's opening or closing it.
+          const char* intent = shortcut.flag == OXYOS_SHORTCUT_INTENT_OPEN    ? "open"
+                               : shortcut.flag == OXYOS_SHORTCUT_INTENT_CLOSE ? "close"
+                                                                              : "toggle";
+          folly::dynamic payload =
+              folly::dynamic::object("action", action)("output", shortcut.code)("intent", intent);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellShortcut", payload));

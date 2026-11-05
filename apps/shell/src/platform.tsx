@@ -40,6 +40,10 @@ export type ShellSurfaceProps = {
       in its view alone, flying there from where it is as the region arrives and back as it goes.
       Without it, a view is a copy of its window, which stays where it is. */
   movesWindows?: boolean;
+  /** Which view a touchpad's swipe drives the region is, Mission Control's or App Exposé's
+      (docs/adr/0046-interactive-gestures.mdx): while three or four fingers open or close it, the
+      platform draws it, its moved windows with it, as far as they have it. */
+  gesture?: "mission-control" | "app-expose";
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 };

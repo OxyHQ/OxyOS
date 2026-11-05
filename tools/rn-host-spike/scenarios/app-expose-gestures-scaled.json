@@ -1,5 +1,5 @@
 {
-  "about": "The ways into App Exposé and Mission Control that are not the dock's menu (docs/adr/0045-app-expose.mdx), at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo's two windows with the shell. Three fingers swiped down open App Exposé of the active application (Allo: the companion was opened last), the windows flying to their places; the same swiped up close it, the windows flying back. Four fingers up open Mission Control (the overview: its views copies, the windows staying where they are), four down close it. A wheel's notch up on Allo's dock icon opens App Exposé, a notch down there closes it; two fingers scrolled up on the icon open it once however far they go, down close it. Super+↑ opens Mission Control and Super+↓ from it closes it, as the gesture the other way does. Three fingers across do nothing. No application hears anything of any of it: neither React tree, and each window only its focus going and coming back.",
+  "about": "The ways into App Exposé and Mission Control that are not the dock's menu (docs/adr/0045-app-expose.mdx), at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo's two windows with the shell. Three fingers swiped down open App Exposé of the active application (Allo: the companion was opened last), the windows flying to their places; the same swiped up close it, the windows flying back. Four fingers up open Mission Control (the overview, its windows moved into it and flying there, ADR 0046), four down close it, the windows flying back. A wheel's notch up on Allo's dock icon opens App Exposé, a notch down there closes it; two fingers scrolled up on the icon open it once however far they go, down close it. Super+↑ opens Mission Control and Super+↓ from it closes it, as the gesture the other way does. Three fingers across, with one desktop, pull the windows against its end and let them back (ADR 0046). No application hears anything of any of it: neither React tree, and each window only its focus going and coming back.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -135,7 +135,7 @@
       }
     },
     {
-      "name": "four fingers up: Mission Control, the overview's copies, nothing flying",
+      "name": "four fingers up: Mission Control, its windows the windows themselves flying into its desktop (docs/adr/0046-interactive-gestures.mdx)",
       "do": [
         "swipe",
         [
@@ -151,10 +151,13 @@
             1,
             2
           ],
-          "moved": false
+          "moved": true
         },
         "flights": {
-          "none": true
+          "arriving": [
+            1,
+            2
+          ]
         },
         "in_shell": {
           "texts": [
@@ -179,7 +182,7 @@
       }
     },
     {
-      "name": "four fingers down: it closes",
+      "name": "four fingers down: it closes, the windows flying back",
       "do": [
         "swipe",
         [
@@ -212,7 +215,14 @@
         "react": {},
         "in_companion": {
           "react": {}
-        }
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1
       }
     },
     {
@@ -375,7 +385,7 @@
       }
     },
     {
-      "name": "Super+↑: Mission Control",
+      "name": "Super+↑: Mission Control, its windows moved into it",
       "do": [
         "key",
         [
@@ -389,7 +399,7 @@
             1,
             2
           ],
-          "moved": false
+          "moved": true
         },
         "in_shell": {
           "texts": [
@@ -449,7 +459,7 @@
       }
     },
     {
-      "name": "three fingers across: nothing",
+      "name": "three fingers across with one desktop: the windows pull against its end and come back, nothing else",
       "do": [
         "swipe",
         [
@@ -479,7 +489,8 @@
               "SessionShell"
             ]
           }
-        }
+        },
+        "drawn_home": true
       }
     }
   ]

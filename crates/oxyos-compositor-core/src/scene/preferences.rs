@@ -40,7 +40,7 @@ pub(super) struct Preferences {
     receiving: BTreeMap<(ClientId, u32), (String, u8)>,
     asked: Vec<PreferenceChange>,
     /// What the program running the compositor last said, if it said anything.
-    drawing: Option<DrawingPreferences>,
+    pub(super) drawing: Option<DrawingPreferences>,
     /// Every preference as it is kept, `(key, value)`, in the program's order.
     values: Vec<(String, String)>,
 }

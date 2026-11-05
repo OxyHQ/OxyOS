@@ -246,10 +246,12 @@ export function useOxyOSShell() {
       setAuthentication((last) => ({ id: (last?.id ?? 0) + 1, outcome, wait })),
     );
     // Each shortcut is new, even one like the last (Tab pressed again moves on).
-    const shortcut = DeviceEventEmitter.addListener('OxyOSShellShortcut', ({ action, output }) =>
+    // A swipe's shortcut opens or closes what it shows (`intent`, docs/adr/0046-interactive-gestures.mdx);
+    // a key's toggles it.
+    const shortcut = DeviceEventEmitter.addListener('OxyOSShellShortcut', ({ action, output, intent }) =>
       setShortcuts((last) => [
         ...last.slice(-15),
-        { id: (last[last.length - 1]?.id ?? 0) + 1, action, output },
+        { id: (last[last.length - 1]?.id ?? 0) + 1, action, output, intent: intent ?? 'toggle' },
       ]),
     );
     // Each bezel is new, even one like the last (a key pressed at the end of its range shows it).

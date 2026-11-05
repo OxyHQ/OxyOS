@@ -18,18 +18,18 @@ pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
     Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
     CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
-    DragCancelReason, ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind,
-    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
-    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
-    SecretChunk, ShellKind, Size, SystemShortcut, SystemSound, TextChunk, TextHints, TextPurpose,
-    TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase, Gravity, MenuField,
+    MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind,
+    PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect,
+    ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
+    TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 24;
+pub const VERSION: u16 = 25;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The most candidates an input method hands the system at once (InputMethodCandidate, ADR 0041),

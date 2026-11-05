@@ -4,7 +4,8 @@ use super::*;
 use oxyos_ipc::{Listener, SharedBuffer};
 use oxyos_protocol::{
     AccessibleAction, DismissReason, DragActions, DragCancelReason, GesturePhase, PointerKind,
-    PreeditText, ScrollSource, ServerConnection, MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
+    PreeditText, ScrollSource, ServerConnection, ShortcutIntent, MAX_PREFERENCE_BYTES,
+    NO_ACCESSIBLE_PARENT,
 };
 use std::mem::{offset_of, size_of};
 
@@ -4082,6 +4083,30 @@ fn the_header_matches_the_system_shortcuts_abi() {
         ),
         ("OXYOS_SHORTCUT_APP_EXPOSE", OXYOS_SHORTCUT_APP_EXPOSE),
         (
+            "OXYOS_SHORTCUT_INTENT_TOGGLE",
+            OXYOS_SHORTCUT_INTENT_TOGGLE.into(),
+        ),
+        (
+            "OXYOS_SHORTCUT_INTENT_OPEN",
+            OXYOS_SHORTCUT_INTENT_OPEN.into(),
+        ),
+        (
+            "OXYOS_SHORTCUT_INTENT_CLOSE",
+            OXYOS_SHORTCUT_INTENT_CLOSE.into(),
+        ),
+        (
+            "OXYOS_GESTURE_OVERLAY_NONE",
+            OXYOS_GESTURE_OVERLAY_NONE.into(),
+        ),
+        (
+            "OXYOS_GESTURE_OVERLAY_MISSION_CONTROL",
+            OXYOS_GESTURE_OVERLAY_MISSION_CONTROL.into(),
+        ),
+        (
+            "OXYOS_GESTURE_OVERLAY_APP_EXPOSE",
+            OXYOS_GESTURE_OVERLAY_APP_EXPOSE.into(),
+        ),
+        (
             "OXYOS_MANAGE_HIDE_APPLICATION",
             OXYOS_MANAGE_HIDE_APPLICATION.into(),
         ),
@@ -4121,13 +4146,40 @@ fn the_header_matches_the_system_shortcuts_abi() {
             shortcut,
             serial: 41,
             output: 2,
+            intent: ShortcutIntent::Toggle,
         };
         assert_eq!(u32::from(event.opcode()), OXYOS_EVENT_SYSTEM_SHORTCUT);
         let event = convert(&event).unwrap();
         assert_eq!(
-            (event.kind, event.serial, event.detail, event.code),
-            (OXYOS_EVENT_SYSTEM_SHORTCUT, 41, constant, 2)
+            (
+                event.kind,
+                event.serial,
+                event.detail,
+                event.code,
+                event.flag
+            ),
+            (
+                OXYOS_EVENT_SYSTEM_SHORTCUT,
+                41,
+                constant,
+                2,
+                OXYOS_SHORTCUT_INTENT_TOGGLE
+            )
         );
+    }
+    // A swipe's (version 25, docs/adr/0046-interactive-gestures.mdx): its intent in the flag.
+    for (intent, constant) in [
+        (ShortcutIntent::Open, OXYOS_SHORTCUT_INTENT_OPEN),
+        (ShortcutIntent::Close, OXYOS_SHORTCUT_INTENT_CLOSE),
+    ] {
+        let event = convert(&Event::SystemShortcut {
+            shortcut: SystemShortcut::MissionControl,
+            serial: 41,
+            output: 2,
+            intent,
+        })
+        .unwrap();
+        assert_eq!(event.flag, constant);
     }
     let used = Event::WindowUse {
         window: 7,
@@ -4292,7 +4344,7 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..5)
+        (0..6)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
@@ -4331,8 +4383,14 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         );
         assert_eq!(oxyos_client_show_windows(client, 3, views.as_ptr(), 2), 0);
         assert_eq!(oxyos_client_show_windows(client, 3, std::ptr::null(), 0), 0);
-        // App Exposé's windows moved into their views (ADR 0045).
+        // App Exposé's windows moved into their views (ADR 0045), and its surface the one the
+        // swipe down drives (ADR 0046); a value the protocol does not have is refused unsent.
         assert_eq!(oxyos_client_move_windows_to_views(client, 3, true), 0);
+        assert_eq!(oxyos_client_set_gesture_overlay(client, 3, 3), -1);
+        assert_eq!(
+            oxyos_client_set_gesture_overlay(client, 3, OXYOS_GESTURE_OVERLAY_APP_EXPOSE),
+            0
+        );
         let requests = compositor.join().unwrap();
         assert_eq!(
             requests,
@@ -4359,8 +4417,15 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
                     surface: 3,
                     moved: true,
                 },
+                Request::SetGestureOverlay {
+                    surface: 3,
+                    overlay: oxyos_protocol::GestureOverlay::AppExpose,
+                },
             ]
         );
+        assert!(HEADER.contains(
+            "int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);"
+        ));
         assert!(HEADER.contains(
             "int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);"
         ));

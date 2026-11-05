@@ -142,6 +142,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   its view's place the step before and ending where its window is;
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
+- swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
+  in the frame composed last, exactly that share of the way from where it is to its view, edge by
+  edge (within a pixel), as the fingers have it;
+- slid: [position, width]: the desktops slid to `position` (in desktops) by a swipe across, every
+  window drawn where it is moved by (its desktop - position) × width, within a pixel;
+- drawn_home: every window drawn exactly where it is (nothing flying, nothing slid);
+- workspaces: [count, active] once the step settled;
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
   by a distinct one having every key given ("kind": window, popup, overlay, backdrop, panel,
@@ -535,7 +542,7 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
-             "scroll_output", "swipe"}
+             "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
 # CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
@@ -761,9 +768,18 @@ def director_args(step, out):
         events = value[3] if len(value) > 3 else 0
         return args + ["--scroll-output", f"{value[0]},{value[1]},{value[2]},{events}"]
     if kind == "swipe":
-        # Fingers swiped on the touchpad (Mission Control, App Exposé, ADR 0045): [fingers, dx, dy,
-        # steps].
+        # Fingers swiped on the touchpad and lifted (Mission Control, App Exposé, the desktops, ADR
+        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz].
         return args + ["--swipe", ",".join(map(str, value))]
+    if kind == "swipe_begin":
+        # The same, the fingers left down for the steps after it: a swipe partway.
+        return args + ["--swipe-begin", ",".join(map(str, value))]
+    if kind == "swipe_move":
+        # The fingers left down moved further: [dx, dy, steps] or [dx, dy, steps, hz].
+        return args + ["--swipe-move", ",".join(map(str, value))]
+    if kind == "swipe_end":
+        # The fingers left down lifted, this many milliseconds after their last motion.
+        return args + ["--swipe-end", str(value)]
     if kind == "pinch":
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
@@ -1822,6 +1838,20 @@ def within(inner, outer):
             and inner[1] + inner[3] <= outer[1] + outer[3])
 
 
+def rounded(value):
+    """A value rounded half away from zero, as Rust's f64::round."""
+    return int(math.floor(value + 0.5)) if value >= 0 else -int(math.floor(-value + 0.5))
+
+
+def between(start, end, share):
+    """`start` `share` of the way to `end`, edge by edge, as the compositor draws a flight."""
+    left = rounded(start[0] + (end[0] - start[0]) * share)
+    top = rounded(start[1] + (end[1] - start[1]) * share)
+    right = max(rounded(start[0] + start[2] + (end[0] + end[2] - start[0] - start[2]) * share), left + 1)
+    bottom = max(rounded(start[1] + start[3] + (end[1] + end[3] - start[1] - start[3]) * share), top + 1)
+    return [left, top, right - left, bottom - top]
+
+
 def check_views(index, step, result, results, failures):
     """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
     as the director reported them once the step settled: `window_views` ("windows", exactly those
@@ -1896,7 +1926,13 @@ def check_views(index, step, result, results, failures):
                          if view["window"] == flight["window"]), None)
             home = (before if flight["arriving"] else result).get("windows_placed", {}).get(str(flight["window"]))
             start, end = (home, view and view["rect"]) if flight["arriving"] else (view and view["rect"], home)
-            if start is not None and first != start:
+            # Driven by fingers (a swipe, ADR 0046), its first frame is the first motion's: on its
+            # way, within a fifth of it from where it began; else exactly there.
+            swiped = step["do"][0] in ("swipe", "swipe_begin", "swipe_move", "swipe_end")
+            if start is not None and end is not None and swiped:
+                if any(abs(f - a) > abs(b - a) / 5 + 1 for f, a, b in zip(first, start, end)):
+                    fail(f"{who} began at {first}, not near {start}")
+            elif start is not None and first != start:
                 fail(f"{who} began at {first}, not at {start}")
             # Its last frame is where its spring came to rest, within a thousandth of the way:
             # a pixel at most from its end.
@@ -1906,6 +1942,38 @@ def check_views(index, step, result, results, failures):
         then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})
         if placed != then:
             fail(f"the windows are at {placed}, not where they were after step {expect['windows_placed_as']}: {then}")
+    drawn = result.get("windows_drawn", {})
+
+    def near(a, b):
+        return a is not None and b is not None and all(abs(x - y) <= 1 for x, y in zip(a, b))
+
+    if "swiped" in expect:
+        share = expect["swiped"]
+        moved = [view for view in views if view["moved"]]
+        if not moved:
+            fail("no window is moved into a view")
+        for view in moved:
+            home = placed.get(str(view["window"]))
+            want = between(home, view["rect"], share) if home else None
+            at = drawn.get(str(view["window"]), {}).get("rect")
+            if not near(at, want):
+                fail(f"window {view['window']} drawn at {at}, not {share} of the way from {home} to {view['rect']}: {want}")
+    if "slid" in expect:
+        position, width = expect["slid"]
+        if not drawn:
+            fail("no window drawn")
+        for number, at in drawn.items():
+            home = at["home"]
+            dx = rounded((at["workspace"] - position) * width)
+            want = [home[0] + dx, home[1], home[2], home[3]]
+            if not near(at["rect"], want):
+                fail(f"window {number} of desktop {at['workspace']} drawn at {at['rect']}, not {want} (slid to {position})")
+    if expect.get("drawn_home"):
+        for number, at in drawn.items():
+            if at["rect"] != at["home"]:
+                fail(f"window {number} drawn at {at['rect']}, not where it is, {at['home']}")
+    if "workspaces" in expect and result.get("workspaces") != expect["workspaces"]:
+        fail(f"the desktops are {result.get('workspaces')}, expected {expect['workspaces']}")
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,

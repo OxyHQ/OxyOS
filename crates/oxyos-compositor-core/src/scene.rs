@@ -426,8 +426,16 @@ pub struct Scene {
     /// The surface a touchpad's resting fingers go to (the one under the pointer when they began
     /// to rest), until they lift or move on.
     hold: Option<SurfaceKey>,
-    /// Three or four fingers swiping on a touchpad (ADR 0045): the system's, never an application's.
+    /// Three or four fingers swiping on a touchpad (ADR 0045, ADR 0046): the system's, never an
+    /// application's; what the latest drives, for the compositor to draw, and how many have.
     swipe: swipes::Swipe,
+    swipe_drive: Option<swipes::SwipeDrive>,
+    swipe_gestures: u64,
+    /// Where the compositor draws what swipes drive (`swipe_from`).
+    swipe_rest: swipes::SwipeRest,
+    /// The workspace drawn beside the active one while a swipe across slides them
+    /// (`show_beside`).
+    beside: Option<u32>,
     /// The surface a touchpad's (or a continuous device's) scroll going on goes to, the one
     /// under the pointer when it began, until its stop; none between scrolls.
     scrolling: Option<SurfaceKey>,
@@ -1703,7 +1711,8 @@ impl Scene {
             | Request::RefreshControls {} => self.control_request(client, request),
             Request::ClearWindowViews { .. }
             | Request::PlaceWindowView { .. }
-            | Request::MoveWindowsToViews { .. } => self.window_view_request(client, request),
+            | Request::MoveWindowsToViews { .. }
+            | Request::SetGestureOverlay { .. } => self.window_view_request(client, request),
             Request::ClearMinimizeTargets { .. } | Request::PlaceMinimizeTarget { .. } => {
                 self.minimize_target_request(client, request)
             }
@@ -3256,8 +3265,12 @@ impl Scene {
             }
         }
         let root = &self.nodes[&current];
-        // A window on another workspace is not shown, nor is anything under it.
-        if root.role == Role::Toplevel && root.workspace != self.workspaces.active {
+        // A window on another workspace is not shown, nor is anything under it; but a frame
+        // draws the windows of the one a swipe across brings in beside it (ADR 0046).
+        if root.role == Role::Toplevel
+            && root.workspace != self.workspaces.active
+            && !(in_flight && self.beside == Some(root.workspace))
+        {
             return false;
         }
         let layer = layer_of(&root.role);
@@ -4342,6 +4355,16 @@ impl Scene {
             return;
         };
         let serial = self.next_serial();
+        // A scroll on the shell is the person's input there, as a press is: a dock icon's scroll
+        // opens App Exposé with the keyboard (FocusShellSurface citing it, ADR 0045). An
+        // application's scroll authorizes nothing.
+        if self
+            .clients
+            .get(&target.client)
+            .is_some_and(|grants| grants.shell)
+        {
+            self.credit_input(target.client, serial);
+        }
         self.emit(
             target.client,
             Event::Scroll {
@@ -4960,14 +4983,15 @@ mod reader;
 mod screenshots;
 /// The system shortcuts and applications' windows (ADR 0024).
 mod shortcuts;
-/// The touchpad's swipes to Mission Control and App Exposé (ADR 0045).
-mod swipes;
+/// The touchpad's swipes to Mission Control, App Exposé and the desktop beside (ADR 0045, ADR
+/// 0046).
+pub mod swipes;
 pub use controls::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
 };
 pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
-pub use swipes::SWIPE_DISTANCE;
+pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest};
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};
