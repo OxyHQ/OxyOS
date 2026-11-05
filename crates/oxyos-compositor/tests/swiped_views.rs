@@ -354,15 +354,24 @@ fn a_flick_goes_through_a_slow_release_short_goes_back_and_the_swipe_back_closes
     s.swipe(GesturePhase::End, 0.0, 3400);
     s.until(3400, "App Exposé gone", |c| !app_expose(c));
     assert_eq!(s.told(), [ShortcutIntent::Close]);
-    s.at_ms(4200);
-    let flights = s.compositor.take_flights();
-    let home = flights
-        .iter()
-        .rev()
-        .find(|flight| !flight.arriving)
-        .expect("flying home");
-    assert_eq!(home.path[0], between(window, VIEW, 1.0 / 3.0));
-    assert_eq!(*home.path.last().unwrap(), window);
+    let mut path = Vec::new();
+    for t in (3416..=4200).step_by(16) {
+        s.at_ms(t);
+        for flight in s.compositor.take_flights() {
+            assert!(!flight.arriving, "{flight:?}");
+            path.extend(flight.path);
+        }
+    }
+    assert_eq!(path[0], between(window, VIEW, 1.0 / 3.0));
+    assert!(path.windows(2).all(|w| w[1].x >= w[0].x), "{path:?}");
+    // Home: drawn where it is.
+    let key = *s
+        .compositor
+        .windows_drawn
+        .keys()
+        .find(|key| key.id == 1 && key.client == 1)
+        .unwrap();
+    assert_eq!(s.compositor.windows_drawn[&key], window);
     // Down again, a quarter, slowly let go: back, the shell told to close what it opened.
     s.swipe(GesturePhase::Begin, 0.0, 5000);
     s.swipe(GesturePhase::Update, 75.0, 5100);
