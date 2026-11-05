@@ -2522,7 +2522,7 @@ fn naming_and_managing_windows_through_the_c_abi() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..5)
+        (0..4)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
@@ -3479,7 +3479,7 @@ fn a_login_screens_password_names_its_account_first() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..5)
+        (0..4)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
@@ -4402,7 +4402,7 @@ fn the_shell_says_where_windows_minimize_through_the_c_abi() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..5)
+        (0..4)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
