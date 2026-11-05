@@ -78,6 +78,96 @@ impl Spring {
     }
 }
 
+/// A spring let go somewhere else than at rest (docs/adr/0046-interactive-gestures.mdx): at `from`
+/// moving at `velocity` (a second) toward `to`, as a swipe's fingers leave what they drove. The
+/// motion goes on at the fingers' speed and comes to rest on the spring's own response, as a Mac's
+/// and UIKit's do (`UISpringTimingParameters`' initial velocity): the same equation of motion as
+/// `Spring::at`, its displacement from `to` starting at `from - to` and its derivative at
+/// `velocity`, not at rest.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Released {
+    pub spring: Spring,
+    pub from: f64,
+    pub velocity: f64,
+    pub to: f64,
+}
+
+impl Released {
+    pub fn new(spring: Spring, from: f64, velocity: f64, to: f64) -> Self {
+        Self {
+            spring,
+            from,
+            velocity,
+            to,
+        }
+    }
+
+    /// The displacement from `to` and its speed `elapsed` after the release: (A + Bt)e^(-ωt) when
+    /// critically damped, e^(-ζωt)(A cos ω't + B sin ω't) when not, A the displacement at the
+    /// release and B what makes the speed then `velocity`.
+    fn displaced(&self, elapsed: Duration) -> (f64, f64) {
+        let (omega, zeta, t) = (
+            self.spring.omega(),
+            self.spring.zeta(),
+            elapsed.as_secs_f64(),
+        );
+        let a = self.from - self.to;
+        if self.spring.damping_permille == 1000 {
+            let b = self.velocity + omega * a;
+            let decay = (-omega * t).exp();
+            ((a + b * t) * decay, (b - omega * (a + b * t)) * decay)
+        } else {
+            let damped = omega * (1.0 - zeta * zeta).sqrt();
+            let b = (self.velocity + zeta * omega * a) / damped;
+            let decay = (-zeta * omega * t).exp();
+            let (sin, cos) = (damped * t).sin_cos();
+            let x = decay * (a * cos + b * sin);
+            let v = decay
+                * ((b * damped - zeta * omega * a) * cos - (a * damped + zeta * omega * b) * sin);
+            (x, v)
+        }
+    }
+
+    /// Where it is `elapsed` after the release.
+    pub fn at(&self, elapsed: Duration) -> f64 {
+        self.to + self.displaced(elapsed).0
+    }
+
+    /// How fast it goes then, a second.
+    pub fn velocity_at(&self, elapsed: Duration) -> f64 {
+        self.displaced(elapsed).1
+    }
+
+    /// How far from `to` it can still be at `elapsed`: its displacement's envelope.
+    fn envelope(&self, elapsed: Duration) -> f64 {
+        let (omega, zeta, t) = (
+            self.spring.omega(),
+            self.spring.zeta(),
+            elapsed.as_secs_f64(),
+        );
+        let a = self.from - self.to;
+        if self.spring.damping_permille == 1000 {
+            (a.abs() + (self.velocity + omega * a).abs() * t) * (-omega * t).exp()
+        } else {
+            let damped = omega * (1.0 - zeta * zeta).sqrt();
+            let b = (self.velocity + zeta * omega * a) / damped;
+            a.hypot(b) * (-zeta * omega * t).exp()
+        }
+    }
+
+    /// When it comes to rest, to the millisecond: from then on it is within `AT_REST` of `to` (a
+    /// thousandth of a swipe's whole way), never further again.
+    pub fn settles(&self) -> Duration {
+        let mut moving = None;
+        for ms in 0..=LONGEST.as_millis() as u64 {
+            if self.envelope(Duration::from_millis(ms)) > AT_REST {
+                moving = Some(ms);
+            }
+        }
+        moving.map_or(Duration::ZERO, |ms| Duration::from_millis(ms + 1))
+    }
+}
+
 /// How a surface's opacity goes: on its own spring, beginning `delay` after the motion does
 /// (a window going into the dock stays whole until it is nearly there).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,6 +256,56 @@ mod tests {
 
     fn ms(ms: u64) -> Duration {
         Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn a_released_spring_keeps_the_fingers_speed_and_comes_to_rest_on_its_own_response() {
+        let spring = OVERLAY_ARRIVES;
+        // Let go a quarter of the way, going on at 3 a second (a flick).
+        let released = Released::new(spring, 0.25, 3.0, 1.0);
+        assert!((released.at(Duration::ZERO) - 0.25).abs() < 1e-12);
+        assert!((released.velocity_at(Duration::ZERO) - 3.0).abs() < 1e-9);
+        // Its speed is the derivative of where it is, all the way.
+        for t in [1, 40, 120, 300] {
+            let (before, after) = (ms(t), ms(t) + Duration::from_micros(10));
+            let slope = (released.at(after) - released.at(before)) / 1e-5;
+            assert!(
+                (slope - released.velocity_at(before)).abs() < 1e-2,
+                "{t} ms"
+            );
+        }
+        // Faster at first than the same spring let go from rest there, so ahead of it.
+        let still = Released::new(spring, 0.25, 0.0, 1.0);
+        assert!((1..300).all(|t| released.at(ms(t)) > still.at(ms(t))));
+        // Let go from rest it is `Spring::at` itself.
+        for t in [0, 50, 150, 300] {
+            let rested = Released::new(spring, 0.0, 0.0, 1.0);
+            assert!((rested.at(ms(t)) - spring.at(ms(t))).abs() < 1e-12);
+        }
+        assert_eq!(
+            Released::new(spring, 0.0, 0.0, 1.0).settles(),
+            spring.settles()
+        );
+        // At rest once it settles, never further; critically damped, a flick toward its end
+        // arrives without going past it.
+        let settles = released.settles();
+        assert!(settles <= ms(600), "{settles:?}");
+        assert!(
+            (settles.as_millis() as u64..2000).all(|t| (released.at(ms(t)) - 1.0).abs() <= AT_REST)
+        );
+        assert!((0..2000).all(|t| released.at(ms(t)) <= 1.0 + 1e-9));
+        // Let go moving away from where it goes (the fingers were going back when it went on): it
+        // turns, its speed first the fingers', then comes back.
+        let away = Released::new(spring, 0.6, -2.0, 1.0);
+        assert!(away.at(ms(20)) < 0.6);
+        assert!((away.at(ms(600)) - 1.0).abs() <= AT_REST);
+        // The same equation underdamped: the notification's bounce, from a speed.
+        let bouncy = Released::new(NOTIFICATION_ARRIVES, 0.0, 2.0, 1.0);
+        assert!((bouncy.velocity_at(Duration::ZERO) - 2.0).abs() < 1e-9);
+        let settles = bouncy.settles();
+        assert!(
+            (settles.as_millis() as u64..2000).all(|t| (bouncy.at(ms(t)) - 1.0).abs() <= AT_REST)
+        );
     }
 
     #[test]

@@ -46,6 +46,7 @@ pub mod networks;
 pub mod settings;
 pub mod sounds;
 pub mod splash;
+pub mod swipes;
 pub mod transitions;
 pub mod trash;
 pub mod window;
@@ -694,6 +695,10 @@ pub struct Compositor {
     /// Each frame of each window flying to its view or back (ADR 0045), as the development
     /// compositor reports them, until `take_flights`.
     flights_seen: Vec<FlightSeen>,
+    /// The shell's surfaces a swipe drives, by the view they are (ADR 0046), kept while they go;
+    /// and what the swipes had drawn in the frame composed last (an openness, a position).
+    gesture_surfaces: HashMap<SurfaceKey, oxyos_protocol::GestureOverlay>,
+    swiped_drawn: (Option<f64>, Option<f64>),
     /// Frames composed while a transition ran, as the development compositor reports them.
     pub transition_frames: u64,
     /// The time transitions and the idle lock run on: `CLOCK_MONOTONIC`, or a test's.
@@ -1129,6 +1134,8 @@ impl Compositor {
             shown_views: HashMap::new(),
             flights: HashMap::new(),
             flights_seen: Vec::new(),
+            gesture_surfaces: HashMap::new(),
+            swiped_drawn: (None, None),
             transition_frames: 0,
             clock: None,
             idle: idle::Idle::default(),
@@ -1844,11 +1851,53 @@ impl Compositor {
         if ready.is_empty() {
             return;
         }
+        // What touchpad swipes drive (docs/adr/0046-interactive-gestures.mdx), where the fingers have
+        // it now or where its spring has taken it since they lifted: Mission Control's or App
+        // Exposé's surfaces as open as that, and the desktops slid that far, the one coming in
+        // drawn beside the active one. A swipe beginning now begins from there.
+        let now = self.now();
+        self.transitions.follow_swipe(self.scene.swipe_drive(), now);
+        let overlay_drive = self.transitions.drives.live_overlay(now);
+        let slid = self.transitions.drives.spaces_at(now);
+        let active = f64::from(self.scene.workspaces().1);
+        self.scene.show_beside(slid.and_then(|position| {
+            if position > active + 1e-6 {
+                Some(active as u32 + 1)
+            } else if position < active - 1e-6 {
+                (active as u32).checked_sub(1)
+            } else {
+                None
+            }
+        }));
+        self.scene
+            .swipe_from(oxyos_compositor_core::scene::SwipeRest {
+                openness: overlay_drive.map(|drive| (drive.overlay, drive.openness(now))),
+                position: slid,
+            });
+        let swiped = (overlay_drive.map(|drive| drive.openness(now)), slid);
+        let swipe_moved = swiped != self.swiped_drawn;
+        self.swiped_drawn = swiped;
         let started: Vec<usize> = ready
             .iter()
             .map(|&index| self.scene.begin_frame_on(self.screens[index].id))
             .collect();
         let list = self.scene.frame_list();
+        // The shell's surfaces each swipe drives (`SetGestureOverlay`), kept while they go, which
+        // the scene forgets.
+        for item in &list {
+            if let RenderItem::Surface { key, .. } = *item {
+                let overlay = self.scene.gesture_overlay(key);
+                if overlay != oxyos_protocol::GestureOverlay::None {
+                    self.gesture_surfaces.insert(key, overlay);
+                }
+            }
+        }
+        let driven = |surfaces: &HashMap<SurfaceKey, oxyos_protocol::GestureOverlay>,
+                      key: SurfaceKey| {
+            overlay_drive.is_some_and(|drive| {
+                key.client == drive.client && surfaces.get(&key) == Some(&drive.overlay)
+            })
+        };
         // Toplevels and dialogs are drawn with corners and a shadow (ADR 0016).
         let looks: Looks = list
             .iter()
@@ -1861,7 +1910,6 @@ impl Compositor {
             .collect();
         // Surfaces arriving start their transitions in this frame; those going are drawn from
         // their last frame composed (ADR 0011). Locked, nothing of the session is drawn going.
-        let now = self.now();
         // A window minimized goes into its place in the dock and comes back out of it: where the
         // shell says (its application's icon, ADR 0011's genie), else a square in the middle of
         // the dock, the shell's bottom panel; a workspace's windows slide by the width of the
@@ -1989,8 +2037,31 @@ impl Compositor {
                 .map_or(Rect::new(0, 0, 1, 1), |output| output.rect);
             let slot = self.scene.minimize_target(appearance.key).or(dock);
             let place = transitions::Place { output, slot };
-            self.transitions.appear(appearance, now, snapshot, &place);
+            // Mission Control's or App Exposé's, arriving or going while a swipe drives them: as
+            // far as the swipe has them (ADR 0046).
+            let swiped = driven(&self.gesture_surfaces, appearance.key);
+            if !appearance.arrived() {
+                self.gesture_surfaces.remove(&appearance.key);
+            }
+            self.transitions
+                .appear_swiped(appearance, now, snapshot, &place, swiped);
         }
+        // Those already shown when a swipe began closing them follow it from now on.
+        if overlay_drive.is_some() {
+            for item in &list {
+                if let RenderItem::Surface { key, .. } = *item {
+                    if driven(&self.gesture_surfaces, key) {
+                        if let Some(kind) = self.scene.appearance_kind(key) {
+                            self.transitions.join_swipe(key, kind, now);
+                        }
+                    }
+                }
+            }
+        }
+        self.gesture_surfaces.retain(|key, _| {
+            self.scene.gesture_overlay(*key) != oxyos_protocol::GestureOverlay::None
+                || self.transitions.is_going(*key)
+        });
         if self.scene.is_locked() {
             self.transitions.lock();
         }
@@ -2041,10 +2112,11 @@ impl Compositor {
             }
         }
         let mut flights_seen: Vec<(SurfaceKey, bool, Rect)> = Vec::new();
-        let changed = ready.iter().zip(&started).any(|(&index, &started)| {
-            let screen = &self.screens[index];
-            started > 0 || screen.recompose || list != screen.composed || looks != screen.looks
-        });
+        let changed = swipe_moved
+            || ready.iter().zip(&started).any(|(&index, &started)| {
+                let screen = &self.screens[index];
+                started > 0 || screen.recompose || list != screen.composed || looks != screen.looks
+            });
         if !changed && !animating && self.pending_captures.is_empty() {
             for (&index, moved) in ready.iter().zip(&pointer_moved) {
                 let id = self.screens[index].id;
@@ -2202,8 +2274,29 @@ impl Compositor {
                         let zoomed = zooming.map(|(at, _)| at);
                         // Restored through the genie: out of the dock along its mesh.
                         let genie = arriving.genie(rect);
-                        let placed = zoomed.unwrap_or_else(|| arriving.place(rect));
-                        if self.transitions.is_arriving(key) || zoomed.is_some() {
+                        let mut placed = zoomed.unwrap_or_else(|| arriving.place(rect));
+                        // Slid with its desktop by a swipe across (ADR 0046): by the output's
+                        // width for each desktop between it and where the desktops are.
+                        let slide =
+                            slid.and_then(|position| {
+                                let desktop =
+                                    self.scene.window_workspace(self.scene.root_of(key))?;
+                                let width = self
+                                    .scene
+                                    .output_at_point(
+                                        rect.x + rect.width as i32 / 2,
+                                        rect.y + rect.height as i32 / 2,
+                                    )
+                                    .map_or(0, |output| output.rect.width);
+                                Some(((f64::from(desktop) - position) * f64::from(width)).round()
+                                    as i32)
+                            });
+                        if let Some(dx) = slide {
+                            placed =
+                                Rect::new(placed.x + dx, placed.y, placed.width, placed.height);
+                        }
+                        if self.transitions.is_arriving(key) || zoomed.is_some() || slide.is_some()
+                        {
                             in_transition(
                                 rect,
                                 placed,

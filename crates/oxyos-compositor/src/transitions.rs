@@ -304,6 +304,9 @@ struct Running {
     motion: Motion,
     /// How long it runs (`Motion::duration`, worked out once).
     duration: Duration,
+    /// Driven by a swipe (docs/adr/0046-interactive-gestures.mdx): as far along as the swipe has
+    /// Mission Control or App Exposé open, not by its time, for as long as the swipe drives it.
+    driven: bool,
 }
 
 impl Running {
@@ -314,6 +317,7 @@ impl Running {
             started,
             motion,
             duration: motion.duration(),
+            driven: false,
         }
     }
 
@@ -569,6 +573,31 @@ fn arriving_at(running: &Running, elapsed: Duration) -> Frame {
     }
 }
 
+/// Where a surface a swipe drives is with Mission Control or App Exposé `open` (0 closed, 1 open;
+/// past 1 as its spring arrives): arriving and going alike, its motion that far from its far end,
+/// its opacity too (docs/adr/0046-interactive-gestures.mdx). One way of the fingers is one frame,
+/// whichever way the surface is going.
+fn driven_at(running: &Running, open: f64, arriving: bool) -> Frame {
+    let motion = &running.motion;
+    let shown = open.clamp(0.0, 1.0);
+    let (from, to) = if arriving {
+        (motion.scale_permille, 1000)
+    } else {
+        (1000, motion.scale_permille)
+    };
+    let moved = if arriving { open } else { 1.0 - open };
+    Frame {
+        opacity: if motion.fades.is_some() {
+            opacity(shown)
+        } else {
+            255
+        },
+        scale_permille: scale_between(from, to, moved),
+        shift: motion.shift,
+        shift_permille: (1000.0 * (1.0 - open)).round() as i32,
+    }
+}
+
 /// Where a zoom is `elapsed` in: its frame that far between its rectangles, held at the end.
 fn zoom_at(running: &Running, elapsed: Duration) -> Frame {
     let moved = if elapsed >= running.duration {
@@ -619,6 +648,8 @@ pub struct Transitions {
     seen: BTreeMap<u64, Seen>,
     /// Reduce motion (docs/adr/0019-settings.mdx): every transition is a crossfade.
     reduced: bool,
+    /// What touchpad swipes drive (docs/adr/0046-interactive-gestures.mdx).
+    pub drives: crate::swipes::Drives,
 }
 
 impl Transitions {
@@ -631,6 +662,60 @@ impl Transitions {
 
     pub fn reduce_motion(&self) -> bool {
         self.reduced
+    }
+
+    /// Follows the scene's latest swipe (`Scene::swipe_drive`) at `now`. A new swipe of Mission
+    /// Control or App Exposé ends what the last one was taking away: the surfaces it drives now
+    /// are the shell's.
+    pub fn follow_swipe(
+        &mut self,
+        drive: Option<oxyos_compositor_core::scene::SwipeDrive>,
+        now: Duration,
+    ) {
+        let before = self.drives.overlay.map(|drive| drive.motion.gesture);
+        self.drives.follow(drive, now);
+        if self.drives.overlay.map(|drive| drive.motion.gesture) != before {
+            self.going.retain(|(_, running, _)| !running.driven);
+        }
+    }
+
+    /// `key`, of `kind`, shown, is one of the surfaces the swipe going on drives (Mission
+    /// Control's or App Exposé's, being closed): from now on it is drawn as open as the swipe has
+    /// it. One arriving on its own time joins the swipe; one it already drives stays.
+    pub fn join_swipe(&mut self, key: SurfaceKey, kind: Kind, now: Duration) {
+        if self
+            .arriving
+            .get(&key)
+            .is_some_and(|running| running.driven)
+        {
+            return;
+        }
+        let motion = motions(kind, Change::Arrived, &Place::default());
+        let id = self.begin(kind, Change::Arrived);
+        let mut running = Running::new(id, kind, now, motion);
+        running.driven = true;
+        self.arriving.insert(key, running);
+    }
+
+    /// How open the swipe has Mission Control or App Exposé at `now`, while it drives them.
+    fn open(&self, now: Duration) -> f64 {
+        self.drives
+            .live_overlay(now)
+            .map_or(1.0, |drive| drive.openness(now))
+    }
+
+    fn arriving_frame(&self, running: &Running, now: Duration) -> Frame {
+        if running.driven {
+            return driven_at(running, self.open(now), true);
+        }
+        arriving_at(running, running.elapsed(now))
+    }
+
+    fn going_frame(&self, running: &Running, now: Duration) -> Frame {
+        if running.driven {
+            return driven_at(running, self.open(now).min(1.0), false);
+        }
+        going_at(running, running.elapsed(now))
     }
 
     fn reduce(&self, motion: Motion) -> Motion {
@@ -673,7 +758,53 @@ impl Transitions {
         snapshot: Option<Snapshot>,
         place: &Place,
     ) {
+        self.appear_swiped(appearance, now, snapshot, place, false);
+    }
+
+    /// The same, for a surface the swipe going on drives (`swiped`: one of the shell's surfaces
+    /// of what it opens or closes, docs/adr/0046-interactive-gestures.mdx): it arrives, or goes,
+    /// as far as the swipe has it, not on its own time.
+    pub fn appear_swiped(
+        &mut self,
+        appearance: Appearance,
+        now: Duration,
+        snapshot: Option<Snapshot>,
+        place: &Place,
+        swiped: bool,
+    ) {
         if appearance.change == Change::Zoomed {
+            return;
+        }
+        if swiped && matches!(appearance.change, Change::Arrived | Change::Gone) {
+            let motion = motions(appearance.kind, appearance.change, place);
+            if appearance.arrived() {
+                self.start_arriving(
+                    appearance.key,
+                    appearance.kind,
+                    appearance.change,
+                    motion,
+                    now,
+                );
+                if let Some(running) = self.arriving.get_mut(&appearance.key) {
+                    running.driven = true;
+                }
+            } else {
+                self.start_going(
+                    appearance.key,
+                    appearance.kind,
+                    appearance.change,
+                    motion,
+                    now,
+                    snapshot,
+                );
+                if let Some((_, running, _)) = self
+                    .going
+                    .iter_mut()
+                    .find(|(key, _, _)| *key == appearance.key)
+                {
+                    running.driven = true;
+                }
+            }
             return;
         }
         let motion = self.reduce(motions(appearance.kind, appearance.change, place));
@@ -862,7 +993,12 @@ impl Transitions {
         let Some(running) = self.arriving.get(&key) else {
             return Frame::WHOLE;
         };
-        arriving_at(running, running.elapsed(now))
+        self.arriving_frame(running, now)
+    }
+
+    /// Whether `key` is going.
+    pub fn is_going(&self, key: SurfaceKey) -> bool {
+        self.going.iter().any(|(going, _, _)| *going == key)
     }
 
     /// Whether `key` is arriving.
@@ -881,11 +1017,7 @@ impl Transitions {
     /// The surfaces going at `now`, oldest first: their last frames and where they are.
     pub fn going(&self, now: Duration) -> impl Iterator<Item = (&Snapshot, Kind, Frame)> {
         self.going.iter().map(move |(_, running, snapshot)| {
-            (
-                snapshot,
-                running.kind,
-                going_at(running, running.elapsed(now)),
-            )
+            (snapshot, running.kind, self.going_frame(running, now))
         })
     }
 
@@ -894,15 +1026,32 @@ impl Transitions {
     pub fn advance(&mut self, now: Duration) -> bool {
         let before = self.arriving.len() + self.going.len() + self.zooming.len();
         let mut ended = Vec::new();
+        // What a swipe drives runs while the swipe drives it.
+        let swiping = self.drives.live_overlay(now).is_some();
+        let springing = self.drives.springing(now);
+        // A surface the fingers hold still is not animating: only their motion (which the
+        // compositor sees itself), or a spring, composes a frame.
+        let fingers_only = swiping
+            && self.arriving.values().all(|running| running.driven)
+            && self.going.iter().all(|(_, running, _)| running.driven)
+            && self.zooming.is_empty();
         self.arriving.retain(|_, running| {
-            let runs = running.runs(now);
+            let runs = if running.driven {
+                swiping
+            } else {
+                running.runs(now)
+            };
             if !runs {
                 ended.push(running.id);
             }
             runs
         });
         self.going.retain(|(_, running, _)| {
-            let runs = running.runs(now);
+            let runs = if running.driven {
+                swiping
+            } else {
+                running.runs(now)
+            };
             if !runs {
                 ended.push(running.id);
             }
@@ -921,7 +1070,10 @@ impl Transitions {
                 seen.ended = true;
             }
         }
-        before > 0
+        if fingers_only && !springing {
+            return false;
+        }
+        before > 0 || springing
     }
 
     /// Records the frame composed at `now`: what each transition running draws (after
@@ -947,7 +1099,7 @@ impl Transitions {
             .arriving
             .values()
             .map(|running| {
-                let frame = arriving_at(running, running.elapsed(now));
+                let frame = self.arriving_frame(running, now);
                 (
                     running.id,
                     running.elapsed(now),
@@ -957,7 +1109,7 @@ impl Transitions {
             })
             .collect();
         drawn.extend(self.going.iter().map(|(_, running, _)| {
-            let frame = going_at(running, running.elapsed(now));
+            let frame = self.going_frame(running, now);
             (
                 running.id,
                 running.elapsed(now),
