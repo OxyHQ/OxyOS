@@ -274,7 +274,7 @@ fn the_window_follows_the_fingers_and_goes_on_from_where_they_let_it_go() {
     let window = s.window();
     s.swipe(GesturePhase::Begin, 0.0, 0);
     s.swipe(GesturePhase::Update, 75.0, 100);
-    s.until(1100, "App Exposé arriving", |c| app_expose(c));
+    s.until(1100, "App Exposé arriving", app_expose);
     assert_eq!(s.told(), [ShortcutIntent::Open]);
     // App Exposé's first frame has the window where it is, and it catches up with the fingers
     // from there: a quarter of the way once caught up.
@@ -323,7 +323,7 @@ fn a_flick_goes_through_a_slow_release_short_goes_back_and_the_swipe_back_closes
     for i in 1..=3 {
         s.swipe(GesturePhase::Update, 17.0, i * 10);
     }
-    s.until(1100, "App Exposé arriving", |c| app_expose(c));
+    s.until(1100, "App Exposé arriving", app_expose);
     s.swipe(GesturePhase::End, 0.0, 30);
     assert_eq!(s.told(), [ShortcutIntent::Open]);
     s.at_ms(1100);
@@ -366,7 +366,7 @@ fn a_flick_goes_through_a_slow_release_short_goes_back_and_the_swipe_back_closes
     // Down again, a quarter, slowly let go: back, the shell told to close what it opened.
     s.swipe(GesturePhase::Begin, 0.0, 5000);
     s.swipe(GesturePhase::Update, 75.0, 5100);
-    s.until(5100, "App Exposé arriving", |c| app_expose(c));
+    s.until(5100, "App Exposé arriving", app_expose);
     s.swipe(GesturePhase::End, 0.0, 5300);
     s.until(5300, "App Exposé gone", |c| !app_expose(c));
     assert_eq!(s.told(), [ShortcutIntent::Open, ShortcutIntent::Close]);

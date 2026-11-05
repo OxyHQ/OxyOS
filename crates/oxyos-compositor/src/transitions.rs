@@ -705,7 +705,9 @@ impl Transitions {
     /// Whether `key` is drawn by a swipe that began with it shown: the swipe back closing it,
     /// its windows on their way home as the fingers go.
     pub fn swiped_back(&self, key: SurfaceKey) -> bool {
-        self.arriving.get(&key).is_some_and(|running| running.joined)
+        self.arriving
+            .get(&key)
+            .is_some_and(|running| running.joined)
     }
 
     /// How open the swipe has Mission Control or App Exposé at `now`, while it drives them.

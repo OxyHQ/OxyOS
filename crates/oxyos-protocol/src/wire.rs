@@ -220,6 +220,8 @@ wire_enum! {
     /// as far as the fingers have gone, its moved windows with it.
     GestureOverlay: u8 { None = 0, MissionControl = 1, AppExpose = 2 }
 }
+// No overlay is the default; `wire_enum!` derives its own set, so it is written here.
+#[allow(clippy::derivable_impls)]
 impl Default for GestureOverlay {
     fn default() -> Self {
         GestureOverlay::None
