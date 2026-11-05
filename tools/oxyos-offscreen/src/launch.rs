@@ -46,6 +46,22 @@ pub enum Step {
     /// The pointer moved to a point of the output and the primary button, held since a
     /// `DragPaced` that `held` it, released there: the drag's drop, or its end over nothing.
     ReleaseOutput { x: i32, y: i32 },
+    /// A scroll by `dy` at a point of the output (a dock icon's, ADR 0044): a wheel's notch with
+    /// `events` 0, else a touchpad's two fingers in `events` even steps, then lifted.
+    ScrollOutput {
+        x: i32,
+        y: i32,
+        dy: i32,
+        events: u32,
+    },
+    /// Three or more fingers swiped on the touchpad by (dx, dy) in `steps` even steps, then lifted
+    /// (Mission Control and App Exposé, ADR 0044).
+    Swipe {
+        fingers: u8,
+        dx: i32,
+        dy: i32,
+        steps: u32,
+    },
     /// A secondary (right) button press and release at a window-local logical point: a context
     /// menu's.
     PressSecondary { x: i32, y: i32 },
@@ -271,6 +287,11 @@ pub enum NamedKind {
     PressSecondary,
     Move,
     Hold,
+    /// A scroll by `dy` (`ScrollOutput`'s).
+    Scroll {
+        dy: i32,
+        events: u32,
+    },
 }
 
 /// The points of a drag on the output after its first: eight even steps to its last.
@@ -290,6 +311,15 @@ impl Step {
             Step::Press { x, y } => format!("press at ({x}, {y})"),
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
+            Step::ScrollOutput { x, y, dy, events } => {
+                format!("scroll by {dy} at ({x}, {y}) on the output in {events} events")
+            }
+            Step::Swipe {
+                fingers,
+                dx,
+                dy,
+                steps,
+            } => format!("{fingers} fingers swiped by ({dx}, {dy}) in {steps} steps"),
             Step::MoveOutput { x, y } => format!("pointer to ({x}, {y}) on the output"),
             Step::ReleaseOutput { x, y } => format!("release at ({x}, {y}) on the output"),
             Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
@@ -421,6 +451,15 @@ impl Step {
             Step::Press { x, y } => format!("\"press\":[{x},{y}]"),
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
+            Step::ScrollOutput { x, y, dy, events } => {
+                format!("\"scroll_output\":[{x},{y},{dy},{events}]")
+            }
+            Step::Swipe {
+                fingers,
+                dx,
+                dy,
+                steps,
+            } => format!("\"swipe\":[{fingers},{dx},{dy},{steps}]"),
             Step::MoveOutput { x, y } => format!("\"move_output\":[{x},{y}]"),
             Step::ReleaseOutput { x, y } => format!("\"release_output\":[{x},{y}]"),
             Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
@@ -801,7 +840,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1113,6 +1152,37 @@ impl Launch {
                 Some("--press-secondary-output") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressSecondaryOutput { x: n[0], y: n[1] }
+                }
+                Some("--swipe") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::Swipe {
+                        fingers: u8::try_from(n[0])?,
+                        dx: n[1],
+                        dy: n[2],
+                        steps: u32::try_from(n[3])?.max(1),
+                    }
+                }
+                Some("--scroll-output") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::ScrollOutput {
+                        x: n[0],
+                        y: n[1],
+                        dy: n[2],
+                        events: u32::try_from(n[3])?,
+                    }
+                }
+                Some("--scroll-named") => {
+                    // DY,EVENTS NAME: a wheel's notch (EVENTS 0) or a touchpad's fingers.
+                    let n = numbers(args.next(), 2)?;
+                    let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    Step::Named {
+                        kind: NamedKind::Scroll {
+                            dy: n[0],
+                            events: u32::try_from(n[1])?,
+                        },
+                        name: name.to_string(),
+                        ms: 0,
+                    }
                 }
                 Some(
                     flag @ ("--press-named"
@@ -2730,6 +2800,12 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
         NamedKind::PressSecondary => Step::PressSecondaryOutput { x, y },
         NamedKind::Move => Step::MoveOutput { x, y },
         NamedKind::Hold => Step::HoldOutput { x, y, ms: *ms },
+        NamedKind::Scroll { dy, events } => Step::ScrollOutput {
+            x,
+            y,
+            dy: *dy,
+            events: *events,
+        },
     })
 }
 
@@ -2935,6 +3011,69 @@ fn drag_icons_json(compositor: &Compositor) -> String {
         })
         .collect();
     format!("[{}]", icons.join(","))
+}
+
+/// The windows the shell's surfaces show live once the step settled (ADR 0022), each by its number:
+/// where it is drawn (fitted, the global space's logical pixels), its clip, and whether it is
+/// moved there (ADR 0044); every window drawn where it is (`windows_placed`), by number; and each
+/// window that flew to its view or back in the step (`flights`), each frame's rectangle. Taken: the
+/// next step reports its own flights.
+fn views_json(compositor: &mut Compositor) -> String {
+    let rect = |r: Rect| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height);
+    let number = |compositor: &Compositor, key: SurfaceKey| {
+        compositor
+            .scene
+            .window_number(key)
+            .map_or("null".to_string(), |n| n.to_string())
+    };
+    let list = compositor.scene.render_list();
+    let views: Vec<String> = list
+        .iter()
+        .filter_map(|item| match *item {
+            RenderItem::View {
+                window,
+                rect: at,
+                clip,
+                moved,
+                ..
+            } => Some(format!(
+                "{{\"window\":{},\"rect\":{},\"clip\":{},\"moved\":{moved}}}",
+                number(compositor, window),
+                rect(at),
+                rect(clip)
+            )),
+            _ => None,
+        })
+        .collect();
+    let placed: Vec<String> = list
+        .iter()
+        .filter_map(|item| match *item {
+            RenderItem::Surface { key, rect: at, .. } => {
+                let n = compositor.scene.window_number(key)?;
+                Some(format!("\"{n}\":{}", rect(at)))
+            }
+            _ => None,
+        })
+        .collect();
+    let flights: Vec<String> = compositor
+        .take_flights()
+        .into_iter()
+        .map(|flight| {
+            let path: Vec<String> = flight.path.iter().map(|at| rect(*at)).collect();
+            format!(
+                "{{\"window\":{},\"arriving\":{},\"path\":[{}]}}",
+                number(compositor, flight.window),
+                flight.arriving,
+                path.join(",")
+            )
+        })
+        .collect();
+    format!(
+        ",\"window_views\":[{}],\"windows_placed\":{{{}}},\"flights\":[{}]",
+        views.join(","),
+        placed.join(","),
+        flights.join(",")
+    )
 }
 
 fn popups_json(compositor: &Compositor) -> String {
@@ -4026,6 +4165,45 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             scene.pointer_motion(window.x + to.0, window.y + to.1);
             scene.pointer_button(BUTTON, false);
         }
+        Step::ScrollOutput { x, y, dy, events } => {
+            on_outputs(*x, *y)?;
+            compositor.scene.pointer_motion(*x, *y);
+            if *events == 0 {
+                compositor.scene.pointer_scroll(
+                    0,
+                    dy.saturating_mul(256),
+                    ScrollSource::Wheel,
+                    false,
+                );
+            } else {
+                let each = dy.saturating_mul(256) / *events as i32;
+                for _ in 0..*events {
+                    compositor
+                        .scene
+                        .pointer_scroll(0, each, ScrollSource::Finger, false);
+                }
+                compositor
+                    .scene
+                    .pointer_scroll(0, 0, ScrollSource::Finger, true);
+            }
+        }
+        Step::Swipe {
+            fingers,
+            dx,
+            dy,
+            steps,
+        } => {
+            let scene = &mut compositor.scene;
+            scene.pointer_swipe(GesturePhase::Begin, *fingers, 0, 0);
+            let (each_x, each_y) = (
+                dx.saturating_mul(256) / *steps as i32,
+                dy.saturating_mul(256) / *steps as i32,
+            );
+            for _ in 0..*steps {
+                scene.pointer_swipe(GesturePhase::Update, *fingers, each_x, each_y);
+            }
+            scene.pointer_swipe(GesturePhase::End, *fingers, 0, 0);
+        }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
@@ -5033,7 +5211,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5069,6 +5247,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             menus_json(&session.compositor, companion_window(&session)),
             chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),
+            views_json(&mut session.compositor),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
             moved.map_or(String::new(), |motion| format!(",\"moved\":{motion}")),

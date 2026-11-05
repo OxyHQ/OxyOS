@@ -1,0 +1,486 @@
+{
+  "about": "The ways into App Exposé and Mission Control that are not the dock's menu (docs/adr/0044-app-expose.mdx), at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo's two windows with the shell. Three fingers swiped down open App Exposé of the active application (Allo: the companion was opened last), the windows flying to their places; the same swiped up close it, the windows flying back. Four fingers up open Mission Control (the overview: its views copies, the windows staying where they are), four down close it. A wheel's notch up on Allo's dock icon opens App Exposé, a notch down there closes it; two fingers scrolled up on the icon open it once however far they go, down close it. Super+↑ opens Mission Control and Super+↓ from it closes it, as the gesture the other way does. Three fingers across do nothing. No application hears anything of any of it: neither React tree, and each window only its focus going and coming back.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      700,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Allo's two windows",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {}
+        }
+      }
+    },
+    {
+      "name": "three fingers swiped down: App Exposé of the active application",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          120,
+          6
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 418,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "the same swiped up: it closes, the windows flying back",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          -120,
+          6
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 275,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "four fingers up: Mission Control, the overview's copies, nothing flying",
+      "do": [
+        "swipe",
+        [
+          4,
+          0,
+          -120,
+          6
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": false
+        },
+        "flights": {
+          "none": true
+        },
+        "in_shell": {
+          "texts": [
+            "Escritorio 1"
+          ],
+          "renders": {
+            "components_max": 944,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "four fingers down: it closes",
+      "do": [
+        "swipe",
+        [
+          4,
+          0,
+          120,
+          6
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "in_shell": {
+          "absent": [
+            "Escritorio 1"
+          ],
+          "renders": {
+            "components_max": 250,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a wheel's notch up on Allo's dock icon: its App Exposé",
+      "do": [
+        "scroll_named",
+        [
+          "Allo",
+          -15
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {}
+        }
+      }
+    },
+    {
+      "name": "a notch down on it: closed",
+      "do": [
+        "scroll_output",
+        [
+          796,
+          772,
+          15
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "two fingers scrolled up on it: open, once however far they go",
+      "do": [
+        "scroll_named",
+        [
+          "Allo",
+          -60,
+          10
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 393,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "two fingers down on it: closed",
+      "do": [
+        "scroll_output",
+        [
+          796,
+          772,
+          60,
+          10
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 246,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+↑: Mission Control",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": false
+        },
+        "in_shell": {
+          "texts": [
+            "Escritorio 1"
+          ],
+          "renders": {
+            "components_max": 944,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+↓ from it closes it, as the swipe the other way",
+      "do": [
+        "key",
+        [
+          125,
+          108
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "in_shell": {
+          "absent": [
+            "Escritorio 1"
+          ],
+          "renders": {
+            "components_max": 250,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "three fingers across: nothing",
+      "do": [
+        "swipe",
+        [
+          3,
+          150,
+          10,
+          6
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "none": true
+        },
+        "delivered": {},
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {
+            "components_max": 0,
+            "each_minute": [
+              "SessionShell"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
