@@ -166,6 +166,7 @@ fn what_is_written_reads_back_the_same() {
         ("reduce_motion", "true"),
         ("reduce_transparency", "true"),
         ("caret_blink", "false"),
+        ("ui_sounds", "false"),
         ("wallpaper", "solar-gradients"),
         ("lock_after", "15"),
         ("screen_reader", "true"),
@@ -382,6 +383,23 @@ fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
         );
     }
     assert_eq!(preferences.open_at_login, ids(&["so.oxy.inbox"]));
+    // Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): none until the person
+    // turns one off, then kept and read back.
+    assert!(preferences.notification_sounds_off.is_empty());
+    assert!(!preferences.to_text().contains("notification_sounds_off"));
+    preferences
+        .set_list(
+            ApplicationList::NotificationSoundsOff,
+            &ids(&["so.oxy.allo"]),
+        )
+        .unwrap();
+    assert!(preferences
+        .to_text()
+        .contains("notification_sounds_off = so.oxy.allo\n"));
+    assert_eq!(
+        Preferences::parse(&preferences.to_text()).notification_sounds_off,
+        ids(&["so.oxy.allo"])
+    );
     // A bad line in the file keeps the default.
     assert_eq!(
         Preferences::parse("dock = so.oxy.dropsea,bad id\n").dock,
@@ -420,4 +438,15 @@ fn input_sources_are_the_input_methods_added_and_the_current_is_one_of_them_or_t
     assert_eq!(preferences.input_source, None);
     preferences.set("input_source", "layout").unwrap();
     assert_eq!(preferences.get("input_source").unwrap(), "layout");
+}
+
+#[test]
+fn interface_sound_effects_are_on_by_default_as_on_a_mac() {
+    let mut preferences = Preferences::default();
+    assert!(preferences.ui_sounds);
+    assert_eq!(preferences.get("ui_sounds").as_deref(), Some("true"));
+    assert_eq!(preferences.set("ui_sounds", "off"), Err(Refused::BadValue));
+    assert!(preferences.ui_sounds);
+    preferences.set("ui_sounds", "false").unwrap();
+    assert!(!Preferences::parse(&preferences.to_text()).ui_sounds);
 }

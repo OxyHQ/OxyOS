@@ -118,6 +118,15 @@ void Report::committed(const ShadowViewMutationList& mutations) {
           transform.push_back(folly::dynamic::object("translateX", operation.x.value));
           transform.push_back(folly::dynamic::object("translateY", operation.y.value));
         }
+        // A uniform scale as one value (the dock's Trash under a drag, docs/adr/0044-system-sounds.mdx).
+        if (operation.type == TransformOperationType::Scale) {
+          if (operation.x.value == operation.y.value) {
+            transform.push_back(folly::dynamic::object("scale", operation.x.value));
+          } else {
+            transform.push_back(folly::dynamic::object("scaleX", operation.x.value));
+            transform.push_back(folly::dynamic::object("scaleY", operation.y.value));
+          }
+        }
       }
       props["transform"] = std::move(transform);
     }

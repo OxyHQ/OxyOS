@@ -1,0 +1,8 @@
+[Sound Theme]
+Name=OxyOS
+Comment=The system's sounds of OxyOS (docs/adr/0044-system-sounds.mdx)
+Inherits=freedesktop
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

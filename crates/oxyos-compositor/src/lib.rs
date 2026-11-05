@@ -43,6 +43,7 @@ pub mod login;
 pub mod motion;
 pub mod networks;
 pub mod settings;
+pub mod sounds;
 pub mod splash;
 pub mod transitions;
 pub mod trash;
@@ -543,6 +544,10 @@ pub struct Compositor {
     /// given by the program running the compositor. Without them the keys do nothing and the
     /// shell is told nothing of the system.
     pub controls: Option<controls::Controls>,
+    /// The system's sounds (docs/adr/0044-system-sounds.mdx), played as the scene asks for them
+    /// and the person's settings and the output allow, by the player the program running the
+    /// compositor gives (PipeWire in a session). Without it nothing plays.
+    pub sounds: Option<sounds::Sounds>,
     /// Whether a turn whose work (not its wait) took longer than the fastest display's refresh
     /// (it delays that display's frame and the input after it) is logged, with where the time
     /// went, at most once a second: a session's, whose frames are otherwise not measured.
@@ -1004,6 +1009,7 @@ impl Compositor {
             pointer: None,
             idle_wait: Duration::from_millis(5),
             controls: None,
+            sounds: None,
             wakers: Vec::new(),
             slow_turns: false,
             slow_turn_logged: None,
@@ -3610,6 +3616,21 @@ impl Compositor {
     /// devices, composes a frame and sends events. Waits for a client, the listener, the display's
     /// flip, the devices or the seat, at most until the pointer's next step, a connection's
     /// deadline, the idle lock's or `idle_wait`.
+    /// Plays the system sounds the scene was asked for (docs/adr/0044-system-sounds.mdx), as the
+    /// person's settings allow and never while the output is muted (or at no volume), as the
+    /// session last knew it. The program running the compositor calls it too after what it serves
+    /// itself asks for one (the Trash's), so a sound never waits for the next turn.
+    pub fn play_sounds(&mut self) {
+        let silent = self
+            .controls
+            .as_ref()
+            .is_some_and(controls::Controls::output_silent);
+        match self.sounds.as_mut() {
+            Some(sounds) => sounds.serve(&mut self.scene, silent),
+            None => drop(self.scene.take_system_sounds()),
+        }
+    }
+
     pub fn serve(&mut self, listener: &Listener) -> Result<()> {
         let started = Instant::now();
         self.follow_terminal()?;
@@ -3787,6 +3808,7 @@ impl Compositor {
         if let Some(controls) = &mut self.controls {
             controls.serve(&mut self.scene, Instant::now());
         }
+        self.play_sounds();
         let framing = Instant::now();
         let frames = self.frames;
         self.frame();

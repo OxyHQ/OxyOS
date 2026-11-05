@@ -1,6 +1,12 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useColorScheme, type PointerEvent, type View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import { Image, useColorScheme, type PointerEvent, type View } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { Button } from "@oxy.so/bloom/button";
 import {
   ContextMenu,
@@ -19,7 +25,7 @@ import { DropZone, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
 import { Box, Scroll } from "../primitives";
 import type { MinimizeTargetProps, ShellKeyboard } from "../platform";
-import { IconBody } from "../apps";
+import { CORNER, IconBody } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
 import { TRASH_ICON } from "./trash-icon";
@@ -334,12 +340,43 @@ const DockIcon = memo(function DockIcon({
 
 const TRASH_ACCEPT = ["files"] as const;
 const TRASH_ACTIONS = ["move"] as const;
-const TRASH_TARGETED = { backgroundColor: "rgba(0, 0, 0, 0.22)" } as const;
+/** How much the Trash grows while a drag it would take is over it (docs/adr/0044-system-sounds.mdx):
+    a little, as the owner asked ("un poco de scale"), the way a Mac's Dock answers a drag. */
+export const TRASH_TARGET_SCALE = 1.1;
+/** How dark the Trash's own picture goes meanwhile, as a Mac's Dock darkens the icon it would drop
+    on. */
+export const TRASH_TARGET_SHADE = 0.35;
+/** The spring it grows and settles back on: a response of 250 ms, critically damped and never past
+    its end, so it only ever goes toward where it is going. */
+const TRASH_OMEGA = (2 * Math.PI) / 0.25;
+const TRASH_SPRING = {
+  mass: 1,
+  stiffness: TRASH_OMEGA * TRASH_OMEGA,
+  damping: 2 * TRASH_OMEGA,
+  overshootClamping: true,
+  energyThreshold: 1e-6,
+} as const;
+/** The shade comes and goes faster than the growth: the answer to the drag is at once. With Reduce
+    Motion it is at once (Reanimated's `ReduceMotion.System`). */
+const TRASH_SHADE_TIMING = { duration: 120 } as const;
+const TRASH_BOX = { height: ROW, width: ICON } as const;
+const TRASH_SHADE_LAYOUT = {
+  position: "absolute",
+  left: 0,
+  top: (ROW - ICON) / 2,
+  width: ICON,
+  height: ICON,
+} as const;
+/** The picture as the icon draws it (`IconBody`: its corners rounded as every picture's), tinted black. */
+const TRASH_SHADE_IMAGE = { width: ICON, height: ICON, borderRadius: ICON * CORNER, tintColor: "#000000" } as const;
 
 /**
  * The Trash as a drop target (docs/adr/0035-drag-and-drop.mdx): files dragged from any
- * application onto it, with a move alone (a Mac's Trash), are put in it by the platform; while a
- * drag it would take is over it, its row darkens, as a Mac's Dock marks the Trash it is over.
+ * application onto it, with a move alone (a Mac's Trash), are put in it by the platform, which
+ * plays the Trash's sound (docs/adr/0044-system-sounds.mdx). While a drag it would take is over it,
+ * it answers as a Mac's Dock does: its picture darkens, its own shape and nothing around it, and it
+ * grows a little on a spring, settling back as the drag leaves or drops. With Reduce Motion it
+ * darkens alone, at once, and never grows. The pointer keeps the arrow: a move has no badge.
  */
 const TrashDrop = memo(function TrashDrop({
   trashFiles,
@@ -348,22 +385,36 @@ const TrashDrop = memo(function TrashDrop({
   trashFiles: (uris: readonly string[]) => void;
   children: React.ReactNode;
 }) {
-  const [targeted, setTargeted] = useState(false);
-  const enter = useCallback(() => setTargeted(true), []);
-  const leave = useCallback(() => setTargeted(false), []);
+  const reduceMotion = useReducedMotion();
+  const scale = useSharedValue(1);
+  const shade = useSharedValue(0);
+  const target = useCallback(
+    (over: boolean) => {
+      scale.value = withSpring(over && !reduceMotion ? TRASH_TARGET_SCALE : 1, TRASH_SPRING);
+      shade.value = withTiming(over ? TRASH_TARGET_SHADE : 0, TRASH_SHADE_TIMING);
+    },
+    [scale, shade, reduceMotion],
+  );
+  const enter = useCallback(() => target(true), [target]);
+  const leave = useCallback(() => target(false), [target]);
   const drop = useCallback(
     ({ data }: DropTargetDropEvent) => {
-      setTargeted(false);
+      target(false);
       const uris = trashedByDrop(data.files);
       if (uris.length > 0) trashFiles(uris);
     },
-    [trashFiles],
+    [trashFiles, target],
   );
+  const grown = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const shaded = useAnimatedStyle(() => ({ opacity: shade.value }));
   return (
     <DropZone testID="dock-trash-drop" accept={TRASH_ACCEPT} actions={TRASH_ACTIONS} onDragEnter={enter} onDragLeave={leave} onDrop={drop}>
-      <Box testID={targeted ? "dock-trash-targeted" : undefined} className="rounded-full" style={targeted ? TRASH_TARGETED : undefined}>
+      <Animated.View testID="dock-trash-scale" style={[TRASH_BOX, grown]}>
         {children}
-      </Box>
+        <Animated.View testID="dock-trash-shade" pointerEvents="none" style={[TRASH_SHADE_LAYOUT, shaded]}>
+          <Image source={TRASH_ICON} resizeMode="cover" style={TRASH_SHADE_IMAGE} />
+        </Animated.View>
+      </Animated.View>
     </DropZone>
   );
 });

@@ -59,7 +59,10 @@
           "trash": [
             "informe.txt"
           ]
-        }
+        },
+        "sounds": [
+          "file-trash"
+        ]
       }
     },
     {

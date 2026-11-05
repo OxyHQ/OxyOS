@@ -135,6 +135,10 @@ impl Settings {
             .transitions
             .set_reduce_motion(preferences.reduce_motion);
         compositor.set_lock_after(preferences.lock_after);
+        // Play user interface sound effects (docs/adr/0044-system-sounds.mdx).
+        if let Some(sounds) = compositor.sounds.as_mut() {
+            sounds.interface = preferences.ui_sounds;
+        }
         // Notifications (docs/adr/0026-notifications.mdx): Do Not Disturb and the lock screen's
         // previews.
         compositor.scene.set_notification_policy(
@@ -180,6 +184,15 @@ impl Settings {
             ApplicationList {
                 chosen: true,
                 ids: preferences.open_at_login.clone(),
+            },
+        );
+        // Whose notifications play no sound (docs/adr/0044-system-sounds.mdx), for Settings and
+        // the notifications' sound.
+        compositor.scene.set_application_list(
+            ApplicationListKind::NotificationSoundsOff,
+            ApplicationList {
+                chosen: true,
+                ids: preferences.notification_sounds_off.clone(),
             },
         );
     }
@@ -237,6 +250,9 @@ impl Settings {
             let list = match change.list {
                 ApplicationListKind::Dock => oxyos_preferences::ApplicationList::Dock,
                 ApplicationListKind::OpenAtLogin => oxyos_preferences::ApplicationList::OpenAtLogin,
+                ApplicationListKind::NotificationSoundsOff => {
+                    oxyos_preferences::ApplicationList::NotificationSoundsOff
+                }
             };
             let ids: Vec<String> = change
                 .text
@@ -251,6 +267,9 @@ impl Settings {
                             match list {
                                 oxyos_preferences::ApplicationList::Dock => "dock",
                                 oxyos_preferences::ApplicationList::OpenAtLogin => "open_at_login",
+                                oxyos_preferences::ApplicationList::NotificationSoundsOff => {
+                                    "notification_sounds_off"
+                                }
                             }
                             .to_owned(),
                         );

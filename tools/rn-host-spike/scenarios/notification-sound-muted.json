@@ -1,0 +1,47 @@
+{
+  "about": "No system sound while the output is muted (docs/adr/0044-system-sounds.mdx): the ThinkPad played with its output muted (`controls`), Allo's notification is posted and kept, and none plays.",
+  "locale": "es_ES.UTF-8",
+  "module": "NotificationSoundProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": true,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "steps": [
+    {
+      "name": "Avisar posts one: kept, and silent",
+      "do": [
+        "press_named",
+        "Avisar"
+      ],
+      "expect": {
+        "texts": [
+          "Posted: 1",
+          "Failed: none"
+        ],
+        "sounds": []
+      }
+    }
+  ]
+}

@@ -743,6 +743,9 @@ int main(int argc, char** argv) {
       services.shellWindow = shellMode;
       // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): protocol version 10.
       services.drag.available = window->protocolVersion() >= 10;
+      // The system's interface sounds (docs/adr/0044-system-sounds.mdx): protocol version 23, an
+      // application's window (the session plays the shell's dock's own).
+      services.soundsAvailable = !shellMode && window->protocolVersion() >= 23;
       // A file chooser the session started (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): what
       // it shows, known before JavaScript starts, so Bloom's adapter is the chooser's from the start.
       if (const char* request = shellMode ? nullptr : std::getenv("OXYOS_FILE_CHOOSER")) {
@@ -1022,6 +1025,19 @@ int main(int argc, char** argv) {
                                       std::function<void(std::optional<std::string>)> done) {
       dragDrop.start(data, actions, preview, std::move(done));
     };
+    // The system's interface sounds (Bloom's usePlatformSounds, docs/adr/0044-system-sounds.mdx),
+    // citing the latest input the application received, as a Mac's Finder sounds for the person's
+    // own action.
+    services.playSystemSound = [&window, &lastPress, &services](const std::string& name) {
+      uint32_t sound = name == "move-to-trash"  ? OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH
+                       : name == "empty-trash" ? OXYOS_SYSTEM_SOUND_EMPTY_TRASH
+                                               : 0;
+      if (sound == 0 || lastPress == 0 || !window || !services.soundsAvailable) return false;
+      bool sent = window->playSystemSound(sound, lastPress);
+      oxyos::Report::get().input("sound.play", oxyos::Window::kToplevel,
+                                 folly::dynamic::object("sound", name)("sent", sent));
+      return sent;
+    };
     services.clipboard = {
         .copy = [&window, &lastPress](const std::string& text) { return window->copyText(lastPress, text); },
         .paste = [&window, &lastPress](std::function<void(std::string)> done) {
@@ -1300,6 +1316,7 @@ int main(int argc, char** argv) {
           }
         }
         auto banner = content.get_ptr("banner");
+        auto sound = content.get_ptr("sound");
         OxyOSNotification notification{
             .identifier = keep(text(content, "identifier")),
             .title = keep(text(content, "title")),
@@ -1309,6 +1326,8 @@ int main(int argc, char** argv) {
             .actions = actions.empty() ? nullptr : actions.data(),
             .action_count = actions.size(),
             .banner = banner && banner->isBool() && banner->getBool(),
+            // The notification sound as it arrives (docs/adr/0044-system-sounds.mdx).
+            .sound = sound && sound->isBool() && sound->getBool(),
         };
         bool posted = window->postNotification(serial, notification);
         if (!posted) std::cerr << "[host] the notification: " << oxyos_last_error() << "\n";

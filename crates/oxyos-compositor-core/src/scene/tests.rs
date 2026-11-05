@@ -7920,6 +7920,8 @@ mod minimize_targets;
 mod notifications;
 mod screenshots;
 mod shortcuts;
+/// System sounds (docs/adr/0044-system-sounds.mdx).
+mod sounds;
 mod system;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 

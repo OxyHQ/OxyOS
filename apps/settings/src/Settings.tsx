@@ -33,6 +33,7 @@ import {
   RiShieldLine,
   RiSubtractLine,
   RiTranslate2,
+  RiVolumeUpLine,
   RiWifiLine,
 } from "@oxy.so/bloom/icons";
 import { resolveBloomLanguage, useBloomLocale } from "@oxy.so/bloom/locale";
@@ -60,6 +61,7 @@ import {
   formatSize,
   looksLike,
   LOCK_AFTER_CHOICES,
+  notificationSoundsWith,
   placeOf,
   prefersSteadyCaret,
   refreshRates,
@@ -265,7 +267,50 @@ function NotificationsPage({ snapshot, actions, strings }: PageProps) {
           }
         />
       </GroupedSection>
+      {/* Each application's Play sound for notifications, as a Mac's settings for an application's
+          notifications have it (docs/adr/0044-system-sounds.mdx): on unless the person turns it off. */}
+      {snapshot.applications && snapshot.applications.length > 0 ? (
+        <GroupedSection title={words.applications}>
+          {snapshot.applications.map((app) => (
+            <GroupedSectionItem
+              key={app.id}
+              title={app.name}
+              description={words.playSound}
+              testID={`notification-sound-${app.id}`}
+              rightElement={
+                <Switch
+                  checked={!snapshot.preferences.notificationSoundsOff.includes(app.id)}
+                  onCheckedChange={(on) =>
+                    actions.setPreference(
+                      "notificationSoundsOff",
+                      notificationSoundsWith(snapshot.preferences.notificationSoundsOff, app.id, on),
+                    )
+                  }
+                  accessibilityLabel={words.playSoundFor(app.name)}
+                  testID={`notification-sound-${app.id}-switch`}
+                />
+              }
+            />
+          ))}
+        </GroupedSection>
+      ) : null}
     </View>
+  );
+}
+
+/** Sound (docs/adr/0044-system-sounds.mdx): Play user interface sound effects, as a Mac's Sound
+    settings have it, on unless the person turns it off. */
+function SoundPage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.sound;
+  return (
+    <GroupedSection footer={words.uiSoundsDescription}>
+      <ToggleItem
+        title={words.uiSounds}
+        value={snapshot.preferences.uiSounds}
+        onChange={(on) => actions.setPreference("uiSounds", on)}
+        testID="ui-sounds"
+      />
+    </GroupedSection>
   );
 }
 
@@ -1725,6 +1770,7 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
         { key: "appearance", label: words.appearance, icon: RiPaletteLine, page: "appearance" },
         { key: "wallpaper", label: words.wallpaper, icon: RiImageLine, page: "wallpaper" },
         { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
+        { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
         { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
         { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
         { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
@@ -1747,6 +1793,7 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
     appearance: { title: words.appearance, content: <AppearancePage {...props} /> },
     wallpaper: { title: words.wallpaper, content: <WallpaperPage {...props} /> },
     notifications: { title: words.notifications, content: <NotificationsPage {...props} /> },
+    sound: { title: words.sound, content: <SoundPage {...props} /> },
     "lock-screen": { title: words.lockScreen, content: <LockScreenPage {...props} /> },
     displays: { title: words.displays, content: <DisplaysPage {...props} /> },
     accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },

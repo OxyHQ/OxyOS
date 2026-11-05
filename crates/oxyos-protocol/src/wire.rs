@@ -92,8 +92,15 @@ wire_enum! {
 }
 wire_enum! {
     /// One of the person's lists of applications (ADR 0034): those kept in the dock, in its
-    /// order, and those the session opens at login.
-    ApplicationListKind: u8 { Dock = 1, OpenAtLogin = 2 }
+    /// order, and those the session opens at login; and (version 23, docs/adr/0044-system-sounds.mdx)
+    /// those whose notifications play no sound, Settings' (`settings` grant).
+    ApplicationListKind: u8 { Dock = 1, OpenAtLogin = 2, NotificationSoundsOff = 3 }
+}
+wire_enum! {
+    /// A sound of the system's (docs/adr/0044-system-sounds.mdx), by what it means: items put in
+    /// the Trash, the Trash emptied, a notification arriving. The session plays each from its
+    /// sound theme; an application never sends one.
+    SystemSound: u8 { MoveToTrash = 1, EmptyTrash = 2, Notification = 3 }
 }
 wire_enum! {
     PanelEdge: u8 { None = 0, Top = 1, Bottom = 2, Left = 3, Right = 4 }

@@ -25,6 +25,8 @@ export type Preferences = {
   reduceTransparency: boolean;
   /** A text field's caret blinks (docs/adr/0037-text-editing.mdx); off, it stays lit. */
   caretBlink: boolean;
+  /** Play user interface sound effects (docs/adr/0044-system-sounds.mdx): the Trash's sounds. */
+  uiSounds: boolean;
   /** The wallpaper's folder; null is the session's own. */
   wallpaper: string | null;
   /** Minutes idle before the session locks; 0 never. */
@@ -38,6 +40,8 @@ export type Preferences = {
   /** Do Not Disturb: notifications are kept, none shown as a banner (docs/adr/0026-notifications.mdx). */
   doNotDisturb: boolean;
   notificationPreviews: NotificationPreviews;
+  /** The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx), by id. */
+  notificationSoundsOff: string[];
   /** The input methods added after the keyboard layout, in order (docs/adr/0041-input-methods.mdx,
       decision 6). */
   inputSources: InputMethod[];
@@ -118,6 +122,9 @@ export type SettingsSnapshot = {
   /** The input sources (docs/adr/0041-input-methods.mdx, decision 6) as the session tells them;
       null until it has. */
   inputSources?: InputSourcesState | null;
+  /** The session's applications, by id and name (its registry): Notifications' sound for each
+      (docs/adr/0044-system-sounds.mdx). */
+  applications?: readonly { id: string; name: string }[];
 };
 
 /** The keys a change names, as the session's preferences file does. */
@@ -127,6 +134,7 @@ export const PREFERENCE_KEYS = {
   reduceMotion: "reduce_motion",
   reduceTransparency: "reduce_transparency",
   caretBlink: "caret_blink",
+  uiSounds: "ui_sounds",
   wallpaper: "wallpaper",
   lockAfter: "lock_after",
   screenReader: "screen_reader",
@@ -135,6 +143,7 @@ export const PREFERENCE_KEYS = {
   hourCycle: "hour_cycle",
   doNotDisturb: "do_not_disturb",
   notificationPreviews: "notification_previews",
+  notificationSoundsOff: "notification_sounds_off",
   inputSources: "input_sources",
   inputSource: "input_source",
 } as const satisfies Record<keyof Preferences, string>;
@@ -287,6 +296,13 @@ export function preferenceText<K extends keyof Preferences>(value: Preferences[K
     `caret_blink` off, so every text field's caret stays lit. */
 export function prefersSteadyCaret(preferences: Pick<Preferences, "caretBlink">): boolean {
   return !preferences.caretBlink;
+}
+
+/** Whose notifications play no sound once `id`'s are turned on or off (Settings' Notifications page,
+    docs/adr/0044-system-sounds.mdx): the list in the order it was, `id` added at its end or taken out. */
+export function notificationSoundsWith(off: readonly string[], id: string, on: boolean): string[] {
+  const rest = off.filter((silent) => silent !== id);
+  return on ? rest : [...rest, id];
 }
 
 /** The choices of how long before the session locks, in minutes (0: never). */

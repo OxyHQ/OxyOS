@@ -153,7 +153,8 @@ fn the_header_matches_the_notifications_abi() {
             "data",
             "actions",
             "action_count",
-            "banner"
+            "banner",
+            "sound"
         ]
     );
     let rust = [
@@ -165,6 +166,7 @@ fn the_header_matches_the_notifications_abi() {
         offset_of!(OxyOSNotification, actions),
         offset_of!(OxyOSNotification, action_count),
         offset_of!(OxyOSNotification, banner),
+        offset_of!(OxyOSNotification, sound),
     ];
     assert_eq!(
         c_offsets(&notification),
@@ -359,6 +361,7 @@ fn a_notification_posted_and_activated_through_the_c_abi() {
         actions: actions.as_ptr(),
         action_count: actions.len(),
         banner: true,
+        sound: true,
     };
     let reply = "Voy";
     // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the
@@ -452,6 +455,8 @@ fn a_notification_posted_and_activated_through_the_c_abi() {
         assert_eq!(
             tail,
             [
+                // Its sound asked for before it is posted (docs/adr/0044-system-sounds.mdx).
+                Request::NotificationSound { serial: 1 },
                 Request::PostNotification {
                     serial: 1,
                     banner: true,

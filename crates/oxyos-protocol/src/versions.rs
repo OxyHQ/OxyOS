@@ -5,7 +5,7 @@
 //! it, and refused from it.
 
 use crate::schema::{Event, Request};
-use crate::wire::{AccessibleField, AccessibleRole, SystemShortcut};
+use crate::wire::{AccessibleField, AccessibleRole, ApplicationListKind, SystemShortcut};
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io::{self, Read, Write};
 
@@ -46,7 +46,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// an input method or the shell; version 20, where the shell's dock has each window minimize into
 /// (`ClearMinimizeTargets`, `PlaceMinimizeTarget`, ADR 0011's genie); version 21, the shell's
 /// candidate window resized in place (`ResizeInputCandidates`, ADR 0041); version 22, whether a
-/// zoomed or full-screen window covers an output (`OutputCovered`, ADR 0034), told to the shell.
+/// zoomed or full-screen window covers an output (`OutputCovered`, ADR 0034), told to the shell;
+/// version 23, system sounds (`PlaySystemSound`, `NotificationSound`,
+/// docs/adr/0044-system-sounds.mdx), asked by any client.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -74,6 +76,7 @@ const REQUESTS_ADDED: Added = &[
     (18, 63..=67),
     (20, 92..=93),
     (21, 68..=68),
+    (23, 236..=237),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -90,7 +93,8 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// (`AccessibleField::Hint`), which a version 12 reader would refuse the same way; version 14's
 /// column header role (`AccessibleRole::ColumnHeader`) and version 15's meter
 /// (`AccessibleRole::Meter`), likewise; and version 16's shortcut to the Notification Center
-/// (ADR 0039).
+/// (ADR 0039); and version 23's list of applications whose notifications play no sound
+/// (`ApplicationListKind::NotificationSoundsOff`).
 pub fn event_since(event: &Event) -> u16 {
     match event {
         Event::SystemShortcut {
@@ -113,6 +117,10 @@ pub fn event_since(event: &Event) -> u16 {
             role: AccessibleRole::Meter,
             ..
         } => 15,
+        Event::ApplicationList {
+            list: ApplicationListKind::NotificationSoundsOff,
+            ..
+        } => 23,
         _ => since(EVENTS_ADDED, event.opcode()),
     }
 }
@@ -120,7 +128,7 @@ pub fn event_since(event: &Event) -> u16 {
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one. A request an older version had, carrying a value that version lacks, is the newer
 /// version's: a node's hint (version 13), a column header (version 14) and a meter (version 15),
-/// which an older compositor would refuse.
+/// which an older compositor would refuse; and that list (version 23).
 pub fn request_since(request: &Request) -> u16 {
     match request {
         Request::AccessibleText {
@@ -135,6 +143,10 @@ pub fn request_since(request: &Request) -> u16 {
             role: AccessibleRole::Meter,
             ..
         } => 15,
+        Request::SetApplicationList {
+            list: ApplicationListKind::NotificationSoundsOff,
+            ..
+        } => 23,
         _ => since(REQUESTS_ADDED, request.opcode()),
     }
 }

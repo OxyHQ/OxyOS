@@ -1,0 +1,133 @@
+{
+  "about": "The dock's Trash under a drag with Reduce Motion on (docs/adr/0044-system-sounds.mdx; the preference of docs/adr/0019-settings.mdx): its picture darkens at once, in one frame, and goes back in one, and it never grows (`dock-trash-scale` committed no scale). The drop still puts the file in the Trash and plays its sound once.",
+  "locale": "es_ES.UTF-8",
+  "module": "DragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe",
+      "notes.txt": "keep me"
+    }
+  },
+  "preferences": {
+    "reduce_motion": "true"
+  },
+  "steps": [
+    {
+      "name": "a file held over the Trash a second, then Escape: it darkens at once and does not grow; nothing is moved, nothing sounds",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Papelera",
+          30,
+          30,
+          30,
+          1000
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: none"
+        ],
+        "in_shell": {
+          "committed": {
+            "dock-trash-scale": {
+              "transform.scale": [
+                1,
+                1
+              ]
+            },
+            "dock-trash-shade": {
+              "opacity": [
+                0,
+                0.35,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-trash-scale": [
+              0,
+              0
+            ],
+            "dock-trash-shade": [
+              2,
+              2
+            ]
+          }
+        },
+        "home": {
+          "informe.txt": "un informe",
+          "notes.txt": "keep me",
+          "trash": []
+        },
+        "sounds": []
+      }
+    },
+    {
+      "name": "held over the Trash and dropped: it darkens at once and does not grow; the file is in the home's Trash and the Trash's sound plays once",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Papelera",
+          30,
+          30,
+          0,
+          1000
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: move"
+        ],
+        "in_shell": {
+          "committed": {
+            "dock-trash-scale": {
+              "transform.scale": [
+                1,
+                1
+              ]
+            },
+            "dock-trash-shade": {
+              "opacity": [
+                0,
+                0.35,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-trash-scale": [
+              0,
+              0
+            ],
+            "dock-trash-shade": [
+              2,
+              2
+            ]
+          }
+        },
+        "home": {
+          "informe.txt": false,
+          "notes.txt": "keep me",
+          "trash": [
+            "informe.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ]
+      }
+    }
+  ]
+}

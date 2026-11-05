@@ -1,0 +1,50 @@
+{
+  "about": "Play user interface sound effects off (Settings' Sound page, the `ui_sounds` preference, docs/adr/0044-system-sounds.mdx): a file dropped on the dock's Trash goes into the home's Trash as ever, and no sound plays. With the preference ignored, the Trash's sound plays and the step fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "DragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe",
+      "notes.txt": "keep me"
+    }
+  },
+  "preferences": {
+    "ui_sounds": "false"
+  },
+  "steps": [
+    {
+      "name": "dropped on the Trash: in the home's Trash, silent",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Papelera",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: move"
+        ],
+        "home": {
+          "informe.txt": false,
+          "notes.txt": "keep me",
+          "trash": [
+            "informe.txt"
+          ]
+        },
+        "sounds": []
+      }
+    }
+  ]
+}

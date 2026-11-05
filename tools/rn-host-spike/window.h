@@ -130,6 +130,10 @@ class Window {
   // (oxyos_intl_set_default_locale), so the application's `Intl` formats in it from then on.
   const std::string& locale() const { return locale_; }
   bool settingsGranted() const { return !preferences_.empty(); }
+  // The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx), as the
+  // session tells Settings them: among `preferences()` under this key, ids joined by commas, and
+  // changed through `setPreference` with it, as the file keeps it.
+  static constexpr const char* kNotificationSoundsOff = "notification_sounds_off";
   // Asks the session to change a preference (Settings only); a PREFERENCE_RESULT with `serial`
   // answers. False if it could not be sent.
   bool setPreference(uint32_t serial, const std::string& key, const std::string& value);
@@ -232,6 +236,9 @@ class Window {
   bool forceQuitApplication(uint32_t window);
   // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
   bool emptyTrash(uint64_t input);
+  // One of the system's interface sounds (OXYOS_SYSTEM_SOUND_*), citing `input`
+  // (docs/adr/0044-system-sounds.mdx); false to a compositor before version 23.
+  bool playSystemSound(uint32_t sound, uint64_t input);
   // Puts files in the Trash (`file://` URIs, one a line), citing `input` (the drop on the dock's
   // Trash, docs/adr/0035-drag-and-drop.mdx); false if it was not sent.
   bool trashFiles(uint64_t input, const std::string& uris);
@@ -390,6 +397,7 @@ class Window {
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far
+  std::string receivingSoundsOff_;  // the silenced applications' chunks so far
   std::string locale_;
   std::string receivingLocale_;  // the locale's chunks so far
   // A display's name, modes and scales being told, applied by its DISPLAY.

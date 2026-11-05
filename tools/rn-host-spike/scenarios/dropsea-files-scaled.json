@@ -622,7 +622,10 @@
           "trash": [
             "todo.txt"
           ]
-        }
+        },
+        "sounds": [
+          "file-trash"
+        ]
       }
     },
     {

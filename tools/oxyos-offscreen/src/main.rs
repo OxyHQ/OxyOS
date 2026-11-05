@@ -168,6 +168,9 @@ struct Session {
     pub url_opens: Vec<(String, String)>,
     /// The user's Trashes, followed as the session follows them (`--trash`, a scenario's own home).
     pub trash: Option<oxyos_compositor::trash::Trash>,
+    /// The system sounds the session would have played since a step last took them
+    /// (docs/adr/0044-system-sounds.mdx).
+    pub sounds: oxyos_sound::Recorder,
     /// `--installed-fixture ROOT`: the install service's state directory a scenario wrote, which
     /// the shell it starts lists from too.
     pub installed_fixture: Option<PathBuf>,
@@ -273,6 +276,7 @@ impl Session {
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
             url_opens: Vec::new(),
+            sounds: oxyos_sound::Recorder::default(),
             trash: None,
             installed_fixture: None,
             displays: None,
@@ -478,6 +482,7 @@ impl Session {
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.serve(&mut self.compositor.scene);
+            self.compositor.play_sounds();
         }
         // Input sources and the engine (ADR 0041), before the store takes the requests left.
         if let Some(methods) = self.input_methods.as_mut() {

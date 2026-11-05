@@ -1,0 +1,26 @@
+OxyOS's system sounds (/usr/share/sounds/oxyos, docs/adr/0044-system-sounds.mdx)
+
+Both sounds were supplied by the OxyOS owner for OxyOS on 5 November 2026. No other
+provenance was given with them, and no ownership or relicensing of them is asserted here.
+Their licence must be resolved with the repository's before any release (README.md).
+
+stereo/trash-empty.oga (and stereo/file-trash.oga, a link to it: one sound for putting items
+in the Trash and for emptying it)
+  Source: "Empty-trash-sound-effect.mp3", MP3, 128 kb/s, 44.1 kHz stereo, 0.84 s,
+          13374 bytes, SHA-256
+          ff9c157ce25dcff682cd5894d274569005d98ca9826f1e3309004c9722d7a15c
+  Made:   scripts/import-system-sound.py SOURCE trash-empty.oga --threshold -80
+          The source decoded to 16-bit PCM (ffmpeg 7.1.5); the 25.9 ms of silence before the
+          sound (the MP3 encoder's delay) and the 151.9 ms after it, below -80 dBFS, cut at
+          the sample; frames 1144 to 30164 of 36864 kept unchanged (0.66 s); Ogg Vorbis,
+          libvorbis quality 10.
+
+stereo/message-new-instant.oga (a notification arriving)
+  Source: "notification.wav", originally "MACHMisc-phone_notification-Elevenlabs.wav",
+          16-bit PCM, 48 kHz stereo, 4.0 s, 768078 bytes, SHA-256
+          b9c38c116d166cc4a66bdebbd447d61093558815db9898f25951ffc8faca0089
+  Made:   scripts/import-system-sound.py SOURCE message-new-instant.oga --threshold -70 --before 3.95
+          No silence before the sound; after it, from 3.40 s, 0.55 s of the source's noise
+          floor (peaks below -73 dBFS, -86 dBFS RMS) and a click in its last 50 ms (-42 dBFS)
+          cut at the sample; frames 0 to 163171 of 192000 kept unchanged (3.40 s); Ogg Vorbis,
+          libvorbis quality 10.

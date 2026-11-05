@@ -9,6 +9,7 @@ use oxyos_compositor_core::{Scene, TrashRequest};
 use oxyos_files::trash;
 use oxyos_files::watch::Watcher;
 use oxyos_files::Scope;
+use oxyos_protocol::SystemSound;
 use std::io::{self, Read};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
@@ -120,6 +121,8 @@ impl Trash {
         }
         if moved > 0 {
             eprintln!("[trash] trashed: {moved} items");
+            // The Trash's sound, once for the drop (docs/adr/0044-system-sounds.mdx).
+            scene.request_system_sound(SystemSound::MoveToTrash);
             self.tell(scene);
         }
     }
@@ -129,7 +132,11 @@ impl Trash {
         self.sheet = None;
         if accepted {
             match trash::empty(&self.scope) {
-                Ok(removed) => eprintln!("[trash] emptied: {removed} items"),
+                Ok(removed) => {
+                    eprintln!("[trash] emptied: {removed} items");
+                    // Emptied for good: its sound, once (docs/adr/0044-system-sounds.mdx).
+                    scene.request_system_sound(SystemSound::EmptyTrash);
+                }
                 Err(error) => eprintln!("[trash] not emptied: {error:?}"),
             }
             self.tell(scene);
@@ -270,10 +277,14 @@ mod tests {
         assert!(sheet_texts(&mut scene).is_empty());
         follower.answered(&mut scene, false);
         assert_eq!(trash::count(&scope), 1);
+        // Refused: no sound.
+        assert!(scene.take_system_sounds().is_empty());
         // Accepted, it is emptied for good and the shell told.
         follower.ask(&mut scene, true);
         follower.answered(&mut scene, true);
         assert_eq!(trash::count(&scope), 0);
+        // Emptied: the empty sound, once.
+        assert_eq!(scene.take_system_sounds(), [SystemSound::EmptyTrash]);
         assert!(told(&mut scene).contains(&Event::TrashItems { items: 0 }));
         // An empty Trash asks nothing.
         follower.ask(&mut scene, true);
@@ -320,6 +331,7 @@ mod tests {
             },
         );
         assert!(item.exists());
+        assert!(scene.take_system_sounds().is_empty());
         // With it, the file is in the Trash and the shell told; a URI out of the scope and one
         // gone are passed over.
         follower.put(
@@ -335,6 +347,8 @@ mod tests {
         );
         assert!(!item.exists());
         assert_eq!(trash::count(&scope), 1);
+        // One sound for the drop, whatever it held.
+        assert_eq!(scene.take_system_sounds(), [SystemSound::MoveToTrash]);
         assert!(told(&mut scene).contains(&Event::TrashItems { items: 1 }));
         let _ = std::fs::remove_dir_all(&home);
     }

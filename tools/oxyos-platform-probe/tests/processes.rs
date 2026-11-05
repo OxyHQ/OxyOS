@@ -13,5 +13,12 @@ fn two_independent_processes_negotiate_present_and_open_a_popup_without_a_displa
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(stdout.trim(), "{\"mode\":\"headless-metadata\",\"protocol\":22,\"clients\":2,\"frames\":7,\"popups_beyond_parent\":1,\"graphics\":false,\"bloom\":false,\"status\":\"passed\"}");
+    // The current version, whatever it is: a version only adds (ADR 0033).
+    assert_eq!(
+        stdout.trim(),
+        format!(
+            "{{\"mode\":\"headless-metadata\",\"protocol\":{},\"clients\":2,\"frames\":7,\"popups_beyond_parent\":1,\"graphics\":false,\"bloom\":false,\"status\":\"passed\"}}",
+            oxyos_protocol::VERSION
+        )
+    );
 }

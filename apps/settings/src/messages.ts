@@ -27,6 +27,7 @@ const en = {
     appearance: "Appearance",
     wallpaper: "Wallpaper",
     notifications: "Notifications",
+    sound: "Sound",
     lockScreen: "Lock Screen",
     displays: "Displays",
     keyboard: "Keyboard",
@@ -66,6 +67,14 @@ const en = {
     always: "Always",
     unlocked: "When unlocked",
     previewsDescription: "What notifications say, on the lock screen. When unlocked, it shows only how many each app has.",
+    applications: "Application notifications",
+    playSound: "Play sound for notifications",
+    /** A switch's name: the sound and whose it is, as the row is read alone. */
+    playSoundFor: (app: string) => `Play sound for ${app}'s notifications`,
+  },
+  sound: {
+    uiSounds: "Play user interface sound effects",
+    uiSoundsDescription: "The sounds of the Trash and of things you do. Notifications have their own, in Notifications.",
   },
   lockScreen: {
     lockAfter: "Lock after",
@@ -322,6 +331,7 @@ const es: Messages = {
     appearance: "Apariencia",
     wallpaper: "Fondo de pantalla",
     notifications: "Notificaciones",
+    sound: "Sonido",
     lockScreen: "Pantalla de bloqueo",
     displays: "Pantallas",
     keyboard: "Teclado",
@@ -362,6 +372,14 @@ const es: Messages = {
     unlocked: "Al desbloquear",
     previewsDescription:
       "Lo que dicen las notificaciones, en la pantalla de bloqueo. Al desbloquear, solo cuántas tiene cada aplicación.",
+    applications: "Notificaciones de las aplicaciones",
+    playSound: "Reproducir sonido para las notificaciones",
+    playSoundFor: (app: string) => `Reproducir sonido para las notificaciones de ${app}`,
+  },
+  sound: {
+    uiSounds: "Reproducir efectos de sonido de la interfaz de usuario",
+    uiSoundsDescription:
+      "Los sonidos de la papelera y de lo que haces. Las notificaciones tienen el suyo, en Notificaciones.",
   },
   lockScreen: {
     lockAfter: "Bloquear tras",

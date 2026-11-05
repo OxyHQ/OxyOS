@@ -1012,6 +1012,27 @@ std::shared_ptr<TurboModule> createHostModule(
     module->method("getSystem", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       return jsi::valueFromDynamic(rt, systemFacts());
     });
+    // The session's applications (its registry, docs/adr/0013-launching-applications.mdx), by id
+    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx).
+    module->method("getApplications", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      folly::dynamic applications = folly::dynamic::array();
+      int64_t length = oxyos_applications(nullptr, 0);
+      if (length >= 0) {
+        std::string json(static_cast<size_t>(length) + 1, '\0');
+        oxyos_applications(json.data(), json.size());
+        json.resize(static_cast<size_t>(length));
+        try {
+          for (const auto& app : folly::parseJson(json)) {
+            if (app.isObject() && app.count("id") && app.count("name")) {
+              applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"]));
+            }
+          }
+        } catch (const std::exception& error) {
+          std::cerr << "[host] the applications: " << error.what() << "\n";
+        }
+      }
+      return jsi::valueFromDynamic(rt, applications);
+    });
     // The displays (docs/adr/0018-several-displays.mdx): as the session tells them, and a change of
     // one, answered as a preference's (`OxyOSSettingsResult`); `OxyOSDisplaysChanged` follows.
     module->method("getDisplays", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
@@ -1102,6 +1123,14 @@ std::shared_ptr<TurboModule> createHostModule(
       services.keyboard.runtime = &rt;
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
+    });
+  } else if (name == "OxyOSSounds") {
+    // The system's interface sounds (sample/oxyos/platform-surface.js, Bloom's usePlatformSounds;
+    // docs/adr/0044-system-sounds.mdx): an application asks by meaning, the session plays its own.
+    module->constants([&services] { return folly::dynamic::object("available", services.soundsAvailable); });
+    module->method("play", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSounds.play: a sound's name");
+      return jsi::Value(services.playSystemSound && services.playSystemSound(args[0].asString(rt).utf8(rt)));
     });
   } else if (name == "OxyOSDrag") {
     // Dragging the application's content to another application (sample/oxyos/platform-surface.js,

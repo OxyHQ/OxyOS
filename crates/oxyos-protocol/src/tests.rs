@@ -490,6 +490,11 @@ fn requests() -> Vec<Request> {
             text: PreeditText::new("dropsea://trash").unwrap(),
         },
         Request::TrackPointer { surface: 2 },
+        Request::PlaySystemSound {
+            input: 14,
+            sound: SystemSound::MoveToTrash,
+        },
+        Request::NotificationSound { serial: 6 },
         Request::CreateDragIcon {
             surface: 7,
             size: Size::new(64, 48),
@@ -1284,6 +1289,53 @@ fn system_shortcuts_are_a_closed_set() {
     bad[4 + 1] = 0;
     assert!(read_event(&mut Cursor::new(bad)).is_err());
     assert!(read_event(&mut Cursor::new(bytes)).is_ok());
+}
+
+#[test]
+fn system_sounds_are_a_closed_set_of_version_23() {
+    assert!(SystemSound::from_raw(0).is_none());
+    assert!(SystemSound::from_raw(4).is_none());
+    assert_eq!(SystemSound::from_raw(1), Some(SystemSound::MoveToTrash));
+    assert_eq!(SystemSound::from_raw(2), Some(SystemSound::EmptyTrash));
+    assert_eq!(SystemSound::from_raw(3), Some(SystemSound::Notification));
+    let play = Request::PlaySystemSound {
+        input: 3,
+        sound: SystemSound::EmptyTrash,
+    };
+    assert_eq!(request_since(&play), 23);
+    assert_eq!(request_since(&Request::NotificationSound { serial: 1 }), 23);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &play).unwrap();
+    // The sound byte follows the 4-byte length, the opcode and the 8-byte input.
+    let mut bad = bytes.clone();
+    bad[4 + 1 + 8] = 9;
+    assert!(read_request(&mut Cursor::new(bad)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
+    // The list of applications whose notifications are silent is version 23's, both ways; the
+    // dock's stays version 8's.
+    let silent = |list| Request::SetApplicationList {
+        serial: 1,
+        list,
+        index: 0,
+        last: true,
+        text: PreeditText::new("so.oxy.allo").unwrap(),
+    };
+    assert_eq!(
+        request_since(&silent(ApplicationListKind::NotificationSoundsOff)),
+        23
+    );
+    assert_eq!(request_since(&silent(ApplicationListKind::Dock)), 8);
+    let told = Event::ApplicationList {
+        list: ApplicationListKind::NotificationSoundsOff,
+        chosen: true,
+        index: 0,
+        last: true,
+        text: PreeditText::new("so.oxy.allo").unwrap(),
+    };
+    let mut v22 = Vec::new();
+    assert!(!write_event_for(&mut v22, &told, 22).unwrap());
+    assert!(v22.is_empty());
+    assert!(write_event_for(&mut v22, &told, 23).unwrap());
 }
 
 #[test]

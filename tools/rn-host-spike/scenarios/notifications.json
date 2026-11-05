@@ -1,5 +1,5 @@
 {
-  "about": "Notifications (docs/adr/0026-notifications.mdx) through expo-notifications' API, which the Bloom host implements on OxyOS (sample/NotificationProbe.tsx, sample/oxyos/expo-adapter.js): Allo posts one now (scheduleNotificationAsync, in a category whose action is a reply); the session keeps it as Allo's by its launch record and the shell shows a banner at the top right, the registry's Allo icon and name, the title and body and the reply action, sliding in on a notification surface of its own, said politely to the screen reader. Allo minimized (Super+M), a press on the banner restores and focuses it, and Allo's response listener hears the press once, with the data it posted. The reply action opens a field in the banner: what is typed and Enter go to Allo with the action, once, and Allo comes forward. Two more, and the top bar's clock opens the Notification Center: one group, Allo's, with both, cleared at once. Every step checks what Allo's React tree and client receive.",
+  "about": "Notifications (docs/adr/0026-notifications.mdx) through expo-notifications' API, which the Bloom host implements on OxyOS (sample/NotificationProbe.tsx, sample/oxyos/expo-adapter.js): Allo posts one now (scheduleNotificationAsync, in a category whose action is a reply); the session keeps it as Allo's by its launch record and the shell shows a banner at the top right, the registry's Allo icon and name, the title and body and the reply action, sliding in on a notification surface of its own, said politely to the screen reader. Allo minimized (Super+M), a press on the banner restores and focuses it, and Allo's response listener hears the press once, with the data it posted. The reply action opens a field in the banner: what is typed and Enter go to Allo with the action, once, and Allo comes forward. Two more, and the top bar's clock opens the Notification Center: one group, Allo's, with both, cleared at once. Every step checks what Allo's React tree and client receive. Each notification plays the notification sound (docs/adr/0044-system-sounds.mdx: expo-notifications' handler, until the application sets its own, asks for one), the two posted together once.",
   "locale": "es_ES.UTF-8",
   "module": "NotificationProbe",
   "window": [
@@ -112,7 +112,10 @@
               "name": "Responder"
             }
           ]
-        }
+        },
+        "sounds": [
+          "message-new-instant"
+        ]
       }
     },
     {
@@ -251,7 +254,10 @@
             }
           ],
           "count": 1
-        }
+        },
+        "sounds": [
+          "message-new-instant"
+        ]
       }
     },
     {
@@ -342,7 +348,10 @@
         "react": {
           "touchStart@notify": 1,
           "touchEnd@notify": 1
-        }
+        },
+        "sounds": [
+          "message-new-instant"
+        ]
       }
     },
     {

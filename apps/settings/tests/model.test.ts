@@ -7,6 +7,7 @@ import {
   formatRefresh,
   LOCK_AFTER_CHOICES,
   looksLike,
+  notificationSoundsWith,
   placeOf,
   PREFERENCE_KEYS,
   preferenceText,
@@ -30,10 +31,12 @@ test("preferences are named as the session's file names them", () => {
     "language",
     "lock_after",
     "notification_previews",
+    "notification_sounds_off",
     "reduce_motion",
     "reduce_transparency",
     "region",
     "screen_reader",
+    "ui_sounds",
     "wallpaper",
   ]);
   assert.equal(preferenceText<"wallpaper">(null), "");
@@ -193,4 +196,23 @@ test("the Displays page's words in both languages", () => {
   assert.equal(messagesFor("en").displays.place("right", "Built-in Display"), "right of Built-in Display");
   assert.equal(messagesFor("es").displays.place("right", "Pantalla 1"), "a la derecha de Pantalla 1");
   assert.equal(messagesFor("es").displays.place("above", "Pantalla 1"), "encima de Pantalla 1");
+});
+
+test("interface sounds and each application's notification sound are named as a Mac's", () => {
+  // Sound's switch (docs/adr/0044-system-sounds.mdx), on by default, as the file writes it.
+  assert.equal(PREFERENCE_KEYS.uiSounds, "ui_sounds");
+  assert.equal(preferenceText<"uiSounds">(false), "false");
+  assert.equal(messagesFor("en").sound.uiSounds, "Play user interface sound effects");
+  assert.equal(messagesFor("es").sound.uiSounds, "Reproducir efectos de sonido de la interfaz de usuario");
+  assert.equal(messagesFor("es").pages.sound, "Sonido");
+  // The applications whose notifications are silent: one turned off joins the list at its end, on
+  // again leaves it; the list as the file keeps it.
+  assert.deepEqual(notificationSoundsWith([], "so.oxy.allo", false), ["so.oxy.allo"]);
+  assert.deepEqual(notificationSoundsWith(["so.oxy.allo"], "so.oxy.inbox", false), ["so.oxy.allo", "so.oxy.inbox"]);
+  assert.deepEqual(notificationSoundsWith(["so.oxy.allo", "so.oxy.inbox"], "so.oxy.allo", true), ["so.oxy.inbox"]);
+  assert.deepEqual(notificationSoundsWith(["so.oxy.allo"], "so.oxy.allo", false), ["so.oxy.allo"]);
+  assert.equal(preferenceText<"notificationSoundsOff">(["so.oxy.allo", "so.oxy.inbox"]), "so.oxy.allo,so.oxy.inbox");
+  assert.equal(messagesFor("en").notifications.playSound, "Play sound for notifications");
+  assert.equal(messagesFor("es").notifications.playSound, "Reproducir sonido para las notificaciones");
+  assert.equal(messagesFor("en").notifications.playSoundFor("Allo"), "Play sound for Allo's notifications");
 });

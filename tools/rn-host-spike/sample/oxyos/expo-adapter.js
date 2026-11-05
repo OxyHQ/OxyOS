@@ -503,9 +503,18 @@ Object.assign(ExpoNotificationScheduler, {
       date: Date.now(),
       request: { identifier, content: { ...content, data: content.data ?? {} }, trigger: null },
     };
-    // A handler that answers nothing in time shows it, as Expo does.
-    const behavior = (await behaviorFor(identifier, notification)) ?? { shouldShowBanner: true, shouldShowList: true };
+    // A handler that answers nothing in time shows it as expo-notifications' own default handler
+    // does: a banner, in the list, with a sound.
+    const behavior = (await behaviorFor(identifier, notification)) ?? {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+    };
     const banner = !!(behavior.shouldShowBanner || behavior.shouldShowAlert);
+    // The system's notification sound (docs/adr/0044-system-sounds.mdx), as the handler's
+    // shouldPlaySound asks; `sound: false` in the content silences it. A sound of the application's
+    // own (a file name) plays the system's: OxyOS plays no application's files.
+    const sound = content.sound !== false && !!behavior.shouldPlaySound;
     if (banner || behavior.shouldShowList) {
       const serial = ++nextSerial;
       const answer = new Promise((resolve) => posting.set(serial, resolve));
@@ -517,6 +526,7 @@ Object.assign(ExpoNotificationScheduler, {
         data,
         actions: actionsOf(content),
         banner,
+        sound,
       });
       if (!sent) {
         posting.delete(serial);

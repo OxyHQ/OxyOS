@@ -1,0 +1,33 @@
+{
+  "about": "No notification sound for an application whose sound the person turned off in Settings' Notifications (`notification_sounds_off`, docs/adr/0044-system-sounds.mdx): Allo's notification is posted and kept, and none plays.",
+  "locale": "es_ES.UTF-8",
+  "module": "NotificationSoundProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "preferences": {
+    "notification_sounds_off": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Avisar posts one: kept, and silent",
+      "do": [
+        "press_named",
+        "Avisar"
+      ],
+      "expect": {
+        "texts": [
+          "Posted: 1",
+          "Failed: none"
+        ],
+        "sounds": []
+      }
+    }
+  ]
+}

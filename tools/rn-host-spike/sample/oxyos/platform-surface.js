@@ -497,6 +497,18 @@ const drag = dragAvailable
     }
   : undefined;
 
+// The system's own sounds (docs/adr/0044-system-sounds.mdx, Bloom's usePlatformSounds): an
+// application asks by meaning and the session plays its sound theme's, as the person's settings
+// and the output allow, citing the latest input it received. The protocol's version 23 has them.
+const nativeSounds = TurboModuleRegistry.get('OxyOSSounds');
+const sounds = nativeSounds?.getConstants()?.available
+  ? {
+      play(sound) {
+        nativeSounds.play(String(sound));
+      },
+    }
+  : undefined;
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set([
@@ -516,5 +528,6 @@ export const oxyosSurfaces = {
   editing,
   appearance,
   files,
+  sounds,
   ...(drag ? { DropTarget, drag } : {}),
 };

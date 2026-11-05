@@ -19,7 +19,7 @@ function isSvgIcon(icon: ShellApplication["icon"]): icon is { svg: string } {
  * same size and shape.
  */
 const BODY = 896 / 1024;
-const CORNER = 208 / 896;
+export const CORNER = 208 / 896;
 
 /**
  * An icon's body alone, `size` across, with nothing added around it: the dock's

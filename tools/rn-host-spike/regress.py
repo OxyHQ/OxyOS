@@ -92,6 +92,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - minimize_target: where the application's window minimizes into, as the shell's dock says it
   (ADR 0011's genie): [x, y, width, height] in the global space (logical pixels), or null where
   no shell surface shown says, exactly;
+- sounds: the system sounds the session played in the step (docs/adr/0044-system-sounds.mdx),
+  exactly and in order, by their names in the sound theme (`file-trash`, `trash-empty`,
+  `message-new-instant`): recorded as the session would play them, after the person's settings and
+  the output's mute; a step that plays one and does not say so fails;
 - urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say
   so fails;
@@ -114,10 +118,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   colour as "#rrggbb"): the values went from `from` to exactly `to`, monotonically in each colour
   channel, over at least `animated_frames` frames (8 by default); with `animated_linear_ms`, every
   frame's value is where a linear animation of that duration is at that frame's time, within one
-  frame of the display (the scenario's refresh: see `outputs`). A view it does not list must not move: the driver may set it (a node's first frame sets
-  its start), but always to the same values. `animated_frames` may be [least, most];
-- committed: the same for what React's commits changed in the step (opacity, translation and the
-  top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn, of views with a
+  frame of the display (the scenario's refresh: see `outputs`). Given three values [from, peak,
+  to], the values went from `from` to exactly `peak`, monotonically, then from there to exactly
+  `to`, monotonically (a view scaled up and back: the dock's Trash under a drag). A view it does not list must not move: the driver may set it (a node's first frame sets
+  its start), but always to the same values. `animated_frames` may be [least, most], or such bounds by view ({testID: bounds});
+- committed: the same for what React's commits changed in the step (opacity, translation, scale
+  (`transform.scale`) and the top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn, of views with a
   testID, as mounted: a JavaScript-driven Animated's and Reanimated's frames among them), with
   `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
 - animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
@@ -304,8 +310,9 @@ press, secondary press, motion and long press at the middle of the node so named
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
 (`Inbox`), so a change of the dock's row moves no scenario's press; `drag_paced_named`
-([from, to, motions, hz] and optionally the motion Escape follows) is a paced drag from one node
-to another (a file onto the dock's Trash, ADR 0035). A `wait_named` step
+([from, to, motions, hz] and optionally the motion Escape follows, 0 for none, and how long the hand
+rests at `to` before that Escape and the release, in ms) is a paced drag from one node to another (a
+file onto the dock's Trash, ADR 0035; held over it, docs/adr/0044-system-sounds.mdx). A `wait_named` step
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
 named on a shown surface, and fails if none is within `ms`: an answer that comes on the application's
 own clock (a store that is down, asked again until the application says so) is waited for as it
@@ -1597,20 +1604,45 @@ def check_animated(expect, report, start, end, fail, kind="animated", refresh_hz
             for prop, frames in got[view].items():
                 if any(value != frames[0][1] for _, value in frames):
                     fail(f"the native driver moved {view} {prop} ({[value for _, value in frames]}), which the step does not list")
-    bounds, linear_ms = expect.get(f"{kind}_frames", 8), expect.get(f"{kind}_linear_ms")
-    least, most = bounds if isinstance(bounds, list) else (bounds, None)
-    least = frames_least(least)
+    every, linear_ms = expect.get(f"{kind}_frames", 8), expect.get(f"{kind}_linear_ms")
 
     def channels(value):
         return [int(value[i:i + 2], 16) for i in (1, 3, 5)] if isinstance(value, str) else [value]
 
     for view, props in expect[kind].items():
-        for prop, (first, last) in props.items():
+        # The frames' bounds, the same for every view or by view ({testID: bounds}, 8 for one not
+        # named): a view that must not move beside one that must.
+        bounds = every.get(view, 8) if isinstance(every, dict) else every
+        least, most = bounds if isinstance(bounds, list) else (bounds, None)
+        least = frames_least(least)
+        for prop, path_wanted in props.items():
             frames = got.get(view, {}).get(prop, [])
+            if len(path_wanted) == 3:
+                # Up to a peak and back (the dock's Trash under a drag): each part monotonic, the
+                # peak and the end reached exactly.
+                first, peak, last = path_wanted
+                name = f"{view} {prop}"
+                values = [value[0] for _, value in frames]
+                if len(values) < least:
+                    fail(f"{name} was set on {len(values)} frames, expected at least {least}")
+                    continue
+                top = max(range(len(values)), key=lambda i: (values[i] - first) * (peak - first))
+                up, down = values[:top + 1], values[top:]
+                shown = [round(v, 3) for v in values]
+                if round(values[top], 3) != round(peak, 3) or round(values[-1], 3) != round(last, 3):
+                    fail(f"{name} went {shown}, expected up to exactly {peak} and back to exactly {last}")
+                elif any((b < a) if peak > first else (b > a) for a, b in zip(up, up[1:])) or \
+                        any((b > a) if peak > last else (b < a) for a, b in zip(down, down[1:])):
+                    fail(f"{name} went {shown}, not monotonically from {first} to {peak} and to {last}")
+                continue
+            first, last = path_wanted
             name = f"{view} {prop}"
             if len(frames) < least or (most is not None and len(frames) > most):
                 fail(f"{name} was set on {len(frames)} frames, expected {least} to {most}" if most is not None
                      else f"{name} was set on {len(frames)} frames, expected at least {least}")
+                continue
+            if not frames:
+                # None allowed, none set (`{kind}_frames` [0, 0]: a view that must not move).
                 continue
             low, high = channels(first), channels(last)
             shown = [[round(c, 3) for c in value] for _, value in frames]
@@ -2132,7 +2164,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "in_shell" in expect:
         # The session's shell's own texts, React deliveries and gestures, from its report.
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
-                      "expect": expect["in_shell"]}
+                      "expect": expect["in_shell"], "within": "shell"}
         check_step(index, shell_step, result, shell_report or [], start, failures, refresh_hz=refresh_hz)
     if "in_chooser" in expect and screenshot is not None:
         # The file chooser the session started (ADR 0029, decision 8), from its own report beside
@@ -2142,7 +2174,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                           for line in ended_report(path)),
                          key=lambda line: line["t"])
         chooser_step = {"name": f"{step.get('name', step['do'][0])}, in the file chooser",
-                        "do": step["do"], "expect": expect["in_chooser"]}
+                        "do": step["do"], "expect": expect["in_chooser"], "within": "chooser"}
         check_step(index, chooser_step, result, chooser, start, failures, refresh_hz=refresh_hz)
     if "chooser" in expect:
         # The file chooser's sheet (ADR 0029, decision 8): null, or where it is on the output, whether
@@ -2161,7 +2193,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         path = pathlib.Path(screenshot).parent / "host-report.jsonl.companion"
         companion = ended_report(path)
         companion_step = {"name": f"{step.get('name', step['do'][0])}, in the companion",
-                          "do": step["do"], "expect": expect["in_companion"]}
+                          "do": step["do"], "expect": expect["in_companion"], "within": "companion"}
         # Its window's menus (ADR 0021) are the companion's own, as the shell is told them.
         companion_result = dict(result, menus=result.get("companion_menus"))
         check_step(index, companion_step, companion_result, companion, start, failures, refresh_hz=refresh_hz)
@@ -2173,7 +2205,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         path = pathlib.Path(screenshot).parent / "host-report.jsonl.launched"
         launched = ended_report(path)
         launched_step = {"name": f"{step.get('name', step['do'][0])}, in the launched application",
-                         "do": step["do"], "expect": expect["in_launched"]}
+                         "do": step["do"], "expect": expect["in_launched"], "within": "launched"}
         check_step(index, launched_step, result, launched, start, failures, refresh_hz=refresh_hz)
     if "a11y_events" in expect:
         # Accessibility events JavaScript sent (focus moves), as `event@testID` counts.
@@ -2581,6 +2613,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"screenshots saved, none expected: {result['screenshots']['saved']}")
     # The URLs the shell opened in the step (ADR 0034), exactly: each its URL and the application
     # started for it. A step that opens one and does not say so fails.
+    # The system sounds played in the step (docs/adr/0044-system-sounds.mdx), exactly. A step that
+    # plays one and does not say so fails.
+    sounds = result.get("sounds") or []
+    if not step.get("within") and sounds != expect.get("sounds", []):
+        fail(f"sounds played: {sounds}, expected {expect.get('sounds', [])}")
     urls = result.get("urls_opened") or []
     if urls != expect.get("urls_opened", []):
         fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
