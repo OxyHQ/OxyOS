@@ -1,0 +1,471 @@
+{
+  "about": "Mission Control and App Exposé follow the fingers (docs/adr/0046-interactive-gestures.mdx), at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo's two windows with the shell. Three fingers down a quarter, half and three quarters of the swipe's 300 pixels hold App Exposé that far open, each moved window drawn exactly that share of the way from where it is to its view in the frame after the motion; lifted slowly past halfway it goes on to its places. The swipe back up a quarter closes it as far, the shell told nothing, and lifted short it opens again; swiped all the way it closes, the windows back exactly where they were. Two fifths down, lifted slowly, goes back; a fast short flick goes through. Four fingers up hold Mission Control, its windows the windows themselves (no copies) as far as the fingers, lifted it opens, and four down close it, every window exactly where it was. No application hears anything of it: neither React tree, and each window only its focus going and coming back.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      700,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Allo's two windows",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "renders": {}
+        }
+      }
+    },
+    {
+      "name": "three fingers down a quarter of the way, held: App Exposé a quarter open, the windows a quarter of the way to their places",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          0,
+          75,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        },
+        "swiped": 0.25,
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "on to half way: the windows half way, in the frame after the fingers' motion",
+      "do": [
+        "swipe_move",
+        [
+          0,
+          75,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 0.5,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "on to three quarters",
+      "do": [
+        "swipe_move",
+        [
+          0,
+          75,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 0.75,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "lifted slowly past halfway: it goes on, the windows in their places",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 1.0,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "three fingers up a quarter of the way, held: the swipe back closes it as far, the shell told nothing yet",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          0,
+          -75,
+          5
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 0.75,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "lifted slowly short of halfway: back open, the windows in their places",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 1.0,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "three fingers swiped up all the way: closed, the windows flying back to exactly where they are",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          -240,
+          8
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "drawn_home": true,
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "down two fifths of the way, held",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          0,
+          120,
+          8
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 0.4,
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "lifted slowly short of halfway: it goes back, closed, every window where it is",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": []
+        },
+        "windows_placed_as": 1,
+        "drawn_home": true,
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a fast, short flick down (45 pixels in 25 ms): it goes through, the windows flying to their places",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          45,
+          3,
+          120
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true,
+          "apart": true,
+          "within": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        },
+        "flights": {
+          "arriving": [
+            1,
+            2
+          ]
+        },
+        "swiped": 1.0,
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "swiped up: closed",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          -150,
+          6
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "drawn_home": true,
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "four fingers up, held past halfway: Mission Control's real windows, moved into its desktop, as far as the fingers",
+      "do": [
+        "swipe_begin",
+        [
+          4,
+          0,
+          -165,
+          6
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 0.55,
+        "in_shell": {
+          "texts": [
+            "Escritorio 1"
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "lifted slowly: Mission Control open, the windows in their cards",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "swiped": 1.0,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "four fingers down: it closes, the windows back exactly where they are, never copies",
+      "do": [
+        "swipe",
+        [
+          4,
+          0,
+          200,
+          8
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1,
+            2
+          ]
+        },
+        "windows_placed_as": 1,
+        "drawn_home": true,
+        "in_shell": {
+          "absent": [
+            "Escritorio 1"
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        }
+      }
+    }
+  ]
+}

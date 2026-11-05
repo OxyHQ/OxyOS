@@ -1926,7 +1926,13 @@ def check_views(index, step, result, results, failures):
                          if view["window"] == flight["window"]), None)
             home = (before if flight["arriving"] else result).get("windows_placed", {}).get(str(flight["window"]))
             start, end = (home, view and view["rect"]) if flight["arriving"] else (view and view["rect"], home)
-            if start is not None and first != start:
+            # Driven by fingers (a swipe, ADR 0046), its first frame is the first motion's: on its
+            # way, within a fifth of it from where it began; else exactly there.
+            swiped = step["do"][0] in ("swipe", "swipe_begin", "swipe_move", "swipe_end")
+            if start is not None and end is not None and swiped:
+                if any(abs(f - a) > abs(b - a) / 5 + 1 for f, a, b in zip(first, start, end)):
+                    fail(f"{who} began at {first}, not near {start}")
+            elif start is not None and first != start:
                 fail(f"{who} began at {first}, not at {start}")
             # Its last frame is where its spring came to rest, within a thousandth of the way:
             # a pixel at most from its end.

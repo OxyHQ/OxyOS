@@ -307,6 +307,8 @@ struct Running {
     /// Driven by a swipe (docs/adr/0046-interactive-gestures.mdx): as far along as the swipe has
     /// Mission Control or App Exposé open, not by its time, for as long as the swipe drives it.
     driven: bool,
+    /// Shown already when the swipe began: one being closed.
+    joined: bool,
 }
 
 impl Running {
@@ -318,6 +320,7 @@ impl Running {
             motion,
             duration: motion.duration(),
             driven: false,
+            joined: false,
         }
     }
 
@@ -695,7 +698,14 @@ impl Transitions {
         let id = self.begin(kind, Change::Arrived);
         let mut running = Running::new(id, kind, now, motion);
         running.driven = true;
+        running.joined = true;
         self.arriving.insert(key, running);
+    }
+
+    /// Whether `key` is drawn by a swipe that began with it shown: the swipe back closing it,
+    /// its windows on their way home as the fingers go.
+    pub fn swiped_back(&self, key: SurfaceKey) -> bool {
+        self.arriving.get(&key).is_some_and(|running| running.joined)
     }
 
     /// How open the swipe has Mission Control or App Exposé at `now`, while it drives them.

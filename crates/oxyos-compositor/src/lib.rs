@@ -2520,7 +2520,9 @@ impl Compositor {
                         drawn_opacity = opacity;
                         if self.transitions.is_arriving(surface) {
                             in_transition(clip, clip, None, false, None);
-                            flights_seen.push((window, true, placed));
+                            // A swipe closing what was open takes its windows home as it goes.
+                            let arriving = !self.transitions.swiped_back(surface);
+                            flights_seen.push((window, arriving, placed));
                         }
                     }
                     if moved && flying {

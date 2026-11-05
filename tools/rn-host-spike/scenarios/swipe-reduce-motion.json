@@ -1,0 +1,222 @@
+{
+  "about": "Swipes with Reduce Motion (docs/adr/0046-interactive-gestures.mdx), at 1.25 (1600 × 1000): Allo alone, one window, with the shell and the session's preferences asking for reduced motion. Three fingers down past halfway move nothing while they are down; lifted, App Exposé crossfades in where it is, nothing flying, and the swipe back crossfades it out, the window where it was with the keyboard. Across, past halfway, nothing slides while the fingers are down; lifted, the second desktop is the active one, the first's window crossfading away. With reduce motion ignored the windows would follow the fingers, and it fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "reduce_motion": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "Allo's window",
+      "do": [
+        "press",
+        [
+          300,
+          200
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "three fingers down past halfway, held: nothing follows them",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          0,
+          180,
+          6
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "drawn_home": true,
+        "react": {}
+      }
+    },
+    {
+      "name": "lifted: App Exposé crossfades in, nothing flying",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1
+          ],
+          "moved": true
+        },
+        "flights": {
+          "none": true
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": true,
+              "ended": true,
+              "still": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": true,
+              "ended": true,
+              "still": true
+            }
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "three fingers up all the way: it crossfades out, nothing flying back",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          -200,
+          8
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "none": true
+        },
+        "windows_placed_as": 1,
+        "drawn_home": true,
+        "focus_surface": 1,
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": false,
+              "ended": true,
+              "still": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": false,
+              "ended": true,
+              "still": true
+            }
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Super+↑: Mission Control",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Escritorio 1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a second desktop",
+      "do": [
+        "press_named",
+        "Añadir escritorio"
+      ],
+      "expect": {
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "Super+↑: closed",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Escritorio 1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "three fingers left past halfway, held: nothing slides",
+      "do": [
+        "swipe_begin",
+        [
+          3,
+          -260,
+          0,
+          6
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drawn_home": true,
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "lifted: the second desktop, its windows crossfading away, nothing sliding",
+      "do": [
+        "swipe_end",
+        100
+      ],
+      "expect": {
+        "workspaces": [
+          2,
+          1
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "arriving": false,
+              "ended": true,
+              "still": true
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
