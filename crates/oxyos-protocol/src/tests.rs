@@ -2470,7 +2470,8 @@ fn version_21_the_candidate_window_is_resized_only_by_a_peer_that_knows_it() {
         }),
         2
     );
-    assert_eq!(VERSION, 21);
+    // The compositor speaks it to a peer of version 21 (version 22 came after it).
+    assert_eq!(negotiate(2, 21), Ok(21));
 }
 
 #[test]
