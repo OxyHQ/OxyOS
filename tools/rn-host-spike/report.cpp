@@ -121,6 +121,14 @@ void Report::committed(const ShadowViewMutationList& mutations) {
       }
       props["transform"] = std::move(transform);
     }
+    // The top corners' radii as drawn (the dock's shelf, docs/adr/0034-the-dock.mdx).
+    auto radii = [](const ShadowView& view, const ViewProps& props) {
+      return props.resolveBorderMetrics(view.layoutMetrics).borderRadii;
+    };
+    auto was = radii(mutation.oldChildShadowView, *before);
+    auto now = radii(mutation.newChildShadowView, *after);
+    if (was.topLeft.horizontal != now.topLeft.horizontal) props["borderTopLeftRadius"] = now.topLeft.horizontal;
+    if (was.topRight.horizontal != now.topRight.horizontal) props["borderTopRightRadius"] = now.topRight.horizontal;
     if (!props.empty()) {
       write(folly::dynamic::object("kind", "committed")("target", after->testId)("props", std::move(props)));
     }

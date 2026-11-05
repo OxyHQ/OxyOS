@@ -109,6 +109,11 @@ export type ShellPlatform = {
       the overview, when it is open, and nothing else of the shell. Without it, each window's
       `thumbnailSize`. */
   useWindowSizes?: () => ReadonlyMap<string, WindowSize> | undefined;
+  /** Whether a window zoomed to fill the work area, or full screen, covers this display now, where
+      the platform says (the session's shell): read by the dock's shelf alone, whose top corners are
+      square while one does (docs/adr/0034-the-dock.mdx), so that a window zoomed or restored renders
+      the shelf and nothing else of the shell. Without it, the corners stay round. */
+  useDisplayCovered?: () => boolean;
   /** Says `text` to assistive technologies, politely (after what they are saying) or at once;
       without it, React Native's announcement, which interrupts. */
   announce?: (text: string, polite: boolean) => void;

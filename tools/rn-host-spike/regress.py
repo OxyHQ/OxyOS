@@ -116,8 +116,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   frame's value is where a linear animation of that duration is at that frame's time, within one
   frame of the display (the scenario's refresh: see `outputs`). A view it does not list must not move: the driver may set it (a node's first frame sets
   its start), but always to the same values. `animated_frames` may be [least, most];
-- committed: the same for what React's commits changed in the step (opacity and translation of
-  views with a testID, as mounted: a JavaScript-driven Animated's frames among them), with
+- committed: the same for what React's commits changed in the step (opacity, translation and the
+  top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn, of views with a
+  testID, as mounted: a JavaScript-driven Animated's and Reanimated's frames among them), with
   `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
 - animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
   [least, most]; "interval_ms", the least time between two; "median_interval_ms", [least, most]

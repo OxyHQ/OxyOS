@@ -8,7 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
-import { useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
+import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import { inputSources, network, useInputSourcesState, useNetworkState, useSystemSheets } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
@@ -410,12 +410,15 @@ function SessionShell() {
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
   }, [sheets, answer]);
-  // OxyOS's platform, with the session's polite announcements (a banner's, ADR 0026).
+  // OxyOS's platform, with the session's polite announcements (a banner's, ADR 0026), the windows'
+  // sizes (the overview's alone) and whether a zoomed window covers this display (the dock's
+  // shelf's alone, ADR 0034).
   const announcing = React.useMemo(
     () => ({
       ...oxyosShell,
       announce: (text: string, polite: boolean) => shell.announce(text, polite),
       useWindowSizes,
+      useDisplayCovered,
     }),
     [],
   );

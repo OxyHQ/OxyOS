@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useColorScheme, type PointerEvent, type View } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { Button } from "@oxy.so/bloom/button";
 import {
   ContextMenu,
@@ -47,6 +48,32 @@ const ROW = 55;
 const MENU_GAP = 10;
 /** The Trash's place among the dock's menus. */
 const TRASH = "trash";
+
+/** The shelf's top corners with no window covering the display: half its height, as they were
+    before 3 November 2026 (ChromeOS's shelf), the wallpaper showing past their curve. */
+const SHELF_RADIUS = DOCK_HEIGHT / 2;
+/** The zoom's spring (docs/adr/0011-transitions.mdx, step 6: a response of 340 ms, critically
+    damped), on which the compositor carries a window's own corners as it fills the work area:
+    the shelf's go square with the window's and come back round with them, at rest within a
+    thousandth of their way (500 ms), never past it. With Reduce Motion it is at once
+    (Reanimated's `ReduceMotion.System`, the session's preference). */
+const ZOOM_OMEGA = (2 * Math.PI) / 0.34;
+const CORNER_SPRING = {
+  mass: 1,
+  stiffness: ZOOM_OMEGA * ZOOM_OMEGA,
+  damping: 2 * ZOOM_OMEGA,
+  overshootClamping: true,
+  energyThreshold: 1e-6,
+} as const;
+const SHELF_LAYOUT = {
+  flexShrink: 0,
+  alignItems: "center",
+  justifyContent: "center",
+  overflow: "hidden",
+  height: DOCK_HEIGHT,
+  zIndex: 40,
+} as const;
+const neverCovered = () => false;
 
 /** The shelf's colours in the system's appearance (docs/adr/0019-settings.mdx), as a Mac's dock
     turns dark with it. */
@@ -341,6 +368,49 @@ const TrashDrop = memo(function TrashDrop({
   );
 });
 
+/**
+ * The shelf itself: one surface from edge to edge of the display, flush with its sides and its
+ * bottom, with no outline (docs/adr/0034-the-dock.mdx). Its top corners are round while nothing
+ * covers the display, the wallpaper showing past their curve, and square while a window zoomed to
+ * the work area or full screen does, so the window meets it along a straight edge, as the window's
+ * own corners are square then (docs/adr/0016-windows.mdx, decision 7); between the two they move
+ * on the zoom's spring. It alone reads whether the display is covered: a window zoomed or restored
+ * renders it and nothing else, its icons and buttons (`children`, made by the dock) kept as they
+ * were. A border is never added: on a rounded view it would keep the background 0.8 px inside
+ * every edge, as Android's (BackgroundDrawable's pathAdjustment), the wallpaper showing down the
+ * display's sides and along its bottom.
+ */
+const DockShelf = memo(function DockShelf({
+  color,
+  useDisplayCovered = neverCovered,
+  children,
+}: {
+  color: string;
+  useDisplayCovered?: () => boolean;
+  children: React.ReactNode;
+}) {
+  const covered = useDisplayCovered();
+  const radius = useSharedValue(covered ? 0 : SHELF_RADIUS);
+  useEffect(() => {
+    radius.value = withSpring(covered ? 0 : SHELF_RADIUS, CORNER_SPRING);
+  }, [covered, radius]);
+  const corners = useAnimatedStyle(() => ({
+    borderTopLeftRadius: radius.value,
+    borderTopRightRadius: radius.value,
+  }));
+  const style = useMemo(() => [SHELF_LAYOUT, { backgroundColor: color }, corners], [color, corners]);
+  // The same element while its style and children are: the shelf's view renders again only when
+  // its colour or its contents change, never for its corners, which Reanimated moves.
+  return useMemo(
+    () => (
+      <Animated.View testID="shell-dock" style={style}>
+        {children}
+      </Animated.View>
+    ),
+    [style, children],
+  );
+});
+
 /** The applications with a window, in the registry's order, as one string: the same while the
     same applications run, whatever else changes of their windows (a size, a title). */
 function runningKey(applications: readonly ShellApplication[], windows: readonly ShellWindow[]): string {
@@ -366,6 +436,7 @@ export const Dock = memo(function Dock({
   moveFocus,
   leave,
   MinimizeTarget,
+  useDisplayCovered,
 }: {
   applications: readonly ShellApplication[];
   windows: readonly ShellWindow[];
@@ -392,6 +463,9 @@ export const Dock = memo(function Dock({
   /** Where the platform minimizes windows into a view (the platform's MinimizeTarget): each
       application's icon, for its windows. */
   MinimizeTarget?: React.ComponentType<MinimizeTargetProps>;
+  /** Whether a zoomed or full-screen window covers this display (the platform's): the shelf's
+      top corners are square while one does. */
+  useDisplayCovered?: () => boolean;
 }) {
   const colors = DOCK_COLORS[useColorScheme() === "dark" ? "dark" : "light"];
   const messages = useShellMessages();
@@ -527,14 +601,6 @@ export const Dock = memo(function Dock({
     });
   }, [keys, menu, moveFocus, leave]);
   const trashFiles = actions.trashFiles;
-  const shelfStyle = useMemo(
-    () => ({
-      backgroundColor: colors.shelf,
-      height: DOCK_HEIGHT,
-      zIndex: 40,
-    }),
-    [colors],
-  );
   const dividerStyle = useMemo(() => ({ width: 1, height: 28, backgroundColor: colors.separator }), [colors]);
   // The shelf, made again only when what it shows changes: a window resized, moved or retitled,
   // or the pointer over an icon (whose own state it is), renders none of it.
@@ -634,18 +700,8 @@ export const Dock = memo(function Dock({
     [apps, running, colors, messages, view, menu, rows, trash, trashStatus, trashFiles, activateApp, openTrash, toggleLauncher, toggleOverview, dividerStyle, register, onFocusIcon, windowIds, MinimizeTarget],
   );
   return (
-    <Box
-      testID="shell-dock"
-      className="shrink-0 items-center justify-center overflow-hidden"
-      // One surface from edge to edge of the display, flush with its sides and its bottom, as
-      // ChromeOS's shelf beside a maximized window: no outline and square corners, so no wallpaper
-      // shows past it and a window zoomed to the work area meets it along a straight edge
-      // (docs/adr/0034-the-dock.mdx). A border on a rounded view would also keep its background
-      // 0.8 px inside every edge, as Android's (BackgroundDrawable's pathAdjustment), the
-      // wallpaper showing down the display's sides and along its bottom.
-      style={shelfStyle}
-    >
+    <DockShelf color={colors.shelf} useDisplayCovered={useDisplayCovered}>
       {shelf}
-    </Box>
+    </DockShelf>
   );
 });

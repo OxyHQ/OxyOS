@@ -241,7 +241,10 @@ bool ShellState::observe(const OxyOSEvent& event) {
       outputs_[event.code] = Output{event.x, event.y, event.width, event.height, event.scale_120, event.flag != 0};
       return true;
     case OXYOS_EVENT_OUTPUT_REMOVED:
+      covered_.erase(event.code);
       return outputs_.erase(event.code) > 0;
+    case OXYOS_EVENT_OUTPUT_COVERED:
+      return event.flag ? covered_.insert(event.code).second : covered_.erase(event.code) > 0;
     // How recently a window was active and whether it is hidden with its application (ADR 0024).
     case OXYOS_EVENT_WINDOW_USE: {
       auto& window = windows_[event.code];
@@ -390,7 +393,8 @@ folly::dynamic ShellState::state() const {
   folly::dynamic outputs = folly::dynamic::array();
   for (const auto& [id, output] : outputs_) {
     outputs.push_back(folly::dynamic::object("id", id)("x", output.x)("y", output.y)("width", output.width)(
-        "height", output.height)("scale", output.scale120 / 120.0)("primary", output.primary));
+        "height", output.height)("scale", output.scale120 / 120.0)("primary", output.primary)(
+        "covered", covered_.count(id) > 0));
   }
   static const char* kinds[] = {"", "menu", "item", "submenu", "separator"};
   folly::dynamic items = folly::dynamic::array();
