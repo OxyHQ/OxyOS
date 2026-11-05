@@ -4897,8 +4897,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 "no compose table: dead keys type nothing"
             }
         );
-        session.compositor.input = Some(input);
-        session.compositor.confine_pointer();
+        session.compositor.set_input(input);
     }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;

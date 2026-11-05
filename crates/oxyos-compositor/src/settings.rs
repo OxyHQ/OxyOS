@@ -1,8 +1,9 @@
 //! The user's preferences while a session runs (docs/adr/0019-settings.mdx), for the program
 //! running the compositor: the session authority, and the preferences file's one writer. It
-//! applies them (reduce motion to the transitions, `lock_after` to the idle lock), tells the scene what they are (every client
-//! the ones it draws with, Settings every one) and takes the changes Settings asks for: each is
-//! validated, written to the file whole, applied and told, or refused with nothing changed.
+//! applies them (reduce motion to the transitions, `lock_after` to the idle lock, natural
+//! scrolling to the devices), tells the scene what they are (every client the ones it draws with,
+//! Settings every one) and takes the changes Settings asks for: each is validated, written to the
+//! file whole, applied and told, or refused with nothing changed.
 //!
 //! An automatic appearance is dark while the sun is below the horizon where the system's time
 //! zone is (`oxyos-solar`), looked at again only when the sun next crosses it; where the time zone
@@ -135,6 +136,12 @@ impl Settings {
             .transitions
             .set_reduce_motion(preferences.reduce_motion);
         compositor.set_lock_after(preferences.lock_after);
+        // Natural scrolling (docs/adr/0042-scrolling.mdx, decision 6), set by libinput on the
+        // devices.
+        compositor.set_natural_scrolling(oxyos_input::NaturalScrolling {
+            trackpad: preferences.trackpad_natural_scrolling,
+            mouse: preferences.mouse_natural_scrolling,
+        });
         // Play user interface sound effects (docs/adr/0044-system-sounds.mdx).
         if let Some(sounds) = compositor.sounds.as_mut() {
             sounds.interface = preferences.ui_sounds;
@@ -518,6 +525,55 @@ mod tests {
         assert_eq!(told(&mut compositor, APP).0, [(true, false)]);
         settings.serve(&mut compositor, sunrise + 86_400);
         assert!(told(&mut compositor, APP).0.is_empty());
+    }
+
+    #[test]
+    fn natural_scrolling_is_given_to_the_devices_and_follows_a_change_at_once() {
+        use oxyos_input::NaturalScrolling;
+        let mut compositor = compositor();
+        // libinput's own default until the preferences are applied: traditional everywhere.
+        assert_eq!(compositor.natural_scrolling(), NaturalScrolling::default());
+        let mut settings = Settings::new(Preferences::default(), None, None);
+        settings.apply(&mut compositor, DAY);
+        // As a Mac ships: the trackpad's content follows the fingers, a mouse's wheel does not.
+        assert_eq!(
+            compositor.natural_scrolling(),
+            NaturalScrolling {
+                trackpad: true,
+                mouse: false
+            }
+        );
+        told(&mut compositor, SETTINGS);
+        // Settings turns the trackpad's off and the mouse's on: each at once, the other kept.
+        ask(&mut compositor, 1, "trackpad_natural_scrolling=false");
+        assert_eq!(
+            settings.serve(&mut compositor, DAY),
+            ["trackpad_natural_scrolling"]
+        );
+        assert_eq!(
+            compositor.natural_scrolling(),
+            NaturalScrolling {
+                trackpad: false,
+                mouse: false
+            }
+        );
+        ask(&mut compositor, 2, "mouse_natural_scrolling=true");
+        ask(&mut compositor, 3, "mouse_natural_scrolling=reversed");
+        assert_eq!(
+            settings.serve(&mut compositor, DAY),
+            ["mouse_natural_scrolling"]
+        );
+        assert_eq!(
+            compositor.natural_scrolling(),
+            NaturalScrolling {
+                trackpad: false,
+                mouse: true
+            }
+        );
+        assert_eq!(
+            told(&mut compositor, SETTINGS).1,
+            [(1, true), (2, true), (3, false)]
+        );
     }
 
     #[test]
