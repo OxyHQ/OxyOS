@@ -1,5 +1,5 @@
 {
-  "about": "A scroll on a dock icon (docs/adr/0045-app-expose.mdx) after natural scrolling (docs/adr/0042-scrolling.mdx, decision 6), through real libinput: the development compositor's virtual touchpad and wheel mouse (`uinput`), so this scenario runs only that way, as root. The Dock reads the scroll as delivered, as a Mac's does: up (dy below 0) opens App Exposé, down closes it, and which way the hand moves for it is the preference's. At 1, as the session ships them: two fingers down on Allo's icon open it and up close it, as on a Mac; the wheel turned away opens it and toward closes it. Allo's two windows, as in app-expose-gestures, which checks the rest of App Exposé (its flights, the keyboard). Each step checks what the shell's host received (`scroll_input`: every scroll one way, how many), the views App Exposé shows, and that neither application's React tree hears anything.",
+  "about": "A scroll on a dock icon (docs/adr/0045-app-expose.mdx) after natural scrolling (docs/adr/0042-scrolling.mdx, decision 6), through real libinput: the development compositor's virtual touchpad and wheel mouse (`uinput`), so this scenario runs only that way, as root. The Dock reads the scroll as delivered, as a Mac's does: up (dy below 0) opens App Exposé, down closes it, and which way the hand moves for it is the preference's. At 1, as the session ships them: two fingers down on Allo's icon open it and up close it, as on a Mac; the wheel turned away opens it and toward closes it. Allo's two windows, as in app-expose-gestures, which checks the rest of App Exposé (its flights, the keyboard). Each step checks what the shell's host received (`scroll_input`: every scroll one way, how many), the views App Exposé shows, the keyboard going to it and back (a scroll on the shell is its input, as a press is), and that neither application's React tree hears anything.",
   "locale": "en_US.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -57,6 +57,11 @@
           ],
           "moved": true
         },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
         "react": {},
         "in_companion": {
           "react": {}
@@ -86,6 +91,11 @@
       "expect": {
         "window_views": {
           "windows": []
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
         },
         "react": {},
         "in_companion": {
@@ -119,6 +129,11 @@
           ],
           "moved": true
         },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
         "react": {},
         "in_companion": {
           "react": {}
@@ -147,6 +162,11 @@
       "expect": {
         "window_views": {
           "windows": []
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
         },
         "react": {},
         "in_companion": {
