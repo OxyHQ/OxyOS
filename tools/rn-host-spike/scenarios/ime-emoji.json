@@ -1,0 +1,225 @@
+{
+  "about": "Emoji (ADR 0041) with the real engine: Control+Super+Space, as a Mac's Control-Command-Space, opens emoji's search in the focused field with the layout current: fcitx5's QuickPhrase with CLDR's annotations, in the session's language (English here). The word typed is the composition; 1 chooses the first emoji, committed into the field, and the search ends with the layout typing as before. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "input_methods": true,
+  "steps": [
+    {
+      "name": "focus the line: the layout is current, no engine serves it",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "transactions": [],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "Control+Super+Space: emoji's search opens; Control, pressed before Super, is the application's as any modifier",
+      "do": [
+        "strokes",
+        [
+          [
+            29,
+            125,
+            57
+          ]
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "transactions": []
+      }
+    },
+    {
+      "name": "s m i l e: the word searched is the composition",
+      "do": [
+        "strokes",
+        [
+          31,
+          50,
+          23,
+          38,
+          18
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"smile\" [5,5]"
+        ],
+        "react": {
+          "change@line": 5,
+          "selectionChange@line": 5,
+          "keyPress@line": 5
+        },
+        "delivered": {
+          "1": {
+            "text_input": 5
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "s",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "sm",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "smi",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "smil",
+            "cursor": [
+              4,
+              4
+            ],
+            "segments": [
+              [
+                0,
+                4,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "smile",
+            "cursor": [
+              5,
+              5
+            ],
+            "segments": [
+              [
+                0,
+                5,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "1: the first emoji, 😃, committed in place of the word",
+      "do": [
+        "strokes",
+        [
+          2
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"😃\" [2,2]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "😃"
+          }
+        ],
+        "field": {
+          "text": "😃",
+          "anchor": 4,
+          "cursor": 4
+        }
+      }
+    },
+    {
+      "name": "the search over, the layout types again with no engine",
+      "do": [
+        "strokes",
+        [
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"😃a\" [3,3]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "a"
+          }
+        ],
+        "field": {
+          "text": "😃a",
+          "anchor": 5,
+          "cursor": 5
+        }
+      }
+    }
+  ]
+}

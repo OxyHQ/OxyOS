@@ -1,0 +1,489 @@
+{
+  "about": "Japanese – Romaji (ADR 0041) with the real engine, fcitx5-anthy on Anthy, run as the session runs it, typing into a Bloom field (sample/ImeProbe.tsx) with the session's shell drawing the candidates and the screen reader on in Spanish, on an output at 1.25 (1600×1000). Romaji becomes kana as it is typed (にほんご); Space converts the clause (日本語, the part being converted marked so, which the field draws as converting); Space again shows the candidates in the shell's window under the caret, down the screen as the engine lays them out, the next one highlighted and said with its place; ↓ moves to the next; Return commits the one highlighted, the window gone. Each step checks the text React has, exactly the React events and the transactions the field was given, that no key reached it but as the engine's, the window's place, its nodes and what the screen reader said.",
+  "locale": "es_ES.UTF-8",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "shell": "OxyOSShell",
+  "input_methods": true,
+  "reader": {},
+  "preferences": {
+    "input_sources": "japanese",
+    "input_source": "japanese"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "ImeProbe's fields with the shell, the screen reader on: no candidates",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "candidates": null
+        },
+        "transactions": [],
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "the line focused: Japanese serves it, nothing to show",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "transactions": [],
+        "shell": {
+          "candidates": null
+        },
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        }
+      }
+    },
+    {
+      "name": "n i h o n g o: romaji becomes kana as it is typed, にほんご composed; no key reaches the field but as the engine's",
+      "do": [
+        "strokes",
+        [
+          49,
+          23,
+          35,
+          24,
+          49,
+          34,
+          24
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"にほんご\" [4,4]"
+        ],
+        "react": {
+          "change@line": 7,
+          "selectionChange@line": 4,
+          "keyPress@line": 7
+        },
+        "delivered": {
+          "1": {
+            "text_input": 7
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "n",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "に",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "にh",
+            "cursor": [
+              4,
+              4
+            ],
+            "segments": [
+              [
+                0,
+                4,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "にほ",
+            "cursor": [
+              6,
+              6
+            ],
+            "segments": [
+              [
+                0,
+                6,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "にほn",
+            "cursor": [
+              7,
+              7
+            ],
+            "segments": [
+              [
+                0,
+                7,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "にほんg",
+            "cursor": [
+              10,
+              10
+            ],
+            "segments": [
+              [
+                0,
+                10,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "にほんご",
+            "cursor": [
+              12,
+              12
+            ],
+            "segments": [
+              [
+                0,
+                12,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "shell": {
+          "candidates": null
+        },
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space converts: 日本語, the clause being converted, the caret at its start; no window yet",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"日本語\" [0,0]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "日本語",
+            "cursor": [
+              0,
+              0
+            ],
+            "segments": [
+              [
+                0,
+                9,
+                "converting"
+              ]
+            ]
+          }
+        ],
+        "shell": {
+          "candidates": null
+        },
+        "field": {
+          "text": ""
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space again: the candidates in the shell's window under the caret, down the screen; the next one, にほんご, highlighted and said with its place",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"にほんご\" [0,0]"
+        ],
+        "react": {
+          "change@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "にほんご",
+            "cursor": [
+              0,
+              0
+            ],
+            "segments": [
+              [
+                0,
+                12,
+                "converting"
+              ]
+            ]
+          }
+        ],
+        "shell": {
+          "candidates": [276, 199, 113, 121]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "にほんご, 2 de 3",
+              "state": [
+                "live-polite"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "日本語",
+              "position": [
+                1,
+                3
+              ],
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "にほんご",
+              "position": [
+                2,
+                3
+              ],
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "ニホンゴ",
+              "position": [
+                3,
+                3
+              ],
+              "state": []
+            }
+          ]
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "にほんご, 2 de 3"
+          }
+        ],
+        "spoken": [
+          {
+            "text": "にほんご, 2 de 3",
+            "interrupting": false
+          }
+        ],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "↓: the next, ニホンゴ, highlighted and said; the window stays",
+      "do": [
+        "strokes",
+        [
+          108
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ニホンゴ\" [0,0]"
+        ],
+        "react": {
+          "change@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "ニホンゴ",
+            "cursor": [
+              0,
+              0
+            ],
+            "segments": [
+              [
+                0,
+                12,
+                "converting"
+              ]
+            ]
+          }
+        ],
+        "shell": {
+          "candidates": [276, 199, 113, 121]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "ニホンゴ, 3 de 3",
+              "state": [
+                "live-polite"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "日本語",
+              "position": [
+                1,
+                3
+              ],
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "にほんご",
+              "position": [
+                2,
+                3
+              ],
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "ニホンゴ",
+              "position": [
+                3,
+                3
+              ],
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "ニホンゴ, 3 de 3"
+          }
+        ],
+        "spoken": [
+          {
+            "text": "ニホンゴ, 3 de 3",
+            "interrupting": false
+          }
+        ],
+        "field": {
+          "text": ""
+        }
+      }
+    },
+    {
+      "name": "Return commits ニホンゴ, the text React has already, the caret after it; the window gone",
+      "do": [
+        "strokes",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ニホンゴ\" [4,4]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "ニホンゴ"
+          }
+        ],
+        "shell": {
+          "candidates": null
+        },
+        "field": {
+          "text": "ニホンゴ",
+          "anchor": 12,
+          "cursor": 12
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    }
+  ]
+}

@@ -359,6 +359,24 @@ fn preedit_of(parts: Vec<(String, i32)>, cursor: i32) -> Preedit {
     }
 }
 
+/// Control+Super+Space as a keyboard types it: (keysym, Linux input code, X11 modifiers held
+/// before the key, pressed).
+fn emoji_trigger() -> [(u32, u32, u32, bool); 6] {
+    const CONTROL_L: (u32, u32) = (0xffe3, 29);
+    const SUPER_L: (u32, u32) = (0xffeb, 125);
+    const SPACE: (u32, u32) = (0x20, 57);
+    const CONTROL: u32 = 4;
+    const SUPER: u32 = 64;
+    [
+        (CONTROL_L.0, CONTROL_L.1, 0, true),
+        (SUPER_L.0, SUPER_L.1, CONTROL, true),
+        (SPACE.0, SPACE.1, CONTROL | SUPER, true),
+        (SPACE.0, SPACE.1, CONTROL | SUPER, false),
+        (SUPER_L.0, SUPER_L.1, CONTROL | SUPER, false),
+        (CONTROL_L.0, CONTROL_L.1, CONTROL, false),
+    ]
+}
+
 /// A batched event of `ProcessKeyEventBatch`'s reply (`BATCHED_*`), as a change.
 fn batched(kind: u32, value: OwnedValue) -> Option<Change> {
     match kind {
@@ -707,13 +725,15 @@ impl Worker {
                     "SetCurrentIM",
                     &(keyboard.as_str(),),
                 )?;
-                // QuickPhrase's trigger (engine.rs): Control+Super+Space, press and release.
-                const SPACE_KEYSYM: u32 = 0x20;
-                const SPACE_CODE: u32 = 57;
-                const CONTROL_SUPER: u32 = 4 | 64;
-                for pressed in [true, false] {
-                    let (_, change) =
-                        self.key(running, SPACE_KEYSYM, SPACE_CODE, CONTROL_SUPER, pressed, 0)?;
+                // QuickPhrase's trigger (engine.rs), Control+Super+Space, typed as a keyboard
+                // types it: Control and Super pressed, Space pressed and released, then Super and
+                // Control released, each with the modifiers held before it (X11's: Control 4,
+                // Super 64). The modifier keys themselves, not only their bits: when the keyboard
+                // engine searched in has another layout than the group's (keyboard-es on a `us`
+                // layout), fcitx5 reads each key again through an XKB state of its own, which
+                // learns the modifiers only from their keys, and a bare Space opens nothing.
+                for (keysym, code, modifiers, pressed) in emoji_trigger() {
+                    let (_, change) = self.key(running, keysym, code, modifiers, pressed, 0)?;
                     if !change.is_empty() {
                         self.tell(Outcome::Change(change));
                     }

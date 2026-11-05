@@ -46,14 +46,19 @@ f/fcitx5-chinese-addons/fcitx5-chinese-addons_5.1.8.orig.tar.xz 9501e529b7379aa2
 f/fcitx5-hangul/fcitx5-hangul_5.1.6.orig.tar.xz 2f044d19b3946a0a6036d4ad736edd442751c101b4ab9aa70914ac5a8cdf229e fcitx5-hangul-5.1.6
 f/fcitx5-anthy/fcitx5-anthy_5.1.6.orig.tar.xz 0d8687c01f657aa412f54231313a433dd54c95a55a3597f5cef7956a680c1a34 fcitx5-anthy-5.1.6
 "
+# Each source unpacked afresh from its checked tarball (kept between runs), then OxyOS's patch for
+# it applied, if there is one (patches/<source-dir>.patch, as a distribution patches a package).
+PATCHES=$(cd "$(dirname "$0")/patches" && pwd)
 mkdir -p "$WORK/src"
 echo "$SOURCES" | while read -r path sum dir; do
   [ -n "$path" ] || continue
   file=$WORK/src/${path##*/}
-  if [ ! -d "$WORK/src/$dir" ]; then
-    [ -f "$file" ] || curl -fsSL --retry 5 -o "$file" "$POOL/$path"
-    echo "$sum  $file" | sha256sum -c --quiet
-    tar -xJf "$file" -C "$WORK/src"
+  [ -f "$file" ] || curl -fsSL --retry 5 -o "$file" "$POOL/$path"
+  echo "$sum  $file" | sha256sum -c --quiet
+  rm -rf "${WORK:?}/src/$dir"
+  tar -xJf "$file" -C "$WORK/src"
+  if [ -f "$PATCHES/$dir.patch" ]; then
+    patch -d "$WORK/src/$dir" -p1 --quiet --no-backup-if-mismatch < "$PATCHES/$dir.patch"
   fi
 done
 

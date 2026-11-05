@@ -1,0 +1,16 @@
+--- a/src/engine.cpp
++++ b/src/engine.cpp
+@@ -293,6 +293,13 @@
+         anthy_conf_override(
+             "XDG_CONFIG_HOME",
+             sp.userDirectory(fcitx::StandardPath::Type::Data).c_str());
++    } else {
++        // OxyOS (docs/adr/0041-input-methods.mdx): the engine is relocatable, as the packaged
++        // platforms' above, and what Anthy learns ($HOME/.anthy) is kept with the person's
++        // input-method data, fcitx5's user data directory, not in the account's home.
++        const auto &sp = fcitx::StandardPath::global();
++        anthy_conf_override(
++            "HOME", sp.userDirectory(fcitx::StandardPath::Type::Data).c_str());
+     }
+     if (anthy_init()) {
+         throw std::runtime_error("Failed to init anthy library.");
