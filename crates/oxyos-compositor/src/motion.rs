@@ -153,6 +153,10 @@ pub const NOTIFICATION_FADES_OUT: Spring = Spring::critical(200);
 pub const LOCK_FADES: Spring = Spring::critical(300);
 pub const PANEL_FADES_IN: Spring = Spring::critical(300);
 pub const SPLASH_FADES_OUT: Spring = Spring::critical(450);
+/// A drag's image that dropped nothing slides back to where it came from in a quarter second, as
+/// a Mac's does, fading as it arrives.
+pub const DRAG_RETURNS: Spring = Spring::critical(170);
+pub const DRAG_RETURN_FADES: Fade = Fade::after(Spring::critical(80), 130);
 /// With reduce motion every motion is this crossfade: nothing grows, shrinks or slides.
 pub const CROSSFADE: Spring = Spring::critical(200);
 
@@ -208,6 +212,16 @@ mod tests {
         assert_eq!(fade.settles(), ms(180) + Spring::critical(160).settles());
         let bouncy = Fade::new(NOTIFICATION_ARRIVES);
         assert!((0..1000).all(|t| bouncy.at(ms(t)) <= 1.0));
+    }
+
+    #[test]
+    fn a_drag_goes_back_in_a_quarter_second_fading_as_it_arrives() {
+        // At rest (within a thousandth) at ωt ≈ 9.23, ω = 2π / 0.17 s: 250 ms.
+        assert_eq!(DRAG_RETURNS.settles(), ms(250));
+        // Whole while it slides most of the way, gone by the time it is there.
+        assert_eq!(DRAG_RETURN_FADES.at(ms(129)), 0.0);
+        assert!(DRAG_RETURNS.at(ms(130)) > 0.8);
+        assert!(DRAG_RETURN_FADES.settles() <= ms(250));
     }
 
     #[test]

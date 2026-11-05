@@ -490,9 +490,10 @@ function DropTarget({
 
 const drag = dragAvailable
   ? {
-      start({ data, actions, previewRef }) {
+      // The dragged view itself is the image, as it looks (stacked and badged for several items).
+      start({ data, actions, previewRef, count }) {
         const preview = previewRef?.current ? findNodeHandle(previewRef.current) : null;
-        return nativeDrag.start(data, [...actions], preview ?? -1);
+        return nativeDrag.start(data, [...actions], preview ?? -1, count ?? 1);
       },
     }
   : undefined;

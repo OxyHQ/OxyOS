@@ -27,7 +27,8 @@ pub enum Kind {
     Lock,
     /// The input method's candidates: never animated.
     Candidates,
-    /// A drag's image (ADR 0035): shown and gone with its drag, never animated.
+    /// A drag's image (ADR 0035): shown with its drag, gone at once when dropped on a target, and
+    /// slid back to where it came from when the drag dropped nothing (`Change::Returned`).
     DragIcon,
 }
 
@@ -47,6 +48,9 @@ pub enum Change {
     WorkspaceIn { forward: bool },
     /// A window of the workspace left, going out; `forward` as above (it goes to the left).
     WorkspaceOut { forward: bool },
+    /// A drag's image going back to where its drag began, the drag having dropped nothing (refused,
+    /// over nothing, Escape), as a Mac's slides back: its centre to (`x`, `y`), global, logical.
+    Returned { x: i32, y: i32 },
     /// A window's frame changed at once (zoomed, restored from a zoom, maximized or tiled by the
     /// shell), not by hand (docs/adr/0016-windows.mdx): it stays on the screen, its frame
     /// animated from where it was drawn to where it is configured.

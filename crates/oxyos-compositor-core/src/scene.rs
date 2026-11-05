@@ -16,9 +16,9 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use crate::refusal::{BufferRefusal, Refusal};
 use oxyos_protocol::{
-    BufferLayout, Clock, DismissReason, ErrorCode, Event, Format, GesturePhase, Outcome, PanelEdge,
-    PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ScrollSource,
-    ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
+    BufferLayout, Clock, DismissReason, DragActions, ErrorCode, Event, Format, GesturePhase,
+    Outcome, PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect,
+    Request, ScrollSource, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -328,6 +328,8 @@ struct Press {
     client: ClientId,
     surface: SurfaceKey,
     pointer: bool,
+    /// Where the pointer was (global, logical): where a drag from it began.
+    at: (i32, i32),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -346,6 +348,10 @@ pub enum RenderItem {
     },
     /// Compositor-drawn opaque cover for an output without a ready lock surface.
     Cover { output: OutputId, rect: Rect },
+    /// The badge a drag's pointer shows for its action (docs/adr/0035-drag-and-drop.mdx), a Mac's:
+    /// a copy's green plus, a link's curved arrow, in `rect` (global, logical) below and right of
+    /// the pointer's tip, above everything. A move, and a drop that would be refused, show none.
+    DragBadge { rect: Rect, action: DragActions },
     /// A window the shell's surface `surface` shows live (docs/adr/0022-window-views.mdx), drawn
     /// above that surface: the window's frame scaled into `rect` (its proportions kept), only
     /// within `clip` (within `rect` and the surface), its corners rounded by `radius`, at
@@ -3356,6 +3362,7 @@ impl Scene {
         for root in &self.roots {
             self.push_tree(*root, &mut out, in_flight);
         }
+        out.extend(self.drag_badge());
         if self.locked {
             // Covers go above everything: an output without its own ready lock surface shows
             // nothing else, not even another output's lock surface where outputs overlap.
@@ -3365,7 +3372,9 @@ impl Scene {
                     RenderItem::Surface { key, .. } => {
                         self.nodes[key].role == Role::Lock { output: output.id }
                     }
-                    RenderItem::Cover { .. } | RenderItem::View { .. } => false,
+                    RenderItem::Cover { .. }
+                    | RenderItem::View { .. }
+                    | RenderItem::DragBadge { .. } => false,
                 });
                 if !covered {
                     covers.push(RenderItem::Cover {
@@ -3413,6 +3422,7 @@ impl Scene {
             .find(|item| match item {
                 RenderItem::Surface { rect, .. }
                 | RenderItem::Cover { rect, .. }
+                | RenderItem::DragBadge { rect, .. }
                 | RenderItem::View { clip: rect, .. } => rect.intersects(output.rect),
             })?;
         match top {
@@ -4277,6 +4287,7 @@ impl Scene {
             client: target.client,
             surface: target,
             pointer,
+            at: self.pointer,
         });
         self.activation.insert(target.client, serial);
     }
@@ -4904,7 +4915,10 @@ pub use launch::LaunchRequest;
 mod dock;
 mod drag;
 pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
-pub use drag::{negotiate_action, TrashRequest, DRAG_VERSION, MAX_OPEN_DROPS};
+pub use drag::{
+    negotiate_action, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE, DRAG_VERSION,
+    MAX_OPEN_DROPS,
+};
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
 mod sounds;

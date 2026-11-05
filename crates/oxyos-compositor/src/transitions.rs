@@ -233,6 +233,14 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
         },
         (Kind::Notification, _) => Motion::faded(motion::NOTIFICATION_FADES_OUT),
         (Kind::Lock, _) => Motion::faded(motion::LOCK_FADES),
+        // A drag that dropped nothing: its image slides back to its item's place, fading as it
+        // arrives, a Mac's.
+        (Kind::DragIcon, Change::Returned { x, y }) => Motion {
+            moves: Some(motion::DRAG_RETURNS),
+            fades: Some(motion::DRAG_RETURN_FADES),
+            scale_permille: 1000,
+            shift: Shift::To { x, y },
+        },
         (Kind::Candidates | Kind::DragIcon, _) => Motion::AT_ONCE,
     }
 }
@@ -1615,6 +1623,60 @@ mod tests {
         assert!(t.is_empty());
         assert_eq!(t.zooming(KEY, now), None);
         assert!(t.take_seen().is_empty());
+    }
+
+    #[test]
+    fn a_drag_that_dropped_nothing_slides_its_image_back_in_a_quarter_second_fading() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        // The image was last drawn at (100, 100, 200, 100) (`snapshot`); its item's centre is at
+        // (500, 300): it goes there.
+        let back = Appearance {
+            key: KEY,
+            kind: Kind::DragIcon,
+            change: Change::Returned { x: 500, y: 300 },
+        };
+        t.appear(back, start, Some(snapshot()), &PLACE);
+        let frames: Vec<Frame> = (0..=260)
+            .step_by(10)
+            .map(|ms| {
+                t.going(start + Duration::from_millis(ms))
+                    .next()
+                    .map_or(Frame::WHOLE, |(_, _, frame)| frame)
+            })
+            .collect();
+        let rect = snapshot().rect;
+        let places: Vec<Rect> = frames.iter().map(|frame| frame.place(rect)).collect();
+        assert_eq!(places[0], rect);
+        // Every frame nearer its item than the one before, never past it, never resized.
+        assert!(places
+            .windows(2)
+            .all(|pair| pair[1].x >= pair[0].x && pair[1].y >= pair[0].y));
+        assert!(places
+            .iter()
+            .all(|place| place.x <= 400 && place.y <= 250 && place.width == 200));
+        // Whole while it slides most of the way, then fading as it arrives.
+        let opacities: Vec<u8> = frames.iter().map(|frame| frame.opacity).collect();
+        assert!(opacities[..13].iter().all(|&o| o == 255), "{opacities:?}");
+        assert!(opacities.windows(2).all(|pair| pair[1] <= pair[0]));
+        assert_eq!(
+            lasts(Kind::DragIcon, back.change),
+            Duration::from_millis(250)
+        );
+        t.advance(start + Duration::from_millis(250));
+        assert!(t.is_empty());
+        // At the end, its centre is the item's.
+        let end = going_at(
+            &Running::new(
+                0,
+                Kind::DragIcon,
+                start,
+                motions(Kind::DragIcon, back.change, &PLACE),
+            ),
+            Duration::from_millis(250),
+        );
+        assert_eq!(end.place(rect), Rect::new(400, 250, 200, 100));
+        assert_eq!(end.opacity, 0);
     }
 
     #[test]

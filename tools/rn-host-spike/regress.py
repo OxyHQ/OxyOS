@@ -138,7 +138,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the opacities of the first and last frames drawn; "ended"), and its curve, from each frame it
   drew: "eased", its opacity and its size and place each only ever going toward their end and,
   in the first half of its time, half again ahead of a linear motion of the same length (eased
-  out, as a spring from rest is; a linear one fails); "lasts_ms", [least, most] for its last frame's time;
+  out, as a spring from rest is; a linear one fails), or with "eased": "place" only its size and
+  place so (its opacity only never going back: a fade delayed to its end); "lasts_ms", [least, most] for its last frame's time;
   "frame_gap_ms", [median, most] for the time between its frames (at display rate: 16.7 at 60 Hz,
   8.3 at 120); "linear_ms", every frame's size and place where a linear motion of that length is
   at the frame's time (a window into the dock: the frame clock drives it, whatever the load);
@@ -147,6 +148,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   one before; "still",
   its size and place never changing (reduce motion's crossfade);
   "count", how many it ran, exactly ("change" is also "zoomed": a window's frame zooming, ADR 0016);
+- drag_icons: the drag icon surfaces of every client once the step settled (ADR 0035): "count",
+  how many there are, exactly, and "shown", where each shown one is on the output ([x, y, width,
+  height] in the global space's logical pixels), exactly and in order: a drag shows one, and none
+  is left once it ended. A transition `seen` of a drag's image going back ("kind": "dragicon",
+  "change": "returned") has "to", the point its centre goes back to (the item's own place);
 - drag: for a `drag_paced` step (a press moved on the output in N motions at a rate, the compositor
   serving the application between them, as a hand drags a window's edge): "unanswered_max", the
   most configures sent that no frame shown answered; "presented_min", the fewest frames the window
@@ -303,6 +309,11 @@ what it composes (ADR 0041: twelve, five a page, which the session's shell draws
 `strokes` keys reach it as the keymap types them, the arrows moving the highlight along the list
 and turning the page across it, a digit choosing that candidate of the page, Space the highlighted
 one, Escape cancelling; the shell's presses choose one or turn the page.
+
+A `drag_hold` step ([x0, y0, x1, y1, motions, hz]) is a `drag_paced` whose button stays held: the
+drag goes on into the steps after it, each step's frame showing it midway (`move_output` moves it,
+`key_down` holds a modifier that changes its action), until a `release_output` ([x, y]) moves the
+pointer there and releases it, dropping it or ending it over nothing.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
 `press_secondary_named` and `move_named` (a name) and `hold_named` ([name, ms]) are the output's
@@ -503,7 +514,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock"}
 
@@ -713,7 +724,7 @@ def director_args(step, out):
         args += ["--until-named", str(ms), name]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
-    if kind in ("press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output",
+    if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
                 "double_press", "triple_press"):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "double_drag":
@@ -744,6 +755,10 @@ def director_args(step, out):
     if kind == "drag_paced":
         # A drag on the output at a hand's pace: [x0, y0, x1, y1, motions, hz].
         return args + ["--drag-paced", ",".join(map(str, value))]
+    if kind == "drag_hold":
+        # The same, its button still held at the end: the drag goes on into the next steps
+        # (`move_output`, `key_down`, `release_output`), each step's frame showing it midway.
+        return args + ["--drag-hold", ",".join(map(str, value))]
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
         return args + ["--scroll-paced", ",".join(map(str, value))]
@@ -1715,6 +1730,10 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
                 continue
             if any(b < a for a, b in zip(values, values[1:])):
                 fail(f"{name}'s {label} went back: {values}")
+            # "place": only its size and place eased out; its opacity only never goes back (a drag's
+            # image sliding back fades only as it arrives, a delayed fade).
+            if wanted["eased"] == "place" and label == "opacity":
+                continue
             # Eased out: in the first half of its time, from 34 ms on (a spring released from rest
             # starts slower than a line, whatever the refresh), half again ahead of a linear motion
             # of the same length (a spring released from rest is
@@ -2484,6 +2503,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             else:
                 left.remove(match)
                 check_curve(transition, match, fail, refresh_hz)
+    if "drag_icons" in expect:
+        # The drag icon surfaces there are once the step settled, of any client (ADR 0035): a drag
+        # shows exactly one, and none is left once its drag ended and its image went back.
+        icons, wanted = result.get("drag_icons") or [], expect["drag_icons"]
+        if "count" in wanted and len(icons) != wanted["count"]:
+            fail(f"{len(icons)} drag icon surfaces, expected {wanted['count']}: {icons}")
+        shown = [icon["rect"] for icon in icons if icon["rect"] is not None]
+        if "shown" in wanted and shown != wanted["shown"]:
+            fail(f"drag icons shown at {shown}, expected {wanted['shown']}")
     if "drag" in expect:
         # A drag at a hand's pace (`drag_paced`): what the window showed meanwhile.
         drag, wanted = result.get("drag") or {}, expect["drag"]

@@ -454,9 +454,30 @@ RenderStats drawRegion(const ViewTree& tree, facebook::react::Tag region, facebo
 RenderStats drawRegionDamaged(const ViewTree& tree, facebook::react::Tag region, facebook::react::Point at,
                               const Display& display, Canvas& canvas, const TextInputEdit& edit,
                               const std::vector<facebook::react::Rect>& damage);
-// Draws a view itself, its subtree with it, at the canvas's origin and three quarters opaque onto a
-// transparent canvas of `display`'s size: a drag's image (docs/adr/0035-drag-and-drop.mdx).
-RenderStats drawDragImage(const ViewTree& tree, facebook::react::Tag view, const Display& display, Canvas& canvas);
+// A drag's image (docs/adr/0035-drag-and-drop.mdx), as a Mac draws dragged items: the dragged view
+// as it looks, its subtree with it, and for several items copies of it stacked down and to the
+// right behind it with the count on a red badge at its top right. In logical pixels:
+// - `drawn`, the part of the view its subtree draws anything in (its own coordinates): a cell's
+//   transparent margins are no part of the image, so the badge sits at the corner of what shows;
+// - `at`, where that part is in the image (below the badge's overhang), and `size`, the image's.
+struct DragStack {
+  facebook::react::Rect drawn;
+  facebook::react::Point at;
+  facebook::react::Size size;
+  int layers = 0;  // copies behind: one for two items, two for more
+  std::string badge;  // the count said, empty for one item
+  float badgeWidth = 0;
+};
+// How far each copy of a stack is from the one above it, and the badge's height (a pill at least as
+// wide), in logical pixels.
+constexpr float kDragStackStep = 3;
+constexpr float kDragBadgeHeight = 20;
+// The image of a drag of `count` items, `view` showing one of them.
+DragStack dragStack(const ViewTree& tree, facebook::react::Tag view, int count);
+// Draws it onto a transparent canvas of `display`'s size (the stack's, at the output's scale): the
+// view and its copies three quarters opaque as one picture, the badge over them opaque.
+RenderStats drawDragImage(const ViewTree& tree, facebook::react::Tag view, const DragStack& stack,
+                          const Display& display, Canvas& canvas);
 // Draws a text input's text [from, to) of `value` (UTF-8 byte offsets) as the input draws it, its
 // text scrolled by `scroll`, three quarters opaque and only within that range's rectangles, onto a
 // transparent canvas of `display`'s size with `bounds` (in the view's own coordinates) at its

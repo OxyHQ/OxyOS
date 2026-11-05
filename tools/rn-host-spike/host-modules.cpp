@@ -1150,12 +1150,14 @@ std::shared_ptr<TurboModule> createHostModule(
         if (action.isString()) actions.push_back(action.asString(rt).utf8(rt));
       }
       int preview = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : -1;
+      // How many items go (Bloom's `count`), the preview being one of them: at least one.
+      int items = count > 3 && args[3].isNumber() ? std::max(1, static_cast<int>(args[3].asNumber())) : 1;
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "drag"), 2,
-          [&services, invoker, data = std::move(data), actions = std::move(actions), preview](
+          [&services, invoker, data = std::move(data), actions = std::move(actions), preview, items](
               jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
-            services.drag.start(data, actions, preview, [invoker, resolve](std::optional<std::string> action) {
+            services.drag.start(data, actions, preview, items, [invoker, resolve](std::optional<std::string> action) {
               invoker->invokeAsync([resolve, action = std::move(action)](jsi::Runtime& rt) {
                 resolve->asObject(rt).asFunction(rt).call(
                     rt, action ? jsi::Value(jsi::String::createFromUtf8(rt, *action)) : jsi::Value::null());

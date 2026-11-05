@@ -1022,8 +1022,8 @@ int main(int argc, char** argv) {
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
     services.drag.start = [&dragDrop](const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
-                                      std::function<void(std::optional<std::string>)> done) {
-      dragDrop.start(data, actions, preview, std::move(done));
+                                      int count, std::function<void(std::optional<std::string>)> done) {
+      dragDrop.start(data, actions, preview, count, std::move(done));
     };
     // The system's interface sounds (Bloom's usePlatformSounds, docs/adr/0044-system-sounds.mdx),
     // citing the latest input the application received, as a Mac's Finder sounds for the person's
