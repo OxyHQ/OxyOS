@@ -503,10 +503,13 @@ Object.assign(ExpoNotificationScheduler, {
       date: Date.now(),
       request: { identifier, content: { ...content, data: content.data ?? {} }, trigger: null },
     };
-    // A handler that answers nothing in time shows it, as Expo does, with a sound if its content
-    // asks for one.
-    const answered = await behaviorFor(identifier, notification);
-    const behavior = answered ?? { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: !!content.sound };
+    // A handler that answers nothing in time shows it as expo-notifications' own default handler
+    // does: a banner, in the list, with a sound.
+    const behavior = (await behaviorFor(identifier, notification)) ?? {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+    };
     const banner = !!(behavior.shouldShowBanner || behavior.shouldShowAlert);
     // The system's notification sound (docs/adr/0044-system-sounds.mdx), as the handler's
     // shouldPlaySound asks; `sound: false` in the content silences it. A sound of the application's

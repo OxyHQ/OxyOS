@@ -92,6 +92,9 @@
       "text": "Allo. Ana. ¿Comemos juntos?",
       "interrupting": false
      }
+    ],
+    "sounds": [
+     "message-new-instant"
     ]
    }
   },
@@ -314,6 +317,9 @@
       "text": "Allo. Ana. ¿Comemos juntos?",
       "interrupting": false
      }
+    ],
+    "sounds": [
+     "message-new-instant"
     ]
    }
   },

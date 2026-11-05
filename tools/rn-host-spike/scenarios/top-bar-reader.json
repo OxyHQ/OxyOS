@@ -87,6 +87,9 @@
       "text": "Allo. Ana. ¿Comemos juntos?",
       "interrupting": false
      }
+    ],
+    "sounds": [
+     "message-new-instant"
     ]
    }
   },
