@@ -20,7 +20,7 @@ This records decisions that the code in `crates/oxyos-protocol` and `crates/oxyo
 | Shell (#36) | Bloom shell UI on granted shell roles | Lock authority, unlock, implicit privileges |
 | Lock UI | Lock surfaces on a granted lock role | Deciding that the session is unlocked |
 
-The compositor never waits on a client. Every policy operation completes from compositor state; a stalled or crashed client can lose its own content, never the compositor's move, focus, shortcut or lock behavior.
+The compositor never waits on a client. Every policy operation completes from compositor state; a stalled or crashed client can lose its own content, never the compositor's move, focus, shortcut or lock behavior. Its socket I/O holds this exactly: it sends without blocking, keeping what a client has no room for in a bounded outbox (1,024 events, then the client is disconnected), and it reads a client only when `poll` says it sent something or hung up, and then without blocking. A socket that only has room again (`POLLOUT`, polled while the outbox holds events) wakes the turn to send, and is never read: a read there would hold the whole session (pointer, keyboard, every other window) until that client next spoke (`crates/oxyos-compositor/tests/slow_clients.rs`).
 
 Grants (`Grants { shell, lock, shortcuts }`, and later the system grants an application's launch record gives: `settings`, ADR 0019; `store`, `updates` and `privacy`, ADR 0030) are attached by the session authority when it accepts a connection, from authenticated peer credentials. Requests cannot add grants. A Hello, a client name, an environment variable, an Oxy account or an Oxy token does not grant a role. Revocation dismisses the surfaces that depended on the grant.
 

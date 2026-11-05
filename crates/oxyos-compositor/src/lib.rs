@@ -1347,8 +1347,10 @@ impl Compositor {
         let Some(peer) = self.peers.get_mut(&client) else {
             return;
         };
-        let (request, fd) = match peer.connection.recv_request() {
-            Ok(received) => received,
+        // Never waiting for one (ADR 0001): a client that sent nothing has nothing read.
+        let (request, fd) = match peer.connection.try_recv_request() {
+            Ok(Some(received)) => received,
+            Ok(None) => return,
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
                 return self.disconnect(client)
             }
@@ -4194,7 +4196,16 @@ impl Compositor {
             };
             waiting = Instant::now();
             match poll(&mut fds, Some(&timeout)) {
-                Ok(_) => fds.iter().map(|fd| !fd.revents().is_empty()).collect(),
+                // Something to read, or the connection's end. A client's socket with room again
+                // (OUT, polled while its outbox holds events) only wakes the turn, whose flush
+                // sends them: read, it would hold the turn until that client next spoke.
+                Ok(_) => fds
+                    .iter()
+                    .map(|fd| {
+                        fd.revents()
+                            .intersects(PollFlags::IN | PollFlags::HUP | PollFlags::ERR)
+                    })
+                    .collect(),
                 // A signal (the terminal's switch requests) interrupts poll, which is never
                 // restarted: nothing was ready this turn.
                 Err(rustix::io::Errno::INTR) => vec![false; fds.len()],

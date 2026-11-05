@@ -230,6 +230,25 @@ fn a_client_polls_for_events_without_blocking() {
 }
 
 #[test]
+fn the_compositor_reads_a_client_without_waiting_for_it() {
+    let (client, server) = Connection::pair().unwrap();
+    assert!(server.try_recv_request().unwrap().is_none());
+    let request = Request::Pong { serial: 7 };
+    client.send_request(&request, None).unwrap();
+    assert_eq!(
+        server
+            .try_recv_request()
+            .unwrap()
+            .map(|(request, _)| request),
+        Some(request)
+    );
+    assert!(server.try_recv_request().unwrap().is_none());
+    drop(client);
+    let closed = server.try_recv_request().unwrap_err();
+    assert_eq!(closed.kind(), io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
 fn a_clipboard_pipe_travels_with_its_event_and_only_with_it() {
     use std::io::{Read, Write};
     let (client, server) = Connection::pair().unwrap();

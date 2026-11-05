@@ -185,8 +185,23 @@ impl Connection {
     /// Receives one request. A descriptor is returned exactly when the request carries one;
     /// any mismatch closes the received descriptors and is an error.
     pub fn recv_request(&self) -> io::Result<(Request, Option<OwnedFd>)> {
+        self.receive_request(RecvFlags::empty())
+    }
+
+    /// Receives a request without blocking: `Ok(None)` if none is queued. The compositor reads
+    /// its clients only this way, so a client that sent nothing never holds its turn (ADR 0001:
+    /// the compositor never waits on a client).
+    pub fn try_recv_request(&self) -> io::Result<Option<(Request, Option<OwnedFd>)>> {
+        match self.receive_request(RecvFlags::DONTWAIT) {
+            Ok(request) => Ok(Some(request)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn receive_request(&self, flags: RecvFlags) -> io::Result<(Request, Option<OwnedFd>)> {
         let mut storage = [0; PACKET_CAPACITY];
-        let (length, mut fds) = self.recv_packet(&mut storage, RecvFlags::empty())?;
+        let (length, mut fds) = self.recv_packet(&mut storage, flags)?;
         let mut cursor = Cursor::new(&storage[..length]);
         let request = read_request(&mut cursor)?;
         if cursor.position() as usize != length {
