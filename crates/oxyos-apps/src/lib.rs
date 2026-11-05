@@ -1346,7 +1346,7 @@ impl Launcher {
         );
         let id = applications
             .iter()
-            .find(|application| application.opens.iter().any(|opens| *opens == handler))
+            .find(|application| application.opens.contains(&handler))
             .map(|application| application.id.clone())
             .ok_or_else(|| Error(format!("no application opens {scheme}: URLs")))?;
         let pid = self.start(&id, Start::Url(url))?;
