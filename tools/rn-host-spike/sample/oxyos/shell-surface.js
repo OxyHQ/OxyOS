@@ -25,6 +25,7 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
     focusRequest: true,
     excludeFromCapture: true,
     movesWindows: true,
+    gesture: true,
   },
 }));
 
@@ -36,7 +37,8 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
 // control, or a control's testID), again for each new `focusRequest` (docs/adr/0039-keyboard-access.mdx).
 // A region that moves its windows into its views (`movesWindows`: App Exposé) has each window it shows
 // drawn there alone while it shows, flying there as it arrives and back as it goes
-// (docs/adr/0045-app-expose.mdx).
+// (docs/adr/0045-app-expose.mdx). One that is Mission Control's or App Exposé's (`gesture`) is drawn as
+// far as a touchpad's swipe has it, arriving and going with the fingers (docs/adr/0046-interactive-gestures.mdx).
 function Surface({
   kind,
   edge,
@@ -46,6 +48,7 @@ function Surface({
   focusRequest,
   excludeFromCapture,
   movesWindows,
+  gesture,
   onKeyboardLost,
   style,
   children,
@@ -68,6 +71,7 @@ function Surface({
       focusRequest={focusRequest ?? 0}
       excludeFromCapture={!!excludeFromCapture}
       movesWindows={!!movesWindows}
+      gesture={gesture ?? ''}
       style={style}
       collapsable={false}
     >

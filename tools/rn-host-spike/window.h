@@ -282,6 +282,9 @@ class Window {
   void excludeFromCapture(uint32_t id, bool excluded);
   // The windows one of its shell surfaces shows live moved into their views (ADR 0045).
   void moveWindowsToViews(uint32_t id, bool moved);
+  // Which view a touchpad's swipe drives a shell surface is (OXYOS_GESTURE_OVERLAY_*,
+  // docs/adr/0046-interactive-gestures.mdx).
+  void setGestureOverlay(uint32_t id, uint8_t overlay);
   bool openScreenshot(uint32_t screenshot, uint64_t serial);
   // The pointer's shape while it is over a surface (OXYOS_POINTER_*).
   void setPointerShape(uint32_t id, uint8_t shape);

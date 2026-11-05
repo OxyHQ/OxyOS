@@ -2322,7 +2322,13 @@ int main(int argc, char** argv) {
                                           "mission-control",
                                           "app-expose"};
           const char* action = shortcut.detail <= OXYOS_SHORTCUT_APP_EXPOSE ? actions[shortcut.detail] : "";
-          folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
+          // What it asks of what it shows (docs/adr/0046-interactive-gestures.mdx): a key's toggle,
+          // or a swipe's opening or closing it.
+          const char* intent = shortcut.flag == OXYOS_SHORTCUT_INTENT_OPEN    ? "open"
+                               : shortcut.flag == OXYOS_SHORTCUT_INTENT_CLOSE ? "close"
+                                                                              : "toggle";
+          folly::dynamic payload =
+              folly::dynamic::object("action", action)("output", shortcut.code)("intent", intent);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellShortcut", payload));
