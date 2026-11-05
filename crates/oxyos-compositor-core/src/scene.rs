@@ -355,7 +355,9 @@ pub enum RenderItem {
     /// A window the shell's surface `surface` shows live (docs/adr/0022-window-views.mdx), drawn
     /// above that surface: the window's frame scaled into `rect` (its proportions kept), only
     /// within `clip` (within `rect` and the surface), its corners rounded by `radius`, at
-    /// `opacity`. It takes no input: the surface under it does.
+    /// `opacity`. It takes no input: the surface under it does. `moved`: the window is moved into
+    /// it (ADR 0044), drawn here and not where it is while its surface is shown, coming from there
+    /// and going back.
     View {
         surface: SurfaceKey,
         window: SurfaceKey,
@@ -364,6 +366,7 @@ pub enum RenderItem {
         clip: Rect,
         radius: u32,
         opacity: u8,
+        moved: bool,
     },
 }
 
@@ -423,6 +426,8 @@ pub struct Scene {
     /// The surface a touchpad's resting fingers go to (the one under the pointer when they began
     /// to rest), until they lift or move on.
     hold: Option<SurfaceKey>,
+    /// Three or four fingers swiping on a touchpad (ADR 0044): the system's, never an application's.
+    swipe: swipes::Swipe,
     /// The surface a touchpad's (or a continuous device's) scroll going on goes to, the one
     /// under the pointer when it began, until its stop; none between scrolls.
     scrolling: Option<SurfaceKey>,
@@ -1696,9 +1701,9 @@ impl Scene {
             | Request::SetAppearance { .. }
             | Request::SetDoNotDisturb { .. }
             | Request::RefreshControls {} => self.control_request(client, request),
-            Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
-                self.window_view_request(client, request)
-            }
+            Request::ClearWindowViews { .. }
+            | Request::PlaceWindowView { .. }
+            | Request::MoveWindowsToViews { .. } => self.window_view_request(client, request),
             Request::ClearMinimizeTargets { .. } | Request::PlaceMinimizeTarget { .. } => {
                 self.minimize_target_request(client, request)
             }
@@ -3005,7 +3010,9 @@ impl Scene {
         }
     }
 
-    fn root_of(&self, mut key: SurfaceKey) -> SurfaceKey {
+    /// The surface `key` is in: itself, or the window (or shell surface) whose popup or dialog it
+    /// is, however deep.
+    pub fn root_of(&self, mut key: SurfaceKey) -> SurfaceKey {
         while let Some(parent) = self.nodes.get(&key).and_then(|node| node.parent) {
             key = parent;
         }
@@ -4953,11 +4960,14 @@ mod reader;
 mod screenshots;
 /// The system shortcuts and applications' windows (ADR 0024).
 mod shortcuts;
+/// The touchpad's swipes to Mission Control and App Exposé (ADR 0044).
+mod swipes;
 pub use controls::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
 };
 pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
+pub use swipes::SWIPE_DISTANCE;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

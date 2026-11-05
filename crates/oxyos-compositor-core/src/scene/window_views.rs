@@ -4,6 +4,12 @@
 //! number and says where; the compositor draws the window's own frame there, over the surface's
 //! pixels. The shell never receives a window's pixels, and nothing of them is drawn while the
 //! session is locked (shell surfaces are not shown then).
+//!
+//! A surface may have its windows moved into its views (`MoveWindowsToViews`, ADR 0044): Mission
+//! Control's and App Exposé's windows are the windows themselves, not copies, so while the surface
+//! is shown each is drawn in its view alone, and its view comes from where the window is and goes
+//! back there. The scene says which views are so (`RenderItem::View`'s `moved`); the compositor,
+//! which draws the motion, leaves the window out of where it is.
 
 use super::{ClientId, RenderItem, Request, Role, Scene, SurfaceKey};
 use oxyos_protocol::{ErrorCode, Rect, Size, MAX_WINDOW_VIEWS};
@@ -26,6 +32,8 @@ pub(super) struct SurfaceViews {
     /// Sent with the frame of this sequence: shown when it, or a later one, presents.
     sent: Option<(u64, Vec<Placed>)>,
     shown: Vec<Placed>,
+    /// Whether the windows are moved into the views (`MoveWindowsToViews`).
+    moved: bool,
 }
 
 /// The largest rectangle of `size`'s proportions within `rect`, centred in it (none if either
@@ -50,7 +58,8 @@ pub fn fitted(rect: Rect, size: Size) -> Option<Rect> {
 }
 
 impl Scene {
-    /// ClearWindowViews and PlaceWindowView: only the shell's, on its own shell surfaces.
+    /// ClearWindowViews, PlaceWindowView and MoveWindowsToViews: only the shell's, on its own
+    /// shell surfaces.
     pub(super) fn window_view_request(
         &mut self,
         client: ClientId,
@@ -60,12 +69,12 @@ impl Scene {
             return Err(ErrorCode::Unauthorized);
         }
         let surface = match request {
-            Request::ClearWindowViews { surface } | Request::PlaceWindowView { surface, .. } => {
-                SurfaceKey {
-                    client,
-                    id: surface,
-                }
-            }
+            Request::ClearWindowViews { surface }
+            | Request::PlaceWindowView { surface, .. }
+            | Request::MoveWindowsToViews { surface, .. } => SurfaceKey {
+                client,
+                id: surface,
+            },
             _ => unreachable!("only window views are passed here"),
         };
         let node = self.live(surface).ok_or(ErrorCode::UnknownSurface)?;
@@ -75,6 +84,7 @@ impl Scene {
         let views = self.window_views.entry(surface).or_default();
         match request {
             Request::ClearWindowViews { .. } => views.making = Some(Vec::new()),
+            Request::MoveWindowsToViews { moved, .. } => views.moved = moved,
             Request::PlaceWindowView {
                 window,
                 rect,
@@ -175,6 +185,7 @@ impl Scene {
                 clip,
                 radius: placed.radius,
                 opacity: placed.opacity,
+                moved: views.moved,
             });
         }
     }

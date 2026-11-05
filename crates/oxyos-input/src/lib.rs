@@ -4,8 +4,8 @@
 //! (docs/native-foundation.mdx).
 
 use input::event::gesture::{
-    GestureEndEvent, GestureEvent, GestureEventTrait, GestureHoldEvent, GesturePinchEvent,
-    GesturePinchEventTrait,
+    GestureEndEvent, GestureEvent, GestureEventCoordinates, GestureEventTrait, GestureHoldEvent,
+    GesturePinchEvent, GesturePinchEventTrait, GestureSwipeEvent,
 };
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
 use input::event::pointer::{Axis, ButtonState, PointerEventTrait, PointerScrollEvent};
@@ -91,6 +91,15 @@ pub enum Action {
     Hold {
         phase: GesturePhase,
         fingers: u32,
+    },
+    /// Three or more fingers moving together on a touchpad (libinput's swipe gesture): each
+    /// Update by how far they moved since the last, unaccelerated, in logical pixels (positive
+    /// right and down). The system's alone (Mission Control and App Exposé, ADR 0044).
+    Swipe {
+        phase: GesturePhase,
+        fingers: u32,
+        dx: f64,
+        dy: f64,
     },
 }
 
@@ -798,6 +807,27 @@ impl Input {
                         _ => (GesturePhase::End, 0.0),
                     };
                     actions.push(self.pinch(phase, pinch.scale(), angle));
+                }
+                input::Event::Gesture(GestureEvent::Swipe(swipe)) => {
+                    let fingers = swipe.finger_count() as u32;
+                    let (phase, dx, dy) = match &swipe {
+                        GestureSwipeEvent::Begin(_) => (GesturePhase::Begin, 0.0, 0.0),
+                        GestureSwipeEvent::Update(update) => (
+                            GesturePhase::Update,
+                            update.dx_unaccelerated(),
+                            update.dy_unaccelerated(),
+                        ),
+                        GestureSwipeEvent::End(end) if end.cancelled() => {
+                            (GesturePhase::Cancel, 0.0, 0.0)
+                        }
+                        _ => (GesturePhase::End, 0.0, 0.0),
+                    };
+                    actions.push(Action::Swipe {
+                        phase,
+                        fingers,
+                        dx,
+                        dy,
+                    });
                 }
                 input::Event::Gesture(GestureEvent::Hold(hold)) => {
                     let fingers = hold.finger_count() as u32;
