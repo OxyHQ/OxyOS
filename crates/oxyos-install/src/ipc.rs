@@ -294,13 +294,13 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
     }
 
     /// For whom a request acts: the peer's own account, or the one root names.
-    fn account(&self, uid: Option<u32>) -> Result<u32, Answer> {
+    fn account(&self, uid: Option<u32>) -> Result<u32, Reason> {
         match (self.peer.uid, uid) {
             (0, Some(uid)) => Ok(uid),
-            (0, None) => Err(Answer::refused(Reason::InvalidRequest)),
+            (0, None) => Err(Reason::InvalidRequest),
             (peer, None) => Ok(peer),
             (peer, Some(uid)) if uid == peer => Ok(peer),
-            _ => Err(Answer::refused(Reason::NotPermitted)),
+            _ => Err(Reason::NotPermitted),
         }
     }
 
@@ -319,7 +319,7 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
             ($uid:expr, $name:expr, $id:expr) => {
                 match self.account($uid) {
                     Ok(uid) => uid,
-                    Err(answer) => return refusal(answer, $name, $id),
+                    Err(reason) => return refusal(Answer::refused(reason), $name, $id),
                 }
             };
         }
