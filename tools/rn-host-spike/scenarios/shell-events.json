@@ -1,5 +1,5 @@
 {
-  "about": "What the session's shell does for what it is told and what the pointer does over it, on the ThinkPad's display (1600×1000 at 1.25), counted from the shell's own report: which components React re-rendered for each event (`renders`: where each re-render began, exactly, and how many components it rendered in all), the same on any machine however loaded, with a backstop on the time its JavaScript took far above what it takes (`js_work`, two refreshes at 60 Hz) for a gross regression alone; its budgets on speed (`js_ms_max`, `js_blocked_ms_max`) are held by perf.py's runs alone (regress.py --speed-budgets), on the ThinkPad. Another window pressed, zoomed by its green bubble and restored (Bloom's SettingsLayout in a window, sample/WindowProbe.tsx) changes what the shell knows of that window and nothing the shell shows, so the shell renders no component at all (its sizes are the overview's alone, useWindowSizes; every change of the compositor rendered the whole shell again once, 14 to 19 ms); the pointer entering the first application's icon in the dock (Dropsea's, or Inbox's where Dropsea's package is not built: the point is on either) renders that icon and its button's hover and the dock's tooltip (its popup surface and its text), moving over it renders nothing, and leaving it renders the icon and its button again, never the dock, its other icons or the top bar. The clock's minute turning renders the session's shell (`each_minute`), not counted in a step a minute began in.",
+  "about": "What the session's shell does for what it is told and what the pointer does over it, on the ThinkPad's display (1600×1000 at 1.25), counted from the shell's own report: which components React re-rendered for each event (`renders`: where each re-render began, exactly, and how many components it rendered in all), the same on any machine however loaded, with a backstop on the time its JavaScript took far above what it takes (`js_work`, two refreshes at 60 Hz) for a gross regression alone; its budgets on speed (`js_ms_max`, `js_blocked_ms_max`) are held by perf.py's runs alone (regress.py --speed-budgets), on the ThinkPad. Another window pressed (Bloom's SettingsLayout in a window, sample/WindowProbe.tsx) changes what the shell knows of that window and nothing the shell shows, so the shell renders no component at all (its sizes are the overview's alone, useWindowSizes; every change of the compositor rendered the whole shell again once, 14 to 19 ms); zoomed by its green bubble and restored, it covers the display and leaves it, which changes the dock's top corners alone (docs/adr/0034-the-dock.mdx, 5 November 2026), so the dock's shelf renders and nothing else (useDisplayCovered; Reanimated moves its corners without rendering); the pointer entering the first application's icon in the dock (Dropsea's, or Inbox's where Dropsea's package is not built: the point is on either) renders that icon and its button's hover and the dock's tooltip (its popup surface and its text), moving over it renders nothing, and leaving it renders the icon and its button again, never the dock, its other icons or the top bar. The clock's minute turning renders the session's shell (`each_minute`), not counted in a step a minute began in.",
   "locale": "es_ES.UTF-8",
   "module": "WindowProbe",
   "window": [900, 600],
@@ -26,21 +26,21 @@
       "allow_unchanged": true
     },
     {
-      "name": "Its green bubble zooms it to the work area: its size changes in what the shell knows, nothing the shell shows, and the shell renders no component",
+      "name": "Its green bubble zooms it to the work area: it covers the display, and the dock's shelf alone renders (its top corners go square), nothing else of the shell",
       "do": ["press", [72, 26]],
       "expect": {
         "window_rect": [0, 28, 1280, 716],
         "texts": ["active yes, zoomed yes, full screen no"],
-        "in_shell": {"renders": {"tops": [], "components_max": 0, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": ["DockShelf"], "components_max": 1, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
       }
     },
     {
-      "name": "Pressed again, it restores its frame: the shell again renders no component",
+      "name": "Pressed again, it restores its frame: it leaves the display, and the dock's shelf alone renders again (its corners round again)",
       "do": ["press", [72, 26]],
       "expect": {
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
-        "in_shell": {"renders": {"tops": [], "components_max": 0, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
+        "in_shell": {"renders": {"tops": ["DockShelf"], "components_max": 1, "each_minute": ["SessionShell"]}, "js_work": {"js_wall_ms_max": 33, "js_ms_max": 2, "js_blocked_ms_max": 1}}
       }
     },
     {

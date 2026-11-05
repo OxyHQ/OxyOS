@@ -157,9 +157,9 @@ class Report {
   // Props Animated's native driver set on `view` between commits (native-animated.h), as computed
   // for a frame: what the view is drawn with next.
   void animated(const facebook::react::ShadowView& view, const folly::dynamic& props);
-  // Views with a testID whose opacity or translation a mounted transaction changed, as committed
-  // (React's commits, a JavaScript-driven Animated's among them): `props` as the native driver's
-  // lines have them.
+  // Views with a testID whose opacity, translation or top corners' radii a mounted transaction
+  // changed, as committed (React's commits, a JavaScript-driven Animated's and Reanimated's among
+  // them): `props` as the native driver's lines have them, the radii as drawn.
   void committed(const facebook::react::ShadowViewMutationList& mutations);
   // A frame of requestAnimationFrame (animation-frames.h): its timestamp, as the callbacks get it,
   // and how many callbacks it ran.

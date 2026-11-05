@@ -10,6 +10,8 @@
  * The windows' sizes, { width, height } by window id, are `useWindowSizes()`'s, not the state's.
  * And the outputs (ADR 0018): `output` the one this shell runs on, `outputs` every one, [{ id, x, y,
  * width, height, scale, primary }], in the global space's logical pixels; the primary has the dock.
+ * Whether a zoomed or full-screen window covers this shell's output (docs/adr/0034-the-dock.mdx: the
+ * dock's top corners are square while one does) is `useDisplayCovered()`'s, not the state's.
  * Actions are intents: the next state says what happened.
  *
  * The menu bar (docs/adr/0021-menu-bar.mdx): `menuBar` is the active window's menus, { window,
@@ -124,8 +126,38 @@ export function sharedWith(previous, next) {
 let windowSizes = new Map();
 const sizeListeners = new Set();
 
-/** The state as the host told it, its windows' sizes kept in `windowSizes` instead. */
+// Whether a zoomed or full-screen window covers the output this shell runs on, apart from the state
+// as the windows' sizes are: a window zoomed or restored changes only the dock's corners, so only
+// the dock's shelf reads it (useDisplayCovered, ShellPlatform's) and nothing else renders for it.
+let displayCovered = false;
+const coverListeners = new Set();
+
+/** The state's outputs without what covers them, `displayCovered` set from this shell's. */
+function withoutCovers(state) {
+  if (!state || !Array.isArray(state.outputs)) return state;
+  const covered = state.outputs.some((output) => output.id === state.output && output.covered);
+  if (covered !== displayCovered) {
+    displayCovered = covered;
+    for (const listener of coverListeners) listener();
+  }
+  return { ...state, outputs: state.outputs.map(({ covered: _, ...output }) => output) };
+}
+
+const subscribeCover = (listener) => {
+  coverListeners.add(listener);
+  return () => coverListeners.delete(listener);
+};
+const readCover = () => displayCovered;
+
+/** Whether a zoomed or full-screen window covers this shell's display now. */
+export function useDisplayCovered() {
+  return React.useSyncExternalStore(subscribeCover, readCover);
+}
+
+/** The state as the host told it, its windows' sizes kept in `windowSizes` instead, and its
+    outputs' covers in `displayCovered`. */
 function withoutSizes(state) {
+  state = withoutCovers(state);
   if (!state || !Array.isArray(state.windows)) return state;
   const sizes = new Map();
   let changed = false;

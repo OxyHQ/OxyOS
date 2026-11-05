@@ -2,7 +2,8 @@
 //! (ADR 0009). A window, a mapped toplevel, is known to the shell by a number the compositor gives
 //! it, with its workspace, state, title and application id; each shell client is told what
 //! changed since it was last told, so one that connects late is told everything. So are the
-//! outputs, each with its place, scale and whether it is the primary (ADR 0018).
+//! outputs, each with its place, scale and whether it is the primary (ADR 0018), and whether a
+//! zoomed or full-screen window covers it (ADR 0034).
 
 use super::{ClientId, Output, OutputId, Request, Role, Scene, SurfaceKey};
 use oxyos_protocol::{ErrorCode, Event, PreeditText, Size, TextChunk};
@@ -43,6 +44,8 @@ struct Told {
     workspaces: Option<(u32, u32)>,
     /// Each output, and whether it was the primary.
     outputs: BTreeMap<OutputId, (Output, bool)>,
+    /// Each output, whether a zoomed or full-screen window covered it (ADR 0034).
+    covered: BTreeMap<OutputId, bool>,
 }
 
 #[derive(Debug, Default)]
@@ -318,6 +321,23 @@ impl Scene {
             .collect()
     }
 
+    /// Whether a window shown on `output` covers it: zoomed to fill its work area (ADR 0016) or
+    /// full screen, on the active workspace, neither minimized nor hidden with its application.
+    /// What the dock's top corners follow (ADR 0034): square while one does, as its own are. The
+    /// lock leaves it as it is beneath, as the desktop stays beneath the lock screen.
+    fn covered(&self, output: OutputId) -> bool {
+        self.nodes.values().any(|node| {
+            node.role == Role::Toplevel
+                && node.output == output
+                && (node.maximized || node.fullscreen)
+                && node.mapped
+                && !node.hidden
+                && !node.dismissed
+                && node.parent.is_none()
+                && node.workspace == self.workspaces.active
+        })
+    }
+
     /// Tells each shell client what changed since it was last told (before events are sent).
     pub(super) fn tell_shell(&mut self) {
         let shells: Vec<ClientId> = self
@@ -338,6 +358,8 @@ impl Scene {
             .enumerate()
             .map(|(index, output)| (output.id, (*output, index == 0)))
             .collect();
+        let covered: BTreeMap<OutputId, bool> =
+            outputs.keys().map(|id| (*id, self.covered(*id))).collect();
         for client in shells {
             let told = self.shell_windows.told.remove(&client).unwrap_or_default();
             // Outputs first: a shell places what it shows on them.
@@ -354,6 +376,18 @@ impl Scene {
                             scale_120: output.scale_120,
                             refresh_mhz: output.refresh_mhz,
                             primary,
+                        },
+                    );
+                }
+            }
+            // Each output's cover after its Output, when first told and whenever it changes.
+            for (id, &covered) in &covered {
+                if told.covered.get(id) != Some(&covered) {
+                    self.emit(
+                        client,
+                        Event::OutputCovered {
+                            output: *id,
+                            covered,
                         },
                     );
                 }
@@ -426,6 +460,7 @@ impl Scene {
                     windows: now.clone(),
                     workspaces: Some(workspaces),
                     outputs: outputs.clone(),
+                    covered: covered.clone(),
                 },
             );
         }

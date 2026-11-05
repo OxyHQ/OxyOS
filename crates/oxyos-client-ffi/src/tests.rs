@@ -2471,6 +2471,27 @@ fn window_events_convert_field_by_field() {
         ),
         (OXYOS_EVENT_OUTPUT, 2, (1536, 0, 1707, 960), 180, 59_951, 0)
     );
+    // Whether a window covers it (ADR 0034, version 22).
+    assert_eq!(
+        define("OXYOS_EVENT_OUTPUT_COVERED"),
+        i64::from(OXYOS_EVENT_OUTPUT_COVERED)
+    );
+    let cover = Event::OutputCovered {
+        output: 2,
+        covered: true,
+    };
+    assert_eq!(u32::from(cover.opcode()), OXYOS_EVENT_OUTPUT_COVERED);
+    let covered = convert(&cover).unwrap();
+    assert_eq!(
+        (covered.kind, covered.code, covered.flag),
+        (OXYOS_EVENT_OUTPUT_COVERED, 2, 1)
+    );
+    let uncovered = convert(&Event::OutputCovered {
+        output: 2,
+        covered: false,
+    })
+    .unwrap();
+    assert_eq!(uncovered.flag, 0);
     let removed = convert(&Event::OutputRemoved { output: 2 }).unwrap();
     assert_eq!(
         (removed.kind, removed.code),

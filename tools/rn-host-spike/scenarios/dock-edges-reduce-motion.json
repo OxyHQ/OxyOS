@@ -1,0 +1,242 @@
+{
+  "about": "The dock's top corners with Reduce Motion on (docs/adr/0034-the-dock.mdx, 5 November 2026; the preference of docs/adr/0019-settings.mdx), light, on the ThinkPad's display (1600×1000 at 1.25) with the session's shell, beside Bloom's SettingsLayout in a window (sample/WindowProbe.tsx): round with no window zoomed (the wallpaper above each curve, the shelf's colour just inside it), square at once as the window is zoomed to the work area by its green bubble (its radii set from 28 to 0 in one frame, nothing between: Reanimated's ReduceMotion.System) and round again at once restored. With the corners moving on the spring regardless of Reduce Motion, it fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "shell": "OxyOSShell",
+  "preferences": {
+    "appearance": "light",
+    "reduce_motion": "true"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "The window opens between the top bar and the dock: the dock's top corners round, the wallpaper above their curve",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "0,930": "#a8b3ef",
+          "1599,930": "#a8b3ee",
+          "1,930": "#a8b3ee",
+          "1598,930": "#a8b4ef",
+          "0,931": "#a8b4ed",
+          "1599,931": "#a8b4ed",
+          "1,931": "#a8b4ed",
+          "1598,931": "#a8b4ed",
+          "8,930": "#a8b4ef",
+          "1591,930": "#a8b4ef",
+          "0,941": "#aeb5e9",
+          "1599,941": "#aeb5e9",
+          "0,952": "#b2b8e3",
+          "1599,952": "#b2b8e3",
+          "3,953": "#f7f9fc",
+          "1596,953": "#f7f9fc",
+          "2,952": "#dfe2f3",
+          "1597,952": "#dfe2f3",
+          "8,938": "#abb5ea",
+          "1591,938": "#acb6ea",
+          "11,941": "#f7f9fc",
+          "1588,941": "#f7f9fc",
+          "10,940": "#edf0f9",
+          "1589,940": "#edf0f9",
+          "22,930": "#a8b3ee",
+          "1577,930": "#a8b3ee",
+          "23,933": "#f7f9fc",
+          "1576,933": "#f7f9fc",
+          "23,932": "#e9edf8",
+          "1576,932": "#e9edf8",
+          "35,930": "#f7f9fc",
+          "1564,930": "#f7f9fc",
+          "36,930": "#f7f9fc",
+          "1563,930": "#f7f9fc",
+          "0,965": "#f7f9fc",
+          "1599,965": "#f7f9fc",
+          "0,966": "#f7f9fc",
+          "1599,966": "#f7f9fc",
+          "1,966": "#f7f9fc",
+          "1598,966": "#f7f9fc",
+          "0,998": "#f7f9fc",
+          "1599,998": "#f7f9fc",
+          "0,999": "#f7f9fc",
+          "1599,999": "#f7f9fc",
+          "1,999": "#f7f9fc",
+          "1598,999": "#f7f9fc",
+          "800,930": "#f7f9fc",
+          "799,930": "#f7f9fc",
+          "800,931": "#f7f9fc",
+          "799,931": "#f7f9fc",
+          "800,999": "#f7f9fc",
+          "799,999": "#f7f9fc",
+          "1,998": "#f7f9fc",
+          "800,998": "#f7f9fc",
+          "1598,998": "#f7f9fc"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Zoomed to the work area: the dock's top corners square at once, its radii 28 to 0 in one frame",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ],
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "0,930": "#f7f9fc",
+          "0,931": "#f7f9fc",
+          "0,998": "#f7f9fc",
+          "0,999": "#f7f9fc",
+          "1,930": "#f7f9fc",
+          "1,931": "#f7f9fc",
+          "1,998": "#f7f9fc",
+          "1,999": "#f7f9fc",
+          "800,930": "#f7f9fc",
+          "800,931": "#f7f9fc",
+          "800,998": "#f7f9fc",
+          "800,999": "#f7f9fc",
+          "1598,930": "#f7f9fc",
+          "1598,931": "#f7f9fc",
+          "1598,998": "#f7f9fc",
+          "1598,999": "#f7f9fc",
+          "1599,930": "#f7f9fc",
+          "1599,931": "#f7f9fc",
+          "1599,998": "#f7f9fc",
+          "1599,999": "#f7f9fc",
+          "0,965": "#f7f9fc",
+          "1599,965": "#f7f9fc",
+          "0,929": "#f1dde9",
+          "1599,929": "#f7ebf0"
+        },
+        "in_shell": {
+          "committed": {
+            "shell-dock": {
+              "borderTopLeftRadius": [
+                28,
+                0
+              ],
+              "borderTopRightRadius": [
+                28,
+                0
+              ]
+            }
+          },
+          "committed_frames": [
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "Restored: the dock's top corners round again at once, its radii 0 to 28 in one frame",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "pixel_tolerance": 0,
+        "output_pixels": {
+          "0,930": "#a8b3ef",
+          "1599,930": "#a8b3ee",
+          "1,930": "#a8b3ee",
+          "1598,930": "#a8b4ef",
+          "0,931": "#a8b4ed",
+          "1599,931": "#a8b4ed",
+          "1,931": "#a8b4ed",
+          "1598,931": "#a8b4ed",
+          "8,930": "#a8b4ef",
+          "1591,930": "#a8b4ef",
+          "0,941": "#aeb5e9",
+          "1599,941": "#aeb5e9",
+          "0,952": "#b2b8e3",
+          "1599,952": "#b2b8e3",
+          "3,953": "#f7f9fc",
+          "1596,953": "#f7f9fc",
+          "2,952": "#dfe2f3",
+          "1597,952": "#dfe2f3",
+          "8,938": "#abb5ea",
+          "1591,938": "#acb6ea",
+          "11,941": "#f7f9fc",
+          "1588,941": "#f7f9fc",
+          "10,940": "#edf0f9",
+          "1589,940": "#edf0f9",
+          "22,930": "#a8b3ee",
+          "1577,930": "#a8b3ee",
+          "23,933": "#f7f9fc",
+          "1576,933": "#f7f9fc",
+          "23,932": "#e9edf8",
+          "1576,932": "#e9edf8",
+          "35,930": "#f7f9fc",
+          "1564,930": "#f7f9fc",
+          "36,930": "#f7f9fc",
+          "1563,930": "#f7f9fc",
+          "0,965": "#f7f9fc",
+          "1599,965": "#f7f9fc",
+          "0,966": "#f7f9fc",
+          "1599,966": "#f7f9fc",
+          "1,966": "#f7f9fc",
+          "1598,966": "#f7f9fc",
+          "0,998": "#f7f9fc",
+          "1599,998": "#f7f9fc",
+          "0,999": "#f7f9fc",
+          "1599,999": "#f7f9fc",
+          "1,999": "#f7f9fc",
+          "1598,999": "#f7f9fc",
+          "800,930": "#f7f9fc",
+          "799,930": "#f7f9fc",
+          "800,931": "#f7f9fc",
+          "799,931": "#f7f9fc",
+          "800,999": "#f7f9fc",
+          "799,999": "#f7f9fc",
+          "1,998": "#f7f9fc",
+          "800,998": "#f7f9fc",
+          "1598,998": "#f7f9fc"
+        },
+        "in_shell": {
+          "committed": {
+            "shell-dock": {
+              "borderTopLeftRadius": [
+                0,
+                28
+              ],
+              "borderTopRightRadius": [
+                0,
+                28
+              ]
+            }
+          },
+          "committed_frames": [
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ]
+}

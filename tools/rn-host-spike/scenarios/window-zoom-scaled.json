@@ -1,5 +1,5 @@
 {
-  "about": "A window zoomed on the ThinkPad's display (1600×1000 at 1.25) with the session's shell (docs/adr/0016-windows.mdx): Bloom's SettingsLayout in a window (sample/WindowProbe.tsx), its green bubble zooming it to the work area between the top bar and the dock, its frame going there on a spring (a `zoomed` transition, eased out) and its corners square there: the page to the work area's every corner, in whole device pixels, the top bar right above it and the dock right below, no desktop between; pressed again, it restores its frame and its corners round again, the desktop at its corner. With the corners drawn round when zoomed, the work area's corners show the desktop and it fails.",
+  "about": "A window zoomed on the ThinkPad's display (1600×1000 at 1.25) with the session's shell (docs/adr/0016-windows.mdx): Bloom's SettingsLayout in a window (sample/WindowProbe.tsx), its green bubble zooming it to the work area between the top bar and the dock, its frame going there on a spring (a `zoomed` transition, eased out) and its corners square there: the page to the work area's every corner, in whole device pixels, the top bar right above it and the dock right below, no desktop between, the dock's own top corners going square with it on the spring (docs/adr/0034-the-dock.mdx, 5 November 2026: its radii 28 to 0, monotonically); pressed again, it restores its frame and its corners round again, the desktop at its corner, and the dock's corners round again, the wallpaper above their curve. With the corners drawn round when zoomed, the work area's corners show the desktop and it fails; with the dock's square throughout, or round beside the zoomed window, it fails.",
   "locale": "es_ES.UTF-8",
   "module": "WindowProbe",
   "window": [900, 600],
@@ -7,12 +7,12 @@
   "outputs": "1600x1000@1.25",
   "steps": [
     {
-      "name": "The window opens between the top bar and the dock, its corners round: the desktop at its corner",
+      "name": "The window opens between the top bar and the dock, its corners round: the desktop at its corner, and the wallpaper above the dock's round top corners",
       "do": ["press", [600, 300]],
       "expect": {
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
-        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9"}
+        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9", "0,930": "#a8b3ef", "1599,930": "#a8b3ee", "3,953": "#f7f9fc", "35,930": "#f7f9fc"}
       },
       "allow_unchanged": true
     },
@@ -29,8 +29,10 @@
           "0,929": "#f1dde9",
           "1599,929": "#f7ebf0",
           "0,34": "#4271ec",
-          "0,930": "#f7f9fc"
-        }
+          "0,930": "#f7f9fc",
+          "1599,930": "#f7f9fc"
+        },
+        "in_shell": {"committed": {"shell-dock": {"borderTopLeftRadius": [28, 0], "borderTopRightRadius": [28, 0]}}}
       }
     },
     {
@@ -40,7 +42,8 @@
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
         "transitions": {"seen": [{"kind": "window", "change": "zoomed", "ended": true, "eased": true}], "frames_min": 5},
-        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9", "0,35": "#487bff"}
+        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9", "0,35": "#487bff", "0,930": "#a8b3ef", "1599,930": "#a8b3ee", "3,953": "#f7f9fc", "35,930": "#f7f9fc"},
+        "in_shell": {"committed": {"shell-dock": {"borderTopLeftRadius": [0, 28], "borderTopRightRadius": [0, 28]}}}
       }
     }
   ]

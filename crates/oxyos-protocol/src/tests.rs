@@ -635,6 +635,10 @@ fn events() -> Vec<Event> {
             window: 7,
             size: Size::new(1280, 800),
         },
+        Event::OutputCovered {
+            output: 2,
+            covered: true,
+        },
         Event::LockState { locked: true },
         Event::CapsLock {
             surface: 5,
@@ -1711,6 +1715,17 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         }),
         20
     );
+    // Whether a window covers an output (ADR 0034) is version 22's: a shell of version 21 is
+    // never told it, and keeps its dock's corners as they are.
+    let covered = Event::OutputCovered {
+        output: 1,
+        covered: true,
+    };
+    assert_eq!(event_since(&covered), 22);
+    assert!(!write_event_for(&mut nothing, &covered, 21).unwrap());
+    let mut v22 = Vec::new();
+    assert!(write_event_for(&mut v22, &covered, 22).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v22), 22).unwrap(), covered);
     // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
     let scroll = Event::Scroll {
         surface: 1,
@@ -2455,7 +2470,8 @@ fn version_21_the_candidate_window_is_resized_only_by_a_peer_that_knows_it() {
         }),
         2
     );
-    assert_eq!(VERSION, 21);
+    // The compositor speaks it to a peer of version 21 (version 22 came after it).
+    assert_eq!(negotiate(2, 21), Ok(21));
 }
 
 #[test]

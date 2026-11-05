@@ -78,6 +78,10 @@ pub const OXYOS_EVENT_WORKSPACES: u32 = 41;
 /// To the session's shell (ADR 0022): a window's size in logical pixels (code: the window;
 /// width, height), when it is first told and whenever it changes.
 pub const OXYOS_EVENT_WINDOW_SIZE: u32 = 80;
+/// To the session's shell (ADR 0034, version 22): whether a zoomed or full-screen window shown on
+/// an output covers it (code: the output; flag: 1 covered, 0 not), after its OUTPUT when it is
+/// first told and whenever it changes.
+pub const OXYOS_EVENT_OUTPUT_COVERED: u32 = 81;
 /// To an application: the shell asks it to close a window.
 pub const OXYOS_EVENT_CLOSE_REQUESTED: u32 = 42;
 /// A touchpad pinch over one of the client's surfaces.
@@ -1611,6 +1615,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_REFRESH,
                 surface,
                 detail: refresh_mhz,
+                ..out
+            }
+        }
+        Event::OutputCovered { output, covered } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_OUTPUT_COVERED,
+                code: output,
+                flag: u8::from(covered),
                 ..out
             }
         }

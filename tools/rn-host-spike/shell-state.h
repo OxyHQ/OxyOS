@@ -6,7 +6,8 @@
 // whether Caps Lock is on, which its password field shows; and the wallpaper's frame that shows the
 // sun now (docs/adr/0012-solar-wallpaper.mdx), from the solar wallpaper OXYOS_WALLPAPER names. And
 // the outputs (docs/adr/0018-several-displays.mdx): the shell runs on one, `output`, and has the dock
-// only on the primary.
+// only on the primary; each says whether a zoomed or full-screen window covers it (`covered`,
+// docs/adr/0034-the-dock.mdx).
 #pragma once
 
 #include "notifications.h"
@@ -19,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -132,6 +134,9 @@ class ShellState {
   };
   uint32_t output_;
   std::map<uint32_t, Output> outputs_;
+  // The outputs a zoomed or full-screen window covers (docs/adr/0034-the-dock.mdx): the dock's
+  // top corners are square on them. Apart from `outputs_`, which an OUTPUT replaces whole.
+  std::set<uint32_t> covered_;
   // Whether Caps Lock is on, as told to the shell's focused surface (off when it gains focus,
   // unless told).
   bool capsLock_ = false;

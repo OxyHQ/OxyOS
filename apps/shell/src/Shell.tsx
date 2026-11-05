@@ -780,6 +780,7 @@ export const Shell = memo(function Shell({
               moveFocus={moveDockFocus}
               leave={leaveDock}
               MinimizeTarget={platform.MinimizeTarget}
+              useDisplayCovered={platform.useDisplayCovered}
             />
           </Surface>
         )}
