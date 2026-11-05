@@ -1,5 +1,5 @@
 {
-  "about": "The dock as one surface (docs/adr/0034-the-dock.mdx), dark, on the ThinkPad's display (1600×1000 at 1.25) with the session's shell: flush with the display's sides and bottom and square at its top corners, its every edge and corner pixel the shelf's own colour (#1d1f24) to the level, with Bloom's SettingsLayout in a window (sample/WindowProbe.tsx) beside it, zoomed to the work area by its green bubble and restored. Zoomed, the window's last row is right above the dock, no desktop between them. Dropsea's and Atlas's icons are their own pictures to their tiles' edges. With the dock's one-sided top border (its outline, and a rounded bordered background kept 0.8 px inside every edge, as Android's), its rounded top corners (the wallpaper past them), or the icons on white circles with a ring, it fails.",
+  "about": "The dock as one surface (docs/adr/0034-the-dock.mdx, 5 November 2026), dark, on the ThinkPad's display (1600×1000 at 1.25) with the session's shell, beside Bloom's SettingsLayout in a window (sample/WindowProbe.tsx): flush with the display's sides and bottom with no outline, its top corners round while no window is zoomed (the wallpaper above each curve, its anti-aliased pixels between the wallpaper and the shelf, the shelf's own colour (#1d1f24) to the level just inside it, along its top and down to its bottom row and sides), square while the window is zoomed to the work area by its green bubble (the shelf's colour in its very corner pixels, the window's last row right above it, no desktop between them), and round again restored; its radii going from 28 to 0 as it zooms and back as it restores monotonically over the frames between (the zoom's spring, the shell's report of its commits). Dropsea's and Atlas's icons are their own pictures to their tiles' edges. With the corners square throughout (the note of 3 November), round beside the zoomed window, changed at once, a border on the shelf (a rounded bordered background kept 0.8 px inside every edge, as Android's: the wallpaper down its sides and along its bottom), or the icons on white circles with a ring, it fails.",
   "locale": "es_ES.UTF-8",
   "module": "WindowProbe",
   "window": [
@@ -13,7 +13,7 @@
   "outputs": "1600x1000@1.25",
   "steps": [
     {
-      "name": "The window opens between the top bar and the dock: the dock flush with the display, square, no outline; the icons their own pictures",
+      "name": "The window opens between the top bar and the dock: the dock flush with the display, no outline, its top corners round with the wallpaper above their curve; the icons their own pictures",
       "do": [
         "press",
         [
@@ -27,28 +27,61 @@
         ],
         "pixel_tolerance": 0,
         "output_pixels": {
-          "0,930": "#1d1f24",
-          "0,931": "#1d1f24",
-          "0,998": "#1d1f24",
-          "0,999": "#1d1f24",
-          "1,930": "#1d1f24",
-          "1,931": "#1d1f24",
-          "1,998": "#1d1f24",
-          "1,999": "#1d1f24",
-          "800,930": "#1d1f24",
-          "800,931": "#1d1f24",
-          "800,998": "#1d1f24",
-          "800,999": "#1d1f24",
-          "1598,930": "#1d1f24",
-          "1598,931": "#1d1f24",
-          "1598,998": "#1d1f24",
-          "1598,999": "#1d1f24",
-          "1599,930": "#1d1f24",
-          "1599,931": "#1d1f24",
-          "1599,998": "#1d1f24",
-          "1599,999": "#1d1f24",
+          "0,930": "#a8b3ef",
+          "1599,930": "#a8b3ee",
+          "1,930": "#a8b3ee",
+          "1598,930": "#a8b4ef",
+          "0,931": "#a8b4ed",
+          "1599,931": "#a8b4ed",
+          "1,931": "#a8b4ed",
+          "1598,931": "#a8b4ed",
+          "8,930": "#a8b4ef",
+          "1591,930": "#a8b4ef",
+          "0,941": "#aeb5e9",
+          "1599,941": "#aeb5e9",
+          "0,952": "#b2b8e3",
+          "1599,952": "#b2b8e3",
+          "3,953": "#1d1f24",
+          "1596,953": "#1d1f24",
+          "2,953": "#24272e",
+          "1597,953": "#25272e",
+          "8,938": "#abb5ea",
+          "1591,938": "#acb6ea",
+          "11,941": "#1d1f24",
+          "1588,941": "#1d1f24",
+          "10,940": "#2d313b",
+          "1589,940": "#2d313b",
+          "22,930": "#a8b3ee",
+          "1577,930": "#a8b3ee",
+          "23,933": "#1d1f24",
+          "1576,933": "#1d1f24",
+          "23,932": "#343744",
+          "1576,932": "#343744",
+          "35,930": "#1d1f24",
+          "1564,930": "#1d1f24",
+          "36,930": "#1d1f24",
+          "1563,930": "#1d1f24",
           "0,965": "#1d1f24",
           "1599,965": "#1d1f24",
+          "0,966": "#1d1f24",
+          "1599,966": "#1d1f24",
+          "1,966": "#1d1f24",
+          "1598,966": "#1d1f24",
+          "0,998": "#1d1f24",
+          "1599,998": "#1d1f24",
+          "0,999": "#1d1f24",
+          "1599,999": "#1d1f24",
+          "1,999": "#1d1f24",
+          "1598,999": "#1d1f24",
+          "800,930": "#1d1f24",
+          "799,930": "#1d1f24",
+          "800,931": "#1d1f24",
+          "799,931": "#1d1f24",
+          "800,999": "#1d1f24",
+          "799,999": "#1d1f24",
+          "1,998": "#1d1f24",
+          "800,998": "#1d1f24",
+          "1598,998": "#1d1f24",
           "788,965": "#002b64",
           "839,965": "#002b64",
           "812,940": "#002b64",
@@ -59,7 +92,7 @@
       "allow_unchanged": true
     },
     {
-      "name": "Zoomed to the work area: its last row right above the dock at both sides, the dock as it was",
+      "name": "Zoomed to the work area: the dock's top corners go square on the zoom's spring, its radii 28 to 0 monotonically, and its last row is right above the dock at both sides",
       "do": [
         "press",
         [
@@ -113,11 +146,25 @@
           "812,940": "#002b64",
           "885,939": "#ffffff",
           "885,990": "#ffffff"
+        },
+        "in_shell": {
+          "committed": {
+            "shell-dock": {
+              "borderTopLeftRadius": [
+                28,
+                0
+              ],
+              "borderTopRightRadius": [
+                28,
+                0
+              ]
+            }
+          }
         }
       }
     },
     {
-      "name": "Restored: the dock as it was",
+      "name": "Restored: the dock's top corners round again on the spring, its radii 0 to 28 monotonically, the wallpaper above their curve",
       "do": [
         "press",
         [
@@ -142,33 +189,80 @@
         },
         "pixel_tolerance": 0,
         "output_pixels": {
-          "0,930": "#1d1f24",
-          "0,931": "#1d1f24",
-          "0,998": "#1d1f24",
-          "0,999": "#1d1f24",
-          "1,930": "#1d1f24",
-          "1,931": "#1d1f24",
-          "1,998": "#1d1f24",
-          "1,999": "#1d1f24",
-          "800,930": "#1d1f24",
-          "800,931": "#1d1f24",
-          "800,998": "#1d1f24",
-          "800,999": "#1d1f24",
-          "1598,930": "#1d1f24",
-          "1598,931": "#1d1f24",
-          "1598,998": "#1d1f24",
-          "1598,999": "#1d1f24",
-          "1599,930": "#1d1f24",
-          "1599,931": "#1d1f24",
-          "1599,998": "#1d1f24",
-          "1599,999": "#1d1f24",
+          "0,930": "#a8b3ef",
+          "1599,930": "#a8b3ee",
+          "1,930": "#a8b3ee",
+          "1598,930": "#a8b4ef",
+          "0,931": "#a8b4ed",
+          "1599,931": "#a8b4ed",
+          "1,931": "#a8b4ed",
+          "1598,931": "#a8b4ed",
+          "8,930": "#a8b4ef",
+          "1591,930": "#a8b4ef",
+          "0,941": "#aeb5e9",
+          "1599,941": "#aeb5e9",
+          "0,952": "#b2b8e3",
+          "1599,952": "#b2b8e3",
+          "3,953": "#1d1f24",
+          "1596,953": "#1d1f24",
+          "2,953": "#24272e",
+          "1597,953": "#25272e",
+          "8,938": "#abb5ea",
+          "1591,938": "#acb6ea",
+          "11,941": "#1d1f24",
+          "1588,941": "#1d1f24",
+          "10,940": "#2d313b",
+          "1589,940": "#2d313b",
+          "22,930": "#a8b3ee",
+          "1577,930": "#a8b3ee",
+          "23,933": "#1d1f24",
+          "1576,933": "#1d1f24",
+          "23,932": "#343744",
+          "1576,932": "#343744",
+          "35,930": "#1d1f24",
+          "1564,930": "#1d1f24",
+          "36,930": "#1d1f24",
+          "1563,930": "#1d1f24",
           "0,965": "#1d1f24",
           "1599,965": "#1d1f24",
+          "0,966": "#1d1f24",
+          "1599,966": "#1d1f24",
+          "1,966": "#1d1f24",
+          "1598,966": "#1d1f24",
+          "0,998": "#1d1f24",
+          "1599,998": "#1d1f24",
+          "0,999": "#1d1f24",
+          "1599,999": "#1d1f24",
+          "1,999": "#1d1f24",
+          "1598,999": "#1d1f24",
+          "800,930": "#1d1f24",
+          "799,930": "#1d1f24",
+          "800,931": "#1d1f24",
+          "799,931": "#1d1f24",
+          "800,999": "#1d1f24",
+          "799,999": "#1d1f24",
+          "1,998": "#1d1f24",
+          "800,998": "#1d1f24",
+          "1598,998": "#1d1f24",
           "788,965": "#002b64",
           "839,965": "#002b64",
           "812,940": "#002b64",
           "885,939": "#ffffff",
           "885,990": "#ffffff"
+        },
+        "in_shell": {
+          "committed": {
+            "shell-dock": {
+              "borderTopLeftRadius": [
+                0,
+                28
+              ],
+              "borderTopRightRadius": [
+                0,
+                28
+              ]
+            }
+          }
         }
       }
     }
