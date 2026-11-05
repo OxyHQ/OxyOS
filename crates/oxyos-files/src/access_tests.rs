@@ -636,6 +636,74 @@ fn copies_and_moves_go_where_expo_says_and_never_over_an_item_unless_asked() {
 }
 
 #[test]
+fn the_homes_standard_folders_are_never_moved_renamed_deleted_replaced_or_trashed() {
+    // 5 November 2026: every item of a home dropped on its Pictures, and moved into it one at a
+    // time, as a file manager moves them. The standard folders stay; the rest goes, as asked.
+    let place = Place::new("standard-folders");
+    let scope = application(&place);
+    let home = scope.home().to_path_buf();
+    let standard = [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Music",
+        "Public",
+        "Templates",
+        "Videos",
+    ];
+    for folder in standard {
+        place.file(&format!("home/ada/{folder}/kept.txt"), folder);
+    }
+    let pictures = place.dir("home/ada/Pictures");
+    place.file("home/ada/Oxy/README.md", "oxy");
+    place.file("home/ada/package.json", "{}");
+    for folder in standard {
+        let uri = d(&home.join(folder));
+        assert!(
+            matches!(
+                access::relocate(&scope, &to(&uri, true, &d(&pictures), true, false)),
+                Err(Error::Refused(_))
+            ),
+            "{folder} moved"
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.join(folder).join("kept.txt")).expect("kept"),
+            folder
+        );
+    }
+    let oxy = d(&home.join("Oxy"));
+    access::relocate(&scope, &to(&oxy, true, &d(&pictures), true, false)).expect("Oxy");
+    let package = u(&home.join("package.json"));
+    access::relocate(&scope, &to(&package, false, &d(&pictures), true, false)).expect("file");
+    assert!(pictures.join("Oxy/README.md").is_file());
+    assert!(pictures.join("package.json").is_file());
+
+    // Never renamed, deleted, or made again empty.
+    let documents = d(&home.join("Documents"));
+    assert!(matches!(
+        access::rename(&scope, &documents, true, "Old Documents"),
+        Err(Error::Refused(_))
+    ));
+    assert!(matches!(
+        access::delete(&scope, &documents),
+        Err(Error::Refused(_))
+    ));
+    assert!(matches!(
+        access::create_directory(&scope, &documents, false, true, false),
+        Err(Error::Refused(_))
+    ));
+    assert!(home.join("Documents/kept.txt").is_file());
+    assert!(home.join("Desktop/kept.txt").is_file());
+
+    // What is in them is the person's to change; a copy of one is a folder like any other.
+    let kept = u(&home.join("Documents/kept.txt"));
+    access::relocate(&scope, &to(&kept, false, &d(&pictures), true, false)).expect("inside");
+    access::copy(&scope, &to(&documents, true, &d(&pictures), true, false)).expect("copy");
+    let copy = d(&pictures.join("Documents"));
+    access::rename(&scope, &copy, true, "Documents copy").expect("the copy");
+}
+
+#[test]
 fn open_files_read_and_write_at_their_own_offset() {
     let place = Place::new("handles");
     let scope = application(&place);

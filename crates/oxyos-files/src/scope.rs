@@ -16,7 +16,7 @@
 //! the user reaches what the user does.
 
 use crate::mounts::MountTable;
-use crate::places::Volume;
+use crate::places::{standard_folders, Volume};
 use crate::Error;
 use std::io;
 use std::os::unix::fs::DirBuilderExt;
@@ -341,7 +341,8 @@ impl Scope {
 
     /// The item `path` names itself (a link, not what it leads to), whether or not it exists, in
     /// a folder the scope reaches: one to create, delete, rename, move or put in the Trash. Never
-    /// a root's folder (the home, a volume's root, the application's folders).
+    /// a root's folder (the home, a volume's root, the application's folders), nor one of the
+    /// home's standard folders (`places::standard_folders`).
     pub fn entry(&self, path: &str, access: Access) -> Result<PathBuf, Error> {
         let path = absolute(path)?;
         let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
@@ -357,6 +358,12 @@ impl Scope {
             ));
         }
         self.allowed(&item, access, &volumes)?;
+        if standard_folders(self).contains(&item) {
+            let name = name.to_string_lossy();
+            return Err(Error::Refused(format!(
+                "“{name}” is one of the home's standard folders, which stay where they are"
+            )));
+        }
         // Nor through a folder holding one, or a Trash: deleting, moving or replacing it would
         // change them too.
         if self.holds_root(&item, &volumes) {
