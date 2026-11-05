@@ -540,6 +540,8 @@ pub struct Scene {
     key_repeat: key_repeat::KeyRepeat,
     /// The drag going on, the drops not finished and the shell's files for the Trash (ADR 0035).
     drags: drag::Drags,
+    /// The system sounds asked for and not yet taken (docs/adr/0044-system-sounds.mdx).
+    sounds: sounds::Sounds,
 }
 
 /// The modifier (`MODIFIER_*`) a key is, by its Linux input code; 0 for any other key.
@@ -1131,8 +1133,10 @@ impl Scene {
             self.tell_controls(client);
             self.tell_notifications(client);
             self.tell_sheets(client);
-            self.tell_application_lists(client);
             self.tell_trash(client);
+        }
+        if new.shell || new.settings {
+            self.tell_application_lists(client);
         }
         Ok(())
     }
@@ -1677,6 +1681,9 @@ impl Scene {
                 text,
             } => self.url_request(client, serial, input, index, last, text),
             Request::EmptyTrash { input } => self.empty_trash_request(client, input),
+            Request::PlaySystemSound { input, sound } => {
+                self.play_system_sound_request(client, input, sound)
+            }
             Request::SetControlLevel { .. }
             | Request::SetControlMuted { .. }
             | Request::SetWifiEnabled { .. }
@@ -1749,6 +1756,7 @@ impl Scene {
             | Request::ConfirmDisplays { .. } => self.display_request(client, request),
             Request::NotificationText { .. }
             | Request::PostNotification { .. }
+            | Request::NotificationSound { .. }
             | Request::WithdrawNotification { .. }
             | Request::NotificationReply { .. }
             | Request::ActivateNotification { .. } => self.notification_request(client, request),
@@ -4899,6 +4907,8 @@ pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT}
 pub use drag::{negotiate_action, TrashRequest, DRAG_VERSION, MAX_OPEN_DROPS};
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
+mod sounds;
+pub use sounds::{MAX_PENDING_SOUNDS, NOTIFICATION_SOUND_COALESCE};
 mod system;
 pub use system::{CapabilityRequest, SheetAnswered, SystemRequest};
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).

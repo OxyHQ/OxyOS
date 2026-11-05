@@ -955,6 +955,9 @@ impl Client {
                 background |= 1 << index;
             }
         }
+        if post.sound && self.version >= 23 {
+            self.send(&Request::NotificationSound { serial })?;
+        }
         self.send(&Request::PostNotification {
             serial,
             banner: post.banner,
@@ -1424,6 +1427,9 @@ pub struct NotificationPost<'a> {
     pub actions: &'a [NotificationActionPost<'a>],
     /// Shown as a banner as it arrives, as the session allows; else only kept.
     pub banner: bool,
+    /// It plays the notification sound as it arrives, as the session allows
+    /// (docs/adr/0044-system-sounds.mdx); a compositor before version 23 plays none.
+    pub sound: bool,
 }
 
 /// One of a notification's actions.

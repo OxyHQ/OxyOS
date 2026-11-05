@@ -148,6 +148,24 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         receiving_.clear();
         input(event);
       }
+    } else if (event.kind == OXYOS_EVENT_APPLICATION_LIST && event.code == OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF) {
+      // Whose notifications play no sound (docs/adr/0044-system-sounds.mdx), told to Settings alone:
+      // kept among its preferences as the file keeps it, its ids joined by commas.
+      if (event.detail == 0) receivingSoundsOff_.clear();
+      receivingSoundsOff_.append(event.text, strnlen(event.text, sizeof(event.text)));
+      if (event.flag & OXYOS_LIST_LAST) {
+        std::string ids;
+        size_t start = 0;
+        while (start < receivingSoundsOff_.size()) {
+          size_t end = receivingSoundsOff_.find('\n', start);
+          if (end == std::string::npos) end = receivingSoundsOff_.size();
+          if (end > start) ids += (ids.empty() ? "" : ",") + receivingSoundsOff_.substr(start, end - start);
+          start = end + 1;
+        }
+        preferences_[kNotificationSoundsOff] = std::move(ids);
+        receivingSoundsOff_.clear();
+        input(event);
+      }
     } else if (event.kind == OXYOS_EVENT_LOCALE) {
       if (event.detail == 0) receivingLocale_.clear();
       receivingLocale_ += event.text;
@@ -464,6 +482,10 @@ bool Window::forceQuitApplication(uint32_t window) {
 
 bool Window::emptyTrash(uint64_t input) { return oxyos_client_empty_trash(client_, input) == 0; }
 
+bool Window::playSystemSound(uint32_t sound, uint64_t input) {
+  return oxyos_client_play_system_sound(client_, sound, input) == 0;
+}
+
 bool Window::trashFiles(uint64_t input, const std::string& uris) {
   return !uris.empty() && oxyos_client_trash_files(client_, input, uris.data(), uris.size()) == 0;
 }
@@ -550,6 +572,19 @@ void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
 }
 
 bool Window::setPreference(uint32_t serial, const std::string& key, const std::string& value) {
+  // Whose notifications play no sound is a list of applications, as the dock's are
+  // (docs/adr/0044-system-sounds.mdx): its ids one a line, answered as a preference.
+  if (key == kNotificationSoundsOff) {
+    std::string ids;
+    size_t start = 0;
+    while (start < value.size()) {
+      size_t end = value.find(',', start);
+      if (end == std::string::npos) end = value.size();
+      if (end > start) ids += (ids.empty() ? "" : "\n") + value.substr(start, end - start);
+      start = end + 1;
+    }
+    return setApplicationList(serial, OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF, ids);
+  }
   return oxyos_client_set_preference(client_, serial, key.c_str(), value.c_str()) == 0;
 }
 

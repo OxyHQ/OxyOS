@@ -6415,3 +6415,75 @@ fn a_target_is_told_the_drag_answers_it_and_receives_the_drop_through_a_pipe() {
         oxyos_client_close(client);
     }
 }
+
+#[test]
+fn system_sounds_go_through_the_c_abi_to_a_compositor_of_version_23() {
+    for (name, value) in [
+        (
+            "OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH",
+            i64::from(OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH),
+        ),
+        (
+            "OXYOS_SYSTEM_SOUND_EMPTY_TRASH",
+            i64::from(OXYOS_SYSTEM_SOUND_EMPTY_TRASH),
+        ),
+        (
+            "OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF",
+            i64::from(OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    assert!(HEADER.contains(
+        "int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t input);"
+    ));
+    for version in [23, 22] {
+        let directory = std::env::temp_dir().join(format!(
+            "oxyos-client-ffi-sounds-{version}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let socket = directory.join("s");
+        let listener = Listener::bind(&socket).unwrap();
+        let compositor = std::thread::spawn(move || {
+            let server = listener.accept().unwrap();
+            server.recv_request().unwrap();
+            server
+                .send_event_for(&Event::Welcome { version }, None, version)
+                .unwrap();
+            let mut received = Vec::new();
+            loop {
+                let (request, _) = server.recv_request().unwrap();
+                let done = matches!(request, Request::EmptyTrash { .. });
+                received.push(request);
+                if done {
+                    break received;
+                }
+            }
+        });
+        let path = CString::new(socket.to_str().unwrap()).unwrap();
+        // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+        let received = unsafe {
+            let client = oxyos_client_connect(path.as_ptr());
+            assert!(!client.is_null());
+            let sent = oxyos_client_play_system_sound(client, OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH, 41);
+            assert_eq!(sent, if version >= 23 { 0 } else { OXYOS_ERROR });
+            // The notification sound is never an application's to ask for this way.
+            assert_eq!(oxyos_client_play_system_sound(client, 3, 41), OXYOS_ERROR);
+            assert_eq!(oxyos_client_empty_trash(client, 43), 0);
+            let received = compositor.join().unwrap();
+            oxyos_client_close(client);
+            received
+        };
+        let mut wanted = Vec::new();
+        if version >= 23 {
+            wanted.push(Request::PlaySystemSound {
+                input: 41,
+                sound: oxyos_protocol::SystemSound::MoveToTrash,
+            });
+        }
+        wanted.push(Request::EmptyTrash { input: 43 });
+        assert_eq!(received, wanted, "version {version}");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}

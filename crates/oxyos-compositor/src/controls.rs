@@ -123,6 +123,16 @@ impl Controls {
             .saturating_duration_since(now)
     }
 
+    /// Whether the output is muted or at no volume, as the system last said it (or as last set):
+    /// no system sound plays then (docs/adr/0044-system-sounds.mdx). A machine whose output was
+    /// never told is not silent.
+    pub fn output_silent(&self) -> bool {
+        matches!(
+            self.levels.get(&Control::OutputVolume),
+            Some(Some(level)) if level.muted || level.value == 0
+        )
+    }
+
     /// The battery, the network and Bluetooth looked at now: the network's daemon said it changed
     /// (docs/adr/0038-networks.mdx), so the top bar follows a cable or a network at once.
     pub fn refresh_status(&mut self) {

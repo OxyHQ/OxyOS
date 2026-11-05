@@ -218,7 +218,14 @@ impl Scene {
         last: bool,
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
-        if !self.clients[&client].shell {
+        // The dock's lists are the shell's; whose notifications are silent, Settings'
+        // (docs/adr/0044-system-sounds.mdx).
+        let grants = &self.clients[&client];
+        let allowed = match list {
+            ApplicationListKind::Dock | ApplicationListKind::OpenAtLogin => grants.shell,
+            ApplicationListKind::NotificationSoundsOff => grants.settings,
+        };
+        if !allowed {
             return Err(ErrorCode::Unauthorized);
         }
         let dock = &mut self.dock;
@@ -258,17 +265,40 @@ impl Scene {
             return;
         }
         self.dock.lists.insert(kind, list);
-        for shell in self.shell_clients() {
-            self.tell_application_list(shell, kind);
+        for client in self.list_clients(kind) {
+            self.tell_application_list(client, kind);
         }
     }
 
-    /// Tells a shell that connects every list the program said.
+    /// Who is told a list: the dock's, the shells; whose notifications are silent, Settings.
+    fn list_clients(&self, kind: ApplicationListKind) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| match kind {
+                ApplicationListKind::Dock | ApplicationListKind::OpenAtLogin => grants.shell,
+                ApplicationListKind::NotificationSoundsOff => grants.settings,
+            })
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
+    /// Tells a client that connects with the shell's or Settings' grant every list it is told.
     pub(super) fn tell_application_lists(&mut self, client: ClientId) {
         let kinds: Vec<ApplicationListKind> = self.dock.lists.keys().copied().collect();
         for kind in kinds {
-            self.tell_application_list(client, kind);
+            if self.list_clients(kind).contains(&client) {
+                self.tell_application_list(client, kind);
+            }
         }
+    }
+
+    /// Whether the person turned `application`'s notification sounds off
+    /// (docs/adr/0044-system-sounds.mdx).
+    pub(super) fn notification_sounds_off(&self, application: &str) -> bool {
+        self.dock
+            .lists
+            .get(&ApplicationListKind::NotificationSoundsOff)
+            .is_some_and(|list| list.ids.iter().any(|id| id == application))
     }
 
     fn tell_application_list(&mut self, client: ClientId, kind: ApplicationListKind) {

@@ -20,6 +20,8 @@ struct Post<'a> {
     actions: &'a [(&'a str, &'a str, Option<&'a str>)],
     banner: bool,
     background: u8,
+    /// It asks for the notification sound (`NotificationSound`).
+    sound: bool,
 }
 
 fn text(
@@ -75,6 +77,10 @@ fn post(h: &mut Harness, client: ClientId, serial: u32, post: &Post) -> (u32, No
                 placeholder,
             );
         }
+    }
+    if post.sound {
+        h.request(client, Request::NotificationSound { serial })
+            .unwrap();
     }
     h.clear_log();
     h.request(
@@ -844,4 +850,125 @@ fn do_not_disturb_from_the_control_center_goes_the_preferences_way() {
             accepted: false
         })
     );
+}
+
+/// A notification posted with a sound, as Allo's handler asks (`shouldPlaySound`).
+fn chime(h: &mut Harness, client: ClientId, serial: u32) -> (u32, NotificationOutcome) {
+    post(
+        h,
+        client,
+        serial,
+        &Post {
+            title: "Ana",
+            body: "¿Comemos?",
+            banner: true,
+            sound: true,
+            ..Post::default()
+        },
+    )
+}
+
+#[test]
+fn a_notification_with_a_sound_asks_for_it_once_and_a_burst_once() {
+    use crate::scene::sounds::NOTIFICATION_SOUND_COALESCE;
+    use oxyos_protocol::SystemSound;
+    let mut h = Harness::new();
+    h.scene.set_application(APP, ALLO);
+    h.scene.set_clock(Duration::from_secs(100));
+    // Posted with a sound: asked for once.
+    assert_eq!(chime(&mut h, APP, 1).1, NotificationOutcome::Posted);
+    assert_eq!(h.scene.take_system_sounds(), [SystemSound::Notification]);
+    // Without one (the handler's shouldPlaySound false): none.
+    hello(&mut h, APP, 2);
+    assert!(h.scene.take_system_sounds().is_empty());
+    // A burst: three more within the coalescing window sound once, not stacked.
+    h.scene
+        .set_clock(Duration::from_secs(100) + NOTIFICATION_SOUND_COALESCE);
+    for serial in 3..=5 {
+        assert_eq!(chime(&mut h, APP, serial).1, NotificationOutcome::Posted);
+    }
+    assert_eq!(h.scene.take_system_sounds(), [SystemSound::Notification]);
+    // Another once the burst is over: its own sound.
+    h.scene.set_clock(Duration::from_secs(110));
+    chime(&mut h, APP, 6);
+    assert_eq!(h.scene.take_system_sounds(), [SystemSound::Notification]);
+    // A post refused (a process the session did not start) asks for nothing.
+    h.scene.set_clock(Duration::from_secs(120));
+    assert_eq!(chime(&mut h, OTHER, 1).1, NotificationOutcome::Refused);
+    assert!(h.scene.take_system_sounds().is_empty());
+    // And an application cannot ask for the notification sound as an interface sound.
+    let window = h.toplevel(APP, 9, 400, 300);
+    let at = h.rect(window);
+    let press = h.press(at.x + 10, at.y + 10);
+    assert_eq!(
+        h.request(
+            APP,
+            Request::PlaySystemSound {
+                input: press,
+                sound: SystemSound::Notification
+            }
+        ),
+        Err(ErrorCode::InvalidMessage)
+    );
+}
+
+#[test]
+fn no_notification_sound_with_do_not_disturb_or_for_a_silenced_application() {
+    use oxyos_protocol::{ApplicationListKind, SystemSound};
+    let mut h = Harness::new();
+    h.scene.set_application(APP, ALLO);
+    h.scene.set_application(OTHER, INBOX);
+    h.scene.set_clock(Duration::from_secs(100));
+    // Do Not Disturb: kept and listed, and silent.
+    h.scene.set_notification_policy(NotificationPolicy {
+        do_not_disturb: true,
+        previews: false,
+    });
+    assert_eq!(chime(&mut h, APP, 1).1, NotificationOutcome::Posted);
+    assert!(h.scene.take_system_sounds().is_empty());
+    h.scene.set_notification_policy(NotificationPolicy {
+        do_not_disturb: false,
+        previews: false,
+    });
+    // Allo's notification sounds turned off in Settings: Allo's are silent, Inbox's are not.
+    h.scene.set_application_list(
+        ApplicationListKind::NotificationSoundsOff,
+        ApplicationList {
+            chosen: true,
+            ids: vec![ALLO.into()],
+        },
+    );
+    assert_eq!(chime(&mut h, APP, 2).1, NotificationOutcome::Posted);
+    assert!(h.scene.take_system_sounds().is_empty());
+    assert_eq!(chime(&mut h, OTHER, 1).1, NotificationOutcome::Posted);
+    assert_eq!(h.scene.take_system_sounds(), [SystemSound::Notification]);
+    // The list is Settings', never the shell's, and only Settings is told it.
+    assert_eq!(
+        h.request(
+            SHELL,
+            Request::SetApplicationList {
+                serial: 1,
+                list: ApplicationListKind::NotificationSoundsOff,
+                index: 0,
+                last: true,
+                text: PreeditText::new(INBOX).unwrap(),
+            }
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
+    h.scene.set_application_list(
+        ApplicationListKind::NotificationSoundsOff,
+        ApplicationList {
+            chosen: true,
+            ids: vec![INBOX.into()],
+        },
+    );
+    assert!(!h.pump().iter().any(|(client, event)| *client == SHELL
+        && matches!(
+            event,
+            Event::ApplicationList {
+                list: ApplicationListKind::NotificationSoundsOff,
+                ..
+            }
+        )));
 }

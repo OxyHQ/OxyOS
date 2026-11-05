@@ -8,7 +8,7 @@ use crate::wire::{
     ErrorCode, Format, GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField,
     NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
     PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size,
-    SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    SystemShortcut, SystemSound, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -396,6 +396,17 @@ messages! {
         // bar's titles, which open their menus as the pointer crosses them, as a Mac's bar goes on
         // tracking the pointer with a menu open (ADR 0001). Sent before GrabPopup; a popup only.
         235 => TrackPointer { surface: u32 },
+        // System sounds (version 23, docs/adr/0044-system-sounds.mdx). Any client asks the session
+        // to play one of the system's interface sounds for what the person just did (`MoveToTrash`,
+        // `EmptyTrash`; never `Notification`), citing `input`, an input it received lately: the
+        // session plays it unless the person turned interface sound effects off or the output is
+        // muted, and plays nothing for a request citing no input of the client's.
+        236 => PlaySystemSound { input: u64, sound: SystemSound },
+        // An application's notification being posted (`serial`, NotificationText's) plays the
+        // notification sound, as expo-notifications' `shouldPlaySound` asks: sent before its
+        // PostNotification. The session plays it unless Do Not Disturb is on, the person turned
+        // the application's notification sounds off, or the output is muted.
+        237 => NotificationSound { serial: u32 },
         // Drag and drop (ADR 0035). A drag's image: a surface of this client the compositor shows
         // above every window, its hotspot (surface-local) at the pointer, while the drag that
         // names it goes on; it takes no input.

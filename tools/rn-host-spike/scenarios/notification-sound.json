@@ -1,0 +1,84 @@
+{
+  "about": "The notification sound (docs/adr/0044-system-sounds.mdx), the owner's, as a Mac plays one for a notification arriving: sample/NotificationSoundProbe.tsx (Allo), whose expo-notifications handler asks for it (`shouldPlaySound`, as Allo's and Mention's do), posts one now: the session plays `message-new-instant` exactly once. Three posted at once, a burst, sound once, not stacked. One whose content says `sound: false` plays none. Without the coalescing, the burst plays three and the third step fails.",
+  "locale": "es_ES.UTF-8",
+  "module": "NotificationSoundProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "Avisar posts one: its sound plays once",
+      "do": [
+        "press_named",
+        "Avisar"
+      ],
+      "expect": {
+        "texts": [
+          "Posted: 1",
+          "Failed: none"
+        ],
+        "sounds": [
+          "message-new-instant"
+        ]
+      }
+    },
+    {
+      "name": "the burst's window passes (two seconds)",
+      "do": [
+        "wait",
+        2200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "sounds": []
+      }
+    },
+    {
+      "name": "Ráfaga posts three at once: the burst sounds once",
+      "do": [
+        "press_named",
+        "Ráfaga"
+      ],
+      "expect": {
+        "texts": [
+          "Posted: 4",
+          "Failed: none"
+        ],
+        "sounds": [
+          "message-new-instant"
+        ]
+      }
+    },
+    {
+      "name": "the burst's window passes (two seconds)",
+      "do": [
+        "wait",
+        2200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "sounds": []
+      }
+    },
+    {
+      "name": "Sin sonido posts one whose content asks for no sound: none plays",
+      "do": [
+        "press_named",
+        "Sin sonido"
+      ],
+      "expect": {
+        "texts": [
+          "Posted: 5",
+          "Failed: none"
+        ],
+        "sounds": []
+      }
+    }
+  ]
+}

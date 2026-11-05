@@ -53,6 +53,7 @@ const native = TurboModuleRegistry.get<{
   getValues(): Record<string, string> | null;
   setPreference(key: string, value: string): number;
   getSystem(): SystemFacts;
+  getApplications?(): { id: string; name: string }[];
   getDisplays(): DisplaysSnapshot | null;
   setDisplayMode(output: number, width: number, height: number, refreshMhz: number): number;
   setDisplayScale(output: number, scale: number): number;
@@ -68,6 +69,7 @@ const FIXTURE: SettingsSnapshot = {
     reduceMotion: false,
     reduceTransparency: false,
     caretBlink: true,
+    uiSounds: true,
     wallpaper: 'solar-gradients',
     lockAfter: 5,
     screenReader: false,
@@ -76,10 +78,15 @@ const FIXTURE: SettingsSnapshot = {
     hourCycle: 'auto',
     doNotDisturb: false,
     notificationPreviews: 'unlocked',
+    notificationSoundsOff: [],
     inputSources: [],
     inputSource: 'layout',
   },
   wallpapers: [{ id: 'solar-gradients', name: 'Solar Gradients' }],
+  applications: [
+    { id: 'so.oxy.allo', name: 'Allo' },
+    { id: 'so.oxy.inbox', name: 'Inbox' },
+  ],
   system: {
     computerName: 'ThinkPad P14s',
     version: 'OxyOS (development)',
@@ -186,6 +193,8 @@ function preferencesOf(values: Record<string, string>): Preferences {
     reduceTransparency: flag(PREFERENCE_KEYS.reduceTransparency),
     // On unless the session keeps it off (crates/oxyos-preferences).
     caretBlink: values[PREFERENCE_KEYS.caretBlink] !== 'false',
+    // On unless the session keeps it off (docs/adr/0044-system-sounds.mdx).
+    uiSounds: values[PREFERENCE_KEYS.uiSounds] !== 'false',
     wallpaper: values[PREFERENCE_KEYS.wallpaper] || null,
     lockAfter: Number(values[PREFERENCE_KEYS.lockAfter] ?? 5),
     screenReader: flag(PREFERENCE_KEYS.screenReader),
@@ -196,6 +205,8 @@ function preferencesOf(values: Record<string, string>): Preferences {
     doNotDisturb: flag(PREFERENCE_KEYS.doNotDisturb),
     notificationPreviews:
       (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
+    // The applications whose notifications are silent, as the session tells Settings them.
+    notificationSoundsOff: (values[PREFERENCE_KEYS.notificationSoundsOff] ?? '').split(',').filter(Boolean),
     // None added, the layout current, unless the session keeps others (docs/adr/0041-input-methods.mdx).
     inputSources: parseInputSourcesPreference(values[PREFERENCE_KEYS.inputSources]),
     inputSource: values[PREFERENCE_KEYS.inputSource] || 'layout',
@@ -232,6 +243,7 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     setDisplays(native?.getDisplays() ?? null);
     return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
+  const applications = React.useMemo(() => native?.getApplications?.() ?? [], []);
   const system = React.useMemo(() => {
     if (!native) return FIXTURE.system;
     const told = native.getSystem();
@@ -310,6 +322,8 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
       preferences: preferencesOf(values),
       // The wallpapers the session has: its own, for now.
       wallpapers: FIXTURE.wallpapers,
+      // The session's applications, for Notifications' sound of each (docs/adr/0044-system-sounds.mdx).
+      applications,
       system,
       displays: displays ?? { displays: [], trial: null },
     },

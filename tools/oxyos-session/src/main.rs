@@ -257,6 +257,18 @@ fn main() -> Result<()> {
     }
     compositor.reads_back = false;
     compositor.authentication = Some(authentication);
+    // The system's sounds (docs/adr/0044-system-sounds.mdx), through PipeWire on a thread of its
+    // own, from the sound theme in the data directories; the login screen plays none.
+    if !greeter {
+        match oxyos_sound::PipeWire::spawn(oxyos_sound::data_dirs()) {
+            Ok(player) => {
+                let mut sounds = oxyos_compositor::sounds::Sounds::new(Box::new(player));
+                sounds.interface = settings.preferences().ui_sounds;
+                compositor.sounds = Some(sounds);
+            }
+            Err(error) => eprintln!("[session] the system's sounds: {error}; none plays"),
+        }
+    }
     // Screenshots (ADR 0024, decision 10), written as the user the session runs as: the Desktop
     // and Documents where xdg-user-dirs keeps them, named in the session's language, with the
     // sound theme's shutter. The login screen captures nothing.
@@ -580,6 +592,8 @@ fn main() -> Result<()> {
         }
         if let Some(trash) = trash.as_mut() {
             trash.serve(&mut compositor.scene);
+            // Its sound now, not a turn later.
+            compositor.play_sounds();
         }
         // Input sources (ADR 0041), before the store, which takes the requests left.
         if let Some(methods) = input_methods.as_mut() {

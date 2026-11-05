@@ -283,6 +283,13 @@ pub const OXYOS_EVENT_FILES_CHOSEN: u32 = 220;
 pub const OXYOS_EVENT_APPLICATION_LIST: u32 = 231;
 pub const OXYOS_APPLICATION_LIST_DOCK: u32 = 1;
 pub const OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN: u32 = 2;
+/// Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
+/// changed by it; a compositor of version 23 or later.
+pub const OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF: u32 = 3;
+/// The system's interface sounds an application asks for (`oxyos_client_play_system_sound`,
+/// docs/adr/0044-system-sounds.mdx): items put in the Trash, the Trash emptied.
+pub const OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH: u32 = 1;
+pub const OXYOS_SYSTEM_SOUND_EMPTY_TRASH: u32 = 2;
 pub const OXYOS_LIST_LAST: u8 = 1;
 pub const OXYOS_LIST_CHOSEN: u8 = 2;
 /// To the session's shell (docs/adr/0034-the-dock.mdx): how many items the user's Trashes hold
@@ -556,6 +563,9 @@ pub struct OxyOSNotification {
     pub action_count: usize,
     /// Shown as a banner as it arrives, as the session allows; else only kept.
     pub banner: bool,
+    /// It plays the notification sound as it arrives, as the session allows
+    /// (docs/adr/0044-system-sounds.mdx); a compositor before version 23 plays none.
+    pub sound: bool,
 }
 
 /// One entry of a window's menus, as `oxyos_client_set_menus` takes it (ADR 0021).
@@ -2166,6 +2176,33 @@ pub unsafe extern "C" fn oxyos_client_empty_trash(client: *mut OxyOSClient, inpu
     status(client.send(&Request::EmptyTrash { input }))
 }
 
+/// Asks the session to play one of the system's interface sounds for what the person just did
+/// (docs/adr/0044-system-sounds.mdx): `sound` an OXYOS_SYSTEM_SOUND_*, citing `input`, an input the
+/// client received lately. The session plays it unless the person turned interface sound effects
+/// off or the output is muted, and nothing for a request citing no input of the client's. 0 on
+/// success; refused to a compositor of a version before 23, and for any other sound.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_play_system_sound(
+    client: *mut OxyOSClient,
+    sound: u32,
+    input: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    let sound = match sound {
+        OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH => oxyos_protocol::SystemSound::MoveToTrash,
+        OXYOS_SYSTEM_SOUND_EMPTY_TRASH => oxyos_protocol::SystemSound::EmptyTrash,
+        _ => return fail("not one of the system's interface sounds"),
+    };
+    status(client.send(&Request::PlaySystemSound { input, sound }))
+}
+
 /// One media type of a drag (`oxyos_client_start_drag`), as a copy's entry.
 pub type OxyOSDragEntry = OxyOSClipboardEntry;
 
@@ -3339,6 +3376,7 @@ pub unsafe extern "C" fn oxyos_client_post_notification(
         data,
         actions: &posted,
         banner: notification.banner,
+        sound: notification.sound,
     };
     // SAFETY: forwarded caller contract.
     match unsafe { self::client(client) } {

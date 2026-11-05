@@ -81,6 +81,9 @@ pub struct Preferences {
     pub reduce_transparency: bool,
     /// A text field's caret blinks; off, it stays lit (docs/adr/0037-text-editing.mdx).
     pub caret_blink: bool,
+    /// *Play user interface sound effects* (docs/adr/0044-system-sounds.mdx): the Trash's sounds
+    /// play; off, they do not. Notifications' are alerts, which it does not silence.
+    pub ui_sounds: bool,
     /// The wallpaper: a folder under the wallpapers' directory; none is the session's own.
     pub wallpaper: Option<String>,
     /// Minutes idle before the session locks; 0, never.
@@ -108,6 +111,9 @@ pub struct Preferences {
     pub dock: Option<Vec<String>>,
     /// The applications the session opens when it starts, in order.
     pub open_at_login: Vec<String>,
+    /// The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx),
+    /// Settings' *Play sound for notifications* turned off for each.
+    pub notification_sounds_off: Vec<String>,
     /// The input methods the person added after their keyboard layout, in order, each one of
     /// [`INPUT_METHODS`] (ADR 0041).
     pub input_sources: Vec<String>,
@@ -123,6 +129,7 @@ impl Default for Preferences {
             reduce_motion: false,
             reduce_transparency: false,
             caret_blink: true,
+            ui_sounds: true,
             wallpaper: None,
             lock_after: 5,
             screen_reader: false,
@@ -135,6 +142,7 @@ impl Default for Preferences {
             arrangements: Vec::new(),
             dock: None,
             open_at_login: Vec::new(),
+            notification_sounds_off: Vec::new(),
             input_sources: Vec::new(),
             input_source: None,
         }
@@ -159,6 +167,8 @@ pub enum ApplicationList {
     Dock,
     /// Opened when the session starts.
     OpenAtLogin,
+    /// Whose notifications play no sound (docs/adr/0044-system-sounds.mdx), Settings'.
+    NotificationSoundsOff,
 }
 
 /// An application id, as the registry takes one (`oxyos_apps::valid_id`): a reverse domain name
@@ -219,6 +229,7 @@ pub const KEYS: &[&str] = &[
     "reduce_motion",
     "reduce_transparency",
     "caret_blink",
+    "ui_sounds",
     "wallpaper",
     "lock_after",
     "screen_reader",
@@ -269,6 +280,7 @@ impl Preferences {
             "reduce_motion" => self.reduce_motion = boolean(value)?,
             "reduce_transparency" => self.reduce_transparency = boolean(value)?,
             "caret_blink" => self.caret_blink = boolean(value)?,
+            "ui_sounds" => self.ui_sounds = boolean(value)?,
             "wallpaper" => {
                 self.wallpaper = if value.is_empty() {
                     None
@@ -334,6 +346,7 @@ impl Preferences {
             "reduce_motion" => self.reduce_motion.to_string(),
             "reduce_transparency" => self.reduce_transparency.to_string(),
             "caret_blink" => self.caret_blink.to_string(),
+            "ui_sounds" => self.ui_sounds.to_string(),
             "wallpaper" => self.wallpaper.clone().unwrap_or_default(),
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),
@@ -399,6 +412,7 @@ impl Preferences {
         match list {
             ApplicationList::Dock => self.dock = Some(ids),
             ApplicationList::OpenAtLogin => self.open_at_login = ids,
+            ApplicationList::NotificationSoundsOff => self.notification_sounds_off = ids,
         }
         Ok(())
     }
@@ -440,6 +454,10 @@ impl Preferences {
                     if let Ok(ids) = list_from_file(value) {
                         preferences.open_at_login = ids;
                     }
+                } else if key == "notification_sounds_off" {
+                    if let Ok(ids) = list_from_file(value) {
+                        preferences.notification_sounds_off = ids;
+                    }
                 } else {
                     // A bad line keeps the default; the next good one is still read.
                     let _ = preferences.set(key, value);
@@ -469,6 +487,12 @@ impl Preferences {
             text.push_str(&format!(
                 "open_at_login = {}\n",
                 self.open_at_login.join(",")
+            ));
+        }
+        if !self.notification_sounds_off.is_empty() {
+            text.push_str(&format!(
+                "notification_sounds_off = {}\n",
+                self.notification_sounds_off.join(",")
             ));
         }
         text

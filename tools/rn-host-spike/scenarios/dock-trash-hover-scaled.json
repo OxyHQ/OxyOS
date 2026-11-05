@@ -1,0 +1,121 @@
+{
+  "about": "The dock's Trash answers a drag it would take as a Mac's Dock does (docs/adr/0044-system-sounds.mdx, docs/adr/0035-drag-and-drop.mdx): sample/DragProbe.tsx (Allo) drags a file of the run's home through the platform's drag and holds it over the Trash for a second. Its picture darkens (`dock-trash-shade`'s opacity from 0 to exactly 0.35, only ever rising) and it grows a little on a spring that never passes its end (`dock-trash-scale`'s scale from 1 to exactly 1.1, only ever rising); Escape cancels the drag and both go back, only ever falling, to exactly 0 and 1. Nothing is moved and no sound plays. Then the file held over it and dropped: the same up and back, the file in the home's Trash and gone from the home, and the session plays the Trash's sound (`file-trash`) exactly once. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
+  "locale": "es_ES.UTF-8",
+  "module": "DragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe",
+      "notes.txt": "keep me"
+    }
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "a file held over the Trash a second, then Escape: it darkens and grows a little, then both go back; nothing is moved, nothing sounds",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Papelera",
+          30,
+          30,
+          30,
+          1000
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: none"
+        ],
+        "in_shell": {
+          "committed": {
+            "dock-trash-scale": {
+              "transform.scale": [
+                1,
+                1.1,
+                1
+              ]
+            },
+            "dock-trash-shade": {
+              "opacity": [
+                0,
+                0.35,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-trash-scale": 8,
+            "dock-trash-shade": 8
+          }
+        },
+        "home": {
+          "informe.txt": "un informe",
+          "notes.txt": "keep me",
+          "trash": []
+        },
+        "sounds": []
+      }
+    },
+    {
+      "name": "held over the Trash and dropped: it darkens and grows a little, then both go back; the file is in the home's Trash and the Trash's sound plays once",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Papelera",
+          30,
+          30,
+          0,
+          1000
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: move"
+        ],
+        "in_shell": {
+          "committed": {
+            "dock-trash-scale": {
+              "transform.scale": [
+                1,
+                1.1,
+                1
+              ]
+            },
+            "dock-trash-shade": {
+              "opacity": [
+                0,
+                0.35,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-trash-scale": 8,
+            "dock-trash-shade": 8
+          }
+        },
+        "home": {
+          "informe.txt": false,
+          "notes.txt": "keep me",
+          "trash": [
+            "informe.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ]
+      }
+    }
+  ]
+}

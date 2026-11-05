@@ -124,7 +124,10 @@
             "leave": 1,
             "press": 1
           }
-        }
+        },
+        "sounds": [
+          "file-trash"
+        ]
       }
     },
     {

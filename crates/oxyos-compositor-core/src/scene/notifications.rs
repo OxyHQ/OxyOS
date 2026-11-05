@@ -59,6 +59,9 @@ struct Content {
     body: String,
     data: String,
     actions: Vec<Action>,
+    /// It plays the notification sound as it arrives (`NotificationSound`,
+    /// docs/adr/0044-system-sounds.mdx).
+    sound: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -178,6 +181,25 @@ impl Scene {
                 background,
             } => {
                 self.post_notification(client, serial, banner, background);
+                Ok(())
+            }
+            Request::NotificationSound { serial } => {
+                let notifications = &mut self.notifications;
+                if !notifications.posts.contains_key(&(client, serial))
+                    && notifications
+                        .posts
+                        .keys()
+                        .filter(|(poster, _)| *poster == client)
+                        .count()
+                        >= MAX_RECEIVING_POSTS
+                {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                notifications
+                    .posts
+                    .entry((client, serial))
+                    .or_default()
+                    .sound = true;
                 Ok(())
             }
             Request::WithdrawNotification { notification } => {
@@ -369,6 +391,12 @@ impl Scene {
                 self.remove_notification(number);
             }
         }
+        // Its sound as it arrives, as a Mac plays it (docs/adr/0044-system-sounds.mdx), on the lock
+        // screen too: never with Do Not Disturb, nor for an application the person silenced, and
+        // once for a burst.
+        let sound = content.sound
+            && !self.notifications.policy.do_not_disturb
+            && !self.notification_sounds_off(&application);
         let notifications = &mut self.notifications;
         notifications.next += 1;
         let number = notifications.next;
@@ -381,6 +409,9 @@ impl Scene {
             withheld,
         });
         answer(self, number, NotificationOutcome::Posted);
+        if sound {
+            self.request_notification_sound();
+        }
         let show = banner && !self.notifications.policy.do_not_disturb && !self.locked;
         for shell in self.shell_clients() {
             self.tell_notification(shell, number, show);

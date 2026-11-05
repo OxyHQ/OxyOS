@@ -1,0 +1,33 @@
+{
+  "about": "No notification sound with Do Not Disturb on (docs/adr/0044-system-sounds.mdx, docs/adr/0026-notifications.mdx): the notification is posted and kept, and none plays.",
+  "locale": "es_ES.UTF-8",
+  "module": "NotificationSoundProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "preferences": {
+    "do_not_disturb": "true"
+  },
+  "steps": [
+    {
+      "name": "Avisar posts one: kept, and silent",
+      "do": [
+        "press_named",
+        "Avisar"
+      ],
+      "expect": {
+        "texts": [
+          "Posted: 1",
+          "Failed: none"
+        ],
+        "sounds": []
+      }
+    }
+  ]
+}

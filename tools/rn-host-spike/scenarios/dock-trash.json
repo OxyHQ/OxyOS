@@ -142,7 +142,10 @@
         "home": {
           "notes.txt": "keep me",
           "trash": []
-        }
+        },
+        "sounds": [
+          "trash-empty"
+        ]
       }
     },
     {

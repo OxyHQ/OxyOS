@@ -69,6 +69,7 @@ pub enum Step {
         motions: u32,
         hz: u32,
         escape_after: Option<u32>,
+        rest_ms: u32,
     },
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
@@ -131,12 +132,16 @@ pub enum Step {
     /// dragging (a window's edge) at a mouse's pace. What the window showed meanwhile is measured
     /// (`drag_paced`). With `escape_after`, Escape is pressed and released after that motion and
     /// the drag goes on: a drag between applications cancelled (docs/adr/0035-drag-and-drop.mdx).
+    /// With `rest_ms`, the hand rests at `to` that long after its last motion, before an Escape
+    /// after that motion and the release: a file held over the dock's Trash
+    /// (docs/adr/0044-system-sounds.mdx).
     DragPaced {
         from: (i32, i32),
         to: (i32, i32),
         motions: u32,
         hz: u32,
         escape_after: Option<u32>,
+        rest_ms: u32,
     },
     /// The pointer at a window-local point scrolling by `dy` in `events` even steps, `hz` of them a
     /// second, the compositor serving the application between them: a touchpad's two fingers
@@ -335,8 +340,10 @@ impl Step {
                 motions,
                 hz,
                 escape_after,
+                rest_ms,
             } => format!(
-                "drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz{}",
+                "drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz{}{}",
+                if *rest_ms > 0 { format!(", resting {rest_ms} ms") } else { String::new() },
                 escape_after.map_or(String::new(), |at| format!(", Escape after motion {at}"))
             ),
             Step::ScrollPaced {
@@ -418,11 +425,12 @@ impl Step {
                 motions,
                 hz,
                 escape_after,
+                rest_ms,
             } => format!(
                 "\"drag_paced_named\":[{},{},{motions},{hz}{}]",
                 json_string(from),
                 json_string(to),
-                escape_after.map_or(String::new(), |at| format!(",{at}"))
+                rest_suffix(*escape_after, *rest_ms)
             ),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
@@ -495,13 +503,14 @@ impl Step {
                 motions,
                 hz,
                 escape_after,
+                rest_ms,
             } => format!(
                 "\"drag_paced\":[{},{},{},{},{motions},{hz}{}]",
                 from.0,
                 from.1,
                 to.0,
                 to.1,
-                escape_after.map_or(String::new(), |at| format!(",{at}"))
+                rest_suffix(*escape_after, *rest_ms)
             ),
             Step::ScrollPaced {
                 at,
@@ -1117,7 +1126,7 @@ impl Launch {
                     let given = value
                         .and_then(|v| v.to_str())
                         .map_or(0, |v| v.split(',').count());
-                    let n = numbers(value, if given == 3 { 3 } else { 2 })?;
+                    let n = numbers(value, given.clamp(2, 4))?;
                     if n[0] < 1 || n[1] < 1 {
                         return Err(
                             "--drag-paced-named needs at least one motion at 1 Hz or more".into(),
@@ -1130,7 +1139,8 @@ impl Launch {
                         to: to.to_string(),
                         motions: n[0] as u32,
                         hz: n[1] as u32,
-                        escape_after: n.get(2).map(|at| *at as u32),
+                        escape_after: n.get(2).filter(|at| **at > 0).map(|at| *at as u32),
+                        rest_ms: n.get(3).map_or(0, |ms| (*ms).max(0) as u32),
                     }
                 }
                 Some("--hold-output") => {
@@ -1228,7 +1238,7 @@ impl Launch {
                     let given = value
                         .and_then(|v| v.to_str())
                         .map_or(0, |v| v.split(',').count());
-                    let n = numbers(value, if given == 7 { 7 } else { 6 })?;
+                    let n = numbers(value, given.clamp(6, 8))?;
                     if n[4] < 1 || n[5] < 1 {
                         return Err("--drag-paced needs at least one motion at 1 Hz or more".into());
                     }
@@ -1237,7 +1247,8 @@ impl Launch {
                         to: (n[2], n[3]),
                         motions: n[4] as u32,
                         hz: n[5] as u32,
-                        escape_after: n.get(6).map(|at| *at as u32),
+                        escape_after: n.get(6).filter(|at| **at > 0).map(|at| *at as u32),
+                        rest_ms: n.get(7).map_or(0, |ms| (*ms).max(0) as u32),
                     }
                 }
                 Some("--scroll-paced") => {
@@ -2383,6 +2394,28 @@ fn screenshots_json(session: &mut Session) -> String {
 
 /// The URLs the shell opened in the step (docs/adr/0034-the-dock.mdx), each with the application
 /// started for it.
+/// A paced drag's numbers after its rate, as a step's JSON gives them: the Escape's motion (0 for
+/// none) and the rest, each only when given.
+fn rest_suffix(escape_after: Option<u32>, rest_ms: u32) -> String {
+    match (escape_after, rest_ms) {
+        (None, 0) => String::new(),
+        (Some(at), 0) => format!(",{at}"),
+        (at, rest) => format!(",{},{rest}", at.unwrap_or(0)),
+    }
+}
+
+/// The system sounds played in a step (docs/adr/0044-system-sounds.mdx), in order, by their names
+/// in the sound theme (`file-trash`).
+fn sounds_json(session: &Session) -> String {
+    let played: Vec<String> = session
+        .sounds
+        .take()
+        .into_iter()
+        .map(|sound| json_string(oxyos_sound::name(sound)))
+        .collect();
+    format!("[{}]", played.join(","))
+}
+
 fn urls_json(session: &mut Session) -> String {
     let opened: Vec<String> = std::mem::take(&mut session.url_opens)
         .into_iter()
@@ -2648,6 +2681,7 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
         motions,
         hz,
         escape_after,
+        rest_ms,
     } = step
     {
         let at = |name: &str| {
@@ -2660,6 +2694,7 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
             motions: *motions,
             hz: *hz,
             escape_after: *escape_after,
+            rest_ms: *rest_ms,
         });
     }
     let Step::Named { kind, name, ms } = step else {
@@ -3264,9 +3299,9 @@ fn drag_paced(
     session: &mut Session,
     from: (i32, i32),
     to: (i32, i32),
-    motions: u32,
-    hz: u32,
+    (motions, hz): (u32, u32),
     escape_after: Option<u32>,
+    rest_ms: u32,
 ) -> Result<String> {
     inside_output(&session.compositor, from)?;
     inside_output(&session.compositor, to)?;
@@ -3375,14 +3410,27 @@ fn drag_paced(
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
-        if escape_after == Some(i as u32) {
+        // Resting at the end first, with Escape after the rest.
+        if escape_after == Some(i as u32) && !(i == steps && rest_ms > 0) {
             session.compositor.scene.key(KEY_ESCAPE, true);
             session.compositor.scene.key(KEY_ESCAPE, false);
             session.compositor.serve(&session.listener)?;
         }
     }
     session.compositor.idle_wait = idle_wait;
-    let due = interval * (motions + 1);
+    // The hand resting at `to` (a file held over the dock's Trash), then the Escape after its last
+    // motion.
+    let rested = interval * motions + Duration::from_millis(u64::from(rest_ms));
+    while start.elapsed() < rested {
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut sent, &mut frames);
+    }
+    if rest_ms > 0 && escape_after == Some(motions) {
+        session.compositor.scene.key(KEY_ESCAPE, true);
+        session.compositor.scene.key(KEY_ESCAPE, false);
+        session.compositor.serve(&session.listener)?;
+    }
+    let due = rested + interval;
     while start.elapsed() < due {
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
@@ -4137,6 +4185,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     } else {
         settings
     };
+    // The system's sounds (docs/adr/0044-system-sounds.mdx), recorded as the session would play
+    // them, never played: a step says which it asked for (`sounds`).
+    session.compositor.sounds = Some(oxyos_compositor::sounds::Sounds::new(Box::new(
+        session.sounds.clone(),
+    )));
     session
         .settings
         .apply(&mut session.compositor, oxyos_compositor::settings::now());
@@ -4744,15 +4797,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     motions,
                     hz,
                     escape_after,
+                    rest_ms,
                 } = step
                 {
                     dragged = Some(drag_paced(
                         &mut session,
                         *from,
                         *to,
-                        *motions,
-                        *hz,
+                        (*motions, *hz),
                         *escape_after,
+                        *rest_ms,
                     )?);
                 }
                 0
@@ -4915,9 +4969,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
+        let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

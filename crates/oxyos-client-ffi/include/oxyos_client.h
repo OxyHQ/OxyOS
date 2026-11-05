@@ -124,6 +124,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_APPLICATION_LIST 231
 #define OXYOS_APPLICATION_LIST_DOCK 1
 #define OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN 2
+/* Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
+ * changed by it; a compositor of version 23 or later. */
+#define OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF 3
+/* The system's interface sounds an application asks for (oxyos_client_play_system_sound). */
+#define OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH 1
+#define OXYOS_SYSTEM_SOUND_EMPTY_TRASH 2
 #define OXYOS_LIST_LAST 1
 #define OXYOS_LIST_CHOSEN 2
 /* To the shell: how many items the user's Trashes hold (code), when it connects and as it changes. */
@@ -785,6 +791,9 @@ typedef struct OxyOSNotification {
   const OxyOSNotificationAction* actions;
   size_t action_count;
   bool banner;
+  /* It plays the notification sound as it arrives, as the session allows
+   * (docs/adr/0044-system-sounds.mdx); a compositor before version 23 plays none. */
+  bool sound;
 } OxyOSNotification;
 /* Posts a notification as `serial`; a NOTIFICATION_RESULT with it answers. Texts longer than the
  * protocol takes are cut at a character; more than 3 actions, more than 4096 bytes of data, a longer
@@ -823,6 +832,11 @@ int oxyos_client_set_application_list(OxyOSClient* client, uint32_t serial, uint
  * session asks the person in a system sheet (docs/adr/0034-the-dock.mdx). Refused to a compositor of
  * a version before 8. */
 int oxyos_client_empty_trash(OxyOSClient* client, uint64_t input);
+/* Asks the session to play one of the system's interface sounds for what the person just did
+ * (docs/adr/0044-system-sounds.mdx): `sound` an OXYOS_SYSTEM_SOUND_*, citing `input`, an input the
+ * client received lately; the session plays it unless interface sound effects are off or the output
+ * is muted. Refused to a compositor of a version before 23, and for any other sound. */
+int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t input);
 /* The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
  * whose entry declares its scheme, citing `input`, an input it received (docs/adr/0034-the-dock.mdx).
  * A LAUNCH_RESULT answers: code, `serial`; flag, whether it was opened. Refused to a compositor of a

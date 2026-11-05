@@ -304,6 +304,10 @@ struct HostServices {
   // What Image views show (images.h), which React Native's ImageLoader asks of remote images: set
   // once the view tree exists.
   Images* images = nullptr;
+  // One of the system's interface sounds by Bloom's name for it (`move-to-trash`, `empty-trash`,
+  // docs/adr/0044-system-sounds.mdx), citing the latest input: whether it was asked for.
+  std::function<bool(const std::string& sound)> playSystemSound;
+  bool soundsAvailable = false;
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;
