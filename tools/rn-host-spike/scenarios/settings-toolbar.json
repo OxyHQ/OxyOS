@@ -1,5 +1,5 @@
 {
- "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Dropsea's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. Its sidebar is one navigation holding ONE list of its twelve rows, top to bottom (its items, docs/adr/0039-keyboard-access.mdx) (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
+ "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Dropsea's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. Its sidebar is one navigation holding ONE list of its thirteen rows, top to bottom (its items, docs/adr/0039-keyboard-access.mdx) (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
  "module": "OxyOSSettings",
  "window": [
   960,
@@ -18,7 +18,7 @@
  },
  "steps": [
   {
-   "name": "Its first page: the sidebar one navigation holding its twelve rows; the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
+   "name": "Its first page: the sidebar one navigation holding its thirteen rows, the first twelve in sight (it scrolls to About, as a Mac's does); the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
    "do": [
     "wait",
     1500
@@ -74,6 +74,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -110,11 +115,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]
@@ -212,6 +212,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -249,11 +254,6 @@
         "role": "ListItem",
         "name": "Privacy",
         "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
-        "state": []
        }
       ]
      }
@@ -281,7 +281,7 @@
     "press",
     [
      136,
-     270
+     310
     ]
    ],
    "expect": {
@@ -330,6 +330,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -368,11 +373,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]
@@ -450,6 +450,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -486,11 +491,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]
@@ -568,6 +568,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -606,11 +611,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]
@@ -688,6 +688,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -724,11 +729,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]
@@ -808,6 +808,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -844,11 +849,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]
@@ -926,6 +926,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -963,11 +968,6 @@
         "role": "ListItem",
         "name": "Privacy",
         "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
-        "state": []
        }
       ]
      }
@@ -995,7 +995,7 @@
     "press",
     [
      136,
-     310
+     350
     ]
    ],
    "expect": {
@@ -1044,6 +1044,11 @@
        },
        {
         "role": "ListItem",
+        "name": "Sound",
+        "state": []
+       },
+       {
+        "role": "ListItem",
         "name": "Lock Screen",
         "state": []
        },
@@ -1082,11 +1087,6 @@
        {
         "role": "ListItem",
         "name": "Privacy",
-        "state": []
-       },
-       {
-        "role": "ListItem",
-        "name": "About",
         "state": []
        }
       ]

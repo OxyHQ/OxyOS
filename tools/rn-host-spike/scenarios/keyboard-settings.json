@@ -231,6 +231,43 @@
    }
   },
   {
+   "name": "Tab: Sound, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-sound",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Sonido",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Sonido, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
    "name": "Tab: Lock Screen, the next row",
    "do": [
     "key",
