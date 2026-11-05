@@ -235,6 +235,75 @@ fn favourites_are_the_user_directories_that_exist_in_the_home() {
 }
 
 #[test]
+fn the_homes_standard_folders_stay_where_they_are() {
+    let place = Place::new("standard");
+    let scope = scope_in(&place);
+    let home = scope.home().to_path_buf();
+    for folder in [
+        "Desktop",
+        "Papers",
+        "Downloads",
+        "Pictures",
+        "Music",
+        "Videos",
+        "Templates",
+        "Public",
+        "Documents",
+        "Media/Clips",
+        "Oxy/Pictures",
+    ] {
+        place.dir(&format!("home/ada/{folder}"));
+    }
+    let photo = place.file("home/ada/Pictures/474350.jpg", "jpg");
+    std::os::unix::fs::symlink(home.join("Media/Clips"), home.join("Clips")).expect("link");
+    place.file(
+        "home/ada/.config/user-dirs.dirs",
+        "XDG_DOCUMENTS_DIR=\"$HOME/Papers\"\n\
+         XDG_VIDEOS_DIR=\"$HOME/Clips\"\n\
+         XDG_DOWNLOAD_DIR=\"$HOME/\"\n",
+    );
+    // Every XDG user directory, where the file puts it or at its default; a link that is one,
+    // and what it leads to.
+    for refused in [
+        "Desktop",
+        "Papers",
+        "Pictures",
+        "Music",
+        "Templates",
+        "Public",
+        "Clips",
+        "Media/Clips",
+    ] {
+        assert!(
+            matches!(
+                scope.item(text(&home.join(refused))),
+                Err(Error::Refused(_))
+            ),
+            "{refused} was taken"
+        );
+    }
+    // Downloads is disabled (the home itself); what the file moved elsewhere is no longer one;
+    // what is inside one, and a folder elsewhere by one's name, are items like any other.
+    for taken in [
+        home.join("Downloads"),
+        home.join("Documents"),
+        home.join("Videos"),
+        home.join("Oxy/Pictures"),
+        photo,
+    ] {
+        assert_eq!(scope.item(text(&taken)).expect("item"), taken);
+    }
+    // One that is not there may be made.
+    std::fs::remove_dir(home.join("Music")).expect("gone");
+    assert_eq!(
+        scope
+            .entry(text(&home.join("Music")), Access::Write)
+            .expect("to make"),
+        home.join("Music")
+    );
+}
+
+#[test]
 fn items_are_listed_created_renamed_and_moved_never_replacing_one() {
     let place = Place::new("entries");
     let scope = scope_in(&place);

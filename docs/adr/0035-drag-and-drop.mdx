@@ -123,6 +123,14 @@ All three agree on what matters here: types and actions are known during the dra
 
 13. **Stash is a source and a target, through Bloom's API alone.** Its own drag of items (a mouse press moved 4 pixels on an item) becomes the platform's drag where there is one (`usePlatformDrag()`), of the selected local items as `file://` URIs, allowing copy, move and link; elsewhere it keeps its drag inside its window. Its items' area is a `DropZone` accepting `files` (copy and move, preferring move): a drop on a folder moves (or with Option copies) the files into that folder, a drop elsewhere into the folder shown, the folder under the pointer highlighted meanwhile. A drop of Stash's own items goes this way too. Nothing of OxyOS is imported.
 
+    **5 November 2026, amended:** what is dragged is never a target, as on a Mac. A test machine's home was selected whole, and a press on Pictures moved past the 4 points and was released over Pictures itself. The drop went into the folder under the pointer, which was one of the dragged items, and everything else in the home moved into Pictures. Now:
+    - **The source's own items:** a window never lights the items it is dragging, and they never take its drop.
+    - **Into itself:** files dropped into one of themselves, or into a folder inside one, move nothing. This is checked on the dropped URIs, so it also holds for a drag from another window.
+    - **Places:** a move that includes one of the platform's places (the home, its standard folders, a volume) moves nothing and says why. The file service refuses them anyway ([ADR 0028](./0028-file-access), decision 2).
+    - **Undo:** Edit › Undo (Ctrl+Z) takes a move back, as Finder's does. A field with the keys keeps its own Undo, Redo and Select All.
+
+    [OxyHQ/Dropsea#39](https://github.com/OxyHQ/Dropsea/pull/39).
+
 14. **Astro is a source and a target.** Its `oxyos` Ozone platform (`ui/ozone/platform/oxyos`) speaks version 10 when the compositor does:
     - **as a source,** Chromium's `StartDrag` offers the drag's `OSExchangeData` as media types (`text/uri-list`, `text/x-moz-url`, `text/html`, `text/plain;charset=utf-8`, Chromium's custom data, a file's contents as its type), with the actions Chromium allows, its drag image drawn by Chromium in a drag icon, and runs its nested loop until `DragFinished` or `DragCancelled`;
     - **as a target,** it gives its window's drop handler the drag's types at `DragEnter` (an `OSExchangeData` that holds the kinds offered, so a page sees `Files` in `dragenter`, and `<input type="file">` takes the drag), answers `AcceptDrag` with what the page's `dragover` chose, and at `DragDrop` receives the types it uses and gives the drop handler the real content before finishing.
@@ -139,6 +147,7 @@ All three agree on what matters here: types and actions are known during the dra
   - `drag-trash`: a file dragged from a fixture application onto the dock's Trash is in the home's Trash afterwards, the Trash's count told, and only the dock and the source were told anything of the drag;
   - `drag-drop`: text and a file dragged from one application to another: the target receives exactly the offered data once, a third window the pointer never crossed receives no drag event, and Escape midway cancels with nothing transferred;
   - `stash-drag`: a file dragged from one Stash window onto a folder in another moves into it, and one dropped on the dock's Trash goes to the Trash;
+  - `dropsea-drop-onto-itself` (5 November 2026): the home selected whole (Ctrl+A), Pictures pressed, moved past the threshold and released over itself moves nothing. A file dragged onto a folder moves into it, Ctrl+Z puts it back and Ctrl+Shift+Z moves it again. Documents dragged onto a folder stays, saying why;
   - `astro-drag`, extended: a file dragged from a fixture into Astro's `<input type="file">` reaches the page; a link dragged out of Astro drops in a fixture as `text/uri-list`.
 
 ## Order of work

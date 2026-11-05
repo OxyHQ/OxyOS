@@ -1,0 +1,213 @@
+{
+  "about": "What happened to a test machine's home on 5 November 2026, replayed (docs/adr/0035-drag-and-drop.mdx, decision 13, amended; docs/adr/0028-file-access.mdx, decision 2): Dropsea's home selected whole (Ctrl+A), Pictures pressed, moved past the drag threshold and released over itself. Then everything selected was dropped on Pictures, and every item but Pictures moved into it. A drop on what is dragged now moves nothing, as Finder's. Then a move undone and redone as Finder's (Ctrl+Z, Ctrl+Shift+Z): notes.txt dragged onto Projects moves into it, Ctrl+Z puts it back, Ctrl+Shift+Z moves it again, Ctrl+Z puts it back. And the home's standard folders stay where they are: Documents dragged onto Projects stays, Dropsea saying why. Every step checks the disk.",
+  "module": "Dropsea",
+  "window": [
+    640,
+    460
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Desktop/": "",
+      "Desktop/a.txt": "a",
+      "Documents/": "",
+      "Documents/report.txt": "r",
+      "notes.txt": "hello",
+      "Pictures/": "",
+      "Pictures/photo.jpg": "jpg",
+      "plan.txt": "p",
+      "Projects/": "",
+      "Projects/README.md": "readme"
+    }
+  },
+  "steps": [
+    {
+      "name": "the home: Desktop, Documents and notes.txt on the first row, Pictures, plan.txt and Projects on the second",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Desktop",
+          "Documents",
+          "notes.txt",
+          "Pictures",
+          "plan.txt",
+          "Projects",
+          "6 items"
+        ],
+        "home": {
+          "Desktop/a.txt": "a",
+          "Documents/report.txt": "r",
+          "notes.txt": "hello",
+          "Pictures/photo.jpg": "jpg",
+          "plan.txt": "p",
+          "Projects/README.md": "readme",
+          "Pictures/Desktop": false,
+          "Pictures/Documents": false,
+          "Pictures/notes.txt": false,
+          "Pictures/plan.txt": false,
+          "Pictures/Projects": false
+        }
+      }
+    },
+    {
+      "name": "Select All (Ctrl+A, the Edit menu's): every item selected",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "6 of 6 selected"
+        ]
+      }
+    },
+    {
+      "name": "Pictures pressed, moved 12 points (past the drag's 4) and released over itself: the platform's drag of the six, dropped on one of them, moves nothing",
+      "do": [
+        "drag_paced",
+        [
+          616,
+          334,
+          628,
+          340,
+          6,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "home": {
+          "Desktop/a.txt": "a",
+          "Documents/report.txt": "r",
+          "notes.txt": "hello",
+          "Pictures/photo.jpg": "jpg",
+          "plan.txt": "p",
+          "Projects/README.md": "readme",
+          "Pictures/Desktop": false,
+          "Pictures/Documents": false,
+          "Pictures/notes.txt": false,
+          "Pictures/plan.txt": false,
+          "Pictures/Projects": false
+        }
+      }
+    },
+    {
+      "name": "a press selects notes.txt alone",
+      "do": [
+        "press",
+        [
+          556,
+          106
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "1 of 6 selected"
+        ]
+      }
+    },
+    {
+      "name": "notes.txt dragged onto Projects: it moves into it",
+      "do": [
+        "drag_paced",
+        [
+          876,
+          222,
+          876,
+          334,
+          20,
+          60
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Projects/notes.txt": "hello",
+          "notes.txt": false
+        }
+      }
+    },
+    {
+      "name": "Undo (Ctrl+Z, the Edit menu's Undo Move of “notes.txt”): it is back in the home",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": "hello",
+          "Projects/notes.txt": false
+        }
+      }
+    },
+    {
+      "name": "Redo (Ctrl+Shift+Z): it moves into Projects again",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Projects/notes.txt": "hello",
+          "notes.txt": false
+        }
+      }
+    },
+    {
+      "name": "Undo again: back in the home, nothing left to undo",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": "hello",
+          "Projects/notes.txt": false
+        }
+      }
+    },
+    {
+      "name": "Documents dragged onto Projects: one of the home's standard folders, it stays, and Dropsea says why",
+      "do": [
+        "drag_paced",
+        [
+          746,
+          222,
+          876,
+          334,
+          20,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "“Documents” can’t be moved: the system keeps it where it is."
+        ],
+        "home": {
+          "Documents/report.txt": "r",
+          "Projects/Documents": false
+        }
+      }
+    }
+  ]
+}

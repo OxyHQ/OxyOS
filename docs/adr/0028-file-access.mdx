@@ -10,6 +10,10 @@ Status: **accepted; implemented**, except opening a file in another application 
 
 **2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
 
+**5 November 2026: the home's standard folders stay where they are** (decision 2, amended). On a test machine, nearly the whole home went into `~/Pictures`. Everything shown in Dropsea's home was selected, and a press on Pictures moved a few points and was released over Pictures itself. Dropsea dropped every selected item on Pictures, and the service moved all of them but Pictures: Desktop, Documents, Downloads, Music, Videos, Public, Templates and the person's own folders. Two rules now hold, as on a Mac:
+- **In the service:** every XDG user directory (the six favourites, plus Templates and Public, where `user-dirs.dirs` puts them or at their defaults) is never deleted, moved, renamed, replaced or put in the Trash, whoever asks. This includes the dock's Trash. A Mac's home folders carry the same rule (“can't be modified or deleted because it's required by macOS”).
+- **In Dropsea** ([OxyHQ/Dropsea#39](https://github.com/OxyHQ/Dropsea/pull/39)): a drop on what is being dragged moves nothing ([ADR 0035](./0035-drag-and-drop), decision 13, amended), and Edit › Undo takes a move back.
+
 ## Problem
 
 OxyOS needs a file manager, a Mac's Finder: the person's files in a window, their folders and disks in a sidebar, the Trash, items moved, renamed and opened. Any application also needs to read and write its own files and those the person gives it.
@@ -40,7 +44,8 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
      - a link that leads nowhere, since writing through it would create what it names anywhere;
      - a Trash's insides, which only the Trash's operations reach (decision 4).
    - **Resolving.** Reading follows links. Deleting, renaming and moving act on the link itself. A path that does not exist yet is resolved through its deepest folder that does.
-   - **Never changed** (deleted, moved, renamed or trashed): the home, a volume's root, the application's folders, and any folder that holds one of them or a Trash.
+   - **Never changed** (deleted, moved, renamed, replaced or trashed): the home, a volume's root, the application's folders, and any folder that holds one of them or a Trash.
+   - **The home's standard folders stay too** (5 November 2026), as a Mac's do: every XDG user directory that is there. That is the favourites (Desktop, Documents, Downloads, Music, Pictures, Videos) plus Templates and Public, each where `user-dirs.dirs` puts it or at its default (`places::standard_folders`). A link that is one is protected, and so is what it leads to inside the home. They are refused with the reason (`“Documents” is one of the home's standard folders, which stay where they are`). What they hold is the person's to change, a copy of one is a folder like any other, and one that is not there may be made.
    - **Not a sandbox.** Without one (#35, #36), any program running as the person reaches what the person does. This is the platform's rule for what the API names, checked on canonical paths.
 
 3. **The application's own folders are where [ADR 0030](./0030-installing-applications) keeps an application's data**, by its id, the registry entry's (`so.oxy.stash`, [ADR 0013](./0013-launching-applications)).
@@ -95,6 +100,7 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
    - typed watches (merging, rename pairing, a watched item's deletion ending its watch, the debounce);
    - downloads (naming, refusals, a 404 making no file, pausing and resuming, cancelling) and uploads (raw and multipart);
    - the Trash and the places, as in #162;
+   - the home's standard folders (5 November 2026): each user directory refused as an item, wherever `user-dirs.dirs` puts it and as a link; the 5 November home moved into its Pictures item by item, every standard folder kept and the rest moved; no rename, delete or empty remake of one, while what is inside one, and a copy of one, can change;
    - the service's protocol, and all of the above through the C ABI.
 2. **The host and Bloom.**
    - **Host:** the Expo modules, `OxyOSFiles` and the adapter's `files`, `FormData` file parts, and `didSendNetworkData` for every request with a body.
@@ -114,5 +120,5 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
 - The system's open and save panels: decided in [ADR 0029](./0029-chromium-on-oxyos), decision 8, a portal of the session's whose panel is Stash's picker mode, shown as a sheet of the asking window. Its answer is what the person chose; with confinement it becomes the grant of exactly those items to the process that asked, and kept across launches beside the account's capability decisions.
 - Ejecting volumes, network volumes, and the computer's own disks.
 - Dragging between applications, and files on the desktop.
-- Undo, aliases, and searching beyond the folder shown (an index).
+- Aliases, and searching beyond the folder shown (an index). Undo is the application's own, as Finder's is: Dropsea's Edit › Undo and Redo take back and redo its moves.
 - Keeping local folders in step with Oxy Files: Stash uploads and downloads on request, and syncing is its own decision.

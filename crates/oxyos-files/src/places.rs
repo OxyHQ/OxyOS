@@ -1,5 +1,6 @@
 //! The places a file manager's sidebar shows (docs/adr/0028-file-access.mdx): the home, its
-//! favourite folders and the volumes mounted for the user.
+//! favourite folders and the volumes mounted for the user; and the home's standard folders, which
+//! stay where they are.
 
 use crate::Scope;
 use oxyos_preferences::user_dirs::named_folder;
@@ -64,12 +65,54 @@ impl Favourite {
     }
 }
 
+/// The XDG user directories a sidebar does not show, each by its variable in `user-dirs.dirs` and
+/// the folder xdg-user-dirs makes when nothing says otherwise.
+const UNSHOWN_USER_DIRS: [(&str, &str); 2] = [
+    ("XDG_TEMPLATES_DIR", "Templates"),
+    ("XDG_PUBLICSHARE_DIR", "Public"),
+];
+
+/// The text of the user's `user-dirs.dirs`, empty when there is none.
+fn user_dirs_file(scope: &Scope) -> String {
+    std::fs::read_to_string(scope.config_home().join("user-dirs.dirs")).unwrap_or_default()
+}
+
+/// The home's standard folders that are there, every XDG user directory (the favourites, the
+/// templates and the public folder), as the items that name them (a link that is one is that
+/// link) and as what they lead to, each inside the home: they stay where they are, never
+/// deleted, moved, renamed, replaced or put in the Trash, as a Mac's home folders are. A
+/// directory the file sets to the home itself is disabled there, as the specification says.
+pub fn standard_folders(scope: &Scope) -> Vec<PathBuf> {
+    let named = user_dirs_file(scope);
+    let home = scope.home();
+    Favourite::ALL
+        .iter()
+        .map(|favourite| (favourite.variable(), favourite.default_folder()))
+        .chain(UNSHOWN_USER_DIRS)
+        .flat_map(|(variable, default)| {
+            let folder = named_folder(&named, variable, home).unwrap_or_else(|| home.join(default));
+            // The item that names it, as `Scope::entry` names an item: its folder's canonical
+            // path and its own name.
+            let item = folder
+                .parent()
+                .zip(folder.file_name())
+                .and_then(|(parent, name)| {
+                    let item = std::fs::canonicalize(parent).ok()?.join(name);
+                    std::fs::symlink_metadata(&item).ok().map(|_| item)
+                });
+            let canonical = std::fs::canonicalize(&folder).ok();
+            [item, canonical]
+        })
+        .flatten()
+        .filter(|folder| folder.starts_with(home) && folder != home)
+        .collect()
+}
+
 /// The favourite folders that exist, each where `user-dirs.dirs` puts it (`"$HOME/..."` or an
 /// absolute path, as xdg-user-dirs writes them) or at its default, and only inside the home. A
 /// directory the file sets to the home itself is disabled there, as the specification says.
 pub fn favourites(scope: &Scope) -> Vec<(Favourite, PathBuf)> {
-    let named =
-        std::fs::read_to_string(scope.config_home().join("user-dirs.dirs")).unwrap_or_default();
+    let named = user_dirs_file(scope);
     Favourite::ALL
         .iter()
         .filter_map(|&favourite| {
