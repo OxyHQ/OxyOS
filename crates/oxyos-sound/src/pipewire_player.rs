@@ -180,6 +180,9 @@ fn play(
         core,
         "oxyos-system-sound",
         properties! {
+            *pw::keys::NODE_NAME => "oxyos-system-sound",
+            *pw::keys::NODE_DESCRIPTION => "OxyOS system sounds",
+            *pw::keys::APP_NAME => "OxyOS",
             *pw::keys::MEDIA_TYPE => "Audio",
             *pw::keys::MEDIA_CATEGORY => "Playback",
             *pw::keys::MEDIA_ROLE => "Notification",

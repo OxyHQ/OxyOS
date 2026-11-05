@@ -1,11 +1,12 @@
 {
-  "about": "Settings' Sound and Notifications (docs/adr/0044-system-sounds.mdx), as a Mac's: Sound's \"Play user interface sound effects\" is on, as the session keeps it by default; turned off, the file keeps `ui_sounds = false`. Notifications lists the session's applications, each with \"Play sound for notifications\" on; Allo's turned off, the file keeps `notification_sounds_off = so.oxy.allo`.",
+  "about": "Settings' Sound and Notifications (docs/adr/0044-system-sounds.mdx), as a Mac's: Sound's \"Play user interface sound effects\" is on, as the session keeps it by default; turned off, the file keeps `ui_sounds = false`. Notifications lists the session's applications, each with \"Play sound for notifications\" on; Allo's turned off, the file keeps `notification_sounds_off = so.oxy.allo`. With the session's shell, whose development registry lists the applications.",
   "locale": "en_US.UTF-8",
   "module": "OxyOSSettings",
   "window": [
     960,
     600
   ],
+  "shell": "OxyOSShell",
   "outputs": "1920x1080",
   "app": {
     "id": "so.oxy.settings",
@@ -49,10 +50,10 @@
     {
       "name": "turned off: the session keeps ui_sounds = false",
       "do": [
-        "a11y-action",
+        "press",
         [
-          "activate",
-          "Play user interface sound effects"
+          890,
+          100
         ]
       ],
       "expect": {
