@@ -35,6 +35,11 @@ export type ShellSurfaceProps = {
   /** Whether no screenshot captures the region (the screenshot interface itself, its thumbnail,
       docs/adr/0024-system-shortcuts.mdx, decision 10). */
   excludeFromCapture?: boolean;
+  /** Whether the windows the region shows live (`WindowView`) are the windows themselves, moved
+      there, as App Exposé's (docs/adr/0044-app-expose.mdx): while it shows, the platform draws each
+      in its view alone, flying there from where it is as the region arrives and back as it goes.
+      Without it, a view is a copy of its window, which stays where it is. */
+  movesWindows?: boolean;
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 };
@@ -76,6 +81,22 @@ export type MinimizeTargetProps = {
   children?: ReactNode;
 };
 
+/** A scroll the views inside a `ScrollTarget` did not take: (dx, dy) as the content would move
+    (dy below 0 scrolls up, as a wheel turned away from the person), whether a touchpad's fingers
+    made it, and, once they lift, its end, which moves nothing. */
+export type ShellScrollEvent = { dx: number; dy: number; finger: boolean; end: boolean };
+
+/**
+ * What takes the scrolls nothing within it takes (the dock's icons, whose scroll up opens App
+ * Exposé as a Mac's Dock can, docs/adr/0044-app-expose.mdx), as an Android view takes the scroll
+ * events its children left. Laid out and drawn as a view; `style` sizes it.
+ */
+export type ScrollTargetProps = {
+  onScroll: (event: ShellScrollEvent) => void;
+  style?: StyleProp<ViewStyle>;
+  children?: ReactNode;
+};
+
 /** A key press as the platform offers it before the focused field (W3C names). */
 export type ShellKeyEvent = {
   key: string;
@@ -104,6 +125,9 @@ export type ShellPlatform = {
   /** Where the platform minimizes windows into a view (the dock's icon of their application);
       without it, the dock's icons are only pictures and the platform minimizes as it does. */
   MinimizeTarget?: ComponentType<MinimizeTargetProps>;
+  /** Where the platform hands a view the scrolls nothing within it took (the dock's icons);
+      without it, the dock's icons take no scroll. */
+  ScrollTarget?: ComponentType<ScrollTargetProps>;
   /** The windows' sizes now, by window id, where the platform keeps them apart from the snapshot
       (the session's shell): read by the overview alone, so that a window resized or zoomed renders
       the overview, when it is open, and nothing else of the shell. Without it, each window's

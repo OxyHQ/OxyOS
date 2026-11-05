@@ -17,6 +17,8 @@ import { Wallpaper } from "./components/Wallpaper";
 import { TopBar } from "./components/TopBar";
 import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
+import { AppExpose, AppExposeBackdrop } from "./components/AppExpose";
+import { exposedWindows } from "./expose";
 import { Launchpad, LaunchpadBackdrop } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
@@ -41,10 +43,10 @@ import {
   type Switcher,
 } from "./switcher";
 import { inPlace, type ShellPlatform } from "./platform";
-import { belongsTo } from "./model";
 export type { ShellCommand } from "./model";
 export type {
   MinimizeTargetProps,
+  ScrollTargetProps,
   ShellPlatform,
   ShellSurfaceProps,
   WindowViewProps,
@@ -195,7 +197,9 @@ export const Shell = memo(function Shell({
     const timer = setTimeout(() => setBanner(null), BANNER_MS);
     return () => clearTimeout(timer);
   }, [banner, bannerHeld]);
-  const [view, setView] = useState<"desktop" | "launcher" | "overview">(
+  // What covers the desktop: Launchpad, the overview (Mission Control) or App Exposé
+  // (docs/adr/0044-app-expose.mdx), whose application is `exposeApp`.
+  const [view, setView] = useState<"desktop" | "launcher" | "overview" | "app-expose">(
     "desktop",
   );
   const [escapeRequest, setEscapeRequest] = useState(0);
@@ -218,40 +222,78 @@ export const Shell = memo(function Shell({
   const [centerKeys, setCenterKeys] = useState(0);
   // The overview's, its first control once it opened from the keyboard (the dock's button).
   const [overviewKeys, setOverviewKeys] = useState(0);
+  // App Exposé's: the window the keyboard's focus goes to, asked again with each request.
+  const [exposeKeys, setExposeKeys] = useState<{ target: string; request: number } | null>(null);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
   const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources });
   latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources };
-  // The application whose windows the overview shows alone (the dock menu's Show All Windows, as
-  // a Mac's App Exposé, docs/adr/0034-the-dock.mdx); none, every window.
-  const [overviewApp, setOverviewApp] = useState<string | null>(null);
+  // The application App Exposé shows (docs/adr/0044-app-expose.mdx): the dock menu's Show All
+  // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
+  const [exposeApp, setExposeApp] = useState<string | null>(null);
+  const exposing = useRef<string | null>(null);
+  exposing.current = view === "app-expose" ? exposeApp : null;
   const dismiss = useCallback(() => {
     setView("desktop");
-    setOverviewApp(null);
+    setExposeApp(null);
   }, []);
   const toggleOverview = useCallback(() => {
-    setOverviewApp(null);
     // Opened from the dock with the keyboard, it takes the keyboard on its first control, as
     // Mission Control opened from the keyboard does.
     if (latest.current.dockKeys) setOverviewKeys((value) => value + 1);
+    setExposeApp(null);
     setView((current) => (current === "overview" ? "desktop" : "overview"));
   }, []);
   const toggleLauncher = useCallback(() => {
-    setOverviewApp(null);
+    setExposeApp(null);
     setView((current) => (current === "launcher" ? "desktop" : "launcher"));
   }, []);
+  // App Exposé for an application with windows, open or minimized (one with none has nothing to
+  // show, as a Mac's Dock does nothing then); the keyboard on its frontmost window.
+  const exposes = (id: string) => {
+    const { open, minimized } = exposedWindows(latest.current.snapshot, id);
+    return open.length + minimized.length > 0;
+  };
+  const firstExposed = (id: string) => {
+    const { open, minimized } = exposedWindows(latest.current.snapshot, id);
+    const first = open[0] ?? minimized[0];
+    return first ? `expose-window-${first.id}` : "first";
+  };
   const showAllWindows = useCallback((id: string) => {
-    setOverviewApp(id);
-    setView("overview");
+    if (!exposes(id)) return;
+    setExposeApp(id);
+    setView("app-expose");
+    setExposeKeys((keys) => ({ target: firstExposed(id), request: (keys?.request ?? 0) + 1 }));
   }, []);
+  const moveExposeFocus = useCallback(
+    (target: string) => setExposeKeys((keys) => ({ target, request: (keys?.request ?? 0) + 1 })),
+    [],
+  );
+  // A scroll on a dock icon (docs/adr/0044-app-expose.mdx): up opens the application's App
+  // Exposé, as a Mac's Dock can; down closes it.
+  const scrollIcon = useCallback(
+    (id: string, up: boolean) => {
+      if (up) {
+        if (exposing.current !== id) showAllWindows(id);
+      } else if (exposing.current === id) {
+        dismiss();
+      }
+    },
+    [showAllWindows, dismiss],
+  );
   const activateApp = useCallback(
     (id: string) => {
+      // In App Exposé another application's icon shows its windows instead, as a Mac's does.
+      if (exposing.current && exposing.current !== id && exposes(id)) {
+        showAllWindows(id);
+        return;
+      }
       latest.current.actions.activateApp(id);
       setView("desktop");
     },
-    [],
+    [showAllWindows],
   );
   // Each command once, in order: several may come in one render (Super+Tab released at once
   // opens the switcher and ends it with its choice, as a Mac's quick ⌘Tab switches back).
@@ -265,6 +307,7 @@ export const Shell = memo(function Shell({
     const now = latest.current;
     let current = now.switcher;
     let view = now.view;
+    let expose: string | null = null;
     for (const next of pending) {
       switch (next.action) {
         case "dismiss":
@@ -274,6 +317,23 @@ export const Shell = memo(function Shell({
         case "overview":
           view = next.action;
           break;
+        // Super+↑ or three or four fingers swiped up: Mission Control; again, or from App Exposé
+        // (the other way's gesture), it closes (docs/adr/0044-app-expose.mdx).
+        case "mission-control":
+          view = view === "desktop" || view === "launcher" ? "overview" : "desktop";
+          break;
+        // Super+↓ or the swipe down: App Exposé of the frontmost application; again, or from
+        // Mission Control, it closes.
+        case "app-expose": {
+          const front = now.snapshot.activeAppId;
+          if (view === "overview" || view === "app-expose") {
+            view = "desktop";
+          } else if (front && exposes(front)) {
+            view = "app-expose";
+            expose = front;
+          }
+          break;
+        }
         // Super pressed alone (ADR 0041; Super+Space before it): the launcher, its search taking what is typed; again, it closes.
         case "search":
           if (view === "launcher") {
@@ -348,29 +408,31 @@ export const Shell = memo(function Shell({
       }
     }
     setSwitcher(current);
-    if (view !== latest.current.view) setOverviewApp(null);
+    if (view === "app-expose" && expose) {
+      const shown = expose;
+      setExposeApp(shown);
+      setExposeKeys((keys) => ({ target: firstExposed(shown), request: (keys?.request ?? 0) + 1 }));
+    } else if (view !== "app-expose") {
+      setExposeApp(null);
+    }
     setView(view);
   }, [command, commands]);
   // An application quit while the switcher is open leaves it.
   useEffect(() => {
     setSwitcher((current) => current && followSwitcher(current, snapshot));
   }, [snapshot]);
-  // Show All Windows: the overview with that application's windows alone.
-  const overviewSnapshot = useMemo(
-    () =>
-      overviewApp
-        ? { ...snapshot, windows: snapshot.windows.filter((win) => belongsTo(win, overviewApp)) }
-        : snapshot,
-    [snapshot, overviewApp],
-  );
   // A window or a desktop chosen in the overview is where the keyboard goes, as in Mission
   // Control: the dock it was opened from with the keyboard lets it go. Closed without a choice
   // (Escape), the keyboard goes back to the dock.
+  // A window chosen has the keyboard: the overlay closing does not give it back to the window
+  // that had it before (`windowChosen`).
+  const windowChosen = useRef(false);
   const overviewActions = useMemo(
     () => ({
       ...actions,
       focusWindow: (id: string) => {
         setDockKeys(null);
+        windowChosen.current = true;
         actions.focusWindow(id);
       },
       activateWorkspace: (id: string) => {
@@ -381,6 +443,10 @@ export const Shell = memo(function Shell({
     [actions],
   );
   const launcherOpen = view === "launcher";
+  const exposeArea = useMemo(
+    () => ({ position: "absolute", top: 0, left: 0, right: 0, bottom: dock ? DOCK_HEIGHT : 0 }) as const,
+    [dock],
+  );
   const launcherArea = useMemo(
     () =>
       ({
@@ -396,7 +462,7 @@ export const Shell = memo(function Shell({
   const lockSession = lock?.lockSession;
   const menuCommand = useCallback(
     (id: string) => {
-      if (id === "view.launcher" || id === "view.overview") setOverviewApp(null);
+      if (id === "view.launcher" || id === "view.overview") setExposeApp(null);
       if (id === "view.launcher") setView("launcher");
       else if (id === "view.overview") setView("overview");
       else if (id === "session.lock") lockSession?.();
@@ -463,6 +529,7 @@ export const Shell = memo(function Shell({
   }, [center]);
   useEffect(() => {
     if (view !== "overview") setOverviewKeys(0);
+    if (view !== "app-expose") setExposeKeys(null);
   }, [view]);
   // The top bar, the dock and the overlays with the keyboard hear Escape and their own keys
   // (docs/adr/0039-keyboard-access.mdx): an overlay closes, the dock and the status items give
@@ -489,7 +556,7 @@ export const Shell = memo(function Shell({
         setCenter(false);
         return true;
       }
-      if (now.view === "overview") {
+      if (now.view === "overview" || now.view === "app-expose") {
         dismiss();
         return true;
       }
@@ -503,12 +570,14 @@ export const Shell = memo(function Shell({
   }, [keyboard, dismiss]);
   // An overlay that had the keyboard closing, however it closes (Escape, a press outside it, a
   // choice in it), gives it back to the window, or to the status items it opened from.
-  const overlayOpen = !!controlCenter || center || view === "overview";
+  const overlayOpen = !!controlCenter || center || view === "overview" || view === "app-expose";
   const wasOpen = useRef(overlayOpen);
   useEffect(() => {
     const closed = wasOpen.current && !overlayOpen;
     wasOpen.current = overlayOpen;
-    if (closed && !keys.current.statusKeys && !keys.current.sheet && keys.current.view !== "launcher") {
+    const choice = windowChosen.current;
+    if (closed) windowChosen.current = false;
+    if (closed && !choice && !keys.current.statusKeys && !keys.current.sheet && keys.current.view !== "launcher") {
       latest.current.actions.returnKeyboard?.();
     }
   }, [overlayOpen]);
@@ -652,7 +721,7 @@ export const Shell = memo(function Shell({
               focusRequest={overviewKeys}
             >
               <Overview
-                snapshot={overviewSnapshot}
+                snapshot={snapshot}
                 actions={overviewActions}
                 dismiss={dismiss}
                 escapeRequest={escapeRequest}
@@ -662,6 +731,38 @@ export const Shell = memo(function Shell({
             </Surface>
           )}
         </Box>
+        {/* App Exposé (docs/adr/0044-app-expose.mdx) covers the screen but the dock, as Launchpad
+            does: the dimmed desktop beneath, a backdrop the compositor only fades, and over it the
+            application's windows, moved into its surface (`movesWindows`), which the compositor
+            flies from where they are and back. */}
+        {view === "app-expose" && exposeApp && (
+          <Surface kind="backdrop" style={exposeArea}>
+            <AppExposeBackdrop wallpaper={wallpaper} />
+          </Surface>
+        )}
+        {view === "app-expose" && exposeApp && (
+          <Surface
+            kind="overlay"
+            style={exposeArea}
+            movesWindows
+            keyboard={!sheet}
+            focusTarget={exposeKeys?.target}
+            focusRequest={exposeKeys?.request}
+          >
+            <AppExpose
+              snapshot={snapshot}
+              appId={exposeApp}
+              actions={overviewActions}
+              dismiss={dismiss}
+              escapeRequest={escapeRequest}
+              WindowView={platform.WindowView}
+              useWindowSizes={platform.useWindowSizes}
+              keyboard={sheet ? undefined : platform.keyboard}
+              focus={moveExposeFocus}
+              bottom={dock ? DOCK_HEIGHT : 0}
+            />
+          </Surface>
+        )}
         {/* The launcher covers the whole screen, the top bar included, but the dock: as Launchpad
             covers the menu bar and leaves the Dock, whose button closes it again. Its blurred
             backdrop is a surface of its own beneath its icons', so the compositor fades the one
@@ -774,6 +875,8 @@ export const Shell = memo(function Shell({
               view={view}
               activateApp={activateApp}
               showAllWindows={showAllWindows}
+              scrollIcon={platform.ScrollTarget ? scrollIcon : undefined}
+              ScrollTarget={platform.ScrollTarget}
               toggleLauncher={toggleLauncher}
               toggleOverview={toggleOverview}
               keys={dockKeys && !sheet ? keyboard : undefined}

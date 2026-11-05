@@ -19,7 +19,7 @@ import {
   useOverviewDrag,
   type OverviewDragController,
 } from "./useOverviewDrag";
-import { nearestWorkspace } from "../overview-geometry";
+import { nearestWorkspace, windowRows } from "../overview-geometry";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import {
@@ -350,19 +350,18 @@ export const Overview = memo(function Overview({
             (window) => window.workspaceId === workspace.id,
           );
           const columns = cardWidth >= 650 ? 3 : cardWidth >= 420 ? 2 : 1;
-          const rows = Array.from(
-            { length: Math.ceil(windows.length / columns) },
-            (_, index) => windows.slice(index * columns, (index + 1) * columns),
-          );
           const availableHeight = cardHeight - 116;
-          const rowHeight = Math.max(
-            104,
-            Math.min(
-              310,
-              (availableHeight - Math.max(0, rows.length - 1) * 16) /
-                Math.max(1, rows.length),
-            ),
-          );
+          // The rows App Exposé lays its windows out in too (overview-geometry.ts): one scale per
+          // row, keeping the windows' proportions and fitting the card's width.
+          const rows = windowRows(windows.map(ratio), {
+            width: cardWidth - 32,
+            height: availableHeight,
+            gap: 16,
+            columns,
+            chrome: 24,
+            minRow: 104,
+            maxRow: 310,
+          });
           return (
             <Box
               key={workspace.id}
@@ -442,16 +441,8 @@ export const Overview = memo(function Overview({
                 contentContainerClassName="gap-4 px-4"
                 showsVerticalScrollIndicator={false}
               >
-                {rows.map((row, index) => {
-                  const ratioSum = row.reduce(
-                    (sum, window) => sum + ratio(window),
-                    0,
-                  );
-                  // One scale per row: preserve surface proportions and fit the available width.
-                  const contentHeight = Math.min(
-                    rowHeight - 24,
-                    (cardWidth - 32 - (row.length - 1) * 16) / ratioSum,
-                  );
+                {rows.map(({ indices, contentHeight }, index) => {
+                  const row = indices.map((at) => windows[at]!);
                   return (
                     <Box
                       key={index}

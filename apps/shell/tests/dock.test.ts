@@ -186,3 +186,25 @@ test("an application's icon is where its windows minimize into, the minimized on
   assert.equal(windowIdsKey(applications, retitled), key);
   assert.notEqual(windowIdsKey(applications, [...windows, window("11", "inbox")]), key);
 });
+
+import { iconScroll, NO_ICON_SCROLL } from "../src/dock.ts";
+
+test("a scroll on a dock icon: a wheel's notch up or down at once, a touchpad's once it went far enough", () => {
+  const wheel = (dy: number) => iconScroll(NO_ICON_SCROLL, { dx: 0, dy, finger: false, end: false }).direction;
+  assert.equal(wheel(-15), "up");
+  assert.equal(wheel(15), "down");
+  assert.equal(iconScroll(NO_ICON_SCROLL, { dx: 15, dy: 0, finger: false, end: false }).direction, null);
+  // Two fingers: 5 and 5 up do nothing, 5 more opens it, and nothing more until they lift.
+  let state = NO_ICON_SCROLL;
+  const said: (string | null)[] = [];
+  for (const dy of [-5, -5, -5, -5, -30]) {
+    const next = iconScroll(state, { dx: 0, dy, finger: true, end: false });
+    state = next.state;
+    said.push(next.direction);
+  }
+  assert.deepEqual(said, [null, null, "up", null, null]);
+  state = iconScroll(state, { dx: 0, dy: 0, finger: true, end: true }).state;
+  assert.equal(iconScroll(state, { dx: 0, dy: 20, finger: true, end: false }).direction, "down");
+  // Across, never.
+  assert.equal(iconScroll(NO_ICON_SCROLL, { dx: 40, dy: 3, finger: true, end: false }).direction, null);
+});
