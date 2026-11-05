@@ -534,7 +534,8 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock"}
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
+             "scroll_output", "swipe"}
 
 
 # CLOCK_REALTIME less CLOCK_MONOTONIC, the clock the hosts' reports are stamped with: the wall
