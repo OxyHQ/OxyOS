@@ -17,7 +17,7 @@
       "privacy"
     ]
   },
-  "about": "Settings' Privacy (docs/adr/0030-installing-applications.mdx, decision 8) on a real oxyos-installd: the installed permission probe's notifications, not asked yet; the switch turns them on, kept by the service; the probe launched afterwards from Launchpad (its next launch) has them: expo-notifications says granted. At 1.25 on the ThinkPad's display (1600x1000).",
+  "about": "Settings' Privacy (docs/adr/0030-installing-applications.mdx, decision 8) on a real oxyos-installd, the session in Spanish (docs/adr/0040-language-and-region.mdx): the installed permission probe's notifications, not asked yet; the switch turns them on, kept by the service; the probe launched afterwards from Launchpad (its next launch) has them: expo-notifications says granted. At 1.25 on the ThinkPad's display (1600x1000).",
   "installd": {
     "publish": [
       "so.oxy.permissionprobe"
@@ -45,19 +45,16 @@
       ],
       "expect": {
         "texts": [
-          "Notifications",
-          "Not asked yet"
+          "Notificaciones",
+          "Aún no se ha preguntado"
         ]
       }
     },
     {
-      "name": "The switch: on",
+      "name": "The switch, by its name (its capability and its application): on",
       "do": [
-        "press",
-        [
-          830,
-          157
-        ]
+        "press_named",
+        "Notificaciones para Permission"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -71,7 +68,7 @@
       "allow_unchanged": true,
       "expect": {
         "absent": [
-          "Not asked yet"
+          "Aún no se ha preguntado"
         ]
       }
     },
