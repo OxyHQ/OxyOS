@@ -30,12 +30,14 @@ test("preferences are named as the session's file names them", () => {
     "input_sources",
     "language",
     "lock_after",
+    "mouse_natural_scrolling",
     "notification_previews",
     "notification_sounds_off",
     "reduce_motion",
     "reduce_transparency",
     "region",
     "screen_reader",
+    "trackpad_natural_scrolling",
     "ui_sounds",
     "wallpaper",
   ]);
@@ -215,4 +217,24 @@ test("interface sounds and each application's notification sound are named as a 
   assert.equal(messagesFor("en").notifications.playSound, "Play sound for notifications");
   assert.equal(messagesFor("es").notifications.playSound, "Reproducir sonido para las notificaciones");
   assert.equal(messagesFor("en").notifications.playSoundFor("Allo"), "Play sound for Allo's notifications");
+});
+
+test("natural scrolling is a Mac's switch on its Mouse and Trackpad pages, each its own preference", () => {
+  // docs/adr/0042-scrolling.mdx, decision 6: the session's two keys, as the file writes them.
+  assert.equal(PREFERENCE_KEYS.trackpadNaturalScrolling, "trackpad_natural_scrolling");
+  assert.equal(PREFERENCE_KEYS.mouseNaturalScrolling, "mouse_natural_scrolling");
+  assert.equal(preferenceText<"trackpadNaturalScrolling">(false), "false");
+  assert.equal(preferenceText<"mouseNaturalScrolling">(true), "true");
+  // macOS's words, in English and in Spanish.
+  assert.equal(messagesFor("en").pages.mouse, "Mouse");
+  assert.equal(messagesFor("en").pages.trackpad, "Trackpad");
+  assert.equal(messagesFor("es").pages.mouse, "Ratón");
+  assert.equal(messagesFor("es").pages.trackpad, "Trackpad");
+  assert.equal(messagesFor("en").scrolling.naturalScrolling, "Natural scrolling");
+  assert.equal(messagesFor("en").scrolling.naturalScrollingDescription, "Content tracks finger movement");
+  assert.equal(messagesFor("es").scrolling.naturalScrolling, "Desplazamiento natural");
+  assert.equal(
+    messagesFor("es").scrolling.naturalScrollingDescription,
+    "El contenido sigue el movimiento de los dedos",
+  );
 });

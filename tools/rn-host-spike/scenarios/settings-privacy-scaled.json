@@ -37,10 +37,10 @@
     {
       "name": "Privacy: the probe's notifications, not asked yet",
       "do": [
-        "press",
+        "a11y-action",
         [
-          71,
-          595
+          "activate",
+          "Privacidad"
         ]
       ],
       "expect": {

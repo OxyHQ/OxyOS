@@ -25,8 +25,10 @@ import {
   RiImageLine,
   RiInformationLine,
   RiKeyboardLine,
+  RiHand,
   RiLockLine,
   RiMoreLine,
+  RiMouseLine,
   RiNotification3Line,
   RiPaletteLine,
   RiRefreshLine,
@@ -309,6 +311,28 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
         value={snapshot.preferences.uiSounds}
         onChange={(on) => actions.setPreference("uiSounds", on)}
         testID="ui-sounds"
+      />
+    </GroupedSection>
+  );
+}
+
+/** Mouse and Trackpad (docs/adr/0042-scrolling.mdx, decision 6): Natural scrolling, as a Mac's pages
+    have it, each its own: on for a trackpad and off for a mouse unless the person turns them. */
+function ScrollingPage({
+  snapshot,
+  actions,
+  strings,
+  preference,
+}: PageProps & { preference: "trackpadNaturalScrolling" | "mouseNaturalScrolling" }) {
+  const words = strings.scrolling;
+  return (
+    <GroupedSection>
+      <ToggleItem
+        title={words.naturalScrolling}
+        description={words.naturalScrollingDescription}
+        value={snapshot.preferences[preference]}
+        onChange={(on) => actions.setPreference(preference, on)}
+        testID={preference === "trackpadNaturalScrolling" ? "trackpad-scrolling" : "mouse-scrolling"}
       />
     </GroupedSection>
   );
@@ -1782,6 +1806,9 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
       items: [
         { key: "language-region", label: words.languageRegion, icon: RiTranslate2, page: "language-region" },
         { key: "keyboard", label: words.keyboard, icon: RiKeyboardLine, page: "keyboard" },
+        // After Keyboard, as a Mac's System Settings lists them.
+        { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
+        { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
         { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
         { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
         { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
@@ -1798,6 +1825,8 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
     displays: { title: words.displays, content: <DisplaysPage {...props} /> },
     accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },
     keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },
+    mouse: { title: words.mouse, content: <ScrollingPage {...props} preference="mouseNaturalScrolling" /> },
+    trackpad: { title: words.trackpad, content: <ScrollingPage {...props} preference="trackpadNaturalScrolling" /> },
     "language-region": { title: words.languageRegion, content: <LanguageRegionPage {...props} /> },
     "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },
     about: { title: words.about, content: <AboutPage {...props} /> },

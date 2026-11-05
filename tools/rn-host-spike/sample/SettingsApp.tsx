@@ -70,6 +70,8 @@ const FIXTURE: SettingsSnapshot = {
     reduceTransparency: false,
     caretBlink: true,
     uiSounds: true,
+    trackpadNaturalScrolling: true,
+    mouseNaturalScrolling: false,
     wallpaper: 'solar-gradients',
     lockAfter: 5,
     screenReader: false,
@@ -195,6 +197,10 @@ function preferencesOf(values: Record<string, string>): Preferences {
     caretBlink: values[PREFERENCE_KEYS.caretBlink] !== 'false',
     // On unless the session keeps it off (docs/adr/0044-system-sounds.mdx).
     uiSounds: values[PREFERENCE_KEYS.uiSounds] !== 'false',
+    // A trackpad's on and a mouse's off unless the session keeps otherwise
+    // (docs/adr/0042-scrolling.mdx, decision 6).
+    trackpadNaturalScrolling: values[PREFERENCE_KEYS.trackpadNaturalScrolling] !== 'false',
+    mouseNaturalScrolling: flag(PREFERENCE_KEYS.mouseNaturalScrolling),
     wallpaper: values[PREFERENCE_KEYS.wallpaper] || null,
     lockAfter: Number(values[PREFERENCE_KEYS.lockAfter] ?? 5),
     screenReader: flag(PREFERENCE_KEYS.screenReader),

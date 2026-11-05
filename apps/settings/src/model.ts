@@ -27,6 +27,11 @@ export type Preferences = {
   caretBlink: boolean;
   /** Play user interface sound effects (docs/adr/0044-system-sounds.mdx): the Trash's sounds. */
   uiSounds: boolean;
+  /** Natural scrolling on a touchpad (docs/adr/0042-scrolling.mdx, decision 6): the content follows
+      the fingers. On, as a Mac's trackpad ships. */
+  trackpadNaturalScrolling: boolean;
+  /** Natural scrolling on a mouse's wheel and every other pointing device: off, as every mouse has. */
+  mouseNaturalScrolling: boolean;
   /** The wallpaper's folder; null is the session's own. */
   wallpaper: string | null;
   /** Minutes idle before the session locks; 0 never. */
@@ -135,6 +140,8 @@ export const PREFERENCE_KEYS = {
   reduceTransparency: "reduce_transparency",
   caretBlink: "caret_blink",
   uiSounds: "ui_sounds",
+  trackpadNaturalScrolling: "trackpad_natural_scrolling",
+  mouseNaturalScrolling: "mouse_natural_scrolling",
   wallpaper: "wallpaper",
   lockAfter: "lock_after",
   screenReader: "screen_reader",
