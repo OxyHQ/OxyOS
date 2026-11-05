@@ -46,7 +46,7 @@
       }
     },
     {
-      "name": "a press on File opens it under its title, said by its title",
+      "name": "a press on File opens it under its title, said by its title, then its first row, where the screen reader's focus moved (as a menu a press opens, menu-reader)",
       "do": [
         "press_output",
         [
@@ -93,12 +93,16 @@
         "spoken": [
           {
             "text": "File, menú"
+          },
+          {
+            "text": "New, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "the pointer along the bar onto Edit: File's popup changes into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once",
+      "name": "the pointer along the bar onto Edit: File's popup changes into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once, then its first row",
       "do": [
         "move_output",
         [
@@ -179,12 +183,16 @@
         "spoken": [
           {
             "text": "Edit, menú"
+          },
+          {
+            "text": "Undo, atenuado, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "back onto File: Edit's popup changes into File's the same way, said once",
+      "name": "back onto File: Edit's popup changes into File's the same way, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -254,12 +262,16 @@
         "spoken": [
           {
             "text": "File, menú"
+          },
+          {
+            "text": "New, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "onto Edit again",
+      "name": "onto Edit again, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -309,12 +321,16 @@
         "spoken": [
           {
             "text": "Edit, menú"
+          },
+          {
+            "text": "Undo, atenuado, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "onto View: Edit's popup changes into View's, wider than the menus' floor, moving and growing as it shrinks in height",
+      "name": "onto View: Edit's popup changes into View's, wider than the menus' floor, moving and growing as it shrinks in height, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -383,6 +399,10 @@
         "spoken": [
           {
             "text": "View, menú"
+          },
+          {
+            "text": "Show the Sidebar and the Inspector Together, no marcada, casilla",
+            "interrupting": false
           }
         ]
       }

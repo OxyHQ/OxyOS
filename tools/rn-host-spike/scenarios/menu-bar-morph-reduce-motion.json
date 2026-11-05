@@ -1,5 +1,5 @@
 {
-  "about": "menu-bar-morph.json with Reduce Motion on (docs/adr/0019-settings.mdx): moving to another title with a menu open changes the bar's one popup into the next menu at once. The same popup surface throughout, now at the next menu's place and size with no place between and no frame drawing the two menus together, Edit's rows alone at once; the application hears nothing, and the screen reader says the new menu once.",
+  "about": "menu-bar-morph.json with Reduce Motion on (docs/adr/0019-settings.mdx): moving to another title with a menu open changes the bar's one popup into the next menu at once. The same popup surface throughout, now at the next menu's place and size with no place between and no frame drawing the two menus together, Edit's rows alone at once; the application hears nothing, and the screen reader says the new menu once, by its title, then the row its focus moved into.",
   "locale": "es_ES.UTF-8",
   "module": "MenuBarMorphProbe",
   "window": [
@@ -51,7 +51,7 @@
       }
     },
     {
-      "name": "a press on File opens it under its title, said by its title",
+      "name": "a press on File opens it under its title, said by its title, then its first row, where the screen reader's focus moved (as a menu a press opens, menu-reader)",
       "do": [
         "press_output",
         [
@@ -98,12 +98,16 @@
         "spoken": [
           {
             "text": "File, menú"
+          },
+          {
+            "text": "New, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "the pointer along the bar onto Edit: File's popup changes at once into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once",
+      "name": "the pointer along the bar onto Edit: File's popup changes at once into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once, then its first row",
       "do": [
         "move_output",
         [
@@ -186,12 +190,16 @@
         "spoken": [
           {
             "text": "Edit, menú"
+          },
+          {
+            "text": "Undo, atenuado, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "back onto File: Edit's popup changes at once into File's the same way, said once",
+      "name": "back onto File: Edit's popup changes at once into File's the same way, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -263,12 +271,16 @@
         "spoken": [
           {
             "text": "File, menú"
+          },
+          {
+            "text": "New, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "onto Edit again",
+      "name": "onto Edit again, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -320,12 +332,16 @@
         "spoken": [
           {
             "text": "Edit, menú"
+          },
+          {
+            "text": "Undo, atenuado, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "onto View: Edit's popup changes at once into View's, wider than the menus' floor, moving and growing as it shrinks in height",
+      "name": "onto View: Edit's popup changes at once into View's, wider than the menus' floor, moving and growing as it shrinks in height, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -396,6 +412,10 @@
         "spoken": [
           {
             "text": "View, menú"
+          },
+          {
+            "text": "Show the Sidebar and the Inspector Together, no marcada, casilla",
+            "interrupting": false
           }
         ]
       }
