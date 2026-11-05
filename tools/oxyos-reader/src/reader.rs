@@ -450,10 +450,28 @@ impl Reader {
             }
         }
         let first = before.is_none();
+        // A popup's pane: its first named menu or dialog. One that changes in place (a menu bar's
+        // menu changing into the next one as the pointer crosses onto its title, one surface) is
+        // a new pane, as one appearing is: said by its title, and what is focused in it is new.
+        let pane = |nodes: &[Node]| {
+            nodes
+                .iter()
+                .find(|node| {
+                    matches!(node.role, AccessibleRole::Menu | AccessibleRole::Dialog)
+                        && !node.name.trim().is_empty()
+                })
+                .map(|node| (node.role, node.name.clone()))
+        };
+        let new_pane = self.popups.contains(&key)
+            && (first || pane(before.as_deref().unwrap_or_default()) != pane(&self.trees[&key]));
         // Where the element focused before is in this tree, if it is still the one focused: the
         // protocol's nodes have no identity but their place, and an element appearing before it
         // (a search field's clear button as the first letter is typed) moves it on.
-        let kept = self.kept_focus(key, before.as_deref());
+        let kept = if new_pane {
+            None
+        } else {
+            self.kept_focus(key, before.as_deref())
+        };
         if let Some(kept) = kept {
             self.text_changes(key, before.as_deref(), kept);
             self.state_changes(key, before.as_deref(), kept);
@@ -470,9 +488,10 @@ impl Reader {
         let polite = self.live_changes(key);
         // A popup that appears is said by its title, as TalkBack says the pane title of a window
         // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
-        // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
-        // in it is said after that, not over it, in this tree or a later one.
-        if first && self.popups.contains(&key) {
+        // or dialog it holds, by its name and role ("Message actions, menu"); and so is one whose
+        // pane changed in place (CONTENT_CHANGE_TYPE_PANE_TITLE). What is first focused in it is
+        // said after that, not over it, in this tree or a later one.
+        if new_pane {
             if let Some(title) = self.trees[&key].iter().position(|node| {
                 matches!(node.role, AccessibleRole::Menu | AccessibleRole::Dialog)
                     && !node.name.trim().is_empty()

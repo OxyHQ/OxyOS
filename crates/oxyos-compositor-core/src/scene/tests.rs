@@ -847,6 +847,126 @@ fn a_menu_bar_tracks_the_pointer_while_its_menu_is_open() {
     let _ = other;
 }
 
+/// A menu bar's menu changing into the next one in its ONE popup (Bloom's menu bar viewport): the
+/// client re-anchors and resizes that popup frame by frame (`Reposition`) as the pointer crosses
+/// onto another title. The popup keeps its grab, the keyboard and the bar's pointer tracking
+/// throughout, and neither the bar nor any other surface or client is told anything: no leave, no
+/// enter, no focus. Each new place and size is shown with the frame drawn for it, at once: never
+/// the old frame at the new place, a frame drawn for an older configure at all, or the new frame
+/// at the old place.
+#[test]
+fn a_menu_bar_menu_changes_into_the_next_in_its_one_popup() {
+    let mut h = Harness::new();
+    let other = h.toplevel(OTHER, 1, 1200, 800);
+    let bar = h.toplevel(APP, 1, 400, 300);
+    h.activate(bar);
+    let b = h.rect(bar);
+    // File's menu, 200x150 under File's title at (10, 0), tracking the pointer over the bar.
+    let serial = h.press(b.x + 20, b.y + 10);
+    let menu_popup = h.popup(bar, 2, menu(Rect::new(10, 0, 40, 20), 200, 150));
+    h.request(APP, Request::TrackPointer { surface: 2 })
+        .unwrap();
+    h.request(APP, Request::GrabPopup { surface: 2, serial })
+        .unwrap();
+    h.present(menu_popup);
+    h.scene.pointer_button(BUTTON, false);
+    h.clear_log();
+    let mut shown = h.rect(menu_popup);
+    assert_eq!(shown, Rect::new(b.x + 10, b.y + 20, 200, 150));
+
+    // Into Edit's menu, 160x90 under Edit's title at (60, 0): the client's frames of the change,
+    // the pointer going on along the bar between them.
+    for (step, (x, width, height)) in [
+        (20, 192, 138),
+        (35, 180, 120),
+        (50, 168, 102),
+        (60, 160, 90),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let before = h.configures[&menu_popup].0;
+        h.request(
+            APP,
+            Request::Reposition {
+                surface: 2,
+                positioner: menu(Rect::new(x, 0, 40, 20), width, height),
+            },
+        )
+        .unwrap();
+        // Configured for its new size; until a frame for it comes, it stays as it was.
+        let (serial, rect, _) = h.configures[&menu_popup];
+        assert!(serial > before, "step {step}: a new configure");
+        assert_eq!((rect.width, rect.height), (width, height), "step {step}");
+        h.frame();
+        assert_eq!(
+            h.rect(menu_popup),
+            shown,
+            "step {step}: no frame for the new place yet"
+        );
+        // A frame drawn for the configure before (the client's last, in flight as the new one
+        // came) is discarded: the popup stays as it was, never that frame at the new place.
+        let stale = physical(Size::new(shown.width, shown.height), 120);
+        let buffer = h.buffer(APP, stale);
+        let sequence = h.next_sequence.entry(menu_popup).or_insert(0);
+        *sequence += 1;
+        let request = Request::Submit {
+            surface: 2,
+            sequence: *sequence,
+            buffer,
+            configure: before,
+            extent: stale,
+        };
+        h.request(APP, request).unwrap();
+        h.frame();
+        assert_eq!(
+            h.rect(menu_popup),
+            shown,
+            "step {step}: the stale frame is not shown"
+        );
+        // The frame for it: the new place and the new size together.
+        h.present(menu_popup);
+        shown = h.rect(menu_popup);
+        assert_eq!(
+            shown,
+            Rect::new(b.x + x, b.y + 20, width, height),
+            "step {step}"
+        );
+        assert_eq!(h.scene.grab_chain(), &[menu_popup], "step {step}");
+        assert_eq!(h.scene.focus(), Some(menu_popup), "step {step}");
+        h.scene.pointer_motion(b.x + 20 + x, b.y + 10);
+        h.pump();
+    }
+
+    // What the application heard: its popup's configures, the stale frame given back, and the
+    // pointer moving over the bar (tracked, never left or entered); nothing else, and nothing of
+    // its keyboard. The other client heard nothing at all.
+    let heard: Vec<_> = h
+        .events_for(APP)
+        .into_iter()
+        .filter(|event| {
+            !matches!(
+                event,
+                Event::Configure { surface: 2, .. }
+                    | Event::Released { .. }
+                    | Event::Feedback { surface: 2, .. }
+            )
+        })
+        .map(|event| match event {
+            Event::Pointer {
+                surface, kind, x, ..
+            } => Some((surface, kind, x / 256)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        heard,
+        [40, 55, 70, 80].map(|x| Some((1, PointerKind::Motion, x)))
+    );
+    assert!(h.events_for(OTHER).is_empty());
+    let _ = other;
+}
+
 /// A menu that did not ask for it leaves the surface it hangs from without the pointer, as
 /// before: a context menu's window hears nothing while it is open. Only a popup can ask.
 #[test]

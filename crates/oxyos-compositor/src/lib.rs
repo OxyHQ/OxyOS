@@ -639,6 +639,10 @@ pub struct Compositor {
     /// composing every screen's frame took, from gathering the scene to handing it over, and the
     /// part of that reading the clients' buffers, in ms.
     pub frame_times: Vec<(std::time::Duration, f64, f64)>,
+    /// With `records`, for every frame composed while a menu was open: the menus (the popups of
+    /// the grab chain) as composed, each with its place and size on the output. What a menu bar's
+    /// one popup showed frame by frame as it changed from one menu into another.
+    pub menu_frames: Vec<Vec<(SurfaceKey, oxyos_protocol::Rect)>>,
     /// A number for every frame a client submitted, never reused, by surface and sequence:
     /// what identifies a surface's pixels to the GPU (`oxyos_gpu::Source`), since surface ids
     /// and sequences are the client's and come again when it creates a surface anew.
@@ -1104,6 +1108,7 @@ impl Compositor {
             gpu_buffers: Default::default(),
             bytes_read: HashMap::new(),
             frame_times: Vec::new(),
+            menu_frames: Vec::new(),
             versions: HashMap::new(),
             next_version: 2,
             shown_versions: HashMap::new(),
@@ -2706,6 +2711,19 @@ impl Compositor {
                 (monotonic() - self.composing_since).as_secs_f64() * 1e3,
                 self.reads.last().copied().unwrap_or(0.0),
             ));
+            let chain = self.scene.grab_chain();
+            let menus: Vec<_> = composed_list
+                .iter()
+                .filter_map(|item| match item {
+                    RenderItem::Surface { key, rect, .. } if chain.contains(key) => {
+                        Some((*key, *rect))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !menus.is_empty() {
+                self.menu_frames.push(menus);
+            }
         }
         if !self.pending_captures.is_empty() {
             self.compose_captures(&contents, &layers);

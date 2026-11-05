@@ -493,6 +493,57 @@ fn a_menu_that_opens_is_said_by_its_title_then_its_focused_row() {
 }
 
 #[test]
+fn a_menu_changing_into_another_in_its_popup_is_said_once_by_its_new_title() {
+    // A menu bar's one popup changing from File into Edit (Bloom's viewport): the same surface,
+    // a new pane. Its title is said once, as a popup appearing is, then what is focused in it;
+    // a row focused at the place File's had is Edit's row, said as a new focus.
+    let mut reader = Reader::new(Language::English);
+    let menu_of = |title: &str, rows: &[&str], focused: Option<usize>| {
+        let mut nodes = vec![(R::Generic, 0, "", ""), (R::Menu, 0, title, "")];
+        nodes.extend(rows.iter().map(|row| (R::MenuItem, 0, *row, "")));
+        if let Some(index) = focused {
+            nodes[index].1 |= FOCUSED;
+        }
+        tree_of(MENU, WINDOW, &nodes)
+    };
+    feed(&mut reader, &trigger(false, true));
+    assert_eq!(
+        feed(&mut reader, &menu_of("File", &["New", "Open"], Some(2))),
+        ["File, menu", "New, menu item"]
+    );
+    for event in menu_of("Edit", &["Undo", "Wrap Lines"], Some(2)) {
+        reader.receive(&event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Edit, menu".into(),
+                politeness: Politeness::Assertive,
+                language: Language::English,
+            },
+            Utterance {
+                text: "Undo, menu item".into(),
+                politeness: Politeness::Polite,
+                language: Language::English,
+            },
+        ]
+    );
+    // Its next trees (each frame of the change) say nothing more.
+    assert!(feed(
+        &mut reader,
+        &menu_of("Edit", &["Undo", "Wrap Lines"], Some(2))
+    )
+    .is_empty());
+    // Changed by the pointer, nothing focused in it: its title alone.
+    assert_eq!(
+        feed(&mut reader, &menu_of("View", &["Zoom In"], None)),
+        ["View, menu"]
+    );
+    assert!(feed(&mut reader, &menu_of("View", &["Zoom In"], None)).is_empty());
+}
+
+#[test]
 fn only_a_popup_is_said_by_its_title() {
     // A window's first tree, with a menu in it (a menu bar's, drawn in the window), says
     // nothing of the menu: it is no popup appearing.
