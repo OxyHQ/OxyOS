@@ -3,10 +3,14 @@
 //! source once per type, and every way a drag ends without one.
 
 use super::*;
-use crate::scene::{negotiate_action, DRAG_VERSION, MAX_OPEN_DROPS};
+use crate::scene::{
+    negotiate_action, AppearanceChange, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE, DRAG_VERSION,
+    MAX_OPEN_DROPS,
+};
 use oxyos_protocol::{DragActions, DragCancelReason, MODIFIER_ALT, MODIFIER_SUPER};
 
 const ALT: u32 = 56;
+const SUPER: u32 = 125;
 const URIS: &str = "text/uri-list";
 const TEXT: &str = "text/plain;charset=utf-8";
 
@@ -741,6 +745,194 @@ fn the_icon_follows_the_pointer_takes_no_input_and_shows_only_during_its_drag() 
     // Once the drag ends, it is no longer shown.
     d.h.scene.pointer_button(BUTTON, false);
     assert!(!d.h.rendered(icon));
+}
+
+/// The source creates a 40 x 30 icon gripped at (10, 5), presses in its window's middle and
+/// starts dragging `types` once the pointer moved 4 pixels: where the press was.
+fn start_with_icon(d: &mut Desk, actions: DragActions) -> (SurfaceKey, (i32, i32)) {
+    d.h.request(
+        APP,
+        Request::CreateDragIcon {
+            surface: 9,
+            size: Size::new(40, 30),
+            hotspot_x: 10,
+            hotspot_y: 5,
+        },
+    )
+    .unwrap();
+    let icon = key(APP, 9);
+    d.h.submit(icon);
+    let (x, y) = center(&d.h, d.source);
+    let serial = d.h.press(x, y);
+    d.h.scene.pointer_motion(x + 4, y);
+    d.h.request(
+        APP,
+        Request::DragType {
+            drag: 7,
+            mime: mime(URIS),
+        },
+    )
+    .unwrap();
+    d.h.request(
+        APP,
+        Request::StartDrag {
+            drag: 7,
+            surface: d.source.id,
+            icon: 9,
+            serial,
+            actions,
+        },
+    )
+    .unwrap();
+    d.h.frame();
+    (icon, (x, y))
+}
+
+fn returned(h: &mut Harness, icon: SurfaceKey) -> Vec<AppearanceChange> {
+    h.scene
+        .take_appearances()
+        .into_iter()
+        .filter(|appearance| appearance.key == icon)
+        .map(|appearance| appearance.change)
+        .filter(|change| matches!(change, AppearanceChange::Returned { .. }))
+        .collect()
+}
+
+#[test]
+fn a_drag_that_drops_nothing_slides_its_image_back_and_a_drop_takes_it_at_once() {
+    // Released over nothing that takes it: the image goes back to where the item was as the press
+    // began (the press less the grip), its centre there, as a Mac's slides back.
+    let mut d = desk();
+    let (icon, (x, y)) = start_with_icon(&mut d, DragActions::COPY);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_motion(500, 700);
+    d.h.scene.pointer_button(BUTTON, false);
+    assert!(!d.h.rendered(icon));
+    assert_eq!(
+        returned(&mut d.h, icon),
+        [AppearanceChange::Returned {
+            x: x - 10 + 20,
+            y: y - 5 + 15
+        }]
+    );
+    // Escape sends it back as well.
+    let mut d = desk();
+    let (icon, (x, y)) = start_with_icon(&mut d, DragActions::COPY);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_motion(300, 200);
+    d.h.scene.key(1, true);
+    assert_eq!(
+        returned(&mut d.h, icon),
+        [AppearanceChange::Returned {
+            x: x + 10,
+            y: y + 10
+        }]
+    );
+    // Dropped on a target that took it: gone at once, nowhere to go back to.
+    let mut d = desk();
+    let (icon, _) = start_with_icon(&mut d, DragActions::COPY.union(DragActions::MOVE));
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(tx, ty);
+    let (offer, serial) = entering(&to(&logged(&mut d.h), OTHER)).unwrap();
+    accept(&mut d.h, OTHER, offer, serial, URIS);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_button(BUTTON, false);
+    assert!(!d.h.rendered(icon));
+    assert!(returned(&mut d.h, icon).is_empty());
+    // One icon surface throughout; the source destroys it once its drag ended.
+    assert_eq!(d.h.scene.drag_icons(), [(icon, None)]);
+}
+
+#[test]
+fn the_pointer_shows_a_copys_and_a_links_badge_never_a_moves_or_a_refusals() {
+    let badge = |h: &Harness| {
+        h.scene
+            .render_list()
+            .into_iter()
+            .filter_map(|item| match item {
+                RenderItem::DragBadge { rect, action } => Some((rect, action)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut d = desk();
+    let (icon, _) = start_with_icon(
+        &mut d,
+        DragActions::COPY
+            .union(DragActions::MOVE)
+            .union(DragActions::LINK),
+    );
+    // Over its own window, which takes nothing: no badge.
+    assert!(badge(&d.h).is_empty());
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(tx, ty);
+    let (offer, serial) = entering(&to(&logged(&mut d.h), OTHER)).unwrap();
+    d.h.request(
+        OTHER,
+        Request::AcceptDrag {
+            offer,
+            serial,
+            mime: PreeditText::new(URIS).unwrap(),
+            actions: DragActions::COPY
+                .union(DragActions::MOVE)
+                .union(DragActions::LINK),
+            preferred: DragActions::MOVE,
+        },
+    )
+    .unwrap();
+    // A move, the target's preference: none.
+    assert!(badge(&d.h).is_empty());
+    // Option: a copy's, below and right of the pointer's tip, above the drag's image.
+    d.h.scene.key(ALT, true);
+    let at = Rect::new(
+        tx + DRAG_BADGE_OFFSET.0,
+        ty + DRAG_BADGE_OFFSET.1,
+        DRAG_BADGE_SIDE,
+        DRAG_BADGE_SIDE,
+    );
+    assert_eq!(badge(&d.h), [(at, DragActions::COPY)]);
+    let list = d.h.scene.render_list();
+    let icon_at = list
+        .iter()
+        .position(|item| matches!(item, RenderItem::Surface { key, .. } if *key == icon));
+    let badge_at = list
+        .iter()
+        .position(|item| matches!(item, RenderItem::DragBadge { .. }));
+    assert!(icon_at < badge_at, "{list:?}");
+    // It follows the pointer.
+    d.h.scene.pointer_motion(tx + 7, ty + 3);
+    assert_eq!(
+        badge(&d.h),
+        [(
+            Rect::new(at.x + 7, at.y + 3, at.width, at.height),
+            DragActions::COPY
+        )]
+    );
+    // Option and Command: a link's.
+    d.h.scene.key(SUPER, true);
+    assert_eq!(badge(&d.h)[0].1, DragActions::LINK);
+    d.h.scene.key(SUPER, false);
+    d.h.scene.key(ALT, false);
+    // A target that takes nothing now: no badge, whatever is held.
+    d.h.request(
+        OTHER,
+        Request::AcceptDrag {
+            offer,
+            serial,
+            mime: PreeditText::new("").unwrap(),
+            actions: DragActions::COPY
+                .union(DragActions::MOVE)
+                .union(DragActions::LINK),
+            preferred: DragActions::COPY,
+        },
+    )
+    .unwrap();
+    d.h.scene.key(ALT, true);
+    assert!(badge(&d.h).is_empty());
+    d.h.scene.key(ALT, false);
+    // Once the drag ends, none.
+    d.h.scene.pointer_button(BUTTON, false);
+    assert!(badge(&d.h).is_empty());
 }
 
 #[test]

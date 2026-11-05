@@ -1564,18 +1564,113 @@ RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const 
   return stats;
 }
 
-RenderStats drawDragImage(const ViewTree& tree, Tag view, const Display& display, Canvas& canvas) {
+namespace {
+
+// The count's badge: white on a Mac's red (systemRed), semibold, as Finder's drag of several files.
+constexpr uint32_t kDragBadgeColor = 0xffff3b30u;
+
+ParagraphLayout badgeLayout(const std::string& text) {
+  TextAttributes attributes = TextAttributes::defaultTextAttributes();
+  attributes.fontSize = 12;
+  attributes.fontWeight = FontWeight::Semibold;
+  attributes.foregroundColor = colorFromComponents({1, 1, 1, 1});
+  AttributedString string;
+  string.setBaseTextAttributes(attributes);
+  string.appendFragment({.string = text, .textAttributes = attributes, .parentShadowView = {}});
+  return TextEngine::shared().layout(string, ParagraphAttributes{}, std::numeric_limits<float>::infinity());
+}
+
+// The view's subtree drawn at its frame's origin, at `opacity`.
+void drawDragged(const ViewTree& tree, Tag view, float x, float y, float opacity, Draw& draw) {
+  const auto& origin = tree.views().at(view).view.layoutMetrics.frame.origin;
+  drawView(tree, view, x - origin.x, y - origin.y, kUnclipped, opacity, draw);
+}
+
+}  // namespace
+
+DragStack dragStack(const ViewTree& tree, Tag view, int count) {
+  DragStack stack;
+  auto it = tree.views().find(view);
+  if (it == tree.views().end()) return stack;
+  const auto& frame = it->second.view.layoutMetrics.frame;
+  int width = static_cast<int>(std::ceil(frame.size.width));
+  int height = static_cast<int>(std::ceil(frame.size.height));
+  if (width < 1 || height < 1) return stack;
+  // What the subtree draws, found from its pixels drawn once at scale 1 (a cell's name label and
+  // icon, not the column it is centred in).
+  {
+    CpuPaintScope cpu;
+    Canvas probe;
+    allocate(probe, width, height, 0);
+    RenderStats stats;
+    TextInputEdit edit;
+    drawOnto(probe, 1, std::nullopt, [&](SkCanvas& target) {
+      Draw draw{&target, 1, &stats, &edit};
+      draw.placesWindows = false;
+      target.clipRect(SkRect::MakeWH(width, height));
+      drawDragged(tree, view, 0, 0, 1, draw);
+    });
+    auto pixels = canvasPixels(probe);
+    int left = width, top = height, right = -1, bottom = -1;
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        if ((pixels[static_cast<size_t>(y) * width + x] >> 24) == 0) continue;
+        left = std::min(left, x);
+        right = std::max(right, x);
+        top = std::min(top, y);
+        bottom = std::max(bottom, y);
+      }
+    }
+    if (right < 0) return stack;
+    stack.drawn = Rect{{static_cast<float>(left), static_cast<float>(top)},
+                       {static_cast<float>(right - left + 1), static_cast<float>(bottom - top + 1)}};
+  }
+  count = std::max(count, 1);
+  stack.layers = std::min(count - 1, 2);
+  float overhang = 0;
+  if (count > 1) {
+    stack.badge = count > 999 ? "999+" : std::to_string(count);
+    stack.badgeWidth = std::max(kDragBadgeHeight, std::ceil(badgeLayout(stack.badge).width) + 12);
+    // Its middle on the drawn part's top right corner, as a Mac's badge sits.
+    overhang = kDragBadgeHeight / 2;
+  }
+  float behind = stack.layers * kDragStackStep;
+  stack.at = Point{0, overhang};
+  stack.size = Size{stack.drawn.size.width + std::max(behind, stack.badgeWidth / 2),
+                    overhang + stack.drawn.size.height + behind};
+  return stack;
+}
+
+RenderStats drawDragImage(const ViewTree& tree, Tag view, const DragStack& stack, const Display& display,
+                          Canvas& canvas) {
   allocate(canvas, display.pixelWidth(), display.pixelHeight(), 0);
   RenderStats stats;
-  auto it = tree.views().find(view);
-  if (it == tree.views().end()) return stats;
-  // The view at the canvas's origin, translucent, as a Mac draws a dragged item's image.
-  const auto& origin = it->second.view.layoutMetrics.frame.origin;
+  if (!tree.views().count(view) || stack.size.width <= 0) return stats;
   TextInputEdit edit;
   drawOnto(canvas, display.scale, std::nullopt, [&](SkCanvas& target) {
     Draw draw{&target, display.scale, &stats, &edit};
     draw.placesWindows = false;
-    drawView(tree, view, -origin.x, -origin.y, Clip{0, 0, display.width, display.height}, 0.75f, draw);
+    // The items as one picture, three quarters opaque: the front one hides those behind it, as a
+    // Mac's dragged image is drawn whole and then made translucent.
+    target.saveLayerAlphaf(nullptr, 0.75f);
+    for (int layer = stack.layers; layer >= 0; --layer) {
+      float step = layer * kDragStackStep;
+      float x = stack.at.x + step, y = stack.at.y + step;
+      target.save();
+      target.clipRect(SkRect::MakeXYWH(x, y, stack.drawn.size.width, stack.drawn.size.height), true);
+      drawDragged(tree, view, x - stack.drawn.origin.x, y - stack.drawn.origin.y, 1, draw);
+      target.restore();
+    }
+    target.restore();
+    if (stack.badge.empty()) return;
+    float left = stack.at.x + stack.drawn.size.width - stack.badgeWidth / 2;
+    SkPaint fill(faded(kDragBadgeColor, 1));
+    fill.setAntiAlias(true);
+    float radius = kDragBadgeHeight / 2;
+    target.drawRRect(SkRRect::MakeRectXY(SkRect::MakeXYWH(left, 0, stack.badgeWidth, kDragBadgeHeight), radius, radius),
+                     fill);
+    auto layout = badgeLayout(stack.badge);
+    drawGlyphs(draw, layout, left + (stack.badgeWidth - layout.width) / 2, (kDragBadgeHeight - layout.height) / 2, 1);
   });
   return stats;
 }

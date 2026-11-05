@@ -1,0 +1,378 @@
+{
+  "about": "A drag's image as a Mac's (docs/adr/0035-drag-and-drop.mdx, The drag's image), through Bloom's API alone: Dropsea drags its items' own views (OxyHQ/Dropsea), the Bloom host draws them as they look, three quarters opaque, the point gripped under the pointer, stacked with a red count for several; the compositor badges the pointer for a copy and slides the image back when nothing takes the drop. sunset.png (an orange picture, #e8743b, whose thumbnail Dropsea draws) is held midway over Dropsea's own items, which take files with a move: the thumbnail's orange three quarters over the window's #fff7f9 where the pointer gripped it, no badge; Option held, a copy, the pointer's green plus; over the desktop, which takes nothing, no badge though Option is held; released there, the image slides back to the item on the transitions' clock held at 0, 60, 120 and 200 ms, each frame nearer, fading at the end; then three items (Pictures to sunset.png, a Shift-click's range) held midway: stacked, the count's red badge with its white 3 at the top right; released over the desktop on the running clock, slid back eased to the item's place. One drag icon surface during each drag, none after.",
+  "locale": "es_ES.UTF-8",
+  "module": "Dropsea",
+  "window": [
+    640,
+    460
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "plan.txt": "p",
+      "sunset.png": {
+        "png": [
+          64,
+          48,
+          "#e8743b"
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "sunset.png pressed and dragged midway onto Dropsea's own items, held: the item as it looks, its thumbnail's orange three quarters over the window's #fff7f9 where the pointer gripped it and either side, the item itself still in its place; a move, no badge",
+      "do": [
+        "drag_hold",
+        [
+          746,
+          334,
+          640,
+          470,
+          12,
+          60
+        ]
+      ],
+      "expect": {
+        "drag_icons": {
+          "count": 1,
+          "shown": [
+            [
+              601,
+              434,
+              77,
+              94
+            ]
+          ]
+        },
+        "output_pixels": {
+          "640,470": "#ee946a",
+          "616,470": "#ee946a",
+          "664,470": "#ee946a",
+          "746,334": "#e8743b",
+          "654,487": "#ee946a",
+          "657,490": "#ee946a",
+          "679,470": "#fff7f9"
+        }
+      }
+    },
+    {
+      "name": "Option held: a copy, the pointer's green plus below and right of its tip, over the image",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drag_icons": {
+          "count": 1,
+          "shown": [
+            [
+              601,
+              434,
+              77,
+              94
+            ]
+          ]
+        },
+        "output_pixels": {
+          "654,487": "#28cd41",
+          "657,490": "#ffffff",
+          "640,470": "#ee946a"
+        }
+      }
+    },
+    {
+      "name": "over the desktop, which takes nothing: no badge though Option is held, the image's orange over the wallpaper where the badge was",
+      "do": [
+        "move_output",
+        [
+          200,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drag_icons": {
+          "count": 1,
+          "shown": [
+            [
+              161,
+              364,
+              77,
+              94
+            ]
+          ]
+        },
+        "output_pixels": {
+          "200,400": "#c3786c",
+          "214,417": "#c3786c",
+          "217,420": "#c3786c",
+          "640,470": "#fff7f9"
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "the transitions' clock held",
+      "do": [
+        "transition_clock",
+        "hold"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drag_icons": {
+          "count": 1,
+          "shown": [
+            [
+              161,
+              364,
+              77,
+              94
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "released over the desktop: refused, the image begins going back to the item from where it was; the source has destroyed its icon surface",
+      "do": [
+        "release_output",
+        [
+          200,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drag_icons": {
+          "count": 0
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "returned",
+              "to": [
+                745,
+                345
+              ],
+              "first": 255
+            }
+          ]
+        },
+        "output_pixels": {
+          "200,400": "#c3786c"
+        }
+      }
+    },
+    {
+      "name": "60 ms: most of the way back, whole",
+      "do": [
+        "transition_clock",
+        60
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "554,357": "#ee946a",
+          "540,357": "#ee946a",
+          "200,400": "!#c3786c"
+        }
+      }
+    },
+    {
+      "name": "120 ms: nearer still, over the item",
+      "do": [
+        "transition_clock",
+        120
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "710,338": "#e78763",
+          "554,357": "#fff7f9"
+        }
+      }
+    },
+    {
+      "name": "200 ms: at the item, faded nearly away",
+      "do": [
+        "transition_clock",
+        200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "710,338": "#e6c0dc",
+          "740,336": "#e7733a"
+        }
+      }
+    },
+    {
+      "name": "the clock running again: the image gone, the item where it was, nothing left on the desktop",
+      "do": [
+        "transition_clock",
+        "run"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drag_icons": {
+          "count": 0
+        },
+        "output_pixels": {
+          "746,334": "#e8743b",
+          "710,338": "#e7c1dd",
+          "200,400": "!#c3786c",
+          "554,357": "#fff7f9"
+        }
+      }
+    },
+    {
+      "name": "Pictures pressed",
+      "do": [
+        "press",
+        [
+          556,
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Shift held",
+      "do": [
+        "key_down",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "sunset.png Shift-pressed: Pictures, plan.txt and sunset.png selected",
+      "do": [
+        "press",
+        [
+          426,
+          218
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "3 de 5 seleccionados"
+        ]
+      }
+    },
+    {
+      "name": "Shift released",
+      "do": [
+        "key_up",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "the three dragged by sunset.png, held midway: sunset.png in front, gripped where it was pressed, two copies stacked down and right behind it, the count's red badge with its white 3 over its top right",
+      "do": [
+        "drag_hold",
+        [
+          746,
+          334,
+          640,
+          470,
+          12,
+          60
+        ]
+      ],
+      "expect": {
+        "drag_icons": {
+          "count": 1,
+          "shown": [
+            [
+              601,
+              424,
+              87,
+              110
+            ]
+          ]
+        },
+        "output_pixels": {
+          "640,470": "#ee946a",
+          "671,434": "#ff3b30",
+          "683,434": "#ff3b30",
+          "678,434": "#ffffff",
+          "668,428": "#fff7f9",
+          "679,470": "#edcde3"
+        }
+      }
+    },
+    {
+      "name": "released over the desktop on the running clock: the image slides back to sunset.png's place, eased, fading as it arrives, and is gone",
+      "do": [
+        "release_output",
+        [
+          200,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "drag_icons": {
+          "count": 0
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "returned",
+              "to": [
+                750,
+                343
+              ],
+              "first": 255,
+              "last": 0,
+              "ended": true,
+              "eased": "place",
+              "lasts_ms": [
+                180,
+                280
+              ]
+            }
+          ]
+        },
+        "output_pixels": {
+          "746,334": "#e8743b",
+          "200,400": "!#c3786c"
+        }
+      }
+    }
+  ]
+}

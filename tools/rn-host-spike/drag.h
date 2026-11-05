@@ -84,12 +84,13 @@ class DragDrop {
   // pointer presses a drag may start from.
   void observe(const OxyOSEvent& event);
 
-  // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`,
-  // with the image of the view `preview` (-1: none) under the pointer where it was pressed. `done`
+  // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`:
+  // `count` items, the view `preview` (-1: none) being the one pressed, its image (dragStack: as
+  // it looks, stacked and badged for several) under the pointer where it was pressed. `done`
   // receives the action the drop took, or nothing when it was cancelled or refused (no press held,
   // nothing to offer). False if it was not started; `done` is then called at once.
   bool start(const folly::dynamic& data, const std::vector<std::string>& actions, facebook::react::Tag preview,
-             std::function<void(std::optional<std::string>)> done);
+             int count, std::function<void(std::optional<std::string>)> done);
   // The same with the media types offered and their content, the actions allowed (OXYOS_DRAG_*)
   // and the drag's image, if any: a text input's selected text (TextEditing).
   bool start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,

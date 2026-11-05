@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod controls;
+pub mod drag_badge;
 mod gpu_buffers;
 pub mod scanout;
 /// Screenshots as files (docs/adr/0024-system-shortcuts.mdx, decision 10).
@@ -372,6 +373,43 @@ impl Screen {
         })
     }
 
+    /// Where a surface showing at `rect` (the global space's) with pixels of `extent` is drawn on
+    /// this screen (`place_pixels`), as a rectangle of the global space rounded outward, so that
+    /// `covering` holds every pixel of it. Drawn 1:1 from its rounded corner at a fractional scale,
+    /// its pixels can reach one past `rect`'s own (an 89-pixel-wide drag image at x = 602 at 1.25:
+    /// pixels 753 to 864, `rect` covering 752 to 863): the damage of one moving must hold them, or
+    /// its last column stays behind on the screen.
+    fn drawn_at(&self, rect: Rect, extent: Size) -> oxyos_gpu::Rect {
+        let (x0, y0, x1, y1) = self.place_pixels(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            (extent.width, extent.height),
+        );
+        let scale = i64::from(self.scale_120);
+        let back = |pixels: i32, origin: i32, up: bool| {
+            let at = i64::from(pixels) * 120;
+            let v = i64::from(origin)
+                + if up {
+                    (at + scale - 1).div_euclid(scale)
+                } else {
+                    at.div_euclid(scale)
+                };
+            v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+        };
+        let (left, top) = (back(x0, self.rect.x, false), back(y0, self.rect.y, false));
+        let (right, bottom) = (back(x1, self.rect.x, true), back(y1, self.rect.y, true));
+        oxyos_gpu::Rect {
+            x: left.min(rect.x),
+            y: top.min(rect.y),
+            width: (right.max(rect.x.saturating_add(rect.width as i32)) - left.min(rect.x)).max(0)
+                as u32,
+            height: (bottom.max(rect.y.saturating_add(rect.height as i32)) - top.min(rect.y)).max(0)
+                as u32,
+        }
+    }
+
     /// A surface's damage (buffer pixels) where it shows at `rect` (the global space's): on this
     /// screen, every pixel whose filtered sample reads a damaged buffer pixel (`on_output`, at the
     /// size the surface is drawn here, ADR 0011), as a rectangle of the global space rounded
@@ -474,6 +512,9 @@ pub fn refresh_period(refresh_mhz: u32) -> std::time::Duration {
 pub fn scaled(length: u32, scale_120: u32) -> u32 {
     ((u64::from(length) * u64::from(scale_120) * 2 + 120) / 240) as u32
 }
+
+/// A drag badge's picture (drag_badge.rs): its size in pixels and its pixels.
+type DragBadgePicture = (Size, Rc<Pixels>);
 
 pub struct Compositor {
     /// Each of the scene's outputs, in the scene's order (the first is the primary).
@@ -637,6 +678,9 @@ pub struct Compositor {
     /// composed of each surface shown, which one going is drawn from.
     pub transitions: transitions::Transitions,
     shown: HashMap<SurfaceKey, transitions::Snapshot>,
+    /// The drag badges drawn (ADR 0035), by action, side and scale: drawn once, shown every frame
+    /// the pointer moves.
+    drag_badges: HashMap<(u8, u32, u32), Option<DragBadgePicture>>,
     /// The windows each shell surface showed live in the frame composed last (ADR 0022).
     shown_views: HashMap<SurfaceKey, Vec<ShownView>>,
     /// Frames composed while a transition ran, as the development compositor reports them.
@@ -1038,6 +1082,7 @@ impl Compositor {
             idle_hint_refused: false,
             transitions: transitions::Transitions::default(),
             shown: HashMap::new(),
+            drag_badges: HashMap::new(),
             shown_views: HashMap::new(),
             transition_frames: 0,
             clock: None,
@@ -1764,7 +1809,9 @@ impl Compositor {
             .iter()
             .filter_map(|item| match *item {
                 RenderItem::Surface { key, .. } => Some((key, self.scene.window_look(key)?)),
-                RenderItem::Cover { .. } | RenderItem::View { .. } => None,
+                RenderItem::Cover { .. }
+                | RenderItem::View { .. }
+                | RenderItem::DragBadge { .. } => None,
             })
             .collect();
         // Surfaces arriving start their transitions in this frame; those going are drawn from
@@ -1915,7 +1962,9 @@ impl Compositor {
             .into_iter()
             .filter_map(|item| match item {
                 RenderItem::Surface { key, frame, .. } => Some((key, frame)),
-                RenderItem::Cover { .. } | RenderItem::View { .. } => None,
+                RenderItem::Cover { .. }
+                | RenderItem::View { .. }
+                | RenderItem::DragBadge { .. } => None,
             })
             .collect();
         // Each surface's pixels, read from its shared buffer, and the covers.
@@ -1956,11 +2005,14 @@ impl Compositor {
             for at in [rect, placed] {
                 transition_drawn.push(match look {
                     Some(look) => window::extent(look, if zoomed { at } else { rect }, at, shadows),
+                    // Drawn 1:1 from its rounded corner at a fractional scale, its pixels reach up
+                    // to one past its rectangle (`Screen::drawn_at`); a logical pixel more holds
+                    // them on every screen, so a drag's image sliding back leaves no column.
                     None => oxyos_gpu::Rect {
                         x: at.x,
                         y: at.y,
-                        width: at.width,
-                        height: at.height,
+                        width: at.width.saturating_add(1),
+                        height: at.height.saturating_add(1),
                     },
                 });
             }
@@ -1978,7 +2030,7 @@ impl Compositor {
         for item in list.iter().copied() {
             let above = match item {
                 RenderItem::Surface { key, .. } => self.scene.above_windows(key),
-                RenderItem::Cover { .. } => true,
+                RenderItem::Cover { .. } | RenderItem::DragBadge { .. } => true,
                 RenderItem::View { .. } => false,
             };
             if above && under_panels.is_none() {
@@ -2120,6 +2172,45 @@ impl Compositor {
                     None => unreadable.push((key, frame.buffer)),
                 },
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
+                // The drag's pointer badge (ADR 0035), over everything, at the scale of the output
+                // it is on: crisp at a fractional one.
+                RenderItem::DragBadge { rect, action } => {
+                    let scale_120 = self
+                        .scene
+                        .output_at_point(rect.x, rect.y)
+                        .map_or(120, |output| output.scale_120);
+                    let badge = self
+                        .drag_badges
+                        .entry((action.bits(), rect.width, scale_120))
+                        .or_insert_with(|| {
+                            drag_badge::badge(action, rect.width, scale_120)
+                                .map(|(extent, bytes)| (extent, Rc::new(Pixels::from(bytes))))
+                        })
+                        .clone();
+                    if let Some((extent, pixels)) = badge {
+                        contents.push(Content {
+                            owner: None,
+                            // A pointer's: never in a capture.
+                            captured: false,
+                            secure: Vec::new(),
+                            key: None,
+                            rect,
+                            placed: rect,
+                            extent,
+                            format: Some(oxyos_protocol::Format::Argb8888),
+                            pixels,
+                            source: None,
+                            changed: None,
+                            opacity: 255,
+                            radius: 0,
+                            shadow: None,
+                            look: None,
+                            clip: None,
+                            shares: None,
+                            warp: None,
+                        });
+                    }
+                }
                 // A window the shell's surface shows live (ADR 0022): over it, where the shell
                 // placed it, as the surface is drawn (in its transition), box-filtered.
                 RenderItem::View {
@@ -2217,7 +2308,7 @@ impl Compositor {
                 RenderItem::Surface { key: drawn, .. } | RenderItem::View { window: drawn, .. } => {
                     drawn == *key
                 }
-                RenderItem::Cover { .. } => false,
+                RenderItem::Cover { .. } | RenderItem::DragBadge { .. } => false,
             })
         });
         // The splash over everything while the session starts, on every screen.
@@ -2785,6 +2876,7 @@ impl Compositor {
                 (frame.list, frame.looks),
                 &self.shadows,
                 &drawn,
+                &|rect, extent| screen.drawn_at(rect, extent),
             );
             rects.extend(screen.transition_drawn.iter().copied());
             rects.extend(frame.transition_drawn.iter().copied());
@@ -4037,6 +4129,7 @@ pub fn output_damage(
     after: (&[RenderItem], &Looks),
     shadows: &window::Shadows,
     drawn: &dyn Fn(SurfaceKey, Rect, Size) -> Option<Vec<oxyos_gpu::Rect>>,
+    placed: &dyn Fn(Rect, Size) -> oxyos_gpu::Rect,
 ) -> Vec<oxyos_gpu::Rect> {
     let rect = |rect: Rect| oxyos_gpu::Rect {
         x: rect.x,
@@ -4056,23 +4149,28 @@ pub fn output_damage(
                 RenderItem::Surface { key, rect, frame } => {
                     Some((key, rect, frame, looks.get(&key).copied()))
                 }
-                RenderItem::Cover { .. } | RenderItem::View { .. } => None,
+                RenderItem::Cover { .. }
+                | RenderItem::View { .. }
+                | RenderItem::DragBadge { .. } => None,
             })
             .collect()
     };
-    // Where a surface is drawn: a window with its shadow.
-    let extent = |at: Rect, look: Option<WindowLook>| match look {
+    // Where a surface is drawn: a window with its shadow, any other where its pixels are placed
+    // (`placed`: a pixel past its rectangle at a fractional scale).
+    let extent = |at: Rect, look: Option<WindowLook>, pixels: Size| match look {
         Some(look) => window::extent(look, at, at, shadows),
-        None => rect(at),
+        None => placed(at, pixels),
     };
     let (old, new) = (surfaces(before), surfaces(after));
     let mut damage = Vec::new();
     for &(key, now, frame, look) in &new {
         match old.iter().find(|(old_key, ..)| *old_key == key) {
-            None => damage.push(extent(now, look)),
-            Some(&(_, then, _, then_look)) if then != now || then_look != look => {
-                damage.extend([extent(then, then_look), extent(now, look)])
-            }
+            None => damage.push(extent(now, look, frame.extent)),
+            Some(&(_, then, then_frame, then_look)) if then != now || then_look != look => damage
+                .extend([
+                    extent(then, then_look, then_frame.extent),
+                    extent(now, look, frame.extent),
+                ]),
             Some(&(_, _, then_frame, _)) if then_frame != frame => {
                 match drawn(key, now, frame.extent) {
                     Some(drawn) => damage.extend(drawn),
@@ -4082,16 +4180,16 @@ pub fn output_damage(
             Some(_) => {}
         }
     }
-    for &(key, then, _, look) in &old {
+    for &(key, then, frame, look) in &old {
         if !new.iter().any(|(new_key, ..)| *new_key == key) {
-            damage.push(extent(then, look));
+            damage.push(extent(then, look, frame.extent));
         }
     }
     // Surfaces in both whose order among themselves changed show differently where they meet.
     let order = |list: &[Shown], other: &[Shown]| {
         list.iter()
             .filter(|(key, ..)| other.iter().any(|(other_key, ..)| other_key == key))
-            .map(|&(key, rect, _, look)| (key, extent(rect, look)))
+            .map(|&(key, rect, frame, look)| (key, extent(rect, look, frame.extent)))
             .collect::<Vec<_>>()
     };
     let (old_order, new_order) = (order(&old, &new), order(&new, &old));
@@ -4118,14 +4216,21 @@ pub fn output_damage(
     }
     let covers = |list: &[RenderItem]| -> Vec<RenderItem> {
         list.iter()
-            .filter(|item| matches!(item, RenderItem::Cover { .. }))
+            .filter(|item| {
+                matches!(
+                    item,
+                    RenderItem::Cover { .. } | RenderItem::DragBadge { .. }
+                )
+            })
             .copied()
             .collect()
     };
     let (old_covers, new_covers) = (covers(before.0), covers(after.0));
     for (these, others) in [(&old_covers, &new_covers), (&new_covers, &old_covers)] {
         for cover in these.iter().filter(|cover| !others.contains(cover)) {
-            if let RenderItem::Cover { rect: cover, .. } = cover {
+            if let RenderItem::Cover { rect: cover, .. }
+            | RenderItem::DragBadge { rect: cover, .. } = cover
+            {
                 damage.push(rect(*cover));
             }
         }
@@ -4563,6 +4668,39 @@ mod tests {
     }
 
     #[test]
+    fn a_surface_moved_at_a_fractional_scale_is_damaged_where_its_pixels_were_drawn() {
+        let screen = screen(Rect::new(0, 0, 1280, 720), 150);
+        // 89 x 110 at (602, 424), its 112 x 138 pixels drawn 1:1 from (753, 530): to 864 and
+        // 667, a pixel past what its rectangle covers (752 to 863, 530 to 667).
+        let at = Rect::new(602, 424, 89, 110);
+        let pixels = Size::new(112, 138);
+        let drawn = screen.drawn_at(at, pixels);
+        let covered = screen.covering(&drawn).unwrap();
+        assert_eq!((covered.x, covered.x + covered.width as i32), (752, 865));
+        assert!(screen.covering(&rect_of(at)).unwrap().width < covered.width);
+        // Moved, it is damaged there: where it was, and where it is.
+        let surface = |rect: Rect| RenderItem::Surface {
+            key: SurfaceKey { client: 1, id: 1 },
+            rect,
+            frame: oxyos_compositor_core::Frame {
+                sequence: 1,
+                buffer: 1,
+                configure: 1,
+                extent: pixels,
+            },
+        };
+        let none = Looks::new();
+        let damage = super::output_damage(
+            (&[surface(at)], &none),
+            (&[surface(Rect::new(500, 424, 89, 110))], &none),
+            &window::Shadows::new(0),
+            &|_, _, _| None,
+            &|rect, extent| screen.drawn_at(rect, extent),
+        );
+        assert!(damage.contains(&drawn), "{damage:?}");
+    }
+
+    #[test]
     fn a_turn_waits_for_a_held_keys_next_repeat_and_not_once_it_is_released() {
         let mut compositor = Compositor::new(Scene::new(), 0);
         let hour = Duration::from_secs(3600);
@@ -4735,6 +4873,15 @@ mod tests {
         }
     }
 
+    fn rect_of(rect: Rect) -> oxyos_gpu::Rect {
+        oxyos_gpu::Rect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+
     fn output_damage(before: &[RenderItem], after: &[RenderItem]) -> Vec<oxyos_gpu::Rect> {
         let none = Looks::new();
         super::output_damage(
@@ -4742,6 +4889,7 @@ mod tests {
             (after, &none),
             &window::Shadows::new(0),
             &|_, _, _| None,
+            &|rect, _| rect_of(rect),
         )
     }
 
@@ -4759,7 +4907,8 @@ mod tests {
                 (&before, &none),
                 (&after, &none),
                 &window::Shadows::new(0),
-                &drawn
+                &drawn,
+                &|rect, _| rect_of(rect),
             ),
             [oxyos_gpu::Rect {
                 x: 2,
@@ -4814,7 +4963,9 @@ mod tests {
             )])
         };
         let damage = |before: (&[RenderItem], &Looks), after: (&[RenderItem], &Looks)| {
-            super::output_damage(before, after, &shadows, &|_, _, _| None)
+            super::output_damage(before, after, &shadows, &|_, _, _| None, &|rect, _| {
+                rect_of(rect)
+            })
         };
         let (active, inactive) = (looks(true), looks(false));
         let with_shadow = |look: bool| {

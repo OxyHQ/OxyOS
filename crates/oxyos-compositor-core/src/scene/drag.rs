@@ -20,6 +20,11 @@ pub const DRAG_VERSION: u16 = 10;
 pub const MAX_OPEN_DROPS: usize = 8;
 /// The Linux input code of Escape, which cancels a drag.
 const KEY_ESC: u32 = 1;
+/// The badge a drag's pointer shows for a copy or a link (`RenderItem::DragBadge`): its side and
+/// where its top left is from the pointer's tip, in logical pixels, below and right of the arrow
+/// as a Mac's drag cursors have it.
+pub const DRAG_BADGE_SIDE: u32 = 16;
+pub const DRAG_BADGE_OFFSET: (i32, i32) = (9, 12);
 /// Requests to put files in the Trash not yet taken by the program.
 const MAX_TRASH_REQUESTS: usize = 16;
 
@@ -48,6 +53,9 @@ struct Drag {
     /// The surface it began from.
     origin: SurfaceKey,
     icon: Option<SurfaceKey>,
+    /// Where its icon was as the press began (global, logical): the dragged item's own place,
+    /// the grip under the pointer. A drop refused slides the image back there.
+    home: (i32, i32),
     types: Vec<TextChunk>,
     actions: DragActions,
     /// The compositor's name for it, which targets know.
@@ -134,6 +142,39 @@ impl Scene {
         self.drags.current.is_some()
     }
 
+    /// Every drag icon surface there is, of any client, with where it is shown (global, logical;
+    /// none while hidden): a drag shows one, and its source destroys it once the drag ended.
+    pub fn drag_icons(&self) -> Vec<(SurfaceKey, Option<Rect>)> {
+        self.nodes
+            .iter()
+            .filter(|(_, node)| matches!(node.role, Role::DragIcon { .. }))
+            .map(|(key, node)| {
+                let shown = node.mapped && !node.hidden && !node.dismissed;
+                (*key, shown.then(|| self.global_rect(*key)).flatten())
+            })
+            .collect()
+    }
+
+    /// The badge the drag's pointer shows, a Mac's: a copy's plus, a link's arrow, from the action
+    /// negotiated with the target under it (Option copies, Option and Command link); none for a
+    /// move or a drop that would be refused.
+    pub(super) fn drag_badge(&self) -> Option<RenderItem> {
+        let drag = self.drags.current.as_ref()?;
+        if self.locked || !(drag.told == DragActions::COPY || drag.told == DragActions::LINK) {
+            return None;
+        }
+        let (x, y) = self.pointer;
+        Some(RenderItem::DragBadge {
+            rect: Rect::new(
+                x.saturating_add(DRAG_BADGE_OFFSET.0),
+                y.saturating_add(DRAG_BADGE_OFFSET.1),
+                DRAG_BADGE_SIDE,
+                DRAG_BADGE_SIDE,
+            ),
+            action: drag.told,
+        })
+    }
+
     /// Whether `client` speaks drag and drop. A client whose version the program never said (a
     /// test's, the program's own) is taken to speak this one.
     fn speaks_drags(&self, client: ClientId) -> bool {
@@ -199,6 +240,10 @@ impl Scene {
             }
             Some(key)
         };
+        let hotspot = icon.and_then(|icon| match self.nodes[&icon].role {
+            Role::DragIcon { hotspot } => Some(hotspot),
+            _ => None,
+        });
         let types = self
             .drags
             .pending
@@ -223,6 +268,7 @@ impl Scene {
             && !self.locked
             && !actions.is_empty()
             && icon.is_none_or(|icon| self.drag_icon_free(icon));
+        let pressed_at = self.last_press.map_or(self.pointer, |press| press.at);
         let Some(types) = types.filter(|_| valid) else {
             self.emit(
                 client,
@@ -245,6 +291,7 @@ impl Scene {
             drag,
             origin: surface,
             icon,
+            home: icon_origin(pressed_at, hotspot.unwrap_or_default()),
             types,
             actions,
             offer: self.drags.offers,
@@ -434,10 +481,11 @@ impl Scene {
         let Some(drag) = self.drags.current.take() else {
             return;
         };
-        self.hide_drag_icon(&drag);
         let accepted = drag
             .target
             .filter(|target| target.mime.is_some() && !target.told.is_empty());
+        // Taken, the image is gone at once; refused, it slides back to where it came from.
+        self.hide_drag_icon(&drag, accepted.is_none());
         match accepted {
             Some(target) => {
                 let action = target.told;
@@ -502,9 +550,27 @@ impl Scene {
         self.refresh_pointer_focus();
     }
 
-    fn hide_drag_icon(&mut self, drag: &Drag) {
-        if let Some(node) = drag.icon.and_then(|icon| self.nodes.get_mut(&icon)) {
-            node.hidden = true;
+    /// The drag's icon is no longer shown. `returning`, a drag that dropped nothing, it goes back
+    /// to where it came from as a Mac's does: the compositor slides it from its last frame to its
+    /// home, fading (`Change::Returned`).
+    fn hide_drag_icon(&mut self, drag: &Drag, returning: bool) {
+        let Some(icon) = drag.icon else {
+            return;
+        };
+        let Some(node) = self.nodes.get_mut(&icon) else {
+            return;
+        };
+        let shown = node.mapped && !node.hidden && !node.dismissed;
+        node.hidden = true;
+        let size = node.size;
+        if shown && returning {
+            self.appeared(
+                icon,
+                appearances::Change::Returned {
+                    x: drag.home.0 + (size.width / 2) as i32,
+                    y: drag.home.1 + (size.height / 2) as i32,
+                },
+            );
         }
     }
 
@@ -529,7 +595,8 @@ impl Scene {
         let Some(drag) = self.drags.current.take() else {
             return;
         };
-        self.hide_drag_icon(&drag);
+        // Cancelled by the person or the source, the image goes back; the lock ends it at once.
+        self.hide_drag_icon(&drag, reason != DragCancelReason::Locked);
         self.leave_drag_target(&drag);
         self.emit(
             drag.source,

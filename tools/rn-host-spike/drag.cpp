@@ -487,19 +487,22 @@ void DragDrop::observe(const OxyOSEvent& event) {
   }
 }
 
-bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview,
+bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview, int count,
                      std::function<void(std::optional<std::string>)> done) {
   uint8_t allowed = 0;
   for (const auto& action : actions) allowed |= actionBit(action);
   std::optional<DragImage> image;
-  if (auto frame = preview >= 0 ? windowFrame(tree_, preview) : std::nullopt;
-      frame && frame->size.width >= 1 && frame->size.height >= 1) {
-    // Where it was pressed stays under the pointer, as a Mac's dragged image keeps its grip.
-    image = DragImage{.size = frame->size,
-                      .hotspot = {std::clamp(pressPoint_.x - frame->origin.x, 0.0f, frame->size.width),
-                                  std::clamp(pressPoint_.y - frame->origin.y, 0.0f, frame->size.height)},
-                      .draw = [this, preview](const Display& display, Canvas& canvas) {
-                        drawDragImage(tree_, preview, display, canvas);
+  auto frame = preview >= 0 ? windowFrame(tree_, preview) : std::nullopt;
+  if (auto stack = frame ? dragStack(tree_, preview, count) : DragStack{}; stack.size.width >= 1) {
+    // The point pressed in the view stays under the pointer, as a Mac's dragged image keeps its
+    // grip: where the press was in what the view draws, wherever that is in the image.
+    Point grip{pressPoint_.x - frame->origin.x - stack.drawn.origin.x,
+               pressPoint_.y - frame->origin.y - stack.drawn.origin.y};
+    image = DragImage{.size = stack.size,
+                      .hotspot = {stack.at.x + std::clamp(grip.x, 0.0f, stack.drawn.size.width),
+                                  stack.at.y + std::clamp(grip.y, 0.0f, stack.drawn.size.height)},
+                      .draw = [this, preview, stack](const Display& display, Canvas& canvas) {
+                        drawDragImage(tree_, preview, stack, display, canvas);
                       }};
   }
   return start(dragContents(data), allowed, std::move(image), std::move(done));

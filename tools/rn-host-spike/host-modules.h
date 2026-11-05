@@ -269,11 +269,11 @@ struct FileChooserService {
 // Dragging between applications (docs/adr/0035-drag-and-drop.mdx), for Bloom's `drag-and-drop`
 // capability: whether the compositor has it (known before JavaScript starts), and a drag of the
 // application's content (Bloom's DragData) from the press it holds, allowing the actions named,
-// with a view's image (-1: none); `done` receives the action the drop took, or nothing. Unset
-// without a window.
+// `count` items, the view pressed among them (-1: none) being the image; `done` receives the
+// action the drop took, or nothing. Unset without a window.
 struct DragService {
   bool available = false;
-  std::function<void(const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
+  std::function<void(const folly::dynamic& data, const std::vector<std::string>& actions, int preview, int count,
                      std::function<void(std::optional<std::string>)> done)>
       start;
 };

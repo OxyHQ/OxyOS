@@ -40,8 +40,12 @@ pub enum Step {
     /// The same at a point of the output, wherever it is (the shell's panels and overlays).
     PressOutput { x: i32, y: i32 },
     /// The pointer moved to a point of the output, no button held: a hover over the shell's
-    /// panels and their popups (a menu's row).
+    /// panels and their popups (a menu's row). With a button held (a `DragPaced` that `held` it),
+    /// the drag goes on there.
     MoveOutput { x: i32, y: i32 },
+    /// The pointer moved to a point of the output and the primary button, held since a
+    /// `DragPaced` that `held` it, released there: the drag's drop, or its end over nothing.
+    ReleaseOutput { x: i32, y: i32 },
     /// A secondary (right) button press and release at a window-local logical point: a context
     /// menu's.
     PressSecondary { x: i32, y: i32 },
@@ -135,6 +139,9 @@ pub enum Step {
     /// With `rest_ms`, the hand rests at `to` that long after its last motion, before an Escape
     /// after that motion and the release: a file held over the dock's Trash
     /// (docs/adr/0044-system-sounds.mdx).
+    /// With `held`, the button stays held at the end (`--drag-hold`): what the drag shows midway
+    /// is the step's frame, and later steps go on with it (`MoveOutput`, the modifiers held,
+    /// `ReleaseOutput`).
     DragPaced {
         from: (i32, i32),
         to: (i32, i32),
@@ -142,6 +149,7 @@ pub enum Step {
         hz: u32,
         escape_after: Option<u32>,
         rest_ms: u32,
+        held: bool,
     },
     /// The pointer at a window-local point scrolling by `dy` in `events` even steps, `hz` of them a
     /// second, the compositor serving the application between them: a touchpad's two fingers
@@ -283,6 +291,7 @@ impl Step {
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
             Step::MoveOutput { x, y } => format!("pointer to ({x}, {y}) on the output"),
+            Step::ReleaseOutput { x, y } => format!("release at ({x}, {y}) on the output"),
             Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
             Step::PressSecondaryOutput { x, y } => {
                 format!("secondary press at ({x}, {y}) on the output")
@@ -341,10 +350,12 @@ impl Step {
                 hz,
                 escape_after,
                 rest_ms,
+                held,
             } => format!(
-                "drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz{}{}",
+                "drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz{}{}{}",
                 if *rest_ms > 0 { format!(", resting {rest_ms} ms") } else { String::new() },
-                escape_after.map_or(String::new(), |at| format!(", Escape after motion {at}"))
+                escape_after.map_or(String::new(), |at| format!(", Escape after motion {at}")),
+                if *held { ", held" } else { "" }
             ),
             Step::ScrollPaced {
                 at,
@@ -411,6 +422,7 @@ impl Step {
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
             Step::MoveOutput { x, y } => format!("\"move_output\":[{x},{y}]"),
+            Step::ReleaseOutput { x, y } => format!("\"release_output\":[{x},{y}]"),
             Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
             Step::PressSecondaryOutput { x, y } => {
                 format!("\"press_secondary_output\":[{x},{y}]")
@@ -504,8 +516,10 @@ impl Step {
                 hz,
                 escape_after,
                 rest_ms,
+                held,
             } => format!(
-                "\"drag_paced\":[{},{},{},{},{motions},{hz}{}]",
+                "\"{}\":[{},{},{},{},{motions},{hz}{}]",
+                if *held { "drag_hold" } else { "drag_paced" },
                 from.0,
                 from.1,
                 to.0,
@@ -1088,6 +1102,10 @@ impl Launch {
                     let n = numbers(args.next(), 2)?;
                     Step::MoveOutput { x: n[0], y: n[1] }
                 }
+                Some("--release-output") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::ReleaseOutput { x: n[0], y: n[1] }
+                }
                 Some("--press-secondary") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressSecondary { x: n[0], y: n[1] }
@@ -1233,14 +1251,17 @@ impl Launch {
                         by: (n[2], n[3]),
                     }
                 }
-                Some("--drag-paced") => {
+                Some(flag @ ("--drag-paced" | "--drag-hold")) => {
+                    let held = flag == "--drag-hold";
                     let value = args.next();
                     let given = value
                         .and_then(|v| v.to_str())
                         .map_or(0, |v| v.split(',').count());
                     let n = numbers(value, given.clamp(6, 8))?;
                     if n[4] < 1 || n[5] < 1 {
-                        return Err("--drag-paced needs at least one motion at 1 Hz or more".into());
+                        return Err(
+                            format!("{flag} needs at least one motion at 1 Hz or more").into()
+                        );
                     }
                     Step::DragPaced {
                         from: (n[0], n[1]),
@@ -1249,6 +1270,7 @@ impl Launch {
                         hz: n[5] as u32,
                         escape_after: n.get(6).filter(|at| **at > 0).map(|at| *at as u32),
                         rest_ms: n.get(7).map_or(0, |ms| (*ms).max(0) as u32),
+                        held,
                     }
                 }
                 Some("--scroll-paced") => {
@@ -2695,6 +2717,7 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
             hz: *hz,
             escape_after: *escape_after,
             rest_ms: *rest_ms,
+            held: false,
         });
     }
     let Step::Named { kind, name, ms } = step else {
@@ -2865,6 +2888,13 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceOut { forward: true } => "workspace_out_forward",
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
                 AppearanceChange::Zoomed => "zoomed",
+                AppearanceChange::Returned { .. } => "returned",
+            };
+            // Where a drag's image went back to (its centre), for a scenario to check it is the
+            // item's own place.
+            let to = match seen.change {
+                AppearanceChange::Returned { x, y } => format!(",\"to\":[{x},{y}]"),
+                _ => String::new(),
             };
             let path: Vec<String> = seen
                 .path
@@ -2872,7 +2902,7 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 .map(|step| format!("[{},{},{}]", step.ms, step.opacity, step.moved_permille))
                 .collect();
             format!(
-                "{{\"kind\":\"{}\",\"change\":\"{change}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{},\"path\":[{}]}}",
+                "{{\"kind\":\"{}\",\"change\":\"{change}\"{to},\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{},\"path\":[{}]}}",
                 format!("{:?}", seen.kind).to_lowercase(),
                 seen.arriving(),
                 opacity(seen.first),
@@ -2885,6 +2915,26 @@ fn transitions_json(compositor: &mut Compositor) -> String {
         .collect();
     let frames = std::mem::take(&mut compositor.transition_frames);
     format!("{{\"frames\":{frames},\"seen\":[{}]}}", seen.join(","))
+}
+
+/// Every drag icon surface (ADR 0035), each with where it is shown (null while hidden).
+fn drag_icons_json(compositor: &Compositor) -> String {
+    let icons: Vec<String> = compositor
+        .scene
+        .drag_icons()
+        .into_iter()
+        .map(|(key, rect)| {
+            format!(
+                "{{\"client\":{},\"rect\":{}}}",
+                key.client,
+                rect.map_or("null".to_string(), |r| format!(
+                    "[{},{},{},{}]",
+                    r.x, r.y, r.width, r.height
+                ))
+            )
+        })
+        .collect();
+    format!("[{}]", icons.join(","))
 }
 
 fn popups_json(compositor: &Compositor) -> String {
@@ -3302,6 +3352,7 @@ fn drag_paced(
     (motions, hz): (u32, u32),
     escape_after: Option<u32>,
     rest_ms: u32,
+    held: bool,
 ) -> Result<String> {
     inside_output(&session.compositor, from)?;
     inside_output(&session.compositor, to)?;
@@ -3439,7 +3490,10 @@ fn drag_paced(
         .compositor
         .scene
         .set_input_time(paced_time(origin, due));
-    session.compositor.scene.pointer_button(BUTTON, false);
+    // Held, the drag goes on into the steps after this one.
+    if !held {
+        session.compositor.scene.pointer_button(BUTTON, false);
+    }
     let deadline = start.elapsed() + Duration::from_secs(5);
     loop {
         session.compositor.serve(&session.listener)?;
@@ -3930,6 +3984,11 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::MoveOutput { x, y } => {
             on_outputs(*x, *y)?;
             compositor.scene.pointer_motion(*x, *y);
+        }
+        Step::ReleaseOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            compositor.scene.pointer_motion(*x, *y);
+            compositor.scene.pointer_button(BUTTON, false);
         }
         Step::PressSecondary { x, y } => {
             inside(window, *x, *y)?;
@@ -4798,6 +4857,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     hz,
                     escape_after,
                     rest_ms,
+                    held,
                 } = step
                 {
                     dragged = Some(drag_paced(
@@ -4807,6 +4867,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         (*motions, *hz),
                         *escape_after,
                         *rest_ms,
+                        *held,
                     )?);
                 }
                 0
@@ -4972,7 +5033,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5011,6 +5072,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
             moved.map_or(String::new(), |motion| format!(",\"moved\":{motion}")),
+            drag_icons_json(&session.compositor),
             // Frames of the application's GPU buffers so far (docs/adr/0031-gpu-buffers.mdx).
             session.compositor.gpu_frames(CLIENT).0,
             session.compositor.gpu_frames(CLIENT).1,
