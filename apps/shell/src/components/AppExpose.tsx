@@ -7,13 +7,13 @@ import React, {
   useState,
   type ComponentType,
 } from "react";
-import { useWindowDimensions } from "react-native";
+import { Image, useWindowDimensions } from "react-native";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box, PressArea } from "../primitives";
 import { AppIcon } from "../apps";
 import { Wallpaper } from "./Wallpaper";
 import type { ImageSourcePropType } from "react-native";
-import type { ShellActions, ShellSnapshot, ShellWindow } from "../model";
+import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { exposedWindows } from "../expose";
 import type { ShellKeyboard, WindowSize, WindowViewProps } from "../platform";
 import { exposeLayout, neighbour, type Rect } from "../overview-geometry";
@@ -54,6 +54,7 @@ type Area = "open" | "minimized";
  */
 const ExposeWindow = memo(function ExposeWindow({
   window,
+  app,
   rect,
   index,
   area,
@@ -64,6 +65,7 @@ const ExposeWindow = memo(function ExposeWindow({
   focused,
 }: {
   window: ShellWindow;
+  app?: ShellApplication;
   rect: Rect;
   index: number;
   area: Area;
@@ -120,7 +122,17 @@ const ExposeWindow = memo(function ExposeWindow({
         onPress={onPress}
         style={view}
       >
-        {WindowView ? <WindowView windowId={window.id} style={view} /> : <Box style={view} className="bg-white/20" />}
+        {/* The window itself, live, where the platform shows it so; else a still picture of it, or
+            its application's icon on a pane (the browser preview), as the overview's cards. */}
+        {WindowView ? (
+          <WindowView windowId={window.id} style={view} />
+        ) : window.thumbnail ? (
+          <Image source={window.thumbnail} resizeMode="contain" style={view} />
+        ) : (
+          <Box style={view} className="items-center justify-center bg-white/20">
+            {app && <AppIcon app={app} size={48} />}
+          </Box>
+        )}
         {lit && (
           <Box
             pointerEvents="none"
@@ -335,6 +347,7 @@ export const AppExpose = memo(function AppExpose({
             <ExposeWindow
               key={window.id}
               window={window}
+              app={app}
               rect={openRects[index]!}
               index={index}
               area="open"
@@ -369,6 +382,7 @@ export const AppExpose = memo(function AppExpose({
                 <ExposeWindow
                   key={window.id}
                   window={window}
+                  app={app}
                   rect={minimizedRects[index]!}
                   index={index}
                   area="minimized"
