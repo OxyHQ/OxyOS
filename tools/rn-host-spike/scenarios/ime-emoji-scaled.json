@@ -1,0 +1,317 @@
+{
+  "about": "Emoji (ADR 0041) with the real engine: Control+Super+Space, as a Mac's Control-Command-Space, opens emoji's search in the focused field with the layout current: fcitx5's QuickPhrase with CLDR's annotations, in the session's language (English here). The word typed is the composition; 1 chooses the first emoji, committed into the field, and the search ends with the layout typing as before. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it; with the session in Spanish (emoji are searched in its language, CLDR's annotations through fcitx5's Spanish keyboard engine, whatever the layout), the session's shell drawing the emoji under the caret and the screen reader saying them, on an output at 1.25 (1600×1000).",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "input_methods": true,
+  "steps": [
+    {
+      "name": "focus the line: the layout is current, no engine serves it",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "transactions": [],
+        "field": {
+          "text": ""
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Control+Super+Space: emoji's search opens; Control, pressed before Super, is the application's as any modifier",
+      "do": [
+        "strokes",
+        [
+          [
+            29,
+            125,
+            57
+          ]
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "transactions": [],
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "s o n r i s a: the word searched, in Spanish, the session's language, is the composition; its emoji in the shell's window, the first highlighted and said",
+      "do": [
+        "strokes",
+        [
+          31,
+          24,
+          49,
+          19,
+          23,
+          31,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"sonrisa\" [7,7]"
+        ],
+        "react": {
+          "change@line": 7,
+          "selectionChange@line": 7,
+          "keyPress@line": 7
+        },
+        "delivered": {
+          "1": {
+            "text_input": 7
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "s",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "so",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "son",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "sonr",
+            "cursor": [
+              4,
+              4
+            ],
+            "segments": [
+              [
+                0,
+                4,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "sonri",
+            "cursor": [
+              5,
+              5
+            ],
+            "segments": [
+              [
+                0,
+                5,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "sonris",
+            "cursor": [
+              6,
+              6
+            ],
+            "segments": [
+              [
+                0,
+                6,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "sonrisa",
+            "cursor": [
+              7,
+              7
+            ],
+            "segments": [
+              [
+                0,
+                7,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": ""
+        },
+        "shell": {
+          "candidates": [
+            324,
+            197,
+            113,
+            67
+          ]
+        },
+        "spoken": [
+          {
+            "text": "😀, 1 de 2",
+            "interrupting": false
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "😀, 1 de 2"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "😀, 1 de 2",
+              "state": [
+                "live-polite"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "😀",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "1: the first emoji, 😀, committed in place of the word, the window gone",
+      "do": [
+        "strokes",
+        [
+          2
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"😀\" [2,2]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "😀"
+          }
+        ],
+        "field": {
+          "text": "😀",
+          "anchor": 4,
+          "cursor": 4
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "the search over, the layout types again with no engine",
+      "do": [
+        "strokes",
+        [
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"😀a\" [3,3]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "a"
+          }
+        ],
+        "field": {
+          "text": "😀a",
+          "anchor": 5,
+          "cursor": 5
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    }
+  ],
+  "locale": "es_ES.UTF-8",
+  "shell": "OxyOSShell",
+  "reader": {},
+  "outputs": "1600x1000@1.25"
+}

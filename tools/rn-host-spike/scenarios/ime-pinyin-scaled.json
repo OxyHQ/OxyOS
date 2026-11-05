@@ -1,0 +1,239 @@
+{
+  "about": "Pinyin – Simplified (ADR 0041) with the real engine, fcitx5's pinyin on libime, run as the session runs it, typing into a Bloom field (sample/ImeProbe.tsx) on the Spanish layout. Each step checks the text and selection React has, exactly the React events (Android's InputConnection: onChange with the composition while it lasts, once more as it is committed, and no key event for a key the engine took), the transactions the field was given (the composition, its caret and its underlined segment), what the field tells the compositor (its text without the composition), and that the keys reached the field only as the engine's transactions; with the session's shell drawing the candidates, the screen reader on in Spanish, on an output at 1.25 (1600×1000): the window under the caret while ni hao is composed, its first candidate highlighted and said with its place, gone once 你好 is committed.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "layout": "es",
+  "input_methods": true,
+  "preferences": {
+    "input_sources": "pinyin",
+    "input_source": "pinyin"
+  },
+  "steps": [
+    {
+      "name": "focus the line: the engine serves it",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "transactions": [],
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "n i h a o: the engine composes ni hao, underlined, its caret at its end; React hears each change of the composition as Android's setComposingText makes it heard, and no key reaches the field but as the engine's transactions",
+      "do": [
+        "strokes",
+        [
+          49,
+          23,
+          35,
+          30,
+          24
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ni hao\" [6,6]"
+        ],
+        "react": {
+          "change@line": 5,
+          "selectionChange@line": 5,
+          "keyPress@line": 5
+        },
+        "delivered": {
+          "1": {
+            "text_input": 5
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "n",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni h",
+            "cursor": [
+              4,
+              4
+            ],
+            "segments": [
+              [
+                0,
+                4,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni ha",
+            "cursor": [
+              5,
+              5
+            ],
+            "segments": [
+              [
+                0,
+                5,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni hao",
+            "cursor": [
+              6,
+              6
+            ],
+            "segments": [
+              [
+                0,
+                6,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "shell": {
+          "candidates": [
+            316,
+            197,
+            465,
+            48
+          ]
+        },
+        "spoken": [
+          {
+            "text": "你好, 1 de 9",
+            "interrupting": false
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "你好, 1 de 9"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "你好, 1 de 9",
+              "state": [
+                "live-polite"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "你好",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Space takes the first candidate: 你好 committed as one change, the composition gone, the caret after it in UTF-16 units",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"你好\" [2,2]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "你好"
+          }
+        ],
+        "field": {
+          "text": "你好",
+          "anchor": 6,
+          "cursor": 6
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    }
+  ],
+  "locale": "es_ES.UTF-8",
+  "shell": "OxyOSShell",
+  "reader": {},
+  "outputs": "1600x1000@1.25"
+}
