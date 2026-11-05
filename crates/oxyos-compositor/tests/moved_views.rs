@@ -1,4 +1,4 @@
-//! Windows moved into the shell's views (docs/adr/0044-app-expose.mdx), through real sockets on
+//! Windows moved into the shell's views (docs/adr/0045-app-expose.mdx), through real sockets on
 //! the compositor's clock set by the test, as App Exposé moves them: arriving, the window flies
 //! from where it is to its view on the overlay's spring, whole, and is drawn nowhere else; going,
 //! it flies back and is drawn where it is again once there. With reduce motion nothing flies: the

@@ -341,7 +341,7 @@ const DockIcon = memo(function DockIcon({
 });
 
 /**
- * An application's dock icon taking the scrolls over it (docs/adr/0044-app-expose.mdx), where the
+ * An application's dock icon taking the scrolls over it (docs/adr/0045-app-expose.mdx), where the
  * platform hands them (its ScrollTarget): up opens its App Exposé, down closes it, once a touchpad's
  * scroll (dock.ts, `iconScroll`). Apart from the icon, so the pointer over the icon (its own state)
  * renders the icon alone.
@@ -536,7 +536,7 @@ export const Dock = memo(function Dock({
   actions: ShellActions;
   view: string;
   activateApp: (id: string) => void;
-  /** The application's App Exposé (docs/adr/0044-app-expose.mdx): its windows alone, large. */
+  /** The application's App Exposé (docs/adr/0045-app-expose.mdx): its windows alone, large. */
   showAllWindows?: (id: string) => void;
   /** A scroll up (or down) on an application's icon: its App Exposé opens (or closes), as a
       Mac's Dock can; and where the platform hands an icon the scrolls over it. */

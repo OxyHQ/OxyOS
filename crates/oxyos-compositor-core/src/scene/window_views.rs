@@ -5,7 +5,7 @@
 //! pixels. The shell never receives a window's pixels, and nothing of them is drawn while the
 //! session is locked (shell surfaces are not shown then).
 //!
-//! A surface may have its windows moved into its views (`MoveWindowsToViews`, ADR 0044): Mission
+//! A surface may have its windows moved into its views (`MoveWindowsToViews`, ADR 0045): Mission
 //! Control's and App Exposé's windows are the windows themselves, not copies, so while the surface
 //! is shown each is drawn in its view alone, and its view comes from where the window is and goes
 //! back there. The scene says which views are so (`RenderItem::View`'s `moved`); the compositor,

@@ -36,7 +36,7 @@ export type ShellSurfaceProps = {
       docs/adr/0024-system-shortcuts.mdx, decision 10). */
   excludeFromCapture?: boolean;
   /** Whether the windows the region shows live (`WindowView`) are the windows themselves, moved
-      there, as App Exposé's (docs/adr/0044-app-expose.mdx): while it shows, the platform draws each
+      there, as App Exposé's (docs/adr/0045-app-expose.mdx): while it shows, the platform draws each
       in its view alone, flying there from where it is as the region arrives and back as it goes.
       Without it, a view is a copy of its window, which stays where it is. */
   movesWindows?: boolean;
@@ -88,7 +88,7 @@ export type ShellScrollEvent = { dx: number; dy: number; finger: boolean; end: b
 
 /**
  * What takes the scrolls nothing within it takes (the dock's icons, whose scroll up opens App
- * Exposé as a Mac's Dock can, docs/adr/0044-app-expose.mdx), as an Android view takes the scroll
+ * Exposé as a Mac's Dock can, docs/adr/0045-app-expose.mdx), as an Android view takes the scroll
  * events its children left. Laid out and drawn as a view; `style` sizes it.
  */
 export type ScrollTargetProps = {

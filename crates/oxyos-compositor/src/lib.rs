@@ -683,11 +683,11 @@ pub struct Compositor {
     drag_badges: HashMap<(u8, u32, u32), Option<DragBadgePicture>>,
     /// The windows each shell surface showed live in the frame composed last (ADR 0022).
     shown_views: HashMap<SurfaceKey, Vec<ShownView>>,
-    /// Windows moved into a shell surface's views (ADR 0044), by the surface and the window:
+    /// Windows moved into a shell surface's views (ADR 0045), by the surface and the window:
     /// where the window was drawn, and its corners' radius, when its view first showed while its
     /// surface arrived (none: it was not drawn then, or its surface had arrived, and it does not fly).
     flights: HashMap<(SurfaceKey, SurfaceKey), Option<(Rect, u32)>>,
-    /// Each frame of each window flying to its view or back (ADR 0044), as the development
+    /// Each frame of each window flying to its view or back (ADR 0045), as the development
     /// compositor reports them, until `take_flights`.
     flights_seen: Vec<FlightSeen>,
     /// Frames composed while a transition ran, as the development compositor reports them.
@@ -850,7 +850,7 @@ impl Content {
 #[derive(Clone, Copy, Debug)]
 struct ShownView {
     window: SurfaceKey,
-    /// The window was moved into the view and flew there from its place (ADR 0044).
+    /// The window was moved into the view and flew there from its place (ADR 0045).
     flown: bool,
     sequence: u64,
     buffer: u64,
@@ -860,7 +860,7 @@ struct ShownView {
     opacity: u8,
 }
 
-/// A window flying between where it is and its view on a shell surface (ADR 0044), as the
+/// A window flying between where it is and its view on a shell surface (ADR 0045), as the
 /// development compositor reports it: arriving (to its view) or going (back), and where it was
 /// drawn in each frame composed (the global space's, logical pixels), at most `MAX_FLIGHT_PATH`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -874,7 +874,7 @@ const MAX_FLIGHT_PATH: usize = 96;
 const MAX_FLIGHTS_SEEN: usize = 64;
 
 /// `from` `share` of the way to `to`, edge by edge, rounded to whole pixels (a window flying
-/// between its place and its view, ADR 0044).
+/// between its place and its view, ADR 0045).
 fn between(from: Rect, to: Rect, share: f64) -> Rect {
     let along = |a: i64, b: i64| (a as f64 + (b - a) as f64 * share).round() as i64;
     let left = along(i64::from(from.x), i64::from(to.x));
@@ -1933,7 +1933,7 @@ impl Compositor {
                                 view.buffer,
                             )?;
                             // A window moved into the view that flew there goes back to where
-                            // it is drawn now (ADR 0044); one coming out of the dock as it goes
+                            // it is drawn now (ADR 0045); one coming out of the dock as it goes
                             // (a minimized window restored from it) does so through the genie.
                             let stack = list.iter().position(|item| {
                                 matches!(item, RenderItem::Surface { key, .. } if *key == view.window)
@@ -1995,7 +1995,7 @@ impl Compositor {
             }
         }
         let animating = self.transitions.advance(now);
-        // Windows moved into a shell surface's views (ADR 0044), drawn there alone, not where they
+        // Windows moved into a shell surface's views (ADR 0045), drawn there alone, not where they
         // are, as Mission Control and App Exposé move a Mac's windows: those whose view is shown,
         // and those flying back to their place from a surface going. A view first shown while its
         // surface arrives flies from where its window is drawn. With reduce motion nothing flies,
@@ -2334,7 +2334,7 @@ impl Compositor {
                         continue;
                     };
                     // Moved into the view and flying there: from where it was drawn, on the
-                    // surface's own spring, whole (ADR 0044).
+                    // surface's own spring, whole (ADR 0045).
                     let flight = (moved && flying)
                         .then(|| self.flights.get(&(surface, window)).copied().flatten())
                         .flatten();
@@ -2532,7 +2532,7 @@ impl Compositor {
                 warp: genie.map(|genie| genie.rows),
             });
             // The windows it showed live go with it (ADR 0022); those moved into it fly back to
-            // where they are, whole, landing in their order (ADR 0044).
+            // where they are, whole, landing in their order (ADR 0045).
             let mut views: Vec<&transitions::ViewSnapshot> = snapshot.views.iter().collect();
             views.sort_by_key(|view| view.home.map(|_| view.stack));
             for view in views {
@@ -2760,7 +2760,7 @@ impl Compositor {
         }
     }
 
-    /// Each window that flew to a shell surface's view or back since the last call (ADR 0044),
+    /// Each window that flew to a shell surface's view or back since the last call (ADR 0045),
     /// and where it was drawn in each frame.
     pub fn take_flights(&mut self) -> Vec<FlightSeen> {
         std::mem::take(&mut self.flights_seen)
@@ -3569,7 +3569,7 @@ impl Compositor {
                 (scale.max(0.0) * 65536.0).round() as u32,
                 (rotation * 256.0).round() as i32,
             ),
-            // Mission Control and App Exposé (ADR 0044), in the protocol's 1/256 of a pixel.
+            // Mission Control and App Exposé (ADR 0045), in the protocol's 1/256 of a pixel.
             oxyos_input::Action::Swipe {
                 phase,
                 fingers,

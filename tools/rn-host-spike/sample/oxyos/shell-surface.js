@@ -36,7 +36,7 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
 // control, or a control's testID), again for each new `focusRequest` (docs/adr/0039-keyboard-access.mdx).
 // A region that moves its windows into its views (`movesWindows`: App Exposé) has each window it shows
 // drawn there alone while it shows, flying there as it arrives and back as it goes
-// (docs/adr/0044-app-expose.mdx).
+// (docs/adr/0045-app-expose.mdx).
 function Surface({
   kind,
   edge,
@@ -141,7 +141,7 @@ function MinimizeTarget({ windowIds, style, children }) {
   );
 }
 
-// What takes the scrolls no scroll view within it took (docs/adr/0044-app-expose.mdx): the
+// What takes the scrolls no scroll view within it took (docs/adr/0045-app-expose.mdx): the
 // OxyOSScrollTarget host component, which the host hands such a scroll with the number given it
 // here, as an Android view takes the scroll events its children left (the OxyOSScrollTarget event:
 // { target, dx, dy, finger, end }). The dock wraps each application's icon in it: a scroll up opens

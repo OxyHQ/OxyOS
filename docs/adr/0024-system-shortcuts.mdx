@@ -45,15 +45,15 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
    | Super+F3 | The keyboard to the dock, as a Mac's Control-F3 ([ADR 0039](./0039-keyboard-access)). | Shell (`Dock`) |
    | Super+F8 | The keyboard to the top bar's status items, as a Mac's Control-F8 ([ADR 0039](./0039-keyboard-access)). | Shell (`StatusMenus`) |
    | Super+N | The Notification Center with the keyboard on its first control, as a Mac's Fn-N (Globe-N); again, it closes ([ADR 0039](./0039-keyboard-access); protocol version 16). | Shell (`Notifications`) |
-   | Super+↑ | Mission Control (the overview), as a Mac's Control-↑; again, or from App Exposé, it closes ([ADR 0044](./0044-app-expose); protocol version 23). Three or four fingers swiped up on a touchpad do the same. | Shell (`MissionControl`) |
-   | Super+↓ | App Exposé of the active application, as a Mac's Control-↓, with the keyboard on its frontmost window; again, or from Mission Control, it closes ([ADR 0044](./0044-app-expose)). Three or four fingers swiped down do the same. | Shell (`AppExpose`) |
+   | Super+↑ | Mission Control (the overview), as a Mac's Control-↑; again, or from App Exposé, it closes ([ADR 0045](./0045-app-expose); protocol version 24). Three or four fingers swiped up on a touchpad do the same. | Shell (`MissionControl`) |
+   | Super+↓ | App Exposé of the active application, as a Mac's Control-↓, with the keyboard on its frontmost window; again, or from Mission Control, it closes ([ADR 0045](./0045-app-expose)). Three or four fingers swiped down do the same. | Shell (`AppExpose`) |
    | Ctrl+Super+Q, Super+F5, Ctrl+Alt+Fn, Ctrl+Alt+Backspace | Unchanged: the keymap's own (`oxyos-input`), before the scene. | Session |
 
    An application is the windows the shell shows as one (ADR 0013): those of a process the session started for a registry entry, or claiming the same application id, or, claiming none, its client's alone.
 
    Screenshots, Super+Shift+3, 4 and 5, are decision 10's.
 
-   **Not in this decision:** Super+Alt+H (hide the others), Super+Alt+M (minimize all), Super+Alt+Esc (force quit), Launchpad keys (Mission Control's and App Exposé's came with [ADR 0044](./0044-app-expose)), tiling, and a window's own minimize-all or close-all variants.
+   **Not in this decision:** Super+Alt+H (hide the others), Super+Alt+M (minimize all), Super+Alt+Esc (force quit), Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)), tiling, and a window's own minimize-all or close-all variants.
 
 3. **Keys by their place.** The scene has no keymap: keys are Linux key codes and are matched by place, named as on the US layout, as Bloom matches applications' chords (ADR 0021). So the two can never meet on any layout, and \` is the key above Tab, left of 1 (º on the Spanish layout), as a Mac's ⌘\` is on most ISO keyboards. On a layout that moves letters (AZERTY), Super+W is the key where W is on a US keyboard; when the compositor's keymap reaches the scene, system shortcuts and Bloom's chords move to the layout's characters together.
 

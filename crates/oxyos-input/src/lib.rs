@@ -94,7 +94,7 @@ pub enum Action {
     },
     /// Three or more fingers moving together on a touchpad (libinput's swipe gesture): each
     /// Update by how far they moved since the last, unaccelerated, in logical pixels (positive
-    /// right and down). The system's alone (Mission Control and App Exposé, ADR 0044).
+    /// right and down). The system's alone (Mission Control and App Exposé, ADR 0045).
     Swipe {
         phase: GesturePhase,
         fingers: u32,

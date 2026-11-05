@@ -1,4 +1,4 @@
-//! The touchpad's swipes (docs/adr/0044-app-expose.mdx): three or four fingers swiped up open
+//! The touchpad's swipes (docs/adr/0045-app-expose.mdx): three or four fingers swiped up open
 //! Mission Control, swiped down App Exposé, as a Mac's trackpad does (System Settings › Trackpad
 //! › More Gestures). They are the system's, as Super's keys are: no application is told of them,
 //! whichever surface is under the pointer. Two fingers are a scroll and a pinch, which go to the

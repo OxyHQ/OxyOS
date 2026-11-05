@@ -317,7 +317,7 @@ impl Scene {
                 }
                 return;
             }
-            // Mission Control and App Exposé, as a Mac's Control-↑ and Control-↓ (ADR 0044): the
+            // Mission Control and App Exposé, as a Mac's Control-↑ and Control-↓ (ADR 0045): the
             // shell shows them, as it does for the touchpad's swipes; a menu open closes first.
             (UP | DOWN, false, false) => {
                 self.dismiss_grab(DismissReason::OutsidePress);

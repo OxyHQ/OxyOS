@@ -139,10 +139,10 @@ void ShellSurfaceHost::tellFlags(Region& region, const OxyOSShellSurfaceProps& p
     region.excluded = excluded;
     Report::get().popup("shell.capture", region.surface, nullptr, folly::dynamic::object("excluded", excluded));
   }
-  // Only a shell surface shows windows; a compositor of version 22 or older knows no moved views,
+  // Only a shell surface shows windows; a compositor of version 23 or older knows no moved views,
   // and shows copies.
   bool moves = props.movesWindows && region.placed.kind != kLock && region.placed.kind != kCandidates &&
-               window_.protocolVersion() >= 23;
+               window_.protocolVersion() >= 24;
   if (moves != region.moves) {
     window_.moveWindowsToViews(region.surface, moves);
     region.moves = moves;

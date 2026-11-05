@@ -939,7 +939,7 @@ int main(int argc, char** argv) {
       return editing.scrollText(view, dx, dy);
     });
     // A scroll no scroll view took, to the OxyOSScrollTarget around the pointer (the dock's icons,
-    // docs/adr/0044-app-expose.mdx), with the number JavaScript gave it: { target, dx, dy, finger,
+    // docs/adr/0045-app-expose.mdx), with the number JavaScript gave it: { target, dx, dy, finger,
     // end } in logical pixels, `end` once a touchpad's fingers lift.
     pointer.scrollsTargets([&tree, &instance](facebook::react::Tag view, float dx, float dy, bool finger, bool end) {
       auto props = std::dynamic_pointer_cast<const facebook::react::OxyOSScrollTargetProps>(

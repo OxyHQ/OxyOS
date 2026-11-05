@@ -47,7 +47,7 @@ type Area = "open" | "minimized";
 /**
  * One window in App Exposé: the window itself, live, where the layout puts it (the platform's
  * `WindowView`, into which the compositor moves the window from where it is,
- * docs/adr/0044-app-expose.mdx); one button named by its title and its place among the area's
+ * docs/adr/0045-app-expose.mdx); one button named by its title and its place among the area's
  * windows ("2 de 3"), as VoiceOver reads App Exposé's windows. The pointer over it, or the
  * keyboard on it, rings it and shows its name under it, as a Mac's does. Memoized: the pointer
  * moving renders the window it enters and the one it leaves, nothing else.
@@ -166,7 +166,7 @@ const ExposeWindow = memo(function ExposeWindow({
 });
 
 /**
- * The dimmed desktop under App Exposé (docs/adr/0044-app-expose.mdx), a backdrop surface of its
+ * The dimmed desktop under App Exposé (docs/adr/0045-app-expose.mdx), a backdrop surface of its
  * own, which the compositor fades in and out and never scales: the other applications' windows
  * fade away under it as the application's fly out to their places.
  */
@@ -184,7 +184,7 @@ export const AppExposeBackdrop = memo(function AppExposeBackdrop({
 });
 
 /**
- * App Exposé, as a Mac's (docs/adr/0044-app-expose.mdx): one application's windows laid out large
+ * App Exposé, as a Mac's (docs/adr/0045-app-expose.mdx): one application's windows laid out large
  * across the screen, the others gone, its minimized windows in a row at the bottom, its name above.
  * Its windows are the windows themselves, moved into their places (the surface it is in moves
  * them, `movesWindows`): they fly there from where they are as it opens and back as it closes.

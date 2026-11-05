@@ -198,7 +198,7 @@ export const Shell = memo(function Shell({
     return () => clearTimeout(timer);
   }, [banner, bannerHeld]);
   // What covers the desktop: Launchpad, the overview (Mission Control) or App Exposé
-  // (docs/adr/0044-app-expose.mdx), whose application is `exposeApp`.
+  // (docs/adr/0045-app-expose.mdx), whose application is `exposeApp`.
   const [view, setView] = useState<"desktop" | "launcher" | "overview" | "app-expose">(
     "desktop",
   );
@@ -230,7 +230,7 @@ export const Shell = memo(function Shell({
   const inputSources = inputMethod?.sources ?? null;
   const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources });
   latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources };
-  // The application App Exposé shows (docs/adr/0044-app-expose.mdx): the dock menu's Show All
+  // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
   const exposing = useRef<string | null>(null);
@@ -271,7 +271,7 @@ export const Shell = memo(function Shell({
     (target: string) => setExposeKeys((keys) => ({ target, request: (keys?.request ?? 0) + 1 })),
     [],
   );
-  // A scroll on a dock icon (docs/adr/0044-app-expose.mdx): up opens the application's App
+  // A scroll on a dock icon (docs/adr/0045-app-expose.mdx): up opens the application's App
   // Exposé, as a Mac's Dock can; down closes it.
   const scrollIcon = useCallback(
     (id: string, up: boolean) => {
@@ -318,7 +318,7 @@ export const Shell = memo(function Shell({
           view = next.action;
           break;
         // Super+↑ or three or four fingers swiped up: Mission Control; again, or from App Exposé
-        // (the other way's gesture), it closes (docs/adr/0044-app-expose.mdx).
+        // (the other way's gesture), it closes (docs/adr/0045-app-expose.mdx).
         case "mission-control":
           view = view === "desktop" || view === "launcher" ? "overview" : "desktop";
           break;
@@ -731,7 +731,7 @@ export const Shell = memo(function Shell({
             </Surface>
           )}
         </Box>
-        {/* App Exposé (docs/adr/0044-app-expose.mdx) covers the screen but the dock, as Launchpad
+        {/* App Exposé (docs/adr/0045-app-expose.mdx) covers the screen but the dock, as Launchpad
             does: the dimmed desktop beneath, a backdrop the compositor only fades, and over it the
             application's windows, moved into its surface (`movesWindows`), which the compositor
             flies from where they are and back. */}

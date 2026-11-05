@@ -199,7 +199,7 @@ export type ShellCommand = {
     // Super+N: the Notification Center, as a Mac's Fn-N (docs/adr/0039-keyboard-access.mdx).
     | "notifications"
     // Super+↑ and Super+↓, or three or four fingers swiped up and down on the touchpad: Mission
-    // Control and App Exposé, as a Mac's Control-↑ and Control-↓ (docs/adr/0044-app-expose.mdx).
+    // Control and App Exposé, as a Mac's Control-↑ and Control-↓ (docs/adr/0045-app-expose.mdx).
     | "mission-control"
     | "app-expose";
 };

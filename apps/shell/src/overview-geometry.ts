@@ -49,7 +49,7 @@ export function nearestWorkspace(
 
 /**
  * Windows in rows, as the overview lays them out (docs/adr/0022-window-views.mdx) and App Exposé
- * does (docs/adr/0044-app-expose.mdx): `columns` windows a row, in order; each row's windows one
+ * does (docs/adr/0045-app-expose.mdx): `columns` windows a row, in order; each row's windows one
  * height, which keeps their proportions (`ratios`, width over height) and fits the row's width
  * with `gap` between them; the rows share `height` evenly, with `gap` between them, each row's
  * height clamped to [`minRow`, `maxRow`] and holding `chrome` beside its windows (a card's title
@@ -103,7 +103,7 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type ExposedWindow = { ratio: number; height?: number };
 
 /**
- * Where App Exposé shows an application's windows (docs/adr/0044-app-expose.mdx): as large as
+ * Where App Exposé shows an application's windows (docs/adr/0045-app-expose.mdx): as large as
  * they fit in `area`, in the overview's rows (`windowRows`), with the number of columns that
  * gives them the most room, each no taller than it is; the rows centred in the area together and
  * each row centred across it, `label` kept under each window for its name. In the windows' order;

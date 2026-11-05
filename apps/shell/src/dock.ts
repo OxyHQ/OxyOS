@@ -211,7 +211,7 @@ export type IconScroll = { moved: number; acted: boolean };
 export const NO_ICON_SCROLL: IconScroll = { moved: 0, acted: false };
 
 /**
- * A scroll on a dock icon (docs/adr/0044-app-expose.mdx), as a Mac's Dock takes one: up (as a
+ * A scroll on a dock icon (docs/adr/0045-app-expose.mdx), as a Mac's Dock takes one: up (as a
  * wheel turned away, the content's view moving up) opens the application's App Exposé, down closes
  * it. A wheel's notch acts at once; a touchpad's fingers once they have gone `ICON_SCROLL` one way,
  * once until they lift. Across does nothing.

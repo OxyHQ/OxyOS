@@ -46,7 +46,7 @@ pub enum Step {
     /// The pointer moved to a point of the output and the primary button, held since a
     /// `DragPaced` that `held` it, released there: the drag's drop, or its end over nothing.
     ReleaseOutput { x: i32, y: i32 },
-    /// A scroll by `dy` at a point of the output (a dock icon's, ADR 0044): a wheel's notch with
+    /// A scroll by `dy` at a point of the output (a dock icon's, ADR 0045): a wheel's notch with
     /// `events` 0, else a touchpad's two fingers in `events` even steps, then lifted.
     ScrollOutput {
         x: i32,
@@ -55,7 +55,7 @@ pub enum Step {
         events: u32,
     },
     /// Three or more fingers swiped on the touchpad by (dx, dy) in `steps` even steps, then lifted
-    /// (Mission Control and App Exposé, ADR 0044).
+    /// (Mission Control and App Exposé, ADR 0045).
     Swipe {
         fingers: u8,
         dx: i32,
@@ -3015,7 +3015,7 @@ fn drag_icons_json(compositor: &Compositor) -> String {
 
 /// The windows the shell's surfaces show live once the step settled (ADR 0022), each by its number:
 /// where it is drawn (fitted, the global space's logical pixels), its clip, and whether it is
-/// moved there (ADR 0044); every window drawn where it is (`windows_placed`), by number; and each
+/// moved there (ADR 0045); every window drawn where it is (`windows_placed`), by number; and each
 /// window that flew to its view or back in the step (`flights`), each frame's rectangle. Taken: the
 /// next step reports its own flights.
 fn views_json(compositor: &mut Compositor) -> String {

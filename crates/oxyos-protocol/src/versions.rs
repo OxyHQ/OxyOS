@@ -103,7 +103,7 @@ pub fn event_since(event: &Event) -> u16 {
         Event::SystemShortcut {
             shortcut: SystemShortcut::MissionControl | SystemShortcut::AppExpose,
             ..
-        } => 23,
+        } => 24,
         Event::SystemShortcut {
             shortcut: SystemShortcut::Dock | SystemShortcut::StatusMenus,
             ..

@@ -280,7 +280,7 @@ class Window {
                uint8_t destination);
   bool endCapture(uint64_t serial);
   void excludeFromCapture(uint32_t id, bool excluded);
-  // The windows one of its shell surfaces shows live moved into their views (ADR 0044).
+  // The windows one of its shell surfaces shows live moved into their views (ADR 0045).
   void moveWindowsToViews(uint32_t id, bool moved);
   bool openScreenshot(uint32_t screenshot, uint64_t serial);
   // The pointer's shape while it is over a surface (OXYOS_POINTER_*).

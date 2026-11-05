@@ -1,4 +1,4 @@
-//! Mission Control and App Exposé (ADR 0044): Super+↑ and Super+↓ and the touchpad's three- and
+//! Mission Control and App Exposé (ADR 0045): Super+↑ and Super+↓ and the touchpad's three- and
 //! four-finger swipes are the system's, told to the shell; a shell surface's windows moved into
 //! its views.
 

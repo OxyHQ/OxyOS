@@ -239,7 +239,7 @@ const en = (f: Formats) => ({
     addDesktop: "Add Desktop",
     newDesktop: "New Desktop",
   },
-  /** App Exposé (docs/adr/0044-app-expose.mdx): a dialog named by its application. */
+  /** App Exposé (docs/adr/0045-app-expose.mdx): a dialog named by its application. */
   appExpose: {
     title: "App Exposé",
     label: (name: string) => `${name} Windows`,

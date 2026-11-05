@@ -4331,7 +4331,7 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         );
         assert_eq!(oxyos_client_show_windows(client, 3, views.as_ptr(), 2), 0);
         assert_eq!(oxyos_client_show_windows(client, 3, std::ptr::null(), 0), 0);
-        // App Exposé's windows moved into their views (ADR 0044).
+        // App Exposé's windows moved into their views (ADR 0045).
         assert_eq!(oxyos_client_move_windows_to_views(client, 3, true), 0);
         let requests = compositor.join().unwrap();
         assert_eq!(

@@ -231,7 +231,7 @@ messages! {
         // last), and the list holds from the surface's next Submit.
         92 => ClearMinimizeTargets { surface: u32 },
         93 => PlaceMinimizeTarget { surface: u32, window: u32, rect: Rect },
-        // The session's shell (its `shell` grant, version 23, ADR 0044): whether the windows one of
+        // The session's shell (its `shell` grant, version 24, ADR 0045): whether the windows one of
         // its shell surfaces shows live (ClearWindowViews' list) are moved into their views, as
         // Mission Control and App Exposé move a Mac's windows: while the surface is shown, such a
         // window is drawn in its view alone, not where it is; arriving, the view comes from where

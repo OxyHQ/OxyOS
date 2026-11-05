@@ -131,11 +131,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   for the median time between them (a frame of the display: 8.3 at 120 Hz); their timestamps rise
   and are performance.now()'s clock (within a millisecond of the report's, CLOCK_MONOTONIC);
 - window_views: the windows the shell's surfaces show live once the step settled (ADR 0022), by
-  their numbers: "windows", exactly those; "moved", each moved into its view (App Exposé, ADR 0044)
+  their numbers: "windows", exactly those; "moved", each moved into its view (App Exposé, ADR 0045)
   or each a copy; "apart", no two overlapping; "within", each inside [x, y, width, height] (logical
   pixels of the global space); "below", those windows each below every other one shown (App
   Exposé's minimized row);
-- flights: the windows that flew to their views and back in the step (ADR 0044): "arriving" and
+- flights: the windows that flew to their views and back in the step (ADR 0045): "arriving" and
   "going", exactly those windows; "none", nothing flew; and always, each flight in more than one
   frame, every edge only ever going toward its end, an arriving one beginning where its window is
   and ending in its view (within a pixel: where its spring came to rest), a going one beginning in
@@ -328,7 +328,7 @@ drag goes on into the steps after it, each step's frame showing it midway (`move
 pointer there and releases it, dropping it or ending it over nothing.
 
 A `swipe` step ([fingers, dx, dy, steps]) is three or four fingers swiped on the touchpad, the
-system's (Mission Control up, App Exposé down, ADR 0044); a `scroll_named` step ([name, dy] a
+system's (Mission Control up, App Exposé down, ADR 0045); a `scroll_named` step ([name, dy] a
 wheel's notch, [name, dy, events] a touchpad's two fingers in that many events, then lifted)
 scrolls on the node of that accessible name (a dock icon), and a `scroll_output` step ([x, y, dy]
 or [x, y, dy, events]) at a point of the output.
@@ -751,7 +751,7 @@ def director_args(step, out):
     if kind == "scroll":
         return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
     if kind == "scroll_named":
-        # A scroll by DY on the node of this accessible name (a dock icon's, ADR 0044): [name, dy]
+        # A scroll by DY on the node of this accessible name (a dock icon's, ADR 0045): [name, dy]
         # a wheel's notch, or [name, dy, events] a touchpad's two fingers in that many events.
         events = value[2] if len(value) > 2 else 0
         return args + ["--scroll-named", f"{value[1]},{events}", value[0]]
@@ -760,7 +760,7 @@ def director_args(step, out):
         events = value[3] if len(value) > 3 else 0
         return args + ["--scroll-output", f"{value[0]},{value[1]},{value[2]},{events}"]
     if kind == "swipe":
-        # Fingers swiped on the touchpad (Mission Control, App Exposé, ADR 0044): [fingers, dx, dy,
+        # Fingers swiped on the touchpad (Mission Control, App Exposé, ADR 0045): [fingers, dx, dy,
         # steps].
         return args + ["--swipe", ",".join(map(str, value))]
     if kind == "pinch":
@@ -1822,7 +1822,7 @@ def within(inner, outer):
 
 
 def check_views(index, step, result, results, failures):
-    """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0044),
+    """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
     as the director reported them once the step settled: `window_views` ("windows", exactly those
     window numbers shown, in any order; "moved", each moved into its view or not; "apart", no two
     overlapping; "within", each inside [x, y, width, height]; "below", those windows each below

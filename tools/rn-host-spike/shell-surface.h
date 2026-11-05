@@ -60,7 +60,7 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // Whether its surface is left out of every screenshot (the screenshot interface itself and its
   // thumbnail, docs/adr/0024-system-shortcuts.mdx, decision 10).
   bool excludeFromCapture{false};
-  // Whether the windows its views show are moved into them (App Exposé, docs/adr/0044-app-expose.mdx):
+  // Whether the windows its views show are moved into them (App Exposé, docs/adr/0045-app-expose.mdx):
   // drawn there alone while it shows, flying from where they are as it arrives and back as it goes.
   bool movesWindows{false};
 };
@@ -106,7 +106,7 @@ using OxyOSMinimizeTargetShadowNode =
 using OxyOSMinimizeTargetComponentDescriptor = ConcreteComponentDescriptor<OxyOSMinimizeTargetShadowNode>;
 
 // What takes the pointer's scrolls no scroll view under it takes (the dock's icons, whose scroll up
-// opens App Exposé, docs/adr/0044-app-expose.mdx): as Android's View takes the ACTION_SCROLL
+// opens App Exposé, docs/adr/0045-app-expose.mdx): as Android's View takes the ACTION_SCROLL
 // generic motion events nothing within it handled. Each is told to JavaScript with `target`, the
 // number JavaScript gave it. Drawn and laid out as any view.
 extern const char OxyOSScrollTargetComponentName[];
@@ -191,7 +191,7 @@ class ShellSurfaceHost {
     // Where the windows it names minimize into, as last sent to the compositor (ADR 0011).
     std::vector<RenderStats::MinimizeTarget> targets;
     // Whether the compositor was told to leave its surface out of captures (ADR 0024), and to
-    // move the windows it shows into their views (ADR 0044).
+    // move the windows it shows into their views (ADR 0045).
     bool excluded = false;
     bool moves = false;
   };

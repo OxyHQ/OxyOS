@@ -356,7 +356,7 @@ pub enum RenderItem {
     /// above that surface: the window's frame scaled into `rect` (its proportions kept), only
     /// within `clip` (within `rect` and the surface), its corners rounded by `radius`, at
     /// `opacity`. It takes no input: the surface under it does. `moved`: the window is moved into
-    /// it (ADR 0044), drawn here and not where it is while its surface is shown, coming from there
+    /// it (ADR 0045), drawn here and not where it is while its surface is shown, coming from there
     /// and going back.
     View {
         surface: SurfaceKey,
@@ -426,7 +426,7 @@ pub struct Scene {
     /// The surface a touchpad's resting fingers go to (the one under the pointer when they began
     /// to rest), until they lift or move on.
     hold: Option<SurfaceKey>,
-    /// Three or four fingers swiping on a touchpad (ADR 0044): the system's, never an application's.
+    /// Three or four fingers swiping on a touchpad (ADR 0045): the system's, never an application's.
     swipe: swipes::Swipe,
     /// The surface a touchpad's (or a continuous device's) scroll going on goes to, the one
     /// under the pointer when it began, until its stop; none between scrolls.
@@ -4960,7 +4960,7 @@ mod reader;
 mod screenshots;
 /// The system shortcuts and applications' windows (ADR 0024).
 mod shortcuts;
-/// The touchpad's swipes to Mission Control and App Exposé (ADR 0044).
+/// The touchpad's swipes to Mission Control and App Exposé (ADR 0045).
 mod swipes;
 pub use controls::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
