@@ -2104,7 +2104,7 @@ pub enum TransitionClock {
 }
 
 thread_local! {
-    /// The fingers a `Step::Swipe` left down, and when they last moved (CLOCK_MONOTONIC ns).
+    /// The fingers a `Step::Swipe` left down.
     static SWIPING: std::cell::Cell<Option<(u8, u64)>> = const { std::cell::Cell::new(None) };
     /// Where `--transition-clock hold` held the transitions' clock.
     static HELD: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
@@ -3832,6 +3832,76 @@ fn drag_paced(
     ))
 }
 
+/// A paced swipe (`Step::Swipe`, ADR 0046) through the compositor's input, as libinput's swipe
+/// gesture reaches it: `fingers` put down (none: they are down since an earlier step), each of
+/// `steps` even motions by (dx, dy) when its time comes (`hz` a second) with its device's time, the
+/// compositor serving everything until then and the turn the motion wakes composing at once, as a
+/// touchpad's wakes a session's; the fingers lifted `lift` milliseconds after their last motion
+/// (none: they stay down into the next steps).
+fn swipe_paced(
+    session: &mut Session,
+    fingers: Option<u8>,
+    (dx, dy): (i32, i32),
+    (steps, hz): (u32, u32),
+    lift: Option<u32>,
+) -> Result<()> {
+    let start = Instant::now();
+    let origin = monotonic_ns();
+    let idle_wait = session.compositor.idle_wait;
+    let held = SWIPING.get().map(|(n, _)| n);
+    let fingers_down = fingers.or(held).ok_or("no fingers down to swipe")?;
+    let swipe = |phase, dx: f64, dy: f64| oxyos_input::Action::Swipe {
+        phase,
+        fingers: u32::from(fingers_down),
+        dx,
+        dy,
+    };
+    let act = |session: &mut Session, due: Duration, action| -> Result<()> {
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+        }
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
+        session.compositor.apply_input(action);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        Ok(())
+    };
+    if fingers.is_some() {
+        act(
+            session,
+            Duration::ZERO,
+            swipe(oxyos_input::GesturePhase::Begin, 0.0, 0.0),
+        )?;
+        SWIPING.set(Some((fingers_down, 0)));
+    }
+    let interval = Duration::from_secs(1) / hz.max(1);
+    for i in 1..=steps {
+        act(
+            session,
+            interval * i,
+            swipe(
+                oxyos_input::GesturePhase::Update,
+                f64::from(dx) / f64::from(steps),
+                f64::from(dy) / f64::from(steps),
+            ),
+        )?;
+    }
+    if let Some(ms) = lift {
+        act(
+            session,
+            interval * steps + Duration::from_millis(u64::from(ms)),
+            swipe(oxyos_input::GesturePhase::End, 0.0, 0.0),
+        )?;
+        SWIPING.set(None);
+    }
+    session.compositor.idle_wait = idle_wait;
+    Ok(())
+}
+
 /// A paced scroll (`Step::ScrollPaced`) on the scene: the pointer over the window at `at`, each
 /// event when its time comes with the compositor serving the application until then and the turn
 /// the event wakes composing at once, as a touchpad's wakes a session's; then the compositor
@@ -4294,51 +4364,6 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                     .pointer_scroll(0, 0, ScrollSource::Finger, true);
             }
         }
-        Step::Swipe {
-            fingers,
-            dx,
-            dy,
-            steps,
-            hz,
-            lift,
-        } => {
-            // Through the compositor's input, each motion with the time its device would give it:
-            // `hz` a second from now (or from the last motion of the fingers already down).
-            let swipe = |phase, dx: f64, dy: f64| oxyos_input::Action::Swipe {
-                phase,
-                fingers: SWIPING.get().map_or(3, |(n, _)| u32::from(n)),
-                dx,
-                dy,
-            };
-            let now = monotonic_ns() as u64;
-            if let Some(n) = fingers {
-                SWIPING.set(Some((*n, now)));
-                compositor.scene.set_input_time(now);
-                compositor.apply_input(swipe(oxyos_input::GesturePhase::Begin, 0.0, 0.0));
-            }
-            let Some((n, last)) = SWIPING.get() else {
-                return Err("no fingers down to swipe".into());
-            };
-            let interval = 1_000_000_000 / u64::from(*hz);
-            let start = last.max(now - interval);
-            for i in 1..=u64::from(*steps) {
-                compositor.scene.set_input_time(start + i * interval);
-                compositor.apply_input(swipe(
-                    oxyos_input::GesturePhase::Update,
-                    f64::from(*dx) / f64::from(*steps),
-                    f64::from(*dy) / f64::from(*steps),
-                ));
-            }
-            let last = start + u64::from(*steps) * interval;
-            SWIPING.set(Some((n, last)));
-            if let Some(ms) = lift {
-                compositor
-                    .scene
-                    .set_input_time(last + u64::from(*ms) * 1_000_000);
-                compositor.apply_input(swipe(oxyos_input::GesturePhase::End, 0.0, 0.0));
-                SWIPING.set(None);
-            }
-        }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
@@ -4500,6 +4525,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Accessibility { .. }
         | Step::Grab { .. }
         | Step::DragPaced { .. }
+        | Step::Swipe { .. }
         | Step::ScrollPaced { .. }
         | Step::MovePaced { .. }
         | Step::HoldOutput { .. }
@@ -5204,6 +5230,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         *lift,
                         *hold_after_ms,
                     )?);
+                }
+                0
+            }
+            _ if matches!(step, Step::Swipe { .. }) => {
+                if let Step::Swipe {
+                    fingers,
+                    dx,
+                    dy,
+                    steps,
+                    hz,
+                    lift,
+                } = step
+                {
+                    swipe_paced(&mut session, *fingers, (*dx, *dy), (*steps, *hz), *lift)?;
                 }
                 0
             }
