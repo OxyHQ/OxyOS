@@ -222,3 +222,21 @@ fn the_service_leaves_no_descriptor_open_once_dropped() {
     }
     assert_eq!(descriptors(), before);
 }
+
+/// Emoji searched in Spanish while the layout is `us`: the keyboard engine searched in
+/// (keyboard-es) has another layout than the group's, and fcitx5 reads the keys through an XKB
+/// state of its own; the trigger still opens QuickPhrase and a Spanish word finds its emoji.
+#[test]
+fn emoji_are_searched_in_another_layouts_keyboard_engine() {
+    let Some(engine) = engine() else { return };
+    let mut typing = Typing::start(engine, "emoji-es", "keyboard-es");
+    typing.service.send(Command::Emoji {
+        keyboard: "keyboard-es".into(),
+    });
+    let prompt = typing.wait(
+        |outcome| matches!(outcome, Outcome::Panel(panel) if panel.aux_up.contains("Quick Phrase")),
+    );
+    assert!(!prompt.is_empty());
+    let change = typing.type_text("sonrisa");
+    assert_eq!(change.preedit.map(|p| p.text()), Some("sonrisa".to_owned()));
+}
