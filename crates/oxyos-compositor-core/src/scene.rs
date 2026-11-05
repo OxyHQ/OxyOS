@@ -4355,6 +4355,16 @@ impl Scene {
             return;
         };
         let serial = self.next_serial();
+        // A scroll on the shell is the person's input there, as a press is: a dock icon's scroll
+        // opens App Exposé with the keyboard (FocusShellSurface citing it, ADR 0045). An
+        // application's scroll authorizes nothing.
+        if self
+            .clients
+            .get(&target.client)
+            .is_some_and(|grants| grants.shell)
+        {
+            self.credit_input(target.client, serial);
+        }
         self.emit(
             target.client,
             Event::Scroll {

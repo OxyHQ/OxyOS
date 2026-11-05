@@ -480,3 +480,37 @@ fn only_the_shell_moves_windows_into_its_own_surfaces_views() {
         Err(ErrorCode::InvalidRole | ErrorCode::UnknownSurface)
     ));
 }
+
+#[test]
+fn a_scroll_on_the_shell_is_its_input_and_an_applications_authorizes_nothing() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let at = h.rect(window);
+    shown_overlay(&mut h, GestureOverlay::None);
+    let scroll_serial = |events: &[(ClientId, Event)], client| {
+        to(events, client).iter().find_map(|event| match event {
+            Event::Scroll { serial, .. } => Some(*serial),
+            _ => None,
+        })
+    };
+    // Over the shell's overlay (a dock icon's scroll opens App Exposé, which takes the keyboard
+    // citing it).
+    h.scene.pointer_motion(20, 20);
+    logged(&mut h);
+    h.scene
+        .pointer_scroll(0, -15 * 256, ScrollSource::Wheel, false);
+    let serial = scroll_serial(&logged(&mut h), SHELL).unwrap();
+    assert!(h.scene.inputs[&SHELL].contains(&serial));
+    // An application's: none of its inputs.
+    h.request(SHELL, Request::Destroy { surface: 9 }).unwrap();
+    h.scene.pointer_motion(at.x + 10, at.y + 10);
+    logged(&mut h);
+    h.scene
+        .pointer_scroll(0, -15 * 256, ScrollSource::Wheel, false);
+    let serial = scroll_serial(&logged(&mut h), APP).unwrap();
+    assert!(!h
+        .scene
+        .inputs
+        .get(&APP)
+        .is_some_and(|inputs| inputs.contains(&serial)));
+}

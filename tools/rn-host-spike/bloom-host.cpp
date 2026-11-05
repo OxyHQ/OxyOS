@@ -2092,7 +2092,11 @@ int main(int argc, char** argv) {
                   // And a notification the person pressed (ADR 0026): its response may copy.
                   event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE ||
                   // And a drop (ADR 0035): the dock's Trash cites it to put the files in the Trash.
-                  event.kind == OXYOS_EVENT_DRAG_DROP) {
+                  event.kind == OXYOS_EVENT_DRAG_DROP ||
+                  // And, in the shell, a scroll (a dock icon's opens App Exposé, which takes the
+                  // keyboard citing it, docs/adr/0045-app-expose.mdx); an application's scroll
+                  // authorizes nothing.
+                  (asShell && event.kind == OXYOS_EVENT_SCROLL)) {
                 lastPress = event.serial;
               }
               report(event);
