@@ -5,10 +5,11 @@ use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
     ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, CaptureDestination,
     CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason,
-    ErrorCode, Format, GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField,
-    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
-    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size,
-    SystemShortcut, SystemSound, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    ErrorCode, Format, GestureOverlay, GesturePhase, MenuField, MenuFlags, MenuKind,
+    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
+    SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk,
+    TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -239,6 +240,13 @@ messages! {
         // are copies drawn over the windows (ADR 0022). Said before the surface's first Submit, it
         // holds from its arrival.
         94 => MoveWindowsToViews { surface: u32, moved: bool },
+        // The session's shell (its `shell` grant, version 25, docs/adr/0046-interactive-gestures.mdx):
+        // which view a touchpad's vertical swipe drives one of its shell surfaces is, Mission
+        // Control's or App Exposé's (both their backdrop and their overlay), or none. While such a
+        // surface is shown, the swipe back closes it as the fingers go; while a swipe opening it
+        // drives it, it arrives as far as they have gone. Said before the surface's first Submit,
+        // it holds from its arrival.
+        95 => SetGestureOverlay { surface: u32, overlay: GestureOverlay },
         // A login screen (ADR 0020): the account a lock surface's next password is for, by its
         // Unix user's name (at most 31 bytes), given before the password's chunks while locked;
         // without it the password is the session's own user's. The authentication path decides
@@ -636,7 +644,10 @@ messages! {
         // To the session's shell of `output` (its `shortcuts` grant, ADR 0024): a system shortcut
         // the compositor took from the keyboard, for the shell to show: the application switcher's
         // and the search's. `serial` is a user input of the shell's, as a key press's is.
-        100 => SystemShortcut { shortcut: SystemShortcut, serial: u64, output: u32 },
+        // `intent` (version 25, docs/adr/0046-interactive-gestures.mdx): a key's toggles what it
+        // shows; a touchpad's swipe opens Mission Control or App Exposé as the fingers begin to
+        // drive it and closes it when they let it go back.
+        100 => SystemShortcut { shortcut: SystemShortcut, serial: u64, output: u32, intent: ShortcutIntent },
         // To the session's shell (ADR 0024), after the window's WindowState, when either changes:
         // how recently it was the active window (a rising count of activations; 0: never), and
         // whether it is hidden with its application (minimized, but not into the dock).

@@ -5,7 +5,9 @@
 //! it, and refused from it.
 
 use crate::schema::{Event, Request};
-use crate::wire::{AccessibleField, AccessibleRole, ApplicationListKind, SystemShortcut};
+use crate::wire::{
+    AccessibleField, AccessibleRole, ApplicationListKind, ShortcutIntent, SystemShortcut,
+};
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io::{self, Read, Write};
 
@@ -16,6 +18,8 @@ use std::io::{self, Read, Write};
 /// (none held) and whether a window's process is responding (it is). Version 11: whether a text
 /// field's caret blinks (it does). Version 19: whether a press made its window the active one (it
 /// did not: an older compositor delivers every press as one the view under it takes, ADR 0016).
+/// Version 25: what a system shortcut asks of what the shell shows (a key's toggle,
+/// docs/adr/0046-interactive-gestures.mdx).
 const GROWN: &[(u16, u8, &[u8])] = &[
     (3, 4, &[0; 8]),
     (3, 5, &[0; 8]),
@@ -28,6 +32,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
     (8, 37, &[1]),
     (11, 53, &[1]),
     (19, 4, &[0]),
+    (25, 100, &[0]),
 ];
 
 /// The opcodes each version added, by direction (a request and an event may share an opcode):
@@ -49,7 +54,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// zoomed or full-screen window covers an output (`OutputCovered`, ADR 0034), told to the shell;
 /// version 23, system sounds (`PlaySystemSound`, `NotificationSound`,
 /// docs/adr/0044-system-sounds.mdx), asked by any client;
-/// version 24, the shell's windows moved into their views (`MoveWindowsToViews`, ADR 0045).
+/// version 24, the shell's windows moved into their views (`MoveWindowsToViews`, ADR 0045);
+/// version 25, which view a touchpad's swipe drives a shell surface is (`SetGestureOverlay`,
+/// docs/adr/0046-interactive-gestures.mdx).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -79,6 +86,7 @@ const REQUESTS_ADDED: Added = &[
     (21, 68..=68),
     (23, 236..=237),
     (24, 94..=94),
+    (25, 95..=95),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -96,10 +104,15 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// column header role (`AccessibleRole::ColumnHeader`) and version 15's meter
 /// (`AccessibleRole::Meter`), likewise; and version 16's shortcut to the Notification Center
 /// (ADR 0039); version 23's list of applications whose notifications play no sound
-/// (`ApplicationListKind::NotificationSoundsOff`); and version 24's shortcuts to Mission Control and
-/// App Exposé (ADR 0045).
+/// (`ApplicationListKind::NotificationSoundsOff`); version 24's shortcuts to Mission Control and
+/// App Exposé (ADR 0045); and version 25's shortcut opening or closing what it shows, a swipe's
+/// (docs/adr/0046-interactive-gestures.mdx), which a version 24 shell would take for a toggle.
 pub fn event_since(event: &Event) -> u16 {
     match event {
+        Event::SystemShortcut {
+            intent: ShortcutIntent::Open | ShortcutIntent::Close,
+            ..
+        } => 25,
         Event::SystemShortcut {
             shortcut: SystemShortcut::MissionControl | SystemShortcut::AppExpose,
             ..

@@ -209,7 +209,7 @@ pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
 pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
 /// own, which oxyos_client_focus_shell_surface may cite; detail: OXYOS_SHORTCUT_*; code: the
-/// output to show it on), and how recently a window was active (code: the window; detail: its
+/// output to show it on; flag: OXYOS_SHORTCUT_INTENT_*, version 25), and how recently a window was active (code: the window; detail: its
 /// latest activation, rising, 0 never; flag: whether it is hidden with its application).
 pub const OXYOS_EVENT_SYSTEM_SHORTCUT: u32 = 100;
 pub const OXYOS_EVENT_WINDOW_USE: u32 = 101;
@@ -265,6 +265,19 @@ pub const OXYOS_SHORTCUT_NOTIFICATIONS: u32 = 11;
 /// and App Exposé, as a Mac's Control-↑ and Control-↓ (protocol version 24, ADR 0045).
 pub const OXYOS_SHORTCUT_MISSION_CONTROL: u32 = 12;
 pub const OXYOS_SHORTCUT_APP_EXPOSE: u32 = 13;
+/// What a SYSTEM_SHORTCUT asks (its flag, protocol version 25, docs/adr/0046-interactive-gestures.mdx):
+/// a key's toggle (what is shown goes, what is not opens), or a touchpad's swipe opening Mission
+/// Control or App Exposé as the fingers begin to drive it, or closing it. Opening what is open, or
+/// closing what is not, changes nothing. A compositor of an older version sends only toggles.
+pub const OXYOS_SHORTCUT_INTENT_TOGGLE: u8 = 0;
+pub const OXYOS_SHORTCUT_INTENT_OPEN: u8 = 1;
+pub const OXYOS_SHORTCUT_INTENT_CLOSE: u8 = 2;
+/// Which view a touchpad's vertical swipe drives a shell surface is
+/// (`oxyos_client_set_gesture_overlay`, protocol version 25): none, Mission Control's or App
+/// Exposé's.
+pub const OXYOS_GESTURE_OVERLAY_NONE: u8 = 0;
+pub const OXYOS_GESTURE_OVERLAY_MISSION_CONTROL: u8 = 1;
+pub const OXYOS_GESTURE_OVERLAY_APP_EXPOSE: u8 = 2;
 /// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
 /// screenshot interface to show or change (serial: a user input of its own, the same until the
 /// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:
@@ -1231,12 +1244,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             shortcut,
             serial,
             output,
+            intent,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SYSTEM_SHORTCUT,
                 serial,
                 detail: shortcut as u32,
                 code: output,
+                flag: intent as u8,
                 ..out
             }
         }
@@ -3562,6 +3577,30 @@ pub unsafe extern "C" fn oxyos_client_move_windows_to_views(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::MoveWindowsToViews { surface, moved }) }
+}
+
+/// Says which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
+/// (`overlay`, OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, its backdrop and its
+/// overlay alike, or none (docs/adr/0046-interactive-gestures.mdx). While such a surface is shown,
+/// the swipe back closes it as far as the fingers go; while a swipe opening it drives it, it
+/// arrives as far as they have gone. Said before the surface's first frame, it holds from its
+/// arrival. 0 on success; -1 for an overlay the protocol does not have, or to a compositor of
+/// version 24 or older, which is sent nothing.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_gesture_overlay(
+    client: *mut OxyOSClient,
+    surface: u32,
+    overlay: u8,
+) -> c_int {
+    let Some(overlay) = oxyos_protocol::GestureOverlay::from_raw(overlay) else {
+        return -1;
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetGestureOverlay { surface, overlay }) }
 }
 
 /// The parts of `surface` never captured, its secure text fields: `count` (at most 32) rectangles

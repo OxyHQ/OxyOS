@@ -115,6 +115,16 @@ typedef struct OxyOSClient OxyOSClient;
  * Exposé (protocol version 24, docs/adr/0045-app-expose.mdx). */
 #define OXYOS_SHORTCUT_MISSION_CONTROL 12
 #define OXYOS_SHORTCUT_APP_EXPOSE 13
+/* What a SYSTEM_SHORTCUT asks, its flag (protocol version 25, docs/adr/0046-interactive-gestures.mdx):
+ * a key's toggle, or a touchpad's swipe opening Mission Control or App Exposé as the fingers begin
+ * to drive it, or closing it. */
+#define OXYOS_SHORTCUT_INTENT_TOGGLE 0
+#define OXYOS_SHORTCUT_INTENT_OPEN 1
+#define OXYOS_SHORTCUT_INTENT_CLOSE 2
+/* Which view a touchpad's vertical swipe drives a shell surface is (oxyos_client_set_gesture_overlay). */
+#define OXYOS_GESTURE_OVERLAY_NONE 0
+#define OXYOS_GESTURE_OVERLAY_MISSION_CONTROL 1
+#define OXYOS_GESTURE_OVERLAY_APP_EXPOSE 2
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
@@ -756,6 +766,11 @@ int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, boo
  * shown, flying from where they are as it arrives and back as it goes; or copies again. Said
  * before its first frame. -1 to a compositor of version 23 or older. */
 int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);
+/* Which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
+ * (OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, backdrop and overlay alike, or
+ * none (docs/adr/0046-interactive-gestures.mdx): the swipe drives it as far as the fingers go. Said
+ * before its first frame. -1 for another value, or to a compositor of version 24 or older. */
+int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
 int oxyos_client_open_screenshot(OxyOSClient* client, uint32_t screenshot, uint64_t serial);
