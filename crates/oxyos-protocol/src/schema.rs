@@ -231,6 +231,14 @@ messages! {
         // last), and the list holds from the surface's next Submit.
         92 => ClearMinimizeTargets { surface: u32 },
         93 => PlaceMinimizeTarget { surface: u32, window: u32, rect: Rect },
+        // The session's shell (its `shell` grant, version 23, ADR 0044): whether the windows one of
+        // its shell surfaces shows live (ClearWindowViews' list) are moved into their views, as
+        // Mission Control and App Exposé move a Mac's windows: while the surface is shown, such a
+        // window is drawn in its view alone, not where it is; arriving, the view comes from where
+        // the window is drawn, and going, it goes back there. Off, as a surface begins, the views
+        // are copies drawn over the windows (ADR 0022). Said before the surface's first Submit, it
+        // holds from its arrival.
+        94 => MoveWindowsToViews { surface: u32, moved: bool },
         // A login screen (ADR 0020): the account a lock surface's next password is for, by its
         // Unix user's name (at most 31 bytes), given before the password's chunks while locked;
         // without it the password is the session's own user's. The authentication path decides
