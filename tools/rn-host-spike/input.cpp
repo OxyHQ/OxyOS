@@ -618,7 +618,7 @@ void PointerInput::pointerButton(const SurfaceContent& content, uint32_t code, b
   }
 }
 
-void PointerInput::scroll(float dx, float dy) {
+void PointerInput::scroll(float dx, float dy, bool finger) {
   Tag target = hitTest(tree_, content_, x_, y_);
   if (target < 0) return;
   auto path = ancestry(tree_, target);
@@ -632,6 +632,16 @@ void PointerInput::scroll(float dx, float dy) {
       if (animations_.count(*at)) stopAnimation(*at);
       return;
     }
+  }
+  // None did: the innermost scroll target around the pointer takes it (the dock's icon, whose
+  // scroll up opens App Exposé), as an Android view takes the scroll nothing within it handled.
+  if (!scrollTarget_) return;
+  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+    const auto& view = tree_.views().at(*at).view;
+    if (std::string(view.componentName ? view.componentName : "") != kScrollTargetComponent) continue;
+    if (finger) fingerTarget_ = *at;
+    scrollTarget_(*at, dx, dy, finger, false);
+    return;
   }
 }
 
@@ -707,8 +717,13 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
   if (drag_->view < 0) {
     if (stop) {
       drag_.reset();
+      // The scroll target it went to hears that the fingers lifted.
+      if (fingerTarget_ >= 0 && tree_.views().count(fingerTarget_) && scrollTarget_) {
+        scrollTarget_(fingerTarget_, 0, 0, true, true);
+      }
+      fingerTarget_ = -1;
     } else {
-      scroll(dx, dy);
+      scroll(dx, dy, true);
     }
     return;
   }

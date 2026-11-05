@@ -660,6 +660,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSWindowViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSMinimizeTargetComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyOSScrollTargetComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
   oxyos::addSvgComponents(*providers);
@@ -936,6 +937,19 @@ int main(int argc, char** argv) {
     pointer.pacedBy(refresh);
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
+    });
+    // A scroll no scroll view took, to the OxyOSScrollTarget around the pointer (the dock's icons,
+    // docs/adr/0044-app-expose.mdx), with the number JavaScript gave it: { target, dx, dy, finger,
+    // end } in logical pixels, `end` once a touchpad's fingers lift.
+    pointer.scrollsTargets([&tree, &instance](facebook::react::Tag view, float dx, float dy, bool finger, bool end) {
+      auto props = std::dynamic_pointer_cast<const facebook::react::OxyOSScrollTargetProps>(
+          tree.views().at(view).view.props);
+      if (!props) return;
+      folly::dynamic payload =
+          folly::dynamic::object("target", props->target)("dx", dx)("dy", dy)("finger", finger)("end", end);
+      oxyos::Report::get().input("scroll.target", 0, payload);
+      instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                     folly::dynamic::array("OxyOSScrollTarget", payload));
     });
     // The touch also goes to gesture handlers; one activating takes it from React Native and from
     // a text input's drag selection.
@@ -2304,8 +2318,10 @@ int main(int argc, char** argv) {
                                           "menu-bar",
                                           "dock",
                                           "status-menus",
-                                          "notifications"};
-          const char* action = shortcut.detail <= OXYOS_SHORTCUT_NOTIFICATIONS ? actions[shortcut.detail] : "";
+                                          "notifications",
+                                          "mission-control",
+                                          "app-expose"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_APP_EXPOSE ? actions[shortcut.detail] : "";
           folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
