@@ -276,12 +276,16 @@ fn the_window_follows_the_fingers_and_goes_on_from_where_they_let_it_go() {
     s.swipe(GesturePhase::Update, 75.0, 100);
     s.until(1100, "App Exposé arriving", |c| app_expose(c));
     assert_eq!(s.told(), [ShortcutIntent::Open]);
-    // The first frame App Exposé is drawn in has the window a quarter of the way.
+    // App Exposé's first frame has the window where it is, and it catches up with the fingers
+    // from there: a quarter of the way once caught up.
+    let flights = s.compositor.take_flights();
+    assert_eq!(flights[0].path[0], window);
+    s.at_ms(1400);
     assert_eq!(s.flown(), (between(window, VIEW, 0.25), true));
     for (step, share) in [(2u64, 0.5), (3, 0.75)] {
-        s.swipe(GesturePhase::Update, 75.0, 100 + step * 100);
+        s.swipe(GesturePhase::Update, 75.0, 400 + step * 100);
         // The frame after the motion, whatever the clock: the fingers', not a spring's.
-        s.at_ms(1100 + step * 100);
+        s.at_ms(1400 + step * 100);
         assert_eq!(
             s.flown(),
             (between(window, VIEW, share), true),
@@ -289,14 +293,14 @@ fn the_window_follows_the_fingers_and_goes_on_from_where_they_let_it_go() {
         );
     }
     // Held still, nothing moves.
-    s.at_ms(1450);
-    s.at_ms(1500);
+    s.at_ms(1750);
+    s.at_ms(1800);
     assert!(s.compositor.take_flights().is_empty());
-    s.swipe(GesturePhase::End, 0.0, 330);
+    s.swipe(GesturePhase::End, 0.0, 630);
     assert!(s.told().is_empty());
-    s.at_ms(1500);
+    s.at_ms(1800);
     let mut drawn = vec![s.flown().0];
-    for t in (1516..=2100).step_by(16) {
+    for t in (1816..=2400).step_by(16) {
         s.at_ms(t);
         if let Some(flight) = s.compositor.take_flights().last() {
             drawn.push(*flight.path.last().unwrap());

@@ -698,6 +698,10 @@ pub struct Compositor {
     /// The shell's surfaces a swipe drives, by the view they are (ADR 0046), kept while they go;
     /// and what the swipes had drawn in the frame composed last (an openness, a position).
     gesture_surfaces: HashMap<SurfaceKey, oxyos_protocol::GestureOverlay>,
+    /// Where the frame composed last drew each surface (the global space's, logical pixels): a
+    /// window moved into a view where its view is, or its flight; a window slid with its desktop,
+    /// slid. The development compositor reports it.
+    pub windows_drawn: HashMap<SurfaceKey, Rect>,
     swiped_drawn: (Option<f64>, Option<f64>),
     /// Frames composed while a transition ran, as the development compositor reports them.
     pub transition_frames: u64,
@@ -1135,6 +1139,7 @@ impl Compositor {
             flights: HashMap::new(),
             flights_seen: Vec::new(),
             gesture_surfaces: HashMap::new(),
+            windows_drawn: HashMap::new(),
             swiped_drawn: (None, None),
             transition_frames: 0,
             clock: None,
@@ -1856,7 +1861,18 @@ impl Compositor {
         // Exposé's surfaces as open as that, and the desktops slid that far, the one coming in
         // drawn beside the active one. A swipe beginning now begins from there.
         let now = self.now();
-        self.transitions.follow_swipe(self.scene.swipe_drive(), now);
+        let shown_list = self.scene.render_list();
+        let gesture_surfaces = &self.gesture_surfaces;
+        self.transitions
+            .follow_swipe(self.scene.swipe_drive(), now, |client, overlay| {
+                gesture_surfaces.iter().any(|(key, of)| {
+                    key.client == client
+                        && *of == overlay
+                        && shown_list.iter().any(
+                            |item| matches!(item, RenderItem::Surface { key: shown, .. } if shown == key),
+                        )
+                })
+            });
         let overlay_drive = self.transitions.drives.live_overlay(now);
         let slid = self.transitions.drives.spaces_at(now);
         let active = f64::from(self.scene.workspaces().1);
@@ -2112,6 +2128,8 @@ impl Compositor {
             }
         }
         let mut flights_seen: Vec<(SurfaceKey, bool, Rect)> = Vec::new();
+        // Where this frame draws each surface (a window moved into a view, there).
+        let mut drawn_windows: HashMap<SurfaceKey, Rect> = HashMap::new();
         let changed = swipe_moved
             || ready.iter().zip(&started).any(|(&index, &started)| {
                 let screen = &self.screens[index];
@@ -2295,6 +2313,7 @@ impl Compositor {
                             placed =
                                 Rect::new(placed.x + dx, placed.y, placed.width, placed.height);
                         }
+                        drawn_windows.insert(key, placed);
                         if self.transitions.is_arriving(key) || zoomed.is_some() || slide.is_some()
                         {
                             in_transition(
@@ -2504,6 +2523,9 @@ impl Compositor {
                             flights_seen.push((window, true, placed));
                         }
                     }
+                    if moved && flying {
+                        drawn_windows.insert(window, placed);
+                    }
                     contents.push(Content {
                         owner: Some(surface),
                         captured: self.scene.captured(surface),
@@ -2650,6 +2672,7 @@ impl Compositor {
                     opacity = view.opacity;
                     in_transition(clip, clip, None, false, None);
                     flights_seen.push((view.window, false, drawn));
+                    drawn_windows.insert(view.window, drawn);
                 }
                 contents.push(Content {
                     owner: None,
@@ -2844,6 +2867,7 @@ impl Compositor {
             })
             .collect();
         self.shown_views = views_shown;
+        self.windows_drawn = drawn_windows;
         // Each window's flight, frame by frame, for the development compositor's report.
         for (window, arriving, at) in flights_seen {
             let seen = match self

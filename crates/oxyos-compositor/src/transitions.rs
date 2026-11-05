@@ -664,16 +664,17 @@ impl Transitions {
         self.reduced
     }
 
-    /// Follows the scene's latest swipe (`Scene::swipe_drive`) at `now`. A new swipe of Mission
-    /// Control or App Exposé ends what the last one was taking away: the surfaces it drives now
-    /// are the shell's.
+    /// Follows the scene's latest swipe (`Scene::swipe_drive`) at `now`; `shown`, whether the
+    /// shell shows an overlay already. A new swipe of Mission Control or App Exposé ends what the
+    /// last one was taking away: the surfaces it drives now are the shell's.
     pub fn follow_swipe(
         &mut self,
         drive: Option<oxyos_compositor_core::scene::SwipeDrive>,
         now: Duration,
+        shown: impl Fn(oxyos_compositor_core::ClientId, oxyos_protocol::GestureOverlay) -> bool,
     ) {
         let before = self.drives.overlay.map(|drive| drive.motion.gesture);
-        self.drives.follow(drive, now);
+        self.drives.follow(drive, now, shown);
         if self.drives.overlay.map(|drive| drive.motion.gesture) != before {
             self.going.retain(|(_, running, _)| !running.driven);
         }
@@ -778,6 +779,7 @@ impl Transitions {
         if swiped && matches!(appearance.change, Change::Arrived | Change::Gone) {
             let motion = motions(appearance.kind, appearance.change, place);
             if appearance.arrived() {
+                self.drives.overlay_arrived(now);
                 self.start_arriving(
                     appearance.key,
                     appearance.kind,
