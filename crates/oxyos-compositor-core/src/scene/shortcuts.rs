@@ -29,7 +29,9 @@
 //! application is activated again.
 
 use super::{appearances, ClientId, OutputId, Role, Scene, SurfaceKey};
-use oxyos_protocol::{CaptureMode, DismissReason, ErrorCode, Event, ShellKind, SystemShortcut};
+use oxyos_protocol::{
+    CaptureMode, DismissReason, ErrorCode, Event, ShellKind, ShortcutIntent, SystemShortcut,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 const LEFT_SUPER: u32 = 125;
@@ -431,12 +433,25 @@ impl Scene {
             .map(|(client, _)| *client)
     }
 
-    /// Sends a shortcut to a shell: its serial is the shell's input, as a key press is.
+    /// Sends a shortcut to a shell: its serial is the shell's input, as a key press is. A key's
+    /// toggles what it shows.
     pub(super) fn tell_shortcut(
         &mut self,
         client: ClientId,
         output: OutputId,
         shortcut: SystemShortcut,
+    ) {
+        self.tell_shortcut_intent(client, output, shortcut, ShortcutIntent::Toggle);
+    }
+
+    /// The same, asking what `intent` says of what it shows: a swipe's opening or closing it
+    /// (docs/adr/0046-interactive-gestures.mdx), never sent to a shell of version 24 or older.
+    pub(super) fn tell_shortcut_intent(
+        &mut self,
+        client: ClientId,
+        output: OutputId,
+        shortcut: SystemShortcut,
+        intent: ShortcutIntent,
     ) {
         if !self.clients.contains_key(&client) {
             return;
@@ -450,6 +465,7 @@ impl Scene {
                 shortcut,
                 serial,
                 output,
+                intent,
             },
         );
     }

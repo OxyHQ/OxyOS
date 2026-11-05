@@ -2144,6 +2144,7 @@ fn shortcuts_reach_the_shell_through_any_surface_it_has_left() {
         shortcut: SystemShortcut::Search,
         serial: h.scene.serial,
         output: 1,
+        intent: oxyos_protocol::ShortcutIntent::Toggle,
     }));
     assert!(h.events_for(APP).is_empty());
 }

@@ -69,6 +69,12 @@ impl Scene {
     /// Shows workspace `index`: its windows, its topmost one focused. False for one that does not
     /// exist, and while locked.
     pub fn activate_workspace(&mut self, index: u32) -> bool {
+        self.activate_workspace_as(index, true)
+    }
+
+    /// The same; `slide`: the windows slide out and in (ADR 0011), else the compositor moves them
+    /// already, as a swipe across has brought the desktop in (docs/adr/0046-interactive-gestures.mdx).
+    pub(super) fn activate_workspace_as(&mut self, index: u32, slide: bool) -> bool {
         if index >= self.workspaces.count || self.locked {
             return false;
         }
@@ -81,12 +87,12 @@ impl Scene {
         // The windows left slide out and those of the workspace shown slide in, as a Mac's
         // spaces do (ADR 0011); they are moved aside, not gone.
         let now = self.shown_windows();
-        for &out in before.difference(&now) {
+        for &out in before.difference(&now).filter(|_| slide) {
             if self.nodes[&out].mapped {
                 self.appeared(out, super::appearances::Change::WorkspaceOut { forward });
             }
         }
-        for &into in now.difference(&before) {
+        for &into in now.difference(&before).filter(|_| slide) {
             if self.nodes[&into].mapped {
                 self.appeared(into, super::appearances::Change::WorkspaceIn { forward });
             }
