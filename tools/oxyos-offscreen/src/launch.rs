@@ -2083,6 +2083,17 @@ fn composed_since(compositor: &Compositor, from_ns: i64) -> String {
     format!("[{}]", frames.join(","))
 }
 
+/// Where the frame composed last drew each window, in order.
+fn drawn_windows(compositor: &Compositor) -> Vec<(SurfaceKey, Rect)> {
+    let mut drawn: Vec<(SurfaceKey, Rect)> = compositor
+        .windows_drawn
+        .iter()
+        .map(|(key, rect)| (*key, *rect))
+        .collect();
+    drawn.sort_by_key(|(key, _)| (key.client, key.id));
+    drawn
+}
+
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
@@ -2159,6 +2170,9 @@ fn settle(
     // The companion's frames count as the application's do: it is an application the person
     // opened, and what it shows (a caret blinking in its field) answers a step as much.
     let mut companion_last = companion_frames(session);
+    // Where the compositor draws the windows (ADR 0046): a swipe's answer is the windows moved,
+    // which no client draws.
+    let mut drawn_last = drawn_windows(&session.compositor);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -2192,7 +2206,11 @@ fn settle(
         let companion_now = companion_frames(session);
         let companion_changed = companion_now != companion_last;
         companion_last = companion_now;
-        let shell_changed = shell_now != shell_last || launched_changed || companion_changed;
+        let drawn_now = drawn_windows(&session.compositor);
+        let drawn_changed = drawn_now != drawn_last;
+        drawn_last = drawn_now;
+        let shell_changed =
+            shell_now != shell_last || launched_changed || companion_changed || drawn_changed;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -5348,7 +5366,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             &mut session,
             &mut children,
             &before,
-            *may_stay,
+            // A swipe answers as it is paced, the compositor drawing the windows as the fingers
+            // go: what settles is that nothing moves any more.
+            *may_stay || matches!(step, Step::Swipe { .. }),
             Wait {
                 deadline: Instant::now()
                     + settling

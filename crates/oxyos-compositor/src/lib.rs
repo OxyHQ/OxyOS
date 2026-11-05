@@ -1873,6 +1873,17 @@ impl Compositor {
                         )
                 })
             });
+        // Closed, and its surfaces gone (the shell took them away, and they went): over.
+        if let Some(drive) = self.transitions.drives.overlay {
+            let closed = drive.motion.going_to() == Some(0.0) && !drive.motion.springing(now);
+            let left = self
+                .gesture_surfaces
+                .iter()
+                .any(|(key, of)| key.client == drive.client && *of == drive.overlay);
+            if closed && !left {
+                self.transitions.drives.overlay = None;
+            }
+        }
         let overlay_drive = self.transitions.drives.live_overlay(now);
         let slid = self.transitions.drives.spaces_at(now);
         let active = f64::from(self.scene.workspaces().1);
@@ -1887,7 +1898,10 @@ impl Compositor {
         }));
         self.scene
             .swipe_from(oxyos_compositor_core::scene::SwipeRest {
-                openness: overlay_drive.map(|drive| (drive.overlay, drive.openness(now))),
+                // Only while it moves: held closed for the shell, it is no motion to catch.
+                openness: overlay_drive
+                    .filter(|_| self.transitions.drives.springing(now))
+                    .map(|drive| (drive.overlay, drive.openness(now))),
                 position: slid,
             });
         let swiped = (overlay_drive.map(|drive| drive.openness(now)), slid);
