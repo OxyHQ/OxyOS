@@ -28,7 +28,6 @@ const en = {
     wallpaper: "Wallpaper",
     notifications: "Notifications",
     lockScreen: "Lock Screen",
-    dock: "Dock",
     displays: "Displays",
     keyboard: "Keyboard",
     dateTime: "Date & Time",
@@ -75,13 +74,6 @@ const en = {
       n === 60
         ? plural("en", 1, { one: (c) => `${c} hour`, other: (c) => `${c} hours` })
         : plural("en", n, { one: (c) => `${c} minute`, other: (c) => `${c} minutes` }),
-  },
-  /** The Dock, as a Mac's Desktop & Dock names its row and choices. */
-  dock: {
-    minimizeEffect: "Minimise windows using",
-    genie: "Genie effect",
-    scale: "Scale effect",
-    reduceMotion: "With Reduce motion turned on in Accessibility, windows fade in and out instead.",
   },
   displays: {
     arrangement: "Arrangement",
@@ -331,7 +323,6 @@ const es: Messages = {
     wallpaper: "Fondo de pantalla",
     notifications: "Notificaciones",
     lockScreen: "Pantalla de bloqueo",
-    dock: "Dock",
     displays: "Pantallas",
     keyboard: "Teclado",
     dateTime: "Fecha y hora",
@@ -379,13 +370,6 @@ const es: Messages = {
       n === 60
         ? plural("es", 1, { one: (c) => `${c} hora`, other: (c) => `${c} horas` })
         : plural("es", n, { one: (c) => `${c} minuto`, other: (c) => `${c} minutos` }),
-  },
-  dock: {
-    minimizeEffect: "Minimizar ventanas usando",
-    genie: "Efecto genio",
-    scale: "Efecto escala",
-    reduceMotion:
-      "Con Reducir movimiento activado en Accesibilidad, las ventanas aparecen y se van con un fundido.",
   },
   displays: {
     arrangement: "Disposición",

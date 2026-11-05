@@ -34,7 +34,6 @@ import {
   RiSubtractLine,
   RiTranslate2,
   RiWifiLine,
-  RiWindowLine,
 } from "@oxy.so/bloom/icons";
 import { resolveBloomLanguage, useBloomLocale } from "@oxy.so/bloom/locale";
 import { Loading } from "@oxy.so/bloom/loading";
@@ -61,7 +60,6 @@ import {
   formatSize,
   looksLike,
   LOCK_AFTER_CHOICES,
-  MINIMIZE_EFFECTS,
   placeOf,
   prefersSteadyCaret,
   refreshRates,
@@ -71,7 +69,6 @@ import {
   type Display,
   type HourCycle,
   type LanguagePreference,
-  type MinimizeEffect,
   type NotificationPreviews,
   type SettingsActions,
   type SettingsSnapshot,
@@ -290,35 +287,6 @@ function LockScreenPage({ snapshot, actions, strings }: PageProps) {
             onChange={(value) => actions.setPreference("lockAfter", Number(value))}
             testID="lock-after"
           />
-        }
-      />
-    </GroupedSection>
-  );
-}
-
-/** The Dock, as a Mac's Desktop & Dock: how a window minimized goes into it (docs/adr/0011-transitions.mdx),
-    the session's `minimize_effect`. */
-function DockPage({ snapshot, actions, strings }: PageProps) {
-  const words = strings.dock;
-  return (
-    <GroupedSection footer={words.reduceMotion}>
-      <GroupedSectionItem
-        title={words.minimizeEffect}
-        testID="minimize-effect-row"
-        rightElement={
-          <SegmentedControl<MinimizeEffect>
-            label={words.minimizeEffect}
-            type="radio"
-            value={snapshot.preferences.minimizeEffect}
-            onValueChange={(value) => actions.setPreference("minimizeEffect", value)}
-            testID="minimize-effect"
-          >
-            {MINIMIZE_EFFECTS.map((effect) => (
-              <SegmentedControlItem key={effect} value={effect} testID={`minimize-effect-${effect}`}>
-                <SegmentedControlItemText>{words[effect]}</SegmentedControlItemText>
-              </SegmentedControlItem>
-            ))}
-          </SegmentedControl>
         }
       />
     </GroupedSection>
@@ -1758,8 +1726,6 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
         { key: "wallpaper", label: words.wallpaper, icon: RiImageLine, page: "wallpaper" },
         { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
         { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
-        // Where a Mac's Desktop & Dock stands: just before Displays.
-        { key: "dock", label: words.dock, icon: RiWindowLine, page: "dock" },
         { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
         { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
       ],
@@ -1782,7 +1748,6 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
     wallpaper: { title: words.wallpaper, content: <WallpaperPage {...props} /> },
     notifications: { title: words.notifications, content: <NotificationsPage {...props} /> },
     "lock-screen": { title: words.lockScreen, content: <LockScreenPage {...props} /> },
-    dock: { title: words.dock, content: <DockPage {...props} /> },
     displays: { title: words.displays, content: <DisplaysPage {...props} /> },
     accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },
     keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },

@@ -69,25 +69,6 @@ impl Previews {
     }
 }
 
-/// How a window minimized goes into the dock and comes back out (docs/adr/0011-transitions.mdx), as
-/// a Mac's *Minimize windows using*: poured through the genie's funnel, or scaled into its place.
-/// Reduce motion makes either a crossfade.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum MinimizeEffect {
-    #[default]
-    Genie,
-    Scale,
-}
-
-impl MinimizeEffect {
-    fn name(self) -> &'static str {
-        match self {
-            MinimizeEffect::Genie => "genie",
-            MinimizeEffect::Scale => "scale",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preferences {
     pub appearance: Appearance,
@@ -96,8 +77,6 @@ pub struct Preferences {
     pub accent: String,
     /// Every transition takes no time (ADR 0011).
     pub reduce_motion: bool,
-    /// How a window minimized goes into the dock (ADR 0011's genie).
-    pub minimize_effect: MinimizeEffect,
     /// Glass is drawn opaque.
     pub reduce_transparency: bool,
     /// A text field's caret blinks; off, it stays lit (docs/adr/0037-text-editing.mdx).
@@ -142,7 +121,6 @@ impl Default for Preferences {
             appearance: Appearance::default(),
             accent: "oxy".to_owned(),
             reduce_motion: false,
-            minimize_effect: MinimizeEffect::default(),
             reduce_transparency: false,
             caret_blink: true,
             wallpaper: None,
@@ -239,7 +217,6 @@ pub const KEYS: &[&str] = &[
     "appearance",
     "accent",
     "reduce_motion",
-    "minimize_effect",
     "reduce_transparency",
     "caret_blink",
     "wallpaper",
@@ -290,13 +267,6 @@ impl Preferences {
             }
             "accent" => self.accent = name(value, MAX_ACCENT_BYTES)?,
             "reduce_motion" => self.reduce_motion = boolean(value)?,
-            "minimize_effect" => {
-                self.minimize_effect = match value {
-                    "genie" => MinimizeEffect::Genie,
-                    "scale" => MinimizeEffect::Scale,
-                    _ => return Err(Refused::BadValue),
-                }
-            }
             "reduce_transparency" => self.reduce_transparency = boolean(value)?,
             "caret_blink" => self.caret_blink = boolean(value)?,
             "wallpaper" => {
@@ -362,7 +332,6 @@ impl Preferences {
             "appearance" => self.appearance.name().to_owned(),
             "accent" => self.accent.clone(),
             "reduce_motion" => self.reduce_motion.to_string(),
-            "minimize_effect" => self.minimize_effect.name().to_owned(),
             "reduce_transparency" => self.reduce_transparency.to_string(),
             "caret_blink" => self.caret_blink.to_string(),
             "wallpaper" => self.wallpaper.clone().unwrap_or_default(),
