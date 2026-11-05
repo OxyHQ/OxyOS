@@ -1,5 +1,6 @@
-//! The system's sounds (docs/adr/0044-system-sounds.mdx): what each [`SystemSound`] is called in
-//! the freedesktop.org sound theme naming (`file-trash`, `trash-empty`, `message-new-instant`), where
+//! The system's sounds (docs/adr/0044-system-sounds.mdx): what each [`Sound`] is called in the
+//! freedesktop.org sound theme naming (`file-trash`, `trash-empty`, `message-new-instant`,
+//! `screen-capture`), where
 //! its file is (OxyOS's theme, then freedesktop's, in the data directories), its samples decoded once
 //! from Ogg Vorbis ([`decode`]), and who plays them: PipeWire ([`PipeWire`], the session's) or a
 //! record of what would have been played ([`Recorder`], the development compositor's).
@@ -19,26 +20,51 @@ pub use pipewire_player::PipeWire;
 #[cfg(test)]
 mod tests;
 
+/// A sound the system plays: one the scene is asked for ([`SystemSound`]: an application's, the
+/// Trash's, a notification's) or the session's own, which no client can ask for (the screenshot
+/// shutter).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Sound {
+    MoveToTrash,
+    EmptyTrash,
+    Notification,
+    /// A screenshot taken (ADR 0024, decision 10).
+    ScreenCapture,
+}
+
+impl From<SystemSound> for Sound {
+    fn from(sound: SystemSound) -> Self {
+        match sound {
+            SystemSound::MoveToTrash => Sound::MoveToTrash,
+            SystemSound::EmptyTrash => Sound::EmptyTrash,
+            SystemSound::Notification => Sound::Notification,
+        }
+    }
+}
+
 /// Every sound the system has.
-pub const SOUNDS: [SystemSound; 3] = [
-    SystemSound::MoveToTrash,
-    SystemSound::EmptyTrash,
-    SystemSound::Notification,
+pub const SOUNDS: [Sound; 4] = [
+    Sound::MoveToTrash,
+    Sound::EmptyTrash,
+    Sound::Notification,
+    Sound::ScreenCapture,
 ];
 
 /// Its name in the freedesktop.org sound naming specification.
-pub fn name(sound: SystemSound) -> &'static str {
+pub fn name(sound: Sound) -> &'static str {
     match sound {
-        SystemSound::MoveToTrash => "file-trash",
-        SystemSound::EmptyTrash => "trash-empty",
-        SystemSound::Notification => "message-new-instant",
+        Sound::MoveToTrash => "file-trash",
+        Sound::EmptyTrash => "trash-empty",
+        Sound::Notification => "message-new-instant",
+        Sound::ScreenCapture => "screen-capture",
     }
 }
 
 /// Whether it is an interface sound effect, which a Mac's *Play user interface sound effects*
-/// turns off (the Trash's), rather than an alert (a notification's), which it does not.
-pub fn is_interface(sound: SystemSound) -> bool {
-    !matches!(sound, SystemSound::Notification)
+/// turns off (the Trash's, the screenshot's), rather than an alert (a notification's), which it
+/// does not.
+pub fn is_interface(sound: Sound) -> bool {
+    !matches!(sound, Sound::Notification)
 }
 
 /// The data directories, as the XDG Base Directory specification orders them: `XDG_DATA_HOME`
@@ -58,7 +84,7 @@ pub fn data_dirs() -> Vec<PathBuf> {
 
 /// The file of `sound`: `sounds/<theme>/stereo/<name>.oga` (or `.ogg`), OxyOS's theme first, then
 /// freedesktop's, in each data directory in order.
-pub fn find(data_dirs: &[PathBuf], sound: SystemSound) -> Option<PathBuf> {
+pub fn find(data_dirs: &[PathBuf], sound: Sound) -> Option<PathBuf> {
     let name = name(sound);
     data_dirs.iter().find_map(|dir| {
         ["oxyos", "freedesktop"].iter().find_map(|theme| {
@@ -144,24 +170,24 @@ pub fn decode(path: &Path) -> io::Result<Pcm> {
 /// Plays the system's sounds.
 pub trait Player: Send {
     /// Plays `sound` now, beside any still playing, without waiting for it.
-    fn play(&mut self, sound: SystemSound);
+    fn play(&mut self, sound: Sound);
 }
 
 /// A record of the sounds asked for, played by nothing: the development compositor's.
 #[derive(Clone, Debug, Default)]
 pub struct Recorder {
-    played: Arc<Mutex<Vec<SystemSound>>>,
+    played: Arc<Mutex<Vec<Sound>>>,
 }
 
 impl Recorder {
     /// What was asked for since the last call, in order.
-    pub fn take(&self) -> Vec<SystemSound> {
+    pub fn take(&self) -> Vec<Sound> {
         std::mem::take(&mut *self.played.lock().expect("not poisoned"))
     }
 }
 
 impl Player for Recorder {
-    fn play(&mut self, sound: SystemSound) {
+    fn play(&mut self, sound: Sound) {
         self.played.lock().expect("not poisoned").push(sound);
     }
 }

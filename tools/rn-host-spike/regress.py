@@ -94,7 +94,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   no shell surface shown says, exactly;
 - sounds: the system sounds the session played in the step (docs/adr/0044-system-sounds.mdx),
   exactly and in order, by their names in the sound theme (`file-trash`, `trash-empty`,
-  `message-new-instant`): recorded as the session would play them, after the person's settings and
+  `message-new-instant`, `screen-capture`): recorded as the session would play them, after the person's settings and
   the output's mute; a step that plays one and does not say so fails;
 - urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say

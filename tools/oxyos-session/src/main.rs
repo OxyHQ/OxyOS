@@ -270,8 +270,8 @@ fn main() -> Result<()> {
         }
     }
     // Screenshots (ADR 0024, decision 10), written as the user the session runs as: the Desktop
-    // and Documents where xdg-user-dirs keeps them, named in the session's language, with the
-    // sound theme's shutter. The login screen captures nothing.
+    // and Documents where xdg-user-dirs keeps them, named in the session's language; the shutter is
+    // the system sounds' (above). The login screen captures nothing.
     if !greeter {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -287,19 +287,10 @@ fn main() -> Result<()> {
             };
             oxyos_preferences::user_dirs::folder(&config_home, &home, variable, default)
         });
-        let data_dirs: Vec<PathBuf> = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .into_iter()
-            .chain(std::env::split_paths(
-                &std::env::var_os("XDG_DATA_DIRS")
-                    .unwrap_or_else(|| "/usr/local/share:/usr/share".into()),
-            ))
-            .collect();
         match oxyos_compositor::screenshots::Writer::spawn(
             folders,
             // The session's language (docs/adr/0040-language-and-region.mdx), followed as it changes.
             oxyos_compositor::screenshots::Language::of(&[settings.locale()]),
-            oxyos_compositor::screenshots::shutter_sound(&data_dirs),
         ) {
             Ok(writer) => compositor.screenshots = Some(writer),
             Err(error) => eprintln!("[session] screenshots: {error}; none is saved"),

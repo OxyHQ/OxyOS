@@ -1,5 +1,5 @@
 {
-  "about": "Another application activated while a window's popup is open (the audit in docs/react-native-android-adaptation.mdx, \"Popups following their window\"): on a Mac a menu or a transient popover closes when its application stops being the active one (Command-Tab). EditingProbe is the scenario's application (Allo) and PopupWindowProbe (sample/PopupWindowProbe.tsx) a second application beside it (`companion`), in the session's shell. A press on the companion's Actions opens its menu; the shell's Super+Tab closes the menu as the switcher opens (the compositor dismisses the grab before telling the shell: no key reaches either application), and its release activates Allo: the companion's window hears it lost the keyboard and React nothing, and its page counts the menu closed once. The same with its popover. Each step checks the compositor's focus, what each client was delivered, exactly what each React tree heard and each popup's lifecycle.",
+  "about": "Another application activated while a window's popup is open (the audit in docs/react-native-android-adaptation.mdx, \"Popups following their window\"): on a Mac a menu or a transient popover closes when its application stops being the active one (Command-Tab). EditingProbe is the scenario's application (Allo) and PopupWindowProbe (sample/PopupWindowProbe.tsx) a second application beside it (`companion`), in the session's shell. A press on the companion's Actions opens its menu; the shell's Super+Tab closes the menu as the switcher opens (the compositor dismisses the grab before telling the shell: no key reaches either application), and its release activates Allo: the companion's window hears it lost the keyboard and React nothing, and its page counts the menu closed once. The same with its popover, once a first press on the inactive companion has only activated it (a Mac's first click, docs/adr/0016-windows.mdx, decision 9) and a second has opened it. Each step checks the compositor's focus, what each client was delivered, exactly what each React tree heard and each popup's lifecycle.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [360, 200],
@@ -38,15 +38,29 @@
       }
     },
     {
-      "name": "a press on the companion's Details opens its popover",
+      "name": "a press on the inactive companion's Details only activates it, as a Mac's first click: its React tree hears nothing, the host declines the first mouse, no popover",
+      "do": ["press_named", "Details"],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}, "popup_events": {}, "host_input": {"first_mouse.declined": 1, "first_mouse.accepted": 0},
+          "texts": ["popover opened 0, closed 0", "active yes, zoomed no, full screen no"]
+        },
+        "delivered": {"1": {"focus.out": 1}, "companion": {"focus.in": 1, "press": 1, "release": 1}}
+      }
+    },
+    {
+      "name": "pressed again, the active companion's Details opens its popover",
       "do": ["press_named", "Details"],
       "expect": {
         "react": {},
         "in_companion": {
           "react": {"touchStart@popover-trigger": 1, "touchEnd@popover-trigger": 1}, "popup_events": {"open@details": 1},
-          "texts": ["popover opened 1, closed 0", "active yes, zoomed no, full screen no"]
+          "texts": ["popover opened 1, closed 0", "active yes, zoomed no, full screen no"],
+          "host_input": {"first_mouse.declined": 0, "first_mouse.accepted": 0}
         },
-        "delivered": {"1": {"focus.out": 1}, "companion": {"focus.in": 2, "focus.out": 1, "leave": 1, "press": 1, "release": 1}}
+        "delivered": {"companion": {"focus.in": 1, "focus.out": 1, "leave": 1, "press": 1, "release": 1}}
       }
     },
     {

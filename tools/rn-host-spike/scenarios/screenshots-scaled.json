@@ -1,5 +1,5 @@
 {
-  "about": "screenshots.json on a 1600x1000 output at 1.25 (ADR 0018), the session in English: the same steps, each file at the display's own pixels.",
+  "about": "screenshots.json on a 1600x1000 output at 1.25 (ADR 0018), the session in Spanish: the same steps, each file at the display's own pixels, the shutter once each.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -40,7 +40,7 @@
       }
     },
     {
-      "name": "Super+Shift+3: the whole display, at its own pixels, saved to the Desktop and named as a Mac names it; its thumbnail at the bottom-right corner, said to the screen reader; nothing of it reaches Allo, whose field keeps the keyboard",
+      "name": "Super+Shift+3: the whole display, at its own pixels, saved to the Desktop and named as a Mac names it; its thumbnail at the bottom-right corner, said to the screen reader; nothing of it reaches Allo, whose field keeps the keyboard; the shutter once",
       "do": [
         "key",
         [
@@ -87,11 +87,14 @@
             }
           ],
           "opened": []
-        }
+        },
+        "sounds": [
+          "screen-capture"
+        ]
       }
     },
     {
-      "name": "Super+Shift+3 again while the thumbnail shows: another file, numbered if in the same second, and the thumbnail is not in it",
+      "name": "Super+Shift+3 again while the thumbnail shows: another file, numbered if in the same second, and the thumbnail is not in it; the shutter once",
       "do": [
         "key",
         [
@@ -128,7 +131,10 @@
             }
           ],
           "opened": []
-        }
+        },
+        "sounds": [
+          "screen-capture"
+        ]
       }
     },
     {
@@ -209,7 +215,7 @@
       }
     },
     {
-      "name": "A drag from the desktop over Allo's corner: the rectangle it spans, at the display's pixels, and the crosshair ends",
+      "name": "A drag from the desktop over Allo's corner: the rectangle it spans, at the display's pixels, and the crosshair ends; the shutter once",
       "do": [
         "drag_output",
         [
@@ -255,7 +261,10 @@
             }
           ],
           "opened": []
-        }
+        },
+        "sounds": [
+          "screen-capture"
+        ]
       }
     },
     {
@@ -338,7 +347,7 @@
       }
     },
     {
-      "name": "A press on Allo: its window with its shadow, over nothing, at the display's pixels; Allo keeps the keyboard and is not pressed",
+      "name": "A press on Allo: its window with its shadow, over nothing, at the display's pixels; Allo keeps the keyboard and is not pressed; the shutter once",
       "do": [
         "press_output",
         [
@@ -384,7 +393,10 @@
             }
           ],
           "opened": []
-        }
+        },
+        "sounds": [
+          "screen-capture"
+        ]
       }
     },
     {
@@ -481,7 +493,7 @@
       }
     },
     {
-      "name": "Return: what the toolbar shows, the whole display, without the toolbar; it ends",
+      "name": "Return: what the toolbar shows, the whole display, without the toolbar; it ends; the shutter once",
       "do": [
         "key",
         [
@@ -525,7 +537,10 @@
             }
           ],
           "opened": []
-        }
+        },
+        "sounds": [
+          "screen-capture"
+        ]
       }
     },
     {

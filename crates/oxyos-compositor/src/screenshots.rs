@@ -8,7 +8,8 @@
 //! file (the second "… (2).png"). A file is written whole under a hidden name and then linked to
 //! its own, so nothing ever sees half of one, and never over another: a name taken goes on to the
 //! next number. Encoding and writing happen on a thread of their own, never in the compositor's
-//! turn; the shutter sounds as the capture is taken, when the system has its sound.
+//! turn. The shutter is the compositor's, played as the capture is taken by the system sound
+//! service (`crate::sounds`, docs/adr/0044-system-sounds.mdx), not the writer's.
 
 use oxyos_compositor_core::OutputId;
 use oxyos_protocol::{CaptureDestination, CaptureKind};
@@ -89,23 +90,6 @@ impl Language {
             format!("{base} ({n}).png")
         }
     }
-}
-
-/// The shutter's sound, if the system has one: `screen-capture` of the freedesktop.org sound
-/// theme naming, OxyOS's theme first, then `freedesktop`'s, in each of the data directories.
-pub fn shutter_sound(data_dirs: &[PathBuf]) -> Option<PathBuf> {
-    data_dirs.iter().find_map(|dir| {
-        ["oxyos", "freedesktop"].iter().find_map(|theme| {
-            ["oga", "ogg", "wav"].iter().find_map(|extension| {
-                let sound = dir
-                    .join("sounds")
-                    .join(theme)
-                    .join("stereo")
-                    .join(format!("screen-capture.{extension}"));
-                sound.is_file().then_some(sound)
-            })
-        })
-    })
 }
 
 /// A capture's pixels as a PNG: RGB when opaque; RGBA, its colours no longer premultiplied, with
@@ -220,7 +204,6 @@ struct Job {
     folder: PathBuf,
     at: jiff::civil::DateTime,
     language: Language,
-    sound: Option<PathBuf>,
     captures: Vec<(u32, Capture)>,
 }
 
@@ -233,15 +216,13 @@ pub struct Writer {
     wake: UnixStream,
     folders: Folders,
     pub language: Language,
-    /// The shutter's sound, played as each capture is taken ([`shutter_sound`]).
-    pub sound: Option<PathBuf>,
     next: u32,
     paths: BTreeMap<u32, PathBuf>,
 }
 
 impl Writer {
     /// A writer saving to `folders`' folders, naming in `language`.
-    pub fn spawn(folders: Folders, language: Language, sound: Option<PathBuf>) -> io::Result<Self> {
+    pub fn spawn(folders: Folders, language: Language) -> io::Result<Self> {
         let (wake, woken) = UnixStream::pair()?;
         wake.set_nonblocking(true)?;
         woken.set_nonblocking(true)?;
@@ -252,15 +233,6 @@ impl Writer {
             .name("oxyos-screenshots".into())
             .spawn(move || {
                 for job in received {
-                    let shutter = job.sound.as_ref().and_then(|sound| {
-                        std::process::Command::new("pw-play")
-                            .arg(sound)
-                            .stdin(std::process::Stdio::null())
-                            .stdout(std::process::Stdio::null())
-                            .stderr(std::process::Stdio::null())
-                            .spawn()
-                            .ok()
-                    });
                     let mut first = 1;
                     for (screenshot, capture) in job.captures {
                         let names =
@@ -281,9 +253,6 @@ impl Writer {
                         });
                         let _ = (&woken).write(&[1]);
                     }
-                    if let Some(mut shutter) = shutter {
-                        let _ = shutter.wait();
-                    }
                 }
             })?;
         Ok(Self {
@@ -293,7 +262,6 @@ impl Writer {
             wake,
             folders,
             language,
-            sound,
             next: 1,
             paths: BTreeMap::new(),
         })
@@ -323,7 +291,6 @@ impl Writer {
                 folder,
                 at,
                 language: self.language,
-                sound: self.sound.clone(),
                 captures,
             });
         }
@@ -481,7 +448,7 @@ mod tests {
                 CaptureDestination::Documents => documents.clone(),
             })
         };
-        let mut writer = Writer::spawn(folders, Language::Spanish, None).unwrap();
+        let mut writer = Writer::spawn(folders, Language::Spanish).unwrap();
         let capture = |output| Capture {
             output,
             width: 4,
@@ -521,20 +488,6 @@ mod tests {
         );
         assert_eq!(writer.path(2), Some(paths[1].as_path()));
         assert!(!documents.exists());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn the_shutter_is_the_sound_themes_screen_capture() {
-        let dir = scratch("sound");
-        assert_eq!(shutter_sound(std::slice::from_ref(&dir)), None);
-        let theme = dir.join("sounds/freedesktop/stereo");
-        std::fs::create_dir_all(&theme).unwrap();
-        std::fs::write(theme.join("screen-capture.oga"), b"").unwrap();
-        assert_eq!(
-            shutter_sound(&[dir.join("missing"), dir.clone()]),
-            Some(theme.join("screen-capture.oga"))
-        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

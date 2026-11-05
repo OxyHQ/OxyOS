@@ -378,6 +378,26 @@ fn every_display_is_captured_as_its_screen_composed_it_at_its_own_pixels() {
     assert_ne!(s.compositor.pixel(secure.x + 1, secure.y + 1), 0);
 }
 
+/// The shutter (docs/adr/0044-system-sounds.mdx): once a capture, however many displays it has,
+/// through the system sound service; an interface sound effect, so silent with them off.
+#[test]
+fn a_capture_sounds_the_shutter_once_unless_interface_sounds_are_off() {
+    use oxyos_sound::{Recorder, Sound};
+    let mut s = session("shutter");
+    let recorder = Recorder::default();
+    s.compositor.sounds = Some(oxyos_compositor::sounds::Sounds::new(Box::new(
+        recorder.clone(),
+    )));
+    s.shortcut(KEY_3);
+    assert_eq!(s.compositor.shots.len(), 1);
+    assert_eq!(s.compositor.shots[0].captures.len(), 2);
+    assert_eq!(recorder.take(), [Sound::ScreenCapture]);
+    s.compositor.sounds.as_mut().unwrap().interface = false;
+    s.shortcut(KEY_3);
+    assert_eq!(s.compositor.shots.len(), 2);
+    assert!(recorder.take().is_empty());
+}
+
 #[test]
 fn an_area_at_1_25_is_the_pixels_its_rectangle_covers() {
     let mut s = session("area");
@@ -509,7 +529,7 @@ fn the_session_writes_each_displays_png_and_tells_the_shell() {
     let desktop = s.directory.0.join("home/Escritorio");
     let folder = desktop.clone();
     s.compositor.screenshots =
-        Some(Writer::spawn(Box::new(move |_| folder.clone()), Language::Spanish, None).unwrap());
+        Some(Writer::spawn(Box::new(move |_| folder.clone()), Language::Spanish).unwrap());
     s.shortcut(KEY_3);
     // Each screenshot's path in chunks, by its number: (output, width, height, path, whole).
     let mut told: std::collections::BTreeMap<u32, (u32, u32, u32, String, bool)> =

@@ -1,6 +1,6 @@
 //! Plays system sounds through PipeWire as the session does (docs/adr/0044-system-sounds.mdx), from
 //! the sound theme in the data directories: `play [NAME...]`, each by its sound naming name
-//! (`file-trash`, `trash-empty`, `message-new-instant`), a second apart; all of them by default.
+//! (`file-trash`, `trash-empty`, `message-new-instant`, `screen-capture`), a second apart; all of them by default.
 
 use oxyos_sound::{name, PipeWire, Player, SOUNDS};
 use std::time::Duration;
