@@ -10,6 +10,8 @@ Status: **accepted; implemented** (the protocol, the scene, the compositor, `oxy
 
 **2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
 
+**5 November 2026:** the dock's Trash under a drag it would take darkens its own picture and grows to 1.1× on a spring, settling back as the drag leaves or drops (with Reduce Motion it only darkens), and a drop on it plays the Trash's sound once ([ADR 0044](./0044-system-sounds), decision 7). Decision 12's darkened row is that.
+
 ## Problem
 
 Nothing can be dragged from one OxyOS application to another. A file dragged out of Stash stops at its window's edge; the dock's Trash cannot take a file dropped on it (ADR 0034 left it out for want of a protocol); a link or an image dragged in Astro drops only inside Astro's own window (OxyHQ/Astro#82), fed by the pointer the press keeps, and a release outside it drops nothing. On a Mac every application is a source and a target, and Finder, the Dock's Trash and Safari meet through one drag.

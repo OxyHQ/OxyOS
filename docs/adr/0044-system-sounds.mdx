@@ -1,0 +1,66 @@
+---
+title: "ADR 0044: System sounds"
+description: The system's own sounds, as a Mac plays them — the Trash's as files go into it and as it is emptied, and a notification's as it arrives — decoded once and played by the session through PipeWire, asked for by name by the session, the shell's dock and applications (Bloom's usePlatformSounds), silenced by Play user interface sound effects, Do Not Disturb, an application's notification sound turned off or a muted output; and the dock's Trash answering a drag it would take.
+order: 53
+---
+
+# ADR 0044: System sounds
+
+Status: **accepted; implemented**. Builds on [ADR 0019](./0019-settings) (the person's preferences), [ADR 0025](./0025-hardware-keys-and-control-center) (the output's volume and mute through WirePlumber), [ADR 0026](./0026-notifications) (notifications, which this amends: their sound), [ADR 0028](./0028-file-access) (the Trash), [ADR 0033](./0033-protocol-versions) (version 23), [ADR 0034](./0034-the-dock) (the dock's Trash) and [ADR 0035](./0035-drag-and-drop) (the Trash as a drop target, decision 12).
+
+## Problem
+
+OxyOS made no sound. On a Mac, files dropped on the Dock's Trash or moved there in Finder (⌘⌫) crumple into it, emptying it sounds once the person confirmed, and a notification chimes as it arrives; *Play user interface sound effects* (Sound settings) silences the first kind, Focus and each application's *Play sound for notifications* the second, and a muted output all of them. The owner asked for both: "al acercarlos a la papelera debería la papelera hacer un poco de scale o algo, como en macOS, y hacer sonido", supplying a trash sound and, later, a notification sound.
+
+The platform had PipeWire (the image's one audio stack, `pipewire-audio`), the output's volume and mute through WirePlumber (ADR 0025), and one sound already: the screenshot shutter, the sound theme's `screen-capture` played by spawning `pw-play` per capture (ADR 0024). Nothing decoded a sound once, nothing an application could ask for, and the dock's Trash only darkened its row under a drag.
+
+## Decision
+
+1. **One system sound service, in the session, through PipeWire.** The session decodes each system sound once as it starts (`crates/oxyos-sound`: Ogg Vorbis in safe Rust, `lewton`) and keeps its samples; each sound asked for is a PipeWire playback stream of its own (PipeWire's own Rust bindings, `pipewire`), on a thread with its own main loop, so the compositor's turn never waits on audio. A stream asks for a 256-frame quantum (about 5 ms at 48 kHz), so a sound starts at once; it is an event's (`media.role` Notification, `event.id` the sound's name); PipeWire mixes it with whatever plays and routes it to the default output at its volume; it is disconnected once drained, so nothing holds the device between sounds. At most four play at once. The connection is made at the first sound and again after PipeWire went away. The login screen plays none.
+2. **The sounds are a freedesktop.org sound theme, OxyOS's.** `/usr/share/sounds/oxyos` (`config/includes.chroot_after_packages`): `index.theme` (inheriting `freedesktop`) and `stereo/` with each sound under its name in the sound naming specification, found in the data directories in order, OxyOS's theme before freedesktop's:
+   | Sound | Name | File |
+   | --- | --- | --- |
+   | Items put in the Trash | `file-trash` | a link to `trash-empty.oga` |
+   | The Trash emptied | `trash-empty` | `trash-empty.oga`, the owner's trash sound |
+   | A notification arriving | `message-new-instant` | `message-new-instant.oga`, the owner's notification sound |
+   - **One trash sound for both.** The owner gave one, a short crumple (0.66 s once its silences are cut), which suits a Mac's two Trash sounds alike; a second can replace the link.
+   - **Imported as given.** `scripts/import-system-sound.py` decodes the source to 16-bit PCM, cuts the silence before and after the sound at the sample (no fade, gain or resampling of what is heard) and encodes Ogg Vorbis at libvorbis' highest quality, bit-exact (the same source gives the same file). The trash sound lost the MP3 encoder's 25.9 ms delay before it and 152 ms after it (below −80 dBFS); the notification sound (48 kHz, 4.0 s) lost the 0.55 s of its source's noise floor after 3.40 s (peaks below −73 dBFS) and a click in its last 50 ms (−42 dBFS). `/usr/share/doc/oxyos-sounds/copyright` records each source as the owner supplied it (name, format, size, SHA-256), the commands and the cuts; no ownership or licence is asserted.
+3. **What plays each.** The session plays:
+   - `file-trash` once for each drop on the dock's Trash that put at least one file in it (ADR 0035, decision 12), whatever it held;
+   - `trash-empty` once the person accepted the system sheet and the Trash was emptied (ADR 0034);
+   - an application's request (decision 5): Dropsea's Move to Trash (⌘⌫ or Ctrl+Backspace, its menus) and Empty Trash ask for them as Finder plays them, so no application ships its own copy;
+   - `message-new-instant` for a notification posted with a sound (decision 6).
+4. **What silences them.** Decided before a sound reaches the player (`oxyos_compositor::sounds`):
+   - **Play user interface sound effects** (the `ui_sounds` preference, on by default as a Mac's): off, the Trash's sounds do not play. A notification's is an alert, which it does not silence, as on a Mac.
+   - **A muted output**, or one at no volume, as the session last knew it (ADR 0025's levels): nothing plays, nor is kept for later. PipeWire mutes the stream on a muted sink anyway; the session does not even start one.
+   - **Do Not Disturb** and an application's **Play sound for notifications** turned off silence its notifications (decision 6).
+5. **Applications ask by name, through Bloom.** A client asks with `PlaySystemSound { input, sound }` (request 236, any client, version 23), citing an input it received lately; one citing none plays nothing, and the notification sound is never asked this way (`InvalidMessage`). The C ABI: `oxyos_client_play_system_sound` with `OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH` and `_EMPTY_TRASH`. The Bloom host's `OxyOSSounds.play(name)` cites the latest press or key the application received, and its adapter is Bloom's `sounds` (`usePlatformSounds()`, Bloom 17.10.0: `play('move-to-trash' | 'empty-trash')`), which a platform without system sounds leaves null. Expo has no API for a system's sounds (expo-audio plays an application's own files), so none is imitated.
+6. **A notification's sound** (amending ADR 0026). expo-notifications' handler decides it (`shouldPlaySound`, as Allo's and Mention's ask), and a handler that answers nothing in time takes the content's `sound`; `sound: false` silences it. The adapter sends `NotificationSound { serial }` (request 237) before `PostNotification`; the scene asks for `message-new-instant` once the notification is posted, never with Do Not Disturb, never for an application in the person's `notification_sounds_off`, and on the lock screen too. **A burst sounds once:** a notification sound within two seconds of the last one asked for is not asked again (`NOTIFICATION_SOUND_COALESCE`), on the scene's clock. A sound of the application's own (`sound: 'ping.wav'`) plays the system's: the session plays no application's files.
+7. **The dock's Trash answers a drag it would take,** as a Mac's Dock does (amending ADR 0035, decision 12). While a drag of files is over it, its picture darkens, its own shape and nothing around it (a black copy of the bin at 35% over it, its corners rounded as the icon's), in 120 ms, and it grows to 1.1× on a critically damped spring (a 250 ms response, never past its end), settling back as the drag leaves or drops. With Reduce Motion it darkens at once and does not grow. The pointer keeps its arrow: the Trash's action is a move, which has no badge (the drag image and its badges are the drag image's work, not this).
+8. **Settings.** *Sound* (after *Notifications*, as a Mac lists it): *Play user interface sound effects*. *Notifications* gains *Application notifications*: each of the session's applications (its registry) with *Play sound for notifications*, on unless turned off. The person's list of applications whose notifications are silent is kept as the dock's lists are (`notification_sounds_off` in the preferences file, `ApplicationListKind::NotificationSoundsOff`), Settings' alone to change (its `settings` grant) and to be told; the Bloom host shows it to Settings among its preferences and changes it through the list.
+
+## Results
+
+- **`crates/oxyos-sound`:** the names, the theme's lookup, decoding (trimmed to the last page's granule position, Vorbis' end), the `Player` trait, `PipeWire` and `Recorder`.
+- **Protocol 23:** `PlaySystemSound`, `NotificationSound`, `SystemSound`, `ApplicationListKind::NotificationSoundsOff`; the client library and the C ABI (`oxyos_client_play_system_sound`, `OxyOSNotification.sound`, `OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF`).
+- **The scene:** `request_system_sound`, `take_system_sounds`, the clients' requests, the notifications' sound with its coalescing, the list told to Settings and changed by it.
+- **The session:** `Compositor::sounds` and `play_sounds`, the Trash follower's two sounds, `ui_sounds` applied, `oxyos-session` playing through PipeWire, the development compositor recording what it would play (a step's `sounds`).
+- **The host and the shell:** `OxyOSSounds`, the adapter's `sounds`, the notification's `sound`, `committed` reporting a scale, the dock's `TrashDrop`, Settings' pages.
+- **Dropsea** plays both Trash sounds through Bloom (OxyHQ/Dropsea).
+
+## Tests
+
+- **Units:** the names and the theme's order; the image's sounds decode whole (exact frames, sound in their first hundredth of a second); the recorder; the scene (`scene/tests/sounds.rs`, `notifications.rs`): only a client's own recent input asks, at most eight waiting, a notification with a sound once and a burst once, none with Do Not Disturb or for a silenced application, the list Settings' alone; the service plays unless interface sounds are off (a notification's still plays) or the output is muted; the Trash follower asks `file-trash` for a drop and `trash-empty` once emptied, nothing refused; the preferences' defaults and file; the protocol's values, versions and the client library's refusals to version 22; Settings' model.
+- **Scenarios** (`regress.py`'s `sounds`, exact and in order, a step that plays one unsaid failing; `committed`'s `transform.scale` and a path up to a peak and back):
+  - `dock-trash-hover` and `-scaled` (1.25): a file held over the Trash a second and Escape: `dock-trash-shade` 0 → exactly 0.35 → exactly 0 and `dock-trash-scale` 1 → exactly 1.1 → exactly 1, each monotonic, nothing moved, no sound; held and dropped: the same, the file in the freedesktop Trash, `file-trash` once. `dock-trash-hover-reduce-motion`: the shade in one frame each way, no scale committed, the drop sounding once.
+  - `dock-trash-sounds-off`: `ui_sounds = false`, a drop trashes the file and plays nothing.
+  - `dock-trash`: Empty Trash accepted plays `trash-empty` once. `drag-trash`, `dropsea-drag` (and `-scaled`): their drops play `file-trash` once. `dropsea-files` (and `-scaled`): Ctrl+Backspace plays `file-trash` once.
+  - `notification-sound`: one notification sounds once; three at once sound once; one with `sound: false` none. `notification-sound-dnd`, `-silenced` and `-muted`: none.
+  - `settings-sounds`: Sound's switch and Allo's notification sound turned off, kept in the file.
+
+## Not in this decision
+
+- The screenshot shutter still spawns `pw-play` with the theme's `screen-capture` (ADR 0024), which the image does not ship; moving it onto the service, under *Play user interface sound effects* as a Mac's is, comes with a shutter sound.
+- An alert volume of its own, *Play feedback when volume is changed* and a startup sound (a Mac's other Sound settings).
+- An application's own notification sound files, and the other expo-notifications sound options (Android's channels).
+- The drag image and its badges, and the dock's other icons answering a drag (a Mac's springs an application's icon to open a file).
