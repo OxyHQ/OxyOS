@@ -308,8 +308,18 @@ A step's `host_input` expectation counts what the host reported handling in it, 
 ({"caret.dark": 10}).
 
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
-virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
+virtual devices (`--uinput`, or a scenario's `uinput`: true, which runs only that way and as
+root, the devices being the kernel's), where a keyboard types one key at a time and a wheel scrolls one
 notch at a time: what React and the client receive is then counted per key and per notch. A
+`scroll` step ([x, y, dy] a wheel's notches, [x, y, dy, events] a touchpad's two fingers in that
+many events, then lifted) is then the hand's, as `scroll_named` and `scroll_output` are: the
+wheel turned toward the person, or the fingers moved down, for a positive dy, which libinput turns
+as the session's natural scrolling says (docs/adr/0042-scrolling.mdx, decision 6); a step's
+`scroll_input` ({"way": "down" or "up", "events": [least, most]}) checks the scrolls the host
+received in it, every one that moved (a touchpad's lift moves nothing) that way (down: its dy
+above 0, the view moving down) and that many of them (in `in_shell`, the shell's: the dock's
+icons', ADR 0045), and `scroll_moved` ({testID: "down" or
+"up"}) that each scroll view's offset only went that way in it, and went. A
 scenario's `layout` (an XKB layout, `us` by default) is the one those expectations are written
 for, and the devices type with it. A `commit` step is an input method's committed text, which
 no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
@@ -757,7 +767,8 @@ def director_args(step, out):
         # A double click whose second press is held and dragged: [x0, y0, x1, y1].
         return args + ["--double-drag", ",".join(map(str, value))]
     if kind == "scroll":
-        return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
+        # A wheel's notches, [x, y, dy], or a touchpad's two fingers, [x, y, dy, events].
+        return args + ["--scroll", ",".join(map(str, value))]
     if kind == "scroll_named":
         # A scroll by DY on the node of this accessible name (a dock icon's, ADR 0045): [name, dy]
         # a wheel's notch, or [name, dy, events] a touchpad's two fingers in that many events.
@@ -1482,6 +1493,13 @@ def check_stretch(wanted, report, start, end, fail):
             fail(f"{view}'s stretch did not only shrink once it began to: {[round(a, 4) for a in amounts[top:]]}")
         if len(falling) < wanted.get("frames_min", 0):
             fail(f"{view}'s stretch went back in {len(falling) - 1} changes, expected at least {wanted['frames_min']}")
+
+
+def offset_before(report, view, start):
+    """Where a scroll view was before a step began: its last scroll's offset, else 0."""
+    ys = [line["y"] for line in report if line["kind"] == "deliver" and line["event"] == "scroll"
+          and line["t"] < start and (line.get("within") or line["target"]) == view]
+    return ys[-1] if ys else 0
 
 
 def check_glide(wanted, report, start, end, fail):
@@ -2551,6 +2569,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         wanted = expect["scroll_offset"]
         if set(offsets) != set(wanted) or any(abs(a - b) > 1e-3 for k in wanted for a, b in zip(offsets[k], wanted[k])):
             fail(f"scroll offsets {offsets}, expected exactly {wanted}")
+    if "scroll_input" in expect:
+        # The scrolls the host received in this step (its input report: an application's, or in
+        # `in_shell` the shell's, the dock's icons'), the way libinput turned them: every one that
+        # moved that way, and that many.
+        wanted = expect["scroll_input"]
+        moved = [line["dy"] for line in report if line["kind"] == "input" and start <= line["t"] <= end
+                 and line.get("event") == "scroll" and line.get("dy")]
+        sign = 1 if wanted["way"] == "down" else -1
+        least, most = wanted["events"]
+        if not least <= len(moved) <= most or any(dy * sign <= 0 for dy in moved):
+            fail(f"the host received scrolls of {moved}, expected {least} to {most}, every one {wanted['way']}")
+    if "scroll_moved" in expect:
+        # Each scroll view's offsets in this step, only ever the way given, and further than it began.
+        for view, way in expect["scroll_moved"].items():
+            ys = [line["y"] for line in report if line["kind"] == "deliver" and line["event"] == "scroll"
+                  and start <= line["t"] <= end and (line.get("within") or line["target"]) == view]
+            sign = 1 if way == "down" else -1
+            before = offset_before(report, view, start)
+            steps = [b - a for a, b in zip([before] + ys, ys)]
+            if not ys or any(step * sign < 0 for step in steps) or (ys[-1] - before) * sign <= 0:
+                fail(f"{view} scrolled from {before} through {ys}, expected only {way}")
     if "scrollbars" in expect or "scrollbar_thumbs" in expect:
         # The scroll views' overlay scrollbars (scrollbars.h) in this step, as the host reported them
         # changing: "scrollbars", each change counted exactly as "event@testID" (shown, wide-x and
@@ -3579,7 +3618,9 @@ def main():
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
     if options.gpu_only:
         command += ["--gpu-only"]
-    if options.uinput:
+    # A scenario about what libinput does (natural scrolling) runs only through the devices.
+    through_devices = options.uinput or scenario.get("uinput", False)
+    if through_devices:
         command += ["--uinput"]
     if options.seat:
         command += ["--seat"]
@@ -3587,7 +3628,7 @@ def main():
         # How long the application's first frames must stay unchanged before the steps begin: a
         # browser shows its window before its interface draws in it (ADR 0029).
         command += ["--launch-settle", str(scenario["launch_settle_ms"])]
-    if options.uinput or "layout" in scenario:
+    if through_devices or "layout" in scenario:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys. It
         # is also the layout the session tells applications (ADR 0029).
         command += ["--layout", scenario.get("layout", "us")]
@@ -3882,7 +3923,7 @@ def main():
     start = summary["t_launch"]
     refresh_hz = display_hz(scenario)
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
-        start = check_step(index, step, result, report, start, failures, options.uinput,
+        start = check_step(index, step, result, report, start, failures, through_devices,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
                            out / "preferences", refresh_hz, recorder)
         check_views(index, step, result, summary["steps"], failures)

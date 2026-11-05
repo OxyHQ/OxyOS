@@ -1,0 +1,364 @@
+{
+  "about": "Natural scrolling (docs/adr/0042-scrolling.mdx, decision 6), through real libinput: the development compositor's virtual touchpad and wheel mouse (`uinput`), so this scenario runs only that way, as root. Settings, the application, shows its Trackpad and Mouse pages, after Keyboard as a Mac lists them; the companion is ScrollProbe, whose `main` list the hand scrolls. As the session ships them, a trackpad's content follows the fingers and a mouse's wheel turned toward the person scrolls down; each switch turned in Settings is kept in the preferences file and set by libinput on the devices at once, the next scroll going the other way with no restart. Each step checks what the companion's host received (`scroll_input`: every scroll one way, how many) and what React heard, and that the list only moved that way (`scroll_moved`); Settings hears none of it.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    820,
+    700
+  ],
+  "outputs": "1920x1080",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "companion": {
+    "module": "ScrollProbe",
+    "window": [
+      520,
+      400
+    ],
+    "at": [
+      1385,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "uinput": true,
+  "steps": [
+    {
+      "name": "two fingers moved up over the companion's main list: a trackpad scrolls naturally unless the person turns it off, so the content follows them up, the list's offset growing",
+      "do": [
+        "scroll_output",
+        [
+          1725,
+          440,
+          -60,
+          8
+        ]
+      ],
+      "expect": {
+        "delivered": {
+          "companion": {
+            "enter": 1,
+            "scroll": 6
+          }
+        },
+        "in_companion": {
+          "react": {
+            "scrollBeginDrag@main": 1,
+            "scroll@main": [
+              3,
+              8
+            ],
+            "scrollEndDrag@main": 1,
+            "momentumScrollBegin@main": 1,
+            "momentumScrollEnd@main": 1
+          },
+          "scroll_input": {
+            "way": "down",
+            "events": [
+              3,
+              8
+            ]
+          },
+          "scroll_moved": {
+            "main": "down"
+          }
+        }
+      }
+    },
+    {
+      "name": "the wheel turned two notches toward the person: a mouse does not scroll naturally unless the person turns it on, so the list's offset grows",
+      "do": [
+        "scroll_output",
+        [
+          1725,
+          440,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "companion": {
+            "scroll": 2
+          }
+        },
+        "in_companion": {
+          "react": {
+            "scroll@main": 2
+          },
+          "scroll_input": {
+            "way": "down",
+            "events": [
+              2,
+              2
+            ]
+          },
+          "scroll_moved": {
+            "main": "down"
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on Settings' page brings it forward",
+      "do": [
+        "press",
+        [
+          500,
+          500
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Settings › Trackpad: Natural scrolling, on, with macOS's line under it",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Trackpad"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Natural scrolling",
+          "Content tracks finger movement"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Natural scrolling",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "delivered": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "turned off: the session keeps trackpad_natural_scrolling = false",
+      "do": [
+        "press",
+        [
+          758,
+          96
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Natural scrolling",
+              "state": []
+            }
+          ]
+        },
+        "preferences_file": {
+          "trackpad_natural_scrolling": "false",
+          "mouse_natural_scrolling": "false"
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "the same two fingers up, at once the other way: the view follows them, the list's offset shrinking, with no restart",
+      "do": [
+        "scroll_output",
+        [
+          1725,
+          440,
+          -60,
+          8
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "scroll": 6
+          }
+        },
+        "in_companion": {
+          "react": {
+            "scrollBeginDrag@main": 1,
+            "scroll@main": [
+              3,
+              8
+            ],
+            "scrollEndDrag@main": 1,
+            "momentumScrollBegin@main": 1,
+            "momentumScrollEnd@main": 1
+          },
+          "scroll_input": {
+            "way": "up",
+            "events": [
+              3,
+              8
+            ]
+          },
+          "scroll_moved": {
+            "main": "up"
+          }
+        }
+      }
+    },
+    {
+      "name": "Settings › Mouse: Natural scrolling, off",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Mouse"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Natural scrolling",
+          "Content tracks finger movement"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Natural scrolling",
+              "state": []
+            }
+          ]
+        },
+        "delivered": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "turned on: the session keeps mouse_natural_scrolling = true",
+      "do": [
+        "press",
+        [
+          758,
+          96
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Natural scrolling",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "preferences_file": {
+          "trackpad_natural_scrolling": "false",
+          "mouse_natural_scrolling": "true"
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          },
+          "companion": {
+            "leave": 1
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "the wheel turned the same two notches toward the person: now the content follows it down, the list's offset shrinking",
+      "do": [
+        "scroll_output",
+        [
+          1725,
+          440,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          },
+          "companion": {
+            "enter": 1,
+            "scroll": 2
+          }
+        },
+        "in_companion": {
+          "react": {
+            "scroll@main": 2
+          },
+          "scroll_input": {
+            "way": "up",
+            "events": [
+              2,
+              2
+            ]
+          },
+          "scroll_moved": {
+            "main": "up"
+          }
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "trackpad_natural_scrolling": "false",
+      "mouse_natural_scrolling": "true"
+    }
+  }
+}

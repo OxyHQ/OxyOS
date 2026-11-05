@@ -211,10 +211,12 @@ export type IconScroll = { moved: number; acted: boolean };
 export const NO_ICON_SCROLL: IconScroll = { moved: 0, acted: false };
 
 /**
- * A scroll on a dock icon (docs/adr/0045-app-expose.mdx), as a Mac's Dock takes one: up (as a
- * wheel turned away, the content's view moving up) opens the application's App Exposé, down closes
- * it. A wheel's notch acts at once; a touchpad's fingers once they have gone `ICON_SCROLL` one way,
- * once until they lift. Across does nothing.
+ * A scroll on a dock icon (docs/adr/0045-app-expose.mdx), as a Mac's Dock takes one: up (`dy` below
+ * 0 as delivered, the content's view moving up) opens the application's App Exposé, down closes it.
+ * Delivered, it is already in the direction natural scrolling chose (docs/adr/0042-scrolling.mdx,
+ * decision 6), as a Mac's Dock reads it: a wheel turned away, or two fingers moved down on a
+ * trackpad that scrolls naturally. A wheel's notch acts at once; a touchpad's fingers once they
+ * have gone `ICON_SCROLL` one way, once until they lift. Across does nothing.
  */
 export function iconScroll(
   state: IconScroll,

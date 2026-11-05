@@ -427,8 +427,7 @@ fn main() -> Result<()> {
     if let Err(code) = compositor.scene.set_keyboard_layout(&layout.names()) {
         eprintln!("[session] layout {layout} not told to applications: {code:?}");
     }
-    compositor.input = Some(input);
-    compositor.confine_pointer();
+    compositor.set_input(input);
 
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {

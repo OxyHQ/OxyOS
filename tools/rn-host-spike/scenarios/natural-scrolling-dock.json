@@ -1,0 +1,187 @@
+{
+  "about": "A scroll on a dock icon (docs/adr/0045-app-expose.mdx) after natural scrolling (docs/adr/0042-scrolling.mdx, decision 6), through real libinput: the development compositor's virtual touchpad and wheel mouse (`uinput`), so this scenario runs only that way, as root. The Dock reads the scroll as delivered, as a Mac's does: up (dy below 0) opens App Exposé, down closes it, and which way the hand moves for it is the preference's. At 1, as the session ships them: two fingers down on Allo's icon open it and up close it, as on a Mac; the wheel turned away opens it and toward closes it. Allo's two windows, as in app-expose-gestures, which checks the rest of App Exposé (its flights, the keyboard). Each step checks what the shell's host received (`scroll_input`: every scroll one way, how many), the views App Exposé shows, the keyboard going to it and back (a scroll on the shell is its input, as a press is), and that neither application's React tree hears anything.",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      700,
+      300
+    ],
+    "app": "so.oxy.allo"
+  },
+  "uinput": true,
+  "steps": [
+    {
+      "name": "Allo's two windows",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "two fingers moved down on Allo's dock icon: a trackpad scrolls naturally, so they deliver a scroll up (the content following them down), and App Exposé opens, as a Mac's Dock opens it",
+      "do": [
+        "scroll_named",
+        [
+          "Allo",
+          60,
+          10
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "scroll_input": {
+            "way": "up",
+            "events": [
+              3,
+              10
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "two fingers moved up on it: a scroll down, and it closes",
+      "do": [
+        "scroll_output",
+        [
+          796,
+          692,
+          -60,
+          10
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "scroll_input": {
+            "way": "down",
+            "events": [
+              3,
+              10
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "the wheel turned a notch away from the person: a mouse does not scroll naturally, so a scroll up, and App Exposé opens",
+      "do": [
+        "scroll_named",
+        [
+          "Allo",
+          -15
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": [
+            1,
+            2
+          ],
+          "moved": true
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "scroll_input": {
+            "way": "up",
+            "events": [
+              1,
+              1
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a notch toward the person: a scroll down, and it closes",
+      "do": [
+        "scroll_output",
+        [
+          796,
+          692,
+          15
+        ]
+      ],
+      "expect": {
+        "window_views": {
+          "windows": []
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "in_shell": {
+          "scroll_input": {
+            "way": "down",
+            "events": [
+              1,
+              1
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

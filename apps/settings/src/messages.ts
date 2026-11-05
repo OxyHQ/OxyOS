@@ -31,6 +31,8 @@ const en = {
     lockScreen: "Lock Screen",
     displays: "Displays",
     keyboard: "Keyboard",
+    mouse: "Mouse",
+    trackpad: "Trackpad",
     dateTime: "Date & Time",
     languageRegion: "Language & Region",
     accessibility: "Accessibility",
@@ -199,6 +201,12 @@ const en = {
       US: "United States",
     } as Record<string, string>,
   },
+  /** Natural scrolling (docs/adr/0042-scrolling.mdx, decision 6), in macOS's words, the same on its
+      Mouse and Trackpad pages. */
+  scrolling: {
+    naturalScrolling: "Natural scrolling",
+    naturalScrollingDescription: "Content tracks finger movement",
+  },
   accessibility: {
     screenReader: "Screen reader",
     screenReaderDescription: "Speaks what is on the screen. Super+F5 turns it on and off.",
@@ -335,6 +343,8 @@ const es: Messages = {
     lockScreen: "Pantalla de bloqueo",
     displays: "Pantallas",
     keyboard: "Teclado",
+    mouse: "Ratón",
+    trackpad: "Trackpad",
     dateTime: "Fecha y hora",
     languageRegion: "Idioma y región",
     accessibility: "Accesibilidad",
@@ -497,6 +507,10 @@ const es: Messages = {
       PT: "Portugal",
       US: "Estados Unidos",
     },
+  },
+  scrolling: {
+    naturalScrolling: "Desplazamiento natural",
+    naturalScrollingDescription: "El contenido sigue el movimiento de los dedos",
   },
   accessibility: {
     screenReader: "Lector de pantalla",

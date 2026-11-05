@@ -45,10 +45,10 @@
     {
       "name": "Software Update: the OS's row, and nothing checked yet",
       "do": [
-        "press",
+        "a11y-action",
         [
-          102,
-          555
+          "activate",
+          "Software Update"
         ]
       ],
       "expect": {

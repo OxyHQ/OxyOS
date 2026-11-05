@@ -47,7 +47,8 @@ pub enum Step {
     /// `DragPaced` that `held` it, released there: the drag's drop, or its end over nothing.
     ReleaseOutput { x: i32, y: i32 },
     /// A scroll by `dy` at a point of the output (a dock icon's, ADR 0045): a wheel's notch with
-    /// `events` 0, else a touchpad's two fingers in `events` even steps, then lifted.
+    /// `events` 0, else a touchpad's two fingers in `events` even steps, then lifted; through the
+    /// virtual devices, the hand's, as `Scroll`'s.
     ScrollOutput {
         x: i32,
         y: i32,
@@ -104,8 +105,17 @@ pub enum Step {
     /// A press and release at the first point, then a press there held and moved to the second
     /// point, then released: a double click whose second press drags.
     DoubleDrag { from: (i32, i32), to: (i32, i32) },
-    /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
-    Scroll { x: i32, y: i32, dy: i32 },
+    /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a
+    /// window-local point: a wheel's notches with `events` 0, else a touchpad's two fingers in
+    /// `events` even steps, then lifted. Through the virtual devices it is the hand's: the wheel
+    /// turned toward the person, or the fingers moved down, for a positive `dy`, which libinput
+    /// turns as the device's natural scrolling says (docs/adr/0042-scrolling.mdx, decision 6).
+    Scroll {
+        x: i32,
+        y: i32,
+        dy: i32,
+        events: u32,
+    },
     /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
     /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`) on the
     /// scene, or through the virtual touchpad, where libinput recognizes it.
@@ -351,7 +361,15 @@ impl Step {
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
             Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
             Step::DoubleDrag { from, to } => format!("double press at {from:?} dragged to {to:?}"),
-            Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
+            Step::Scroll {
+                x,
+                y,
+                dy,
+                events: 0,
+            } => format!("scroll by {dy} at ({x}, {y})"),
+            Step::Scroll { x, y, dy, events } => {
+                format!("scroll by {dy} at ({x}, {y}) in {events} events")
+            }
             Step::Pinch {
                 x,
                 y,
@@ -511,7 +529,13 @@ impl Step {
             Step::DoubleDrag { from, to } => {
                 format!("\"double_drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
-            Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
+            Step::Scroll {
+                x,
+                y,
+                dy,
+                events: 0,
+            } => format!("\"scroll\":[{x},{y},{dy}]"),
+            Step::Scroll { x, y, dy, events } => format!("\"scroll\":[{x},{y},{dy},{events}]"),
             Step::Pinch {
                 x,
                 y,
@@ -863,7 +887,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1320,11 +1344,19 @@ impl Launch {
                     }
                 }
                 Some("--scroll") => {
-                    let n = numbers(args.next(), 3)?;
+                    // X,Y,DY a wheel's notches, X,Y,DY,EVENTS a touchpad's fingers.
+                    let value = args.next();
+                    let n = numbers(value, 4).or_else(|_| numbers(value, 3))?;
                     Step::Scroll {
                         x: n[0],
                         y: n[1],
                         dy: n[2],
+                        events: n
+                            .get(3)
+                            .copied()
+                            .map(u32::try_from)
+                            .transpose()?
+                            .unwrap_or(0),
                     }
                 }
                 Some("--pinch") => {
@@ -3320,12 +3352,19 @@ fn inject_through(
             compositor.read_input();
             devices.button(false)?;
         }
-        Step::Scroll { x, y, dy } => {
+        Step::Scroll { x, y, dy, events } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
             compositor.read_input();
-            devices.wheel(*dy, || compositor.read_input())?;
+            scroll_through(devices, compositor, *dy, *events)?;
+        }
+        Step::ScrollOutput { x, y, dy, events } => {
+            on_outputs(*x, *y)?;
+            let (px, py) = at(*x, *y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+            scroll_through(devices, compositor, *dy, *events)?;
         }
         Step::Pinch {
             x,
@@ -3418,6 +3457,37 @@ fn inject_through(
         _ => return Ok(None),
     }
     Ok(Some(0))
+}
+
+/// A scroll on the scene where the pointer is: a wheel's notch by `dy` with `events` 0, else a
+/// touchpad's two fingers by `dy` in `events` even steps, then lifted.
+fn scroll_scene(scene: &mut Scene, dy: i32, events: u32) {
+    if events == 0 {
+        scene.pointer_scroll(0, dy.saturating_mul(256), ScrollSource::Wheel, false);
+        return;
+    }
+    let each = dy.saturating_mul(256) / events as i32;
+    for _ in 0..events {
+        scene.pointer_scroll(0, each, ScrollSource::Finger, false);
+    }
+    scene.pointer_scroll(0, 0, ScrollSource::Finger, true);
+}
+
+/// A scroll through the virtual devices where the pointer is: the wheel turned with `events` 0,
+/// else two fingers moved on the touchpad in `events` frames, then lifted; the compositor reading
+/// each notch and frame as it is sent.
+fn scroll_through(
+    devices: &mut crate::uinput::Devices,
+    compositor: &mut Compositor,
+    dy: i32,
+    events: u32,
+) -> Result<()> {
+    if events == 0 {
+        devices.wheel(dy, || compositor.read_input())?;
+    } else {
+        devices.two_fingers(dy, events, || compositor.read_input())?;
+    }
+    Ok(())
 }
 
 /// The preferences file as the step left it (`--preferences`), as a JSON string; null without one
@@ -4363,31 +4433,12 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::ScrollOutput { x, y, dy, events } => {
             on_outputs(*x, *y)?;
             compositor.scene.pointer_motion(*x, *y);
-            if *events == 0 {
-                compositor.scene.pointer_scroll(
-                    0,
-                    dy.saturating_mul(256),
-                    ScrollSource::Wheel,
-                    false,
-                );
-            } else {
-                let each = dy.saturating_mul(256) / *events as i32;
-                for _ in 0..*events {
-                    compositor
-                        .scene
-                        .pointer_scroll(0, each, ScrollSource::Finger, false);
-                }
-                compositor
-                    .scene
-                    .pointer_scroll(0, 0, ScrollSource::Finger, true);
-            }
+            scroll_scene(&mut compositor.scene, *dy, *events);
         }
-        Step::Scroll { x, y, dy } => {
+        Step::Scroll { x, y, dy, events } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
-            compositor
-                .scene
-                .pointer_scroll(0, dy.saturating_mul(256), ScrollSource::Wheel, false);
+            scroll_scene(&mut compositor.scene, *dy, *events);
         }
         Step::Pinch {
             x,
@@ -4897,8 +4948,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 "no compose table: dead keys type nothing"
             }
         );
-        session.compositor.input = Some(input);
-        session.compositor.confine_pointer();
+        session.compositor.set_input(input);
     }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;
@@ -5732,7 +5782,8 @@ mod tests {
                 Step::Scroll {
                     x: 3,
                     y: 4,
-                    dy: -50
+                    dy: -50,
+                    events: 0
                 },
                 Step::Pinch {
                     x: 5,

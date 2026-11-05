@@ -20,6 +20,10 @@ const PAD_RESOLUTION: i32 = 40;
 /// One wheel notch in REL_WHEEL_HI_RES units; libinput turns a notch into 15 logical pixels.
 const NOTCH: i32 = 120;
 const PIXELS_PER_NOTCH: i32 = 15;
+/// How far libinput scrolls for each millimetre two fingers move on this touchpad, in logical
+/// pixels: its motion normalized to 1000 dpi (39.37 units a millimetre), slowed as it slows a
+/// touchpad's scroll. Measured: libinput 1.28 scrolls 6.84 for a frame of 26 units (0.65 mm).
+const SCROLL_PIXELS_PER_MM: f64 = 10.52;
 
 pub struct Devices {
     keyboard: VirtualDevice,
@@ -122,8 +126,10 @@ impl Devices {
             .emit(&[InputEvent::new(EV_KEY, code, i32::from(pressed))])
     }
 
-    /// Scrolls by `dy` logical pixels (positive moves the content's view down), in whole and
-    /// partial notches as a high-resolution wheel does, calling `sent` after each notch.
+    /// Turns the wheel as far as libinput scrolls `dy` logical pixels for, toward the person for a
+    /// positive `dy` (which moves the content's view down, unless the pointer's natural scrolling
+    /// turns it), in whole and partial notches as a high-resolution wheel does, calling `sent`
+    /// after each notch.
     pub fn wheel(&mut self, dy: i32, mut sent: impl FnMut()) -> io::Result<()> {
         let mut units = -dy * NOTCH / PIXELS_PER_NOTCH;
         while units != 0 {
@@ -202,6 +208,64 @@ impl Devices {
             sent();
         }
         std::thread::sleep(Duration::from_millis(10));
+        self.touchpad.emit(&[
+            abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
+            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, -1),
+            abs(AbsoluteAxisCode::ABS_MT_SLOT, 1),
+            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, -1),
+            key(KeyCode::BTN_TOUCH, false),
+            key(KeyCode::BTN_TOOL_DOUBLETAP, false),
+        ])?;
+        sent();
+        Ok(())
+    }
+
+    /// Scrolls with two fingers on the touchpad, 20 mm apart across its middle: both move down
+    /// (up for a negative `dy`) as far as libinput scrolls `dy` logical pixels for, steadily over
+    /// `frames` frames 10 ms apart, rest 150 ms (so nothing is flung) and lift; `sent` is called
+    /// after each frame. libinput tells the scroll from a pinch by itself, and turns it as the
+    /// device's natural scrolling says: content following the fingers, or the view.
+    pub fn two_fingers(&mut self, dy: i32, frames: u32, mut sent: impl FnMut()) -> io::Result<()> {
+        let abs = |code: AbsoluteAxisCode, value| InputEvent::new(EV_ABS, code.0, value);
+        let key = |code: KeyCode, down: bool| InputEvent::new(EV_KEY, code.0, i32::from(down));
+        let travel = f64::from(dy) / SCROLL_PIXELS_PER_MM * f64::from(PAD_RESOLUTION);
+        let (left, right) = (
+            PAD.0 / 2 - 10 * PAD_RESOLUTION,
+            PAD.0 / 2 + 10 * PAD_RESOLUTION,
+        );
+        let top = f64::from(PAD.1) / 2.0 - travel / 2.0;
+        let fingers = |frame: u32| {
+            let y = (top + travel * f64::from(frame) / f64::from(frames.max(1))).round() as i32;
+            vec![
+                abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
+                abs(AbsoluteAxisCode::ABS_MT_POSITION_X, left),
+                abs(AbsoluteAxisCode::ABS_MT_POSITION_Y, y),
+                abs(AbsoluteAxisCode::ABS_MT_SLOT, 1),
+                abs(AbsoluteAxisCode::ABS_MT_POSITION_X, right),
+                abs(AbsoluteAxisCode::ABS_MT_POSITION_Y, y),
+                abs(AbsoluteAxisCode::ABS_X, left),
+                abs(AbsoluteAxisCode::ABS_Y, y),
+            ]
+        };
+        let mut down = vec![
+            abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
+            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, 1),
+            abs(AbsoluteAxisCode::ABS_MT_SLOT, 1),
+            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, 2),
+        ];
+        down.extend(fingers(0));
+        down.extend([
+            key(KeyCode::BTN_TOUCH, true),
+            key(KeyCode::BTN_TOOL_DOUBLETAP, true),
+        ]);
+        self.touchpad.emit(&down)?;
+        sent();
+        for frame in 1..=frames {
+            std::thread::sleep(Duration::from_millis(10));
+            self.touchpad.emit(&fingers(frame))?;
+            sent();
+        }
+        std::thread::sleep(Duration::from_millis(150));
         self.touchpad.emit(&[
             abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
             abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, -1),

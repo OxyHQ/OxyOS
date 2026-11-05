@@ -538,3 +538,29 @@ fn a_touchpad_scroll_ends_where_its_axes_come_to_zero_and_a_wheels_never() {
         scroll(0.0, 0.0, ScrollSource::Finger, false)
     );
 }
+
+#[test]
+fn a_touchpad_scrolls_by_the_trackpads_choice_and_every_other_device_by_the_mouses() {
+    // As Settings ships them: the trackpad natural, the mouse not.
+    let shipped = NaturalScrolling {
+        trackpad: true,
+        mouse: false,
+    };
+    assert!(shipped.for_device(true));
+    assert!(!shipped.for_device(false));
+    // Each is its own.
+    let turned = NaturalScrolling {
+        trackpad: false,
+        mouse: true,
+    };
+    assert!(!turned.for_device(true));
+    assert!(turned.for_device(false));
+    // libinput's own default: traditional on every device, until the session says otherwise.
+    assert_eq!(
+        NaturalScrolling::default(),
+        NaturalScrolling {
+            trackpad: false,
+            mouse: false
+        }
+    );
+}

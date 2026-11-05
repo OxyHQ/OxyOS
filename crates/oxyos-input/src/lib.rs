@@ -9,8 +9,8 @@ use input::event::gesture::{
 };
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
 use input::event::pointer::{Axis, ButtonState, PointerEventTrait, PointerScrollEvent};
-use input::event::{KeyboardEvent, PointerEvent};
-use input::{Libinput, LibinputInterface};
+use input::event::{DeviceEvent, EventTrait, KeyboardEvent, PointerEvent};
+use input::{Device, Libinput, LibinputInterface};
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -120,6 +120,31 @@ pub enum ScrollSource {
     Finger,
     /// A continuous device: a trackpoint's or a button's scrolling (ScrollContinuous).
     Continuous,
+}
+
+/// Which way scrolling goes on each kind of device (docs/adr/0042-scrolling.mdx, decision 6), as
+/// the person chose in Settings: natural, the content following the fingers (or the wheel), or
+/// traditional, the view following them. libinput applies it to each device that has the choice
+/// (`libinput_device_config_scroll_set_natural_scroll_enabled`), so every scroll the compositor
+/// reads is already in the chosen direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NaturalScrolling {
+    /// Touchpads.
+    pub trackpad: bool,
+    /// Every other device that scrolls: a mouse's wheel, a trackpoint, a button's scrolling.
+    pub mouse: bool,
+}
+
+impl NaturalScrolling {
+    /// Whether a device scrolls naturally: a touchpad by the trackpad's choice, anything else by
+    /// the mouse's.
+    pub fn for_device(self, touchpad: bool) -> bool {
+        if touchpad {
+            self.trackpad
+        } else {
+            self.mouse
+        }
+    }
 }
 
 /// Where a touchpad gesture is.
@@ -673,6 +698,10 @@ pub struct Input {
     pointer: (f64, f64),
     /// The pinch going on: how far its fingers have turned (libinput reports each step's turn).
     pinch_rotation: f64,
+    /// The devices libinput has added and not removed, each configured as it was added and again
+    /// at every change of `natural`.
+    devices: Vec<Device>,
+    natural: NaturalScrolling,
 }
 
 impl Input {
@@ -710,7 +739,18 @@ impl Input {
             pointer: (bounds.0 / 2.0, bounds.1 / 2.0),
             area: vec![(0.0, 0.0, bounds.0, bounds.1)],
             pinch_rotation: 0.0,
+            devices: Vec::new(),
+            natural: NaturalScrolling::default(),
         })
+    }
+
+    /// Which way each kind of device scrolls from now on: set at once on every device libinput
+    /// has, and on each it adds later (one plugged in, every one again after a resume).
+    pub fn set_natural_scrolling(&mut self, natural: NaturalScrolling) {
+        self.natural = natural;
+        for device in &mut self.devices {
+            configure(device, natural);
+        }
     }
 
     /// Where the pointer may be from now on: the outputs' rectangles. It moves within them,
@@ -753,12 +793,22 @@ impl Input {
 
     /// What has happened since the last call, each with when it happened; never blocks.
     pub fn dispatch(&mut self) -> io::Result<Vec<Timed>> {
+        // What libinput queued without reading a device first: the devices it added as it opened
+        // the seat or resumed. They are configured before libinput reads their first events,
+        // which it does as it dispatches.
+        let mut timed = Vec::new();
+        self.read_events(&mut timed);
         match self.libinput.dispatch() {
             // A signal interrupted libinput's wait for its devices: what it has is still read.
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             result => result?,
         }
-        let mut timed = Vec::new();
+        self.read_events(&mut timed);
+        Ok(timed)
+    }
+
+    /// The events libinput has queued, as actions; the devices it added or removed kept.
+    fn read_events(&mut self, timed: &mut Vec<Timed>) {
         while let Some(event) = self.libinput.next() {
             let time_usec = match &event {
                 input::Event::Pointer(pointer) => pointer.time_usec(),
@@ -840,6 +890,15 @@ impl Input {
                     let pressed = key.key_state() == KeyState::Pressed;
                     actions.extend(self.keyboard.actions(key.key(), pressed));
                 }
+                input::Event::Device(DeviceEvent::Added(added)) => {
+                    let mut device = added.device();
+                    configure(&mut device, self.natural);
+                    self.devices.push(device);
+                }
+                input::Event::Device(DeviceEvent::Removed(removed)) => {
+                    let device = removed.device();
+                    self.devices.retain(|kept| *kept != device);
+                }
                 _ => {}
             }
             timed.extend(actions.into_iter().map(|action| Timed {
@@ -847,7 +906,6 @@ impl Input {
                 action,
             }));
         }
-        Ok(timed)
     }
 
     /// A pinch step: its rotation is the sum of the turns libinput reported since it began.
@@ -889,6 +947,27 @@ pub fn confine(area: &[(f64, f64, f64, f64)], x: f64, y: f64) -> (f64, f64) {
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map_or((x, y), |(_, at)| at)
+}
+
+/// Whether libinput drives `device` as a touchpad: it alone offers tapping (a touchpad's
+/// fingers counted for a tap), as sway tells touchpads apart.
+fn is_touchpad(device: &Device) -> bool {
+    device.config_tap_finger_count() > 0
+}
+
+/// Sets which way `device` scrolls, if it has the choice (a keyboard, a touchscreen or a tablet
+/// does not).
+fn configure(device: &mut Device, natural: NaturalScrolling) {
+    if !device.config_scroll_has_natural_scroll() {
+        return;
+    }
+    let enabled = natural.for_device(is_touchpad(device));
+    if let Err(error) = device.config_scroll_set_natural_scroll_enabled(enabled) {
+        eprintln!(
+            "[input] {}: natural scrolling not set: {error:?}",
+            device.name()
+        );
+    }
 }
 
 /// A hold's phase: libinput's end is cancelled when the fingers moved on or a button was pressed.

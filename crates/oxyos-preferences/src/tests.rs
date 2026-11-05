@@ -167,6 +167,8 @@ fn what_is_written_reads_back_the_same() {
         ("reduce_transparency", "true"),
         ("caret_blink", "false"),
         ("ui_sounds", "false"),
+        ("trackpad_natural_scrolling", "false"),
+        ("mouse_natural_scrolling", "true"),
         ("wallpaper", "solar-gradients"),
         ("lock_after", "15"),
         ("screen_reader", "true"),
@@ -449,4 +451,40 @@ fn interface_sound_effects_are_on_by_default_as_on_a_mac() {
     assert!(preferences.ui_sounds);
     preferences.set("ui_sounds", "false").unwrap();
     assert!(!Preferences::parse(&preferences.to_text()).ui_sounds);
+}
+
+#[test]
+fn natural_scrolling_is_on_for_a_trackpad_and_off_for_a_mouse_by_default() {
+    let mut preferences = Preferences::default();
+    // A Mac's trackpad ships with it; a wheel turned toward the person scrolls down.
+    assert!(preferences.trackpad_natural_scrolling);
+    assert!(!preferences.mouse_natural_scrolling);
+    assert_eq!(
+        preferences.get("trackpad_natural_scrolling").as_deref(),
+        Some("true")
+    );
+    assert_eq!(
+        preferences.get("mouse_natural_scrolling").as_deref(),
+        Some("false")
+    );
+    // Each is a boolean, refused otherwise with nothing changed.
+    for key in ["trackpad_natural_scrolling", "mouse_natural_scrolling"] {
+        for bad in ["on", "1", "", "True"] {
+            assert_eq!(preferences.set(key, bad), Err(Refused::BadValue), "{key}");
+        }
+    }
+    assert_eq!(preferences, Preferences::default());
+    // Each is its own: one changed leaves the other.
+    preferences
+        .set("trackpad_natural_scrolling", "false")
+        .unwrap();
+    assert!(!preferences.trackpad_natural_scrolling && !preferences.mouse_natural_scrolling);
+    preferences.set("mouse_natural_scrolling", "true").unwrap();
+    assert!(!preferences.trackpad_natural_scrolling && preferences.mouse_natural_scrolling);
+    // Kept in the file and read back; a bad line keeps the default.
+    let written = Preferences::parse(&preferences.to_text());
+    assert!(!written.trackpad_natural_scrolling && written.mouse_natural_scrolling);
+    let bad =
+        Preferences::parse("trackpad_natural_scrolling = no\nmouse_natural_scrolling = yes\n");
+    assert!(bad.trackpad_natural_scrolling && !bad.mouse_natural_scrolling);
 }

@@ -611,6 +611,9 @@ pub struct Compositor {
     /// is in their coordinates (the development compositor's output, centred on a larger
     /// display, starts there).
     pub input: Option<oxyos_input::Input>,
+    /// Which way each kind of device scrolls (docs/adr/0042-scrolling.mdx, decision 6), as the
+    /// preferences say: given to the devices as they are given (`set_input`) and at every change.
+    natural_scrolling: oxyos_input::NaturalScrolling,
     pub display_offset: (i32, i32),
     /// With a display: the card's connectors changed (`hotplug`, ADR 0018) since the program
     /// running the compositor last took it (`take_hotplug`), which then reads them again.
@@ -1098,6 +1101,7 @@ impl Compositor {
             keep_frame: false,
             last_frame: Vec::new(),
             input: None,
+            natural_scrolling: oxyos_input::NaturalScrolling::default(),
             display_offset: (0, 0),
             hotplug: None,
             hotplugged: false,
@@ -1786,9 +1790,32 @@ impl Compositor {
         std::mem::take(&mut self.hotplugged)
     }
 
+    /// The seat's devices, given by the program running the compositor: they scroll as the
+    /// preferences say and the pointer moves within the outputs.
+    pub fn set_input(&mut self, mut input: oxyos_input::Input) {
+        input.set_natural_scrolling(self.natural_scrolling);
+        self.input = Some(input);
+        self.confine_pointer();
+    }
+
+    /// Which way each kind of device scrolls from now on (the preferences' natural scrolling,
+    /// docs/adr/0042-scrolling.mdx, decision 6): libinput turns every scroll the devices make
+    /// after it, so the scene and every client receive them in that direction.
+    pub fn set_natural_scrolling(&mut self, natural: oxyos_input::NaturalScrolling) {
+        self.natural_scrolling = natural;
+        if let Some(input) = self.input.as_mut() {
+            input.set_natural_scrolling(natural);
+        }
+    }
+
+    /// Which way each kind of device scrolls, as last set.
+    pub fn natural_scrolling(&self) -> oxyos_input::NaturalScrolling {
+        self.natural_scrolling
+    }
+
     /// The pointer moves within the outputs, crossing where they meet (ADR 0018): told to the
-    /// devices whenever the outputs change, and by the program running the compositor once it
-    /// gives it its devices (`input`).
+    /// devices whenever the outputs change, and as the program running the compositor gives it
+    /// its devices (`set_input`).
     pub fn confine_pointer(&mut self) {
         let Some(input) = self.input.as_mut() else {
             return;
