@@ -114,10 +114,18 @@ class PopupHost {
     // The configure its last frame was drawn for: a new one (a reposition that resized it, or a
     // scale change) needs a new frame, and the compositor discards one drawn for an older size.
     uint64_t drawnFor = 0;
+    // Repositions sent whose configure has not come yet, and the configure serial last seen: a
+    // frame drawn before the newest one comes answers a configure the compositor has replaced, so
+    // it would be discarded (never shown at the old place with the new content). A menu bar's
+    // menu changing into the next one is placed again each frame (Bloom's `viewport.tsx`).
+    uint32_t unanswered = 0;
+    uint64_t seen = 0;
     bool dismissed = false;  // closed by the compositor; the view is still mounted
     uint32_t parent = 0;     // the surface it hangs from
     bool tooltip = false;    // shown without a grab (popup.h's `tooltip`)
   };
+  // Counts the configures that came since it last looked, against the repositions sent.
+  void observe(Popup& popup) const;
   // The anchor's surface, and its frame there.
   std::optional<std::pair<uint32_t, facebook::react::Rect>> anchored(
       const facebook::react::OxyOSPopupViewProps& props) const;

@@ -1,0 +1,513 @@
+{
+  "about": "menu-bar-morph.json with Reduce Motion on (docs/adr/0019-settings.mdx): moving to another title with a menu open changes the bar's one popup into the next menu at once. The same popup surface throughout, now at the next menu's place and size with no place between and no frame drawing the two menus together, Edit's rows alone at once; the application hears nothing, and the screen reader says the new menu once.",
+  "locale": "es_ES.UTF-8",
+  "module": "MenuBarMorphProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "reduce_motion": "true"
+    }
+  },
+  "reader": {},
+  "steps": [
+    {
+      "name": "the window is active: the shell's bar shows its application's menu, then File and Edit",
+      "do": [
+        "press",
+        [
+          300,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "File",
+            "Edit"
+          ]
+        },
+        "react": {
+          "touchStart@menu-probe": 1,
+          "touchEnd@menu-probe": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on File opens it under its title, said by its title",
+      "do": [
+        "press_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "spoken": [
+          {
+            "text": "File, menú"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the pointer along the bar onto Edit: File's popup changes at once into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once",
+      "do": [
+        "move_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menu_morph": {
+          "from": [
+            79,
+            32,
+            266,
+            109
+          ],
+          "to": [
+            115,
+            32,
+            266,
+            72
+          ],
+          "frames_min": 0,
+          "frames_max": 0
+        },
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent",
+            "New"
+          ],
+          "menu_crossfade": {
+            "both": [
+              "Open Recent",
+              "Wrap Lines"
+            ],
+            "frames_min": 0,
+            "gone": [
+              "Open Recent",
+              "New"
+            ],
+            "kept": true,
+            "frames_max": 0
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "spoken": [
+          {
+            "text": "Edit, menú"
+          }
+        ]
+      }
+    },
+    {
+      "name": "back onto File: Edit's popup changes at once into File's the same way, said once",
+      "do": [
+        "move_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menu_morph": {
+          "from": [
+            115,
+            32,
+            266,
+            72
+          ],
+          "to": [
+            79,
+            32,
+            266,
+            109
+          ],
+          "frames_min": 0,
+          "frames_max": 0
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines",
+            "Undo"
+          ],
+          "menu_crossfade": {
+            "both": [
+              "Open Recent",
+              "Wrap Lines"
+            ],
+            "frames_min": 0,
+            "gone": [
+              "Wrap Lines",
+              "Undo"
+            ],
+            "kept": true,
+            "frames_max": 0
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "spoken": [
+          {
+            "text": "File, menú"
+          }
+        ]
+      }
+    },
+    {
+      "name": "onto Edit again",
+      "do": [
+        "move_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menu_morph": {
+          "from": [
+            79,
+            32,
+            266,
+            109
+          ],
+          "to": [
+            115,
+            32,
+            266,
+            72
+          ],
+          "frames_min": 0,
+          "frames_max": 0
+        },
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent"
+          ],
+          "menu_crossfade": {
+            "both": [
+              "Open Recent",
+              "Wrap Lines"
+            ],
+            "frames_min": 0,
+            "gone": [
+              "Open Recent"
+            ],
+            "kept": true,
+            "frames_max": 0
+          }
+        },
+        "react": {},
+        "delivered": {},
+        "spoken": [
+          {
+            "text": "Edit, menú"
+          }
+        ]
+      }
+    },
+    {
+      "name": "onto View: Edit's popup changes at once into View's, wider than the menus' floor, moving and growing as it shrinks in height",
+      "do": [
+        "move_output",
+        [
+          178,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menu_morph": {
+          "from": [
+            115,
+            32,
+            266,
+            72
+          ],
+          "to": [
+            153,
+            32,
+            475,
+            42
+          ],
+          "frames_min": 0,
+          "frames_max": 0
+        },
+        "in_shell": {
+          "texts": [
+            "Show the Sidebar and the Inspector Together"
+          ],
+          "absent": [
+            "Wrap Lines",
+            "Undo"
+          ],
+          "menu_crossfade": {
+            "both": [
+              "Wrap Lines",
+              "Show the Sidebar"
+            ],
+            "frames_min": 0,
+            "gone": [
+              "Wrap Lines",
+              "Undo"
+            ],
+            "kept": true,
+            "frames_max": 0
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "View",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "spoken": [
+          {
+            "text": "View, menú"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Left from the menu: View's popup changes at once into Edit's on its first enabled row, Wrap Lines, said after Edit's title; the window hears nothing",
+      "do": [
+        "key",
+        105
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "menu_morph": {
+          "from": [
+            153,
+            32,
+            475,
+            42
+          ],
+          "to": [
+            115,
+            32,
+            266,
+            72
+          ],
+          "frames_min": 0,
+          "frames_max": 0
+        },
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Show the Sidebar"
+          ],
+          "menu_crossfade": {
+            "both": [
+              "Wrap Lines",
+              "Show the Sidebar"
+            ],
+            "frames_min": 0,
+            "gone": [
+              "Show the Sidebar"
+            ],
+            "kept": true,
+            "frames_max": 0
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Wrap Lines",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "spoken": [
+          {
+            "text": "Edit, menú"
+          },
+          {
+            "text": "Wrap Lines, no marcada, casilla",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escape closes it, choosing nothing: its title is said",
+      "do": [
+        "key",
+        1
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Wrap Lines",
+            "Undo"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "texts": [
+          "new documents: 0",
+          "wrap lines: off"
+        ]
+      }
+    }
+  ]
+}

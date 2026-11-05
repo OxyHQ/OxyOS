@@ -184,7 +184,9 @@ void PopupHost::sync(uint64_t serial) {
       float scale = shown && shown->configure ? shown->scale : parent ? parent->scale : window_.scale();
       auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size, scale);
       if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
+        observe(popup);
         window_.reposition(popup.surface, placed);
+        popup.unanswered += 1;
         popup.placed = placed;
         popup.dirty = true;
         Report::get().popup("reposition", popup.surface, &view,
@@ -261,6 +263,15 @@ bool PopupHost::tracks(uint32_t surface, Tag view) const {
   return false;
 }
 
+void PopupHost::observe(Popup& popup) const {
+  const auto* surface = window_.surface(popup.surface);
+  if (!surface || surface->configure <= popup.seen) return;
+  // Each reposition is answered by one configure (a dismissal ends the popup instead).
+  uint64_t came = surface->configure - popup.seen;
+  popup.unanswered = came >= popup.unanswered ? 0 : popup.unanswered - static_cast<uint32_t>(came);
+  popup.seen = surface->configure;
+}
+
 void PopupHost::changed() {
   for (auto& [tag, popup] : popups_) popup.dirty = true;
 }
@@ -269,6 +280,10 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
   for (auto& [tag, popup] : popups_) {
     if (popup.dismissed || !window_.ready(popup.surface)) continue;
     const auto* surface = window_.surface(popup.surface);
+    // Placed again and not configured for it yet: the next frame is the one for its new place
+    // and size, the one before stays on screen until then.
+    observe(popup);
+    if (popup.unanswered > 0) continue;
     if (!popup.dirty && surface->configure == popup.drawnFor) continue;
     Canvas canvas;
     auto started = std::chrono::steady_clock::now();

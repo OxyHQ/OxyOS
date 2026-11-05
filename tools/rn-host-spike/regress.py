@@ -2412,6 +2412,61 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["popup_events"]:
             fail(f"popup events {got}, expected exactly {expect['popup_events']}")
+    if "menu_crossfade" in expect:
+        # A menu bar's one popup changing from one menu into another (Bloom's viewport): the frames
+        # it drew in the step, each with the texts it drew visibly (opacity above zero). `both`:
+        # texts of the two menus drawn together (each menu's rows fading through the other's), in
+        # at least `frames_min` frames and at most `frames_max`; `gone` absent from its last frame.
+        wanted = expect["menu_crossfade"]
+        menu_drawn = [line for line in report if line["kind"] == "frame" and start <= line["t"] <= end
+                 and line.get("presented", True) and line["surface"] not in closed]
+        menu_lines = [line for line in menu_drawn if any(text in t for t in line["texts"] for text in wanted["both"])]
+        drawn_both = sum(1 for line in menu_lines if all(any(text in t for t in line["texts"]) for text in wanted["both"]))
+        if drawn_both < frames_least(wanted.get("frames_min", 0)) or drawn_both > wanted.get("frames_max", drawn_both):
+            fail(f"{drawn_both} frames drew both {wanted['both']}, expected between {wanted.get('frames_min', 0)} "
+                 f"and {wanted.get('frames_max', 'any')}")
+        # `kept`: the one popup throughout, never one closed and another opened.
+        if wanted.get("kept"):
+            lifecycle_events = [f"{line['event']}@{line.get('view', line['surface'])}" for line in report
+                                if line["kind"] == "popup" and start <= line["t"] <= end
+                                and line["event"] in ("open", "close", "dismissed")]
+            if lifecycle_events:
+                fail(f"popups opened or closed in the step: {lifecycle_events}, expected the one kept")
+        last_drawn = menu_lines[-1]["texts"] if menu_lines else []
+        for text in wanted.get("gone", []):
+            if any(text in t for t in last_drawn):
+                fail(f"{text!r} is still drawn in the menu's last frame of the step")
+    if "menu_morph" in expect:
+        # The menu open in each frame the compositor composed in the step (the popups of the grab
+        # chain): ONE popup throughout, the same surface, whose place and size go from `from` to
+        # `to` ([x, y, width, height] on the output), each coordinate monotonic between the two,
+        # through at least `frames_min` places between them (`frames_max`: at most).
+        wanted = expect["menu_morph"]
+        composed_menus = result.get("menu_frames", [])
+        surfaces = {(menu[0], menu[1]) for menus in composed_menus for menu in menus}
+        if any(len(menus) != 1 for menus in composed_menus) or len(surfaces) != 1:
+            fail(f"menus composed {composed_menus}: expected one popup in every frame, the same throughout")
+        else:
+            rects = []
+            for menus in composed_menus:
+                rect = menus[0][2:]
+                if not rects or rects[-1] != rect:
+                    rects.append(rect)
+            start_rect, end_rect = wanted["from"], wanted["to"]
+            if not rects or rects[0] != start_rect or rects[-1] != end_rect:
+                fail(f"the menu went through {rects}, expected from {start_rect} to {end_rect}")
+            for axis in range(4):
+                low, high = sorted((start_rect[axis], end_rect[axis]))
+                values = [rect[axis] for rect in rects]
+                rising = end_rect[axis] >= start_rect[axis]
+                ordered = all((b >= a) if rising else (b <= a) for a, b in zip(values, values[1:]))
+                if not ordered or any(not low <= value <= high for value in values):
+                    fail(f"the menu's {['x', 'y', 'width', 'height'][axis]} went {values}, not monotonic "
+                         f"from {start_rect[axis]} to {end_rect[axis]}")
+            between = max(0, len(rects) - 2)
+            if between < frames_least(wanted.get("frames_min", 0)) or between > wanted.get("frames_max", between):
+                fail(f"the menu showed {between} places between its two menus' ({rects}), expected between "
+                     f"{wanted.get('frames_min', 0)} and {wanted.get('frames_max', 'any')}")
     if "popup_size" in expect:
         rects = result.get("popups", [])
         sizes = [rect[2:] for rect in rects]

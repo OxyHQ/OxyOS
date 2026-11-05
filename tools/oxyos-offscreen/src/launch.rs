@@ -3076,6 +3076,27 @@ fn views_json(compositor: &mut Compositor) -> String {
     )
 }
 
+/// The menus open in each frame composed since the last step, as [[client, surface, x, y, width,
+/// height], ...] per frame (`Compositor::menu_frames`). Taken: the next step reports its own.
+fn menu_frames_json(compositor: &mut Compositor) -> String {
+    let frames: Vec<String> = std::mem::take(&mut compositor.menu_frames)
+        .into_iter()
+        .map(|menus| {
+            let menus: Vec<String> = menus
+                .iter()
+                .map(|(key, r)| {
+                    format!(
+                        "[{},{},{},{},{},{}]",
+                        key.client, key.id, r.x, r.y, r.width, r.height
+                    )
+                })
+                .collect();
+            format!("[{}]", menus.join(","))
+        })
+        .collect();
+    format!("[{}]", frames.join(","))
+}
+
 fn popups_json(compositor: &Compositor) -> String {
     let popups: Vec<String> = shown(compositor)
         .into_iter()
@@ -5211,7 +5232,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5248,6 +5269,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),
             views_json(&mut session.compositor),
+            menu_frames_json(&mut session.compositor),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
             moved.map_or(String::new(), |motion| format!(",\"moved\":{motion}")),
