@@ -10,14 +10,17 @@
 //!   (Oxy's API and OxyOS's public client id, which the SDK's sign-in runs with) and the `enroll`
 //!   conversation, a second factor answered on the same connection.
 //!
-//! Both are `SOCK_SEQPACKET` with one JSON message per packet (`oxyos-account`'s `ipc`). What the
-//! service answers is read strictly and handed on rebuilt, never passed through: a snapshot of
-//! another shape, or a token without its expiry, is no answer. Secrets (a password, a device
+//! Both are `SOCK_SEQPACKET` with one JSON message per packet, in `oxyos-account`'s own types (`ipc`,
+//! `session`, `platform`): one definition of the protocol. What the service answers is handed on
+//! rebuilt, never passed through: a snapshot that does not hold together, or a token without its
+//! expiry, is no answer. Secrets (a password, a device
 //! secret, a second factor's code, an access token) are held in buffers overwritten when dropped
 //! and never printed: not in an error, not in `oxyos_last_error`.
 
 use super::fail;
-use oxyos_account::ipc::Connection;
+use oxyos_account::ipc::{self, Connection};
+pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
+use oxyos_account::session;
 use oxyos_account::Secret;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_int, CStr};
@@ -25,9 +28,6 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use zeroize::Zeroizing;
-
-/// The session socket of the system's service.
-pub const SESSION_SOCKET: &str = "/run/oxyos/accountd/session";
 
 /// How long a snapshot may take: the service answers it from memory.
 const SNAPSHOT_WAIT: Duration = Duration::from_secs(5);
@@ -43,113 +43,42 @@ const ENROLL_WAIT: Duration = Duration::from_secs(180);
 /// The session socket: `OXYOS_ACCOUNTD_SESSION_SOCKET`, else the system's.
 fn session_socket() -> PathBuf {
     std::env::var_os("OXYOS_ACCOUNTD_SESSION_SOCKET")
-        .map_or_else(|| SESSION_SOCKET.into(), PathBuf::from)
+        .map_or_else(|| session::SOCKET.into(), PathBuf::from)
 }
 
 /// The control socket: `OXYOS_ACCOUNTD_SOCKET`, else the system's.
 fn control_socket() -> PathBuf {
-    std::env::var_os("OXYOS_ACCOUNTD_SOCKET")
-        .map_or_else(|| oxyos_account::ipc::SOCKET.into(), PathBuf::from)
+    std::env::var_os("OXYOS_ACCOUNTD_SOCKET").map_or_else(|| ipc::SOCKET.into(), PathBuf::from)
 }
 
 // ---------------------------------------------------------------------------------------------
-// The session socket (an application's)
+// The session socket (an application's), in `oxyos-account`'s own types
 
-/// The session as the service tells it (the SDK's `OxyHostSnapshot`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Snapshot {
-    pub status: Status,
-    pub revision: u64,
-    pub account: Option<SnapshotAccount>,
-    pub online: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    SignedIn,
-    SignedOut,
-    Unavailable,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SnapshotAccount {
-    pub id: String,
-    pub handle: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub avatar: Option<String>,
-}
-
-impl Snapshot {
-    /// Whether it holds together: signed in names an account, anything else none.
-    fn coherent(&self) -> bool {
-        match (&self.status, &self.account) {
-            (Status::SignedIn, Some(account)) => {
-                !account.id.is_empty() && !account.handle.is_empty()
-            }
-            (Status::SignedIn, None) => false,
-            (_, account) => account.is_none(),
-        }
+/// Whether a snapshot holds together: signed in names an account, anything else none.
+fn coherent(snapshot: &Snapshot) -> bool {
+    match (&snapshot.status, &snapshot.account) {
+        (Status::SignedIn, Some(account)) => !account.id.is_empty() && !account.handle.is_empty(),
+        (Status::SignedIn, None) => false,
+        (_, account) => account.is_none(),
     }
 }
 
-/// Why a token is asked for, as the SDK says it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TokenReason {
-    Boot,
-    Preflight,
-    #[serde(rename = "response-401")]
-    Response401,
-}
-
-impl TokenReason {
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "boot" => Some(Self::Boot),
-            "preflight" => Some(Self::Preflight),
-            "response-401" => Some(Self::Response401),
-            _ => None,
-        }
+/// The SDK's reason by its name.
+pub fn token_reason(text: &str) -> Option<TokenReason> {
+    match text {
+        "boot" => Some(TokenReason::Boot),
+        "preflight" => Some(TokenReason::Preflight),
+        "response-401" => Some(TokenReason::Response401),
+        _ => None,
     }
 }
 
-/// What an application sends (C3).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-enum SessionRequest {
-    Snapshot,
-    Subscribe,
-    Token { reason: TokenReason },
-    Remove {},
-}
-
-/// A token the service minted for the asking application: secret, never printed.
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Token {
-    pub access_token: Secret,
-    pub expires_at: String,
-}
-
-impl std::fmt::Debug for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Token(…, expires {})", self.expires_at)
-    }
-}
-
-/// What the service answers an application.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum SessionAnswer {
-    Snapshot(Snapshot),
-    Token(Option<Token>),
-    Removed,
-    Refused { reason: String },
+/// A refusal's reason by its name on the wire (`notPermitted`).
+fn reason_name(reason: &impl Serialize) -> String {
+    serde_json::to_value(reason)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "refused".into())
 }
 
 /// Why the service could not be asked or refused: never a secret.
@@ -181,9 +110,9 @@ fn failed(socket: &Path, error: impl std::fmt::Display) -> SessionError {
 /// One request on a connection of its own, and its one answer.
 fn ask(
     socket: &Path,
-    request: &SessionRequest,
+    request: &session::Request,
     wait: Duration,
-) -> Result<SessionAnswer, SessionError> {
+) -> Result<session::Answer, SessionError> {
     let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
     connection
         .set_timeout(wait)
@@ -191,8 +120,10 @@ fn ask(
     connection
         .send(request)
         .map_err(|error| failed(socket, error))?;
-    match connection.receive::<SessionAnswer>() {
-        Ok(Some(Some(SessionAnswer::Refused { reason }))) => Err(SessionError::Refused(reason)),
+    match connection.receive::<session::Answer>() {
+        Ok(Some(Some(session::Answer::Refused { reason }))) => {
+            Err(SessionError::Refused(reason_name(&reason)))
+        }
         Ok(Some(Some(answer))) => Ok(answer),
         Ok(Some(None)) => Err(failed(socket, "an answer that is not one")),
         Ok(None) => Err(failed(socket, "it closed the connection")),
@@ -202,29 +133,29 @@ fn ask(
 
 /// The session's snapshot, asked once.
 pub fn snapshot_at(socket: &Path) -> Result<Snapshot, SessionError> {
-    match ask(socket, &SessionRequest::Snapshot, SNAPSHOT_WAIT)? {
-        SessionAnswer::Snapshot(snapshot) if snapshot.coherent() => Ok(snapshot),
+    match ask(socket, &session::Request::Snapshot, SNAPSHOT_WAIT)? {
+        session::Answer::Snapshot(snapshot) if coherent(&snapshot) => Ok(snapshot),
         _ => Err(failed(socket, "not a snapshot")),
     }
 }
 
 /// A token for the asking application, or none (offline, signed out, or not given).
 pub fn token_at(socket: &Path, reason: TokenReason) -> Result<Option<Token>, SessionError> {
-    match ask(socket, &SessionRequest::Token { reason }, TOKEN_WAIT)? {
-        SessionAnswer::Token(Some(token))
+    match ask(socket, &session::Request::Token { reason }, TOKEN_WAIT)? {
+        session::Answer::Token(Some(token))
             if !token.access_token.is_empty() && !token.expires_at.is_empty() =>
         {
             Ok(Some(token))
         }
-        SessionAnswer::Token(None) => Ok(None),
+        session::Answer::Token(None) => Ok(None),
         _ => Err(failed(socket, "not a token")),
     }
 }
 
 /// Removes the asking application's account from the machine (Settings alone may).
 pub fn remove_at(socket: &Path) -> Result<(), SessionError> {
-    match ask(socket, &SessionRequest::Remove {}, REMOVE_WAIT)? {
-        SessionAnswer::Removed => Ok(()),
+    match ask(socket, &session::Request::Remove {}, REMOVE_WAIT)? {
+        session::Answer::Removed => Ok(()),
         _ => Err(failed(socket, "not an answer to remove")),
     }
 }
@@ -241,7 +172,7 @@ impl Subscription {
     pub fn connect(socket: &Path) -> Result<Self, SessionError> {
         let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
         connection
-            .send(&SessionRequest::Subscribe)
+            .send(&session::Request::Subscribe)
             .map_err(|error| failed(socket, error))?;
         Ok(Self {
             connection,
@@ -264,13 +195,15 @@ impl Subscription {
         if ready == 0 {
             return Ok(None);
         }
-        match self.connection.receive::<SessionAnswer>() {
-            Ok(Some(Some(SessionAnswer::Snapshot(snapshot)))) if snapshot.coherent() => {
+        match self.connection.receive::<session::Answer>() {
+            Ok(Some(Some(session::Answer::Snapshot(snapshot)))) if coherent(&snapshot) => {
                 serde_json::to_string(&snapshot)
                     .map(Some)
                     .map_err(|error| failed(&self.socket, error))
             }
-            Ok(Some(Some(SessionAnswer::Refused { reason }))) => Err(SessionError::Refused(reason)),
+            Ok(Some(Some(session::Answer::Refused { reason }))) => {
+                Err(SessionError::Refused(reason_name(&reason)))
+            }
             Ok(Some(_)) => Err(failed(&self.socket, "not a snapshot")),
             Ok(None) => Err(failed(&self.socket, "it closed the subscription")),
             Err(error) => Err(failed(&self.socket, error)),
@@ -284,39 +217,23 @@ impl Subscription {
 /// What the login screen's setup runs the SDK's sign-in with: Oxy's API and OxyOS's public client
 /// id (C2's `platform`). Neither is secret.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Platform {
     pub api: String,
     pub client_id: String,
 }
 
-/// The service's answer: a platform without a client id is one it cannot set accounts up for.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToldPlatform {
-    api: String,
-    #[serde(default)]
-    client_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum PlatformAnswer {
-    Platform(ToldPlatform),
-    Refused { reason: String },
-}
-
-/// The platform the service sets accounts up for.
+/// The platform the service sets accounts up for: one without a client id is not configured.
 pub fn platform_at(socket: &Path) -> Result<Platform, SessionError> {
     let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
     connection
         .set_timeout(PLATFORM_WAIT)
         .map_err(|error| failed(socket, error))?;
     connection
-        .send(&"platform")
+        .send(&ipc::Request::Platform)
         .map_err(|error| failed(socket, error))?;
-    match connection.receive::<PlatformAnswer>() {
-        Ok(Some(Some(PlatformAnswer::Platform(told)))) => match told.client_id {
+    match connection.receive::<ipc::Answer>() {
+        Ok(Some(Some(ipc::Answer::Platform(told)))) => match told.client_id {
             _ if told.api.is_empty() => Err(failed(socket, "a platform without its API")),
             Some(client_id) if !client_id.is_empty() => Ok(Platform {
                 api: told.api,
@@ -324,70 +241,35 @@ pub fn platform_at(socket: &Path) -> Result<Platform, SessionError> {
             }),
             _ => Err(SessionError::Refused("notConfigured".into())),
         },
-        Ok(Some(Some(PlatformAnswer::Refused { reason }))) => Err(SessionError::Refused(reason)),
+        Ok(Some(Some(ipc::Answer::Refused { reason, .. }))) => {
+            Err(SessionError::Refused(reason_name(&reason)))
+        }
         Ok(Some(_)) => Err(failed(socket, "not a platform")),
         Ok(None) => Err(failed(socket, "it closed the connection")),
         Err(error) => Err(failed(socket, error)),
     }
 }
 
-/// What the setup client sends (the service's `enroll` conversation).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-enum EnrollRequest<'a> {
-    #[serde(rename_all = "camelCase")]
-    Enroll {
-        device_id: &'a str,
-        device_secret: &'a Secret,
-        account_id: &'a str,
-        password: &'a Secret,
-    },
-    SecondFactor {
-        code: &'a Secret,
-    },
-}
-
-/// The service's answers to a setup, as the login screen reads them: none is secret.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum EnrollAnswer {
-    SecondFactorRequired,
-    #[serde(rename_all = "camelCase")]
-    Enrolled {
-        account_id: String,
-        user: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    Refused {
-        reason: String,
-        #[serde(default)]
-        retry_after_seconds: Option<u64>,
-    },
-}
-
-impl EnrollAnswer {
-    fn json(&self) -> String {
-        match self {
-            EnrollAnswer::SecondFactorRequired => serde_json::json!("secondFactorRequired"),
-            EnrollAnswer::Enrolled { account_id, user } => {
-                serde_json::json!({"enrolled": {"accountId": account_id, "user": user}})
-            }
-            EnrollAnswer::Refused {
-                reason,
-                retry_after_seconds,
-            } => serde_json::json!({"refused": {"reason": reason, "retryAfterSeconds": retry_after_seconds}}),
-        }
-        .to_string()
-    }
-
-    /// Whether the conversation goes on: a second factor asked, or a wrong one.
-    fn continues(&self) -> bool {
-        match self {
-            EnrollAnswer::SecondFactorRequired => true,
-            EnrollAnswer::Refused { reason, .. } => reason == "secondFactorInvalid",
-            EnrollAnswer::Enrolled { .. } => false,
-        }
-    }
+/// A setup's answer as the login screen reads it (none is secret): whether it goes on.
+fn enroll_json(answer: &ipc::Answer) -> Option<(String, bool)> {
+    let (json, continues) = match answer {
+        ipc::Answer::SecondFactorRequired => (serde_json::json!("secondFactorRequired"), true),
+        ipc::Answer::Enrolled {
+            account_id, user, ..
+        } => (
+            serde_json::json!({"enrolled": {"accountId": account_id, "user": user}}),
+            false,
+        ),
+        ipc::Answer::Refused {
+            reason,
+            retry_after_seconds,
+        } => (
+            serde_json::json!({"refused": {"reason": reason, "retryAfterSeconds": retry_after_seconds}}),
+            *reason == ipc::Reason::SecondFactorInvalid,
+        ),
+        _ => return None,
+    };
+    Some((json.to_string(), continues))
 }
 
 /// One setup: an `enroll`, then second factors while the service asks for one.
@@ -414,7 +296,7 @@ impl Enrollment {
         })
     }
 
-    fn turn(&mut self, request: &EnrollRequest<'_>) -> Result<&str, SessionError> {
+    fn turn(&mut self, request: &ipc::Request) -> Result<&str, SessionError> {
         let connection = self
             .connection
             .as_ref()
@@ -422,18 +304,19 @@ impl Enrollment {
         let result = connection
             .send(request)
             .map_err(|error| failed(&self.socket, error))
-            .and_then(|()| match connection.receive::<EnrollAnswer>() {
-                Ok(Some(Some(answer))) => Ok(answer),
+            .and_then(|()| match connection.receive::<ipc::Answer>() {
+                Ok(Some(Some(answer))) => enroll_json(&answer)
+                    .ok_or_else(|| failed(&self.socket, "not an answer to a setup")),
                 Ok(Some(None)) => Err(failed(&self.socket, "an answer that is not one")),
                 Ok(None) => Err(failed(&self.socket, "it closed the connection")),
                 Err(error) => Err(failed(&self.socket, error)),
             });
         match result {
-            Ok(answer) => {
-                if !answer.continues() {
+            Ok((json, continues)) => {
+                if !continues {
                     self.connection = None;
                 }
-                self.answer = answer.json();
+                self.answer = json;
                 Ok(&self.answer)
             }
             Err(error) => {
@@ -456,11 +339,11 @@ impl Enrollment {
             return Err(SessionError::Failed("the setup was sent already".into()));
         }
         self.started = true;
-        self.turn(&EnrollRequest::Enroll {
-            device_id,
-            device_secret,
-            account_id,
-            password,
+        self.turn(&ipc::Request::Enroll {
+            device_id: device_id.to_owned(),
+            device_secret: Secret::new(device_secret.expose()),
+            account_id: account_id.to_owned(),
+            password: Secret::new(password.expose()),
         })
     }
 
@@ -469,7 +352,9 @@ impl Enrollment {
         if !self.started {
             return Err(SessionError::Failed("no setup was sent".into()));
         }
-        self.turn(&EnrollRequest::SecondFactor { code })
+        self.turn(&ipc::Request::SecondFactor {
+            code: Secret::new(code.expose()),
+        })
     }
 }
 
@@ -565,7 +450,7 @@ pub unsafe extern "C" fn oxyos_account_session_token(
         return i64::from(fail("null buffer"));
     }
     // SAFETY: the caller's contract.
-    let Some(reason) = (unsafe { text_arg(reason) }).and_then(TokenReason::parse) else {
+    let Some(reason) = (unsafe { text_arg(reason) }).and_then(token_reason) else {
         return i64::from(fail("a token's reason: boot, preflight or response-401"));
     };
     match token_at(&session_socket(), reason) {

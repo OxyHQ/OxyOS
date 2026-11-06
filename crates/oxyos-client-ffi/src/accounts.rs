@@ -97,6 +97,7 @@ mod tests {
                         uid: 1001,
                         name: "Ada \"Countess\" Lovelace".into(),
                         picture: Some("/var/lib/oxyos/pictures/oxy-a".into()),
+                        state: oxyos_account::store::State::Ready,
                     },
                     Account {
                         account_id: "b".into(),
@@ -104,6 +105,7 @@ mod tests {
                         uid: 1002,
                         name: "Bea".into(),
                         picture: None,
+                        state: oxyos_account::store::State::Ready,
                     },
                 ]))
                 .unwrap();

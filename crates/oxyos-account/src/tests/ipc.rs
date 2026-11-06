@@ -6,10 +6,14 @@ use crate::ipc::{
     list, serve, Answer, Connection, Conversation, Enrollers, Listener, Outcome, Reason, Request,
     Turn,
 };
+use crate::platform::Platform;
 use crate::setup::Setup;
 use crate::store::Store;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
+
+/// Oxy's API, as the service tells the login screen.
+const API: &str = "http://127.0.0.1:9";
 
 fn me() -> u32 {
     rustix::process::getuid().as_raw()
@@ -27,7 +31,7 @@ fn enroll(password: &str) -> Request {
 /// A service on a socket of its own, serving `conversations` clients, each outcome logged.
 struct Service {
     socket: std::path::PathBuf,
-    setup: Arc<Setup<FakeApi, FakeUsers>>,
+    platform: Arc<Platform<FakeApi, FakeUsers>>,
     log: Arc<Mutex<Vec<String>>>,
     thread: Option<std::thread::JoinHandle<()>>,
     _dir: TempDir,
@@ -37,17 +41,19 @@ impl Service {
     fn start(api: FakeApi, enrollers: Enrollers, conversations: usize) -> Self {
         let dir = TempDir::new("ipc");
         let store = Store::open(&dir.path().join("accounts")).unwrap();
-        let setup = Arc::new(Setup::new(api, FakeUsers::default(), store));
+        let platform = Arc::new(Platform::new(
+            Setup::new(api, FakeUsers::default(), store).with_platform(platform_client()),
+        ));
         let socket = dir.path().join("socket");
         let listener = Listener::bind(&socket).unwrap();
         let log = Arc::new(Mutex::new(Vec::new()));
         let thread = {
-            let setup = setup.clone();
+            let platform = platform.clone();
             let log = log.clone();
             std::thread::spawn(move || {
                 for _ in 0..conversations {
                     let connection = listener.accept().unwrap();
-                    serve(&connection, &setup, enrollers, |peer, outcome| {
+                    serve(&connection, &platform, API, enrollers, |peer, outcome| {
                         log.lock()
                             .unwrap()
                             .push(format!("{} {outcome:?}", peer.uid));
@@ -58,7 +64,7 @@ impl Service {
         };
         Self {
             socket,
-            setup,
+            platform,
             log,
             thread: Some(thread),
             _dir: dir,
@@ -119,7 +125,8 @@ fn a_client_enrolls_an_account_on_the_socket() {
     assert_eq!(profile.username.as_deref(), Some(USERNAME));
     // The conversation is over.
     assert!(client.receive::<Answer>().unwrap().is_none());
-    let setup = service.setup.clone();
+    let platform = service.platform.clone();
+    let setup = platform.setup();
     let log = service.finish();
     assert!(setup.store().get(&account()).unwrap().is_some());
     assert_eq!(log.len(), 1);
@@ -139,7 +146,8 @@ fn a_peer_that_may_not_enroll_is_told_so_and_nothing_else() {
     let client = service.connect();
     client.send(&enroll(PASSWORD)).unwrap();
     let reply = answer(&client);
-    let setup = service.setup.clone();
+    let platform = service.platform.clone();
+    let setup = platform.setup();
     let log = service.finish();
     if me() == 0 {
         assert!(matches!(reply, Answer::Enrolled { .. }));
@@ -198,7 +206,8 @@ fn an_offline_setup_is_refused_on_the_socket_and_leaves_nothing() {
     let client = service.connect();
     client.send(&enroll(PASSWORD)).unwrap();
     assert_eq!(answer(&client), Answer::refused(Reason::Offline));
-    let setup = service.setup.clone();
+    let platform = service.platform.clone();
+    let setup = platform.setup();
     service.finish();
     assert!(setup.users().names().is_empty());
     assert!(setup.store().users().unwrap().is_empty());
@@ -218,7 +227,8 @@ fn a_client_that_goes_away_abandons_its_setup() {
     client.send(&enroll(PASSWORD)).unwrap();
     assert_eq!(answer(&client), Answer::SecondFactorRequired);
     drop(client);
-    let setup = service.setup.clone();
+    let platform = service.platform.clone();
+    let setup = platform.setup();
     service.finish();
     assert!(setup.users().names().is_empty());
     assert!(setup.store().users().unwrap().is_empty());
@@ -247,7 +257,8 @@ fn what_is_not_a_request_ends_the_conversation() {
         })
         .unwrap();
     assert_eq!(answer(&client), Answer::refused(Reason::InvalidRequest));
-    let setup = service.setup.clone();
+    let platform = service.platform.clone();
+    let setup = platform.setup();
     service.finish();
     assert!(setup.api().calls().is_empty());
 }
@@ -255,12 +266,15 @@ fn what_is_not_a_request_ends_the_conversation() {
 #[test]
 fn a_conversation_takes_one_setup() {
     let dir = TempDir::new("ipc-conversation");
-    let setup = Setup::new(
-        FakeApi::default(),
-        FakeUsers::default(),
-        Store::open(&dir.path().join("accounts")).unwrap(),
-    );
-    let mut conversation = Conversation::new(&setup);
+    let platform = Arc::new(Platform::new(
+        Setup::new(
+            FakeApi::default(),
+            FakeUsers::default(),
+            Store::open(&dir.path().join("accounts")).unwrap(),
+        )
+        .with_platform(platform_client()),
+    ));
+    let mut conversation = Conversation::new(&platform, API);
     let (turn, outcome) = conversation.answer(Some(enroll(PASSWORD)));
     assert!(matches!(turn, Turn::End(Answer::Enrolled { .. })));
     assert!(matches!(outcome, Outcome::Enrolled(_)));
@@ -348,9 +362,108 @@ fn the_list_is_the_documented_one() {
         uid: 1001,
         name: "Ada".into(),
         picture: None,
+        state: crate::store::State::SignInAgain,
     }]);
     assert_eq!(
         serde_json::to_string(&answer).unwrap(),
-        r#"{"accounts":[{"accountId":"a","user":"oxy-a","uid":1001,"name":"Ada"}]}"#
+        r#"{"accounts":[{"accountId":"a","user":"oxy-a","uid":1001,"name":"Ada","state":"signInAgain"}]}"#
+    );
+    // What an older service lists, without a state, is ready.
+    let older: crate::ipc::Account =
+        serde_json::from_str(r#"{"accountId":"a","user":"oxy-a","uid":1001,"name":"Ada"}"#)
+            .unwrap();
+    assert_eq!(older.state, crate::store::State::Ready);
+}
+
+#[test]
+fn the_login_screen_is_told_where_oxy_is() {
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 1);
+    let platform = crate::ipc::platform(&service.socket).unwrap();
+    service.finish();
+    assert_eq!(
+        platform,
+        crate::ipc::PlatformConfig {
+            api: API.into(),
+            client_id: Some(CLIENT_ID.into()),
+        }
+    );
+    assert_eq!(
+        serde_json::to_string(&Answer::Platform(platform)).unwrap(),
+        format!(r#"{{"platform":{{"api":"{API}","clientId":"{CLIENT_ID}"}}}}"#)
+    );
+    assert_eq!(
+        serde_json::to_string(&Request::Platform).unwrap(),
+        r#""platform""#
+    );
+}
+
+#[test]
+fn the_login_program_checks_a_password_on_the_socket() {
+    use crate::platform::{CheckReason, Checked, Local, Verdict};
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 4);
+    let client = service.connect();
+    client.send(&enroll(PASSWORD)).unwrap();
+    assert!(matches!(answer(&client), Answer::Enrolled { .. }));
+    let user = account().user_name();
+    // PAM accepted it: accepted at once.
+    assert_eq!(
+        crate::ipc::check(
+            &service.socket,
+            user.as_str(),
+            Secret::new(PASSWORD),
+            Local::Accepted
+        )
+        .unwrap(),
+        Checked::ACCEPTED
+    );
+    // PAM rejected a wrong one, and so does Oxy.
+    assert_eq!(
+        crate::ipc::check(
+            &service.socket,
+            user.as_str(),
+            Secret::new("wrong"),
+            Local::Rejected
+        )
+        .unwrap(),
+        Checked::REJECTED
+    );
+    // An account that is not enrolled is rejected.
+    assert_eq!(
+        crate::ipc::check(
+            &service.socket,
+            "oxy-aaaa",
+            Secret::new(PASSWORD),
+            Local::Accepted
+        )
+        .unwrap(),
+        Checked::REJECTED
+    );
+    let platform = service.platform.clone();
+    let log = service.finish();
+    platform.settle();
+    let log = log.join("\n");
+    assert!(!log.contains(PASSWORD), "{log}");
+    // The wire shapes.
+    let request: Request =
+        serde_json::from_str(r#"{"check":{"user":"oxy-a","password":"p","local":"rejected"}}"#)
+            .unwrap();
+    assert!(matches!(
+        request,
+        Request::Check {
+            local: Local::Rejected,
+            ..
+        }
+    ));
+    assert_eq!(
+        serde_json::to_string(&Answer::Checked(Checked {
+            result: Verdict::Rejected,
+            reason: Some(CheckReason::SignInAgain),
+        }))
+        .unwrap(),
+        r#"{"checked":{"result":"rejected","reason":"signInAgain"}}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&Answer::Checked(Checked::ACCEPTED)).unwrap(),
+        r#"{"checked":{"result":"accepted"}}"#
     );
 }

@@ -18,7 +18,8 @@ oxyos-solar = { path = "../oxyos-solar" }
 oxyos-apps = { path = "../oxyos-apps" }
 oxyos-files = { path = "../oxyos-files" }
 oxyos-app-storage = { path = "../oxyos-app-storage" }
-oxyos-account = { path = "../oxyos-account" }
+# The accounts' service's sockets and their types, without its HTTP client.
+oxyos-account = { path = "../oxyos-account", default-features = false }
 oxyos-protocol = { path = "../oxyos-protocol" }
 oxyos-paint = { path = "../oxyos-paint" }
 oxyos-gpu-device = { path = "../oxyos-gpu-device" }

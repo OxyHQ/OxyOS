@@ -8,19 +8,29 @@
 //!    account is signed in on that device;
 //! 2. the token names the account (`/users/me`): it is the one asked for, and its username is
 //!    what the password signs in with;
-//! 3. Oxy checks the password, the sign-in proving the same device, and asks for the
-//!    authenticator's code if the account has one ([`Progress::SecondFactor`]);
-//! 4. the sign-in must be that account's, on that device.
+//! 3. Oxy checks the password, the sign-in proving the same device and naming OxyOS's public
+//!    client (`platformClient`), and asks for the authenticator's code if the account has one
+//!    ([`Progress::SecondFactor`]);
+//! 4. the sign-in must be that account's, on that device, and give a holder secret: the
+//!    **platform credential**, which only this service ever received. Oxy retires the credential
+//!    handed over (the one the setup client saw) in the same transaction, so the platform
+//!    credential is the one the machine keeps.
+//!
+//! Without OxyOS's client id configured, nothing is asked of Oxy: [`SetupError::NotConfigured`].
 //!
 //! Then, on the machine, one setup at a time: the account's user (made, or the enrolled one
 //! found), its file in the store, and last the verifier. A failure undoes what this setup did: a
 //! new user is removed with its home, an enrolled account's file is put back as it was. The
-//! verifier is the last step, so a user whose setup failed was never one a password opens.
+//! verifier is the last step, so a user whose setup failed was never one a password opens. A
+//! platform credential a failed setup was issued is ended online, as is the one an account set up
+//! again replaces (each is a device of its own): best effort, said if it fails.
 //!
 //! Without the network the first step fails, and nothing is done: a first setup never succeeds
 //! offline.
 
-use crate::api::{ApiError, DeviceCredential, OxyApi, Profile, SignInStep, SignedIn};
+use crate::api::{
+    ApiError, DeviceCredential, OxyApi, PlatformClient, Profile, SignInStep, SignedIn,
+};
 use crate::id::{AccountId, InvalidAccountId, UserName};
 use crate::secret::Secret;
 use crate::store::{Enrollment, Store};
@@ -54,6 +64,7 @@ pub struct Pending {
     password: Secret,
     profile: Profile,
     challenge: Secret,
+    platform: PlatformClient,
 }
 
 #[derive(Debug)]
@@ -65,6 +76,8 @@ pub enum Progress {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SetupError {
+    /// OxyOS's public client id is not configured (`OXYOS_OXY_CLIENT_ID`): nothing is set up.
+    NotConfigured,
     /// Not an Oxy account id this machine can name.
     InvalidAccount,
     /// Empty, longer than PAM takes, or holding a NUL or a line break.
@@ -99,6 +112,7 @@ pub enum SetupError {
 impl fmt::Display for SetupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            SetupError::NotConfigured => f.write_str("OxyOS's client id is not configured"),
             SetupError::InvalidAccount => {
                 f.write_str("not an Oxy account id this machine can name")
             }
@@ -161,7 +175,11 @@ pub struct Setup<A, U> {
     api: A,
     users: U,
     store: Store,
-    /// One setup changes the machine at a time.
+    /// OxyOS's public client, which the platform's sign-ins name; none configured, nothing is
+    /// set up.
+    platform: Option<PlatformClient>,
+    /// One change to the machine's accounts (a setup, a credential rotated or forgotten) at a
+    /// time.
     machine: Mutex<()>,
 }
 
@@ -171,8 +189,19 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             api,
             users,
             store,
+            platform: None,
             machine: Mutex::new(()),
         }
+    }
+
+    /// Setups name OxyOS's public client `client`.
+    pub fn with_platform(mut self, client: PlatformClient) -> Self {
+        self.platform = Some(client);
+        self
+    }
+
+    pub fn platform(&self) -> Option<&PlatformClient> {
+        self.platform.as_ref()
     }
 
     pub fn api(&self) -> &A {
@@ -189,6 +218,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
 
     /// Sets the account up, or asks for its authenticator's code.
     pub fn enroll(&self, request: Request) -> Result<Progress, SetupError> {
+        let platform = self.platform.clone().ok_or(SetupError::NotConfigured)?;
         let account = AccountId::parse(&request.account)
             .map_err(|InvalidAccountId| SetupError::InvalidAccount)?;
         if !verifier_password(&request.password) {
@@ -207,17 +237,19 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             return Err(SetupError::AccountMismatch);
         }
         let username = profile.username.clone().ok_or(SetupError::NoUsername)?;
-        match self
-            .api
-            .sign_in_password(&username, &request.password, &request.credential)?
-        {
+        match self.api.sign_in_password(
+            &username,
+            &request.password,
+            &request.credential,
+            Some(&platform),
+        )? {
             SignInStep::SignedIn(signed_in) => self
-                .commit(
+                .finish(
                     &account,
                     &request.credential,
                     &request.password,
                     profile,
-                    &signed_in,
+                    signed_in,
                 )
                 .map(Progress::Enrolled),
             SignInStep::SecondFactor { challenge } => Ok(Progress::SecondFactor(Pending {
@@ -226,6 +258,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 password: request.password,
                 profile,
                 challenge,
+                platform,
             })),
         }
     }
@@ -233,16 +266,79 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
     /// The authenticator's code for a setup that asked for it. A wrong code leaves `pending` to
     /// try another.
     pub fn second_factor(&self, pending: &Pending, code: &Secret) -> Result<Enrolled, SetupError> {
-        let signed_in = self
-            .api
-            .second_factor(&pending.challenge, code, &pending.credential)?;
-        self.commit(
+        let signed_in = self.api.second_factor(
+            &pending.challenge,
+            code,
+            &pending.credential,
+            Some(&pending.platform),
+        )?;
+        self.finish(
             &pending.account,
             &pending.credential,
             &pending.password,
             pending.profile.clone(),
-            &signed_in,
+            signed_in,
         )
+    }
+
+    /// The sign-in done: the platform credential it issued kept, or ended online if the machine
+    /// could not take it; the credential an account set up again had, ended online.
+    fn finish(
+        &self,
+        account: &AccountId,
+        handed_over: &DeviceCredential,
+        password: &Secret,
+        profile: Profile,
+        signed_in: SignedIn,
+    ) -> Result<Enrolled, SetupError> {
+        if signed_in.user_id != account.as_str() || signed_in.device_id != handed_over.device_id {
+            // Not this device's sign-in: whatever it issued is not the machine's to end.
+            return Err(SetupError::AccountMismatch);
+        }
+        let Some(secret) = signed_in.device_secret else {
+            return Err(SetupError::Oxy(
+                "the sign-in issued no platform credential".into(),
+            ));
+        };
+        let credential = DeviceCredential {
+            device_id: signed_in.device_id,
+            device_secret: secret,
+        };
+        match self.commit(account, &credential, password, profile) {
+            Ok((enrolled, replaced)) => {
+                if let Some(replaced) = replaced.filter(|old| old.device_id != credential.device_id)
+                {
+                    self.end_online(&replaced, account);
+                }
+                Ok(enrolled)
+            }
+            Err(error) => {
+                self.end_online(&credential, account);
+                Err(error)
+            }
+        }
+    }
+
+    /// Ends `credential`'s device session online (R4): its own token minted, then signed out.
+    /// Best effort: the device would otherwise stay signed in at Oxy with no machine holding it.
+    pub fn end_online(&self, credential: &DeviceCredential, account: &AccountId) {
+        let ended = self
+            .api
+            .mint_token(credential, account)
+            .and_then(|token| self.api.sign_out_device(&token));
+        match ended {
+            Ok(()) => {}
+            // Already gone: nothing to end.
+            Err(ApiError::InvalidDeviceSecret | ApiError::AccountNotOnDevice) => {}
+            Err(error) => eprintln!(
+                "oxyos-accountd: a device of {account} could not be signed out at Oxy: {error}"
+            ),
+        }
+    }
+
+    /// Holds the machine's accounts unchanged while the caller reads and writes them.
+    pub fn lock_machine(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.lock()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -280,17 +376,15 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         }
     }
 
+    /// The machine takes the account: its user, its file with `credential`, its verifier. The
+    /// credential an enrolled account had before, if any, is given back.
     fn commit(
         &self,
         account: &AccountId,
         credential: &DeviceCredential,
         password: &Secret,
         profile: Profile,
-        signed_in: &SignedIn,
-    ) -> Result<Enrolled, SetupError> {
-        if signed_in.user_id != account.as_str() || signed_in.device_id != credential.device_id {
-            return Err(SetupError::AccountMismatch);
-        }
+    ) -> Result<(Enrolled, Option<DeviceCredential>), SetupError> {
         let _machine = self.lock();
         let user = account.user_name();
         let enrollment = |uid| Enrollment {
@@ -298,11 +392,13 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             user: user.clone(),
             uid,
             profile: profile.clone(),
-            credential: DeviceCredential {
+            credential: Some(DeviceCredential {
                 device_id: credential.device_id.clone(),
                 device_secret: Secret::new(credential.device_secret.expose()),
-            },
+            }),
+            password_changed: false,
         };
+        let mut replaced = None;
         let uid = match self.local(account)? {
             Local::New => {
                 let made = match self.users.create(&user) {
@@ -362,14 +458,18 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                         },
                     });
                 }
+                replaced = previous.credential;
                 uid
             }
         };
-        Ok(Enrolled {
-            account: account.clone(),
-            user,
-            uid,
-            profile,
-        })
+        Ok((
+            Enrolled {
+                account: account.clone(),
+                user,
+                uid,
+                profile,
+            },
+            replaced,
+        ))
     }
 }
