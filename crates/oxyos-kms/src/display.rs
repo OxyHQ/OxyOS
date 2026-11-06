@@ -3,8 +3,14 @@
 //! card's current master, a running desktop session, must have released it).
 //!
 //! The pointer is shown on the CRTC's cursor plane where it has one: one of the images the
-//! display keeps, each in a buffer of its own (its own arrow first), placed in every commit, so
-//! moving the pointer or changing its image only commits the frame already shown again.
+//! display keeps, each in a buffer of its own (its own arrow first), placed in every commit.
+//! Moving the pointer or changing its image alone commits the cursor plane alone: the primary
+//! plane is not in the commit, so the frame shown is not presented again (on Intel's display, a
+//! primary plane updated also has its frame compressed again, FBC, whole).
+//!
+//! Every property is looked up by name once and its handle kept: a lookup reads every property
+//! of the object (one ioctl each), about 230 ioctls a frame otherwise (134 µs on a ThinkPad's
+//! Iris Xe, per frame and per pointer motion).
 //!
 //! Several displays share a card, each on a connector, a CRTC and planes of its own
 //! (docs/adr/0018-several-displays.mdx): [`Display::on_connector`] takes what no other uses.
@@ -44,6 +50,13 @@ pub struct Display {
     /// (docs/adr/0031-gpu-buffers.mdx, decision 8), by the caller's key; `None`: the card refused
     /// it, and it is not asked again.
     client_framebuffers: std::collections::HashMap<u64, Option<framebuffer::Handle>>,
+    /// Each object's properties looked up so far, by name (`None`: it has none of that name).
+    properties: std::cell::RefCell<
+        std::collections::HashMap<(u32, &'static str), Option<property::Handle>>,
+    >,
+    /// Whether the card refused a commit of the cursor plane alone: the pointer then moves with
+    /// the frame shown committed again, as a frame is.
+    pointer_with_frame: bool,
 }
 
 struct Cursor {
@@ -237,8 +250,15 @@ impl Display {
             front: None,
             formats,
             client_framebuffers: std::collections::HashMap::new(),
+            properties: Default::default(),
+            pointer_with_frame: false,
         };
-        display.cursor = display.prepare_cursor(&resources, in_use).ok().flatten();
+        display.cursor = display
+            .prepare_cursor(&resources, in_use)
+            .unwrap_or_else(|error| {
+                eprintln!("[kms] the cursor plane cannot show the pointer: {error}");
+                None
+            });
         for _ in 0..2 {
             let buffer = display.card.create_dumb_buffer(
                 (u32::from(width), u32::from(height)),
@@ -360,13 +380,35 @@ impl Display {
         self.configured && self.pointer != self.shown_pointer
     }
 
-    /// Commits the frame shown again, with the pointer where it is now; true if a frame is shown
-    /// to commit. Its flip is waited for as a frame's (`flip_done`).
+    /// Shows the pointer where it is now, with its image now, over the frame shown: a commit of
+    /// the cursor plane alone; true if a frame is shown to show it over. Its flip is waited for
+    /// as a frame's (`flip_done`). A card that refuses that commits the frame shown again with it,
+    /// from then on.
     pub fn present_again(&mut self) -> io::Result<bool> {
-        match self.front {
-            Some(front) if self.configured => self.present_framebuffer(front).map(|()| true),
-            _ => Ok(false),
+        let Some(front) = self.front.filter(|_| self.configured) else {
+            return Ok(false);
+        };
+        if !self.pointer_with_frame && self.cursor.is_some() {
+            let mut request = atomic::AtomicModeReq::new();
+            self.add_pointer(&mut request)?;
+            let flags = AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK;
+            match self.card.atomic_commit(flags, request) {
+                Ok(()) => {
+                    self.shown_pointer = self.pointer;
+                    return Ok(true);
+                }
+                Err(error)
+                    if error.raw_os_error() == Some(rustix::io::Errno::INVAL.raw_os_error()) =>
+                {
+                    eprintln!(
+                        "[kms] the card refuses to move the pointer alone ({error}): it moves with the frame shown"
+                    );
+                    self.pointer_with_frame = true;
+                }
+                Err(error) => return Err(error),
+            }
         }
+        self.present_framebuffer(front).map(|()| true)
     }
 
     /// The card this display drives (to import buffers into it, for one).
@@ -437,17 +479,17 @@ impl Display {
         let mut request = atomic::AtomicModeReq::new();
         request.add_property(
             self.connector,
-            property_handle(card, self.connector, "CRTC_ID")?,
+            self.property(self.connector, "CRTC_ID")?,
             property::Value::CRTC(None),
         );
         request.add_property(
             self.crtc,
-            property_handle(card, self.crtc, "MODE_ID")?,
+            self.property(self.crtc, "MODE_ID")?,
             property::Value::Blob(0),
         );
         request.add_property(
             self.crtc,
-            property_handle(card, self.crtc, "ACTIVE")?,
+            self.property(self.crtc, "ACTIVE")?,
             property::Value::Boolean(false),
         );
         let planes = [
@@ -457,12 +499,12 @@ impl Display {
         for plane in planes.into_iter().flatten() {
             request.add_property(
                 plane,
-                property_handle(card, plane, "CRTC_ID")?,
+                self.property(plane, "CRTC_ID")?,
                 property::Value::CRTC(None),
             );
             request.add_property(
                 plane,
-                property_handle(card, plane, "FB_ID")?,
+                self.property(plane, "FB_ID")?,
                 property::Value::Framebuffer(None),
             );
         }
@@ -571,11 +613,11 @@ impl Display {
         }
         request.add_property(
             self.plane,
-            property_handle(card, self.plane, "FB_ID")?,
+            self.property(self.plane, "FB_ID")?,
             property::Value::Framebuffer(Some(framebuffer)),
         );
         if let Some(completion) = &completion {
-            match property_handle(card, self.plane, "IN_FENCE_FD") {
+            match self.property(self.plane, "IN_FENCE_FD") {
                 Ok(handle) => request.add_property(
                     self.plane,
                     handle,
@@ -584,64 +626,60 @@ impl Display {
                 Err(_) => wait_readable(completion)?,
             }
         }
-        if let Some(cursor) = &self.cursor {
-            let plane = cursor.plane;
-            let (width, height) = cursor.size;
-            let shown = self.pointer.map(|(x, y, image)| {
-                let image = &cursor.images[image];
-                [
-                    ("CRTC_ID", property::Value::CRTC(Some(self.crtc))),
-                    (
-                        "FB_ID",
-                        property::Value::Framebuffer(Some(image.framebuffer)),
-                    ),
-                    ("SRC_X", property::Value::UnsignedRange(0)),
-                    ("SRC_Y", property::Value::UnsignedRange(0)),
-                    (
-                        "SRC_W",
-                        property::Value::UnsignedRange(u64::from(width) << 16),
-                    ),
-                    (
-                        "SRC_H",
-                        property::Value::UnsignedRange(u64::from(height) << 16),
-                    ),
-                    (
-                        "CRTC_X",
-                        property::Value::SignedRange(i64::from(x) - i64::from(image.hotspot.0)),
-                    ),
-                    (
-                        "CRTC_Y",
-                        property::Value::SignedRange(i64::from(y) - i64::from(image.hotspot.1)),
-                    ),
-                    ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
-                    ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
-                ]
-            });
-            match shown {
-                Some(properties) => {
-                    for (name, value) in properties {
-                        request.add_property(plane, property_handle(card, plane, name)?, value);
-                    }
-                }
-                None => {
-                    request.add_property(
-                        plane,
-                        property_handle(card, plane, "CRTC_ID")?,
-                        property::Value::CRTC(None),
-                    );
-                    request.add_property(
-                        plane,
-                        property_handle(card, plane, "FB_ID")?,
-                        property::Value::Framebuffer(None),
-                    );
-                }
-            }
-        }
+        self.add_pointer(&mut request)?;
         card.atomic_commit(flags, request)?;
         self.configured = true;
         self.front = Some(framebuffer);
         self.shown_pointer = self.pointer;
         Ok(())
+    }
+
+    /// The cursor plane's properties in a commit: the pointer where it is to be shown, or none.
+    fn add_pointer(&self, request: &mut atomic::AtomicModeReq) -> io::Result<()> {
+        let Some(cursor) = &self.cursor else {
+            return Ok(());
+        };
+        let at = self.pointer.map(|(x, y, image)| {
+            let image = &cursor.images[image];
+            (x, y, image.framebuffer, image.hotspot)
+        });
+        for (name, value) in pointer_properties(self.crtc, cursor.size, at) {
+            request.add_property(cursor.plane, self.property(cursor.plane, name)?, value);
+        }
+        // A virtual machine's cursor plane also takes the hotspot, for the host's pointer.
+        if let Some((_, _, _, (x, y))) = at {
+            for (name, value) in [("HOTSPOT_X", x), ("HOTSPOT_Y", y)] {
+                if let Ok(handle) = self.property(cursor.plane, name) {
+                    let value = property::Value::SignedRange(i64::from(value));
+                    request.add_property(cursor.plane, handle, value);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The handle of `object`'s property `name`, looked up once.
+    fn property(
+        &self,
+        object: impl drm::control::ResourceHandle,
+        name: &'static str,
+    ) -> io::Result<property::Handle> {
+        let raw: drm::control::RawResourceHandle = object.into();
+        let key = (raw.get(), name);
+        let known = self.properties.borrow().get(&key).copied();
+        let handle = match known {
+            Some(handle) => handle,
+            None => {
+                let handle = match property_handle(&self.card, object, name) {
+                    Ok(handle) => Some(handle),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                };
+                self.properties.borrow_mut().insert(key, handle);
+                handle
+            }
+        };
+        handle.ok_or_else(|| not_found(&format!("property {name}")))
     }
 
     /// What a modeset adds to a commit: the connector on the CRTC at the display's mode (`blob`,
@@ -656,17 +694,13 @@ impl Display {
         let (width, height) = self.size();
         request.add_property(
             self.connector,
-            property_handle(card, self.connector, "CRTC_ID")?,
+            self.property(self.connector, "CRTC_ID")?,
             property::Value::CRTC(Some(self.crtc)),
         );
+        request.add_property(self.crtc, self.property(self.crtc, "MODE_ID")?, blob);
         request.add_property(
             self.crtc,
-            property_handle(card, self.crtc, "MODE_ID")?,
-            blob,
-        );
-        request.add_property(
-            self.crtc,
-            property_handle(card, self.crtc, "ACTIVE")?,
+            self.property(self.crtc, "ACTIVE")?,
             property::Value::Boolean(true),
         );
         for (name, value) in [
@@ -686,7 +720,7 @@ impl Display {
             ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
             ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
         ] {
-            request.add_property(self.plane, property_handle(card, self.plane, name)?, value);
+            request.add_property(self.plane, self.property(self.plane, name)?, value);
         }
         // Planes another session left on the CRTC (a cursor, an overlay) are turned off; the
         // cursor plane is the pointer's (below).
@@ -701,12 +735,12 @@ impl Display {
             if on_crtc {
                 request.add_property(
                     plane,
-                    property_handle(card, plane, "CRTC_ID")?,
+                    self.property(plane, "CRTC_ID")?,
                     property::Value::CRTC(None),
                 );
                 request.add_property(
                     plane,
-                    property_handle(card, plane, "FB_ID")?,
+                    self.property(plane, "FB_ID")?,
                     property::Value::Framebuffer(None),
                 );
             }
@@ -724,7 +758,7 @@ impl Display {
         self.add_modeset(&mut request, blob)?;
         request.add_property(
             self.plane,
-            property_handle(card, self.plane, "FB_ID")?,
+            self.property(self.plane, "FB_ID")?,
             property::Value::Framebuffer(Some(self.buffers[0].1)),
         );
         let tested = card.atomic_commit(
@@ -784,6 +818,46 @@ impl Drop for Display {
         if Rc::strong_count(&self.card) == 1 {
             let _ = self.card.release_master_lock();
         }
+    }
+}
+
+/// The cursor plane's properties for a pointer shown at `at` (its position on the CRTC, the
+/// framebuffer of its image and its image's hotspot) on `crtc`, the plane's whole `size` its
+/// source; or, with none, the plane off.
+pub(crate) fn pointer_properties(
+    crtc: crtc::Handle,
+    (width, height): (u32, u32),
+    at: Option<(i32, i32, framebuffer::Handle, (u32, u32))>,
+) -> Vec<(&'static str, property::Value<'static>)> {
+    match at {
+        Some((x, y, framebuffer, (hot_x, hot_y))) => vec![
+            ("CRTC_ID", property::Value::CRTC(Some(crtc))),
+            ("FB_ID", property::Value::Framebuffer(Some(framebuffer))),
+            ("SRC_X", property::Value::UnsignedRange(0)),
+            ("SRC_Y", property::Value::UnsignedRange(0)),
+            (
+                "SRC_W",
+                property::Value::UnsignedRange(u64::from(width) << 16),
+            ),
+            (
+                "SRC_H",
+                property::Value::UnsignedRange(u64::from(height) << 16),
+            ),
+            (
+                "CRTC_X",
+                property::Value::SignedRange(i64::from(x) - i64::from(hot_x)),
+            ),
+            (
+                "CRTC_Y",
+                property::Value::SignedRange(i64::from(y) - i64::from(hot_y)),
+            ),
+            ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
+            ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
+        ],
+        None => vec![
+            ("CRTC_ID", property::Value::CRTC(None)),
+            ("FB_ID", property::Value::Framebuffer(None)),
+        ],
     }
 }
 

@@ -348,6 +348,68 @@ fn damaged_composition_is_the_reference() {
     );
 }
 
+/// The device composes damage on its grid of 16 × 8 tiles: a frame's damage, wherever it is,
+/// composes the tiles it touches, whole, and nothing else; a pixel recomposed that did not change
+/// is the same pixel. With layers changed outside the damage (which a frame's damage never does),
+/// the tiles show where it composed.
+#[test]
+fn damage_is_composed_in_whole_tiles_and_nowhere_else() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let before = [Layer {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 60,
+        extent: (1, 1),
+        paint: Paint::Fill(0x0000_00ff),
+        source: None,
+        changed: None,
+        opacity: 255,
+        radius: 0,
+        filter: Filter::Nearest,
+        clip: None,
+        warp: None,
+    }];
+    let after = [Layer {
+        paint: Paint::Fill(0x00ff_0000),
+        ..before[0]
+    }];
+    gpu.compose(100, 60, 0, &before).unwrap();
+    // Two pixels, in the tiles (1, 1) and (6, 7), the last a part tile at the output's edges.
+    let damage = [
+        Rect {
+            x: 20,
+            y: 9,
+            width: 1,
+            height: 1,
+        },
+        Rect {
+            x: 99,
+            y: 59,
+            width: 1,
+            height: 1,
+        },
+    ];
+    let out = gpu.compose_damaged(100, 60, 0, &after, &damage).unwrap();
+    for y in 0..60 {
+        for x in 0..100 {
+            let in_tile = |(column, row): (u32, u32)| x / 16 == column && y / 8 == row;
+            let expected = if in_tile((1, 1)) || in_tile((6, 7)) {
+                0x00ff_0000
+            } else {
+                0x0000_00ff
+            };
+            assert_eq!(out[(y * 100 + x) as usize], expected, "at ({x}, {y})");
+        }
+    }
+}
+
 /// The CPU composition from damage: a frame composed whole, then each next one composing only
 /// what changed onto it, is the reference's every time, with corners, a shadow, filtering and
 /// clips; any damage over an unchanged frame changes nothing; and damage that leaves out where
@@ -2607,11 +2669,12 @@ fn vulkan_draws_meshes_as_the_reference_does() {
                     gpu.compose(120, 90, 0, &clipped).unwrap(),
                     compose_cpu(120, 90, 0, &clipped)
                 );
+                // On the tiles' grid: the device composes whole tiles of what the frame shows.
                 let damage = [Rect {
-                    x: 10,
-                    y: 10,
-                    width: 30,
-                    height: 50,
+                    x: 16,
+                    y: 8,
+                    width: 32,
+                    height: 48,
                 }];
                 let mut expected = compose_cpu(120, 90, 0, &clipped);
                 compose_cpu_damaged(&mut expected, 120, 90, 0, &layers, &damage);

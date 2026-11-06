@@ -133,6 +133,7 @@ impl Motion {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OverlayDrive {
     pub client: ClientId,
+    pub output: oxyos_compositor_core::OutputId,
     pub overlay: GestureOverlay,
     pub motion: Motion,
     drawn: bool,
@@ -206,10 +207,10 @@ impl Drives {
             Some(SwipeDrive::Overlay {
                 gesture,
                 client,
+                output,
                 overlay,
                 openness,
                 release,
-                ..
             }) => {
                 let same = self.overlay.filter(|drive| drive.motion.gesture == gesture);
                 let (drawn, caught) =
@@ -235,6 +236,7 @@ impl Drives {
                 );
                 self.overlay = Some(OverlayDrive {
                     client,
+                    output,
                     overlay,
                     motion,
                     drawn,
@@ -264,9 +266,11 @@ impl Drives {
         }
     }
 
-    /// A surface of the overlay a swipe drives arrived at `now`: from now on it is drawn, the
-    /// windows catching up with the fingers from where they are (or the spring of fingers that
-    /// already lifted starting from there).
+    /// The overlay a swipe drives is drawn whole at `now`, its last surface arrived (the shell
+    /// draws App Exposé's backdrop and the surface its windows are moved into one after the other,
+    /// a loaded machine tens of milliseconds apart): from now on it is drawn, the windows catching
+    /// up with the fingers from where they are (or the spring of fingers that already lifted
+    /// starting from there), never from part of the way.
     pub fn overlay_arrived(&mut self, now: Duration) {
         let Some(drive) = self.overlay.as_mut() else {
             return;

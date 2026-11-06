@@ -112,6 +112,13 @@ fn app_expose(c: &Compositor) -> bool {
 /// that shows App Exposé when told to open it (its overlay said to be App Exposé's, the window
 /// moved into `CARD`) and takes it away when told to close it.
 fn session(name: &str) -> Session {
+    session_with(name, None)
+}
+
+/// The same; with `held`, App Exposé is two surfaces, as the session's shell draws it: its
+/// backdrop (surface 3), drawn at once, and the overlay its window is moved into (surface 2),
+/// drawn only once `held` says so, as a loaded machine's shell gets to it.
+fn session_with(name: &str, held: Option<mpsc::Receiver<()>>) -> Session {
     let directory =
         std::env::temp_dir().join(format!("oxyos-swiped-views-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
@@ -190,6 +197,24 @@ fn session(name: &str) -> Session {
                     match intent {
                         ShortcutIntent::Open if !shown => {
                             shown = true;
+                            if held.is_some() {
+                                shell
+                                    .send(&Request::CreateShellSurface {
+                                        surface: 3,
+                                        kind: ShellKind::Overlay,
+                                        edge: PanelEdge::None,
+                                        output: 1,
+                                        size: Size::new(640, 480),
+                                        exclusive: 0,
+                                    })
+                                    .unwrap();
+                                shell
+                                    .send(&Request::SetGestureOverlay {
+                                        surface: 3,
+                                        overlay: GestureOverlay::AppExpose,
+                                    })
+                                    .unwrap();
+                            }
                             shell
                                 .send(&Request::CreateShellSurface {
                                     surface: 2,
@@ -210,13 +235,34 @@ fn session(name: &str) -> Session {
                         ShortcutIntent::Close if shown => {
                             shown = false;
                             shell.send(&Request::Destroy { surface: 2 }).unwrap();
+                            if held.is_some() {
+                                shell.send(&Request::Destroy { surface: 3 }).unwrap();
+                            }
                         }
                         _ => {}
                     }
                 }
                 Some(Event::Configure {
+                    surface: 3, serial, ..
+                }) if shown => {
+                    shell
+                        .present_format(
+                            3,
+                            serial,
+                            Size::new(640, 480),
+                            Format::Argb8888,
+                            &vec![0x20; 640 * 480 * 4],
+                        )
+                        .unwrap();
+                }
+                Some(Event::Configure {
                     surface: 2, serial, ..
                 }) if shown => {
+                    if let Some(held) = &held {
+                        if held.recv().is_err() {
+                            return;
+                        }
+                    }
                     shell
                         .send(&Request::ClearWindowViews { surface: 2 })
                         .unwrap();
@@ -380,5 +426,62 @@ fn a_flick_goes_through_a_slow_release_short_goes_back_and_the_swipe_back_closes
     s.until(5300, "App Exposé gone", |c| !app_expose(c));
     assert_eq!(s.told(), [ShortcutIntent::Open, ShortcutIntent::Close]);
     s.at_ms(6000);
+    assert_eq!(s.window(), window, "the window never moved");
+}
+
+/// Whether the shell's surface `id` is shown.
+fn shows(c: &Compositor, id: u32) -> bool {
+    c.scene.render_list().iter().any(
+        |item| matches!(*item, RenderItem::Surface { key, .. } if key.client != 1 && key.id == id),
+    )
+}
+
+/// The shell draws App Exposé's backdrop and the overlay its window is moved into one after the
+/// other, and on a loaded machine the second comes long after the first: here 150 ms after a fast,
+/// short flick's fingers lifted. Nothing of App Exposé moves until the shell draws all of it; then
+/// the window sets off from exactly where it is, with the backdrop, at the fingers' speed, and
+/// flies on to its view: never from part of the way, however long the shell took.
+#[test]
+fn a_flick_whose_windows_surface_the_shell_draws_late_flies_from_where_the_window_is() {
+    let (draw, held) = mpsc::channel();
+    let mut s = session_with("late", Some(held));
+    let window = s.window();
+    // 45 pixels in 25 ms, lifted at once.
+    s.swipe(GesturePhase::Begin, 0.0, 0);
+    for i in 1..=3 {
+        s.swipe(GesturePhase::Update, 15.0, i * 25 / 3);
+    }
+    s.swipe(GesturePhase::End, 0.0, 25);
+    s.until(1100, "App Exposé's backdrop", |c| shows(c, 3));
+    assert!(!shows(&s.compositor, 2));
+    assert_eq!(s.told(), [ShortcutIntent::Open]);
+    for t in (1116..=1250).step_by(16) {
+        s.at_ms(t);
+    }
+    assert!(s.compositor.take_flights().is_empty());
+    assert_eq!(
+        s.compositor
+            .transitions
+            .drives
+            .overlay
+            .unwrap()
+            .openness(Duration::from_millis(101_250)),
+        0.0,
+        "nothing of App Exposé moves before the shell draws all of it"
+    );
+    draw.send(()).unwrap();
+    s.until(1266, "App Exposé's window overlay", |c| shows(c, 2));
+    let mut path = Vec::new();
+    for t in (1266..=2400).step_by(16) {
+        s.at_ms(t);
+        for flight in s.compositor.take_flights() {
+            assert!(flight.arriving, "{flight:?}");
+            path.extend(flight.path);
+        }
+    }
+    assert_eq!(path[0], window, "{path:?}");
+    assert!(path.windows(2).all(|w| w[1].x <= w[0].x), "{path:?}");
+    assert!(path.len() > 2, "{path:?}");
+    assert_eq!(*path.last().unwrap(), VIEW, "{path:?}");
     assert_eq!(s.window(), window, "the window never moved");
 }

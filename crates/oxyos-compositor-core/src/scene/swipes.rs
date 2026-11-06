@@ -210,6 +210,9 @@ pub(super) struct Swipe {
     follows: bool,
     /// Its number, once its axis is chosen (`SwipeDrive`'s `gesture`).
     gesture: u64,
+    /// When the fingers began, by their device's time: the way they went before the axis was
+    /// chosen took them from then, not no time at all.
+    began: u64,
 }
 
 impl Scene {
@@ -259,6 +262,33 @@ impl Scene {
             .next()
     }
 
+    /// Whether the shell `client` draws `overlay` on `output` whole, in the frame being composed
+    /// (`frame_list`'s): it has a surface there said to be it (`SetGestureOverlay`), and every one
+    /// of them not hidden has its first frame drawn. Mission Control and App Exposé may be several
+    /// surfaces (App Exposé's backdrop, and the one its windows are moved into), each drawn when
+    /// the shell gets to it: a swipe's motion begins once they all are, so that they set off
+    /// together and no window starts its flight from part of the way.
+    pub fn gesture_overlay_drawn(
+        &self,
+        client: super::ClientId,
+        output: OutputId,
+        overlay: GestureOverlay,
+    ) -> bool {
+        let mut surfaces = self
+            .window_views
+            .iter()
+            .filter(|(key, views)| key.client == client && views.gesture == overlay)
+            .filter(|(key, _)| {
+                self.nodes.get(key).is_some_and(|node| {
+                    matches!(node.role, Role::Shell { output: on, .. } if on == output)
+                        && !node.hidden
+                        && !node.dismissed
+                })
+            })
+            .peekable();
+        surfaces.peek().is_some() && surfaces.all(|(key, _)| self.visible_in(*key, true))
+    }
+
     fn reduce_motion(&self) -> bool {
         self.preferences
             .drawing
@@ -284,6 +314,7 @@ impl Scene {
                 self.swipe = Swipe {
                     going: fingers >= 3 && !self.locked && !self.capturing(),
                     follows: !self.reduce_motion(),
+                    began: time,
                     ..Swipe::default()
                 };
                 return;
@@ -308,14 +339,16 @@ impl Scene {
             if across.hypot(along) < AXIS_LOCK {
                 return;
             }
+            let began = self.swipe.began;
             let act = if along.abs() >= across.abs() {
-                self.overlay_act(along < 0.0, time)
+                self.overlay_act(along < 0.0, began)
             } else {
-                self.spaces_act(time)
+                self.spaces_act(began)
             };
             self.swipe_gestures += 1;
             self.swipe.gesture = self.swipe_gestures;
-            // What went before the axis was chosen counts: nothing jumps.
+            // What went before the axis was chosen counts, from when the fingers began: nothing
+            // jumps, and their speed is that way over the time it took.
             let act = match act {
                 Act::Overlay {
                     client,
@@ -353,8 +386,8 @@ impl Scene {
     }
 
     /// The swipe's fingers chose up (`up`) or down: what that does on the display under the
-    /// pointer, the shell showing it told to open it if it opens.
-    fn overlay_act(&mut self, up: bool, time: u64) -> Act {
+    /// pointer, the shell showing it told to open it if it opens; its way counted from `began`.
+    fn overlay_act(&mut self, up: bool, began: u64) -> Act {
         let output = self
             .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
             .map(|output| output.id)
@@ -398,13 +431,13 @@ impl Scene {
             output,
             overlay,
             opening,
-            tracker: Tracker::new(base, OVERLAY_DISTANCE, time),
+            tracker: Tracker::new(base, OVERLAY_DISTANCE, began),
         }
     }
 
     /// The swipe's fingers chose across: the desktops slide, unless Mission Control or App Exposé
-    /// is open on the display under the pointer.
-    fn spaces_act(&mut self, time: u64) -> Act {
+    /// is open on the display under the pointer; their way counted from `began`.
+    fn spaces_act(&mut self, began: u64) -> Act {
         let output = self
             .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
             .map(|output| output.id)
@@ -420,7 +453,7 @@ impl Scene {
         let base = self.swipe_rest.position.unwrap_or(f64::from(from));
         Act::Spaces {
             from,
-            tracker: Tracker::new(base, SPACE_DISTANCE, time),
+            tracker: Tracker::new(base, SPACE_DISTANCE, began),
         }
     }
 

@@ -238,6 +238,13 @@ fn a_swipe_opens_as_the_fingers_go_and_the_window_under_them_hears_nothing() {
     assert!(open < 0.15);
     assert_eq!(release.unwrap().to, 1.0);
     assert!(release.unwrap().velocity >= FLICK / OVERLAY_DISTANCE);
+    // Its speed is its 30 pixels over the 30 ms they took from when the fingers began, by their
+    // device's time: the 10 before the axis was chosen took the first 10 ms, not no time at all.
+    let speed = 30.0 / 0.030 / OVERLAY_DISTANCE;
+    assert!(
+        (release.unwrap().velocity - speed).abs() < 1e-9,
+        "{release:?}"
+    );
     assert_eq!(
         intents_to(&logged(&mut h), SHELL),
         [(SystemShortcut::MissionControl, ShortcutIntent::Open)]
