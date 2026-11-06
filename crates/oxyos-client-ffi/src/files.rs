@@ -353,3 +353,45 @@ pub unsafe extern "C" fn oxyos_files_reply_free(reply: *mut OxyOSFilesReply) {
         drop(unsafe { Box::from_raw(reply) });
     }
 }
+
+/// The media type of the file a `file://` URI names (`length` bytes of UTF-8), as the platform
+/// names files' types (docs/adr/0035-drag-and-drop.mdx, version 26: a drag of files says them):
+/// `inode/directory` for a folder (its URI ending in `/`), else its name's (oxyos-files' table),
+/// else `application/octet-stream`. Written NUL-terminated into `out` (`capacity` bytes); returns
+/// its length, or OXYOS_ERROR if it does not fit or the URI is not UTF-8.
+///
+/// # Safety
+/// `uri` points to `length` readable bytes; `out` to `capacity` writable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_media_type(
+    uri: *const c_char,
+    length: usize,
+    out: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Ok(Some(uri)) = (unsafe { utf8(uri, length) }) else {
+        return fail("the URI is not UTF-8");
+    };
+    let media = media_type(uri);
+    if out.is_null() || media.len() + 1 > capacity {
+        return fail("the type does not fit");
+    }
+    // SAFETY: `out` has `capacity` writable bytes, more than the type and its NUL.
+    unsafe {
+        std::ptr::copy_nonoverlapping(media.as_ptr(), out.cast::<u8>(), media.len());
+        *out.add(media.len()) = 0;
+    }
+    media.len() as c_int
+}
+
+/// A file's media type from its `file://` URI: a folder's, else its name's.
+pub(crate) fn media_type(uri: &str) -> &'static str {
+    if uri.ends_with('/') {
+        return "inode/directory";
+    }
+    let path = oxyos_files::uri::path_of(uri).unwrap_or_else(|_| uri.to_owned());
+    let name = path.rsplit('/').next().unwrap_or_default();
+    oxyos_files::mime::of_name(name).unwrap_or("application/octet-stream")
+}

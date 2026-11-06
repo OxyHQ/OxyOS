@@ -8,8 +8,8 @@
 use super::*;
 use crate::scene::launch::assemble;
 use oxyos_protocol::{
-    DragActions, DragCancelReason, MAX_DRAG_TYPES, MAX_TRASH_FILES_BYTES, MODIFIER_ALT,
-    MODIFIER_SUPER,
+    DragActions, DragCancelReason, MAX_DRAG_TYPES, MAX_FILE_TYPE_BYTES, MAX_OPEN_FILES_BYTES,
+    MAX_TRASH_FILES_BYTES, MODIFIER_ALT, MODIFIER_SUPER,
 };
 use std::collections::VecDeque;
 
@@ -27,11 +27,15 @@ pub const DRAG_BADGE_SIDE: u32 = 16;
 pub const DRAG_BADGE_OFFSET: (i32, i32) = (9, 12);
 /// Requests to put files in the Trash not yet taken by the program.
 const MAX_TRASH_REQUESTS: usize = 16;
+/// Requests to open files with an application not yet taken by the program.
+const MAX_OPEN_REQUESTS: usize = 16;
+/// The first protocol version whose drags may vanish and say their files' types (ADR 0035).
+pub const VANISH_VERSION: u16 = 26;
 
 #[derive(Debug, Default)]
 pub(super) struct Drags {
-    /// Types offered for a drag not started yet, by client: the drag's number and its types.
-    pending: BTreeMap<ClientId, (u32, Vec<TextChunk>)>,
+    /// What a client said of a drag not started yet: its number, its types and the rest.
+    pending: BTreeMap<ClientId, Pending>,
     /// The drag going on.
     current: Option<Drag>,
     /// Drops made whose target has not finished, oldest first.
@@ -43,6 +47,21 @@ pub(super) struct Drags {
     /// The shell's TrashFiles in chunks, and those received whole.
     trash_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
     trash_requests: Vec<TrashRequest>,
+    /// The shell's OpenFiles in chunks, and those received whole.
+    open_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
+    open_requests: Vec<OpenFilesRequest>,
+    /// A dragged file's type in chunks (DragFileType), by client.
+    file_type_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
+}
+
+/// What a source said of a drag before starting it: the types it offers, its files' types
+/// (DragFileType) and whether it vanishes dropped on nothing (DragVanish).
+#[derive(Debug, Default)]
+struct Pending {
+    drag: u32,
+    types: Vec<TextChunk>,
+    file_types: Vec<String>,
+    vanish: bool,
 }
 
 #[derive(Debug)]
@@ -57,6 +76,10 @@ struct Drag {
     /// the grip under the pointer. A drop refused slides the image back there.
     home: (i32, i32),
     types: Vec<TextChunk>,
+    /// The media types of the files it carries, as its source declares them.
+    file_types: Vec<String>,
+    /// Dropped on nothing that takes it, its image vanishes in a poof where it is.
+    vanish: bool,
     actions: DragActions,
     /// The compositor's name for it, which targets know.
     offer: u32,
@@ -94,6 +117,24 @@ struct Dropped {
 pub struct TrashRequest {
     pub uris: Vec<String>,
     pub with_input: bool,
+}
+
+/// The shell asked to open files with an application (OpenFiles): the application's id, the files'
+/// URIs, and whether it cited an input it received lately.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenFilesRequest {
+    pub application: String,
+    pub uris: Vec<String>,
+    pub with_input: bool,
+}
+
+/// How a drag's image leaves the screen as the drag ends: taken by a target (at once), back to
+/// where it came from (a Mac's slide), or vanished in a poof where it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ending {
+    Taken,
+    Returns,
+    Vanishes,
 }
 
 /// The action a drop would take (ADR 0035, decision 5): the one Option and Command force (a Mac's:
@@ -204,18 +245,63 @@ impl Scene {
         Ok(())
     }
 
+    /// What `client` says of its drag `drag` before starting it; a number other than the one
+    /// it spoke of begins another.
+    fn pending(&mut self, client: ClientId, drag: u32) -> &mut Pending {
+        let entry = self.drags.pending.entry(client).or_insert_with(|| Pending {
+            drag,
+            ..Pending::default()
+        });
+        if entry.drag != drag {
+            *entry = Pending {
+                drag,
+                ..Pending::default()
+            };
+        }
+        entry
+    }
+
     pub(super) fn drag_type(&mut self, client: ClientId, drag: u32, mime: TextChunk) {
-        let entry = self
-            .drags
-            .pending
-            .entry(client)
-            .or_insert_with(|| (drag, Vec::new()));
-        if entry.0 != drag {
-            *entry = (drag, Vec::new());
+        let entry = self.pending(client, drag);
+        if entry.types.len() < MAX_DRAG_TYPES && !entry.types.contains(&mime) {
+            entry.types.push(mime);
         }
-        if entry.1.len() < MAX_DRAG_TYPES && !entry.1.contains(&mime) {
-            entry.1.push(mime);
+    }
+
+    /// The media type of a file the drag carries (DragFileType), in chunks; kept distinct, at
+    /// most MAX_DRAG_TYPES.
+    pub(super) fn drag_file_type(
+        &mut self,
+        client: ClientId,
+        drag: u32,
+        index: u16,
+        last: bool,
+        text: PreeditText,
+    ) -> Result<(), ErrorCode> {
+        let Some(mime) = assemble(
+            &mut self.drags.file_type_receiving,
+            (client, drag),
+            index,
+            last,
+            text,
+            MAX_FILE_TYPE_BYTES,
+        )?
+        else {
+            return Ok(());
+        };
+        let entry = self.pending(client, drag);
+        if !mime.is_empty()
+            && entry.file_types.len() < MAX_DRAG_TYPES
+            && !entry.file_types.contains(&mime)
+        {
+            entry.file_types.push(mime);
         }
+        Ok(())
+    }
+
+    /// The drag, dropped on nothing that takes it, vanishes where it is (DragVanish).
+    pub(super) fn drag_vanish(&mut self, client: ClientId, drag: u32) {
+        self.pending(client, drag).vanish = true;
     }
 
     pub(super) fn start_drag(
@@ -244,12 +330,11 @@ impl Scene {
             Role::DragIcon { hotspot } => Some(hotspot),
             _ => None,
         });
-        let types = self
+        let said = self
             .drags
             .pending
             .remove(&client)
-            .filter(|(number, types)| *number == drag && !types.is_empty())
-            .map(|(_, types)| types);
+            .filter(|said| said.drag == drag && !said.types.is_empty());
         // Only from the latest press of this client on that window, its button still held, with
         // nothing else owning the pointer.
         let pressed = self.last_press.is_some_and(|press| {
@@ -269,7 +354,7 @@ impl Scene {
             && !actions.is_empty()
             && icon.is_none_or(|icon| self.drag_icon_free(icon));
         let pressed_at = self.last_press.map_or(self.pointer, |press| press.at);
-        let Some(types) = types.filter(|_| valid) else {
+        let Some(said) = said.filter(|_| valid) else {
             self.emit(
                 client,
                 Event::DragCancelled {
@@ -292,7 +377,9 @@ impl Scene {
             origin: surface,
             icon,
             home: icon_origin(pressed_at, hotspot.unwrap_or_default()),
-            types,
+            types: said.types,
+            file_types: said.file_types,
+            vanish: said.vanish,
             actions,
             offer: self.drags.offers,
             target: None,
@@ -353,7 +440,12 @@ impl Scene {
         if hit == old {
             return false;
         }
-        let (offer, actions, types) = (drag.offer, drag.actions, drag.types.clone());
+        let (offer, actions, types, file_types) = (
+            drag.offer,
+            drag.actions,
+            drag.types.clone(),
+            drag.file_types.clone(),
+        );
         if let Some(old) = old.filter(|old| self.nodes.contains_key(old)) {
             self.emit(
                 old.client,
@@ -377,10 +469,28 @@ impl Scene {
                     actions,
                     types: types.len() as u8,
                     modifiers: self.modifiers(),
+                    file_types: file_types.len() as u8,
                 },
             );
             for mime in &types {
                 self.emit(surface.client, Event::DragOfferType { offer, mime: *mime });
+            }
+            // Its files' types after (version 26: an older target is never told them, and reads
+            // the count as none).
+            for mime in &file_types {
+                let chunks = TextChunk::split(mime);
+                let count = chunks.len();
+                for (index, chunk) in chunks.iter().enumerate() {
+                    self.emit(
+                        surface.client,
+                        Event::DragOfferFileType {
+                            offer,
+                            index: index as u16,
+                            last: index + 1 == count,
+                            text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                        },
+                    );
+                }
             }
             Target {
                 surface,
@@ -484,8 +594,14 @@ impl Scene {
         let accepted = drag
             .target
             .filter(|target| target.mime.is_some() && !target.told.is_empty());
-        // Taken, the image is gone at once; refused, it slides back to where it came from.
-        self.hide_drag_icon(&drag, accepted.is_none());
+        // Taken, the image is gone at once; refused, it slides back to where it came from, or
+        // vanishes in a poof where it is if its source said so.
+        let ending = match (accepted.is_some(), drag.vanish) {
+            (true, _) => Ending::Taken,
+            (false, false) => Ending::Returns,
+            (false, true) => Ending::Vanishes,
+        };
+        self.hide_drag_icon(&drag, ending);
         match accepted {
             Some(target) => {
                 let action = target.told;
@@ -550,10 +666,11 @@ impl Scene {
         self.refresh_pointer_focus();
     }
 
-    /// The drag's icon is no longer shown. `returning`, a drag that dropped nothing, it goes back
-    /// to where it came from as a Mac's does: the compositor slides it from its last frame to its
-    /// home, fading (`Change::Returned`).
-    fn hide_drag_icon(&mut self, drag: &Drag, returning: bool) {
+    /// The drag's icon is no longer shown. A drag that dropped nothing goes back to where it came
+    /// from as a Mac's does: the compositor slides it from its last frame to its home, fading
+    /// (`Change::Returned`); one its source said vanishes, dropped on nothing, puffs away where it
+    /// is (`Change::Vanished`, a Mac's poof).
+    fn hide_drag_icon(&mut self, drag: &Drag, ending: Ending) {
         let Some(icon) = drag.icon else {
             return;
         };
@@ -562,15 +679,26 @@ impl Scene {
         };
         let shown = node.mapped && !node.hidden && !node.dismissed;
         node.hidden = true;
-        let size = node.size;
-        if shown && returning {
-            self.appeared(
-                icon,
-                appearances::Change::Returned {
-                    x: drag.home.0 + (size.width / 2) as i32,
-                    y: drag.home.1 + (size.height / 2) as i32,
-                },
-            );
+        let (size, origin) = (node.size, node.origin);
+        let centre = |at: (i32, i32)| {
+            (
+                at.0 + (size.width / 2) as i32,
+                at.1 + (size.height / 2) as i32,
+            )
+        };
+        if !shown {
+            return;
+        }
+        match ending {
+            Ending::Taken => {}
+            Ending::Returns => {
+                let (x, y) = centre(drag.home);
+                self.appeared(icon, appearances::Change::Returned { x, y });
+            }
+            Ending::Vanishes => {
+                let (x, y) = centre(origin);
+                self.appeared(icon, appearances::Change::Vanished { x, y });
+            }
         }
     }
 
@@ -596,7 +724,12 @@ impl Scene {
             return;
         };
         // Cancelled by the person or the source, the image goes back; the lock ends it at once.
-        self.hide_drag_icon(&drag, reason != DragCancelReason::Locked);
+        let ending = if reason == DragCancelReason::Locked {
+            Ending::Taken
+        } else {
+            Ending::Returns
+        };
+        self.hide_drag_icon(&drag, ending);
         self.leave_drag_target(&drag);
         self.emit(
             drag.source,
@@ -752,6 +885,12 @@ impl Scene {
         self.drags
             .trash_receiving
             .retain(|(owner, _), _| *owner != client);
+        self.drags
+            .open_receiving
+            .retain(|(owner, _), _| *owner != client);
+        self.drags
+            .file_type_receiving
+            .retain(|(owner, _), _| *owner != client);
         if self
             .drags
             .current
@@ -836,6 +975,55 @@ impl Scene {
     /// the files of one that cited an input, and ignores the rest.
     pub fn take_trash_files(&mut self) -> Vec<TrashRequest> {
         std::mem::take(&mut self.drags.trash_requests)
+    }
+
+    /// OpenFiles (the shell's, ADR 0034): the application's id on the first line, then the files'
+    /// URIs. Received whole, it is kept for the program with whether it cited an input of the
+    /// shell's.
+    pub(super) fn open_files_request(
+        &mut self,
+        client: ClientId,
+        input: u64,
+        index: u16,
+        last: bool,
+        text: PreeditText,
+    ) -> Result<(), ErrorCode> {
+        if !self.clients[&client].shell {
+            return Err(ErrorCode::Unauthorized);
+        }
+        let Some(list) = assemble(
+            &mut self.drags.open_receiving,
+            (client, 0),
+            index,
+            last,
+            text,
+            MAX_OPEN_FILES_BYTES,
+        )?
+        else {
+            return Ok(());
+        };
+        if self.drags.open_requests.len() >= MAX_OPEN_REQUESTS {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        let with_input = input != 0 && self.recent_input(client, input);
+        let mut lines = list.lines().map(str::trim);
+        let application = lines.next().unwrap_or_default().to_owned();
+        let uris = lines
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(str::to_owned)
+            .collect();
+        self.drags.open_requests.push(OpenFilesRequest {
+            application,
+            uris,
+            with_input,
+        });
+        Ok(())
+    }
+
+    /// The shell's requests to open files with an application since the last call: the program
+    /// opens those of one that cited an input, and ignores the rest.
+    pub fn take_open_files(&mut self) -> Vec<OpenFilesRequest> {
+        std::mem::take(&mut self.drags.open_requests)
     }
 }
 

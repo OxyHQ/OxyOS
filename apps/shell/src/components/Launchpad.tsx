@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, useState, type ComponentRef } from "react";
+import React, { memo, useCallback, useEffect, useRef, useState, type ComponentRef } from "react";
 import {
   AccessibilityInfo,
   StyleSheet,
@@ -6,12 +6,15 @@ import {
   useColorScheme,
   useWindowDimensions,
   type ImageSourcePropType,
+  type PointerEvent,
 } from "react-native";
 import { BlurTargetView, BlurView } from "expo-blur";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { BloomColorScope } from "@oxy.so/bloom/theme";
 import { Search } from "@oxy.so/bloom/search";
+import { usePlatformDrag } from "@oxy.so/bloom/platform-surface";
+import { APPLICATION_TYPE, DRAG_SLOP, shellDrag } from "../app-drag";
 import { Box, PressArea } from "../primitives";
 import { AppIcon } from "../apps";
 import { Wallpaper } from "./Wallpaper";
@@ -44,6 +47,54 @@ const SEARCH_TOKENS = {
   primary: "#ffffff66",
   border: "#ffffff33",
 };
+
+/**
+ * An application's icon in Launchpad that drags out of it (docs/adr/0034-the-dock.mdx, decision 10):
+ * a mouse press moved past the slop drags the application, its icon as it looks the image, as a
+ * Mac's Launchpad drags an icon onto the Dock, which keeps it where it is dropped. Launchpad stays
+ * open; a drop anywhere else does nothing and the image goes back.
+ */
+const DraggableAppIcon = memo(function DraggableAppIcon({ app, size }: { app: ShellApplication; size: number }) {
+  const platformDrag = usePlatformDrag();
+  const picture = useRef<ComponentRef<typeof View>>(null);
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  const onPointerDown = useCallback((event: PointerEvent) => {
+    const { button, ctrlKey, clientX, clientY } = event.nativeEvent;
+    pressedAt.current = button === 0 && !ctrlKey ? { x: clientX, y: clientY } : null;
+  }, []);
+  const onPointerMove = useCallback(
+    (event: PointerEvent) => {
+      const at = pressedAt.current;
+      if (!at || !platformDrag) return;
+      const { clientX, clientY } = event.nativeEvent;
+      if (Math.hypot(clientX - at.x, clientY - at.y) < DRAG_SLOP) return;
+      pressedAt.current = null;
+      shellDrag.current = app.id;
+      platformDrag
+        .start({ data: { other: { [APPLICATION_TYPE]: app.id } }, actions: ["copy"], previewRef: picture })
+        .catch((error: unknown) => console.warn("Launchpad could not drag", { id: app.id, error }))
+        .finally(() => {
+          if (shellDrag.current === app.id) shellDrag.current = null;
+        });
+    },
+    [platformDrag, app.id],
+  );
+  const onPointerUp = useCallback(() => {
+    pressedAt.current = null;
+  }, []);
+  return (
+    <View
+      ref={picture}
+      collapsable={false}
+      onPointerDownCapture={platformDrag ? onPointerDown : undefined}
+      onPointerMove={platformDrag ? onPointerMove : undefined}
+      onPointerUp={platformDrag ? onPointerUp : undefined}
+      onPointerCancel={platformDrag ? onPointerUp : undefined}
+    >
+      <AppIcon app={app} size={size} />
+    </View>
+  );
+});
 
 /** Moves the screen reader's focus to `view` (React Native's accessibility focus). */
 function focusForAccessibility(view: ComponentRef<typeof View> | null | undefined) {
@@ -414,7 +465,7 @@ export const Launchpad = memo(function Launchpad({
                 >
                   <Box className="items-center" style={{ gap: 8 }}>
                     {app ? (
-                      <AppIcon app={app} size={iconSize} />
+                      <DraggableAppIcon app={app} size={iconSize} />
                     ) : (
                       <FolderIcon
                         apps={applications.filter((item) =>
@@ -529,7 +580,7 @@ export const Launchpad = memo(function Launchpad({
                   onPress={() => launch(app.id)}
                 >
                   <Box className="items-center" style={{ gap: 8 }}>
-                    <AppIcon app={app} size={iconSize} />
+                    <DraggableAppIcon app={app} size={iconSize} />
                     <Text
                       numberOfLines={1}
                       className="font-medium text-white"

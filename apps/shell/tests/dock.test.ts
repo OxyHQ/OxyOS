@@ -4,7 +4,12 @@ import {
   appWindowIds,
   dockApps,
   dockMenu,
+  dockPress,
+  DOCK_SLOT,
+  gapAt,
   keepInDock,
+  keptWithAt,
+  moveInDock,
   openAtLogin,
   trashMenu,
   trashedByDrop,
@@ -207,4 +212,116 @@ test("a scroll on a dock icon: a wheel's notch up or down at once, a touchpad's 
   assert.equal(iconScroll(state, { dx: 0, dy: 20, finger: true, end: false }).direction, "down");
   // Across, never.
   assert.equal(iconScroll(NO_ICON_SCROLL, { dx: 40, dy: 3, finger: true, end: false }).direction, null);
+});
+
+test("a press on the frontmost application's icon minimizes its windows shown here, the frontmost last", () => {
+  const state = snapshot(
+    [
+      window("1", "allo", { used: 3, focused: true }),
+      window("2", "allo", { used: 1 }),
+      window("3", "allo", { used: 2, minimized: true }),
+      window("4", "allo", { used: 4, workspaceId: "1" }),
+      window("5", "inbox", { used: 0 }),
+    ],
+    { activeAppId: "allo" },
+  );
+  // The minimized one stays as it is, and the one on another desktop is not shown here.
+  assert.deepEqual(dockPress(state, "allo"), { kind: "minimize", windows: ["2", "1"] });
+  // Over Launchpad, Mission Control or App Exposé it comes forward: nothing the person cannot see
+  // is minimized.
+  assert.deepEqual(dockPress(state, "allo", { desktop: false }), { kind: "activate", hide: [] });
+  // Option on the frontmost application hides it, as a Mac's Dock does.
+  assert.deepEqual(dockPress(state, "allo", { option: true }), { kind: "hide" });
+});
+
+test("pressed again, the windows the dock minimized come back together; else the one used last alone", () => {
+  const state = snapshot(
+    [
+      window("1", "allo", { used: 3, minimized: true }),
+      window("2", "allo", { used: 1, minimized: true }),
+      window("3", "allo", { used: 5, minimized: true }),
+      window("5", "inbox", { used: 4, focused: true }),
+    ],
+    { activeAppId: "inbox" },
+  );
+  assert.deepEqual(dockPress(state, "allo", { minimizedByDock: ["2", "1"] }), {
+    kind: "restore",
+    windows: ["2", "1"],
+    hide: [],
+  });
+  // One of them restored and gone since: the others still come back.
+  assert.deepEqual(dockPress(state, "allo", { minimizedByDock: ["9", "1"] }), {
+    kind: "restore",
+    windows: ["1"],
+    hide: [],
+  });
+  // Minimized on their own (Super+M, the title bar): the one used last, as a Mac restores.
+  assert.deepEqual(dockPress(state, "allo"), { kind: "restore", windows: ["3"], hide: [] });
+});
+
+test("an application running and not frontmost comes forward; one not running opens", () => {
+  const state = snapshot(
+    [
+      window("1", "allo", { used: 3, focused: true }),
+      window("2", "inbox", { used: 1, minimized: true, hidden: true }),
+      window("3", "dropsea", { used: 2, minimized: true }),
+      window("4", "settings", { used: 0, launched: false }),
+    ],
+    { activeAppId: "allo" },
+  );
+  // Hidden, or with a window minimized among others shown: it comes forward.
+  assert.deepEqual(dockPress(state, "inbox"), { kind: "activate", hide: [] });
+  assert.deepEqual(dockPress(state, "atlas"), { kind: "open" });
+  // A window the session did not start is no registry application's.
+  assert.deepEqual(dockPress(state, "settings"), { kind: "open" });
+});
+
+test("Option on another application brings it forward and hides every other one shown", () => {
+  const state = snapshot(
+    [
+      window("1", "allo", { used: 3, focused: true }),
+      window("2", "inbox", { used: 1 }),
+      window("3", "dropsea", { used: 2, minimized: true }),
+      window("4", "atlas", { used: 0, minimized: true, hidden: true }),
+      window("5", "settings", { used: 4 }),
+    ],
+    { activeAppId: "allo" },
+  );
+  // Only what shows hides: Dropsea's one window is minimized, Atlas is hidden already.
+  assert.deepEqual(dockPress(state, "inbox", { option: true }), { kind: "activate", hide: ["allo", "settings"] });
+  assert.deepEqual(dockPress(state, "dropsea", { option: true }), {
+    kind: "restore",
+    windows: ["3"],
+    hide: ["allo", "inbox", "settings"],
+  });
+});
+
+test("an application is put among those kept at a place, moved if kept already, kept if not", () => {
+  assert.deepEqual(keptWithAt(["a", "b", "c"], "d", 1), ["a", "d", "b", "c"]);
+  assert.deepEqual(keptWithAt(["a", "b", "c"], "a", 2), ["b", "c", "a"]);
+  assert.deepEqual(keptWithAt(["a", "b", "c"], "c", 0), ["c", "a", "b"]);
+  // Past either end: at that end.
+  assert.deepEqual(keptWithAt(["a", "b"], "d", 9), ["a", "b", "d"]);
+  assert.deepEqual(keptWithAt(["a", "b"], "d", -3), ["d", "a", "b"]);
+});
+
+test("a kept icon moves a place left or right, never past the ends; one not kept does not move", () => {
+  // Dropsea and Inbox kept, in that order; Allo running, not kept.
+  const state = snapshot([window("1", "allo")]);
+  assert.deepEqual(moveInDock(state, "inbox", -1), ["inbox", "dropsea"]);
+  assert.deepEqual(moveInDock(state, "dropsea", 1), ["inbox", "dropsea"]);
+  assert.equal(moveInDock(state, "dropsea", -1), null);
+  assert.equal(moveInDock(state, "inbox", 1), null);
+  assert.equal(moveInDock(state, "allo", -1), null);
+});
+
+test("a drag over the dock opens its gap under the pointer, within those kept", () => {
+  assert.equal(gapAt(-30, 3), 0);
+  assert.equal(gapAt(0, 3), 0);
+  assert.equal(gapAt(DOCK_SLOT - 1, 3), 0);
+  assert.equal(gapAt(DOCK_SLOT, 3), 1);
+  assert.equal(gapAt(DOCK_SLOT * 2.5, 3), 2);
+  // Past those kept (over the applications running, the Trash): their end.
+  assert.equal(gapAt(DOCK_SLOT * 7, 3), 3);
+  assert.equal(gapAt(DOCK_SLOT * 7, 0), 0);
 });

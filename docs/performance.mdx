@@ -16,7 +16,7 @@ composing and the hosts drawing on it, are from 6 November 2026 ([below](#every-
 ```sh
 python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen \
   --runtimes WORK/runtimes --packages WORK/packages [--out DIR] [--runs 3] [--gpu-only] [--check] \
-  [interactions] [responses] [cold-start] [idle] [applications]
+  [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
 ```
 
 It runs regression scenarios through `regress.py` (every step's expected result is still checked)
@@ -35,7 +35,10 @@ exceeded:
   refresh, `regress.py`'s `display_hz`; 60 Hz for one given none);
 - an application or the shell doing nothing wakes at most once a second and uses at most 0.1 %
   of a core;
-- an application's first frame comes within half a second of its start;
+- an application's first frame comes within half a second of its start, and its first frame
+  showing its text within a quarter of a second;
+- each host's memory, idle beside the others, within its budget (`MEMORY_BUDGETS`: its footprint
+  and its PSS; [Memory side by side](#memory-side-by-side), below);
 - every budget on time a scenario states for a step: a response's `latency_ms`, `js_work`'s
   JavaScript and `resize_work`'s frames. Each run checks what its steps do and enforces no time
   (`regress.py --collect`); `perf.py` measures each budget in every run and judges it over them,
@@ -326,9 +329,12 @@ to the scenario's `js_work` budget on speed, 2 ms for another window's change an
 hover, and its time blocked to 1 ms.
 
 **Cold start.** An application's process started by the compositor to its first frame on the
-output, and the host's stages in between (its report's `stage` lines): the process reaching
-`main`, Hermes' instance, Fabric's scheduler, the window configured, the bundle evaluated, and
-React's first render, layout, mount and draw.
+output, to its first frame showing its text (a window's first frame can be its background alone:
+Settings' waits for its preferences), and the host's stages in between (its report's `stage`
+lines): the process reaching `main`, Hermes' instance, Fabric's scheduler, the window configured,
+the bundle evaluated, and React's first render, layout, mount and draw. Each run is left idle 2.5 s,
+and the application's cache directory is kept from one run to the next (`regress.py --app-cache`),
+as it is from its second launch on; its first launch ever is run first and said apart.
 
 **Idle.** Each scenario with one step that waits nine seconds; two seconds after the
 application's first frame, every process's CPU time (`/proc/PID/schedstat`) and context switches
@@ -341,7 +347,8 @@ threads woke, and holds each process to the same budget (at most one wakeup a se
 core). It is not among the parts run by default: a person using the machine meanwhile is not idle.
 
 **Memory.** Every process's resident memory while idle (anonymous, file-backed) and its peak
-(`VmHWM`) over the run.
+(`VmHWM`) over the run; and `perf.py memory` ([below](#memory-side-by-side)), each host's
+footprint beside the others.
 
 **Machine.** Intel Core i9-14900K (32 threads), Linux 6.18 under WSL2, shared with other work
 (load average 9 to 22 during the runs): absolute numbers are this machine's, and a few
@@ -529,9 +536,11 @@ Decision 17 has the measurements against a package carrying them itself (disk, P
 five applications running, first frames). The rest is React's first render, layout, mount and draw:
 the application's own work.
 
-`perf.py applications` measures applications side by side: the shell, Settings and three more on one
-compositor, and each host's RSS, PSS and USS from `/proc/PID/smaps_rollup`, with what of each
-bytecode file is resident and shared.
+On the ThinkPad's GPU, 6 November 2026 (three runs each, the cache kept; ms from the process's
+start, the median): Settings' first frame 46 and its first frame with its text 166 (its first
+launch ever 171), the Inbox 178 (173), WindowProbe 137 (137), Allo beside the shell 66 (77),
+Dropsea 177 (183). Of Settings' first frame with its text, about 40 ms is worklets compiling
+Reanimated's worklets from their source on the UI runtime (below, *What remains*).
 
 ### Idle
 
@@ -554,6 +563,88 @@ Five seconds sampled, two after the first frame; median of three runs.
 
 The shell's peak is its wallpaper: a 5120 × 2880 JPEG decoded whole (56 MiB) and reduced to the
 output's size.
+
+### Memory side by side
+
+`perf.py memory` runs the shell and Settings on one compositor (1600 × 1000 at 1.25, the ThinkPad's
+display) with the Inbox, Allo, WindowProbe and Dropsea joining it, each in its window, and
+measures each host once all drew and then stayed idle four seconds:
+
+- from `/proc/PID/smaps_rollup`: RSS, PSS (each shared page divided among the processes mapping
+  it), USS (its private pages), its anonymous memory and the part of it in transparent huge pages;
+- from its DRM files' fdinfo (the kernel's drm-usage-stats, `drm-total-*`): the GPU memory its
+  clients hold. On a GPU that shares the system's memory, as the ThinkPad's Iris Xe does, that is
+  RAM that no RSS counts;
+- its **footprint**, USS and GPU memory: what the process alone costs the machine, what macOS's
+  `phys_footprint` (Activity Monitor's *Memory*) counts;
+- the host's own account, its report's `memory` line (`memory.h`, written when it trims, below):
+  Hermes' heaps (the application's runtime and worklets' UI runtime), malloc's (in use and held
+  free), Skia's GPU resources (budgeted and not: its canvases), its CPU caches, and the painter's
+  GPU buffers.
+
+`--check` holds each host's footprint and PSS, at the median of the runs, to `MEMORY_BUDGETS`.
+On the ThinkPad's GPU (`--gpu-only`), 6 November 2026, three runs each, MiB; before is `main`'s
+host (18b9fde5), after this one, with the same framework and packages:
+
+| host | footprint before | after | PSS before | after | GPU before | after | budget (footprint, PSS) |
+|---|---|---|---|---|---|---|---|
+| the shell | 117.8 | 70.1 | 74.8 | 51.7 | 50.8 | 26.3 | 80, 60 |
+| Settings | 88.8 | 59.9 | 56.7 | 45.1 | 39.8 | 22.7 | 70, 52 |
+| Inbox | 141.9 | 61.5 | 55.6 | 43.1 | 93.8 | 25.9 | 72, 50 |
+| Allo | 49.4 | 33.4 | 42.7 | 29.7 | 13.9 | 10.9 | 39, 35 |
+| WindowProbe | 76.0 | 52.9 | 53.5 | 41.3 | 30.1 | 19.3 | 62, 48 |
+| Dropsea | 95.5 | 74.6 | 68.0 | 59.3 | 35.9 | 23.8 | 86, 68 |
+| all six | 569.4 | 352.4 | 351.3 | 270.2 | 264.3 | 128.9 | |
+
+Each run's footprint was within 1 MiB of the median, but Dropsea's (75.5, 74.6, 74.6). What
+remains, after (MiB): Hermes' heap 12 to 20 (its 4 MiB segments; 6 to 14 allocated in them) and
+the worklets' UI runtime 8 (two segments, 0.3 to 2.7 allocated); malloc 10 to 20 in use (React
+Native's shadow trees, Yoga, the text engine, the driver's own structures), 0.5 to 7 held free;
+Skia's GPU resources 3 to 13 (the window's canvas, the glyph atlases, textures in use); the
+painter's buffers, one per surface shown (1.4 to 7.2); and the Vulkan driver's own memory, the
+GPU memory beyond those two, 6 to 16 (its state and instruction pools, which it does not give
+back). Each host maps the runtime's framework (15 MiB of bytecode, about 12 resident) shared:
+about 2 MiB of each one's PSS.
+
+What changed (`memory.h`, `skia-gpu.h`, `oxyos_paint_trim`):
+
+- **Transparent huge pages off for the host** (`prctl(PR_SET_THP_DISABLE)`). Debian's kernel
+  backs anonymous memory with 2 MiB pages wherever it can (`enabled` is `always`) and khugepaged
+  fills a 2 MiB range in once one of its pages is touched (`max_ptes_none` 511): a sparse heap
+  (malloc's arenas, `[heap]`) became resident whole. 22 to 34 MiB of each host's anonymous memory
+  on a fresh start; the session's shell, running five days, held 160 MiB of huge pages in 175 MiB
+  of anonymous memory. The hosts' start is the same with them off (Settings' first frame with its
+  text 166 ms with them, 165 without, the Inbox's 179 and 176, five runs each, `main`'s host).
+- **malloc's mapping threshold fixed at 4 MiB** (`M_MMAP_THRESHOLD`). glibc raises its threshold
+  to the size of each mapped buffer freed (up to 32 MiB), so after the wallpaper's decode every
+  later large buffer stayed in its heap. With its thresholds fixed through glibc's tunables (at
+  128 KiB, and two arenas) `main`'s shell held 15 MiB less on a fresh start, the other hosts the
+  same; the host fixes the mapping threshold alone, at 4 MiB, so that a frame's scratch blocks stay
+  in the heap rather than being mapped and faulted in at every frame, and its idle trim gives the
+  heap's free pages back.
+- **An idle window gives back what it keeps for frames in a row.** One second after the loop's
+  last work (one wakeup, then none), the host frees the painter's GPU buffers the compositor
+  released but the one each surface shows (a window keeps up to three while frames follow each
+  other; each is 4 bytes a pixel), purges Skia's scratch textures (offscreen layers) and those not
+  drawn for 30 s, and gives malloc's free pages back (`malloc_trim`); then writes its account. The
+  next frame makes a buffer again, about half a millisecond, and copies it whole.
+- **Skia's GPU cache bounded to the window**: three canvases of the largest one drawn, at least
+  16 MiB, where Skia's default is 256 MiB; and its glyph atlases' pages at 2 MiB, not 4 and 8. The
+  Inbox's GPU memory was 94 MiB, 46 to 58 with the idle trim alone, 26 with the bound: what Skia
+  allocated past it while drawing its first frames had grown the driver's memory too.
+- **Ganesh's compiled pipelines kept** in the application's cache directory (`skia/`, by the GPU,
+  its driver and Skia's revision; Chrome and Flutter keep theirs so): each pipeline's SPIR-V and the
+  driver's pipeline cache, written when the window is idle, never while a frame is drawn. With
+  Mesa's own shader cache already warm it saves 2 to 5 ms of the first frame with text (Settings'
+  drawing and presenting 15.5 ms on its first launch ever, 12.3 after), and the first drawing of
+  anything an application draws again on a later launch.
+
+**Held.** `perf.py memory --check` holds the sizes on the ThinkPad. Every run of
+`scenarios/memory-idle.json`, the deploy gate's on any machine, holds the trim itself: Settings'
+sidebar scrolled at 60 Hz, then left alone, the host's account written after its last frame, with
+one GPU buffer kept and nothing in Skia's cache it could purge (`regress.py`'s `memory`). An
+idle host wakes once for the trim: 0.2 wakeups a second over the five seconds sampled, 0.01 % of
+a core (`perf.py idle`, within its budget of one a second and 0.1 %).
 
 ## The ThinkPad
 
@@ -735,7 +826,7 @@ it 0.05 (2), leaving 1.26 (4), blocked 0 in every run. First frames: Settings 43
 shell 86, WindowProbe 155, the Inbox 207 (its bundle evaluated, 157, is most of it). Idle, two
 seconds after the first frame: the shell, Allo and Settings 0.00 % of a core and no wakeup in five
 seconds (the development compositor's 190 a second are its 5 ms pace, not a session's). Memory side
-by side: the shell 117 MiB resident (68 PSS), Settings 108 (58), the Inbox 108 (59), Allo 91 (44),
+by side, before [the fixes below](#memory-side-by-side): the shell 117 MiB resident (68 PSS), Settings 108 (58), the Inbox 108 (59), Allo 91 (44),
 each sharing the framework's bytecode (11.6 MiB resident, 2.4 of it its own).
 
 **What the GPU composition here measures.** With no display, the fixture composes each frame whole
@@ -963,6 +1054,20 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   session's). `tests/pointer_motion.rs` holds that the pointer moving over what does not change
   composes nothing and reads no client's pixels.
 
+- **A maximized window was composed, though the display could show it as it is** (6 November
+  2026). The ThinkPad's pipe has four overlay planes, which nothing used. Each frame now assigns
+  one ([ADR 0031](./adr/0031-gpu-buffers), decision 15): a maximized window (a plain opaque
+  rectangle: a client's buffer at its own size, square, uncut, at full opacity) with nothing over
+  it goes on the plane, once the card took it there in a TEST_ONLY commit; the primary plane is
+  composed only where something changed around it, and a frame of the window alone composes
+  nothing, the overlay plane committed alone. A menu over it, or the window going back to its
+  size with its corners, composes it again. On vkms in `tools/gpu-vm --vkms`, `tests/overlay.rs`
+  holds it: a frame of the window composes no pixel, and what the display shows is the CPU
+  reference's frame, pixel for pixel, at every step (with the window's place left out of the
+  frame that takes it off the plane, 368,640 pixels differ: the check is real). The ThinkPad's
+  display is its owner's session's: there, the session's log says when a window goes on the plane
+  (`[compositor] output N shows a window's buffer on an overlay plane`) or the card refuses it.
+
 ## The host on the GPU
 
 The Bloom host draws on the GPU where the compositor offers one ([ADR 0031](./adr/0031-gpu-buffers),
@@ -997,6 +1102,19 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
 
 ## What remains
 
+- **Worklets compile Reanimated's worklets from source on the first frame** with content: each
+  worklet reaches worklets' UI runtime as its source text, evaluated there with `eval` (worklets'
+  legacy mode, which the host runs), about 40 ms of Settings' and the Inbox's first frame with
+  text on the ThinkPad (93 ms on the development machine, timed around `UIScheduler::triggerUI`).
+  Upstream's way out is worklets' bundle mode (the UI runtime evaluating the bundle's bytecode),
+  which does not yet fit a framework and an application in two bundles; its plugin's
+  `hermesBytecode` option compiles each worklet ahead, but is marked experimental.
+- **The Vulkan driver's own memory** is 6 to 16 MiB of each host's GPU memory, which it keeps once
+  allocated (above, *Memory side by side*).
+- **An application is not told that its window is hidden**: a minimized window gives back what an
+  idle one does, and nothing more (its canvas, Hermes' heap). The compositor telling a client
+  its window is out of sight would let it drop its canvas too.
+
 - **Dropsea's own JavaScript is most of what a person waits for** (`perf-dropsea.json`: three
   quarters of the host's work in the list view, nine tenths in a selection). From its profile:
   - Its items view (`components/ItemsView.tsx`) is not compiled by the React Compiler: its two
@@ -1017,12 +1135,6 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
   the protocol carries no time for input. Behind a slow frame, two presses keep their order but
   arrive closer together than they were made. Input events need the device's time (libinput's)
   from the compositor to the application.
-- **A maximized window is composed, not scanned out.** A full-screen window's buffer goes on the
-  primary plane ([ADR 0031](./adr/0031-gpu-buffers), decision 8), but the ThinkPad's pipe has
-  four overlay planes that nothing uses: a maximized opaque window with nothing over it could go
-  on one, the shell's bars composed around it, so that its frames compose nothing. It needs the
-  window told its scanout formats as a full-screen one is, a commit tested first, and the
-  composition leaving the window's rectangle to the plane.
 - **The genie's mesh is the costliest layer** (4.7 ms of device time for a whole frame at
   1280 × 720, 0.57 of a 120 Hz refresh): each pixel searches the mesh's rows and filters its box.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).

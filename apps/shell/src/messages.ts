@@ -215,6 +215,12 @@ const en = (f: Formats) => ({
     notResponding: "Application Not Responding",
     untitled: "Untitled",
     emptyTrash: "Empty Trash",
+    moveLeft: "Move Left",
+    moveRight: "Move Right",
+    removeFromDock: "Remove from Dock",
+    /** Said once an icon moved from the keyboard or an assistive technology: its new place. */
+    moved: (name: string, place: number, count: number) =>
+      `${name}, position ${f.number(place)} of ${f.number(count)}`,
   },
   launchpad: {
     close: "Close Applications",
@@ -496,6 +502,10 @@ const es = (f: Formats): Catalogue => ({
     notResponding: "La aplicación no responde",
     untitled: "Sin título",
     emptyTrash: "Vaciar Papelera",
+    moveLeft: "Mover a la izquierda",
+    moveRight: "Mover a la derecha",
+    removeFromDock: "Quitar del Dock",
+    moved: (name, place, count) => `${name}, posición ${f.number(place)} de ${f.number(count)}`,
   },
   launchpad: {
     close: "Cerrar aplicaciones",

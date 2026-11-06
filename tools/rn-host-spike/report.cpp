@@ -138,6 +138,11 @@ void Report::committed(const ShadowViewMutationList& mutations) {
     auto now = radii(mutation.newChildShadowView, *after);
     if (was.topLeft.horizontal != now.topLeft.horizontal) props["borderTopLeftRadius"] = now.topLeft.horizontal;
     if (was.topRight.horizontal != now.topRight.horizontal) props["borderTopRightRadius"] = now.topRight.horizontal;
+    // Its width as laid out (an application's place in the dock opening and closing as icons are
+    // dragged along it, docs/adr/0034-the-dock.mdx, decision 10).
+    auto wasWidth = mutation.oldChildShadowView.layoutMetrics.frame.size.width;
+    auto nowWidth = mutation.newChildShadowView.layoutMetrics.frame.size.width;
+    if (wasWidth != nowWidth) props["width"] = nowWidth;
     if (!props.empty()) {
       write(folly::dynamic::object("kind", "committed")("target", after->testId)("props", std::move(props)));
     }

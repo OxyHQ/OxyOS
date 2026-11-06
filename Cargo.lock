@@ -2001,6 +2001,7 @@ dependencies = [
 name = "oxyos-input"
 version = "0.1.0"
 dependencies = [
+ "evdev",
  "input",
  "rustix",
  "xkbcommon",

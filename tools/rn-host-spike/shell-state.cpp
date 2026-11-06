@@ -102,7 +102,10 @@ void ShellState::readApplications() {
     }
     // Its picture's own body, when the picture is its own shape (oxyos_applications measured it).
     applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"])("icon", icon)(
-        "iconBody", app["iconBody"])("pinned", app["pinned"]));
+        "iconBody", app["iconBody"])("pinned", app["pinned"])(
+        // The media types it declares it opens (docs/adr/0034-the-dock.mdx): what files dropped
+        // on its dock icon it takes.
+        "opens", app.getDefault("opens", folly::dynamic::array())));
   }
   applications_ = std::move(applications);
 }

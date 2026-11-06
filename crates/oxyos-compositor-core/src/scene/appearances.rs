@@ -28,7 +28,8 @@ pub enum Kind {
     /// The input method's candidates: never animated.
     Candidates,
     /// A drag's image (ADR 0035): shown with its drag, gone at once when dropped on a target, and
-    /// slid back to where it came from when the drag dropped nothing (`Change::Returned`).
+    /// slid back to where it came from when the drag dropped nothing (`Change::Returned`), or
+    /// vanished in a poof where it is (`Change::Vanished`).
     DragIcon,
 }
 
@@ -51,6 +52,10 @@ pub enum Change {
     /// A drag's image going back to where its drag began, the drag having dropped nothing (refused,
     /// over nothing, Escape), as a Mac's slides back: its centre to (`x`, `y`), global, logical.
     Returned { x: i32, y: i32 },
+    /// A drag's image vanishing in a poof where it is, its drag having been dropped on nothing
+    /// and its source having said so (ADR 0035, 6 November 2026), as an item dragged out of a
+    /// Mac's Dock: its centre at (`x`, `y`), global, logical.
+    Vanished { x: i32, y: i32 },
     /// A window's frame changed at once (zoomed, restored from a zoom, maximized or tiled by the
     /// shell), not by hand (docs/adr/0016-windows.mdx): it stays on the screen, its frame
     /// animated from where it was drawn to where it is configured.

@@ -60,9 +60,9 @@ fn directory(name: &str) -> PathBuf {
     dir
 }
 
-/// Whether the install service at `path` (listening from now on) is connected to within `within`.
-fn connected(path: &Path, within: Duration) -> bool {
-    let listener = oxyos_install::socket::Listener::bind(path, 0o600).unwrap();
+/// Whether `listener` (the install service) is connected to within `within` (a deadline that only
+/// says it never was); the connection is closed at once, as a service that goes.
+fn accepted(listener: oxyos_install::socket::Listener, within: Duration) -> bool {
     let (accepted, heard) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = accepted.send(listener.accept().is_ok());
@@ -165,15 +165,19 @@ fn the_parts_following_the_system_do_not_wake_while_nothing_happens() {
     );
     assert!(share <= 0.1, "{share} % of a core while nothing happens");
 
-    // The install service starting is seen as its socket is made, below directories it makes;
-    // a socket nothing answers on is tried once, then again once another is made in its place.
+    // The install service starting is seen as its socket is made, below the directories it makes
+    // as it starts; one that goes (its connection closed, its socket left there) is followed again
+    // once its socket is made anew, whenever the watcher looks.
     std::fs::create_dir_all(installd.parent().unwrap()).unwrap();
-    let stale = std::os::unix::net::UnixListener::bind(&installd).unwrap();
-    std::thread::sleep(Duration::from_millis(200));
-    drop(stale);
+    let first = oxyos_install::socket::Listener::bind(&installd, 0o600).unwrap();
     assert!(
-        connected(&installd, Duration::from_secs(2)),
+        accepted(first, Duration::from_secs(10)),
         "the install service was not followed once its socket was made"
+    );
+    let again = oxyos_install::socket::Listener::bind(&installd, 0o600).unwrap();
+    assert!(
+        accepted(again, Duration::from_secs(10)),
+        "the install service was not followed again once its socket was made anew"
     );
 
     // Told to stop, every part's threads end at once.

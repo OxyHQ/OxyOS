@@ -19,6 +19,7 @@ import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
 import { AppExpose, AppExposeBackdrop } from "./components/AppExpose";
 import { exposedWindows } from "./expose";
+import { dockPress } from "./dock";
 import { Launchpad, LaunchpadBackdrop } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
@@ -292,6 +293,57 @@ export const Shell = memo(function Shell({
       }
       latest.current.actions.activateApp(id);
       setView("desktop");
+    },
+    [showAllWindows],
+  );
+  // The windows each application's icon pressed last minimized (docs/adr/0034-the-dock.mdx,
+  // decision 9), the one that was frontmost last: pressed again, they come back together.
+  const minimizedByDock = useRef(new Map<string, string[]>());
+  // A press on an application's icon in the dock (docs/adr/0034-the-dock.mdx, decision 9): what a
+  // Mac's Dock does, and the frontmost application's windows minimized into its icon and restored
+  // out of it again (the owner's decision); Option hides the others.
+  const pressDockApp = useCallback(
+    (id: string, option: boolean) => {
+      const now = latest.current;
+      // In App Exposé another application's icon shows its windows instead, as a Mac's does.
+      if (exposing.current && exposing.current !== id && exposes(id)) {
+        showAllWindows(id);
+        return;
+      }
+      const press = dockPress(now.snapshot, id, {
+        option,
+        desktop: now.view === "desktop",
+        minimizedByDock: minimizedByDock.current.get(id),
+      });
+      switch (press.kind) {
+        case "open":
+          now.actions.activateApp(id);
+          break;
+        case "minimize":
+          if (!now.actions.minimizeWindow) {
+            now.actions.activateApp(id);
+            break;
+          }
+          minimizedByDock.current.set(id, press.windows);
+          for (const window of press.windows) now.actions.minimizeWindow(window);
+          break;
+        case "hide":
+          if (now.actions.hideApp) now.actions.hideApp(id);
+          else now.actions.activateApp(id);
+          break;
+        case "restore":
+          minimizedByDock.current.delete(id);
+          for (const app of press.hide) now.actions.hideApp?.(app);
+          // Each restored in turn, the one used last last: it is frontmost, with the keyboard.
+          for (const window of press.windows) now.actions.focusWindow(window);
+          break;
+        case "activate":
+          for (const app of press.hide) now.actions.hideApp?.(app);
+          now.actions.activateApp(id);
+          break;
+      }
+      setView("desktop");
+      setExposeApp(null);
     },
     [showAllWindows],
   );
@@ -892,7 +944,7 @@ export const Shell = memo(function Shell({
               trash={snapshot.trash}
               actions={actions}
               view={view}
-              activateApp={activateApp}
+              activateApp={pressDockApp}
               showAllWindows={showAllWindows}
               scrollIcon={platform.ScrollTarget ? scrollIcon : undefined}
               ScrollTarget={platform.ScrollTarget}
@@ -903,6 +955,7 @@ export const Shell = memo(function Shell({
               leave={leaveDock}
               MinimizeTarget={platform.MinimizeTarget}
               useDisplayCovered={platform.useDisplayCovered}
+              announce={platform.announce}
             />
           </Surface>
         )}

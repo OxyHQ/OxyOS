@@ -52,6 +52,8 @@ class WorkletsHost {
   std::optional<std::chrono::steady_clock::time_point> nextFrame() const;
 
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy() const { return proxy_; }
+  // Worklets' UI runtime, once made (null before).
+  facebook::jsi::Runtime* uiRuntime() const;
   std::shared_ptr<worklets::UIScheduler> uiScheduler() const { return ui_; }
 
  private:

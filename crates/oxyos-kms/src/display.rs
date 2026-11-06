@@ -8,6 +8,12 @@
 //! plane is not in the commit, so the frame shown is not presented again (on Intel's display, a
 //! primary plane updated also has its frame compressed again, FBC, whole).
 //!
+//! A window's buffer can go on an overlay plane of the CRTC (docs/adr/0031-gpu-buffers.mdx,
+//! decision 15): the caller says where it wants it (`set_overlay`, as `set_pointer`), asks the
+//! card first whether it takes it (`test_overlay`, a TEST_ONLY commit), and every commit then
+//! places it as wanted; a frame that changes only the overlay commits the overlay alone
+//! (`present_overlay`), the primary plane left out.
+//!
 //! Every property is looked up by name once and its handle kept: a lookup reads every property
 //! of the object (one ioctl each), about 230 ioctls a frame otherwise (134 µs on a ThinkPad's
 //! Iris Xe, per frame and per pointer motion).
@@ -57,6 +63,65 @@ pub struct Display {
     /// Whether the card refused a commit of the cursor plane alone: the pointer then moves with
     /// the frame shown committed again, as a frame is.
     pointer_with_frame: bool,
+    /// An overlay plane of the CRTC, if it has one no other display uses.
+    overlay: Option<Overlay>,
+}
+
+struct Overlay {
+    plane: plane::Handle,
+    /// The formats and modifiers it scans out (`IN_FORMATS`).
+    formats: Vec<(DrmFourcc, u64)>,
+    /// Where it is to show a buffer (none: off), and where the last commit had it.
+    wanted: Option<Placement>,
+    shown: Option<Placement>,
+}
+
+/// A buffer on an overlay plane: its framebuffer, whole, at its own size at (`x`, `y`) of the
+/// CRTC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placement {
+    pub framebuffer: framebuffer::Handle,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The properties placing `placement` on a plane of `crtc`, or turning the plane off.
+pub(crate) fn placement_properties(
+    crtc: crtc::Handle,
+    placement: Option<Placement>,
+) -> Vec<(&'static str, property::Value<'static>)> {
+    match placement {
+        Some(at) => vec![
+            ("CRTC_ID", property::Value::CRTC(Some(crtc))),
+            ("FB_ID", property::Value::Framebuffer(Some(at.framebuffer))),
+            ("SRC_X", property::Value::UnsignedRange(0)),
+            ("SRC_Y", property::Value::UnsignedRange(0)),
+            (
+                "SRC_W",
+                property::Value::UnsignedRange(u64::from(at.width) << 16),
+            ),
+            (
+                "SRC_H",
+                property::Value::UnsignedRange(u64::from(at.height) << 16),
+            ),
+            ("CRTC_X", property::Value::SignedRange(i64::from(at.x))),
+            ("CRTC_Y", property::Value::SignedRange(i64::from(at.y))),
+            (
+                "CRTC_W",
+                property::Value::UnsignedRange(u64::from(at.width)),
+            ),
+            (
+                "CRTC_H",
+                property::Value::UnsignedRange(u64::from(at.height)),
+            ),
+        ],
+        None => vec![
+            ("CRTC_ID", property::Value::CRTC(None)),
+            ("FB_ID", property::Value::Framebuffer(None)),
+        ],
+    }
 }
 
 struct Cursor {
@@ -252,7 +317,9 @@ impl Display {
             client_framebuffers: std::collections::HashMap::new(),
             properties: Default::default(),
             pointer_with_frame: false,
+            overlay: None,
         };
+        display.overlay = display.prepare_overlay(&resources, in_use);
         display.cursor = display
             .prepare_cursor(&resources, in_use)
             .unwrap_or_else(|error| {
@@ -302,6 +369,37 @@ impl Display {
             size,
             images: vec![arrow],
         }))
+    }
+
+    /// The first overlay plane of the CRTC that no other display uses, and its formats.
+    fn prepare_overlay(
+        &self,
+        resources: &drm::control::ResourceHandles,
+        in_use: &[u32],
+    ) -> Option<Overlay> {
+        let card = &*self.card;
+        let plane = card.plane_handles().ok()?.into_iter().find(|&handle| {
+            !in_use.contains(&u32::from(handle))
+                && card.get_plane(handle).is_ok_and(|info| {
+                    resources
+                        .filter_crtcs(info.possible_crtcs())
+                        .contains(&self.crtc)
+                })
+                && property_value(card, handle, "type").ok() == Some(0)
+        })?;
+        let formats = card
+            .planes()
+            .ok()?
+            .into_iter()
+            .find(|found| found.id == u32::from(plane))
+            .map(|found| found.formats)
+            .unwrap_or_default();
+        Some(Overlay {
+            plane,
+            formats,
+            wanted: None,
+            shown: None,
+        })
     }
 
     /// Keeps a pointer image, in a buffer of its own; its number for `set_pointer` (the display's
@@ -391,10 +489,12 @@ impl Display {
         if !self.pointer_with_frame && self.cursor.is_some() {
             let mut request = atomic::AtomicModeReq::new();
             self.add_pointer(&mut request)?;
+            self.add_overlay(&mut request)?;
             let flags = AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK;
             match self.card.atomic_commit(flags, request) {
                 Ok(()) => {
                     self.shown_pointer = self.pointer;
+                    self.overlay_committed();
                     return Ok(true);
                 }
                 Err(error)
@@ -409,6 +509,92 @@ impl Display {
             }
         }
         self.present_framebuffer(front).map(|()| true)
+    }
+
+    /// The formats and modifiers its overlay plane scans out; none without one.
+    pub fn overlay_formats(&self) -> &[(DrmFourcc, u64)] {
+        self.overlay
+            .as_ref()
+            .map_or(&[], |overlay| overlay.formats.as_slice())
+    }
+
+    /// Where the overlay plane is to show a buffer from the next commit on (none: off); true when
+    /// that changes what it shows.
+    pub fn set_overlay(&mut self, placement: Option<Placement>) -> bool {
+        let Some(overlay) = self.overlay.as_mut() else {
+            return false;
+        };
+        overlay.wanted = placement;
+        overlay.wanted != overlay.shown
+    }
+
+    /// Whether the card takes `placement` on the overlay plane over the frame shown, as it is
+    /// now (a TEST_ONLY commit: nothing changes). An error without an overlay plane or a frame.
+    pub fn test_overlay(&self, placement: Placement) -> io::Result<()> {
+        let Some(overlay) = self.overlay.as_ref() else {
+            return Err(not_found("no overlay plane"));
+        };
+        if !self.configured {
+            return Err(not_found("no frame shown"));
+        }
+        let mut request = atomic::AtomicModeReq::new();
+        for (name, value) in placement_properties(self.crtc, Some(placement)) {
+            request.add_property(overlay.plane, self.property(overlay.plane, name)?, value);
+        }
+        self.card
+            .atomic_commit(AtomicCommitFlags::TEST_ONLY, request)
+    }
+
+    /// Commits the overlay plane as wanted, and the pointer, over the frame shown, the primary
+    /// plane left out; true if a frame is shown to commit it over. Its flip is waited for as a
+    /// frame's.
+    pub fn present_overlay(&mut self) -> io::Result<bool> {
+        if self.front.is_none() || !self.configured {
+            return Ok(false);
+        }
+        let mut request = atomic::AtomicModeReq::new();
+        self.add_pointer(&mut request)?;
+        self.add_overlay(&mut request)?;
+        self.card.atomic_commit(
+            AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK,
+            request,
+        )?;
+        self.shown_pointer = self.pointer;
+        self.overlay_committed();
+        Ok(true)
+    }
+
+    /// Whether a frame is on the display (presented since it was last configured).
+    pub fn showing(&self) -> bool {
+        self.configured && self.front.is_some()
+    }
+
+    /// Whether the overlay plane shows a buffer, as last committed.
+    pub fn shows_overlay(&self) -> bool {
+        self.overlay
+            .as_ref()
+            .is_some_and(|overlay| overlay.shown.is_some())
+    }
+
+    /// The overlay plane's properties in a commit, where it is to change.
+    fn add_overlay(&self, request: &mut atomic::AtomicModeReq) -> io::Result<()> {
+        let Some(overlay) = self.overlay.as_ref() else {
+            return Ok(());
+        };
+        if overlay.wanted == overlay.shown {
+            return Ok(());
+        }
+        for (name, value) in placement_properties(self.crtc, overlay.wanted) {
+            request.add_property(overlay.plane, self.property(overlay.plane, name)?, value);
+        }
+        Ok(())
+    }
+
+    /// A commit placing the overlay as wanted was taken.
+    fn overlay_committed(&mut self) {
+        if let Some(overlay) = self.overlay.as_mut() {
+            overlay.shown = overlay.wanted;
+        }
     }
 
     /// The card this display drives (to import buffers into it, for one).
@@ -461,6 +647,11 @@ impl Display {
     pub fn objects(&self) -> Vec<u32> {
         let mut objects = vec![u32::from(self.crtc), u32::from(self.plane)];
         objects.extend(self.cursor.as_ref().map(|cursor| u32::from(cursor.plane)));
+        objects.extend(
+            self.overlay
+                .as_ref()
+                .map(|overlay| u32::from(overlay.plane)),
+        );
         objects
     }
 
@@ -495,6 +686,7 @@ impl Display {
         let planes = [
             Some(self.plane),
             self.cursor.as_ref().map(|cursor| cursor.plane),
+            self.overlay.as_ref().map(|overlay| overlay.plane),
         ];
         for plane in planes.into_iter().flatten() {
             request.add_property(
@@ -510,6 +702,9 @@ impl Display {
         }
         card.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request)?;
         self.configured = false;
+        if let Some(overlay) = self.overlay.as_mut() {
+            overlay.shown = None;
+        }
         Ok(())
     }
 
@@ -543,6 +738,14 @@ impl Display {
         self.card.release_master_lock()?;
         self.configured = false;
         Ok(())
+    }
+
+    /// What the next modeset finds on the overlay plane is unknown: it turns it off first, as
+    /// any plane another session left (`add_modeset`), and places it as wanted after.
+    fn overlay_unknown(&mut self) {
+        if let Some(overlay) = self.overlay.as_mut() {
+            overlay.shown = None;
+        }
     }
 
     /// The output was another session's meanwhile, its DRM master handled by the seat manager
@@ -600,11 +803,11 @@ impl Display {
         completion: Option<std::os::fd::OwnedFd>,
     ) -> io::Result<()> {
         use std::os::fd::AsRawFd;
-        let card = &self.card;
         let mut request = atomic::AtomicModeReq::new();
         let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT;
         if !self.configured {
-            let blob = card.create_property_blob(&self.mode)?;
+            self.overlay_unknown();
+            let blob = self.card.create_property_blob(&self.mode)?;
             self.add_modeset(&mut request, blob)?;
             self.mode_blob = Some(blob);
             flags |= AtomicCommitFlags::ALLOW_MODESET;
@@ -627,10 +830,12 @@ impl Display {
             }
         }
         self.add_pointer(&mut request)?;
-        card.atomic_commit(flags, request)?;
+        self.add_overlay(&mut request)?;
+        self.card.atomic_commit(flags, request)?;
         self.configured = true;
         self.front = Some(framebuffer);
         self.shown_pointer = self.pointer;
+        self.overlay_committed();
         Ok(())
     }
 
@@ -725,8 +930,14 @@ impl Display {
         // Planes another session left on the CRTC (a cursor, an overlay) are turned off; the
         // cursor plane is the pointer's (below).
         let cursor = self.cursor.as_ref().map(|cursor| cursor.plane);
+        // The overlay plane, when it is to show a buffer, is placed by the same commit.
+        let placed = self
+            .overlay
+            .as_ref()
+            .filter(|overlay| overlay.wanted.is_some())
+            .map(|overlay| overlay.plane);
         for plane in card.plane_handles()? {
-            if plane == self.plane || Some(plane) == cursor {
+            if plane == self.plane || Some(plane) == cursor || Some(plane) == placed {
                 continue;
             }
             let on_crtc = card

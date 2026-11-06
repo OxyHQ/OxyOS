@@ -377,6 +377,8 @@ pub struct VulkanCompositor {
     source_next: u64,
     /// The bytes the last frame uploaded.
     last_uploaded: u64,
+    /// The pixels the last frame composed (its regions, on the tiles' grid).
+    last_composed: u64,
     /// Whether the last submission was not waited for yet (`complete`): a frame whose
     /// completion was handed to its display as a sync file (`compose_to_scanout`), or one
     /// composed `deferred`. Every composition, readback and buffer freed first completes it.
@@ -491,6 +493,7 @@ impl VulkanCompositor {
             resident: std::collections::HashMap::new(),
             source_next: 0,
             last_uploaded: 0,
+            last_composed: 0,
             submitted: false,
             completion: None,
             completed_when: None,
@@ -842,6 +845,12 @@ impl VulkanCompositor {
         self.last_gpu_ms
     }
 
+    /// The pixels the last frame composed: its regions grown to the tiles' grid (the whole output
+    /// for a whole frame).
+    pub fn last_composed_pixels(&self) -> u64 {
+        self.last_composed
+    }
+
     /// The bytes of pixels the last frame uploaded: those of layers whose `Source` was not on
     /// the device already.
     pub fn last_uploaded_bytes(&self) -> u64 {
@@ -1018,6 +1027,104 @@ impl VulkanCompositor {
             .get(index)
             .and_then(Option::as_ref)
             .ok_or_else(|| Error(format!("no scanout target {index}")))
+    }
+
+    /// What scanout target `index` holds, row by row at its size: taken from the display's queue
+    /// for the copy and given back to it, as a composition does. What a display shows, for a
+    /// check of it; it waits for the device.
+    pub fn read_scanout(&mut self, index: usize) -> Result<Vec<u32>, Error> {
+        self.complete()?;
+        let (target, width, height, released) = {
+            let target = self.target(index)?;
+            (
+                target.buffer.buffer,
+                target.width,
+                target.height,
+                target.released,
+            )
+        };
+        let bytes = u64::from(width) * u64::from(height) * 4;
+        self.reserve(4, 4, bytes, PUSH_BYTES as u64)?;
+        let readback = self.buffers[3].as_ref().expect("reserved").buffer;
+        let family = self.family;
+        // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
+        // use (`complete`); the copy lies within both buffers (the readback holds `bytes`).
+        unsafe {
+            let device = &self.device;
+            let command = self.command;
+            device.reset_command_buffer(command, vk::CommandBufferResetFlags::empty())?;
+            device.begin_command_buffer(
+                command,
+                &vk::CommandBufferBeginInfo::default()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )?;
+            let barrier = |from: u32, to: u32, src, dst, before, after| {
+                device.cmd_pipeline_barrier(
+                    command,
+                    before,
+                    after,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[vk::BufferMemoryBarrier::default()
+                        .src_access_mask(src)
+                        .dst_access_mask(dst)
+                        .src_queue_family_index(from)
+                        .dst_queue_family_index(to)
+                        .buffer(target)
+                        .size(vk::WHOLE_SIZE)],
+                    &[],
+                );
+            };
+            if released {
+                barrier(
+                    vk::QUEUE_FAMILY_EXTERNAL,
+                    family,
+                    vk::AccessFlags::empty(),
+                    vk::AccessFlags::TRANSFER_READ,
+                    vk::PipelineStageFlags::TOP_OF_PIPE,
+                    vk::PipelineStageFlags::TRANSFER,
+                );
+            }
+            device.cmd_copy_buffer(
+                command,
+                target,
+                readback,
+                &[vk::BufferCopy::default().size(bytes)],
+            );
+            device.cmd_pipeline_barrier(
+                command,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::HOST,
+                vk::DependencyFlags::empty(),
+                &[vk::MemoryBarrier::default()
+                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::HOST_READ)],
+                &[],
+                &[],
+            );
+            if released {
+                barrier(
+                    family,
+                    vk::QUEUE_FAMILY_EXTERNAL,
+                    vk::AccessFlags::TRANSFER_READ,
+                    vk::AccessFlags::empty(),
+                    vk::PipelineStageFlags::TRANSFER,
+                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                );
+            }
+            device.end_command_buffer(command)?;
+            let commands = [command];
+            device.queue_submit(
+                self.queue,
+                &[vk::SubmitInfo::default().command_buffers(&commands)],
+                self.fence,
+            )?;
+        }
+        self.submitted = true;
+        self.timed = false;
+        self.kept = None;
+        self.complete()?;
+        Ok(self.read_back(width as usize * height as usize)?)
     }
 
     /// The frame the last [`compose_to_scanout_kept`](Self::compose_to_scanout_kept) copied,
@@ -1407,6 +1514,10 @@ impl VulkanCompositor {
         let table: Vec<Push> = layer_pushes.iter().flatten().copied().collect();
         // On the tiles' grid; and each bin's layers after the table (`bins`).
         let regions = bins::on_tiles(&regions.unwrap_or_else(|| vec![output]), &output);
+        self.last_composed = regions
+            .iter()
+            .map(|region| u64::from(region.width) * u64::from(region.height))
+            .sum();
         let bins = Bins::new(&table, width, height, &regions);
         let mut words: Vec<u8> = table.iter().flat_map(|push| push.bytes()).collect();
         words.extend(bins.bits.iter().flat_map(|word| word.to_ne_bytes()));

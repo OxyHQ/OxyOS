@@ -88,6 +88,9 @@ class Window {
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
   // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
   void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
+  // Frees the GPU buffers of its surfaces that the compositor released but the one each shows
+  // (oxyos_paint_trim; memory.h, once the window is idle): the bytes freed.
+  uint64_t trimBuffers();
 
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
   // (the input event that opened it), the parent going on tracking the pointer meanwhile when
@@ -242,15 +245,21 @@ class Window {
   // Puts files in the Trash (`file://` URIs, one a line), citing `input` (the drop on the dock's
   // Trash, docs/adr/0035-drag-and-drop.mdx); false if it was not sent.
   bool trashFiles(uint64_t input, const std::string& uris);
+  // Opens files (`file://` URIs, one a line) with the application `application`, citing `input`
+  // (the drop on its icon in the dock, docs/adr/0034-the-dock.mdx); false if it was not sent (a
+  // compositor before version 26).
+  bool openFiles(uint64_t input, const std::string& application, const std::string& uris);
   // Drag and drop (docs/adr/0035-drag-and-drop.mdx), protocol version 10. A drag icon surface `id`
   // of the given logical size, its hotspot at the pointer while its drag goes on (throws on
   // failure); a drag from `surface` citing the press `serial` held, with that icon (0: none), the
-  // OXYOS_DRAG_* actions it allows and each type's content, whose number it returns (0: not sent);
+  // OXYOS_DRAG_* actions it allows and each type's content, whose number it returns (0: not sent),
+  // and (version 26) whether it vanishes dropped on nothing and its files' media types, one a line;
   // a target's answer to an entering, a drop's type received (a pipe's read end, -1 on failure)
   // and the drop finished.
   void createDragIcon(uint32_t id, uint32_t width, uint32_t height, int32_t hotspotX, int32_t hotspotY);
   uint32_t startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uint8_t actions,
-                     const std::vector<std::pair<std::string, std::string>>& contents);
+                     const std::vector<std::pair<std::string, std::string>>& contents, bool vanish = false,
+                     const std::string& fileTypes = {});
   void cancelDrag(uint32_t drag);
   void acceptDrag(uint32_t offer, uint64_t serial, const std::string& mime, uint8_t actions, uint8_t preferred);
   int receiveDrop(uint32_t offer, const std::string& mime);

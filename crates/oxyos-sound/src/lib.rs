@@ -1,6 +1,6 @@
 //! The system's sounds (docs/adr/0044-system-sounds.mdx): what each [`Sound`] is called in the
 //! freedesktop.org sound theme naming (`file-trash`, `trash-empty`, `message-new-instant`,
-//! `screen-capture`), where
+//! `screen-capture`, and OxyOS's own `poof`), where
 //! its file is (OxyOS's theme, then freedesktop's, in the data directories), its samples decoded once
 //! from Ogg Vorbis ([`decode`]), and who plays them: PipeWire ([`PipeWire`], the session's) or a
 //! record of what would have been played ([`Recorder`], the development compositor's).
@@ -30,6 +30,9 @@ pub enum Sound {
     Notification,
     /// A screenshot taken (ADR 0024, decision 10).
     ScreenCapture,
+    /// A drag's image vanishing in a poof where it was dropped on nothing (ADR 0035): an item
+    /// dragged out of the dock.
+    Poof,
 }
 
 impl From<SystemSound> for Sound {
@@ -43,11 +46,12 @@ impl From<SystemSound> for Sound {
 }
 
 /// Every sound the system has.
-pub const SOUNDS: [Sound; 4] = [
+pub const SOUNDS: [Sound; 5] = [
     Sound::MoveToTrash,
     Sound::EmptyTrash,
     Sound::Notification,
     Sound::ScreenCapture,
+    Sound::Poof,
 ];
 
 /// Its name in the freedesktop.org sound naming specification.
@@ -57,6 +61,8 @@ pub fn name(sound: Sound) -> &'static str {
         Sound::EmptyTrash => "trash-empty",
         Sound::Notification => "message-new-instant",
         Sound::ScreenCapture => "screen-capture",
+        // No name in the specification has it: OxyOS's own, as the theme may add.
+        Sound::Poof => "poof",
     }
 }
 

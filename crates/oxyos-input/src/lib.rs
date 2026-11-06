@@ -1,4 +1,5 @@
-//! Real input for the compositor (#32): devices through libinput (udev, seat0), which does
+//! Real input for the compositor (#32): devices through libinput (udev, seat0; or exactly the
+//! devices given, `Input::open_paths`), which does
 //! pointer acceleration, touchpads and wheels, and a keymap through xkbcommon, because the
 //! compositor owns the keymap and sends applications text, never key codes to translate
 //! (docs/native-foundation.mdx).
@@ -197,6 +198,13 @@ pub type Close = Box<dyn FnMut(OwnedFd)>;
 struct Opener {
     open: Option<Open>,
     close: Option<Close>,
+}
+
+impl Opener {
+    fn of(devices: Option<(Open, Close)>) -> Self {
+        let (open, close) = devices.unzip();
+        Self { open, close }
+    }
 }
 
 impl LibinputInterface for Opener {
@@ -724,14 +732,39 @@ impl Input {
         layout: &Layout,
         devices: Option<(Open, Close)>,
     ) -> io::Result<Self> {
-        let (open, close) = match devices {
-            Some((open, close)) => (Some(open), Some(close)),
-            None => (None, None),
-        };
-        let mut libinput = Libinput::new_with_udev(Opener { open, close });
+        let mut libinput = Libinput::new_with_udev(Opener::of(devices));
         libinput
             .udev_assign_seat("seat0")
             .map_err(|()| io::Error::other("libinput cannot assign seat0"))?;
+        Self::with(libinput, bounds, layout)
+    }
+
+    /// Opens the devices at `paths` (their event nodes) and no other, ever: libinput's path
+    /// backend, which neither enumerates the seat nor hears of a device plugged in. The development
+    /// compositor reads its own virtual devices so (`--uinput`): another run's, made alike, and the
+    /// machine's own never feed it. libinput waits for udev to have set each device up, as the
+    /// seat's devices are, before it opens it.
+    pub fn open_paths(
+        bounds: (u32, u32),
+        layout: &Layout,
+        paths: &[&Path],
+        devices: Option<(Open, Close)>,
+    ) -> io::Result<Self> {
+        let mut libinput = Libinput::new_from_path(Opener::of(devices));
+        for path in paths {
+            let name = path
+                .to_str()
+                .ok_or_else(|| io::Error::other(format!("{}: not UTF-8", path.display())))?;
+            // Added as the seat's are: libinput queues the device's addition, which the first
+            // dispatch configures before reading its events.
+            if libinput.path_add_device(name).is_none() {
+                return Err(io::Error::other(format!("libinput cannot open {name}")));
+            }
+        }
+        Self::with(libinput, bounds, layout)
+    }
+
+    fn with(libinput: Libinput, bounds: (u32, u32), layout: &Layout) -> io::Result<Self> {
         let bounds = (f64::from(bounds.0), f64::from(bounds.1));
         Ok(Self {
             libinput,

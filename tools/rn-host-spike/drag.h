@@ -49,6 +49,10 @@ class OxyOSDropTargetViewProps final : public ViewProps {
   std::string acceptKinds;
   std::string dropActions;
   bool disabled{false};
+  // The media types (or `type/*`) of the files it takes, one a line (Bloom's acceptFileTypes,
+  // version 26): a drag of files is taken as `files` only when each of its files' types matches
+  // one; empty, any files.
+  std::string acceptFileTypes;
 };
 
 using OxyOSDropTargetViewShadowNode =
@@ -66,9 +70,16 @@ std::vector<std::string> kindTypes(const std::string& kind);
 // bit, empty for none.
 uint8_t actionBit(const std::string& action);
 std::string actionName(uint8_t bit);
-// What the application drags (Bloom's DragData: files as file:// URIs, text, url, html) as the
-// media types it offers with their content, the most faithful first.
+// What the application drags (Bloom's DragData: files as file:// URIs, text, url, html, and other
+// media types by name with their text) as the media types it offers with their content, the most
+// faithful first, the others after.
 std::vector<std::pair<std::string, std::string>> dragContents(const folly::dynamic& data);
+// The media types of the files a drag of `data` carries (each file:// URI's, as the platform names
+// it: oxyos_files_media_type), distinct, one a line; empty for none.
+std::string dragFileTypes(const folly::dynamic& data);
+// Whether a drag of files of `fileTypes` is one a target accepting `accepted` (media types or
+// `type/*`, case and parameters aside) takes: every one matches; none told, not taken.
+bool filesTaken(const std::vector<std::string>& fileTypes, const std::vector<std::string>& accepted);
 
 class DragDrop {
  public:
@@ -89,12 +100,19 @@ class DragDrop {
   // it looks, stacked and badged for several) under the pointer where it was pressed. `done`
   // receives the action the drop took, or nothing when it was cancelled or refused (no press held,
   // nothing to offer). False if it was not started; `done` is then called at once.
+  // `vanish`: dropped on nothing, its image vanishes in a poof where it is (version 26). A drag of
+  // files says their types (dragFileTypes).
+  // `cancelled`, if given, is told why a drag ended without a drop before `done` is ("escape",
+  // "not-accepted", "refused" or "cancelled": Bloom's onCancel).
   bool start(const folly::dynamic& data, const std::vector<std::string>& actions, facebook::react::Tag preview,
-             int count, std::function<void(std::optional<std::string>)> done);
+             int count, bool vanish, std::function<void(std::optional<std::string>)> done,
+             std::function<void(const std::string&)> cancelled = nullptr);
   // The same with the media types offered and their content, the actions allowed (OXYOS_DRAG_*)
   // and the drag's image, if any: a text input's selected text (TextEditing).
   bool start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,
-             std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done);
+             std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done,
+             bool vanish = false, const std::string& fileTypes = {},
+             std::function<void(const std::string&)> cancelled = nullptr);
   // Draws the drag's icon once the compositor configured it.
   void present();
 
@@ -119,6 +137,11 @@ class DragDrop {
     uint8_t sourceActions = 0;
     size_t expected = 0;
     std::vector<std::string> types;
+    // The media types of the files it carries (version 26), as many as DRAG_ENTER said, and the
+    // one being told in chunks.
+    size_t fileExpected = 0;
+    std::vector<std::string> fileTypes;
+    std::string fileTypeChunks;
     float x = 0, y = 0;  // surface-local, logical
     uint8_t action = 0;  // the action the compositor last told
     facebook::react::Tag view = -1;  // the drop target under the pointer
@@ -173,6 +196,8 @@ class DragDrop {
   // This client's drags going on or dropped, by number: what each one's caller is told; and the
   // one going on, not yet dropped (0: none), the drag over this client's surfaces meanwhile.
   std::map<uint32_t, std::function<void(std::optional<std::string>)>> drags_;
+  // Of those, the ones whose caller is told why one ended without a drop.
+  std::map<uint32_t, std::function<void(const std::string&)>> cancelled_;
   uint32_t live_ = 0;
   // The drag's icon surface and how it is drawn, once configured.
   uint32_t icon_ = 0;

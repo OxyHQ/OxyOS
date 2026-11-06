@@ -138,6 +138,12 @@ void WorkletsHost::watchRequests() {
   watched_ = true;
 }
 
+facebook::jsi::Runtime* WorkletsHost::uiRuntime() const {
+  if (!proxy_) return nullptr;
+  auto runtime = proxy_->getUIWorkletRuntime();
+  return runtime ? &runtime->getJSIRuntime() : nullptr;
+}
+
 bool WorkletsHost::tick() {
   // UIScheduler::triggerUI drains every queued UI job; one may set what the next frame acts on.
   bool ran = std::static_pointer_cast<LoopUIScheduler>(ui_)->pending();

@@ -36,6 +36,38 @@ export function keepInDock(snapshot: DockState, id: string, keep: boolean): stri
   return keep ? [...kept, id] : kept;
 }
 
+/** The kept list with `id` put at `index` among the others kept: moved there if it is kept, kept
+    there if it is not (docs/adr/0034-the-dock.mdx, decision 10). */
+export function keptWithAt(kept: readonly string[], id: string, index: number): string[] {
+  const others = kept.filter((other) => other !== id);
+  const at = Math.max(0, Math.min(others.length, Math.round(index)));
+  return [...others.slice(0, at), id, ...others.slice(at)];
+}
+
+/** The width of one application's place in the dock: its icon and the space to the next. */
+export const DOCK_SLOT = 58;
+
+/**
+ * Where an application dragged over the dock would go (docs/adr/0034-the-dock.mdx, decision 10):
+ * its place among those kept (0 to `kept`, those kept without it), from `x`, the pointer's
+ * distance from the left of the first application's place as the dock lays them out with the gap
+ * open. The gap is then always under the pointer, whichever way it moves, so it never flickers
+ * between two places; past the applications kept it is their end, before them their start.
+ */
+export function gapAt(x: number, kept: number): number {
+  return Math.max(0, Math.min(kept, Math.floor(x / DOCK_SLOT)));
+}
+
+/** Where the application `id`, kept in the dock, can move one place (`step` -1 left, 1 right) from
+    the keyboard or an assistive technology: the kept list after, or null where it cannot go (the
+    first left, the last kept right, one not kept: its place is its running). */
+export function moveInDock(snapshot: DockState, id: string, step: -1 | 1): string[] | null {
+  const kept = keptIds(snapshot);
+  const at = kept.indexOf(id);
+  if (at < 0 || at + step < 0 || at + step >= kept.length) return null;
+  return keptWithAt(kept, id, at + step);
+}
+
 /** The applications opened at login with `id` among them or not, in their order. */
 export function openAtLogin(snapshot: DockState, id: string, open: boolean): string[] {
   const listed = (snapshot.openAtLogin ?? []).filter((listed) => listed !== id);
@@ -182,6 +214,78 @@ export function dockMenu(
     );
   }
   return items;
+}
+
+/** What the dock's press needs of the snapshot: its windows, the desktop shown and the active
+    application. */
+export type DockPressState = Pick<ShellSnapshot, "windows" | "workspaceId" | "activeAppId">;
+
+/**
+ * What a press on an application's icon does (docs/adr/0034-the-dock.mdx, decision 9):
+ * - `open`: it is not running; the session starts it;
+ * - `activate`: it runs and is not frontmost; its window used last comes forward (with its
+ *   application, if hidden);
+ * - `minimize`: it is frontmost; its windows shown on this desktop go into its icon (the genie);
+ * - `restore`: every window it has is minimized; these come back out of its icon, the last one
+ *   frontmost with the keyboard;
+ * - `hide`: Option held on the frontmost application: it hides, as a Mac's Dock does.
+ * `hide` beside the others is what Option hides with them: every other application shown.
+ */
+export type DockPress =
+  | { kind: "open" }
+  | { kind: "activate"; hide: string[] }
+  | { kind: "minimize"; windows: string[] }
+  | { kind: "restore"; windows: string[]; hide: string[] }
+  | { kind: "hide" };
+
+const shown = (win: ShellWindow) => !win.minimized && !win.hidden;
+const byUse = (a: ShellWindow, b: ShellWindow) => (a.used ?? 0) - (b.used ?? 0);
+
+/**
+ * The press on the application `id`'s icon, as a Mac's Dock takes it, and one thing more (the
+ * owner's decision): the frontmost application's icon pressed minimizes its windows into it, and
+ * pressed again restores them.
+ * - `minimizedByDock`: the windows the dock's own press minimized last, which a press brings back
+ *   together; when none of them is still minimized, the one used last comes back alone, as a Mac
+ *   restores a window minimized on its own.
+ * - `option`: Option (Alt) held: on another application it comes forward and every other one shown
+ *   hides; on the frontmost it hides.
+ * - `desktop`: whether the desktop is what shows (no Launchpad, Mission Control or App Exposé over
+ *   it): over them a press brings the application forward and closes them, never minimizing what the
+ *   person cannot see.
+ */
+export function dockPress(
+  snapshot: DockPressState,
+  id: string,
+  { option = false, desktop = true, minimizedByDock = [] as readonly string[] } = {},
+): DockPress {
+  const windows = snapshot.windows.filter((win) => belongsTo(win, id));
+  if (windows.length === 0) return { kind: "open" };
+  const frontmost = snapshot.activeAppId === id;
+  const here = windows.filter((win) => shown(win) && win.workspaceId === snapshot.workspaceId).sort(byUse);
+  if (frontmost && desktop) {
+    if (option) return { kind: "hide" };
+    if (here.length > 0) return { kind: "minimize", windows: here.map((win) => win.id) };
+  }
+  // Option: every other application shown hides, as the one pressed comes forward.
+  const hide = option
+    ? [
+        ...new Set(
+          snapshot.windows
+            .filter((win) => win.launched !== false && win.appId !== id && shown(win))
+            .map((win) => win.appId),
+        ),
+      ]
+    : [];
+  // Every window minimized (a window hidden with its application is minimized too, as the
+  // platform tells it, and comes back with its application instead).
+  if (windows.every((win) => win.minimized && !win.hidden)) {
+    const minimized = new Set(windows.map((win) => win.id));
+    const ours = minimizedByDock.filter((window) => minimized.has(window));
+    const last = [...windows].sort(byUse).pop();
+    return { kind: "restore", windows: ours.length > 0 ? ours : last ? [last.id] : [], hide };
+  }
+  return { kind: "activate", hide };
 }
 
 /** What a drop on the Trash puts in it: the dropped files that have a `file://` URI, once each. */

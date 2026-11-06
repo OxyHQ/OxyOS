@@ -38,6 +38,19 @@ struct Window {
     responding: bool,
 }
 
+/// A window as the shell is told of it, for a report of the session's windows (the development
+/// compositor's): its number, its application, and whether it is minimized, hidden with its
+/// application or active.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShellWindowState {
+    pub number: u32,
+    pub app_id: String,
+    pub workspace: u32,
+    pub minimized: bool,
+    pub hidden: bool,
+    pub focused: bool,
+}
+
 #[derive(Debug, Default)]
 struct Told {
     windows: BTreeMap<u32, Window>,
@@ -281,6 +294,21 @@ impl Scene {
         } else {
             self.activate(key);
         }
+    }
+
+    /// Each mapped window as the shell is told of it now, by its number.
+    pub fn shell_window_states(&self) -> Vec<ShellWindowState> {
+        self.shell_view()
+            .into_iter()
+            .map(|(number, window)| ShellWindowState {
+                number,
+                app_id: window.names.app_id,
+                workspace: window.workspace,
+                minimized: window.minimized,
+                hidden: window.hidden,
+                focused: window.focused,
+            })
+            .collect()
     }
 
     /// What the shell sees now: each mapped window by its number.
