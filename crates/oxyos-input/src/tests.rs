@@ -564,3 +564,70 @@ fn a_touchpad_scrolls_by_the_trackpads_choice_and_every_other_device_by_the_mous
         }
     );
 }
+
+/// Dispatches `input` until `done` holds of it, for at most five seconds.
+fn dispatch_until(input: &mut Input, done: impl Fn(&Input) -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !done(input) {
+        assert!(std::time::Instant::now() < deadline, "not within 5 s");
+        input.dispatch().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// The seat's way (`Input::open`, the session's): a mouse plugged in while it runs is added
+/// through udev, scrolling as the mouse's preference says before its first event, and removed
+/// when it is unplugged. The development compositor's runs read their own devices instead
+/// (`Input::open_paths`), so this is the seat's own check. The device is told by its event node,
+/// whatever else the seat has. As root, with the uinput module (it makes a device in the
+/// kernel): `cargo test -p oxyos-input --lib --no-run`, then the test binary with `sudo` and
+/// `--ignored --exact tests::the_seat_adds_a_mouse_plugged_in_and_removes_it_unplugged` (CI's
+/// verify job does).
+#[test]
+#[ignore]
+fn the_seat_adds_a_mouse_plugged_in_and_removes_it_unplugged() {
+    use evdev::uinput::VirtualDevice;
+    use evdev::{AttributeSet, KeyCode, RelativeAxisCode};
+    let mut input = Input::open((800, 600), &Layout::named("us")).unwrap();
+    input.set_natural_scrolling(NaturalScrolling {
+        trackpad: false,
+        mouse: true,
+    });
+    input.dispatch().unwrap();
+    let mut buttons = AttributeSet::<KeyCode>::new();
+    buttons.insert(KeyCode::BTN_LEFT);
+    buttons.insert(KeyCode::BTN_RIGHT);
+    let mut axes = AttributeSet::<RelativeAxisCode>::new();
+    for axis in [
+        RelativeAxisCode::REL_X,
+        RelativeAxisCode::REL_Y,
+        RelativeAxisCode::REL_WHEEL,
+    ] {
+        axes.insert(axis);
+    }
+    let mut mouse = VirtualDevice::builder()
+        .unwrap()
+        .name("oxyos-input plugged-in mouse")
+        .with_keys(&buttons)
+        .unwrap()
+        .with_relative_axes(&axes)
+        .unwrap()
+        .build()
+        .unwrap();
+    let node = mouse.enumerate_dev_nodes_blocking().unwrap().next();
+    let node = node.unwrap().unwrap();
+    let sysname = node.file_name().unwrap().to_str().unwrap().to_string();
+    let added = |input: &Input| {
+        input
+            .devices
+            .iter()
+            .find(|device| device.sysname() == sysname)
+            .cloned()
+    };
+    dispatch_until(&mut input, |input| added(input).is_some());
+    assert!(added(&input)
+        .unwrap()
+        .config_scroll_natural_scroll_enabled());
+    drop(mouse);
+    dispatch_until(&mut input, |input| added(input).is_none());
+}

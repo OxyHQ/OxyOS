@@ -4986,10 +4986,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             ),
             None => (0, 0),
         };
+        // With `--uinput`, the run's own virtual devices and no other: another run's, made alike,
+        // or the machine's would feed its steps.
+        let mut nodes = Vec::new();
         if launch.uinput {
-            devices = Some(crate::uinput::Devices::new(bounds, &launch.layout)?);
-            // udev announces the new devices before libinput can open them.
-            std::thread::sleep(Duration::from_millis(500));
+            let mut made = crate::uinput::Devices::new(bounds, &launch.layout)?;
+            nodes = made.nodes()?;
+            devices = Some(made);
         }
         // Through logind with `--seat`: devices are the session's, revoked when it goes away.
         let devices = seat.clone().map(|seat| {
@@ -5004,9 +5007,24 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             (open, close)
         });
         let layout = oxyos_input::Layout::named(&launch.layout);
-        let input = oxyos_input::Input::open_with(bounds, &layout, devices)?;
+        let (input, read) = if launch.uinput {
+            let paths: Vec<_> = nodes.iter().map(PathBuf::as_path).collect();
+            let named: Vec<_> = nodes
+                .iter()
+                .map(|node| node.display().to_string())
+                .collect();
+            (
+                oxyos_input::Input::open_paths(bounds, &layout, &paths, devices)?,
+                format!("the run's own devices ({})", named.join(", ")),
+            )
+        } else {
+            (
+                oxyos_input::Input::open_with(bounds, &layout, devices)?,
+                "seat0".to_string(),
+            )
+        };
         eprintln!(
-            "[input] libinput on seat0, layout {}, {}",
+            "[input] libinput on {read}, layout {}, {}",
             launch.layout,
             if input.composes() {
                 "composing with the locale's table"
