@@ -168,6 +168,9 @@ struct ShellService {
   // Files put in the Trash (file:// URIs), citing the latest input: the drop on the dock's Trash
   // (docs/adr/0035-drag-and-drop.mdx). False if not sent.
   std::function<bool(const std::vector<std::string>& uris)> trashFiles;
+  // Files (file:// URIs) opened with the application `application`, citing the latest input: the
+  // drop on its icon in the dock (docs/adr/0034-the-dock.mdx). False if not sent.
+  std::function<bool(const std::string& application, const std::vector<std::string>& uris)> openFiles;
 };
 
 // An application's notifications (docs/adr/0026-notifications.mdx), for expo-notifications' API
@@ -273,8 +276,13 @@ struct FileChooserService {
 // action the drop took, or nothing. Unset without a window.
 struct DragService {
   bool available = false;
+  // `options` (Bloom's PlatformDragRequest beyond its data): { vanish } (docs/adr/0035-drag-and-drop.mdx,
+  // version 26: dropped on nothing, its image vanishes in a poof where it is).
+  // `cancelled`: why a drag ended without a drop, before `done` ("escape", "not-accepted", "refused",
+  // "cancelled": Bloom's onCancel).
   std::function<void(const folly::dynamic& data, const std::vector<std::string>& actions, int preview, int count,
-                     std::function<void(std::optional<std::string>)> done)>
+                     const folly::dynamic& options, std::function<void(std::optional<std::string>)> done,
+                     std::function<void(const std::string&)> cancelled)>
       start;
 };
 

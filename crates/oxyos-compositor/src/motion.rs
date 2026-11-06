@@ -247,6 +247,8 @@ pub const SPLASH_FADES_OUT: Spring = Spring::critical(450);
 /// a Mac's does, fading as it arrives.
 pub const DRAG_RETURNS: Spring = Spring::critical(170);
 pub const DRAG_RETURN_FADES: Fade = Fade::after(Spring::critical(80), 130);
+/// A drag's image vanishing in a poof (ADR 0035): gone under the cloud in its first moments.
+pub const DRAG_VANISH_FADES: Fade = Fade::new(Spring::critical(80));
 /// With reduce motion every motion is this crossfade: nothing grows, shrinks or slides.
 pub const CROSSFADE: Spring = Spring::critical(200);
 

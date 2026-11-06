@@ -451,6 +451,22 @@ messages! {
         // their `file://` URIs one a line in chunks (`index` 0 begins it, `last` sends it), citing
         // `input`, an input it received lately (the drop on the dock's Trash).
         247 => TrashFiles { input: u64, index: u16, last: bool, text: PreeditText },
+        // Version 26 (ADR 0035, 6 November 2026). The drag `drag`, sent before its StartDrag:
+        // dropped on nothing that takes it (released over no target, or one refusing it), its
+        // image vanishes in a poof where it is instead of sliding back, as an item dragged out of
+        // a Mac's Dock. Escape, the source's cancel and the lock put it back as before.
+        248 => DragVanish { drag: u32 },
+        // The media type of a file the drag `drag` carries, before its StartDrag, in chunks
+        // (`index` 0 begins one, `last` ends it: a type may be longer than a chunk, an office
+        // document's); distinct, at most MAX_DRAG_TYPES. Targets are told them
+        // (DragOfferFileType), never the files, as a web page sees a dragged item's `type` in its
+        // drag's protected mode.
+        249 => DragFileType { drag: u32, index: u16, last: bool, text: PreeditText },
+        // The session's shell (its `shell` grant): open files with one application, citing
+        // `input`, an input it received lately (the drop on an application's icon in the dock):
+        // the application's id on the first line, then the files' `file://` URIs one a line, in
+        // chunks (`index` 0 begins it, `last` sends it).
+        250 => OpenFiles { input: u64, index: u16, last: bool, text: PreeditText },
         // Accessibility (ADR 0003, version 13): a node's place among the items of its collection
         // in a snapshot being sent, 1-based of `count` (a list's row: "3 of 21"), as Android's
         // CollectionItemInfo and VoiceOver say it.
@@ -793,7 +809,9 @@ messages! {
         // AcceptDrag cites), then its `types` media types one by one (DragOfferType); DragMotion as
         // it moves over it; DragLeave as it leaves, or the drag ends elsewhere. Points are
         // surface-local, as a Pointer's.
-        240 => DragEnter { surface: u32, offer: u32, serial: u64, x: i32, y: i32, actions: DragActions, types: u8, modifiers: u8 },
+        // `file_types` (version 26): how many media types of the files it carries follow the
+        // offered types (DragOfferFileType), each a dragged file's as its source declares it.
+        240 => DragEnter { surface: u32, offer: u32, serial: u64, x: i32, y: i32, actions: DragActions, types: u8, modifiers: u8, file_types: u8 },
         241 => DragOfferType { offer: u32, mime: TextChunk },
         242 => DragMotion { surface: u32, offer: u32, x: i32, y: i32, time_ns: u64, modifiers: u8 },
         243 => DragLeave { surface: u32, offer: u32 },
@@ -815,6 +833,9 @@ messages! {
         // To an assistive technology only (ADR 0003, version 13): a node's place among the items
         // of its collection in the snapshot being sent, 1-based of `count`.
         251 => AccessiblePosition { client: u32, surface: u32, index: u32, position: u32, count: u32 },
+        // To a target (version 26, ADR 0035): the media type of a file the drag carries, after its
+        // DragEnter's offered types, `file_types` of them, each in chunks as DragFileType's.
+        252 => DragOfferFileType { offer: u32, index: u16, last: bool, text: PreeditText },
     }
 }
 

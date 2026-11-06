@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::scene::{
-    negotiate_action, AppearanceChange, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE, DRAG_VERSION,
-    MAX_OPEN_DROPS,
+    negotiate_action, AppearanceChange, OpenFilesRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
+    DRAG_VERSION, MAX_OPEN_DROPS,
 };
 use oxyos_protocol::{DragActions, DragCancelReason, MODIFIER_ALT, MODIFIER_SUPER};
 
@@ -750,6 +750,15 @@ fn the_icon_follows_the_pointer_takes_no_input_and_shows_only_during_its_drag() 
 /// The source creates a 40 x 30 icon gripped at (10, 5), presses in its window's middle and
 /// starts dragging `types` once the pointer moved 4 pixels: where the press was.
 fn start_with_icon(d: &mut Desk, actions: DragActions) -> (SurfaceKey, (i32, i32)) {
+    start_with_icon_saying(d, actions, false)
+}
+
+/// The same, the source having said (`vanish`) that its drag vanishes dropped on nothing.
+fn start_with_icon_saying(
+    d: &mut Desk,
+    actions: DragActions,
+    vanish: bool,
+) -> (SurfaceKey, (i32, i32)) {
     d.h.request(
         APP,
         Request::CreateDragIcon {
@@ -773,6 +782,9 @@ fn start_with_icon(d: &mut Desk, actions: DragActions) -> (SurfaceKey, (i32, i32
         },
     )
     .unwrap();
+    if vanish {
+        d.h.request(APP, Request::DragVanish { drag: 7 }).unwrap();
+    }
     d.h.request(
         APP,
         Request::StartDrag {
@@ -786,6 +798,232 @@ fn start_with_icon(d: &mut Desk, actions: DragActions) -> (SurfaceKey, (i32, i32
     .unwrap();
     d.h.frame();
     (icon, (x, y))
+}
+
+/// How `icon` left the screen, of its drag's endings: slid back or vanished.
+fn ended(h: &mut Harness, icon: SurfaceKey) -> Vec<AppearanceChange> {
+    h.scene
+        .take_appearances()
+        .into_iter()
+        .filter(|appearance| appearance.key == icon)
+        .map(|appearance| appearance.change)
+        .filter(|change| {
+            matches!(
+                change,
+                AppearanceChange::Returned { .. } | AppearanceChange::Vanished { .. }
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_vanishing_drag_dropped_on_nothing_puffs_away_where_it_is_and_escape_still_puts_it_back() {
+    // Released over nothing that takes it: the image vanishes where it is (the pointer less the
+    // grip, its centre there), never sliding back; the source is told nothing took it, as before.
+    let mut d = desk();
+    let (icon, _) = start_with_icon_saying(&mut d, DragActions::MOVE, true);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_motion(500, 700);
+    d.h.clear_log();
+    d.h.scene.pointer_button(BUTTON, false);
+    assert!(!d.h.rendered(icon));
+    assert_eq!(
+        ended(&mut d.h, icon),
+        [AppearanceChange::Vanished {
+            x: 500 - 10 + 20,
+            y: 700 - 5 + 15
+        }]
+    );
+    assert_eq!(
+        drag_events(&to(&logged(&mut d.h), APP)),
+        [Event::DragCancelled {
+            drag: 7,
+            reason: DragCancelReason::NotAccepted
+        }]
+    );
+    // Over a window that refuses it (it accepts no type): the same.
+    let mut d = desk();
+    let (icon, _) = start_with_icon_saying(&mut d, DragActions::MOVE, true);
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(tx, ty);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_button(BUTTON, false);
+    assert_eq!(
+        ended(&mut d.h, icon),
+        [AppearanceChange::Vanished {
+            x: tx + 10,
+            y: ty + 10
+        }]
+    );
+    // Escape cancels it: back where it came from, as any drag.
+    let mut d = desk();
+    let (icon, (x, y)) = start_with_icon_saying(&mut d, DragActions::MOVE, true);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_motion(300, 200);
+    d.h.scene.key(1, true);
+    assert_eq!(
+        ended(&mut d.h, icon),
+        [AppearanceChange::Returned {
+            x: x + 10,
+            y: y + 10
+        }]
+    );
+    // Dropped on a target that took it: gone at once, neither.
+    let mut d = desk();
+    let (icon, _) =
+        start_with_icon_saying(&mut d, DragActions::COPY.union(DragActions::MOVE), true);
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(tx, ty);
+    let (offer, serial) = entering(&to(&logged(&mut d.h), OTHER)).unwrap();
+    accept(&mut d.h, OTHER, offer, serial, URIS);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_button(BUTTON, false);
+    assert!(ended(&mut d.h, icon).is_empty());
+    // A drag that said nothing slides back, as before.
+    let mut d = desk();
+    let (icon, _) = start_with_icon(&mut d, DragActions::MOVE);
+    d.h.scene.take_appearances();
+    d.h.scene.pointer_motion(500, 700);
+    d.h.scene.pointer_button(BUTTON, false);
+    assert!(matches!(
+        ended(&mut d.h, icon)[..],
+        [AppearanceChange::Returned { .. }]
+    ));
+}
+
+#[test]
+fn a_drags_files_types_are_told_to_its_target_after_its_types_each_once() {
+    let mut d = desk();
+    let (x, y) = center(&d.h, d.source);
+    let serial = d.h.press(x, y);
+    d.h.request(
+        APP,
+        Request::DragType {
+            drag: 7,
+            mime: mime(URIS),
+        },
+    )
+    .unwrap();
+    // A long type in chunks, a short one, and the short one again (said once).
+    let long = "application/vnd.oasis.opendocument.text";
+    for name in [long, "image/png", "image/png"] {
+        let chunks = TextChunk::split(name);
+        for (index, chunk) in chunks.iter().enumerate() {
+            d.h.request(
+                APP,
+                Request::DragFileType {
+                    drag: 7,
+                    index: index as u16,
+                    last: index + 1 == chunks.len(),
+                    text: PreeditText::new(chunk.as_str()).unwrap(),
+                },
+            )
+            .unwrap();
+        }
+    }
+    d.h.request(
+        APP,
+        Request::StartDrag {
+            drag: 7,
+            surface: d.source.id,
+            icon: 0,
+            serial,
+            actions: DragActions::COPY,
+        },
+    )
+    .unwrap();
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.clear_log();
+    d.h.scene.pointer_motion(tx, ty);
+    let target = drag_events(&to(&logged(&mut d.h), OTHER));
+    assert!(matches!(
+        target[0],
+        Event::DragEnter {
+            types: 1,
+            file_types: 2,
+            ..
+        }
+    ));
+    assert!(matches!(target[1], Event::DragOfferType { .. }));
+    let mut told = Vec::new();
+    let mut current = String::new();
+    for event in &target[2..] {
+        match event {
+            Event::DragOfferFileType { text, last, .. } => {
+                current.push_str(text.as_str());
+                if *last {
+                    told.push(std::mem::take(&mut current));
+                }
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(told, [long, "image/png"]);
+    // The third window, never under the pointer, is told nothing.
+    assert!(drag_events(&to(&logged(&mut d.h), LOCKER)).is_empty());
+}
+
+#[test]
+fn the_shells_files_to_open_with_an_application_are_taken_with_whether_it_cited_its_input() {
+    let mut h = Harness::new();
+    let dock = h.toplevel(SHELL, 1, 400, 300);
+    let (x, y) = center(&h, dock);
+    let serial = h.press(x, y);
+    let list = "so.oxy.allo\nfile:///home/ana/a.png\nfile:///home/ana/b.txt\n";
+    let chunks = TextChunk::split(list);
+    for (index, chunk) in chunks.iter().enumerate() {
+        h.request(
+            SHELL,
+            Request::OpenFiles {
+                input: serial,
+                index: index as u16,
+                last: index + 1 == chunks.len(),
+                text: PreeditText::new(chunk.as_str()).unwrap(),
+            },
+        )
+        .unwrap();
+    }
+    h.request(
+        SHELL,
+        Request::OpenFiles {
+            input: 0,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.allo\nfile:///c").unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        h.scene.take_open_files(),
+        [
+            OpenFilesRequest {
+                application: "so.oxy.allo".into(),
+                uris: vec![
+                    "file:///home/ana/a.png".into(),
+                    "file:///home/ana/b.txt".into()
+                ],
+                with_input: true
+            },
+            OpenFilesRequest {
+                application: "so.oxy.allo".into(),
+                uris: vec!["file:///c".into()],
+                with_input: false
+            }
+        ]
+    );
+    // Only the shell.
+    assert_eq!(
+        h.request(
+            APP,
+            Request::OpenFiles {
+                input: 0,
+                index: 0,
+                last: true,
+                text: PreeditText::new("so.oxy.allo").unwrap(),
+            },
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
 }
 
 fn returned(h: &mut Harness, icon: SurfaceKey) -> Vec<AppearanceChange> {

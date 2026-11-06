@@ -333,6 +333,13 @@ pub const OXYOS_EVENT_DRAG_SOURCE_ACTION: u32 = 246;
 pub const OXYOS_EVENT_DRAG_DROPPED: u32 = 247;
 pub const OXYOS_EVENT_DRAG_FINISHED: u32 = 248;
 pub const OXYOS_EVENT_DRAG_CANCELLED: u32 = 249;
+/// To a target (version 26): a chunk of the media type of a file the drag carries, after its
+/// DRAG_OFFER_TYPEs (code: the offer; detail: the chunk's index, 0 begins a type; flag: 1 on its
+/// last chunk; text: the chunk). DRAG_ENTER's `height` says how many types follow.
+pub const OXYOS_EVENT_DRAG_OFFER_FILE_TYPE: u32 = 252;
+/// oxyos_client_start_drag_with's flags: dropped on nothing that takes it, the drag's image
+/// vanishes in a poof where it is instead of sliding back (version 26).
+pub const OXYOS_DRAG_VANISH: u32 = 1;
 /// A drag's actions, as bits.
 pub const OXYOS_DRAG_COPY: u8 = 1;
 pub const OXYOS_DRAG_MOVE: u8 = 2;
@@ -1041,6 +1048,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             actions,
             types,
             modifiers,
+            file_types,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_DRAG_ENTER,
@@ -1051,7 +1059,24 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 y,
                 detail: actions.bits().into(),
                 width: types.into(),
+                height: file_types.into(),
                 modifiers,
+                ..out
+            }
+        }
+        Event::DragOfferFileType {
+            offer,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_OFFER_FILE_TYPE,
+                code: offer,
+                detail: u32::from(index),
+                flag: u8::from(last),
                 ..out
             }
         }
@@ -2272,6 +2297,67 @@ pub unsafe extern "C" fn oxyos_client_start_drag(
     entries: *const OxyOSDragEntry,
     count: usize,
 ) -> i64 {
+    // SAFETY: forwarded caller contract (no file types: a null pointer of no length).
+    unsafe {
+        oxyos_client_start_drag_with(
+            client,
+            surface,
+            icon,
+            serial,
+            actions,
+            entries,
+            count,
+            0,
+            std::ptr::null(),
+            0,
+        )
+    }
+}
+
+/// [`oxyos_client_start_drag`], saying more of the drag (version 26,
+/// docs/adr/0035-drag-and-drop.mdx): `flags`, OXYOS_DRAG_VANISH for a drag whose image vanishes in
+/// a poof where it is dropped on nothing; `file_types`, `file_types_length` bytes of the media types
+/// of the files it carries, one a line (NULL and 0 for none), which targets are told. A compositor
+/// of an older version is told neither, and the drag goes as before.
+///
+/// # Safety
+/// As [`oxyos_client_start_drag`]'s; `file_types` is NULL or points to `file_types_length`
+/// readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn oxyos_client_start_drag_with(
+    client: *mut OxyOSClient,
+    surface: u32,
+    icon: u32,
+    serial: u64,
+    actions: u8,
+    entries: *const OxyOSDragEntry,
+    count: usize,
+    flags: u32,
+    file_types: *const c_char,
+    file_types_length: usize,
+) -> i64 {
+    let file_types = if file_types.is_null() || file_types_length == 0 {
+        String::new()
+    } else {
+        // SAFETY: per the contract, `file_types` points to `file_types_length` readable bytes.
+        let bytes =
+            unsafe { std::slice::from_raw_parts(file_types.cast::<u8>(), file_types_length) };
+        match std::str::from_utf8(bytes) {
+            Ok(text) => text.to_owned(),
+            Err(_) => return fail("the file types are UTF-8").into(),
+        }
+    };
+    let options = oxyos_client::DragOptions {
+        vanish: flags & OXYOS_DRAG_VANISH != 0,
+        file_types: file_types
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    };
     // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {
         return fail("null client").into();
@@ -2289,7 +2375,7 @@ pub unsafe extern "C" fn oxyos_client_start_drag(
         Ok(contents) => contents,
         Err(reason) => return fail(reason).into(),
     };
-    match client.start_drag(surface, icon, serial, actions, contents) {
+    match client.start_drag_with(surface, icon, serial, actions, contents, options) {
         Ok(drag) => drag.into(),
         Err(error) => fail(error).into(),
     }
@@ -2460,6 +2546,46 @@ pub unsafe extern "C" fn oxyos_client_trash_files(
         return fail("the URIs are UTF-8");
     };
     status(client.trash_files(input, uris))
+}
+
+/// The session's shell asks the session to open files with the application `application`
+/// (`application_length` bytes of UTF-8, its id; docs/adr/0034-the-dock.mdx): `uris_length` bytes
+/// of their file:// URIs, one a line, citing `input`, an input it received (the drop on the
+/// application's icon in the dock). The session opens those its scope reaches whose type the
+/// application declares. 0 on success; refused to a compositor of a version before 26.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `application` and `uris` point to their
+/// lengths' readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_open_files(
+    client: *mut OxyOSClient,
+    input: u64,
+    application: *const c_char,
+    application_length: usize,
+    uris: *const c_char,
+    uris_length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if application.is_null() || application_length == 0 || uris.is_null() || uris_length == 0 {
+        return fail("an application's id and its files' URIs");
+    }
+    // SAFETY: per the contract, each points to its length's readable bytes.
+    let (application, uris) = unsafe {
+        (
+            std::slice::from_raw_parts(application.cast::<u8>(), application_length),
+            std::slice::from_raw_parts(uris.cast::<u8>(), uris_length),
+        )
+    };
+    let (Ok(application), Ok(uris)) = (std::str::from_utf8(application), std::str::from_utf8(uris))
+    else {
+        return fail("the application's id and the URIs are UTF-8");
+    };
+    status(client.open_files(input, application, uris))
 }
 
 /// The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application

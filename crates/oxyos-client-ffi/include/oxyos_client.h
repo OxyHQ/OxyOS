@@ -169,6 +169,13 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_DRAG_DROPPED 247
 #define OXYOS_EVENT_DRAG_FINISHED 248
 #define OXYOS_EVENT_DRAG_CANCELLED 249
+/* Version 26: to a target, after its DRAG_OFFER_TYPEs, a chunk of the media type of a file the drag
+ * carries (code: the offer; detail: the chunk's index, 0 begins a type; flag: 1 on its last chunk;
+ * text: the chunk); DRAG_ENTER's height says how many types follow. */
+#define OXYOS_EVENT_DRAG_OFFER_FILE_TYPE 252
+/* oxyos_client_start_drag_with's flags (version 26): dropped on nothing that takes it, the drag's
+ * image vanishes in a poof where it is instead of sliding back. */
+#define OXYOS_DRAG_VANISH 1
 #define OXYOS_DRAG_COPY 1
 #define OXYOS_DRAG_MOVE 2
 #define OXYOS_DRAG_LINK 4
@@ -1185,6 +1192,12 @@ typedef OxyOSClipboardEntry OxyOSDragEntry;
  * compositor may still refuse it (DRAG_CANCELLED, OXYOS_DRAG_CANCEL_REFUSED). */
 int64_t oxyos_client_start_drag(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
                                 uint8_t actions, const OxyOSDragEntry* entries, size_t count);
+/* The same, saying more of the drag (version 26): `flags`, OXYOS_DRAG_VANISH; `file_types`,
+ * `file_types_length` bytes of the media types of the files it carries, one a line (NULL and 0 for
+ * none), which targets are told. A compositor of an older version is told neither. */
+int64_t oxyos_client_start_drag_with(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
+                                     uint8_t actions, const OxyOSDragEntry* entries, size_t count, uint32_t flags,
+                                     const char* file_types, size_t file_types_length);
 /* Ends this client's drag, going on or dropped and not finished. */
 int oxyos_client_cancel_drag(OxyOSClient* client, uint32_t drag);
 /* A target answers the entering `serial` of the drag `offer`, and each motion: the offered type it
@@ -1200,6 +1213,12 @@ int oxyos_client_finish_drop(OxyOSClient* client, uint32_t offer);
 /* The session's shell asks the session to put files in the Trash: `length` bytes of their file://
  * URIs, one a line, citing `input`, an input it received (the drop on the dock's Trash). */
 int oxyos_client_trash_files(OxyOSClient* client, uint64_t input, const char* uris, size_t length);
+/* The session's shell asks the session to open files with the application `application` (its id;
+ * docs/adr/0034-the-dock.mdx): their file:// URIs, one a line, citing `input`, an input it received
+ * (the drop on the application's icon in the dock). The session opens those its scope reaches whose
+ * type the application declares. Refused to a compositor of a version before 26. */
+int oxyos_client_open_files(OxyOSClient* client, uint64_t input, const char* application,
+                            size_t application_length, const char* uris, size_t uris_length);
 
 /* Text input (docs/adr/0008-input-method.mdx). What a field is for. */
 #define OXYOS_PURPOSE_NORMAL 0
@@ -1741,7 +1760,9 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
 /* The session's applications (crates/oxyos-apps, docs/adr/0013-launching-applications.mdx), as JSON:
  * [{"id", "name", "icon" (a file, or null), "iconBody" (the share of the icon's picture its own body
  * takes when the picture is its own shape, a rounded square transparent around it, measured once by
- * crates/oxyos-image's shape; null for any other), "pinned" (its place in the dock from 1, or null)}],
+ * crates/oxyos-image's shape; null for any other), "pinned" (its place in the dock from 1, or null),
+ * "opens" (the media types its entry declares it opens, MimeType: what files dropped on its dock icon
+ * it takes, docs/adr/0034-the-dock.mdx)}],
  * sorted by name, in the session's language.
  * Written into `out` (`capacity` bytes, NUL-terminated when it fits); returns its length (larger than
  * `capacity`: call again with more room). */
@@ -1782,6 +1803,11 @@ OxyOSFilesReply* oxyos_files_call(OxyOSFiles* files, const char* json, size_t le
 int oxyos_files_request(OxyOSFiles* files, uint64_t id, const char* json, size_t length, const uint8_t* bytes, size_t bytes_length);
 /* The next reply without blocking, NULL when there is none; freed with oxyos_files_reply_free. */
 OxyOSFilesReply* oxyos_files_take(OxyOSFiles* files);
+/* The media type of the file a file:// URI names (`length` bytes): inode/directory for a folder (its
+ * URI ending in '/'), else its name's, as the platform's table has it, else
+ * application/octet-stream; written NUL-terminated into `out` (`capacity` bytes). Its length, or
+ * OXYOS_ERROR. A drag of files says them (oxyos_client_start_drag_with). */
+int oxyos_files_media_type(const char* uri, size_t length, char* out, size_t capacity);
 /* The id of the request a reply answers; 0 for an event (a watch's change). */
 uint64_t oxyos_files_reply_id(const OxyOSFilesReply* reply);
 /* A reply's JSON, NUL-terminated, its length in `*length` (if not NULL); valid until it is freed. */

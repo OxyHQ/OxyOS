@@ -250,6 +250,74 @@ fn a_file_opens_in_the_application_declaring_its_type_with_its_url() {
 }
 
 #[test]
+fn files_open_with_the_application_chosen_only_for_the_types_it_declares() {
+    let out = std::env::temp_dir().join(format!("oxyos-apps-open-with-{}", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    let writer = |name: &str, types: &str| {
+        format!(
+            "[Desktop Entry]\nType=Application\nName={name}\nMimeType={types}\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_LAUNCH_URL >> {}\"\n",
+            out.display()
+        )
+    };
+    // The viewer declares PNG first, so a PNG opened by its type goes there; the painter takes
+    // every image as its own `image/*`.
+    let viewer = writer("Viewer", "image/png;");
+    let painter = writer("Painter", "image/*;text/plain;");
+    let dir = Directory::new(
+        "open-with",
+        &[
+            ("so.oxy.viewer.desktop", viewer.as_str()),
+            ("so.oxy.painter.desktop", painter.as_str()),
+        ],
+    );
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![]);
+    let png = Path::new("/home/ada/a.png");
+    let pid = launcher
+        .open_with("so.oxy.painter", png, "image/png")
+        .unwrap();
+    assert_eq!(
+        launcher.application_of(pid).map(|l| l.id.as_str()),
+        Some("so.oxy.painter")
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while launcher.reap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "it did not exit");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap().trim(),
+        "so.oxy.painter file:///home/ada/a.png"
+    );
+    // A type it does not declare, an application not there: refused, nothing started.
+    assert!(launcher
+        .open_with("so.oxy.viewer", Path::new("/home/ada/a.txt"), "text/plain")
+        .is_err());
+    assert!(launcher
+        .open_with("so.oxy.nobody", png, "image/png")
+        .is_err());
+    assert!(launcher.reap().is_empty());
+    launcher.end(std::time::Duration::from_secs(2));
+    let _ = std::fs::remove_file(&out);
+    // The rule: the type itself or its `type/*`, case and parameters aside.
+    let declared = [
+        "Image/*".to_string(),
+        "text/plain; charset=utf-8".to_string(),
+    ];
+    assert!(opens_type(&declared, "image/png"));
+    assert!(opens_type(&declared, "TEXT/PLAIN"));
+    assert!(!opens_type(&declared, "text/html"));
+    assert!(!opens_type(&declared, "imagepng"));
+}
+
+#[test]
 fn a_launch_is_told_its_grants_and_a_development_entry_none() {
     let out = std::env::temp_dir().join(format!("oxyos-apps-grants-{}", std::process::id()));
     let _ = std::fs::remove_file(&out);

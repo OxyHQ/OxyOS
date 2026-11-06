@@ -4,7 +4,8 @@ The Trash's and the notification's sounds were supplied by the OxyOS owner for O
 5 November 2026. No other provenance was given with them, and no ownership or relicensing of
 them is asserted here. Their licence must be resolved with the repository's before any release
 (README.md). The screenshot's shutter is the freedesktop.org sound theme's, under its own
-licence (below).
+licence (below). The poof's sound was synthesized for OxyOS from nothing but a script of the
+repository's (below), on 6 November 2026.
 
 stereo/trash-empty.oga (and stereo/file-trash.oga, a link to it: one sound for putting items
 in the Trash and for emptying it)
@@ -47,3 +48,16 @@ stereo/screen-capture.oga (a screenshot taken)
           sound and the 492.9 ms after it, below -80 dBFS (peaks at -84 dBFS before it, -90 dBFS
           after), cut at the sample; frames 5816 to 36418 of 83734 kept unchanged (0.32 s);
           Ogg Vorbis, libvorbis quality 10.
+
+stereo/poof.oga (a drag's image vanishing in a poof: an item dragged out of the dock)
+  Source: none supplied; synthesized by scripts/make-poof-sound.py (seeded white noise through a
+          falling low-pass filter, an 8 ms rise, an exponential fall, its last 20 ms closed on a
+          half cosine; 48 kHz mono, 16-bit, 0.25 s, peaking at -14 dBFS), its WAV of 24044
+          bytes, SHA-256 ac483d58620568f4ec361bf48888a686307c1e8944f11bbfe79435c2b2884592,
+          the same every run.
+  Copyright: the OxyOS project, as the repository's.
+  Made:   scripts/make-poof-sound.py poof.wav
+          scripts/import-system-sound.py poof.wav poof.oga
+          No silence before the sound; the 5.1 ms after it, below -80 dBFS, cut at the sample;
+          frames 0 to 11754 of 12000 kept unchanged (0.24 s); Ogg Vorbis (ffmpeg 7.1.5),
+          libvorbis quality 10.

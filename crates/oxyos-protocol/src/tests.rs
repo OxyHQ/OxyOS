@@ -539,6 +539,19 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new("file:///home/ana/a.txt").unwrap(),
         },
+        Request::DragVanish { drag: 3 },
+        Request::DragFileType {
+            drag: 3,
+            index: 0,
+            last: true,
+            text: PreeditText::new("image/png").unwrap(),
+        },
+        Request::OpenFiles {
+            input: 46,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.allo\nfile:///a.png").unwrap(),
+        },
     ]
 }
 
@@ -946,10 +959,17 @@ fn events() -> Vec<Event> {
             actions: DragActions::COPY.union(DragActions::LINK),
             types: 2,
             modifiers: MODIFIER_ALT,
+            file_types: 1,
         },
         Event::DragOfferType {
             offer: 2,
             mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
+        },
+        Event::DragOfferFileType {
+            offer: 2,
+            index: 0,
+            last: true,
+            text: PreeditText::new("image/png").unwrap(),
         },
         Event::DragMotion {
             surface: 1,
@@ -2224,6 +2244,7 @@ fn drags_are_version_10_and_never_written_for_version_9() {
         actions: DragActions::COPY,
         types: 1,
         modifiers: 0,
+        file_types: 0,
     };
     assert_eq!(event_since(&enter), 10);
     let mut bytes = Vec::new();
@@ -2699,4 +2720,71 @@ fn version_19_a_press_says_whether_it_activated_its_window() {
             activating: false,
         }
     );
+}
+
+#[test]
+fn version_26_vanishing_drags_file_types_and_opening_files_are_only_version_26s() {
+    // The requests are version 26's: an older compositor would close the connection for them.
+    for request in [
+        Request::DragVanish { drag: 1 },
+        Request::DragFileType {
+            drag: 1,
+            index: 0,
+            last: true,
+            text: PreeditText::new("image/png").unwrap(),
+        },
+        Request::OpenFiles {
+            input: 1,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.allo").unwrap(),
+        },
+    ] {
+        assert_eq!(request_since(&request), 26);
+        let mut bytes = Vec::new();
+        write_request(&mut bytes, &request).unwrap();
+        assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), request);
+    }
+    // A file's type is never told a version 25 target, and a version 25 reader refuses it.
+    let file_type = Event::DragOfferFileType {
+        offer: 1,
+        index: 0,
+        last: true,
+        text: PreeditText::new("text/plain").unwrap(),
+    };
+    assert_eq!(event_since(&file_type), 26);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &file_type, 25).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &file_type, 26).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 25).is_err());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(new), 26).unwrap(),
+        file_type
+    );
+    // DragEnter grows its count of file types: a version 25 writer leaves it out (a byte
+    // shorter), read back as none.
+    let entering = |file_types| Event::DragEnter {
+        surface: 1,
+        offer: 1,
+        serial: 2,
+        x: 0,
+        y: 0,
+        actions: DragActions::MOVE,
+        types: 2,
+        modifiers: 0,
+        file_types,
+    };
+    let enter = entering(2);
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &enter, 25).unwrap());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &enter, 26).unwrap());
+    assert_eq!(old.len() + 1, new.len());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(old), 25).unwrap(),
+        entering(0)
+    );
+    assert_eq!(read_event_for(&mut Cursor::new(new), 26).unwrap(), enter);
 }

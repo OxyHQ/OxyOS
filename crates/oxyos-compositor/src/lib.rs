@@ -30,6 +30,8 @@ pub mod arrangement;
 pub mod controls;
 pub mod drag_badge;
 mod gpu_buffers;
+pub mod open_files;
+pub mod poof;
 pub mod scanout;
 /// Screenshots as files (docs/adr/0024-system-shortcuts.mdx, decision 10).
 pub mod screenshots;
@@ -2010,6 +2012,10 @@ impl Compositor {
             })
         };
         for appearance in self.scene.take_appearances() {
+            // A drag's image vanishing in a poof (ADR 0035) sounds once, the compositor's own.
+            if let oxyos_compositor_core::AppearanceChange::Vanished { .. } = appearance.change {
+                self.play_sound(oxyos_sound::Sound::Poof);
+            }
             // A window zoomed (ADR 0016): its frame goes from where it was drawn last (where its
             // zoom has it, if zooming) to where it is configured.
             if appearance.change == oxyos_compositor_core::AppearanceChange::Zoomed {
@@ -2726,6 +2732,42 @@ impl Compositor {
                 shares: None,
                 warp: genie.map(|genie| genie.rows),
             });
+            // A drag's image vanishing (ADR 0035): the cloud bursts over where it was, as far as
+            // its poof has gone, at the scale of the output it is on.
+            if let transitions::Shift::Poof { x, y } = at.shift {
+                let side = poof::side(snapshot.rect.width.max(snapshot.rect.height));
+                let scale_120 = self
+                    .scene
+                    .output_at_point(x, y)
+                    .map_or(120, |output| output.scale_120);
+                let progress = f64::from(at.shift_permille.clamp(0, 1000)) / 1000.0;
+                let rect = Rect::new(x - (side / 2) as i32, y - (side / 2) as i32, side, side);
+                // Its whole square is drawn again each frame, larger than the image it covers, and
+                // cleared once the cloud is gone.
+                in_transition(rect, rect, None, false, None);
+                if let Some((extent, bytes)) = poof::frame(progress, side, scale_120) {
+                    out.push(Content {
+                        owner: None,
+                        captured: snapshot.captured,
+                        secure: Vec::new(),
+                        key: None,
+                        rect,
+                        placed: rect,
+                        extent,
+                        format: Some(oxyos_protocol::Format::Argb8888),
+                        pixels: Rc::new(Pixels::from(bytes)),
+                        source: None,
+                        changed: None,
+                        opacity: 255,
+                        radius: 0,
+                        shadow: None,
+                        look: None,
+                        clip: None,
+                        shares: None,
+                        warp: None,
+                    });
+                }
+            }
             // The windows it showed live go with it (ADR 0022); those moved into it fly back to
             // where they are, whole, landing in their order (ADR 0045).
             let mut views: Vec<&transitions::ViewSnapshot> = snapshot.views.iter().collect();

@@ -27,7 +27,8 @@ OxyOSDropTargetViewProps::OxyOSDropTargetViewProps(const PropsParserContext& con
     : ViewProps(context, sourceProps, rawProps),
       acceptKinds(convertRawProp(context, rawProps, "acceptKinds", sourceProps.acceptKinds, std::string())),
       dropActions(convertRawProp(context, rawProps, "dropActions", sourceProps.dropActions, std::string())),
-      disabled(convertRawProp(context, rawProps, "disabled", sourceProps.disabled, false)) {}
+      disabled(convertRawProp(context, rawProps, "disabled", sourceProps.disabled, false)),
+      acceptFileTypes(convertRawProp(context, rawProps, "acceptFileTypes", sourceProps.acceptFileTypes, std::string())) {}
 
 }  // namespace facebook::react
 
@@ -50,6 +51,14 @@ std::vector<std::string> lines(const std::string& text) {
 std::string lower(std::string text) {
   std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::tolower(c); });
   return text;
+}
+
+// A media type without its parameters, lowercase.
+std::string plainType(const std::string& type) {
+  auto plain = lower(type.substr(0, type.find(';')));
+  auto first = plain.find_first_not_of(" \t");
+  auto last = plain.find_last_not_of(" \t");
+  return first == std::string::npos ? std::string() : plain.substr(first, last - first + 1);
 }
 
 bool isDropTarget(const ShadowView& view) {
@@ -114,7 +123,48 @@ std::vector<std::pair<std::string, std::string>> dragContents(const folly::dynam
   if (auto html = text("html")) out.emplace_back("text/html", *html);
   if (auto given = text("text")) plain = *given;
   if (!plain.empty()) out.emplace_back("text/plain;charset=utf-8", plain);
+  // Other media types by name, with their text, after the kinds (Bloom's DragData.other: an
+  // application dragged out of a launcher, `application/x-oxyos-application`).
+  if (auto other = data.find("other"); other != data.items().end() && other->second.isObject()) {
+    for (const auto& [key, value] : other->second.items()) {
+      if (!key.isString() || !value.isString()) continue;
+      auto mime = lower(key.asString());
+      bool named = std::any_of(out.begin(), out.end(), [&](const auto& entry) { return entry.first == mime; });
+      if (!mime.empty() && !named) out.emplace_back(mime, value.asString());
+    }
+  }
   return out;
+}
+
+std::string dragFileTypes(const folly::dynamic& data) {
+  std::vector<std::string> types;
+  auto files = data.isObject() ? data.find("files") : data.items().end();
+  if (!data.isObject() || files == data.items().end() || !files->second.isArray()) return {};
+  for (const auto& file : files->second) {
+    if (!file.isString() || file.asString().rfind("file://", 0) != 0) continue;
+    const auto& uri = file.asString();
+    char type[256];
+    int length = oxyos_files_media_type(uri.data(), uri.size(), type, sizeof type);
+    if (length <= 0) continue;
+    std::string named(type, static_cast<size_t>(length));
+    if (std::find(types.begin(), types.end(), named) == types.end() && types.size() < 16) types.push_back(named);
+  }
+  std::string out;
+  for (const auto& type : types) out += type + "\n";
+  return out;
+}
+
+bool filesTaken(const std::vector<std::string>& fileTypes, const std::vector<std::string>& accepted) {
+  if (fileTypes.empty()) return false;
+  return std::all_of(fileTypes.begin(), fileTypes.end(), [&](const std::string& type) {
+    auto kind = plainType(type);
+    auto slash = kind.find('/');
+    if (slash == std::string::npos) return false;
+    return std::any_of(accepted.begin(), accepted.end(), [&](const std::string& one) {
+      auto taken = plainType(one);
+      return taken == kind || taken == kind.substr(0, slash) + "/*";
+    });
+  });
 }
 
 bool DragDrop::available() const { return window_.protocolVersion() >= 10; }
@@ -132,11 +182,15 @@ std::vector<std::string> DragDrop::offeredKinds(const OxyOSDropTargetViewProps& 
   if (!offer_) return out;
   std::set<std::string> offered;
   for (const auto& type : offer_->types) offered.insert(lower(type));
+  auto acceptedFiles = lines(props.acceptFileTypes);
   for (const auto& kind : lines(props.acceptKinds)) {
     auto types = kindTypes(kind);
-    if (std::any_of(types.begin(), types.end(), [&](const std::string& type) { return offered.count(type); })) {
-      out.push_back(kind);
+    if (!std::any_of(types.begin(), types.end(), [&](const std::string& type) { return offered.count(type); })) {
+      continue;
     }
+    // Files whose types it does not take are no files to it (Bloom's acceptFileTypes).
+    if (kind == "files" && !acceptedFiles.empty() && !filesTaken(offer_->fileTypes, acceptedFiles)) continue;
+    out.push_back(kind);
   }
   return out;
 }
@@ -156,8 +210,13 @@ folly::dynamic DragDrop::event(Tag view) const {
     }
   }
   std::string action = offer_ ? actionName(offer_->action) : "";
+  // The types of the files it carries, as its source declared them (Bloom's fileTypes).
+  folly::dynamic fileTypes = folly::dynamic::array();
+  if (offer_) {
+    for (const auto& type : offer_->fileTypes) fileTypes.push_back(type);
+  }
   return folly::dynamic::object("x", x)("y", y)("action", action.empty() ? folly::dynamic() : folly::dynamic(action))(
-      "kinds", kinds);
+      "kinds", kinds)("fileTypes", fileTypes);
 }
 
 void DragDrop::dispatch(Tag view, const char* name, const folly::dynamic& payload) {
@@ -183,7 +242,7 @@ std::string DragDrop::fieldType() const {
 }
 
 void DragDrop::update() {
-  if (!offer_ || offer_->types.size() < offer_->expected) return;
+  if (!offer_ || offer_->types.size() < offer_->expected || offer_->fileTypes.size() < offer_->fileExpected) return;
   Tag found = -1;
   bool field = false;
   std::string mime;
@@ -433,6 +492,7 @@ void DragDrop::observe(const OxyOSEvent& event) {
                      .surface = event.surface,
                      .sourceActions = static_cast<uint8_t>(event.detail),
                      .expected = event.width,
+                     .fileExpected = event.height,
                      .x = event.x / 256.0f,
                      .y = event.y / 256.0f,
                      .own = live_ != 0};
@@ -442,6 +502,18 @@ void DragDrop::observe(const OxyOSEvent& event) {
       if (offer_ && offer_->offer == event.code && offer_->types.size() < offer_->expected) {
         offer_->types.emplace_back(event.text);
         update();
+      }
+      return;
+    // A chunk of a type of the files it carries (version 26), complete with its last.
+    case OXYOS_EVENT_DRAG_OFFER_FILE_TYPE:
+      if (offer_ && offer_->offer == event.code && offer_->fileTypes.size() < offer_->fileExpected) {
+        if (event.detail == 0) offer_->fileTypeChunks.clear();
+        offer_->fileTypeChunks += event.text;
+        if (event.flag & 1) {
+          offer_->fileTypes.push_back(std::move(offer_->fileTypeChunks));
+          offer_->fileTypeChunks.clear();
+          update();
+        }
       }
       return;
     case OXYOS_EVENT_DRAG_MOTION:
@@ -470,6 +542,18 @@ void DragDrop::observe(const OxyOSEvent& event) {
       if (it == drags_.end()) return;
       auto done = std::move(it->second);
       drags_.erase(it);
+      auto told = cancelled_.find(event.code);
+      if (told != cancelled_.end()) {
+        auto cancelled = std::move(told->second);
+        cancelled_.erase(told);
+        // Why it ended without a drop, as Bloom's onCancel names it, before its promise settles.
+        if (event.kind == OXYOS_EVENT_DRAG_CANCELLED && cancelled) {
+          cancelled(event.detail == OXYOS_DRAG_CANCEL_ESCAPE         ? "escape"
+                    : event.detail == OXYOS_DRAG_CANCEL_NOT_ACCEPTED ? "not-accepted"
+                    : event.detail == OXYOS_DRAG_CANCEL_REFUSED      ? "refused"
+                                                                     : "cancelled");
+        }
+      }
       if (drags_.empty()) endIcon();
       std::string action = event.kind == OXYOS_EVENT_DRAG_FINISHED ? actionName(static_cast<uint8_t>(event.detail)) : "";
       Report::get().input(event.kind == OXYOS_EVENT_DRAG_FINISHED ? "drag.finished" : "drag.cancelled", pressSurface_,
@@ -488,7 +572,8 @@ void DragDrop::observe(const OxyOSEvent& event) {
 }
 
 bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview, int count,
-                     std::function<void(std::optional<std::string>)> done) {
+                     bool vanish, std::function<void(std::optional<std::string>)> done,
+                     std::function<void(const std::string&)> cancelled) {
   uint8_t allowed = 0;
   for (const auto& action : actions) allowed |= actionBit(action);
   std::optional<DragImage> image;
@@ -505,12 +590,16 @@ bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>&
                         drawDragImage(tree_, preview, stack, display, canvas);
                       }};
   }
-  return start(dragContents(data), allowed, std::move(image), std::move(done));
+  return start(dragContents(data), allowed, std::move(image), std::move(done), vanish, dragFileTypes(data),
+               std::move(cancelled));
 }
 
 bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,
-                     std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done) {
+                     std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done,
+                     bool vanish, const std::string& fileTypes,
+                     std::function<void(const std::string&)> cancelled) {
   if (!available() || pressSerial_ == 0 || allowed == 0 || contents.empty() || contents.size() > 16) {
+    if (cancelled) cancelled("refused");
     done(std::nullopt);
     return false;
   }
@@ -526,16 +615,20 @@ bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& con
     iconDraw_ = std::move(image->draw);
     iconDrawnFor_ = 0;
   }
-  uint32_t drag = window_.startDrag(pressSurface_, icon, pressSerial_, allowed, contents);
+  uint32_t drag = window_.startDrag(pressSurface_, icon, pressSerial_, allowed, contents, vanish, fileTypes);
   if (drag == 0) {
     endIcon();
+    if (cancelled) cancelled("refused");
     done(std::nullopt);
     return false;
   }
   folly::dynamic types = folly::dynamic::array();
   for (const auto& [mime, _] : contents) types.push_back(mime);
-  Report::get().input("drag.start", pressSurface_, folly::dynamic::object("drag", drag)("types", types)("actions", allowed));
+  Report::get().input("drag.start", pressSurface_,
+                      folly::dynamic::object("drag", drag)("types", types)("actions", allowed)("vanish", vanish)(
+                          "fileTypes", fileTypes));
   drags_[drag] = std::move(done);
+  if (cancelled) cancelled_[drag] = std::move(cancelled);
   live_ = drag;
   return true;
 }
