@@ -13,6 +13,9 @@ export type ShellApplication = {
       put in the grid's body on white. */
   iconBody?: number;
   pinned?: boolean;
+  /** The media types it opens (its entry's MimeType, docs/adr/0028-file-access.mdx): files of
+      them dropped on its dock icon open in it (docs/adr/0034-the-dock.mdx, decision 11). */
+  opens?: readonly string[];
 };
 export type ShellFolder = {
   id: string;
@@ -120,6 +123,9 @@ export type ShellActions = {
   /** Files dropped on the dock's Trash (`file://` URIs), put in it by the platform, citing the drop
       (docs/adr/0035-drag-and-drop.mdx). */
   trashFiles?: (uris: readonly string[]) => void;
+  /** Files dropped on an application's dock icon (`file://` URIs), opened in it by the platform,
+      citing the drop (docs/adr/0034-the-dock.mdx, decision 11). */
+  openFiles?: (id: string, uris: readonly string[]) => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is

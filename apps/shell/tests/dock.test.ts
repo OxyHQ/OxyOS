@@ -5,7 +5,11 @@ import {
   dockApps,
   dockMenu,
   dockPress,
+  DOCK_SLOT,
+  gapAt,
   keepInDock,
+  keptWithAt,
+  moveInDock,
   openAtLogin,
   trashMenu,
   trashedByDrop,
@@ -290,4 +294,34 @@ test("Option on another application brings it forward and hides every other one 
     windows: ["3"],
     hide: ["allo", "inbox", "settings"],
   });
+});
+
+test("an application is put among those kept at a place, moved if kept already, kept if not", () => {
+  assert.deepEqual(keptWithAt(["a", "b", "c"], "d", 1), ["a", "d", "b", "c"]);
+  assert.deepEqual(keptWithAt(["a", "b", "c"], "a", 2), ["b", "c", "a"]);
+  assert.deepEqual(keptWithAt(["a", "b", "c"], "c", 0), ["c", "a", "b"]);
+  // Past either end: at that end.
+  assert.deepEqual(keptWithAt(["a", "b"], "d", 9), ["a", "b", "d"]);
+  assert.deepEqual(keptWithAt(["a", "b"], "d", -3), ["d", "a", "b"]);
+});
+
+test("a kept icon moves a place left or right, never past the ends; one not kept does not move", () => {
+  // Dropsea and Inbox kept, in that order; Allo running, not kept.
+  const state = snapshot([window("1", "allo")]);
+  assert.deepEqual(moveInDock(state, "inbox", -1), ["inbox", "dropsea"]);
+  assert.deepEqual(moveInDock(state, "dropsea", 1), ["inbox", "dropsea"]);
+  assert.equal(moveInDock(state, "dropsea", -1), null);
+  assert.equal(moveInDock(state, "inbox", 1), null);
+  assert.equal(moveInDock(state, "allo", -1), null);
+});
+
+test("a drag over the dock opens its gap under the pointer, within those kept", () => {
+  assert.equal(gapAt(-30, 3), 0);
+  assert.equal(gapAt(0, 3), 0);
+  assert.equal(gapAt(DOCK_SLOT - 1, 3), 0);
+  assert.equal(gapAt(DOCK_SLOT, 3), 1);
+  assert.equal(gapAt(DOCK_SLOT * 2.5, 3), 2);
+  // Past those kept (over the applications running, the Trash): their end.
+  assert.equal(gapAt(DOCK_SLOT * 7, 3), 3);
+  assert.equal(gapAt(DOCK_SLOT * 7, 0), 0);
 });

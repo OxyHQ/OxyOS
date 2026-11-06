@@ -4,7 +4,7 @@ import { SvgXml } from "react-native-svg";
 import { Box } from "./primitives";
 import type { ShellApplication } from "./model";
 
-function isSvgIcon(icon: ShellApplication["icon"]): icon is { svg: string } {
+export function isSvgIcon(icon: ShellApplication["icon"]): icon is { svg: string } {
   return typeof icon === "object" && icon !== null && "svg" in icon;
 }
 

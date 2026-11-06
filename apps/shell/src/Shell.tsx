@@ -955,6 +955,7 @@ export const Shell = memo(function Shell({
               leave={leaveDock}
               MinimizeTarget={platform.MinimizeTarget}
               useDisplayCovered={platform.useDisplayCovered}
+              announce={platform.announce}
             />
           </Surface>
         )}
