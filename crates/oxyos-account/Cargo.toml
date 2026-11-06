@@ -5,18 +5,37 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# The service's HTTP client to Oxy's API (`api::HttpApi`). The session program and the client
+# library speak only the service's sockets, and leave it out.
+default = ["http"]
+http = ["dep:ureq", "dep:url"]
+
 [dependencies]
 # HTTP to Oxy's API with TLS in Rust (rustls, verified against the system's certificates), as
 # `oxyos-net` uses it; no cookies, no redirects.
-ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
-url = "2"
-# Oxy's API speaks JSON, and so do the service's socket and its state files.
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"], optional = true }
+url = { version = "2", optional = true }
+# Oxy's API speaks JSON, and so do the service's sockets and its state files.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Passwords, device secrets and tokens overwritten in memory once used.
 zeroize = "1"
-# The socket (SOCK_SEQPACKET, the peer's credentials from the kernel) and the effective user id.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "process"] }
+# The sockets (SOCK_SEQPACKET, the peer's credentials from the kernel, a process handed over as a
+# pidfd), the effective user id, and the subscribers' wakeups (eventfd).
+rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "process", "event", "fs", "time"] }
+# A token's expiry, an RFC 3339 time (`expiresAt`).
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+# The peer's pidfd (`SO_PEERPIDFD`), which rustix does not wrap: one getsockopt.
+libc = "0.2"
 
-[lints]
-workspace = true
+[lints.rust]
+# The workspace forbids `unsafe`. Reading the peer's pidfd needs one getsockopt, so this crate
+# denies it instead and allows it there alone, saying why it is sound.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

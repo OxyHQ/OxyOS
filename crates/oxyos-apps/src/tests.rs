@@ -1659,3 +1659,65 @@ fn the_host_is_told_what_an_installed_version_was_granted() {
         ("development", String::new())
     );
 }
+
+/// What a registrar was told: each launch's id, origin, and its pidfd's pid.
+#[derive(Clone, Default)]
+struct Told(std::sync::Arc<std::sync::Mutex<Vec<(String, Origin, i32)>>>);
+
+impl Registrar for Told {
+    fn register(&self, launched: &Launched, pidfd: rustix::fd::OwnedFd) {
+        use rustix::fd::AsRawFd;
+        let info =
+            std::fs::read_to_string(format!("/proc/self/fdinfo/{}", pidfd.as_raw_fd())).unwrap();
+        let pid = info
+            .lines()
+            .find_map(|line| line.strip_prefix("Pid:"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        self.0
+            .lock()
+            .unwrap()
+            .push((launched.id.clone(), launched.origin.clone(), pid));
+    }
+}
+
+#[test]
+fn each_verified_launch_is_told_to_the_registrar_with_its_pidfd() {
+    let shell = Path::new("/bin/sh").canonicalize().unwrap();
+    let dir = Directory::new(
+        "registrar",
+        &[
+            ("so.oxy.settings.desktop", SETTINGS),
+            (
+                "so.oxy.writer.desktop",
+                "[Desktop Entry]\nType=Application\nName=Writer\nExec=/bin/sh -c \"exit 0\"\n",
+            ),
+        ],
+    );
+    let entries = dir.0.canonicalize().unwrap();
+    let policy_file = Directory::new("registrar-policy", &[]);
+    let path = policy_file.0.join("system-apps.json");
+    std::fs::write(
+        &path,
+        policy_of("so.oxy.settings", &entries, &shell, r#""settings""#),
+    )
+    .unwrap();
+    let told = Told::default();
+    let mut launcher = test_launcher(&dir, Some(&path)).with_registrar(Box::new(told.clone()));
+    launcher.trusted = Box::new({
+        let (entries, policies) = (as_if_root(&dir.0), as_if_root(&policy_file.0));
+        move |path: &Path| entries(path) || policies(path) || path == shell
+    });
+    // A system application: told, its pidfd the process started.
+    let pid = launcher.launch("so.oxy.settings").unwrap();
+    assert_eq!(
+        *told.0.lock().unwrap(),
+        [("so.oxy.settings".to_string(), Origin::System, pid as i32)]
+    );
+    // A development entry has no Oxy identity: not told.
+    launcher.launch("so.oxy.writer").unwrap();
+    assert_eq!(told.0.lock().unwrap().len(), 1);
+    launcher.end(std::time::Duration::from_secs(5));
+}

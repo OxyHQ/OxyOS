@@ -7,11 +7,16 @@ mod api;
 mod dev_server;
 mod id;
 mod ipc;
+mod platform;
+mod session;
 mod setup;
 mod store;
 mod users;
 
-use crate::api::{ApiError, DeviceCredential, OxyApi, Profile, SignInStep, SignedIn};
+use crate::api::{
+    ApiError, AppToken, Attestation, DeviceCredential, OxyApi, PlatformClient, Profile, SignInStep,
+    SignedIn,
+};
 use crate::users::{UnixUser, Users, UsersError};
 use crate::{AccountId, Secret, UserName};
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +37,14 @@ pub(crate) const PASSWORD: &str = "correct horse battery staple";
 pub(crate) const USERNAME: &str = "ada";
 pub(crate) const CODE: &str = "246810";
 pub(crate) const CHALLENGE: &str = "challenge-7f3b";
+/// OxyOS's public client id, as the fakes know it (public, not a secret).
+pub(crate) const CLIENT_ID: &str = "oxy_pub_oxyos-test";
+
+pub(crate) fn platform_client() -> PlatformClient {
+    PlatformClient {
+        client_id: CLIENT_ID.into(),
+    }
+}
 
 /// A directory of the test's own, removed when dropped.
 pub(crate) struct TempDir(PathBuf);
@@ -71,13 +84,15 @@ pub(crate) fn account() -> AccountId {
     AccountId::parse(ACCOUNT).unwrap()
 }
 
-/// The calls a [`FakeApi`] answers, in a setup's order.
+/// The calls a [`FakeApi`] answers, in a setup's order, then the platform's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Call {
     Mint,
     Profile,
     Password,
     SecondFactor,
+    AppToken,
+    SignOut,
 }
 
 /// Oxy, as its contracts describe it, for one account on one device.
@@ -95,6 +110,19 @@ pub(crate) struct FakeApi {
     pub(crate) signs_in: Option<(&'static str, &'static str)>,
     pub(crate) locked: bool,
     pub(crate) calls: Mutex<Vec<Call>>,
+    /// The device's live holder secrets: a platform sign-in retires the one it proves and issues
+    /// another (R1), which is the only one live then.
+    pub(crate) secrets: Mutex<Vec<String>>,
+    /// The holder secrets issued so far.
+    pub(crate) issued: AtomicUsize,
+    /// The device's session was ended (signed out, or removed elsewhere): every mint is refused.
+    pub(crate) revoked: std::sync::atomic::AtomicBool,
+    /// Each application token's life from its mint, in seconds.
+    pub(crate) token_life: i64,
+    /// The applications tokens were minted for.
+    pub(crate) minted: Mutex<Vec<Attestation>>,
+    /// The platform clients sign-ins named.
+    pub(crate) platforms: Mutex<Vec<Option<PlatformClient>>>,
 }
 
 impl Default for FakeApi {
@@ -108,8 +136,19 @@ impl Default for FakeApi {
             signs_in: None,
             locked: false,
             calls: Mutex::new(Vec::new()),
+            secrets: Mutex::new(vec![DEVICE_SECRET.into(), OTHER_DEVICE_SECRET.into()]),
+            issued: AtomicUsize::new(0),
+            revoked: std::sync::atomic::AtomicBool::new(false),
+            token_life: 300,
+            minted: Mutex::new(Vec::new()),
+            platforms: Mutex::new(Vec::new()),
         }
     }
+}
+
+/// The holder secret the fake issues `n`th (from 1).
+pub(crate) fn platform_secret(n: usize) -> String {
+    format!("platform-secret-{n}")
 }
 
 impl FakeApi {
@@ -127,15 +166,33 @@ impl FakeApi {
 
     fn proven(&self, device: &DeviceCredential) -> bool {
         device.device_id == DEVICE
-            && [DEVICE_SECRET, OTHER_DEVICE_SECRET].contains(&device.device_secret.expose())
+            && self
+                .secrets
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|secret| secret == device.device_secret.expose())
     }
 
-    fn signed_in(&self, device: &DeviceCredential) -> SignedIn {
+    pub(crate) fn revoke(&self) {
+        self.revoked.store(true, Ordering::SeqCst);
+    }
+
+    /// A sign-in completed: naming the platform's client, it retires the proof and issues the
+    /// platform credential; otherwise another holder secret beside the others.
+    fn signed_in(&self, device: &DeviceCredential, platform: Option<&PlatformClient>) -> SignedIn {
         let (user, device_id) = self.signs_in.unwrap_or((ACCOUNT, DEVICE));
         assert!(self.proven(device), "a sign-in carries the device's proof");
+        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
+        let mut secrets = self.secrets.lock().unwrap();
+        if platform.is_some() {
+            secrets.retain(|secret| secret != device.device_secret.expose());
+        }
+        secrets.push(issued.clone());
         SignedIn {
             user_id: user.into(),
             device_id: device_id.into(),
+            device_secret: Some(Secret::new(issued)),
         }
     }
 }
@@ -150,7 +207,7 @@ impl OxyApi for FakeApi {
         if !self.proven(credential) {
             return Err(ApiError::InvalidDeviceSecret);
         }
-        if !self.on_device.contains(&account.as_str()) {
+        if !self.on_device.contains(&account.as_str()) || self.revoked.load(Ordering::SeqCst) {
             return Err(ApiError::AccountNotOnDevice);
         }
         Ok(Secret::new(format!("token-for-{account}")))
@@ -178,8 +235,10 @@ impl OxyApi for FakeApi {
         identifier: &str,
         password: &Secret,
         device: &DeviceCredential,
+        platform: Option<&PlatformClient>,
     ) -> Result<SignInStep, ApiError> {
         self.call(Call::Password)?;
+        self.platforms.lock().unwrap().push(platform.cloned());
         if self.locked {
             return Err(ApiError::Locked {
                 retry_after: Some(900),
@@ -193,7 +252,7 @@ impl OxyApi for FakeApi {
                 challenge: Secret::new(CHALLENGE),
             });
         }
-        Ok(SignInStep::SignedIn(self.signed_in(device)))
+        Ok(SignInStep::SignedIn(self.signed_in(device, platform)))
     }
 
     fn second_factor(
@@ -201,12 +260,55 @@ impl OxyApi for FakeApi {
         challenge: &Secret,
         code: &Secret,
         device: &DeviceCredential,
+        platform: Option<&PlatformClient>,
     ) -> Result<SignedIn, ApiError> {
         self.call(Call::SecondFactor)?;
+        self.platforms.lock().unwrap().push(platform.cloned());
         if challenge.expose() != CHALLENGE || code.expose() != CODE {
             return Err(ApiError::SecondFactorInvalid);
         }
-        Ok(self.signed_in(device))
+        Ok(self.signed_in(device, platform))
+    }
+
+    fn mint_app_token(
+        &self,
+        credential: &DeviceCredential,
+        account: &AccountId,
+        attestation: &Attestation,
+    ) -> Result<AppToken, ApiError> {
+        self.call(Call::AppToken)?;
+        if !self.proven(credential) {
+            return Err(ApiError::InvalidDeviceSecret);
+        }
+        if !self.on_device.contains(&account.as_str()) || self.revoked.load(Ordering::SeqCst) {
+            return Err(ApiError::AccountNotOnDevice);
+        }
+        if let Attestation::Entry(id) = attestation {
+            if !id.starts_with("so.oxy.") {
+                return Err(ApiError::NotRecognised);
+            }
+        }
+        let mut minted = self.minted.lock().unwrap();
+        minted.push(attestation.clone());
+        let expires = jiff::Timestamp::now()
+            .checked_add(jiff::SignedDuration::from_secs(self.token_life))
+            .unwrap();
+        Ok(AppToken {
+            access_token: Secret::new(format!("app-token-{}", minted.len())),
+            expires_at: expires.to_string(),
+            application_id: match attestation {
+                Attestation::Entry(id) => format!("application-of-{id}"),
+                Attestation::OwnPlatform => "application-oxyos".into(),
+            },
+            account_id: account.as_str().into(),
+        })
+    }
+
+    fn sign_out_device(&self, token: &Secret) -> Result<(), ApiError> {
+        self.call(Call::SignOut)?;
+        assert!(token.expose().starts_with("token-for-"));
+        self.revoke();
+        Ok(())
     }
 }
 
@@ -217,6 +319,8 @@ pub(crate) enum UserStep {
     Create,
     SetVerifier,
     Remove,
+    Lock,
+    EndSessions,
 }
 
 /// The machine's users, in memory: each user's entry and verifier (the password itself, as a
@@ -225,6 +329,10 @@ pub(crate) enum UserStep {
 pub(crate) struct FakeUsers {
     pub(crate) users: Mutex<BTreeMap<String, (UnixUser, Option<String>)>>,
     pub(crate) failing: Mutex<BTreeSet<UserStep>>,
+    /// Users whose verifier is locked.
+    pub(crate) locked: Mutex<BTreeSet<String>>,
+    /// Users whose sessions were ended.
+    pub(crate) ended: Mutex<Vec<String>>,
     pub(crate) steps: Mutex<Vec<UserStep>>,
 }
 
@@ -301,6 +409,7 @@ impl Users for FakeUsers {
 
     fn set_verifier(&self, name: &UserName, password: &Secret) -> Result<(), UsersError> {
         self.step(UserStep::SetVerifier)?;
+        self.locked.lock().unwrap().remove(name.as_str());
         match self.users.lock().unwrap().get_mut(name.as_str()) {
             Some((_, verifier)) => {
                 *verifier = Some(password.expose().into());
@@ -316,6 +425,21 @@ impl Users for FakeUsers {
             Some(_) => Ok(()),
             None => Err(UsersError::Missing),
         }
+    }
+
+    fn lock(&self, name: &UserName) -> Result<(), UsersError> {
+        self.step(UserStep::Lock)?;
+        if !self.users.lock().unwrap().contains_key(name.as_str()) {
+            return Err(UsersError::Missing);
+        }
+        self.locked.lock().unwrap().insert(name.as_str().into());
+        Ok(())
+    }
+
+    fn end_sessions(&self, name: &UserName) -> Result<(), UsersError> {
+        self.step(UserStep::EndSessions)?;
+        self.ended.lock().unwrap().push(name.as_str().into());
+        Ok(())
     }
 }
 

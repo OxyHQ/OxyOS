@@ -6,7 +6,13 @@
 //! - [`store`]: the enrolled accounts and their credentials, in the service's own directory.
 //! - [`users`]: each account's Unix user, home and verifier, made with the system's tools.
 //! - [`setup`]: setting an account up, online only, undone if it fails halfway.
-//! - [`ipc`]: the socket the setup client talks to, and who may.
+//! - [`ipc`]: the service's own socket (setup, the accounts, the login program's check), and who
+//!   may use it.
+//! - [`platform`]: the machine's Oxy session once accounts are set up: the online checks,
+//!   revocation, removing an account, applications' tokens and the snapshot they see.
+//! - [`session`]: the session socket, where the session registers what it launched and its
+//!   applications ask for the platform's session; and its clients.
+//! - [`pidfd`]: processes known by pidfd, never by a pid alone.
 //!
 //! Each of the network, the users and the store is a seam: the tests run every rule without
 //! root and without the network.
@@ -19,7 +25,10 @@
 pub mod api;
 mod id;
 pub mod ipc;
+pub mod pidfd;
+pub mod platform;
 mod secret;
+pub mod session;
 pub mod setup;
 pub mod store;
 pub mod users;

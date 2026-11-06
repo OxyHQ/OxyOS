@@ -295,6 +295,45 @@ fn a_broken_configuration_rejects_without_counting() {
     }
 }
 
+#[test]
+fn the_online_check_is_given_pams_answer_and_its_answer_stands() {
+    let config = Config::new("checker-online");
+    config.service("oxyos", PASSWORD_STACK);
+    let authenticator = Authenticator::with_confdir("oxyos", "oxyos-test", config.path()).unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let told = seen.clone();
+    // Accepts "changed elsewhere" that PAM rejects; refuses the right one; cannot be asked about
+    // anything else (PAM's answer stands).
+    let online: crate::Online = Box::new(move |secret, local| {
+        let password = String::from_utf8(secret.into_bytes().to_vec()).unwrap();
+        told.lock().unwrap().push((password.clone(), local));
+        match password.as_str() {
+            "changed elsewhere" => Some(Outcome::Accepted),
+            PASSWORD => Some(Outcome::Rejected),
+            _ => None,
+        }
+    });
+    let mut checker = Checker::spawn_online(authenticator, online).unwrap();
+    let mut check = |text: &str| {
+        assert_eq!(
+            checker.attempt(Secret::new(text.as_bytes().to_vec()), Instant::now()),
+            Attempt::Checking
+        );
+        answer_of(&mut checker).outcome
+    };
+    assert_eq!(check("changed elsewhere"), Outcome::Accepted);
+    assert_eq!(check(PASSWORD), Outcome::Rejected);
+    assert_eq!(check("wrong"), Outcome::Rejected);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [
+            ("changed elsewhere".to_string(), Outcome::Rejected),
+            (PASSWORD.to_string(), Outcome::Accepted),
+            ("wrong".to_string(), Outcome::Rejected),
+        ]
+    );
+}
+
 mod login {
     //! A login's transaction ([`crate::login`]) against the system's PAM with the tests' own
     //! configuration, and the greeter's messages ([`crate::greeter`]) on a real socket.
