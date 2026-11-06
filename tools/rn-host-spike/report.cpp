@@ -369,12 +369,7 @@ void Report::textScroll(const ShadowView& view, float x, float y) {
 
 void Report::deliver(const std::string& event, uint32_t surface, const ShadowView& view, const folly::dynamic& extra) {
   if (!file_) return;
-  folly::dynamic line = extra;
-  line["kind"] = "deliver";
-  line["event"] = event;
-  line["surface"] = surface;
-  line["target"] = name(view);
-  write(std::move(line));
+  deliver(event, surface, name(view), extra);
 }
 
 void Report::deliver(const std::string& event, uint32_t surface, const std::string& target,
@@ -385,7 +380,74 @@ void Report::deliver(const std::string& event, uint32_t surface, const std::stri
   line["event"] = event;
   line["surface"] = surface;
   line["target"] = target;
+  if (handlingKind_) {
+    line["input_serial"] = handlingSerial_;
+    line["input_seq"] = handlingSeq_;
+    line["cause"] = handlingKind_;
+    line["cause_surface"] = handlingSurface_;
+  }
   write(std::move(line));
+}
+
+const char* Report::inputKind(const OxyOSEvent& event) {
+  static const char* pointer[] = {nullptr,         "pointer.enter",   "pointer.leave", "pointer.motion",
+                                  "pointer.press", "pointer.release", "pointer.cancel"};
+  static const char* touch[] = {nullptr, "touch.down", "touch.motion", "touch.up", "touch.cancel"};
+  static const char* pinch[] = {nullptr, "pinch.begin", "pinch.update", "pinch.end", "pinch.cancel"};
+  static const char* hold[] = {nullptr, "hold.begin", "hold.update", "hold.end", "hold.cancel"};
+  switch (event.kind) {
+    case OXYOS_EVENT_POINTER: return event.detail <= 6 ? pointer[event.detail] : nullptr;
+    case OXYOS_EVENT_KEY: return event.flag ? "key.press" : "key.release";
+    case OXYOS_EVENT_TOUCH: return event.detail <= 4 ? touch[event.detail] : nullptr;
+    case OXYOS_EVENT_SCROLL: return "scroll";
+    case OXYOS_EVENT_TEXT: return "text";
+    case OXYOS_EVENT_PREEDIT: return "preedit";
+    case OXYOS_EVENT_TEXT_INPUT: return "text_input";
+    case OXYOS_EVENT_ACCESSIBILITY_ACTION: return "a11y.action";
+    case OXYOS_EVENT_PINCH: return event.detail <= 4 ? pinch[event.detail] : nullptr;
+    case OXYOS_EVENT_HOLD: return event.detail <= 4 ? hold[event.detail] : nullptr;
+    case OXYOS_EVENT_FOCUS: return event.flag ? "focus.in" : "focus.out";
+    case OXYOS_EVENT_MENU_ITEM_ACTIVATED: return "menu.activated";
+    case OXYOS_EVENT_SYSTEM_SHORTCUT: return "shortcut";
+    case OXYOS_EVENT_DRAG_ENTER: return "drag.enter";
+    case OXYOS_EVENT_DRAG_MOTION: return "drag.motion";
+    case OXYOS_EVENT_DRAG_LEAVE: return "drag.leave";
+    case OXYOS_EVENT_DRAG_DROP: return "drag.drop";
+    default: return nullptr;
+  }
+}
+
+void Report::received(const OxyOSEvent& event) {
+  if (!file_) return;
+  const char* kind = inputKind(event);
+  if (!kind) return;
+  // A system shortcut names its output, not a surface (oxyos-compositor's delivery_kind alike).
+  uint32_t surface = event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ? event.code : event.surface;
+  write(folly::dynamic::object("kind", "received")("event", kind)("surface", surface)("serial", event.serial)(
+      "pid", static_cast<int64_t>(getpid()))("seq", ++received_));
+}
+
+Report::Handling::Handling(const OxyOSEvent& event) {
+  auto& report = Report::get();
+  kind_ = report.handlingKind_;
+  serial_ = report.handlingSerial_;
+  surface_ = report.handlingSurface_;
+  seq_ = report.handlingSeq_;
+  if (const char* kind = inputKind(event)) {
+    report.handlingKind_ = kind;
+    // The event `received` wrote last, when it is this one (Window::dispatch writes it first).
+    report.handlingSeq_ = report.received_;
+    report.handlingSerial_ = event.serial;
+    report.handlingSurface_ = event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ? event.code : event.surface;
+  }
+}
+
+Report::Handling::~Handling() {
+  auto& report = Report::get();
+  report.handlingKind_ = kind_;
+  report.handlingSerial_ = serial_;
+  report.handlingSurface_ = surface_;
+  report.handlingSeq_ = seq_;
 }
 
 void Report::gesture(const folly::dynamic& extra) {
