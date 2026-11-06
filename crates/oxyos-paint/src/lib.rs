@@ -211,6 +211,33 @@ impl Paint {
         self.last_present
     }
 
+    /// The bytes of every surface's GPU buffers, and how many there are.
+    pub fn memory(&self) -> (u64, usize) {
+        self.surfaces
+            .values()
+            .map(present::Swapchain::memory)
+            .fold((0, 0), |(bytes, count), (b, c)| (bytes + b, count + c))
+    }
+
+    /// Frees, of every surface, the buffers the compositor has released but the one holding its
+    /// latest frame: what an idle window keeps is the frame it shows (a buffer is made again when a
+    /// frame needs one, about half a millisecond, and given the whole frame). Returns the bytes
+    /// freed.
+    pub fn trim(&mut self, client: &mut Client) -> u64 {
+        if self.surfaces.values().all(|chain| chain.memory().1 <= 1) {
+            return 0;
+        }
+        // The copy in flight may still write one of them.
+        if self.wait().is_err() {
+            return 0;
+        }
+        let gpu = &self.gpu;
+        self.surfaces
+            .values_mut()
+            .map(|chain| chain.trim(gpu, client))
+            .sum()
+    }
+
     /// Forgets a surface's buffers (it is destroyed).
     pub fn forget_surface(&mut self, client: &mut Client, surface: u32) {
         if let Some(chain) = self.surfaces.remove(&surface) {

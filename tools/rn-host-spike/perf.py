@@ -24,7 +24,7 @@ step's expected result) and measures, from what the processes report and from /p
   of the host's start in between (the host's report's `stage` lines);
 - idle: the CPU time and the wakeups (context switches, every thread) of every process while
   nothing happens, after the session settled;
-- memory: every process's resident memory (anonymous and file-backed) while idle, and its peak;
+- idle memory: every process's resident memory (anonymous and file-backed) while idle, and its peak;
 - the display's rate: windows dragged and zoomed, and animations, on a 120 Hz output and a 60 Hz one
   (refresh-*.json): how many frames each step's motion composed and how far apart they came, against
   its claims, which the gate checks only as functional (regress.py, --speed-budgets);
@@ -39,11 +39,18 @@ step's expected result) and measures, from what the processes report and from /p
   thread's, held to the idle budget (at most one wakeup a second and 0.1 % of a core, the session's
   own process as an application). It needs no --offscreen, --runtimes or --packages, and touches
   nothing of the session;
-- applications side by side: the shell, Settings and three more applications on one compositor, and
-  each host's memory from /proc/PID/smaps_rollup once all have drawn: RSS, PSS (a shared page's
-  size divided among the processes mapping it) and USS (its private pages), and what of each
-  bytecode file (the runtime's framework, an application's index.hbc) is resident and shared
-  (docs/adr/0030-installing-applications.mdx, decision 17).
+- memory: the shell, Settings and four more applications (Dropsea among them when it is packaged) on
+  one compositor, each host measured once every one drew and then stayed idle until it trimmed what
+  it holds (memory.h): from /proc/PID/smaps_rollup its RSS, PSS (a shared page's size divided among
+  the processes mapping it), USS (its private pages), anonymous memory and the part of it in
+  transparent huge pages; from its DRM files' fdinfo (the kernel's drm-usage-stats) the GPU memory
+  its clients hold, which on a GPU that shares the system's memory (the ThinkPad's Iris Xe) is RAM
+  that no RSS counts; its footprint (USS and GPU memory: what the process alone costs the machine,
+  as macOS's phys_footprint is); what of each bytecode file (the runtime's framework, an
+  application's index.hbc) is resident and shared (docs/adr/0030-installing-applications.mdx,
+  decision 17); and the host's own account (its report's `memory` line): Hermes' heap, malloc's,
+  Skia's caches and the painter's buffers. --check holds each host's footprint and PSS to
+  MEMORY_BUDGETS.
 
 The development compositor turns every 5 ms when nothing wakes it, so its own idle numbers say
 nothing of a session's (oxyos-session waits on its devices and clients); the hosts' do.
@@ -59,7 +66,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--check]
-               [interactions] [responses] [shell] [cold-start] [idle] [applications] [refresh] [genie]
+               [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
        perf.py [--out DIR] [--check] session
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
@@ -70,6 +77,7 @@ import json
 import os
 import re
 import pathlib
+import shutil
 import statistics
 import subprocess
 import sys
@@ -152,7 +160,13 @@ COLD_STARTS = [
     ("WindowProbe", {"module": "WindowProbe", "window": [900, 600]}),
     ("Allo beside the shell", {"module": "EditingProbe", "window": [600, 360], "shell": "OxyOSShell",
                                "app": {"id": "so.oxy.allo", "title": "Allo"}}),
+    # Only when it is packaged (DROPSEA_DIR).
+    ("Dropsea", {"module": "Dropsea", "window": [1280, 800], "app": {"id": "so.oxy.dropsea", "title": "Dropsea"},
+                 "home": {"items": {"Desktop/": "", "Documents/": "", "Downloads/": "", "Music/": "", "Pictures/": "",
+                                    "notes.txt": "n", "photo.png": {"png": [800, 600, "#70a0d0"]}}}}),
 ]
+
+COLD_IDLE_MS = 2500
 
 # Idle: (name, scenario) run with one step waiting IDLE_WAIT_MS, sampled once it settled.
 IDLES = [
@@ -162,11 +176,16 @@ IDLES = [
 ]
 IDLE_WAIT_MS = 9000
 
-# Applications side by side: the shell and Settings run by the compositor, and these joining on its
-# socket as further applications, each in a window of its own.
-SIDE_BY_SIDE = {**SETTINGS_APP, "shell": "OxyOSShell"}
-SIDE_BY_SIDE_WAIT_MS = 40000
-JOINING = [("Inbox", "OxyBloom"), ("Allo", "EditingProbe"), ("WindowProbe", "WindowProbe")]
+# Memory: the shell and Settings run by the compositor (on the ThinkPad's display, 1600 x 1000 at
+# 1.25), and these joining on its socket as further applications, each in a window of its own
+# (logical pixels); Dropsea only when it is packaged (DROPSEA_DIR, docs/react-native-android-adaptation.mdx).
+SIDE_BY_SIDE = {**SETTINGS_APP, "shell": "OxyOSShell", "outputs": "1600x1000@1.25"}
+SIDE_BY_SIDE_WAIT_MS = 60000
+JOINING = [("Inbox", "OxyBloom", (1024, 640)), ("Allo", "EditingProbe", (600, 360)),
+           ("WindowProbe", "WindowProbe", (900, 600)), ("Dropsea", "Dropsea", (1100, 680))]
+# Each host is measured once every one drew and then stayed idle this long: past the moment it trims
+# what it holds (memory.h, kSettledAfter), so what is measured is what an idle window keeps.
+MEMORY_SETTLE_S = 4.0
 IDLE_SETTLE_S = 2.0
 IDLE_WINDOW_S = 5.0
 
@@ -188,9 +207,29 @@ BUDGETS = {
     # speak of.
     "idle_host_wakeups_per_s": 1.0,
     "idle_host_cpu_percent": 0.1,
-    # An application's first frame within half a second of its start.
+    # An application's first frame within half a second of its start, and its first frame showing
+    # its text (what a person waits for) within a quarter of a second, its cache kept from its
+    # launches before (the ThinkPad, 6 November 2026: 66 to 198 ms).
     "first_frame_ms_median": 500.0,
+    "first_content_ms_median": 250.0,
 }
+
+# What --check holds each host's memory to, idle beside the others (`memory`, on the ThinkPad's GPU),
+# in MiB at the median of the runs: its footprint (its private pages and the GPU memory it holds,
+# what macOS's phys_footprint counts) and its PSS. A window costs what its pixels, its JavaScript and
+# the GPU driver need, and nothing that huge pages over a sparse heap, malloc's sliding threshold, a
+# swapchain kept whole while idle or a GPU cache of 256 MiB add (memory.h). Measured on 6 November
+# 2026 at 70, 60, 62, 33, 53 and 75 (footprint) where they were 118, 89, 142, 49, 76 and 96: the
+# budgets are those with about 15 % to spare, each far below what the host held before.
+MEMORY_BUDGETS = {
+    "the shell": {"footprint_mib": 80, "pss_mib": 60},
+    "Settings": {"footprint_mib": 70, "pss_mib": 52},
+    "Inbox": {"footprint_mib": 72, "pss_mib": 50},
+    "Allo": {"footprint_mib": 39, "pss_mib": 35},
+    "WindowProbe": {"footprint_mib": 62, "pss_mib": 48},
+    "Dropsea": {"footprint_mib": 86, "pss_mib": 68},
+}
+
 
 
 def percentiles(values):
@@ -309,9 +348,10 @@ def read_report(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def run_scenario(options, scenario, out, during=None):
+def run_scenario(options, scenario, out, during=None, app_cache=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
-    `during(sampler, out)` called meanwhile. Returns (summary, app report, shell report, sampler)."""
+    `during(sampler, out)` called meanwhile, the applications' caches in `app_cache` when given
+    (kept across runs). Returns (summary, app report, shell report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
                "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out),
                # A run measuring speed never counts what React re-renders (regress.py): the count's
@@ -324,6 +364,8 @@ def run_scenario(options, scenario, out, during=None):
         command += ["--gpu-only"]
     if options.renderer:
         command += ["--renderer", options.renderer]
+    if app_cache:
+        command += ["--app-cache", str(app_cache)]
     run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     sampler = Sampler(run.pid)
     sampler.start()
@@ -648,13 +690,29 @@ def scenario_file(out, name, scenario, steps):
 def cold_start(options, name, scenario, out):
     """The application's first frame after its process started, every run, and the stages of its
     host's start (from the director's launch and the host's report)."""
-    path = scenario_file(out, name, scenario, [])
-    firsts, stages, shell_firsts = [], {}, []
+    # Each run left idle a while after its start, as an application is: what the host keeps for its
+    # next launch is written once it is idle (memory.h).
+    path = scenario_file(out, name, scenario, [{"name": "the application left idle", "do": ["wait", COLD_IDLE_MS],
+                                                "allow_unchanged": True, "expect": {}}])
+    firsts, contents, stages, shell_firsts = [], [], {}, []
+    # The application's cache directory is kept across the runs, as it is from its second launch
+    # on (Ganesh's compiled pipelines, skia-gpu.h); its first launch ever is run first and said
+    # apart.
+    cache = out / f"{slug(name)}-cache"
+    shutil.rmtree(cache, ignore_errors=True)
+    summary, report, *_ = run_scenario(options, path, out / f"{slug(name)}-first", app_cache=cache)
+    first_launch = next((line["t"] - summary["t_launch"] for line in report
+                         if line["kind"] == "frame" and line.get("texts")), None)
     for run in range(options.runs):
-        summary, report, shell, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}")
+        summary, report, shell, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}", app_cache=cache)
         firsts.append(summary["first_frame_ms"])
         launched = summary["t_launch"]
         first = next(line["t"] for line in report if line["kind"] == "frame")
+        # The first frame showing the application's text: a window's first frame can be its
+        # background alone, the application waiting for what it shows (Settings, its preferences).
+        content = next((line["t"] for line in report if line["kind"] == "frame" and line.get("texts")), None)
+        if content is not None:
+            contents.append((content - launched) / 1e6)
         marks = [(line["name"], line["t"]) for line in report if line["kind"] == "stage"]
         # From the process's start to the host's main, then each stage to the next, the last to
         # the first frame.
@@ -666,7 +724,8 @@ def cold_start(options, name, scenario, out):
         if shell_main is not None:
             shell_first = next(line["t"] for line in shell if line["kind"] == "frame")
             shell_firsts.append((shell_first - shell_main) / 1e6)
-    result = {"first_frame_ms": percentiles(firsts),
+    result = {"first_frame_ms": percentiles(firsts), "first_content_ms": percentiles(contents),
+              "first_launch_content_ms": None if first_launch is None else round(first_launch / 1e6, 1),
               "stages_ms": {stage: round(statistics.median(values), 1) for stage, values in stages.items()}}
     if shell_firsts:
         result["shell_main_to_first_frame_ms"] = percentiles(shell_firsts)
@@ -798,75 +857,129 @@ def smaps(pid):
     return rollup, files
 
 
-def applications(options, out):
-    """Each host's RSS, PSS and USS with the shell, Settings and three more applications running."""
-    sys.path.insert(0, str(HERE))
+UNITS_KIB = {"": 1 / 1024, "KiB": 1, "MiB": 1024, "GiB": 1024 * 1024}
+
+
+def gpu_memory(pid):
+    """The GPU memory a process's DRM clients hold, in KiB, from each DRM file's fdinfo (the kernel's
+    drm-usage-stats): `drm-total-<region>`, every region summed (a driver from before them says
+    `drm-memory-<region>`), and of it `drm-shared-<region>`, the buffers shared with another
+    process (a window's, with the compositor). Each client once, however many descriptors name it."""
+    total = shared = 0
+    clients = set()
+    for fd in pathlib.Path(f"/proc/{pid}/fdinfo").iterdir():
+        try:
+            if not os.readlink(f"/proc/{pid}/fd/{fd.name}").startswith("/dev/dri/"):
+                continue
+            info = fd.read_text().splitlines()
+        except OSError:
+            continue
+        fields = dict(line.split(":", 1) for line in info if ":" in line)
+        client = fields.get("drm-client-id", "").strip()
+        if not client or client in clients:
+            continue
+        clients.add(client)
+        for key, value in fields.items():
+            amount, _, unit = value.strip().partition(" ")
+            if not amount.isdigit():
+                continue
+            kib = int(amount) * UNITS_KIB.get(unit, 1 / 1024)
+            if key.startswith(("drm-total-", "drm-memory-")):
+                total += kib
+            elif key.startswith("drm-shared-"):
+                shared += kib
+    return total, shared
+
+
+def host_memory(report):
+    """The host's own account of its memory, its report's last `memory` line (memory.h), or None."""
+    lines = [line for line in report if line.get("kind") == "memory"]
+    return lines[-1] if lines else None
+
+
+def memory(options, out):
+    """Each host's memory, idle beside the others: the shell, Settings and the applications of
+    JOINING, every one drawn, then idle MEMORY_SETTLE_S."""
     from regress import Machine
-    path = scenario_file(out, "applications side by side", SIDE_BY_SIDE,
+    machine = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages))
+    joining = [(name, module, size) for name, module, size in JOINING
+               if module != "Dropsea" or module in machine.by_module]
+    path = scenario_file(out, "memory", SIDE_BY_SIDE,
                          [{"name": "applications run side by side", "do": ["wait", SIDE_BY_SIDE_WAIT_MS],
                            "allow_unchanged": True, "expect": {}}])
     measured = []
 
+    def drew(report):
+        return report.exists() and '"kind":"frame"' in report.read_text()
+
     def during(sampler, run_out):
-        report = run_out / "host-report.jsonl"
         deadline = time.monotonic() + 60
-        while not (report.exists() and '"kind":"frame"' in report.read_text()):
+        while not drew(run_out / "host-report.jsonl"):
             if time.monotonic() > deadline:
                 return
             time.sleep(0.05)
         settings = next(pid for pid, process in sampler.snapshot().items() if process[0] == "OxyOSSettings")
         environ = dict(item.split("=", 1) for item in
                        pathlib.Path(f"/proc/{settings}/environ").read_text().split("\0") if "=" in item)
-        machine = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages))
         joined = []
-        for name, module in JOINING:
+        for name, module, (width, height) in joining:
             host, bundle, script = machine.run(module)
-            joined.append((name, subprocess.Popen(
-                [str(host), str(bundle), module, "--window", "800", "500"],
+            joined.append((name, run_out / f"joined-{module}.jsonl", subprocess.Popen(
+                [str(host), str(bundle), module, "--window", str(width), str(height)],
                 env=dict(os.environ, OXYOS_COMPOSITOR_SOCKET=environ["OXYOS_COMPOSITOR_SOCKET"],
                          OXYOS_SCRIPT_URL=f"file://{script}",
                          OXYOS_HOST_REPORT=str(run_out / f"joined-{module}.jsonl")),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)))
         try:
             deadline = time.monotonic() + 60
-            for name, process in joined:
-                report = run_out / f"joined-{process.args[2]}.jsonl"
-                while not (report.exists() and '"kind":"frame"' in report.read_text()):
+            for name, report, process in joined:
+                while not drew(report):
                     if time.monotonic() > deadline or process.poll() is not None:
                         raise SystemExit(f"{name} drew no frame")
                     time.sleep(0.05)
-            time.sleep(IDLE_SETTLE_S)
-            hosts = [(process[0], pid) for pid, process in sampler.snapshot().items()
-                     if process[0] in ("OxyOSShell", "OxyOSSettings")]
-            hosts += [(name, process.pid) for name, process in joined]
-            for who, pid in hosts:
+            time.sleep(MEMORY_SETTLE_S)
+            hosts = [(name, pid, run_out / ("host-report.jsonl.shell" if name == "OxyOSShell" else "host-report.jsonl"))
+                     for pid, (name, *_) in sampler.snapshot().items() if name in ("OxyOSShell", "OxyOSSettings")]
+            hosts += [(name, process.pid, report) for name, report, process in joined]
+            for who, pid, report in hosts:
                 rollup, files = smaps(pid)
-                measured.append({"who": who, "rss_mib": rollup.get("Rss", 0) / 1024,
-                                 "pss_mib": rollup.get("Pss", 0) / 1024,
-                                 "uss_mib": (rollup.get("Private_Clean", 0) + rollup.get("Private_Dirty", 0)) / 1024,
-                                 "bytecode": {os.path.basename(os.path.dirname(f)) + "/" + os.path.basename(f):
-                                              {key: round(value / 1024, 2) for key, value in kib.items()}
-                                              for f, kib in files.items()}})
+                gpu, gpu_shared = gpu_memory(pid)
+                uss = rollup.get("Private_Clean", 0) + rollup.get("Private_Dirty", 0)
+                measured.append({
+                    "who": {"OxyOSShell": "the shell", "OxyOSSettings": "Settings"}.get(who, who),
+                    "rss_mib": rollup.get("Rss", 0) / 1024, "pss_mib": rollup.get("Pss", 0) / 1024,
+                    "uss_mib": uss / 1024, "anon_mib": rollup.get("Anonymous", 0) / 1024,
+                    "thp_mib": rollup.get("AnonHugePages", 0) / 1024,
+                    "gpu_mib": gpu / 1024, "gpu_shared_mib": gpu_shared / 1024,
+                    "footprint_mib": (uss + gpu) / 1024,
+                    "host": host_memory(read_report(report)),
+                    "bytecode": {os.path.basename(os.path.dirname(f)) + "/" + os.path.basename(f):
+                                 {key: round(value / 1024, 2) for key, value in kib.items()}
+                                 for f, kib in files.items()}})
         finally:
-            for _, process in joined:
+            for *_, process in joined:
                 process.terminate()
-            for _, process in joined:
+            for *_, process in joined:
                 process.wait()
 
     runs = []
     for run in range(options.runs):
         measured.clear()
-        run_scenario(options, path, out / f"applications-{run + 1}", during)
+        run_scenario(options, path, out / f"memory-{run + 1}", during)
         runs.append(list(measured))
     by_who = {}
     for run in runs:
         for sample in run:
             by_who.setdefault(sample["who"], []).append(sample)
-    result = {who: {key: round(statistics.median(sample[key] for sample in samples), 2)
-                    for key in ("rss_mib", "pss_mib", "uss_mib")} | {"bytecode": samples[-1]["bytecode"]}
+    keys = ("rss_mib", "pss_mib", "uss_mib", "anon_mib", "thp_mib", "gpu_mib", "gpu_shared_mib", "footprint_mib")
+    result = {who: {key: round(statistics.median(sample[key] for sample in samples), 1) for key in keys}
+              | {"runs": [round(sample["footprint_mib"], 1) for sample in samples],
+                 "host": samples[-1]["host"], "bytecode": samples[-1]["bytecode"]}
               for who, samples in by_who.items()}
-    result["total"] = {key: round(sum(r[key] for r in result.values()), 2) for key in ("rss_mib", "pss_mib", "uss_mib")}
+    result["total"] = {key: round(sum(r[key] for r in result.values()), 1)
+                       for key in ("rss_mib", "pss_mib", "uss_mib", "gpu_mib", "footprint_mib")}
     return result
+
 
 def table(rows, header):
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
@@ -920,15 +1033,26 @@ def show(results):
         print(table(rows, ["step", "host", "budget", "at most", "measured", "each run", "runs over it"]))
         print()
     if "cold_start" in results:
-        rows = [[name, spread(r["first_frame_ms"]), ", ".join(f"{k} {v}" for k, v in r["stages_ms"].items())]
+        rows = [[name, spread(r["first_frame_ms"]), spread(r.get("first_content_ms")), r.get("first_launch_content_ms"),
+                 ", ".join(f"{k} {v}" for k, v in r["stages_ms"].items())]
                 for name, r in results["cold_start"].items()]
-        print(table(rows, ["application", "first frame ms p50/p95/max", "stages (median ms, each to the next)"]))
+        print(table(rows, ["application", "first frame ms p50/p95/max", "first frame with its text",
+                           "its first launch ever",
+                           "stages (median ms, each to the next)"]))
         print()
-    if "applications" in results:
-        rows = [[who, m["rss_mib"], m["pss_mib"], m["uss_mib"],
-                 ", ".join(f"{name} {kib['Rss']} resident, {kib['Pss']} PSS" for name, kib in m.get("bytecode", {}).items())]
-                for who, m in results["applications"].items()]
-        print(table(rows, ["side by side", "RSS MiB", "PSS MiB", "USS MiB", "bytecode mapped (MiB)"]))
+    if "memory" in results:
+        rows = [[who, m["footprint_mib"], m["pss_mib"], m["uss_mib"], m.get("gpu_mib", "—"), m["rss_mib"],
+                 m.get("anon_mib", "—"), m.get("thp_mib", "—"),
+                 ", ".join(f"{key} {value}" for key, value in (m.get("host") or {}).items()
+                           if key not in ("t", "kind")) or "—"]
+                for who, m in results["memory"].items()]
+        print(table(rows, ["memory, idle side by side", "footprint MiB (USS + GPU)", "PSS", "USS", "GPU", "RSS",
+                           "anonymous", "of it huge pages", "the host's account (MiB)"]))
+        rows = [[who, ", ".join(f"{name} {kib['Rss']} resident, {kib['Pss']} PSS"
+                                for name, kib in m.get("bytecode", {}).items())]
+                for who, m in results["memory"].items() if m.get("bytecode")]
+        print(table(rows, ["bytecode mapped", "MiB"]))
+        print()
     if "genie" in results:
         rows = [[name, r["frames_composed"], spread(r["frame_interval_ms"]), r["late_frames"],
                  spread(r["compose_ms"]), spread(r["read_ms"])] for name, r in results["genie"].items()]
@@ -1010,16 +1134,23 @@ def check(results):
             if not e["held"]:
                 over.append(f"{name} step {e['step']}: {e['claim']} {e['measured']}, the median of the runs "
                             f"{e['runs']}, outside {e['least']} to {e['most']}")
+    for who, m in results.get("memory", {}).items():
+        for key, limit in MEMORY_BUDGETS.get(who, {}).items():
+            if m[key] > limit:
+                over.append(f"memory: {who}'s {key[:-4]} {m[key]} MiB, the median of the runs, over {limit} MiB")
     for name, r in results.get("cold_start", {}).items():
         if r["first_frame_ms"]["p50"] > BUDGETS["first_frame_ms_median"]:
             over.append(f"cold start {name}: first frame after {r['first_frame_ms']['p50']} ms")
+        content = r.get("first_content_ms")
+        if content and content["p50"] > BUDGETS["first_content_ms_median"]:
+            over.append(f"cold start {name}: its text first shown after {content['p50']} ms")
     return over
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, applications, refresh, genie (all "
+                        help="interactions, responses, shell, cold-start, idle, memory, refresh, genie (all "
                              "by default), and session (the running session idle, only when named)")
     parser.add_argument("--offscreen")
     parser.add_argument("--runtimes", help="the runtimes (regress.py)")
@@ -1031,7 +1162,7 @@ def main():
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    every = ["interactions", "responses", "shell", "cold-start", "idle", "applications", "refresh", "genie"]
+    every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
     parts = options.parts or every
     if not set(parts) <= set(every) | {"session"}:
         parser.error(f"unknown parts {parts}")
@@ -1049,11 +1180,14 @@ def main():
     if "shell" in parts:
         results["shell"] = {name: shell_responses(options, name, scenario, out) for name, scenario in SHELL_RESPONSES}
     if "cold-start" in parts:
-        results["cold_start"] = {name: cold_start(options, name, scenario, out) for name, scenario in COLD_STARTS}
+        from regress import Machine
+        packaged = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages)).by_module
+        results["cold_start"] = {name: cold_start(options, name, scenario, out) for name, scenario in COLD_STARTS
+                                 if scenario["module"] != "Dropsea" or "Dropsea" in packaged}
     if "idle" in parts:
         results["idle"] = {name: idle(options, name, scenario, out) for name, scenario in IDLES}
-    if "applications" in parts:
-        results["applications"] = applications(options, out)
+    if "memory" in parts:
+        results["memory"] = memory(options, out)
     if "refresh" in parts:
         results["refresh"] = {name: refresh(options, name, scenario, out) for name, scenario in REFRESH}
     if "genie" in parts:

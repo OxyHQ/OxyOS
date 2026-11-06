@@ -19,7 +19,7 @@ pub use drm::control::framebuffer::Handle as Framebuffer;
 pub use drm_fourcc::DrmFourcc;
 
 mod display;
-pub use display::{Display, PointerImage};
+pub use display::{Display, Placement, PointerImage};
 mod edid;
 pub use edid::{identity_safe, Edid};
 mod hotplug;

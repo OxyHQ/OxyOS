@@ -631,6 +631,48 @@ fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacke
     assert_eq!(third.acquire, first.release + 1);
     assert_eq!(compositor.pixels(&third), drawer.pixels);
 
+    // The window idle: of its two buffers, the one the compositor released goes, the one holding
+    // the frame it shows stays; then nothing more goes.
+    let image = paint.memory().0 / 2;
+    assert_eq!(paint.memory().1, 2);
+    assert_eq!(
+        paint.trim(&mut client),
+        0,
+        "the second buffer is still the compositor's"
+    );
+    compositor
+        .timeline(second.timeline)
+        .signal(second.release)
+        .unwrap();
+    assert_eq!(paint.trim(&mut client), image);
+    assert_eq!(paint.memory(), (image, 1));
+    assert_eq!(paint.trim(&mut client), 0);
+    for expected in ["buffer", "timeline"] {
+        let (request, _) = compositor.connection.recv_request().unwrap();
+        match (expected, request) {
+            ("buffer", Request::DestroyBuffer { buffer }) => assert_eq!(buffer, second.buffer),
+            ("timeline", Request::DestroyTimeline { .. }) => {}
+            (_, other) => panic!("{other:?} for the {expected}"),
+        }
+    }
+    // The next frame is given a new buffer, whole, the kept one being the compositor's.
+    let c = Rect::new(1, 1, 2, 2);
+    drawer.draw(c, |_, _| 0xff22_4466);
+    paint
+        .present(
+            &mut client,
+            surface,
+            4,
+            drawer.source(),
+            Format::Xrgb8888,
+            &[c],
+        )
+        .unwrap();
+    let fourth = compositor.frame();
+    assert!(paint.last_present().new_image);
+    assert_eq!(paint.last_present().operations, 1);
+    assert_eq!(compositor.pixels(&fourth), drawer.pixels);
+
     // No image: refused before anything is sent.
     let none = Source {
         image: vk::Image::null(),
@@ -638,7 +680,7 @@ fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacke
         height: HEIGHT,
     };
     assert!(paint
-        .present(&mut client, surface, 4, none, Format::Xrgb8888, &[])
+        .present(&mut client, surface, 5, none, Format::Xrgb8888, &[])
         .is_err());
     paint.forget_surface(&mut client, surface);
     for _ in 0..2 {

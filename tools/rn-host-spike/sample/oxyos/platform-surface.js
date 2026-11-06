@@ -384,7 +384,7 @@ const dragAvailable = Boolean(nativeDrag?.getConstants()?.available);
 
 const OxyOSDropTargetView = NativeComponentRegistry.get('OxyOSDropTargetView', () => ({
   uiViewClassName: 'OxyOSDropTargetView',
-  validAttributes: { acceptKinds: true, dropActions: true, disabled: true },
+  validAttributes: { acceptKinds: true, dropActions: true, disabled: true, acceptFileTypes: true },
   directEventTypes: {
     topDragEnter: { registrationName: 'onNativeDragEnter' },
     topDragOver: { registrationName: 'onNativeDragOver' },
@@ -448,12 +448,15 @@ function dragEvent(nativeEvent) {
     y: nativeEvent.y,
     action: nativeEvent.action ?? null,
     kinds: nativeEvent.kinds ?? [],
+    // The types of the files it carries, as its source declared them (protocol version 26).
+    fileTypes: nativeEvent.fileTypes ?? [],
   };
 }
 
 function DropTarget({
   accept,
   actions,
+  acceptFileTypes,
   disabled,
   onDragEnter,
   onDragOver,
@@ -467,6 +470,8 @@ function DropTarget({
     <OxyOSDropTargetView
       acceptKinds={accept.join('\n')}
       dropActions={actions.join('\n')}
+      // Files whose types it does not take are no files to it: the host answers the compositor so.
+      acceptFileTypes={(acceptFileTypes ?? []).join('\n')}
       disabled={Boolean(disabled)}
       style={style}
       testID={testID}
@@ -491,9 +496,21 @@ function DropTarget({
 const drag = dragAvailable
   ? {
       // The dragged view itself is the image, as it looks (stacked and badged for several items).
-      start({ data, actions, previewRef, count }) {
+      // `data.other` is offered by its media types after the kinds; `vanish` (protocol version 26)
+      // has the image vanish in a poof where it is dropped on nothing, an item dragged out of the
+      // dock.
+      // `onCancel` is told why a drag ended without a drop ('escape', 'not-accepted', 'refused',
+      // 'cancelled') before the promise settles with null.
+      start({ data, actions, previewRef, count, vanish, onCancel }) {
         const preview = previewRef?.current ? findNodeHandle(previewRef.current) : null;
-        return nativeDrag.start(data, [...actions], preview ?? -1, count ?? 1);
+        return nativeDrag.start(
+          data,
+          [...actions],
+          preview ?? -1,
+          count ?? 1,
+          { vanish: Boolean(vanish) },
+          onCancel ? (reason) => onCancel(reason) : undefined,
+        );
       },
     }
   : undefined;

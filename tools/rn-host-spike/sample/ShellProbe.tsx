@@ -309,6 +309,8 @@ type Registered = {
   icon: { uri: string } | { svg: string } | null;
   iconBody?: number | null;
   pinned: number | null;
+  /** The media types its entry declares it opens (ADR 0034, decision 11). */
+  opens?: string[];
 };
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
@@ -455,6 +457,7 @@ function SessionShell() {
         icon: app.icon!,
         iconBody: app.iconBody ?? undefined,
         pinned: place !== null,
+        opens: app.opens,
       }));
   }, [registry, kept]);
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
@@ -538,7 +541,17 @@ function SessionShell() {
       trashFiles: (uris) => {
         shell.trashFiles(uris);
       },
+      // Files dropped on an application's dock icon (ADR 0034, decision 11): opened in it by the
+      // session, citing the drop, where the session can.
+      openFiles: shell.openFiles
+        ? (id, uris) => {
+            shell.openFiles(id, uris);
+          }
+        : undefined,
       focusWindow: (id) => shell.focusWindow(Number(id)),
+      // The dock's press on the frontmost application (ADR 0034, decision 9): its windows into its
+      // icon through the genie (ADR 0043).
+      minimizeWindow: (id) => shell.minimizeWindow(Number(id)),
       // The top bar left from the keyboard (ADR 0024): the keyboard back with the window whose
       // menus the bar shows, the active one.
       returnKeyboard: () => {

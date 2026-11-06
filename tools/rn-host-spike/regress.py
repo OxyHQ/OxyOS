@@ -96,6 +96,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   exactly and in order, by their names in the sound theme (`file-trash`, `trash-empty`,
   `message-new-instant`, `screen-capture`): recorded as the session would play them, after the person's settings and
   the output's mute; a step that plays one and does not say so fails;
+- files_opened: the files the shell had opened with an application in the step (ADR 0034,
+  OpenFiles), exactly and in order, each {"name": the file's name, "application": its id};
 - urls_opened: the URLs the shell opened in the step (ADR 0034), and those applications opened (the
   platform's Settings, `oxyos-settings:`, docs/adr/0019-settings.mdx), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say
@@ -127,7 +129,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   `to`, monotonically (a view scaled up and back: the dock's Trash under a drag). A view it does not list must not move: the driver may set it (a node's first frame sets
   its start), but always to the same values. `animated_frames` may be [least, most], or such bounds by view ({testID: bounds});
 - committed: the same for what React's commits changed in the step (opacity, translation, scale
-  (`transform.scale`) and the top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn, of views with a
+  (`transform.scale`), the top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn,
+  and `width` as laid out (a dock's place opening as icons slide apart), of views with a
   testID, as mounted: a JavaScript-driven Animated's and Reanimated's frames among them), with
   `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
 - animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
@@ -145,6 +148,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   and ending exactly in its view, a going one beginning in its view's place the step before and
   ending exactly where its window is (its last frame the one that ended it, at its end, whatever
   frames were dropped before);
+- window_states: every window as the shell is told of it once the step settled, by its number,
+  exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
+  matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
@@ -847,7 +853,9 @@ def director_args(step, out):
         return args + ["--scroll-paced", ",".join(map(str, value))]
     if kind == "drag_paced_named":
         # A paced drag from the node of one accessible name to the node of another (a file onto the
-        # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035).
+        # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
+        # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
+        # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
         return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
     if kind in ("press_named", "press_secondary_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
@@ -2490,6 +2498,24 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         presented = sum(1 for line in work if line["presented"])
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
+    if "memory" in expect:
+        # What the host gave back once its window was idle (memory.h): the account its trim wrote by
+        # the step's end, after the window's last frame, of the GPU buffers it kept at most one a
+        # surface shown (`buffers_max`, when it draws on the GPU) and nothing left that Skia's cache
+        # could purge (`skia_purgeable_max`, MiB). Counts, not sizes: the same on any machine
+        # (perf.py holds the sizes on the ThinkPad).
+        wanted = expect["memory"]
+        accounts = [line for line in report if line["kind"] == "memory" and line["t"] <= end]
+        last_frame = max((line["t"] for line in report if line["kind"] == "frame" and line["t"] <= end), default=0)
+        if not accounts or accounts[-1]["t"] < last_frame:
+            fail("the host wrote no memory account after its last frame: it gave nothing back once idle")
+        else:
+            account = accounts[-1]
+            if "buffer_count" in account and account["buffer_count"] > wanted.get("buffers_max", float("inf")):
+                fail(f"the host kept {account['buffer_count']} GPU buffers idle, expected at most {wanted['buffers_max']}")
+            if account.get("skia_gpu_purgeable", 0) > wanted.get("skia_purgeable_max", float("inf")):
+                fail(f"Skia kept {account['skia_gpu_purgeable']} MiB it could purge, expected at most "
+                     f"{wanted['skia_purgeable_max']}")
     if "renders" in expect and RENDER_COUNTS:
         # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
         # the components each re-render began at, exactly, the same on any machine however loaded.
@@ -3216,10 +3242,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
+    # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,
+    # each {"name": the file's name, "application"}; a step that opens one and does not say so fails.
+    # The step's own, not each of its trees' (`in_shell`).
+    files_opened = [{"name": pathlib.Path(o["path"]).name, "application": o["application"]}
+                    for o in result.get("files_opened") or []]
+    if not step.get("within") and files_opened != expect.get("files_opened", []):
+        fail(f"files opened: {files_opened}, expected {expect.get('files_opened', [])}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "minimize_target" in expect and result.get("minimize_target") != expect["minimize_target"]:
         fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
+    if "window_states" in expect:
+        # Every window as the shell is told of it once the step settled, by its number, exactly:
+        # each given key ("app", "workspace", "minimized", "hidden", "focused") matching, and no
+        # window more or fewer (the dock's press, ADR 0034's decision 9).
+        got = result.get("window_states") or {}
+        wanted = expect["window_states"]
+        if set(got) != set(wanted) or any(
+            got[number].get(key) != value for number, state in wanted.items() for key, value in state.items()
+        ):
+            fail(f"the windows are {got}, expected {wanted}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]
@@ -3875,6 +3918,10 @@ def main():
                         help="never count what React re-renders, even for a scenario holding `renders` (whose "
                              "checks are then not made): perf.py's runs, which measure speed, which the count's "
                              "allocations would move")
+    parser.add_argument("--app-cache", default=None,
+                        help="the applications' cache directories in this directory (XDG_CACHE_HOME), kept across "
+                             "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
+                             "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
                         help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
@@ -4097,7 +4144,7 @@ def main():
     for kept in ("xdg-data", "xdg-cache"):
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
-    env["XDG_CACHE_HOME"] = str(out / "xdg-cache")
+    env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache else out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's, each packaged one from its package.
@@ -4168,7 +4215,8 @@ def main():
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
-        env["XDG_CACHE_HOME"] = str(home_root / ".cache")
+        env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
+                                    else home_root / ".cache")
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app

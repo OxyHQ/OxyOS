@@ -11,5 +11,9 @@
   },
   "architectures": [
     "any"
-  ]
+  ],
+  "capabilities": [
+    { "name": "open-files", "purpose": { "en": "To open notes dropped on its icon in the dock.", "es": "Para abrir las notas que se sueltan en su icono del Dock." } }
+  ],
+  "opens": { "types": ["text/markdown"] }
 }

@@ -1,0 +1,369 @@
+{
+  "about": "Files dropped on an application's dock icon open in it (docs/adr/0034-the-dock.mdx, decision 11) at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): sample/VanishProbe.tsx drags files of the run's home through the platform's drag, each saying its type, with the session's shell; Inbox's package declares it opens text/markdown. foto.png held over Inbox's icon finds no answer (Inbox does not open image/png): its icon does not darken, and let go there nothing is taken or opened and the image goes back. notas.md dropped on Atlas's icon, which opens nothing, is refused. notas.md held over Inbox's icon darkens it (the Trash's shade, in 120 ms), the others not; let go, the session opens notas.md with Inbox, citing the drop, and the icon comes back as it was. Each step checks what the session opened, every icon's shade frame by frame, the drag icons left, the sounds, exactly what each client is told (nothing leaked), and that Inbox, started with the file, has the keyboard.",
+  "locale": "es_ES.UTF-8",
+  "module": "VanishProbe",
+  "window": [
+    480,
+    300
+  ],
+  "shell": "OxyOSShell",
+  "home": {
+    "items": {
+      "notas.md": "# notas",
+      "foto.png": "png"
+    }
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "the probe's rows; the dock keeps Dropsea, Atlas and Inbox, which declares it opens text/markdown",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "foto.png held over Inbox's icon: Inbox does not open image/png, so its icon does not answer",
+      "do": [
+        "drag_paced_named",
+        [
+          "foto.png",
+          "@730,772",
+          30,
+          30,
+          0,
+          0,
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "committed_frames": {
+            "dock-shade-so.oxy.inbox": [
+              0,
+              0
+            ],
+            "dock-shade-so.oxy.atlas": [
+              0,
+              0
+            ],
+            "dock-shade-so.oxy.dropsea": [
+              0,
+              0
+            ]
+          },
+          "committed": {
+            "dock-shade-so.oxy.inbox": {
+              "opacity": [
+                0,
+                0
+              ]
+            },
+            "dock-shade-so.oxy.atlas": {
+              "opacity": [
+                0,
+                0
+              ]
+            },
+            "dock-shade-so.oxy.dropsea": {
+              "opacity": [
+                0,
+                0
+              ]
+            }
+          }
+        },
+        "files_opened": [],
+        "sounds": [],
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "shell_drags": {
+            "drag.enter": 2,
+            "drag.leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "let go there: nothing is taken, nothing opens, the image goes back to its row",
+      "do": [
+        "release_output",
+        [
+          730,
+          772
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "foto.png result: none, cancelled: not-accepted"
+        ],
+        "in_shell": {
+          "committed_frames": {
+            "dock-shade-so.oxy.inbox": [
+              0,
+              0
+            ],
+            "dock-shade-so.oxy.atlas": [
+              0,
+              0
+            ],
+            "dock-shade-so.oxy.dropsea": [
+              0,
+              0
+            ]
+          },
+          "committed": {
+            "dock-shade-so.oxy.inbox": {
+              "opacity": [
+                0,
+                0
+              ]
+            },
+            "dock-shade-so.oxy.atlas": {
+              "opacity": [
+                0,
+                0
+              ]
+            },
+            "dock-shade-so.oxy.dropsea": {
+              "opacity": [
+                0,
+                0
+              ]
+            }
+          }
+        },
+        "files_opened": [],
+        "sounds": [],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "returned"
+            }
+          ]
+        },
+        "drag_icons": {
+          "count": 0
+        },
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          },
+          "shell_drags": {
+            "drag.leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "notas.md dropped on Atlas's icon, which declares nothing it opens: refused, nothing opens",
+      "do": [
+        "drag_paced_named",
+        [
+          "notas.md",
+          "@672,772",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "notas.md result: none, cancelled: not-accepted"
+        ],
+        "in_shell": {
+          "committed_frames": {
+            "dock-shade-so.oxy.inbox": [
+              0,
+              0
+            ],
+            "dock-shade-so.oxy.atlas": [
+              0,
+              0
+            ],
+            "dock-shade-so.oxy.dropsea": [
+              0,
+              0
+            ]
+          },
+          "committed": {
+            "dock-shade-so.oxy.inbox": {
+              "opacity": [
+                0,
+                0
+              ]
+            },
+            "dock-shade-so.oxy.atlas": {
+              "opacity": [
+                0,
+                0
+              ]
+            },
+            "dock-shade-so.oxy.dropsea": {
+              "opacity": [
+                0,
+                0
+              ]
+            }
+          }
+        },
+        "files_opened": [],
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "shell_drags": {
+            "drag.enter": 2,
+            "drag.leave": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "notas.md held over Inbox's icon: Inbox opens text/markdown, and its icon darkens, as a Mac's, the others not",
+      "do": [
+        "drag_paced_named",
+        [
+          "notas.md",
+          "@730,772",
+          30,
+          30,
+          0,
+          0,
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "committed": {
+            "dock-shade-so.oxy.inbox": {
+              "opacity": [
+                0,
+                0.35
+              ]
+            },
+            "dock-shade-so.oxy.atlas": {
+              "opacity": [
+                0,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-shade-so.oxy.inbox": [
+              2,
+              60
+            ],
+            "dock-shade-so.oxy.atlas": [
+              0,
+              0
+            ]
+          }
+        },
+        "files_opened": [],
+        "sounds": [],
+        "drag_icons": {
+          "count": 1
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "shell_drags": {
+            "drag.enter": 2,
+            "drag.leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "let go: the session opens notas.md with Inbox, citing the drop; the icon comes back as it was",
+      "do": [
+        "release_output",
+        [
+          730,
+          772
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "notas.md result: copy"
+        ],
+        "files_opened": [
+          {
+            "name": "notas.md",
+            "application": "so.oxy.inbox"
+          }
+        ],
+        "sounds": [],
+        "in_shell": {
+          "committed": {
+            "dock-shade-so.oxy.inbox": {
+              "opacity": [
+                0.35,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-shade-so.oxy.inbox": [
+              2,
+              60
+            ]
+          }
+        },
+        "drag_icons": {
+          "count": 0
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "focus.out": 1
+          },
+          "launched": {
+            "focus.in": 1
+          },
+          "shell_drags": {
+            "drag.drop": 1
+          }
+        },
+        "focus_surface": null
+      }
+    }
+  ]
+}

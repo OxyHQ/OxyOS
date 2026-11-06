@@ -411,6 +411,27 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// Whether media types an application declares (`MimeType`) take `kind`: the type itself, its
+/// `type/*` (a wildcard some entries declare), ignoring case and parameters.
+pub fn opens_type(declared: &[String], kind: &str) -> bool {
+    let plain = |media: &str| {
+        media
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+    };
+    let kind = plain(kind);
+    let Some((top, _)) = kind.split_once('/') else {
+        return false;
+    };
+    declared
+        .iter()
+        .map(|media| plain(media))
+        .any(|media| media == kind || media.strip_suffix("/*").is_some_and(|wild| wild == top))
+}
+
 /// An application id: a reverse domain name, as the Desktop Entry Specification recommends,
 /// of ASCII letters, digits, `.`, `-` and `_`, at most 128 bytes.
 pub fn valid_id(id: &str) -> bool {
@@ -1322,6 +1343,27 @@ impl Launcher {
             );
         let pid = self.launch_opening(&id, Some(file))?;
         Ok((id, pid))
+    }
+
+    /// Opens `file`, of the media type `kind`, with the application `id` the person chose (files
+    /// dropped on its icon in the dock, docs/adr/0034-the-dock.mdx): only if its entry declares
+    /// the type (`MimeType`: the type itself, or its `type/*`), started with the file in its launch
+    /// record and as its `Linking` initial URL, as [`Launcher::open`] starts one. Its pid.
+    pub fn open_with(&mut self, id: &str, file: &Path, kind: &str) -> Result<u32, Error> {
+        let policy = self.policy();
+        let application = find(
+            &self.directories,
+            &self.languages,
+            &policy,
+            self.installed.as_deref(),
+            &*self.trusted,
+            id,
+        )
+        .ok_or_else(|| Error(format!("no application {id:?}")))?;
+        if !opens_type(&application.opens, kind) {
+            return Err(Error(format!("{id} does not open {kind}")));
+        }
+        self.launch_opening(id, Some(file))
     }
 
     /// Opens `url` in the application that opens its scheme (docs/adr/0034-the-dock.mdx): the

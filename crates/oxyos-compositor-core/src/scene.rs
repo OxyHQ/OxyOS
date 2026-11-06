@@ -1483,6 +1483,22 @@ impl Scene {
                 last,
                 text,
             } => self.trash_files_request(client, input, index, last, text),
+            Request::DragVanish { drag } => {
+                self.drag_vanish(client, drag);
+                Ok(())
+            }
+            Request::DragFileType {
+                drag,
+                index,
+                last,
+                text,
+            } => self.drag_file_type(client, drag, index, last, text),
+            Request::OpenFiles {
+                input,
+                index,
+                last,
+                text,
+            } => self.open_files_request(client, input, index, last, text),
             Request::TrackPointer { surface } => {
                 let node = self
                     .nodes
@@ -4937,7 +4953,7 @@ pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;
-pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
+pub use shell::{ShellWindowState, MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod lock;
 pub use lock::{Secret, Submitted};
 mod launch;
@@ -4946,8 +4962,8 @@ mod dock;
 mod drag;
 pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
 pub use drag::{
-    negotiate_action, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE, DRAG_VERSION,
-    MAX_OPEN_DROPS,
+    negotiate_action, OpenFilesRequest, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
+    DRAG_VERSION, MAX_OPEN_DROPS, VANISH_VERSION,
 };
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};

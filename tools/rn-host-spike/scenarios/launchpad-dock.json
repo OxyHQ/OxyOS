@@ -1,0 +1,113 @@
+{
+  "about": "An application dragged from Launchpad onto the dock (docs/adr/0034-the-dock.mdx, decision 10) at 1 (1280 × 720), as a Mac's: Allo (sample/EditingProbe.tsx) with the shell and the development registry (Dropsea, Atlas and Inbox kept). Launchpad opened from the dock; Ajustes dragged out of it between Dropsea and Atlas is kept there, and Atlas, kept already, dragged before Dropsea moves there; Launchpad stays open throughout. Each step checks the person's list as the session keeps it, the drag icons left, exactly what the shell's surfaces are told of each drag and that nothing reaches Allo.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's window; Launchpad from the dock, with the keyboard",
+      "do": [
+        "press_named",
+        "Abrir aplicaciones"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Ajustes dragged out of Launchpad between Dropsea and Atlas: kept there; Launchpad stays open",
+      "do": [
+        "drag_paced_named",
+        [
+          "Ajustes",
+          "@651,692",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "delivered": {
+          "shell_drags": {
+            "drag.drop": 1,
+            "drag.dropped": 1,
+            "drag.enter": 2,
+            "drag.finished": 1,
+            "drag.leave": 1,
+            "drag.send": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Ajustes"
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Buscar"
+          ]
+        },
+        "preferences_file": {
+          "dock": "so.oxy.dropsea,so.oxy.settings,so.oxy.atlas,so.oxy.inbox"
+        }
+      }
+    },
+    {
+      "name": "Atlas, kept already, dragged out of Launchpad before Dropsea: it moves there",
+      "do": [
+        "drag_paced_named",
+        [
+          "Atlas",
+          "@590,692",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "delivered": {
+          "shell_drags": {
+            "drag.drop": 1,
+            "drag.dropped": 1,
+            "drag.enter": 2,
+            "drag.finished": 1,
+            "drag.leave": 1,
+            "drag.send": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Buscar"
+          ]
+        },
+        "preferences_file": {
+          "dock": "so.oxy.atlas,so.oxy.dropsea,so.oxy.settings,so.oxy.inbox"
+        }
+      }
+    }
+  ]
+}

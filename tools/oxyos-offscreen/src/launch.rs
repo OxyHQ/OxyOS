@@ -89,6 +89,8 @@ pub enum Step {
     /// node named `to`, as the assistive technology holds them: a file dragged onto the dock's
     /// Trash, wherever the dock's row places it (docs/adr/0035-drag-and-drop.mdx). Resolved to a
     /// `DragPaced` as it is run.
+    /// `to` may be a point of the output instead, `@x,y` (an icon dragged off the dock, ADR
+    /// 0034's decision 10); with `held`, the button stays held at the end, as `DragPaced`'s.
     DragPacedNamed {
         from: String,
         to: String,
@@ -96,6 +98,7 @@ pub enum Step {
         hz: u32,
         escape_after: Option<u32>,
         rest_ms: u32,
+        held: bool,
     },
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
@@ -518,11 +521,13 @@ impl Step {
                 hz,
                 escape_after,
                 rest_ms,
+                held,
             } => format!(
-                "\"drag_paced_named\":[{},{},{motions},{hz}{}]",
+                "\"drag_paced_named\":[{},{},{motions},{hz}{}{}]",
                 json_string(from),
                 json_string(to),
-                rest_suffix(*escape_after, *rest_ms)
+                rest_suffix(*escape_after, *rest_ms),
+                if *held { ",\"held\"" } else { "" }
             ),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
@@ -1300,7 +1305,7 @@ impl Launch {
                     let given = value
                         .and_then(|v| v.to_str())
                         .map_or(0, |v| v.split(',').count());
-                    let n = numbers(value, given.clamp(2, 4))?;
+                    let n = numbers(value, given.clamp(2, 5))?;
                     if n[0] < 1 || n[1] < 1 {
                         return Err(
                             "--drag-paced-named needs at least one motion at 1 Hz or more".into(),
@@ -1315,6 +1320,7 @@ impl Launch {
                         hz: n[1] as u32,
                         escape_after: n.get(2).filter(|at| **at > 0).map(|at| *at as u32),
                         rest_ms: n.get(3).map_or(0, |ms| (*ms).max(0) as u32),
+                        held: n.get(4).is_some_and(|held| *held != 0),
                     }
                 }
                 Some("--hold-output") => {
@@ -2126,6 +2132,20 @@ fn drawn_windows(compositor: &Compositor) -> Vec<(SurfaceKey, Rect)> {
     drawn
 }
 
+/// The windows in the order they are drawn, bottom to top: a window raised (an application brought
+/// forward from the dock, ADR 0034's decision 9) answers a step though no client draws anew.
+fn window_order(compositor: &Compositor) -> Vec<SurfaceKey> {
+    compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, .. } => compositor.scene.window_number(key).map(|_| key),
+            _ => None,
+        })
+        .collect()
+}
+
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
@@ -2205,6 +2225,7 @@ fn settle(
     // Where the compositor draws the windows (ADR 0046): a swipe's answer is the windows moved,
     // which no client draws.
     let mut drawn_last = drawn_windows(&session.compositor);
+    let mut order_last = window_order(&session.compositor);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -2241,8 +2262,14 @@ fn settle(
         let drawn_now = drawn_windows(&session.compositor);
         let drawn_changed = drawn_now != drawn_last;
         drawn_last = drawn_now;
-        let shell_changed =
-            shell_now != shell_last || launched_changed || companion_changed || drawn_changed;
+        let order_now = window_order(&session.compositor);
+        let order_changed = order_now != order_last;
+        order_last = order_now;
+        let shell_changed = shell_now != shell_last
+            || launched_changed
+            || companion_changed
+            || drawn_changed
+            || order_changed;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -2355,6 +2382,29 @@ fn minimize_target_json(compositor: &Compositor) -> String {
         Some(r) => format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
         None => "null".to_string(),
     }
+}
+
+/// Each window as the shell is told of it once the step settled, by its number: its application,
+/// its desktop, and whether it is minimized, hidden with its application and active (the dock's
+/// press, ADR 0034's decision 9).
+fn window_states_json(compositor: &Compositor) -> String {
+    let states: Vec<String> = compositor
+        .scene
+        .shell_window_states()
+        .iter()
+        .map(|w| {
+            format!(
+                "\"{}\":{{\"app\":{},\"workspace\":{},\"minimized\":{},\"hidden\":{},\"focused\":{}}}",
+                w.number,
+                json_string(&w.app_id),
+                w.workspace,
+                w.minimized,
+                w.hidden,
+                w.focused
+            )
+        })
+        .collect();
+    format!("{{{}}}", states.join(","))
 }
 
 /// The surface of the application holding keyboard focus, or null.
@@ -2620,6 +2670,22 @@ fn sounds_json(session: &Session) -> String {
         .map(|sound| json_string(oxyos_sound::name(sound)))
         .collect();
     format!("[{}]", played.join(","))
+}
+
+/// The files the shell had opened with an application in the step (ADR 0034, OpenFiles): each
+/// file's path and the application, in order. Taken: the next step reports its own.
+fn files_opened_json(session: &mut Session) -> String {
+    let opened: Vec<String> = std::mem::take(&mut session.file_opens)
+        .into_iter()
+        .map(|(path, application)| {
+            format!(
+                "{{\"path\":{},\"application\":{}}}",
+                json_string(&path.to_string_lossy()),
+                json_string(&application)
+            )
+        })
+        .collect();
+    format!("[{}]", opened.join(","))
 }
 
 fn urls_json(session: &mut Session) -> String {
@@ -2888,9 +2954,19 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
         hz,
         escape_after,
         rest_ms,
+        held,
     } = step
     {
         let at = |name: &str| {
+            // `@x,y`: a point of the output, not a node.
+            if let Some((x, y)) = name
+                .strip_prefix('@')
+                .and_then(|point| point.split_once(','))
+            {
+                if let (Ok(x), Ok(y)) = (x.trim().parse(), y.trim().parse()) {
+                    return Ok((x, y));
+                }
+            }
             named_point(session, name)
                 .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))
         };
@@ -2901,7 +2977,7 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
             hz: *hz,
             escape_after: *escape_after,
             rest_ms: *rest_ms,
-            held: false,
+            held: *held,
         });
     }
     let Step::Named { kind, name, ms } = step else {
@@ -3081,11 +3157,14 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
                 AppearanceChange::Zoomed => "zoomed",
                 AppearanceChange::Returned { .. } => "returned",
+                AppearanceChange::Vanished { .. } => "vanished",
             };
             // Where a drag's image went back to (its centre), for a scenario to check it is the
             // item's own place.
             let to = match seen.change {
                 AppearanceChange::Returned { x, y } => format!(",\"to\":[{x},{y}]"),
+                // Where it puffed away (its centre): where it was dropped.
+                AppearanceChange::Vanished { x, y } => format!(",\"at\":[{x},{y}]"),
                 _ => String::new(),
             };
             let path: Vec<String> = seen
@@ -4923,10 +5002,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             ),
             None => (0, 0),
         };
+        // With `--uinput`, the run's own virtual devices and no other: another run's, made alike,
+        // or the machine's would feed its steps.
+        let mut nodes = Vec::new();
         if launch.uinput {
-            devices = Some(crate::uinput::Devices::new(bounds, &launch.layout)?);
-            // udev announces the new devices before libinput can open them.
-            std::thread::sleep(Duration::from_millis(500));
+            let mut made = crate::uinput::Devices::new(bounds, &launch.layout)?;
+            nodes = made.nodes()?;
+            devices = Some(made);
         }
         // Through logind with `--seat`: devices are the session's, revoked when it goes away.
         let devices = seat.clone().map(|seat| {
@@ -4941,9 +5023,24 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             (open, close)
         });
         let layout = oxyos_input::Layout::named(&launch.layout);
-        let input = oxyos_input::Input::open_with(bounds, &layout, devices)?;
+        let (input, read) = if launch.uinput {
+            let paths: Vec<_> = nodes.iter().map(PathBuf::as_path).collect();
+            let named: Vec<_> = nodes
+                .iter()
+                .map(|node| node.display().to_string())
+                .collect();
+            (
+                oxyos_input::Input::open_paths(bounds, &layout, &paths, devices)?,
+                format!("the run's own devices ({})", named.join(", ")),
+            )
+        } else {
+            (
+                oxyos_input::Input::open_with(bounds, &layout, devices)?,
+                "seat0".to_string(),
+            )
+        };
         eprintln!(
-            "[input] libinput on seat0, layout {}, {}",
+            "[input] libinput on {read}, layout {}, {}",
             launch.layout,
             if input.composes() {
                 "composing with the locale's table"
@@ -5457,10 +5554,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5480,6 +5578,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             minimize_target_json(&session.compositor),
+            window_states_json(&session.compositor),
             session.compositor.scene.pointer_shape(),
             pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),

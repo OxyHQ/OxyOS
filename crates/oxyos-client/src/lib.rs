@@ -100,6 +100,16 @@ pub struct Client {
 /// What one offer to the clipboard holds: each media type with its content.
 type Offer = Vec<(TextChunk, std::sync::Arc<[u8]>)>;
 
+/// What a drag says beyond its content (version 26, docs/adr/0035-drag-and-drop.mdx): whether,
+/// dropped on nothing that takes it, it vanishes in a poof where it is instead of sliding back
+/// (an item dragged out of a dock), and the media types of the files it carries.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DragOptions {
+    pub vanish: bool,
+    /// Distinct, at most MAX_DRAG_TYPES of at most MAX_FILE_TYPE_BYTES each: others are left out.
+    pub file_types: Vec<String>,
+}
+
 /// Offers kept for the clipboard: the latest few, of which it holds one.
 const OFFERS_KEPT: usize = 4;
 /// Drags whose content is kept: the one going on and drops not yet finished, as many as the
@@ -710,6 +720,28 @@ impl Client {
         actions: DragActions,
         contents: Vec<(TextChunk, Vec<u8>)>,
     ) -> io::Result<u32> {
+        self.start_drag_with(
+            surface,
+            icon,
+            serial,
+            actions,
+            contents,
+            DragOptions::default(),
+        )
+    }
+
+    /// [`Client::start_drag`], saying more of the drag (version 26, ADR 0035): whether it
+    /// vanishes in a poof dropped on nothing, and its files' media types, which targets are told.
+    /// A compositor of an older version is told neither, and the drag goes as before.
+    pub fn start_drag_with(
+        &mut self,
+        surface: u32,
+        icon: u32,
+        serial: u64,
+        actions: DragActions,
+        contents: Vec<(TextChunk, Vec<u8>)>,
+        options: DragOptions,
+    ) -> io::Result<u32> {
         if contents.is_empty() || contents.len() > oxyos_protocol::MAX_DRAG_TYPES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -726,6 +758,32 @@ impl Client {
         let drag = self.next_drag;
         for (mime, _) in &contents {
             self.send(&Request::DragType { drag, mime: *mime })?;
+        }
+        if self.version >= 26 {
+            let mut told: Vec<&str> = Vec::new();
+            for mime in &options.file_types {
+                if mime.is_empty()
+                    || mime.len() > oxyos_protocol::MAX_FILE_TYPE_BYTES
+                    || told.len() >= oxyos_protocol::MAX_DRAG_TYPES
+                    || told.contains(&mime.as_str())
+                {
+                    continue;
+                }
+                told.push(mime);
+                let chunks = TextChunk::split(mime);
+                let count = chunks.len();
+                for (index, chunk) in chunks.iter().enumerate() {
+                    self.send(&Request::DragFileType {
+                        drag,
+                        index: index as u16,
+                        last: index + 1 == count,
+                        text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                    })?;
+                }
+            }
+            if options.vanish {
+                self.send(&Request::DragVanish { drag })?;
+            }
         }
         self.send(&Request::StartDrag {
             drag,
@@ -823,6 +881,35 @@ impl Client {
         let count = chunks.len();
         for (index, chunk) in chunks.iter().enumerate() {
             self.send(&Request::TrashFiles {
+                input,
+                index: index as u16,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The session's shell asks the session to open files with the application `application`
+    /// (version 26, ADR 0034): their `file://` URIs, one a line, citing `input`, the drop on the
+    /// application's icon in the dock. The session opens those its scope reaches whose type the
+    /// application declares.
+    pub fn open_files(&self, input: u64, application: &str, uris: &str) -> io::Result<()> {
+        let text = format!("{application}\n{uris}");
+        if application.is_empty()
+            || application.contains('\n')
+            || uris.is_empty()
+            || text.len() > oxyos_protocol::MAX_OPEN_FILES_BYTES
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "an application's id and 1 byte to MAX_OPEN_FILES_BYTES of URIs",
+            ));
+        }
+        let chunks = TextChunk::split(&text);
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::OpenFiles {
                 input,
                 index: index as u16,
                 last: index + 1 == count,

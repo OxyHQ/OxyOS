@@ -49,6 +49,13 @@ pub enum Shift {
         from: Rect,
         to: Rect,
     },
+    /// A drag's image vanishing in a poof centred on (`x`, `y`), the global space's (ADR 0035): it
+    /// stays where it is, fading out at once, while the cloud (`poof.rs`) bursts there;
+    /// `shift_permille` is how far the poof is, linearly, over `POOF_DURATION`.
+    Poof {
+        x: i32,
+        y: i32,
+    },
     /// Into the dock's `slot` (where the window minimizes into, the global space's), through the
     /// genie's mesh. `shift_permille` is how far into the slot it is, linearly (0 the window
     /// open, 1000 in the slot), going and coming back alike.
@@ -117,6 +124,9 @@ impl Motion {
         if let Shift::Dock { .. } = self.shift {
             return DOCK_DURATION;
         }
+        if let Shift::Poof { .. } = self.shift {
+            return crate::poof::POOF_DURATION;
+        }
         let moves = self.moves.map_or(Duration::ZERO, |spring| spring.settles());
         let fades = self.fades.map_or(Duration::ZERO, |fade| fade.settles());
         moves.max(fades)
@@ -126,6 +136,10 @@ impl Motion {
     fn moved(&self, elapsed: Duration) -> f64 {
         if let Shift::Dock { .. } = self.shift {
             return (elapsed.as_secs_f64() / DOCK_DURATION.as_secs_f64()).clamp(0.0, 1.0);
+        }
+        if let Shift::Poof { .. } = self.shift {
+            let whole = crate::poof::POOF_DURATION.as_secs_f64();
+            return (elapsed.as_secs_f64() / whole).clamp(0.0, 1.0);
         }
         self.moves.map_or(1.0, |spring| spring.at(elapsed))
     }
@@ -240,6 +254,14 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
             fades: Some(motion::DRAG_RETURN_FADES),
             scale_permille: 1000,
             shift: Shift::To { x, y },
+        },
+        // A drag dropped on nothing whose source said so: its image puffs away where it is, a
+        // Mac's poof (`poof.rs`), the image itself gone almost at once beneath the cloud.
+        (Kind::DragIcon, Change::Vanished { x, y }) => Motion {
+            moves: None,
+            fades: Some(motion::DRAG_VANISH_FADES),
+            scale_permille: 1000,
+            shift: Shift::Poof { x, y },
         },
         (Kind::Candidates | Kind::DragIcon, _) => Motion::AT_ONCE,
     }
@@ -464,7 +486,7 @@ impl Frame {
             i64::from(rect.y) + i64::from(rect.height) / 2,
         );
         let (dx, dy) = match self.shift {
-            Shift::None => (0, 0),
+            Shift::None | Shift::Poof { .. } => (0, 0),
             Shift::Own {
                 x_permille,
                 y_permille,
@@ -1923,6 +1945,53 @@ mod tests {
         );
         assert_eq!(end.place(rect), Rect::new(400, 250, 200, 100));
         assert_eq!(end.opacity, 0);
+    }
+
+    #[test]
+    fn a_vanishing_drag_puffs_away_where_it_is_in_three_tenths_and_with_reduce_motion_fades() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        let gone = Appearance {
+            key: KEY,
+            kind: Kind::DragIcon,
+            change: Change::Vanished { x: 200, y: 150 },
+        };
+        t.appear(gone, start, Some(snapshot()), &PLACE);
+        let rect = snapshot().rect;
+        let frames: Vec<Frame> = (0..=300)
+            .step_by(10)
+            .map(|ms| {
+                t.going(start + Duration::from_millis(ms))
+                    .next()
+                    .map_or(Frame::WHOLE, |(_, _, frame)| frame)
+            })
+            .collect();
+        // It never moves nor resizes: it puffs away where it was dropped.
+        assert!(frames.iter().all(|frame| frame.place(rect) == rect));
+        assert!(frames
+            .iter()
+            .all(|frame| frame.shift == Shift::Poof { x: 200, y: 150 }));
+        // The poof goes linearly over its 300 ms; the image is gone beneath it within its first
+        // tenth of a second.
+        let progress: Vec<i32> = frames.iter().map(|frame| frame.shift_permille).collect();
+        assert_eq!(progress[0], 0);
+        assert_eq!(progress[15], 500);
+        assert!(progress.windows(2).all(|pair| pair[1] >= pair[0]));
+        assert_eq!(frames[0].opacity, 255);
+        assert!(frames[10].opacity < 16, "{}", frames[10].opacity);
+        assert_eq!(
+            lasts(Kind::DragIcon, gone.change),
+            crate::poof::POOF_DURATION
+        );
+        t.advance(start + crate::poof::POOF_DURATION);
+        assert!(t.is_empty());
+        // With reduce motion, no cloud: the image fades out in place.
+        let mut t = Transitions::default();
+        t.set_reduce_motion(true);
+        t.appear(gone, start, Some(snapshot()), &PLACE);
+        let frame = t.going(start + Duration::from_millis(50)).next().unwrap().2;
+        assert_eq!(frame.shift, Shift::None);
+        assert_eq!(frame.place(rect), rect);
     }
 
     #[test]

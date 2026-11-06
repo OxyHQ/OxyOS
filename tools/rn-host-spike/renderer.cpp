@@ -1249,6 +1249,7 @@ void allocate(Canvas& canvas, int width, int height, uint32_t value) {
   canvas.gpu.reset();
   canvas.pixels.clear();
   if (GrDirectContext* context = activeContext(); context && width > 0 && height > 0) {
+    fitResourceCache(context, width, height);
     if (auto surface = gpuSurface(context, width, height)) {
       surface->getCanvas()->clear(fromPremultiplied(value));
       canvas.gpu = std::make_shared<GpuCanvas>(GpuCanvas{std::move(surface)});

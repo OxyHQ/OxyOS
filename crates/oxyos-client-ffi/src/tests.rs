@@ -5365,6 +5365,10 @@ fn the_painters_abi_matches_the_header() {
     ) -> i64 = crate::paint::oxyos_paint_present;
     let last: unsafe extern "C" fn(*mut OxyOSPaint, *mut OxyOSPaintPresentTimes) -> c_int =
         crate::paint::oxyos_paint_last_present;
+    let memory: unsafe extern "C" fn(*mut OxyOSPaint, *mut u64, *mut u32) -> c_int =
+        crate::paint::oxyos_paint_memory;
+    let trim: unsafe extern "C" fn(*mut OxyOSPaint, *mut OxyOSClient) -> u64 =
+        crate::paint::oxyos_paint_trim;
     assert_eq!(
         declaration("oxyos_paint_new"),
         format!("unsafe {}", type_of(new))
@@ -5376,6 +5380,8 @@ fn the_painters_abi_matches_the_header() {
         ("oxyos_paint_vulkan", type_of(vulkan)),
         ("oxyos_paint_present", type_of(present)),
         ("oxyos_paint_last_present", type_of(last)),
+        ("oxyos_paint_memory", type_of(memory)),
+        ("oxyos_paint_trim", type_of(trim)),
     ] {
         assert_eq!(declaration(name), rust, "{name}");
     }
@@ -6277,9 +6283,192 @@ fn the_header_matches_the_drag_abi() {
         "oxyos_client_receive_drop",
         "oxyos_client_finish_drop",
         "oxyos_client_trash_files",
+        "oxyos_client_start_drag_with",
+        "oxyos_client_open_files",
+        "oxyos_files_media_type",
     ] {
         assert!(HEADER.contains(&format!("{function}(")), "{function}");
     }
+    assert_eq!(define("OXYOS_DRAG_VANISH"), i64::from(OXYOS_DRAG_VANISH));
+    assert_eq!(
+        define("OXYOS_EVENT_DRAG_OFFER_FILE_TYPE"),
+        i64::from(OXYOS_EVENT_DRAG_OFFER_FILE_TYPE)
+    );
+}
+
+#[test]
+fn a_vanishing_drag_says_so_and_its_files_types_and_a_target_reads_them() {
+    // The source, to a compositor of version 26: its types, its files' types (a long one in
+    // chunks, each named once), that it vanishes, then the start.
+    let (client, compositor) = drag_pair("vanish", |server| {
+        let mut requests = Vec::new();
+        loop {
+            let request = server.recv_request().unwrap().0;
+            let started = matches!(request, Request::StartDrag { .. });
+            requests.push(request);
+            if started {
+                break;
+            }
+        }
+        // Then, as a target, a drag of a PNG and a long type entering it.
+        let long = "application/vnd.oasis.opendocument.text";
+        let mut events = vec![Event::DragEnter {
+            surface: 1,
+            offer: 6,
+            serial: 40,
+            x: 0,
+            y: 0,
+            actions: DragActions::COPY,
+            types: 0,
+            modifiers: 0,
+            file_types: 2,
+        }];
+        for mime in ["image/png", long] {
+            let chunks = TextChunk::split(mime);
+            for (index, chunk) in chunks.iter().enumerate() {
+                events.push(Event::DragOfferFileType {
+                    offer: 6,
+                    index: index as u16,
+                    last: index + 1 == chunks.len(),
+                    text: PreeditText::new(chunk.as_str()).unwrap(),
+                });
+            }
+        }
+        for event in events {
+            server.send_event(&event, None).unwrap();
+        }
+        // The shell's files opened with an application, in chunks.
+        let mut opened = String::new();
+        let cited;
+        loop {
+            match server.recv_request().unwrap().0 {
+                Request::OpenFiles {
+                    input, last, text, ..
+                } => {
+                    opened.push_str(text.as_str());
+                    if last {
+                        cited = input;
+                        break;
+                    }
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        (requests, (cited, opened))
+    });
+    let uris = b"file:///home/ana/foto.png\r\n";
+    let types = "image/png\napplication/vnd.oasis.opendocument.text\nimage/png\n";
+    // SAFETY: the client is live until closed at the end; entries and strings point to live
+    // locals.
+    unsafe {
+        let entries = [clipboard_entry("text/uri-list", uris)];
+        let drag = oxyos_client_start_drag_with(
+            client,
+            1,
+            0,
+            77,
+            OXYOS_DRAG_MOVE,
+            entries.as_ptr(),
+            1,
+            OXYOS_DRAG_VANISH,
+            types.as_ptr().cast(),
+            types.len(),
+        );
+        assert_eq!(drag, 1);
+        let enter = poll_until(client, OXYOS_EVENT_DRAG_ENTER);
+        assert_eq!((enter.code, enter.height), (6, 2));
+        let mut told = Vec::new();
+        let mut current = String::new();
+        while told.len() < 2 {
+            let chunk = poll_until(client, OXYOS_EVENT_DRAG_OFFER_FILE_TYPE);
+            assert_eq!(chunk.code, 6);
+            current.push_str(CStr::from_ptr(chunk.text.as_ptr().cast()).to_str().unwrap());
+            if chunk.flag == 1 {
+                told.push(std::mem::take(&mut current));
+            }
+        }
+        assert_eq!(
+            told,
+            ["image/png", "application/vnd.oasis.opendocument.text"]
+        );
+        let application = "so.oxy.allo";
+        let files = "file:///home/ana/foto.png";
+        assert_eq!(
+            oxyos_client_open_files(
+                client,
+                40,
+                application.as_ptr().cast(),
+                application.len(),
+                files.as_ptr().cast(),
+                files.len()
+            ),
+            0
+        );
+        let (requests, opened) = compositor.join().unwrap();
+        let file_types: Vec<String> = requests
+            .iter()
+            .filter_map(|request| match request {
+                Request::DragFileType { text, .. } => Some(text.as_str().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            file_types.concat(),
+            "image/pngapplication/vnd.oasis.opendocument.text",
+            "each type once, the long one in chunks"
+        );
+        assert!(requests.contains(&Request::DragVanish { drag: 1 }));
+        assert!(matches!(
+            requests.last(),
+            Some(Request::StartDrag { drag: 1, .. })
+        ));
+        assert_eq!(
+            opened,
+            (40, "so.oxy.allo\nfile:///home/ana/foto.png".to_owned())
+        );
+        oxyos_client_close(client);
+    }
+}
+
+#[test]
+fn a_file_s_media_type_from_its_uri() {
+    let typed = |uri: &str| {
+        let mut out = [0 as std::ffi::c_char; 128];
+        // SAFETY: the URI and the buffer are live locals of their lengths.
+        let length = unsafe {
+            crate::files::oxyos_files_media_type(
+                uri.as_ptr().cast(),
+                uri.len(),
+                out.as_mut_ptr(),
+                out.len(),
+            )
+        };
+        assert!(length > 0, "{uri}");
+        // SAFETY: written NUL-terminated.
+        unsafe { CStr::from_ptr(out.as_ptr()) }
+            .to_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(typed("file:///home/ana/Foto%201.PNG"), "image/png");
+    assert_eq!(typed("file:///home/ana/Documentos/"), "inode/directory");
+    assert_eq!(typed("file:///home/ana/notas"), "application/octet-stream");
+    assert_eq!(
+        typed("file:///home/ana/a.odt"),
+        "application/vnd.oasis.opendocument.text"
+    );
+    let mut small = [0 as std::ffi::c_char; 4];
+    let uri = "file:///a.png";
+    // SAFETY: the URI and the buffer are live locals of their lengths.
+    let length = unsafe {
+        crate::files::oxyos_files_media_type(
+            uri.as_ptr().cast(),
+            uri.len(),
+            small.as_mut_ptr(),
+            small.len(),
+        )
+    };
+    assert_eq!(length, OXYOS_ERROR);
 }
 
 /// A connected client against a compositor played on a thread by `play`, after the handshake.
@@ -6431,6 +6620,7 @@ fn a_target_is_told_the_drag_answers_it_and_receives_the_drop_through_a_pipe() {
                 actions: DragActions::COPY.union(DragActions::MOVE),
                 types: 1,
                 modifiers: 0,
+                file_types: 0,
             },
             Event::DragOfferType { offer: 5, mime },
         ] {
