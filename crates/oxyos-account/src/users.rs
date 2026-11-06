@@ -14,6 +14,10 @@
 //!   conversation of its own to answer their prompts and a PAM binding in a root service; the tool
 //!   is the system's own path to the same result, and is what an administrator's scripts use.
 //! - **Removal:** `userdel --remove`: the user, its group and its home.
+//! - **Locking** (an account Oxy signed out, or one being removed): `usermod --lock`, a `!` before
+//!   the verifier, so no password opens it until a setup sets one again.
+//! - **Ending its sessions:** `loginctl terminate-user`, logind's own way to end every session and
+//!   process of a user (what an administrator runs; root may, by polkit's rule for root).
 //!
 //! Users are read from `/etc/passwd` (passwd(5)), where `useradd` writes them. A name another
 //! account database holds is refused by `useradd` itself ("already exists").
@@ -66,6 +70,10 @@ pub trait Users {
     fn set_verifier(&self, name: &UserName, password: &Secret) -> Result<(), UsersError>;
     /// The user, its group and its home.
     fn remove(&self, name: &UserName) -> Result<(), UsersError>;
+    /// The user's password locked: its verifier no longer opens it.
+    fn lock(&self, name: &UserName) -> Result<(), UsersError>;
+    /// Every session and process of the user ended (logind's).
+    fn end_sessions(&self, name: &UserName) -> Result<(), UsersError>;
 }
 
 /// The longest password the verifier takes: Linux-PAM's longest answer (`PAM_MAX_RESP_SIZE`),
@@ -87,6 +95,8 @@ pub struct SystemUsers {
     pub(crate) useradd: PathBuf,
     pub(crate) chpasswd: PathBuf,
     pub(crate) userdel: PathBuf,
+    pub(crate) usermod: PathBuf,
+    pub(crate) loginctl: PathBuf,
 }
 
 impl Default for SystemUsers {
@@ -103,6 +113,8 @@ impl SystemUsers {
             useradd: "/usr/sbin/useradd".into(),
             chpasswd: "/usr/sbin/chpasswd".into(),
             userdel: "/usr/sbin/userdel".into(),
+            usermod: "/usr/sbin/usermod".into(),
+            loginctl: "/usr/bin/loginctl".into(),
         }
     }
 
@@ -249,6 +261,46 @@ impl Users for SystemUsers {
             // userdel(8): 6, the user does not exist.
             Some(6) => Err(UsersError::Missing),
             _ => Err(failed("userdel", &output)),
+        }
+    }
+
+    fn lock(&self, name: &UserName) -> Result<(), UsersError> {
+        let output = run(
+            "usermod",
+            self.command(&self.usermod)
+                .args(["--lock", "--"])
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => Ok(()),
+            // usermod(8): 6, the user does not exist.
+            Some(6) => Err(UsersError::Missing),
+            _ => Err(failed("usermod", &output)),
+        }
+    }
+
+    fn end_sessions(&self, name: &UserName) -> Result<(), UsersError> {
+        // Another root's users have no sessions here.
+        if self.prefix.is_some() {
+            return Ok(());
+        }
+        let mut command = Command::new(&self.loginctl);
+        command
+            .env_clear()
+            .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .args(["--no-ask-password", "terminate-user", "--"])
+            .arg(name.as_str());
+        let output = run("loginctl", &mut command)?;
+        let said = String::from_utf8_lossy(&output.stderr);
+        // A user with no session is not an error: there is nothing to end.
+        if output.status.success() || said.contains("not logged in") {
+            Ok(())
+        } else {
+            Err(failed("loginctl", &output))
         }
     }
 }

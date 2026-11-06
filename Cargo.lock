@@ -1777,6 +1777,8 @@ dependencies = [
 name = "oxyos-account"
 version = "0.1.0"
 dependencies = [
+ "jiff",
+ "libc",
  "rustix",
  "serde",
  "serde_json",
@@ -2231,6 +2233,7 @@ dependencies = [
 name = "oxyos-session"
 version = "0.1.0"
 dependencies = [
+ "oxyos-account",
  "oxyos-apps",
  "oxyos-auth",
  "oxyos-compositor",

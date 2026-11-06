@@ -53,7 +53,7 @@ fn a_snapshot_is_the_services_rebuilt_and_strict() {
     let shapes = [
         signed_in(3),
         json!({"snapshot": {"status": "signed_in", "revision": 4, "online": false, "account": null}}),
-        json!({"snapshot": {"status": "signed_out", "revision": 5, "online": true, "account": null, "secret": "x"}}),
+        json!({"snapshot": {"status": "signed_out", "revision": 5, "online": true, "account": {"id": "a", "handle": "b"}}}),
         json!({"refused": {"reason": "notPermitted"}}),
     ];
     let answers = std::sync::Mutex::new(shapes.into_iter());

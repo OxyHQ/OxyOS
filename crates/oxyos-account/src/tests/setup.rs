@@ -16,7 +16,7 @@ fn machine_with<U: Users>(api: FakeApi, users: U) -> Machine<U> {
     let dir = TempDir::new("setup");
     let store = Store::open(&dir.path().join("accounts")).unwrap();
     Machine {
-        setup: Setup::new(api, users, store),
+        setup: Setup::new(api, users, store).with_platform(platform_client()),
         _dir: dir,
     }
 }
@@ -78,8 +78,27 @@ fn an_account_is_set_up_with_its_user_verifier_and_credential() {
         machine.setup.users().verifier(&name).as_deref(),
         Some(PASSWORD)
     );
+    // The credential kept is the platform credential the sign-in issued, which only the service
+    // saw; the one handed over is retired.
     let stored = machine.setup.store().get(&account()).unwrap().unwrap();
-    assert_eq!(stored.credential, credential());
+    assert_eq!(
+        stored.credential,
+        Some(DeviceCredential {
+            device_id: DEVICE.into(),
+            device_secret: Secret::new(platform_secret(1)),
+        })
+    );
+    assert!(!stored.password_changed);
+    assert!(!machine
+        .api()
+        .secrets
+        .lock()
+        .unwrap()
+        .contains(&DEVICE_SECRET.to_string()));
+    assert_eq!(
+        *machine.api().platforms.lock().unwrap(),
+        [Some(platform_client())]
+    );
     assert_eq!(stored.uid, enrolled.uid);
     // The verifier is set last.
     assert_eq!(
@@ -336,8 +355,8 @@ fn an_enrolled_account_set_up_again_keeps_its_user_and_takes_the_new_credential(
     assert_eq!(first.uid, second.uid);
     let stored = machine.setup.store().get(&account()).unwrap().unwrap();
     assert_eq!(
-        stored.credential.device_secret.expose(),
-        OTHER_DEVICE_SECRET
+        stored.credential.unwrap().device_secret.expose(),
+        platform_secret(2)
     );
     assert_eq!(machine.setup.users().names().len(), 1);
     assert_eq!(
@@ -531,4 +550,67 @@ fn with_the_systems_tools_a_failed_setup_removes_the_user_and_home() {
     assert!(!root.read("group").contains(name.as_str()));
     assert!(!root.path().join("home").join(name.as_str()).exists());
     assert_eq!(machine.files(), 0);
+}
+
+#[test]
+fn without_oxyoss_client_id_nothing_is_set_up() {
+    let dir = TempDir::new("setup-unconfigured");
+    let setup = Setup::new(
+        FakeApi::default(),
+        FakeUsers::default(),
+        Store::open(&dir.path().join("accounts")).unwrap(),
+    );
+    assert_eq!(
+        setup.enroll(request(PASSWORD)).unwrap_err(),
+        SetupError::NotConfigured
+    );
+    assert!(setup.api().calls().is_empty());
+    assert!(setup.users().names().is_empty());
+}
+
+#[test]
+fn a_platform_credential_the_machine_could_not_take_is_ended_online() {
+    let machine = machine(FakeApi::default());
+    machine.setup.users().fail(UserStep::SetVerifier);
+    assert!(matches!(
+        machine.setup.enroll(request(PASSWORD)),
+        Err(SetupError::Failed(_))
+    ));
+    nothing_left(&machine);
+    // Its device was signed out at Oxy with the credential the sign-in issued.
+    assert_eq!(
+        machine.api().calls(),
+        vec![
+            Call::Mint,
+            Call::Profile,
+            Call::Password,
+            Call::Mint,
+            Call::SignOut
+        ]
+    );
+    assert!(machine.api().revoked.load(Ordering::SeqCst));
+}
+
+#[test]
+fn the_second_factor_names_the_platform_too() {
+    let machine = machine(FakeApi {
+        authenticator: true,
+        ..FakeApi::default()
+    });
+    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+        panic!("a second factor");
+    };
+    machine
+        .setup
+        .second_factor(&pending, &Secret::new(CODE))
+        .unwrap();
+    assert_eq!(
+        *machine.api().platforms.lock().unwrap(),
+        [Some(platform_client()), Some(platform_client())]
+    );
+    let stored = machine.setup.store().get(&account()).unwrap().unwrap();
+    assert_eq!(
+        stored.credential.unwrap().device_secret.expose(),
+        platform_secret(1)
+    );
 }

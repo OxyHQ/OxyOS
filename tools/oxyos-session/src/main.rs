@@ -118,6 +118,68 @@ const SHELL_RESTART: Duration = Duration::from_secs(1);
 /// its displays and its children exiting, and for what is due on a clock (the sun an automatic
 /// appearance follows, a shell started again); this only bounds a wait that something missed.
 const IDLE_WAIT: Duration = Duration::from_secs(60);
+/// The shell's desktop entry id, as the accounts' service knows it: OxyOS itself.
+const SHELL_ID: &str = "so.oxy.shell";
+
+/// The session's registrar (docs/adr/0020-oxy-account-login.mdx, step 5): every application it
+/// launches and every shell it starts is registered with the accounts' service, which gives the
+/// platform's Oxy session to those processes alone. The login screen has none.
+static REGISTRAR: std::sync::OnceLock<oxyos_account::session::RegistrarThread> =
+    std::sync::OnceLock::new();
+
+/// The session socket of the accounts' service.
+fn accountd_session_socket() -> PathBuf {
+    std::env::var_os("OXYOS_ACCOUNTD_SESSION_SOCKET").map_or_else(
+        || PathBuf::from(oxyos_account::session::SOCKET),
+        PathBuf::from,
+    )
+}
+
+/// Tells the accounts' service of what the launcher starts.
+struct Registered;
+
+impl oxyos_apps::Registrar for Registered {
+    fn register(&self, launched: &oxyos_apps::Launched, pidfd: rustix::fd::OwnedFd) {
+        if let Some(registrar) = REGISTRAR.get() {
+            let system = launched.origin == oxyos_apps::Origin::System;
+            registrar.register(&launched.id, system, pidfd);
+        }
+    }
+}
+
+/// The lock's online check (docs/adr/0020-oxy-account-login.mdx, decision 2, step 3): PAM's
+/// answer and the password go to the accounts' service, whose answer stands; unreachable, or
+/// with a password it cannot take, PAM's does. The service rejects a password PAM accepted only
+/// for an account Oxy signed out, or whose password Oxy says was changed while it can ask.
+fn online_check(
+    socket: PathBuf,
+) -> impl Fn(oxyos_auth::Secret, oxyos_auth::Outcome) -> Option<oxyos_auth::Outcome> + Send {
+    use oxyos_account::platform::{Local, Verdict};
+    move |secret, local| {
+        let bytes = secret.into_bytes();
+        let password = oxyos_account::Secret::new(std::str::from_utf8(&bytes).ok()?);
+        drop(bytes);
+        let local = match local {
+            oxyos_auth::Outcome::Accepted => Local::Accepted,
+            oxyos_auth::Outcome::Rejected => Local::Rejected,
+        };
+        match oxyos_account::session::check(&socket, password, local) {
+            Ok(checked) => Some(match checked.result {
+                Verdict::Accepted => oxyos_auth::Outcome::Accepted,
+                Verdict::Rejected => {
+                    if let Some(reason) = checked.reason {
+                        eprintln!("[session] the lock: Oxy says {reason:?}");
+                    }
+                    oxyos_auth::Outcome::Rejected
+                }
+            }),
+            Err(error) => {
+                eprintln!("[session] the lock's online check: {error}; PAM's answer stands");
+                None
+            }
+        }
+    }
+}
 
 fn main() -> Result<()> {
     // Before any thread or child: nothing the session starts inherits the service manager's
@@ -212,8 +274,18 @@ fn main() -> Result<()> {
             pam.user().to_string_lossy()
         );
         let user = pam.user().to_owned();
+        let socket = accountd_session_socket();
+        // Registered with the accounts' service from here on: the shells, then each launch.
+        match oxyos_account::session::RegistrarThread::spawn(socket.clone(), |said| {
+            eprintln!("[session] the accounts' service: {said}")
+        }) {
+            Ok(registrar) => {
+                let _ = REGISTRAR.set(registrar);
+            }
+            Err(error) => eprintln!("[session] no registrar: {error}; applications get no token"),
+        }
         Box::new(Pam {
-            checker: oxyos_auth::Checker::spawn(pam)?,
+            checker: oxyos_auth::Checker::spawn_online(pam, Box::new(online_check(socket)))?,
             user,
         })
     };
@@ -523,7 +595,8 @@ fn main() -> Result<()> {
         oxyos_apps::directories(),
         oxyos_apps::languages(),
     )
-    .with_installed(installed);
+    .with_installed(installed)
+    .with_registrar(Box::new(Registered));
     // The applications the person opens at login (docs/adr/0034-the-dock.mdx), in their order, as
     // the session starts; none on the login screen. One the registry no longer lists is said and
     // passed over.
@@ -1125,7 +1198,15 @@ fn spawn_shell(
         let url = oxyos_apps::script_url(bundle);
         shell.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
     }
-    Ok(shell.spawn()?)
+    let child = shell.spawn()?;
+    // OxyOS itself, to the accounts' service: its pidfd opened before anything could reap it.
+    if let Some(registrar) = REGISTRAR.get() {
+        match oxyos_account::pidfd::open(child.id()) {
+            Ok(pidfd) => registrar.register(SHELL_ID, true, pidfd),
+            Err(error) => eprintln!("[session] the shell is not registered: {error}"),
+        }
+    }
+    Ok(child)
 }
 
 /// Starts the screen reader (`on`) or stops it, if it is not so already: the user's switch

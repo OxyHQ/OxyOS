@@ -186,7 +186,7 @@
       "name": "a password typed goes to the lock screen alone, shown as bullets, reported nowhere",
       "do": [
         "type",
-        "mal"
+        "qzx"
       ],
       "expect": {
         "shell": {
@@ -214,11 +214,11 @@
             "•••"
           ],
           "never": [
-            "mal"
+            "qzx"
           ]
         },
         "never": [
-          "mal"
+          "qzx"
         ]
       }
     },
@@ -256,7 +256,7 @@
             "Contraseña incorrecta"
           ],
           "never": [
-            "mal"
+            "qzx"
           ]
         }
       }

@@ -3,15 +3,16 @@
 //! the service manager told once the login screen is on screen.
 
 use crate::channel::{self, Channel, FromWorker};
-use crate::manager::{Action, Checked, Manager};
+use crate::manager::{Action, Checked, Local, Manager, Online};
 use oxyos_auth::greeter::{self, Answer, ToLogin, Verdict};
 use oxyos_auth::Secret;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
+use zeroize::Zeroizing;
 
 pub struct Config {
     /// The development path: no login screen of its own (the development compositor connects as
@@ -164,9 +165,45 @@ struct Login {
     person: Option<Worker>,
     /// Workers whose checks were abandoned, until they have ended.
     abandoned: Vec<Child>,
-    /// The password the login screen sent, until a worker takes it.
-    pending: Option<Secret>,
+    /// The password the login screen sent, until its check has concluded: a worker's PAM is
+    /// given it, the accounts' service too, and a second worker if the service accepted what PAM
+    /// rejected.
+    password: Option<Zeroizing<Vec<u8>>>,
+    /// The accounts' service's answers to online checks, from the threads that asked.
+    online: (mpsc::Sender<Answered>, mpsc::Receiver<Answered>),
     notify: Option<oxyos_seat::notify::Notify>,
+}
+
+/// An online check's answer, by the check it answers.
+type Answered = (u64, Online);
+
+/// Asks the accounts' service at `socket` to check `account`'s password online, PAM having said
+/// `local`; unreachable (or a password it cannot take), nobody signs in.
+fn check_online(socket: &std::path::Path, account: &str, password: &[u8], local: Local) -> Online {
+    use oxyos_account::platform::{Local as Said, Verdict};
+    let Ok(text) = std::str::from_utf8(password) else {
+        // No Oxy password is not text: PAM's verifier is the setup's, which was.
+        return Online::Rejected;
+    };
+    let local = match local {
+        Local::Accepted => Said::Accepted,
+        Local::Rejected => Said::Rejected,
+    };
+    match oxyos_account::ipc::check(socket, account, oxyos_account::Secret::new(text), local) {
+        Ok(checked) => {
+            if let Some(reason) = checked.reason {
+                eprintln!("[login] {account}: the accounts' service says {reason:?}");
+            }
+            match checked.result {
+                Verdict::Accepted => Online::Accepted,
+                Verdict::Rejected => Online::Rejected,
+            }
+        }
+        Err(error) => {
+            eprintln!("[login] the accounts' service did not check {account}'s password: {error}");
+            Online::Unreachable
+        }
+    }
 }
 
 pub fn run(config: Config, notify: Option<oxyos_seat::notify::Notify>) -> Result<(), String> {
@@ -214,7 +251,8 @@ pub fn run(config: Config, notify: Option<oxyos_seat::notify::Notify>) -> Result
         greeter_due: None,
         person: None,
         abandoned: Vec::new(),
-        pending: None,
+        password: None,
+        online: mpsc::channel(),
         notify,
     };
     login.execute(actions);
@@ -251,6 +289,10 @@ impl Login {
                 }
             }
             Action::Answer { verdict, wait_s } => {
+                // The attempt has concluded: its password is let go.
+                if matches!(verdict, Verdict::Accepted | Verdict::Rejected) {
+                    self.password = None;
+                }
                 if let Some(connection) = &self.connection {
                     if let Err(error) = connection.answer(Answer { verdict, wait_s }) {
                         eprintln!("[login] answering the login screen: {error}");
@@ -263,10 +305,16 @@ impl Login {
                 }
             }
             Action::Check { account } => {
-                let secret = self
-                    .pending
-                    .take()
-                    .unwrap_or_else(|| Secret::new(Vec::new()));
+                let secret = Secret::new(
+                    self.password
+                        .as_ref()
+                        .map(|password| password.to_vec())
+                        .unwrap_or_default(),
+                );
+                // A worker that answered and has not yet gone is reaped as it ends.
+                if let Some(earlier) = self.person.take() {
+                    self.abandoned.push(earlier.child);
+                }
                 let started = self.start_person(&account).and_then(|worker| {
                     worker.channel.send_password(secret)?;
                     Ok(worker)
@@ -280,7 +328,32 @@ impl Login {
                     }
                 }
             }
+            Action::CheckOnline {
+                account,
+                local,
+                check,
+            } => {
+                let password = Zeroizing::new(
+                    self.password
+                        .as_ref()
+                        .map(|password| password.to_vec())
+                        .unwrap_or_default(),
+                );
+                let socket = self.config.accountd.clone();
+                let answers = self.online.0.clone();
+                let spawned = std::thread::Builder::new()
+                    .name("oxyos-login-check".into())
+                    .spawn(move || {
+                        let online = check_online(&socket, &account, &password, local);
+                        let _ = answers.send((check, online));
+                    });
+                if spawned.is_err() {
+                    let actions = self.manager.online_checked(check, Online::Unreachable, now);
+                    self.execute(actions);
+                }
+            }
             Action::AbandonCheck => {
+                self.password = None;
                 // Its channel closed and asked to stop, it ends unanswered; reaped later.
                 if let Some(worker) = self.person.take() {
                     worker.signal(rustix::process::Signal::TERM);
@@ -373,6 +446,10 @@ impl Login {
         }
         self.hear_greeter(now);
         self.hear_workers(now);
+        while let Ok((check, online)) = self.online.1.try_recv() {
+            let actions = self.manager.online_checked(check, online, now);
+            self.execute(actions);
+        }
         let actions = self.manager.tick(now);
         self.execute(actions);
         self.wait();
@@ -395,13 +472,13 @@ impl Login {
             Ok(Some(ToLogin::Attempt { account, secret })) => {
                 let actions = match self.enrolled(&account) {
                     Some(enrolled) => {
-                        self.pending = Some(secret);
                         let actions = self.manager.attempt(&account, enrolled, now);
-                        if !actions
+                        // Kept only for the check it starts.
+                        if actions
                             .iter()
                             .any(|action| matches!(action, Action::Check { .. }))
                         {
-                            self.pending = None;
+                            self.password = Some(secret.into_bytes());
                         }
                         actions
                     }

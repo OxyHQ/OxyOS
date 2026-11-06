@@ -1,9 +1,12 @@
 //! The login program on its development path, as a process: a login screen's connection (as the
 //! development compositor's), the accounts' service (a stand-in on a real socket, answering
-//! `list`), PAM with a configuration of the test's own (`pam_start_confdir`: `pam_exec` checks
-//! the password), and the session recorded rather than started. Nothing needs root or a seat.
+//! `list` and `check`), PAM with a configuration of the test's own (`pam_start_confdir`:
+//! `pam_exec` checks the password against a file the stand-in may replace, as the service
+//! replaces a verifier), and the session recorded rather than started. Nothing needs root or a
+//! seat.
 
 use oxyos_account::ipc::{Account, Answer, Listener, Request};
+use oxyos_account::platform::{CheckReason, Checked, Local, Verdict as Said};
 use oxyos_auth::greeter::{Answer as Verdicted, Greeter, Verdict};
 use oxyos_auth::Secret;
 use std::os::unix::fs::PermissionsExt;
@@ -13,6 +16,8 @@ use std::time::{Duration, Instant};
 
 const ADA: &str = "oxy-aaaaaaaaaaaaaaaaaaaa";
 const PASSWORD: &str = "correct horse battery";
+/// A password changed elsewhere: PAM does not know it, Oxy (the stand-in) accepts it.
+const CHANGED: &str = "a password changed elsewhere";
 
 struct Dir(PathBuf);
 
@@ -26,9 +31,14 @@ fn configuration(dir: &Path) -> PathBuf {
     let pam = dir.join("pam");
     std::fs::create_dir_all(&pam).unwrap();
     let script = pam.join("check-password");
+    let verifier = dir.join("verifier");
+    std::fs::write(&verifier, PASSWORD).unwrap();
     std::fs::write(
         &script,
-        format!("#!/bin/sh\n[ \"$(tr -d '\\000')\" = '{PASSWORD}' ]\n"),
+        format!(
+            "#!/bin/sh\n[ \"$(tr -d '\\000')\" = \"$(cat '{}')\" ]\n",
+            verifier.display()
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -47,23 +57,95 @@ fn configuration(dir: &Path) -> PathBuf {
     pam
 }
 
-/// Answers every `list` with Ada alone.
-fn accounts(socket: &Path) {
+/// What the stand-in says of a password PAM accepted.
+#[derive(Clone, Copy)]
+enum Oxy {
+    /// Oxy agrees with PAM; and accepts [`CHANGED`], replacing the verifier with it.
+    Agrees,
+    /// Oxy signed the account out.
+    SignedOut,
+}
+
+/// Answers every `list` with Ada alone, and each `check` as `oxy` says.
+fn accounts(socket: &Path, verifier: PathBuf, oxy: Oxy) {
     let listener = Listener::bind(socket).unwrap();
     std::thread::spawn(move || loop {
         let Ok(connection) = listener.accept() else {
             return;
         };
-        if let Ok(Some(Some(Request::List))) = connection.receive::<Request>() {
-            let _ = connection.send(&Answer::Accounts(vec![Account {
-                account_id: "0123456789abcdef01234567".into(),
-                user: ADA.into(),
-                uid: 1001,
-                name: "Ada Lovelace".into(),
-                picture: None,
-            }]));
+        match connection.receive::<Request>() {
+            Ok(Some(Some(Request::List))) => {
+                let _ = connection.send(&Answer::Accounts(vec![Account {
+                    account_id: "0123456789abcdef01234567".into(),
+                    user: ADA.into(),
+                    uid: 1001,
+                    name: "Ada Lovelace".into(),
+                    picture: None,
+                    state: oxyos_account::store::State::Ready,
+                }]));
+            }
+            Ok(Some(Some(Request::Check {
+                user,
+                password,
+                local,
+            }))) => {
+                assert_eq!(user, ADA);
+                let checked = match (oxy, local) {
+                    (Oxy::SignedOut, _) => Checked {
+                        result: Said::Rejected,
+                        reason: Some(CheckReason::SignInAgain),
+                    },
+                    (Oxy::Agrees, Local::Rejected) if password.expose() == CHANGED => {
+                        std::fs::write(&verifier, CHANGED).unwrap();
+                        Checked::ACCEPTED
+                    }
+                    (Oxy::Agrees, Local::Accepted) => Checked::ACCEPTED,
+                    (Oxy::Agrees, Local::Rejected) => Checked::REJECTED,
+                };
+                let _ = connection.send(&Answer::Checked(checked));
+            }
+            _ => {}
         }
     });
+}
+
+/// The login program on its development path, with the stand-in answering as `oxy` says: its
+/// process, the login screen's connection, the record of sessions.
+fn login_program(dir: &Path, oxy: Oxy) -> (Child, Greeter, PathBuf) {
+    let pam = configuration(dir);
+    let accountd = dir.join("accountd");
+    accounts(&accountd, dir.join("verifier"), oxy);
+    let socket = dir.join("greeter");
+    let record = dir.join("record");
+    let login = Command::new(env!("CARGO_BIN_EXE_oxyos-login"))
+        .arg("--dev")
+        .arg("--pam-confdir")
+        .arg(&pam)
+        .arg("--record")
+        .arg(&record)
+        .arg("--socket")
+        .arg(&socket)
+        .arg("--accountd")
+        .arg(&accountd)
+        .spawn()
+        .unwrap();
+    wait_for("the login screen's socket", || socket.exists());
+    (login, Greeter::connect(&socket).unwrap(), record)
+}
+
+fn temporary(name: &str) -> Dir {
+    let dir = Dir(std::env::temp_dir().join(format!("oxyos-login-{name}-{}", std::process::id())));
+    let _ = std::fs::remove_dir_all(&dir.0);
+    std::fs::create_dir_all(&dir.0).unwrap();
+    dir
+}
+
+fn attempt(greeter: &mut Greeter, account: &str, password: &str) -> Verdicted {
+    assert_eq!(
+        greeter.attempt(Some(account), Secret::new(password.as_bytes().to_vec())),
+        None
+    );
+    answer(greeter)
 }
 
 fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
@@ -91,35 +173,8 @@ fn stop(mut login: Child) {
 
 #[test]
 fn a_wrong_password_is_refused_and_the_right_one_starts_the_session() {
-    let dir = Dir(std::env::temp_dir().join(format!("oxyos-login-dev-{}", std::process::id())));
-    let _ = std::fs::remove_dir_all(&dir.0);
-    std::fs::create_dir_all(&dir.0).unwrap();
-    let pam = configuration(&dir.0);
-    let accountd = dir.0.join("accountd");
-    accounts(&accountd);
-    let socket = dir.0.join("greeter");
-    let record = dir.0.join("record");
-    let login = Command::new(env!("CARGO_BIN_EXE_oxyos-login"))
-        .arg("--dev")
-        .arg("--pam-confdir")
-        .arg(&pam)
-        .arg("--record")
-        .arg(&record)
-        .arg("--socket")
-        .arg(&socket)
-        .arg("--accountd")
-        .arg(&accountd)
-        .spawn()
-        .unwrap();
-    wait_for("the login screen's socket", || socket.exists());
-    let mut greeter = Greeter::connect(&socket).unwrap();
-    let attempt = |greeter: &mut Greeter, account: &str, password: &str| {
-        assert_eq!(
-            greeter.attempt(Some(account), Secret::new(password.as_bytes().to_vec())),
-            None
-        );
-        answer(greeter)
-    };
+    let dir = temporary("dev");
+    let (login, mut greeter, record) = login_program(&dir.0, Oxy::Agrees);
     // An account the service does not list is refused, whatever the password.
     assert_eq!(
         attempt(&mut greeter, "root", PASSWORD).verdict,
@@ -152,5 +207,39 @@ fn a_wrong_password_is_refused_and_the_right_one_starts_the_session() {
     assert!(recorded.contains("XDG_SESSION_CLASS"), "{recorded}");
     assert_eq!(recorded.lines().count(), 1);
     assert!(!recorded.contains(PASSWORD));
+    stop(login);
+}
+
+#[test]
+fn a_password_changed_elsewhere_signs_in_once_oxy_accepts_it() {
+    let dir = temporary("changed");
+    let (login, mut greeter, record) = login_program(&dir.0, Oxy::Agrees);
+    // PAM does not know it; the service asks Oxy, which accepts it and replaces the verifier;
+    // PAM, asked again, accepts it.
+    assert_eq!(
+        attempt(&mut greeter, ADA, CHANGED).verdict,
+        Verdict::Accepted
+    );
+    let mut recorded = String::new();
+    wait_for("the session", || {
+        recorded = std::fs::read_to_string(&record).unwrap_or_default();
+        !recorded.is_empty()
+    });
+    assert!(recorded.starts_with(&format!("session would start for {ADA} ")));
+    assert!(!recorded.contains(CHANGED));
+    stop(login);
+}
+
+#[test]
+fn an_account_oxy_signed_out_does_not_sign_in_with_its_old_password() {
+    let dir = temporary("signed-out");
+    let (login, mut greeter, record) = login_program(&dir.0, Oxy::SignedOut);
+    // PAM accepts it; the service says the account must sign in again online.
+    assert_eq!(
+        attempt(&mut greeter, ADA, PASSWORD).verdict,
+        Verdict::Rejected
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!record.exists(), "nobody signed in");
     stop(login);
 }

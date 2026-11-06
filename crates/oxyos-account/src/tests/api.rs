@@ -150,23 +150,30 @@ fn the_profile_is_read_with_the_token() {
 }
 
 #[test]
-fn the_password_is_checked_on_the_same_device() {
+fn the_password_is_checked_on_the_same_device_naming_the_platform() {
     let (base, request) = server(
         200,
         "",
-        r#"{"sessionId":"s-1","deviceId":"device-1","expiresAt":"2026-11-06T00:00:00.000Z","accessToken":"token-2","deviceSecret":"device-secret-new","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"}}"#,
+        r#"{"sessionId":"s-1","deviceId":"device-1","expiresAt":"2026-11-06T00:00:00.000Z","accessToken":"token-2","deviceSecret":"platform-secret-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"}}"#,
     );
     let step = api(&base)
-        .sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential())
+        .sign_in_password(
+            USERNAME,
+            &Secret::new(PASSWORD),
+            &credential(),
+            Some(&platform_client()),
+        )
         .unwrap();
     let SignInStep::SignedIn(signed_in) = step else {
         panic!("signed in: {step:?}");
     };
+    // The holder secret it issued is the platform credential: kept.
     assert_eq!(
         signed_in,
         SignedIn {
             user_id: ACCOUNT.into(),
-            device_id: DEVICE.into()
+            device_id: DEVICE.into(),
+            device_secret: Some(Secret::new("platform-secret-1")),
         }
     );
     let request = request.join().unwrap();
@@ -177,9 +184,109 @@ fn the_password_is_checked_on_the_same_device() {
             "identifier": USERNAME,
             "password": PASSWORD,
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
         })
     );
+    // A native client: no web Origin, which would have the platform client refused.
     assert_eq!(request.header("origin"), None);
+}
+
+#[test]
+fn a_sign_in_without_the_platform_names_none() {
+    let (base, request) = server(
+        200,
+        "",
+        r#"{"sessionId":"s-1","deviceId":"device-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e"}}"#,
+    );
+    let step = api(&base)
+        .sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential(), None)
+        .unwrap();
+    assert!(matches!(
+        step,
+        SignInStep::SignedIn(SignedIn {
+            device_secret: None,
+            ..
+        })
+    ));
+    assert!(request.join().unwrap().body.get("platformClient").is_none());
+}
+
+#[test]
+fn an_application_token_is_minted_with_the_attestation() {
+    for (attestation, body) in [
+        (
+            Attestation::Entry("so.oxy.dropsea".into()),
+            serde_json::json!({"platform": "oxyos", "desktopEntryId": "so.oxy.dropsea"}),
+        ),
+        (
+            Attestation::OwnPlatform,
+            serde_json::json!({"platform": "oxyos", "self": true}),
+        ),
+    ] {
+        // In `sendSuccess`'s envelope or bare: either is read.
+        for answer in [
+            r#"{"data":{"accessToken":"app-1","expiresAt":"2026-11-06T12:05:00.000Z","applicationId":"app","accountId":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e"}}"#,
+            r#"{"accessToken":"app-1","expiresAt":"2026-11-06T12:05:00.000Z","applicationId":"app","accountId":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e"}"#,
+        ] {
+            let (base, request) = server(200, "", answer);
+            let token = api(&base)
+                .mint_app_token(&credential(), &account(), &attestation)
+                .unwrap();
+            assert_eq!(token.access_token.expose(), "app-1");
+            assert_eq!(token.expires_at, "2026-11-06T12:05:00.000Z");
+            assert_eq!(token.account_id, ACCOUNT);
+            let request = request.join().unwrap();
+            assert_eq!(request.line, "POST /session/device/app-token HTTP/1.1");
+            assert_eq!(
+                request.body,
+                serde_json::json!({
+                    "deviceId": DEVICE,
+                    "deviceSecret": DEVICE_SECRET,
+                    "accountId": ACCOUNT,
+                    "attestation": body,
+                })
+            );
+            for header in ["origin", "cookie", "authorization"] {
+                assert_eq!(request.header(header), None, "{header}");
+            }
+        }
+    }
+    // Its refusals: the device session gone (revocation, R4), an application not recognised.
+    for (status, body, error) in [
+        (
+            401,
+            r#"{"error":"no_active_session"}"#,
+            ApiError::AccountNotOnDevice,
+        ),
+        (
+            401,
+            r#"{"error":"invalid_device_secret"}"#,
+            ApiError::InvalidDeviceSecret,
+        ),
+        (
+            403,
+            r#"{"error":"application_not_recognised"}"#,
+            ApiError::NotRecognised,
+        ),
+    ] {
+        let (base, _request) = server(status, "", body);
+        assert_eq!(
+            api(&base)
+                .mint_app_token(&credential(), &account(), &Attestation::OwnPlatform)
+                .unwrap_err(),
+            error
+        );
+    }
+}
+
+#[test]
+fn a_device_is_signed_out_with_its_own_token() {
+    let (base, request) = server(200, "", r#"{"data":{"deviceId":"device-1","accounts":[]}}"#);
+    api(&base).sign_out_device(&Secret::new("token-1")).unwrap();
+    let request = request.join().unwrap();
+    assert_eq!(request.line, "POST /session/device/signout HTTP/1.1");
+    assert_eq!(request.header("authorization"), Some("Bearer token-1"));
+    assert_eq!(request.body, serde_json::json!({"all": true}));
 }
 
 #[test]
@@ -190,7 +297,12 @@ fn an_authenticator_is_a_challenge_answered_with_its_code() {
         r#"{"secondFactorRequired":true,"challengeId":"challenge-7f3b","expiresAt":1793000000000}"#,
     );
     let step = api(&base)
-        .sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential())
+        .sign_in_password(
+            USERNAME,
+            &Secret::new(PASSWORD),
+            &credential(),
+            Some(&platform_client()),
+        )
         .unwrap();
     let SignInStep::SecondFactor { challenge } = step else {
         panic!("a challenge: {step:?}");
@@ -203,7 +315,12 @@ fn an_authenticator_is_a_challenge_answered_with_its_code() {
         r#"{"sessionId":"s-2","deviceId":"device-1","expiresAt":"x","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e"}}"#,
     );
     let signed_in = api(&base)
-        .second_factor(&challenge, &Secret::new(CODE), &credential())
+        .second_factor(
+            &challenge,
+            &Secret::new(CODE),
+            &credential(),
+            Some(&platform_client()),
+        )
         .unwrap();
     assert_eq!(signed_in.user_id, ACCOUNT);
     let request = request.join().unwrap();
@@ -214,6 +331,7 @@ fn an_authenticator_is_a_challenge_answered_with_its_code() {
             "challengeId": CHALLENGE,
             "code": CODE,
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
         })
     );
 }
@@ -263,7 +381,7 @@ fn the_sign_ins_refusals_are_told_apart() {
         let (base, _request) = server(status, headers, body);
         assert_eq!(
             api(&base)
-                .sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential())
+                .sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential(), None)
                 .unwrap_err(),
             error
         );
@@ -274,7 +392,7 @@ fn the_sign_ins_refusals_are_told_apart() {
 fn an_answer_outside_the_contract_is_no_sign_in() {
     let (base, _request) = server(200, "", r#"{"sessionId":"s-1"}"#);
     assert!(matches!(
-        api(&base).sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential()),
+        api(&base).sign_in_password(USERNAME, &Secret::new(PASSWORD), &credential(), None),
         Err(ApiError::Unexpected(_))
     ));
 }
