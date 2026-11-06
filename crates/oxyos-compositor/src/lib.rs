@@ -1053,16 +1053,17 @@ pub struct Gpu {
     pub compositor: oxyos_gpu::VulkanCompositor,
     pub frames: u64,
     pub mismatches: u64,
-    /// The device's time for each frame composed for the display (GPU timestamps), in ms.
+    /// The device's time for each frame composed for the display, or with `--gpu-only` and no
+    /// display for the director (GPU timestamps), in ms.
     pub device_ms: Vec<f64>,
     /// With `--gpu-only`: how long each readback of the shown frame took, in ms.
     pub readback_ms: Vec<f64>,
-    /// For each frame composed for the display: the host's copy into the upload buffer, and its
+    /// For each frame composed (as `device_ms`): the host's copy into the upload buffer, and its
     /// wait for the device (`VulkanCompositor::last_host_ms`), in ms.
     pub host_ms: Vec<(f64, f64)>,
-    /// The bytes each frame composed for the display uploaded.
+    /// The bytes each frame composed (as `device_ms`) uploaded.
     pub uploaded: Vec<u64>,
-    /// The device's time before and after composing each frame for the display, in ms.
+    /// The device's time before and after composing each frame (as `device_ms`), in ms.
     pub phases_ms: Vec<(f64, f64)>,
 }
 
@@ -3844,8 +3845,9 @@ impl Compositor {
     }
 
     /// With `--gpu-only`: the director's frame of a screen is the GPU's, the screen's part of
-    /// the frame shown (read back after the flip) or, with nothing shown, composed for it. An
-    /// error counts as a mismatch, and the run fails.
+    /// the frame shown (read back after the flip) or, with nothing shown, composed for it, whole,
+    /// its device time recorded as a display's frame's is. An error counts as a mismatch, and the
+    /// run fails.
     pub fn framebuffer_from_gpu(&mut self, index: usize, layers: &[oxyos_gpu::Layer<'_>]) {
         let Some(gpu) = &mut self.gpu else {
             return;
@@ -3871,7 +3873,14 @@ impl Compositor {
             }
             _ => {
                 self.gpu_holds = Some(screen.id);
-                gpu.compositor.compose(width, height, DESKTOP, layers)
+                let composed = gpu.compositor.compose(width, height, DESKTOP, layers);
+                if self.records {
+                    gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
+                    gpu.host_ms.push(gpu.compositor.last_host_ms());
+                    gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
+                    gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
+                }
+                composed
             }
         };
         gpu.readback_ms
