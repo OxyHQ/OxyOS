@@ -1,7 +1,10 @@
 # OxyOS's Settings (apps/settings, docs/adr/0019-settings.mdx), run from the session's Bloom bundle.
+# It opens the platform's `oxyos-settings:` URLs, at the page each names, from the shell or any
+# application.
 [Desktop Entry]
 Type=Application
 Name=Settings
 Name[es]=Ajustes
 Icon=../../../../shell-preview/assets/apps/settings.png
 X-OxyOS-Bloom-Module=OxyOSSettings
+MimeType=x-scheme-handler/oxyos-settings;

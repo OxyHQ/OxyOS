@@ -23,6 +23,7 @@ A session cannot be locked. The compositor's core already holds the lock (`Scene
 1. **Locking is cheap; unlocking is not.** Locking only protects, so several things may ask for it:
    - the compositor's own shortcut, **Ctrl+Super+Q**, as macOS's Ctrl+Cmd+Q, handled by the compositor before any client sees the key;
    - the shell (its `shell` grant), from its menu ("Bloquear pantalla");
+   - an application while one of its windows is the active one, the person using it (the Oxy SDK's sign in, which on OxyOS is the lock and its password checked online, [ADR 0020](./0020-oxy-account-login)); while none is, its request is ignored, so a process the person is not using never locks them out. Since protocol version 26 ([ADR 0033](./0033-protocol-versions)): an older compositor refuses it, so the Bloom host asks only a newer one (`HostServices::lockSession`);
    - logind: its `Lock` signal (`loginctl lock-session`), and `PrepareForSleep(true)` before the machine sleeps. The session holds a logind *delay* inhibitor for sleep and releases it only once the lock's covers are on every output, so the machine never wakes to an unlocked screen, as a Mac locks before it sleeps.
 
    A lock is immediate: the scene stops showing and delivering to every ordinary surface at once, and the compositor's covers are on the next frame of every output, whatever any client does. Only `unlock` undoes it.

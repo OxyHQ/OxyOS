@@ -587,6 +587,15 @@ fn main() -> Result<()> {
             // Its sound now, not a turn later.
             compositor.play_sounds();
         }
+        // Settings' sign out (docs/adr/0020-oxy-account-login.mdx), answered, then the session
+        // ends as the keymap's end of the session ends it; never at the login screen. Before the
+        // store, which takes the requests left.
+        if oxyos_compositor::sign_out::serve(&mut compositor.scene, greeter) {
+            eprintln!("[session] signing out, as Settings asked");
+            // Its answer sent now: the turn ends the session before it would be.
+            compositor.flush();
+            compositor.ending = true;
+        }
         // Input sources (ADR 0041), before the store, which takes the requests left.
         if let Some(methods) = input_methods.as_mut() {
             methods.serve(&mut compositor, &mut settings, settings::now());

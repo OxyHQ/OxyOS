@@ -325,6 +325,21 @@ struct HostServices {
   // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
   // unset without a window.
   std::function<void()> blurFocusedInput;
+  // An application opens the platform's Settings at a page (`oxyos-settings://PAGE`,
+  // docs/adr/0019-settings.mdx), as a Mac's application opens `x-apple.systempreferences:`: the
+  // session is asked from its window, citing its latest press or key, and `done(opened, reason)`
+  // is called on the host's loop once it answers (`reason` empty when opened; said when the
+  // session refused, when there was no input to cite, or when its compositor is older than
+  // OXYOS_APPLICATION_OPENS_SETTINGS_VERSION and would close the connection). The caller checks
+  // the URL is Settings'; any other scheme closes the connection. Unset for the shell and the
+  // login screen.
+  std::function<void(const std::string& url, std::function<void(bool opened, const std::string& reason)> done)>
+      openSettingsUrl;
+  // An application locks the session (docs/adr/0010-lock-screen.mdx), as the person locks it from
+  // the Oxy menu: only while one of its windows is the active one; false when it could not be
+  // asked (no window, a compositor older than OXYOS_APPLICATION_LOCKS_VERSION, or its window not
+  // the active one). Unset for the shell (OxyOSShell.lockSession) and the login screen.
+  std::function<bool()> lockSession;
   // Sends an event to RCTDeviceEventEmitter, from the JavaScript thread.
   std::function<void(const std::string& event, folly::dynamic body)> emit;
   // The runtime this host is (docs/adr/0030-installing-applications.mdx, decisions 2 and 17): its
