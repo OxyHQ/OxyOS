@@ -201,9 +201,12 @@ struct Cached {
 enum Online {
     /// Oxy accepted the password; the credential was rotated.
     Accepted,
-    /// The password is right, and Oxy asks the authenticator's code, which a check cannot answer:
-    /// the credential is unchanged.
+    /// The password the machine already knows is right, and Oxy asks the authenticator's code,
+    /// which a check cannot answer: the credential is unchanged.
     PasswordRight,
+    /// A password the machine does not know proves only the first factor: it never becomes the
+    /// verifier without the authenticator's code (setting the account up again asks for it).
+    SecondFactorRequired,
     /// Oxy refused the password.
     WrongPassword,
     /// Oxy cannot be reached.
@@ -540,6 +543,8 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             (Local::Rejected, _) => match self.sign_in(&enrollment, &password, true).logged(user) {
                 Online::Accepted | Online::PasswordRight => Checked::ACCEPTED,
                 Online::Revoked => Checked::rejected(CheckReason::SignInAgain),
+                // Changed elsewhere, and the authenticator is needed: set up again online.
+                Online::SecondFactorRequired => Checked::rejected(CheckReason::PasswordChanged),
                 Online::WrongPassword | Online::Offline | Online::Failed(_) => Checked::REJECTED,
             },
             (Local::Accepted, true) => {
@@ -548,7 +553,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                     // Offline the old password still opens it.
                     Online::Offline => Checked::ACCEPTED,
                     Online::Revoked => Checked::rejected(CheckReason::SignInAgain),
-                    Online::WrongPassword | Online::Failed(_) => {
+                    Online::WrongPassword | Online::Failed(_) | Online::SecondFactorRequired => {
                         Checked::rejected(CheckReason::PasswordChanged)
                     }
                 }
@@ -647,10 +652,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             Ok(SignInStep::SignedIn(signed_in)) => signed_in,
             Ok(SignInStep::SecondFactor { .. }) => {
                 if set_verifier {
-                    if let Err(error) = self.setup.users().set_verifier(&enrollment.user, password)
-                    {
-                        return Online::Failed(error.to_string());
-                    }
+                    return Online::SecondFactorRequired;
                 }
                 self.clear_flag(&enrollment, credential);
                 return Online::PasswordRight;

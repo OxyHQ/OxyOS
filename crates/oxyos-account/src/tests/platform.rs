@@ -470,7 +470,7 @@ fn every_online_sign_in_rotates_the_platform_credential() {
 }
 
 #[test]
-fn an_authenticators_challenge_proves_the_password_and_rotates_nothing() {
+fn an_authenticators_challenge_never_makes_a_new_password_the_verifier() {
     const NEW: &str = "a new password set elsewhere";
     let machine = machine_as(
         FakeApi {
@@ -491,13 +491,35 @@ fn an_authenticators_challenge_proves_the_password_and_rotates_nothing() {
         .unwrap()
         .1 = Some(PASSWORD.into());
     let before = machine.stored().credential;
+    // PAM rejects the new one; Oxy proves its first factor and asks the authenticator's code,
+    // which a check cannot answer: rejected, the verifier kept (setting up again asks the code).
     assert_eq!(
         machine
             .platform
             .check(&user(), Secret::new(NEW), Local::Rejected),
+        Checked {
+            result: crate::platform::Verdict::Rejected,
+            reason: Some(CheckReason::PasswordChanged),
+        }
+    );
+    assert_eq!(machine.users().verifier(&name).as_deref(), Some(PASSWORD));
+    assert_eq!(machine.stored().credential, before);
+    // The one the machine knows, PAM accepting it, stays accepted.
+    machine
+        .users()
+        .users
+        .lock()
+        .unwrap()
+        .get_mut(name.as_str())
+        .unwrap()
+        .1 = Some(NEW.into());
+    assert_eq!(
+        machine
+            .platform
+            .check(&user(), Secret::new(NEW), Local::Accepted),
         Checked::ACCEPTED
     );
-    assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
+    machine.platform.settle();
     assert_eq!(machine.stored().credential, before);
 }
 
