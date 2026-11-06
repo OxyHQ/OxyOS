@@ -10,6 +10,10 @@
 //! With `--gpu` the frames are composed on the Vulkan device straight into two buffers exported
 //! as DMA-BUF and imported as framebuffers: no copy through the CPU.
 //!
+//! Then, on a display with a cursor plane, the pointer goes round a circle for a second over the
+//! last frame, moved alone (`Display::present_again`: the cursor plane alone committed), one
+//! position a refresh: its flips are reported as the frames' are.
+//!
 //!     oxyos-kms-show [--gpu] FRAMES_DIR [/dev/dri/cardN] [SECONDS]
 
 use std::path::PathBuf;
@@ -103,6 +107,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         flips.push(display.wait_flip()?);
         index += 1;
     }
+    // The pointer moved alone over the frame shown, a position a refresh.
+    let mut pointer_flips = Vec::new();
+    if display.shows_pointer() {
+        let moving = Instant::now();
+        let mut step = 0u32;
+        while moving.elapsed() < Duration::from_secs(1) {
+            let angle = f64::from(step) * 0.1;
+            let x = width as f64 / 2.0 + angle.cos() * height as f64 / 4.0;
+            let y = height as f64 / 2.0 + angle.sin() * height as f64 / 4.0;
+            display.set_pointer(Some((x as i32, y as i32)), 0);
+            if !display.present_again()? {
+                break;
+            }
+            pointer_flips.push(display.wait_flip()?);
+            step += 1;
+        }
+    }
     drop(display);
     let device = vulkan.as_ref().map(|c| format!("{:?}", c.device_name()));
     drop(vulkan);
@@ -120,8 +141,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         values.get(values.len() / 2).copied().unwrap_or(0.0)
     };
     let max = intervals.iter().copied().fold(0.0, f64::max);
+    let mut pointer_intervals: Vec<f64> = pointer_flips
+        .windows(2)
+        .map(|w| (w[1] - w[0]).as_secs_f64() * 1e3)
+        .collect();
     println!(
-        "{{\"card\":{:?},\"driver\":{driver:?},\"mode\":{:?},\"presented\":{},\"distinct_frames\":{},\"flip_interval_ms_median\":{:.3},\"flip_interval_ms_max\":{:.3},\"missed_refreshes\":{missed},\"composition\":{},\"compose_ms_median\":{:.2},\"gpu_compose_ms_median\":{}}}",
+        "{{\"card\":{:?},\"driver\":{driver:?},\"mode\":{:?},\"presented\":{},\"distinct_frames\":{},\"flip_interval_ms_median\":{:.3},\"flip_interval_ms_max\":{:.3},\"missed_refreshes\":{missed},\"composition\":{},\"compose_ms_median\":{:.2},\"gpu_compose_ms_median\":{},\"pointer_moves\":{},\"pointer_flip_interval_ms_median\":{:.3}}}",
         card_path.display().to_string(),
         oxyos_kms_mode(width, height, refresh),
         flips.len(),
@@ -131,6 +156,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         device.map_or("\"cpu\"".to_string(), |name| format!("{{\"vulkan\":{name},\"zero_copy\":true}}")),
         median(&mut compose_ms),
         if device_ms.is_empty() { "null".to_string() } else { format!("{:.3}", median(&mut device_ms)) },
+        pointer_flips.len(),
+        median(&mut pointer_intervals),
     );
     Ok(())
 }
