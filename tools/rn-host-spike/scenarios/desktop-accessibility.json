@@ -70,12 +70,12 @@
     },
     {
       "name": "a password typed into the lock screen is never held by the reader",
-      "do": ["type", "mal"],
+      "do": ["type", "qzx"],
       "expect": {
         "react": {},
         "at": {"shell": [{"role": "TextInput", "name": "Contraseña", "value": ""}]},
-        "never": ["mal"],
-        "in_shell": {"never": ["mal"]}
+        "never": ["qzx"],
+        "in_shell": {"never": ["qzx"]}
       }
     },
     {

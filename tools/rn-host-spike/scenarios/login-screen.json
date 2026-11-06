@@ -27,7 +27,7 @@
       "name": "the login screen lists the enrolled accounts, the first chosen, and takes its password: the lock screen's look, all the compositor shows",
       "do": [
         "type",
-        "mal"
+        "qzx"
       ],
       "expect": {
         "shell": {
@@ -50,7 +50,7 @@
             "Añadir cuenta"
           ],
           "never": [
-            "mal"
+            "qzx"
           ]
         }
       }
@@ -74,7 +74,7 @@
           ],
           "shaken": "login-field",
           "never": [
-            "mal"
+            "qzx"
           ]
         }
       }
