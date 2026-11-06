@@ -308,3 +308,40 @@ fn the_fetcher_writes_only_for_its_peer_and_only_what_it_may() {
     assert_eq!(rustix::fs::fstat(&memory).unwrap().st_size, 0);
     thread.join().unwrap();
 }
+
+#[test]
+fn a_services_socket_appears_only_listening() {
+    use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
+    let dir = std::env::temp_dir().join(format!("oxyos-install-socket-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("socket");
+    let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
+    inotify::add_watch(&watch, &dir, WatchFlags::CREATE | WatchFlags::MOVED_TO).unwrap();
+    // Made, then made again over the one a run before left: each time the name appears only by
+    // a rename of a socket already listening, never by its bind (a connection between a bind and
+    // its listen would be refused).
+    for _ in 0..2 {
+        let listener = crate::socket::Listener::bind(&socket, 0o600).unwrap();
+        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
+        let mut reader = inotify::Reader::new(&watch, &mut buffer);
+        let mut named = Vec::new();
+        while let Ok(event) = reader.next() {
+            if event.file_name().map(|name| name.to_bytes()) == Some(b"socket".as_slice()) {
+                named.push(event.events());
+            }
+        }
+        assert_eq!(named, [ReadFlags::MOVED_TO]);
+        let connected = Connection::connect(&socket).unwrap();
+        let accepted = listener.accept().unwrap();
+        drop((connected, accepted));
+    }
+    // Nothing of the making is left beside it.
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect();
+    assert_eq!(left, [std::ffi::OsString::from("socket")]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

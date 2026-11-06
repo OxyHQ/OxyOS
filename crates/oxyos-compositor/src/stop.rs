@@ -127,14 +127,7 @@ impl Stop {
                 return false;
             }
             // Watched before it is looked at, so nothing made in between is missed.
-            let mut own = None;
-            if let Some(dir) = path
-                .parent()
-                .and_then(|parent| parent.ancestors().find(|d| d.is_dir()))
-            {
-                let watched = inotify::add_watch(&watch, dir, MADE).ok();
-                own = watched.filter(|_| Some(dir) == path.parent());
-            }
+            let own = arm(&watch, path, || {});
             if let Some(now) = identity(path) {
                 if Some(now) != before {
                     return true;
@@ -157,6 +150,28 @@ impl Stop {
             if made && path.exists() {
                 return true;
             }
+        }
+    }
+}
+
+/// The directory `path` is to be in, or while it is not there the nearest one above that is.
+fn nearest(path: &Path) -> Option<&Path> {
+    path.parent()?.ancestors().find(|dir| dir.is_dir())
+}
+
+/// Watches where `path` will be made ([`nearest`]), and returns the watch of `path`'s own
+/// directory once that is the one watched. The nearest directory is looked for, watched, then
+/// looked for again until the one watched is still the nearest: a directory made below it between
+/// the look and the watch (its creation came before the watch, so no event says it) is watched in
+/// turn, and nothing made in it afterwards is missed. `between` runs between each look and its
+/// watch (nothing in a session; a test makes a directory there).
+fn arm(watch: &rustix::fd::OwnedFd, path: &Path, mut between: impl FnMut()) -> Option<i32> {
+    loop {
+        let dir = nearest(path)?;
+        between();
+        let watched = inotify::add_watch(watch, dir, MADE).ok();
+        if nearest(path) == Some(dir) {
+            return watched.filter(|_| Some(dir) == path.parent());
         }
     }
 }
@@ -188,6 +203,36 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
         let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         assert!(waiting.join().unwrap());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_directory_made_between_the_look_and_the_watch_is_watched_too() {
+        let root = directory("between");
+        std::fs::create_dir_all(&root).unwrap();
+        let socket = root.join("run/oxyos/installd/socket");
+        let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
+        // The service makes its directories just after the nearest one was looked for and
+        // before it is watched: their creation comes before any watch could say it.
+        let mut made = false;
+        let own = arm(&watch, &socket, || {
+            if !made {
+                std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+                made = true;
+            }
+        });
+        assert!(own.is_some(), "the socket's own directory is watched");
+        // Its socket made then is seen.
+        let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let mut buffer = [MaybeUninit::<u8>::uninit(); 4096];
+        let mut reader = inotify::Reader::new(&watch, &mut buffer);
+        let mut seen = false;
+        while let Ok(event) = reader.next() {
+            seen |= Some(event.wd()) == own
+                && event.events().contains(inotify::ReadFlags::CREATE)
+                && event.file_name().map(|name| name.to_bytes()) == Some(b"socket".as_slice());
+        }
+        assert!(seen, "the socket's creation was not seen");
         let _ = std::fs::remove_dir_all(&root);
     }
 
