@@ -1,5 +1,5 @@
 {
-  "about": "The session's menu bar changes ONE menu into the next as the pointer crosses its titles with a menu open, as Bloom's Menubar does everywhere (Bloom's viewport; ADR 0021, step 5): Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar) with the screen reader on. File opened by a press; the pointer moving onto Edit changes File's popup into Edit's: the same popup surface throughout, re-anchored and resized frame by frame between File's rectangle and Edit's (each coordinate monotonic, with places between), the two menus' rows drawn together while they crossfade, Edit's alone at the end; the application hears nothing, the window keeps neither the pointer nor the keyboard between the two, and the screen reader says Edit's menu once. Back onto File, the same the other way. From the keys, Left from Edit changes it into File on its first row, said after its title. Escape closes it.",
+  "about": "The session's menu bar changes ONE menu into the next as the pointer crosses its titles with a menu open, as Bloom's Menubar does everywhere (Bloom's viewport; ADR 0021, step 5): Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar) with the screen reader on. File opened by a press; the pointer moving onto Edit changes File's popup into Edit's: the same popup surface throughout, re-anchored and resized frame by frame between File's rectangle and Edit's (each coordinate monotonic, with places between), the two menus' rows drawn together while they crossfade, Edit's alone at the end; the application hears nothing, the window keeps neither the pointer nor the keyboard between the two, and the screen reader says Edit's menu once, by its title, then the row its focus moved into (ADR 0014; Bloom 17.13.1, whose 17.12.0 sent that focus to a view flattened away). Back onto File, the same the other way. From the keys, Left from Edit changes it into File on its first row, said after its title. Escape closes it.",
   "locale": "es_ES.UTF-8",
   "module": "MenuBarMorphProbe",
   "window": [
@@ -45,7 +45,7 @@
       }
     },
     {
-      "name": "a press on File opens it under its title, said by its title",
+      "name": "a press on File opens it under its title, said by its title, then its first row, where the screen reader's focus moved (as a menu a press opens, menu-reader)",
       "do": [
         "press_output",
         [
@@ -92,12 +92,16 @@
         "spoken": [
           {
             "text": "File, menú"
+          },
+          {
+            "text": "New, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "the pointer along the bar onto Edit: File's popup changes into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once",
+      "name": "the pointer along the bar onto Edit: File's popup changes into Edit's, one surface moving and resizing between the two menus' rectangles as their rows crossfade; the window hears nothing; Edit's menu is said once, then its first row",
       "do": [
         "move_output",
         [
@@ -178,12 +182,16 @@
         "spoken": [
           {
             "text": "Edit, menú"
+          },
+          {
+            "text": "Undo, atenuado, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "back onto File: Edit's popup changes into File's the same way, said once",
+      "name": "back onto File: Edit's popup changes into File's the same way, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -253,12 +261,16 @@
         "spoken": [
           {
             "text": "File, menú"
+          },
+          {
+            "text": "New, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "onto Edit again",
+      "name": "onto Edit again, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -308,12 +320,16 @@
         "spoken": [
           {
             "text": "Edit, menú"
+          },
+          {
+            "text": "Undo, atenuado, elemento de menú",
+            "interrupting": false
           }
         ]
       }
     },
     {
-      "name": "onto View: Edit's popup changes into View's, wider than the menus' floor, moving and growing as it shrinks in height",
+      "name": "onto View: Edit's popup changes into View's, wider than the menus' floor, moving and growing as it shrinks in height, said once, then its first row",
       "do": [
         "move_output",
         [
@@ -382,6 +398,10 @@
         "spoken": [
           {
             "text": "View, menú"
+          },
+          {
+            "text": "Show the Sidebar and the Inspector Together, no marcada, casilla",
+            "interrupting": false
           }
         ]
       }
