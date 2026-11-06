@@ -40,8 +40,8 @@ fn main() {
         )
         .replace(
             "//@images-texel",
-            "if (layers[i].image != 0u) {\n\
-             let c = textureLoad(images[layers[i].image - 1u], vec2<i32>(i32(x), i32(y)), 0);\n\
+            "if (l.image != 0u) {\n\
+             let c = textureLoad(images[l.image - 1u], vec2<i32>(i32(x), i32(y)), 0);\n\
              let v = vec4<u32>(round(c * 255.0));\n\
              return (v.a << 24u) | (v.r << 16u) | (v.g << 8u) | v.b;\n\
              }",

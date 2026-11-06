@@ -10,10 +10,12 @@ use super::{shader, shader_images, Layer, Paint};
 use ash::vk;
 use std::fmt;
 
+mod bins;
 mod import;
 #[cfg(test)]
 pub(crate) use import::best_first;
 pub use import::{DmaBufFormat, DmaBufPlane};
+use bins::Bins;
 use import::{Images, IMAGE_SLOTS};
 
 /// What kind of device composes: a GPU, or a CPU implementation of Vulkan (Mesa's lavapipe),
@@ -121,16 +123,16 @@ struct Push {
 const PUSH_BYTES: usize = 32 * 4;
 
 /// The push constants of `shaders/compose.wgsl`'s `Frame`: the region a dispatch composes, the
-/// output's size, the background and the layers' count. 8 words, within the 128 bytes every
-/// device has.
-const FRAME_BYTES: usize = 8 * 4;
+/// output's size, the background, the layers' count, and where the bins are and their shape. 11
+/// words, within the 128 bytes every device has.
+const FRAME_BYTES: usize = 11 * 4;
 
 fn frame_bytes(
     region: &crate::Rect,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     background: u32,
     layers: u32,
+    bins: &Bins,
 ) -> [u8; FRAME_BYTES] {
     let words = [
         region.x as u32,
@@ -141,6 +143,10 @@ fn frame_bytes(
         height,
         background,
         layers,
+        // After the layer table, in words.
+        layers * (PUSH_BYTES / 4) as u32,
+        bins.across,
+        bins.words,
     ];
     let mut bytes = [0; FRAME_BYTES];
     for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
@@ -701,7 +707,8 @@ impl VulkanCompositor {
     /// Creates the pipeline, descriptors, commands, fence and timestamp queries.
     fn build(&mut self, family: u32, images: bool) -> Result<(), Error> {
         let device = &self.device;
-        let mut bindings: Vec<vk::DescriptorSetLayoutBinding> = [0, 1, 2]
+        // The layers' pixels, the output, the layer table, and the table again for its bins.
+        let mut bindings: Vec<vk::DescriptorSetLayoutBinding> = [0, 1, 2, 4]
             .map(|binding| {
                 vk::DescriptorSetLayoutBinding::default()
                     .binding(binding)
@@ -763,7 +770,7 @@ impl VulkanCompositor {
             }
             let mut sizes = vec![vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(3)];
+                .descriptor_count(4)];
             if images {
                 sizes.push(
                     vk::DescriptorPoolSize::default()
@@ -1163,7 +1170,8 @@ impl VulkanCompositor {
             (frame_words * 8).max(4),
             (frame_words * 4).max(4),
             out_bytes,
-            (layers.len() * PUSH_BYTES).max(PUSH_BYTES) as u64,
+            (layers.len() * PUSH_BYTES + Bins::words_for(width, height, layers.len()) * 4)
+                .max(PUSH_BYTES) as u64,
         )?;
         if self.buffers[0].as_ref().map(|buffer| buffer.buffer) != source {
             // A new source buffer holds no pixels.
@@ -1397,8 +1405,11 @@ impl VulkanCompositor {
         // The layers drawn, bottom to top, into the table the shader reads; and what it composes:
         // the whole output, or each damaged region (each pixel of it once, every layer over it).
         let table: Vec<Push> = layer_pushes.iter().flatten().copied().collect();
-        let regions = regions.unwrap_or_else(|| vec![output]);
-        let words: Vec<u8> = table.iter().flat_map(|push| push.bytes()).collect();
+        // On the tiles' grid; and each bin's layers after the table (`bins`).
+        let regions = bins::on_tiles(&regions.unwrap_or_else(|| vec![output]), &output);
+        let bins = Bins::new(&table, width, height, &regions);
+        let mut words: Vec<u8> = table.iter().flat_map(|push| push.bytes()).collect();
+        words.extend(bins.bits.iter().flat_map(|word| word.to_ne_bytes()));
         // SAFETY: the table buffer is mapped, coherent and holds at least a layer per layer
         // (`reserve`); the last submission, which read it, is done (`complete`).
         unsafe {
@@ -1504,12 +1515,18 @@ impl VulkanCompositor {
                     self.pipeline_layout,
                     vk::ShaderStageFlags::COMPUTE,
                     0,
-                    &frame_bytes(region, width, height, background, table.len() as u32),
+                    &frame_bytes(
+                        region,
+                        (width, height),
+                        background,
+                        table.len() as u32,
+                        &bins,
+                    ),
                 );
                 device.cmd_dispatch(
                     command,
-                    region.width.div_ceil(8),
-                    region.height.div_ceil(8),
+                    region.width.div_ceil(bins::TILE.0),
+                    region.height.div_ceil(bins::TILE.1),
                     1,
                 );
                 // Regions do not overlap and nothing reads the output: they run together.
@@ -1922,12 +1939,13 @@ impl VulkanCompositor {
                     .offset(0)
                     .range(vk::WHOLE_SIZE)]
             });
-            let writes = [0, 1, 2].map(|binding| {
+            // The table's bins (binding 4) are the same buffer's, after the layers.
+            let writes = [(0, 0), (1, 1), (2, 2), (4, 2)].map(|(binding, info)| {
                 vk::WriteDescriptorSet::default()
                     .dst_set(self.set)
                     .dst_binding(binding)
                     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(&infos[binding as usize])
+                    .buffer_info(&infos[info])
             });
             // SAFETY: the set is not in use (no submission is pending) and the buffers are live.
             unsafe { self.device.update_descriptor_sets(&writes, &[]) };
