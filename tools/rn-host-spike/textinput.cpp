@@ -468,8 +468,8 @@ void TextEditing::transaction(const OxyOSTextTransaction& change, bool current) 
   };
   std::string commitKey = commits && utf16Length(commit) <= 2 ? commit : "";
   bool batch = deletes + commits + composes > 1;
-  if (deletes) keyPress("Backspace");
-  if (!batch && commits) keyPress(commitKey);
+  if (deletes) keyPress("Backspace", "deleteSurroundingText");
+  if (!batch && commits) keyPress(commitKey, "commitText");
   // A composition is one edit, recorded when it ends, from the text before it began.
   Snapshot snapshot = wasComposing && composeBefore_ ? *composeBefore_ : Snapshot{text_, anchor_, caret_};
   bool composing = !preedit.empty();
@@ -488,7 +488,7 @@ void TextEditing::transaction(const OxyOSTextTransaction& change, bool current) 
   }
   std::string key = batch ? (composes ? composingKey() : commitKey) : composes ? composingKey() : "";
   update(std::move(text), anchor, caret);
-  keyPress(key);
+  keyPress(key, batch ? "batch" : "setComposingText");
   if (!composing) {
     Edit kind = wasComposing || deletes || (commits && from != to) ? Edit::Replace
                 : commits                                         ? Edit::Insert
@@ -1432,14 +1432,15 @@ void TextEditing::undo(bool redo) {
   merging_ = false;
 }
 
-void TextEditing::keyPress(const std::string& key) {
+void TextEditing::keyPress(const std::string& key, const char* call) {
   auto it = tree_.views().find(focused_);
   if (key.empty() || it == tree_.views().end()) return;
   // With the key's time, as Android's key press event carries its KeyEvent's: React's `timeStamp`.
   it->second.view.eventEmitter->dispatchEvent("keyPress", folly::dynamic::object("key", key),
                                               RawEvent::Category::Unspecified, eventTime_);
   bool named = key == "Backspace" || key == "Enter";
-  Report::get().deliver("keyPress", 0, it->second.view, folly::dynamic::object("key", named ? key : logged(key)));
+  Report::get().deliver("keyPress", 0, it->second.view,
+                        folly::dynamic::object("key", named ? key : logged(key))("call", call));
 }
 
 void TextEditing::setCaretBlinks(bool blinks) {

@@ -17,7 +17,7 @@ use oxyos_compositor_core::{
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
     AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request, ScrollSource,
-    ServerConnection, Size, TextChunk,
+    ServerConnection, Size, TextChunk, TouchKind,
 };
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -558,6 +558,10 @@ pub struct Compositor {
     /// `log_input` is set: what a development compositor's step says a field was given.
     pub text_input_log: Vec<(ClientId, Event)>,
     pub log_input: bool,
+    /// Every input event routed to a client, in order, as it was queued to it, kept while this is
+    /// set (a development compositor's whole run): the record its hosts' own records of what they
+    /// received are checked against, event by event (`Delivery`).
+    pub delivery_log: Option<Vec<Delivery>>,
     /// Clients of the scene with no connection, played by the program running the compositor
     /// (a development compositor's assistive technology or input method): their events are kept
     /// in `local_events` for it, not dropped.
@@ -1106,6 +1110,7 @@ impl Compositor {
             input_log: Vec::new(),
             text_input_log: Vec::new(),
             log_input: false,
+            delivery_log: None,
             local_clients: Default::default(),
             local_events: Vec::new(),
             local_pipes: VecDeque::new(),
@@ -1343,6 +1348,10 @@ impl Compositor {
     }
 
     pub fn disconnect(&mut self, client: ClientId) {
+        if let Some(log) = &mut self.delivery_log {
+            let pid = self.peers.get(&client).map_or(0, |peer| peer.pid);
+            log.push(Delivery::marker(client, pid, 0, "disconnected"));
+        }
         self.versions.retain(|(key, _), _| key.client != client);
         self.disconnect_gpu(client);
         self.client_pointers.retain(|key, _| key.client != client);
@@ -1470,6 +1479,12 @@ impl Compositor {
             return;
         }
         let goodbye = matches!(request, Request::Goodbye {});
+        // A surface its client destroys is told nothing more: the record of what was routed says
+        // where it went, as its client knows (`Delivery`'s "destroyed").
+        if let (Request::Destroy { surface }, Some(log)) = (request, &mut self.delivery_log) {
+            let pid = self.peers.get(&client).map_or(0, |peer| peer.pid);
+            log.push(Delivery::marker(client, pid, surface, "destroyed"));
+        }
         if let Err(refusal) = self.scene.handle_explained(client, request) {
             return self.refuse(client, opcode, refusal);
         }
@@ -1609,10 +1624,16 @@ impl Compositor {
                 }
             }
             if self.local_clients.contains(&client) {
+                if let Some(log) = &mut self.delivery_log {
+                    log_delivery(log, client, 0, &event);
+                }
                 self.local_events.push((client, event));
                 continue;
             }
             if let Some(peer) = self.peers.get_mut(&client) {
+                if let Some(log) = &mut self.delivery_log {
+                    log_delivery(log, client, peer.pid, &event);
+                }
                 if matches!(
                     event,
                     Event::Pointer {
@@ -4976,6 +4997,176 @@ fn pointer_step_wait(
 pub fn monotonic() -> std::time::Duration {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     std::time::Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
+}
+
+/// An input event routed to a client (`Compositor::delivery_log`), or a client's surface or the
+/// client itself gone (`marker`): when it was queued
+/// (CLOCK_MONOTONIC), to which client and its process (0 for a client of the scene with no
+/// connection), the surface, its kind as `delivery_kind` names it and the serial it carries (0 for
+/// one that carries none: a focus change, a drag's motion).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Delivery {
+    pub t_ns: u64,
+    pub client: ClientId,
+    pub pid: i32,
+    pub surface: u32,
+    pub kind: &'static str,
+    pub serial: u64,
+}
+
+impl Delivery {
+    /// Not an event: the client destroyed a surface ("destroyed") or went ("disconnected", surface
+    /// 0), after which nothing routed to it reaches anyone.
+    fn marker(client: ClientId, pid: i32, surface: u32, kind: &'static str) -> Self {
+        Delivery {
+            t_ns: monotonic().as_nanos() as u64,
+            client,
+            pid,
+            surface,
+            kind,
+            serial: 0,
+        }
+    }
+}
+
+fn log_delivery(log: &mut Vec<Delivery>, client: ClientId, pid: i32, event: &Event) {
+    if let Some((surface, kind, serial)) = delivery_kind(event) {
+        log.push(Delivery {
+            t_ns: monotonic().as_nanos() as u64,
+            client,
+            pid,
+            surface,
+            kind,
+            serial,
+        });
+    }
+}
+
+/// Every event of the person's input a client is routed, by surface, kind and serial: the
+/// pointer's (motion among them), the keyboard's and what it types (a key, text, a composition, a
+/// text-input transaction once, at its Done), a touch's, a scroll's, a pinch's and resting fingers',
+/// an assistive technology's action, a command chosen in the shell's bar, the keyboard focus
+/// coming and going, a key to the input method, a system shortcut to the shell and a drag's events
+/// to its target. A Bloom host reports each it receives under the same names (tools/rn-host-spike,
+/// report.h's `received`).
+pub fn delivery_kind(event: &Event) -> Option<(u32, &'static str, u64)> {
+    Some(match *event {
+        Event::Pointer {
+            surface,
+            kind,
+            serial,
+            ..
+        } => (
+            surface,
+            match kind {
+                PointerKind::Enter => "pointer.enter",
+                PointerKind::Leave => "pointer.leave",
+                PointerKind::Motion => "pointer.motion",
+                PointerKind::Press => "pointer.press",
+                PointerKind::Release => "pointer.release",
+                PointerKind::Cancel => "pointer.cancel",
+            },
+            serial,
+        ),
+        Event::Key {
+            surface,
+            pressed,
+            serial,
+            ..
+        }
+        | Event::KeyText {
+            surface,
+            pressed,
+            serial,
+            ..
+        } => (
+            surface,
+            if pressed { "key.press" } else { "key.release" },
+            serial,
+        ),
+        Event::Touch {
+            surface,
+            kind,
+            serial,
+            ..
+        } => (
+            surface,
+            match kind {
+                TouchKind::Down => "touch.down",
+                TouchKind::Motion => "touch.motion",
+                TouchKind::Up => "touch.up",
+                TouchKind::Cancel => "touch.cancel",
+            },
+            serial,
+        ),
+        Event::Scroll {
+            surface, serial, ..
+        } => (surface, "scroll", serial),
+        Event::Text {
+            surface, serial, ..
+        } => (surface, "text", serial),
+        Event::Preedit {
+            surface, serial, ..
+        } => (surface, "preedit", serial),
+        Event::TextInputDone {
+            surface, serial, ..
+        } => (surface, "text_input", serial),
+        Event::AccessibilityAction {
+            surface, serial, ..
+        } => (surface, "a11y.action", serial),
+        Event::Pinch {
+            surface,
+            phase,
+            serial,
+            ..
+        } => (surface, gesture_kind("pinch", phase), serial),
+        Event::Hold {
+            surface,
+            phase,
+            serial,
+            ..
+        } => (surface, gesture_kind("hold", phase), serial),
+        Event::Focus { surface, focused } => {
+            (surface, if focused { "focus.in" } else { "focus.out" }, 0)
+        }
+        Event::MenuItemActivated {
+            surface, serial, ..
+        } => (surface, "menu.activated", serial),
+        Event::InputMethodKey {
+            serial, pressed, ..
+        } => (
+            0,
+            if pressed {
+                "im.key.press"
+            } else {
+                "im.key.release"
+            },
+            serial,
+        ),
+        Event::SystemShortcut { serial, output, .. } => (output, "shortcut", serial),
+        Event::DragEnter {
+            surface, serial, ..
+        } => (surface, "drag.enter", serial),
+        Event::DragMotion { surface, .. } => (surface, "drag.motion", 0),
+        Event::DragLeave { surface, .. } => (surface, "drag.leave", 0),
+        Event::DragDrop {
+            surface, serial, ..
+        } => (surface, "drag.drop", serial),
+        _ => return None,
+    })
+}
+
+fn gesture_kind(gesture: &'static str, phase: GesturePhase) -> &'static str {
+    match (gesture, phase) {
+        ("pinch", GesturePhase::Begin) => "pinch.begin",
+        ("pinch", GesturePhase::Update) => "pinch.update",
+        ("pinch", GesturePhase::End) => "pinch.end",
+        ("pinch", GesturePhase::Cancel) => "pinch.cancel",
+        (_, GesturePhase::Begin) => "hold.begin",
+        (_, GesturePhase::Update) => "hold.update",
+        (_, GesturePhase::End) => "hold.end",
+        (_, GesturePhase::Cancel) => "hold.cancel",
+    }
 }
 
 /// The input events a step can cause, by surface and kind (motion is continuous and left out).

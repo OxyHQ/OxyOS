@@ -7,7 +7,10 @@
 //   {"t":…,"kind":"layout","width":…,"height":…,"ms":…}         (the window laid out at a new size)
 //   {"t":…,"kind":"stage","name":"load script"}                    (a stage of the start begins)
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
-//   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
+//   {"t":…,"kind":"received","event":"pointer.motion","surface":2,"serial":41,"pid":…,"seq":7}  (every input
+//       event the compositor routed here, as received, numbered: `received`)
+//   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu","input_serial":40,"input_seq":7,
+//       "cause":"pointer.press","cause_surface":1}  (to React; the input that caused it, while the host handled one: Report::Handling)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
 //   {"t":…,"kind":"a11y_event","event":"focus","target":"open-menu","within":"open-menu"}
 //   {"t":…,"kind":"text_scroll","target":"notes","x":0,"y":21}  (an input's text scrolled)
@@ -35,6 +38,8 @@
 #include <react/renderer/core/ReactPrimitives.h>
 #include <react/renderer/mounting/ShadowView.h>
 #include <react/renderer/mounting/ShadowViewMutation.h>
+
+#include <oxyos_client.h>
 
 #include <folly/dynamic.h>
 
@@ -123,6 +128,31 @@ class Report {
   void feedback(uint32_t surface, uint64_t sequence, bool presented);
   // A compositor event as received.
   void input(const char* event, uint32_t surface, const folly::dynamic& extra = folly::dynamic::object());
+  // Every event of the person's input the compositor routed to this client, as it is received, by
+  // the names oxyos-compositor's `delivery_kind` gives them, with its surface, its serial and this
+  // process: regress.py checks each against the compositor's record of what it routed where (once
+  // each, to the client and surface it should reach) and the React events each caused.
+  void received(const OxyOSEvent& event);
+  // The input event the host is handling (Window::dispatch, while it is handed on): every event
+  // delivered to React meanwhile is written with its serial (`input_serial`), kind (`cause`) and surface, so that one input
+  // delivering the same event to the same view twice, or to a view of another surface, is seen.
+  // Nested, the innermost counts; an event delivered while none is handled (a glide's frame, a
+  // timer, an image loaded) carries none.
+  class Handling {
+   public:
+    explicit Handling(const OxyOSEvent& event);
+    ~Handling();
+    Handling(const Handling&) = delete;
+    Handling& operator=(const Handling&) = delete;
+
+   private:
+    const char* kind_;
+    uint64_t serial_;
+    uint32_t surface_;
+    uint64_t seq_;
+  };
+  // The name `received` gives an input event, or null for an event that is not the person's input.
+  static const char* inputKind(const OxyOSEvent& event);
   // An event delivered to React (touch, text, scroll, …) on `view`.
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());
@@ -199,6 +229,14 @@ class Report {
   double busyMs_ = 0;  // work since the last frame written
   ThreadSpan js_;      // JavaScript since the last frame written
   int reactCommits_ = 0;          // React's commits since the last frame written
+  // The input event being handled (Handling): its kind, serial and surface; null for none.
+  const char* handlingKind_ = nullptr;
+  uint64_t handlingSerial_ = 0;
+  uint32_t handlingSurface_ = 0;
+  // Input events received so far (`received`'s `seq`, one past the last), and the one handled:
+  // what tells two events apart that carry no serial (a drag's motion, a focus change).
+  uint64_t received_ = 0;
+  uint64_t handlingSeq_ = 0;
 };
 
 }  // namespace oxyos

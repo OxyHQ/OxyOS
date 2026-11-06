@@ -53,7 +53,7 @@ impl Scene {
         let now = self.shown_windows();
         for &gone in before.difference(&now) {
             self.dismiss_group_popups(gone, DismissReason::ParentHidden);
-            self.detach_input(gone);
+            self.withdraw_input(gone);
             if self.focus.is_some_and(|f| self.root_of(f) == gone) {
                 self.set_focus(None);
             }

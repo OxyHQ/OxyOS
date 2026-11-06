@@ -304,8 +304,11 @@ class TextEditing {
   void endComposition();
   // Ctrl+Z, or Ctrl+Shift+Z with `redo`.
   void undo(bool redo);
-  // Dispatches onKeyPress for `key`, none if empty.
-  void keyPress(const std::string& key);
+  // Dispatches onKeyPress for `key`, none if empty. `call`: the input connection's call it reports
+  // (a transaction's deleteSurroundingText and setComposingText each say one, as React Native's
+  // wrapper reports them), written in the host's report so that one input's two keys are told
+  // apart from one delivered twice.
+  void keyPress(const std::string& key, const char* call = "key");
   // When the key or text being handled happened (eventTime, input.h): what keyPress carries.
   facebook::react::HighResTimeStamp eventTime_ = facebook::react::HighResTimeStamp::now();
   // Moves the selection; `extend` keeps the anchor.

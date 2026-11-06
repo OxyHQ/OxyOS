@@ -445,7 +445,8 @@
         },
         "delivered": {
           "1": {
-            "focus.out": 1
+            "focus.out": 1,
+            "leave": 1
           },
           "5": {
             "popup.done": 1
