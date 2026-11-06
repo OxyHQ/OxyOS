@@ -20,6 +20,7 @@
 //       frame, and work without one, "presented": false, that was slow or ran JavaScript)
 //   {"t":…,"kind":"log","text":"[host so.oxy.dropsea] a frame after …"}  (a line written to the log)
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
+//   {"t":…,"kind":"memory","malloc_in_use":…,"hermes_heap":…,"skia_gpu":…,"buffers":…,…}  (memory.h, idle)
 //   {"t":…,"kind":"image","event":"cancelled","uri":"https://…"}  (a remote image's load, images.h)
 //   {"t":…,"kind":"react_render","renders":[["DockIcon",9,{"DockIcon":1,"View":4,…}],…]}  (a commit of
 //       React's: where each re-render began, how many components rendered in it and which; watchReactCommits)
@@ -182,6 +183,9 @@ class Report {
 
   // What the frame diagnostics write (frame-diagnostics.h): a line of `kind`.
   void diagnostic(const char* kind, folly::dynamic&& line);
+  // What the host holds in memory, after it gave back what an idle window does not need
+  // (memory.h's account, in MiB).
+  void memory(folly::dynamic&& account) { diagnostic("memory", std::move(account)); }
 
   static std::string name(const facebook::react::ShadowView& view);
 

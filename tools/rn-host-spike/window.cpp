@@ -777,4 +777,9 @@ void Window::destroy(uint32_t id) {
   if (oxyos_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");
 }
 
+uint64_t Window::trimBuffers() {
+  OxyOSPaint* paint = gpuPaint();
+  return paint ? oxyos_paint_trim(paint, client_) : 0;
+}
+
 }  // namespace oxyos

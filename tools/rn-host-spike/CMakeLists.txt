@@ -283,7 +283,7 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/intl.js OXYOS_INTL_JS)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/intl-js.h.in ${CMAKE_CURRENT_BINARY_DIR}/intl-js.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/intl.js)
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-gpu.cpp android-view-props.cpp damage.cpp host-modules.cpp application.cpp files.cpp clipboard.cpp images.cpp svg-image.cpp network.cpp worklets-host.cpp intl.cpp
-  reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp frame-diagnostics.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
+  reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
   gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
@@ -330,7 +330,14 @@ endforeach()
 file(STRINGS ${SKIA_BUILD}/oxyos-skia-defines.txt SKIA_DEFINES)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SKIA_BUILD}/oxyos-skia-defines.txt)
 add_library(oxyos_skia INTERFACE)
-target_compile_definitions(oxyos_skia INTERFACE ${SKIA_DEFINES} SK_RELEASE)
+# The revision built (build.sh's stamp: its first line), which names Ganesh's persistent cache
+# (skia-gpu.h): what a program's key means is the revision's.
+file(STRINGS ${SKIA_BUILD}/oxyos-skia-stamp SKIA_STAMP LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SKIA_BUILD}/oxyos-skia-stamp)
+if(NOT SKIA_STAMP MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "${SKIA_BUILD}/oxyos-skia-stamp names no Skia revision; run build.sh")
+endif()
+target_compile_definitions(oxyos_skia INTERFACE ${SKIA_DEFINES} SK_RELEASE OXYOS_SKIA_REVISION="${SKIA_STAMP}")
 target_include_directories(oxyos_skia SYSTEM INTERFACE ${SKIA_DIR} ${SKIA_DIR}/include/third_party/vulkan)
 # Dependents first: the SVG module (which also carries the path operations, absent from libskia
 # without PDF), the paragraph, the shaper and Unicode, then Skia. The system libraries are linked by

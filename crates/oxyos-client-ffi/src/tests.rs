@@ -5344,6 +5344,10 @@ fn the_painters_abi_matches_the_header() {
     ) -> i64 = crate::paint::oxyos_paint_present;
     let last: unsafe extern "C" fn(*mut OxyOSPaint, *mut OxyOSPaintPresentTimes) -> c_int =
         crate::paint::oxyos_paint_last_present;
+    let memory: unsafe extern "C" fn(*mut OxyOSPaint, *mut u64, *mut u32) -> c_int =
+        crate::paint::oxyos_paint_memory;
+    let trim: unsafe extern "C" fn(*mut OxyOSPaint, *mut OxyOSClient) -> u64 =
+        crate::paint::oxyos_paint_trim;
     assert_eq!(
         declaration("oxyos_paint_new"),
         format!("unsafe {}", type_of(new))
@@ -5355,6 +5359,8 @@ fn the_painters_abi_matches_the_header() {
         ("oxyos_paint_vulkan", type_of(vulkan)),
         ("oxyos_paint_present", type_of(present)),
         ("oxyos_paint_last_present", type_of(last)),
+        ("oxyos_paint_memory", type_of(memory)),
+        ("oxyos_paint_trim", type_of(trim)),
     ] {
         assert_eq!(declaration(name), rust, "{name}");
     }

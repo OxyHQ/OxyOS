@@ -2263,6 +2263,24 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         presented = sum(1 for line in work if line["presented"])
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
+    if "memory" in expect:
+        # What the host gave back once its window was idle (memory.h): the account its trim wrote by
+        # the step's end, after the window's last frame, of the GPU buffers it kept at most one a
+        # surface shown (`buffers_max`, when it draws on the GPU) and nothing left that Skia's cache
+        # could purge (`skia_purgeable_max`, MiB). Counts, not sizes: the same on any machine
+        # (perf.py holds the sizes on the ThinkPad).
+        wanted = expect["memory"]
+        accounts = [line for line in report if line["kind"] == "memory" and line["t"] <= end]
+        last_frame = max((line["t"] for line in report if line["kind"] == "frame" and line["t"] <= end), default=0)
+        if not accounts or accounts[-1]["t"] < last_frame:
+            fail("the host wrote no memory account after its last frame: it gave nothing back once idle")
+        else:
+            account = accounts[-1]
+            if "buffer_count" in account and account["buffer_count"] > wanted.get("buffers_max", float("inf")):
+                fail(f"the host kept {account['buffer_count']} GPU buffers idle, expected at most {wanted['buffers_max']}")
+            if account.get("skia_gpu_purgeable", 0) > wanted.get("skia_purgeable_max", float("inf")):
+                fail(f"Skia kept {account['skia_gpu_purgeable']} MiB it could purge, expected at most "
+                     f"{wanted['skia_purgeable_max']}")
     if "renders" in expect and RENDER_COUNTS:
         # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
         # the components each re-render began at, exactly, the same on any machine however loaded.
@@ -3637,6 +3655,10 @@ def main():
                         help="never count what React re-renders, even for a scenario holding `renders` (whose "
                              "checks are then not made): perf.py's runs, which measure speed, which the count's "
                              "allocations would move")
+    parser.add_argument("--app-cache", default=None,
+                        help="the applications' cache directories in this directory (XDG_CACHE_HOME), kept across "
+                             "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
+                             "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
                         help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
@@ -3859,7 +3881,7 @@ def main():
     for kept in ("xdg-data", "xdg-cache"):
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
-    env["XDG_CACHE_HOME"] = str(out / "xdg-cache")
+    env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache else out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's, each packaged one from its package.
@@ -3920,7 +3942,8 @@ def main():
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
-        env["XDG_CACHE_HOME"] = str(home_root / ".cache")
+        env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
+                                    else home_root / ".cache")
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app

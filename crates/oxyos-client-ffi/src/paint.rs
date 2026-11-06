@@ -266,6 +266,46 @@ pub unsafe extern "C" fn oxyos_paint_forget_surface(
     }
 }
 
+/// The bytes of every surface's GPU buffers (`bytes`) and how many there are (`buffers`). 0, or
+/// OXYOS_ERROR.
+///
+/// # Safety
+/// `paint` is a live pointer from `oxyos_paint_new`; `bytes` and `buffers` are writable.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_paint_memory(
+    paint: *mut OxyOSPaint,
+    bytes: *mut u64,
+    buffers: *mut u32,
+) -> c_int {
+    // SAFETY: per the contract.
+    let (Some(paint), Some(bytes), Some(buffers)) =
+        (unsafe { (painter(paint), bytes.as_mut(), buffers.as_mut()) })
+    else {
+        return fail("no painter or output");
+    };
+    let (held, count) = paint.paint.memory();
+    *bytes = held;
+    *buffers = u32::try_from(count).unwrap_or(u32::MAX);
+    0
+}
+
+/// Frees, of every surface, the GPU buffers the compositor has released but the one holding its
+/// latest frame (the window is idle: a frame that needs another buffer makes it again). Returns the
+/// bytes freed.
+///
+/// # Safety
+/// `paint` and `client` are live pointers.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_paint_trim(paint: *mut OxyOSPaint, client: *mut OxyOSClient) -> u64 {
+    // SAFETY: per the contract.
+    match unsafe { (painter(paint), connection(client)) } {
+        (Some(paint), Some(client)) => paint.paint.trim(client),
+        _ => 0,
+    }
+}
+
 /// The Vulkan drivers of the GPU whose DRM node is `device` (`oxyos_client_gpu_device`'s; 0: the
 /// CPU's alone), as `VK_DRIVER_FILES` takes them: their manifests' paths, `:`-separated, written
 /// NUL-terminated at `out` (`capacity` bytes). Returns the length without the NUL, 0 when no

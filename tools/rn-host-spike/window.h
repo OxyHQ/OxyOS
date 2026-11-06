@@ -88,6 +88,9 @@ class Window {
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
   // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
   void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
+  // Frees the GPU buffers of its surfaces that the compositor released but the one each shows
+  // (oxyos_paint_trim; memory.h, once the window is idle): the bytes freed.
+  uint64_t trimBuffers();
 
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
   // (the input event that opened it), the parent going on tracking the pointer meanwhile when
