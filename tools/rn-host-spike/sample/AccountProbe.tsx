@@ -2,8 +2,9 @@
  * The machine's Oxy session as an application's Oxy SDK finds it (docs/adr/0020-oxy-account-login.mdx,
  * decision 6; oxyos/session-host.js): the session host the runtime's framework registered, read where
  * the SDK reads it (`globalThis[Symbol.for('oxy.so/session-host')]`), its snapshot followed as the
- * SDK follows it, and a token asked for. What the token is for is shown (its `azp`, the application
- * it was minted for), never the token. scenarios/account-session*.json run it against a played
+ * SDK follows it, a token asked for, and the SDK's requests (managing the account, signing in
+ * again). What the token is for is shown (its `azp`, the application it was minted for), never the
+ * token. scenarios/account-session*.json run it against a played
  * accounts' service.
  */
 import * as React from 'react';
@@ -21,6 +22,7 @@ type SessionHost = {
   snapshot(): Snapshot;
   subscribe(listener: () => void): () => void;
   getAccessToken(request: { reason: string }): Promise<{ accessToken: string; expiresAt: string } | null>;
+  request(action: 'sign_in' | 'switch_account' | 'sign_out' | 'manage_account'): Promise<void>;
 };
 
 const host = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as SessionHost | undefined;
@@ -58,6 +60,14 @@ export default function AccountProbe() {
       (error: Error) => setToken(`Token refused: ${error.message}`),
     );
   };
+  const [requested, setRequested] = React.useState('Nothing requested');
+  const request = (action: 'sign_in' | 'manage_account') => {
+    if (!host) return;
+    host.request(action).then(
+      () => setRequested(`Requested ${action}`),
+      (error: Error) => setRequested(`Request ${action} failed: ${error.message}`),
+    );
+  };
   const account = snapshot?.account;
   return (
     <View style={{ flex: 1, padding: 24, backgroundColor: '#fff' }}>
@@ -80,6 +90,17 @@ export default function AccountProbe() {
       >
         <Text style={{ fontSize: 16, color: '#111' }}>Ask for a token</Text>
       </Pressable>
+      <Row testID="account-requested" text={requested} />
+      {(['manage_account', 'sign_in'] as const).map((action) => (
+        <Pressable
+          key={action}
+          accessibilityRole="button"
+          onPress={() => request(action)}
+          style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#ddd' }}
+        >
+          <Text style={{ fontSize: 16, color: '#111' }}>{action === 'sign_in' ? 'Sign in again' : 'Manage account'}</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }

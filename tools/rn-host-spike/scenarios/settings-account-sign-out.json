@@ -1,0 +1,91 @@
+{
+  "about": "Signing out from Settings' Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5): Sign Out… asks first; cancelled, nothing happens; confirmed, Settings asks the session to sign out (`signOut`, its `settings` grant, citing the press), and the session ends, back to the login screen (the development compositor records it).",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "account": {
+    "registered": [
+      "so.oxy.settings"
+    ]
+  },
+  "steps": [
+    {
+      "name": "the account's page",
+      "do": [
+        "press_named",
+        "Ada Lovelace"
+      ],
+      "expect": {
+        "texts": [
+          "@ada",
+          "Sign Out…"
+        ]
+      }
+    },
+    {
+      "name": "Sign Out… asks first",
+      "do": [
+        "press_named",
+        "Sign Out…"
+      ],
+      "expect": {
+        "texts": [
+          "Sign out of OxyOS?",
+          "Your apps quit and the session ends. You can sign in again at the login screen, even offline."
+        ]
+      }
+    },
+    {
+      "name": "cancelled: the session goes on",
+      "do": [
+        "press_named",
+        "Cancel"
+      ],
+      "expect": {
+        "absent": [
+          "Sign out of OxyOS?"
+        ]
+      }
+    },
+    {
+      "name": "Sign Out… again",
+      "do": [
+        "press_named",
+        "Sign Out…"
+      ],
+      "expect": {
+        "texts": [
+          "Sign out of OxyOS?"
+        ]
+      }
+    },
+    {
+      "name": "confirmed: the session signs out",
+      "do": [
+        "press_named",
+        "Sign Out"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "signed_out": true,
+        "absent": [
+          "Sign out of OxyOS?",
+          "OxyOS couldn't sign out."
+        ]
+      }
+    }
+  ]
+}

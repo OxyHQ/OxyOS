@@ -42,8 +42,10 @@ function snapshotOf(told) {
 
 /**
  * The host over the Bloom host's `OxyOSAccountSession`, or null where it is not available. Its
- * `revision` is its own, rising at every change the SDK is told, whatever the service numbered
- * (a service started again numbers from the start).
+ * `revision` is its own: the SDK takes a new revision, a new status or another account's id for a
+ * switch of account, so it rises only when the status or the account's id changes, whatever the
+ * service numbered (a service started again numbers from the start). A change of the profile or of
+ * the network is a new snapshot of the same revision.
  */
 export function createSessionHost(native = TurboModuleRegistry.get('OxyOSAccountSession'), events = DeviceEventEmitter,
   linking = Linking) {
@@ -57,7 +59,7 @@ export function createSessionHost(native = TurboModuleRegistry.get('OxyOSAccount
       && JSON.stringify(current.account) === JSON.stringify(next.account)) {
       return false;
     }
-    revision += 1;
+    if (!current || current.status !== next.status || current.account?.id !== next.account?.id) revision += 1;
     current = Object.freeze({ ...next, revision });
     return true;
   };

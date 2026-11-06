@@ -3,7 +3,7 @@
   "module": "AccountProbe",
   "window": [
     640,
-    320
+    420
   ],
   "app": {
     "id": "so.oxy.accountprobe",
