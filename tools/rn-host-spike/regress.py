@@ -138,8 +138,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - flights: the windows that flew to their views and back in the step (ADR 0045): "arriving" and
   "going", exactly those windows; "none", nothing flew; and always, each flight in more than one
   frame, every edge only ever going toward its end, an arriving one beginning where its window is
-  and ending in its view (within a pixel: where its spring came to rest), a going one beginning in
-  its view's place the step before and ending where its window is;
+  and ending exactly in its view, a going one beginning in its view's place the step before and
+  ending exactly where its window is (its last frame the one that ended it, at its end, whatever
+  frames were dropped before);
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
@@ -158,7 +159,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   drew: "eased", its opacity and its size and place each only ever going toward their end and,
   in the first half of its time, half again ahead of a linear motion of the same length (eased
   out, as a spring from rest is; a linear one fails), or with "eased": "place" only its size and
-  place so (its opacity only never going back: a fade delayed to its end); "lasts_ms", [least, most] for its last frame's time;
+  place so (its opacity only never going back: a fade delayed to its end); "lasts_ms", [least, most] for how long it
+  lasts, judged by time, not by its frames: when its clock ends it (`ends_ms`), every frame drawn in it before then (or
+  held at its end: a zoom waiting for its window's new frame) and the frame that ended it (`ended_ms`, drawing it at
+  its end) at or after, however many were dropped;
   "frame_gap_ms", [median, most] for the time between its frames (at display rate: 16.7 at 60 Hz,
   8.3 at 120); "linear_ms", every frame's size and place where a linear motion of that length is
   at the frame's time (a window into the dock: the frame clock drives it, whatever the load);
@@ -1774,11 +1778,20 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
         fail(f"{name} drew {len(path)} frames, too few to tell its curve")
         return
     times = [ms for ms, _, _ in path]
+    ends, ended = seen.get("ends_ms"), seen.get("ended_ms")
     if "lasts_ms" in wanted:
         low, high = wanted["lasts_ms"]
-        # Its last frame drawn in it, within a display frame of its end.
-        if not low <= times[-1] <= high:
-            fail(f"{name} drew its last frame {times[-1]} ms in, expected {low} to {high}")
+        # Its end judged by time, not by its frames (a loaded machine drops some, its last ones
+        # too): its clock ends it so long in, every frame drawn in it before then (or at its end,
+        # held there: a zoom waiting for its window's new frame), and the frame that ended it,
+        # drawing it at its end, at or after.
+        held = [step for step in path if ends is not None and step[0] > ends and step[2] != 1000]
+        if ends is None or ended is None:
+            fail(f"{name} did not end by its clock (ends {ends} ms in, ended {ended} ms in)")
+        elif not low <= ends <= high:
+            fail(f"{name} lasts {ends} ms, expected {low} to {high}")
+        elif held or ended < ends:
+            fail(f"{name} ended {ended} ms in, drawing {held} past its end {ends} ms in: {times}")
     if "frame_gap_ms" in wanted and SPEED_BUDGETS:
         gaps = sorted(b - a for a, b in zip(times, times[1:]))
         median, most = gaps[len(gaps) // 2], gaps[-1]
@@ -1787,7 +1800,8 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
                  f"{wanted['frame_gap_ms']}: {times}")
     if wanted.get("eased"):
         arriving = seen["arriving"]
-        span = times[-1] + 1000 / refresh_hz
+        # Its length, by its clock; else up to a display frame after its last frame.
+        span = ends if ends is not None else times[-1] + 1000 / refresh_hz
         opacities = [o if arriving else 255 - o for _, o, _ in path]
         moved = [m for _, _, m in path]
         for label, values, end in (("opacity", opacities, 255), ("size and place", moved, 1000)):
@@ -1952,9 +1966,9 @@ def check_views(index, step, result, results, failures):
                     fail(f"{who} began at {first}, not near {start}")
             elif start is not None and first != start:
                 fail(f"{who} began at {first}, not at {start}")
-            # Its last frame is where its spring came to rest, within a thousandth of the way:
-            # a pixel at most from its end.
-            if end is not None and any(abs(a - b) > 1 for a, b in zip(last, end)):
+            # Its last frame is the one that ended it, exactly at its end, however many before it
+            # were dropped.
+            if end is not None and last != end:
                 fail(f"{who} ended at {last}, not at {end}")
     if "windows_placed_as" in expect:
         then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})

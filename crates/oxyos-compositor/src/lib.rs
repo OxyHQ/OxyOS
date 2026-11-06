@@ -698,6 +698,9 @@ pub struct Compositor {
     /// Each frame of each window flying to its view or back (ADR 0045), as the development
     /// compositor reports them, until `take_flights`.
     flights_seen: Vec<FlightSeen>,
+    /// The windows flying in the frame composed last, and which way (to their views or not):
+    /// the next frame that draws one not flying ends its flight there.
+    flying: Vec<(SurfaceKey, bool)>,
     /// The shell's surfaces a swipe drives, by the view they are (ADR 0046), kept while they go;
     /// and what the swipes had drawn in the frame composed last (an openness, a position).
     gesture_surfaces: HashMap<SurfaceKey, oxyos_protocol::GestureOverlay>,
@@ -1142,6 +1145,7 @@ impl Compositor {
             shown_views: HashMap::new(),
             flights: HashMap::new(),
             flights_seen: Vec::new(),
+            flying: Vec::new(),
             gesture_surfaces: HashMap::new(),
             windows_drawn: HashMap::new(),
             swiped_drawn: (None, None),
@@ -2913,6 +2917,25 @@ impl Compositor {
             .collect();
         self.shown_views = views_shown;
         self.windows_drawn = drawn_windows;
+        // A flight ends with the first frame that draws its window no longer flying, where that
+        // frame draws it: at its end (home, or in its view at rest), its transition over by its
+        // clock. Frames dropped before it leave the last one drawn on its way short of its end;
+        // this one is its end, however late it came.
+        let flying: Vec<(SurfaceKey, bool)> = flights_seen
+            .iter()
+            .map(|&(window, arriving, _)| (window, arriving))
+            .collect();
+        for &(window, arriving) in &self.flying {
+            if flying.iter().any(|&(still, _)| still == window) {
+                continue;
+            }
+            if let Some(&at) = self.windows_drawn.get(&window) {
+                flights_seen.push((window, arriving, at));
+            }
+        }
+        self.flying = flying;
+        self.flying.sort();
+        self.flying.dedup();
         // Each window's flight, frame by frame, for the development compositor's report.
         for (window, arriving, at) in flights_seen {
             let seen = match self
