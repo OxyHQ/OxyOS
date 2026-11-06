@@ -8,6 +8,7 @@ use evdev::{
     UinputAbsSetup,
 };
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 const EV_KEY: u16 = 1;
@@ -104,6 +105,28 @@ impl Devices {
             touchpad,
             layout: oxyos_input::Keyboard::new(&oxyos_input::Layout::named(layout))?,
         })
+    }
+
+    /// The devices' event nodes, found by their own input devices in sysfs (the kernel's names
+    /// for them, never their names, which every run's devices share): what the compositor reads,
+    /// and nothing else (`oxyos_input::Input::open_paths`).
+    pub fn nodes(&mut self) -> io::Result<Vec<PathBuf>> {
+        [&mut self.keyboard, &mut self.pointer, &mut self.touchpad]
+            .into_iter()
+            .map(|device| {
+                let nodes = device
+                    .enumerate_dev_nodes_blocking()?
+                    .collect::<io::Result<Vec<_>>>()?;
+                match <[PathBuf; 1]>::try_from(nodes) {
+                    Ok([node]) => Ok(node),
+                    Err(nodes) => Err(io::Error::other(format!(
+                        "{}: {} event nodes, not one",
+                        device.get_syspath()?.display(),
+                        nodes.len()
+                    ))),
+                }
+            })
+            .collect()
     }
 
     /// Moves the pointer to a point of the display, in its pixels.
@@ -301,5 +324,112 @@ impl Devices {
             }
         }
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A run reads its own devices and no other: another run's, made alike at the same time, and
+    //! the machine's never reach its steps. As root, with the uinput module (they make devices
+    //! in the kernel): `cargo test -p oxyos-offscreen --bin oxyos-offscreen --no-run`, then the
+    //! test binary with `sudo` and `--ignored --exact
+    //! uinput::tests::a_run_reads_its_own_devices_and_never_another_runs` (CI's verify job does).
+
+    use super::Devices;
+    use oxyos_input::{Action, Input, Layout, ScrollSource};
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    const BOUNDS: (u32, u32) = (800, 600);
+    const KEY_A: u16 = 30;
+
+    /// A run of the development compositor with `--uinput`: its devices, and its input reading
+    /// them, opened as `launch` opens them.
+    fn start() -> (Devices, Input) {
+        let mut devices = Devices::new(BOUNDS, "us").unwrap();
+        let nodes = devices.nodes().unwrap();
+        let paths: Vec<_> = nodes.iter().map(PathBuf::as_path).collect();
+        let input = Input::open_paths(BOUNDS, &Layout::named("us"), &paths, None).unwrap();
+        (devices, input)
+    }
+
+    /// What each run's input has read since, as its event loop reads (a step sent whole would
+    /// overflow what the kernel holds for a reader).
+    fn read(inputs: &mut [Input], actions: &mut [Vec<Action>]) {
+        for (input, actions) in inputs.iter_mut().zip(actions.iter_mut()) {
+            let read = input.dispatch().unwrap();
+            actions.extend(read.into_iter().map(|timed| timed.action));
+        }
+    }
+
+    /// The wheel's scrolls among `actions`.
+    fn wheel(actions: &[Action]) -> Vec<f64> {
+        let scrolls = actions.iter().filter_map(|action| match action {
+            Action::Scroll {
+                source: ScrollSource::Wheel,
+                dy,
+                ..
+            } => Some(*dy),
+            _ => None,
+        });
+        scrolls.collect()
+    }
+
+    #[test]
+    #[ignore]
+    fn a_run_reads_its_own_devices_and_never_another_runs() {
+        // This run (1) between two others: one started before it, whose devices the seat had as
+        // it opened its own, and one after, whose devices the seat would add.
+        let ((before, before_input), (ours, ours_input), (after, after_input)) =
+            (start(), start(), start());
+        let mut devices = [before, ours, after];
+        let mut inputs = [before_input, ours_input, after_input];
+        let mut actions: [Vec<Action>; 3] = Default::default();
+        // The others point, scroll with the wheel and with two fingers, and type; then this
+        // run's wheel turns one notch away from the person.
+        for other in [0, 2] {
+            let devices = &mut devices[other];
+            devices.move_to(10, 10).unwrap();
+            devices
+                .wheel(45, || read(&mut inputs, &mut actions))
+                .unwrap();
+            devices
+                .two_fingers(60, 6, || read(&mut inputs, &mut actions))
+                .unwrap();
+            devices.key(KEY_A, true).unwrap();
+            devices.key(KEY_A, false).unwrap();
+            read(&mut inputs, &mut actions);
+        }
+        devices[1]
+            .wheel(-15, || read(&mut inputs, &mut actions))
+            .unwrap();
+        // Everything each has read, until half a second after this run read its notch.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while wheel(&actions[1]).is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "no notch within 5 s: {actions:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+            read(&mut inputs, &mut actions);
+        }
+        let settled = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < settled {
+            std::thread::sleep(Duration::from_millis(10));
+            read(&mut inputs, &mut actions);
+        }
+        assert!(
+            matches!(actions[1].as_slice(), [Action::Scroll { dx, dy, .. }] if *dx == 0.0 && *dy == -15.0),
+            "this run's notch and nothing else, got {:?}",
+            actions[1]
+        );
+        // Each other run read its own, and not this run's notch.
+        for other in [0, 2] {
+            assert_eq!(wheel(&actions[other]), [15.0; 3], "{:?}", actions[other]);
+            let typed = actions[other].iter().any(|action| {
+                matches!(action, Action::Key { code, pressed: true, .. } if *code == u32::from(KEY_A))
+            });
+            assert!(typed, "{:?}", actions[other]);
+        }
     }
 }
