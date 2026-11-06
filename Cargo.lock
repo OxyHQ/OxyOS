@@ -1863,7 +1863,9 @@ dependencies = [
  "png",
  "ring",
  "rustix",
+ "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
