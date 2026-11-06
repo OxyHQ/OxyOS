@@ -438,10 +438,12 @@ void stage(const char* name) {
 
 }  // namespace
 
-// What the application's storage and the connectivity answered (application.h), to JavaScript.
+// What the application's storage, the connectivity and the Oxy session answered (application.h,
+// account-session.h), to JavaScript.
 bool deliverApplication(oxyos::HostServices& services) {
   bool busy = services.storage && services.storage->deliver();
   if (services.connectivity) busy |= services.connectivity->deliver();
+  if (services.accountSession) busy |= services.accountSession->deliver();
   return busy;
 }
 
@@ -450,6 +452,10 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
   std::vector<int> fds;
   if (services.storage) fds.push_back(services.storage->fd());
   if (services.connectivity && services.connectivity->fd() >= 0) fds.push_back(services.connectivity->fd());
+  if (services.accountSession) {
+    fds.push_back(services.accountSession->fd());
+    if (int subscription = services.accountSession->subscriptionFd(); subscription >= 0) fds.push_back(subscription);
+  }
   return fds;
 }
 

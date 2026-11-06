@@ -1,0 +1,79 @@
+{
+  "about": "The machine's Oxy session in an application the session launched (docs/adr/0020-oxy-account-login.mdx, decision 6; sample/oxyos/session-host.js): the runtime's framework registered OxyOS as the Oxy SDK's session host before the application's bundle ran (sample/AccountProbe.tsx reads it where the SDK does), its snapshot the accounts' service's (played, regress.py's `account`: the service knows the application by its launch). Asked for a token, the application gets one minted for its own entry, never another's (the probe shows whom it names, never the token); the service's snapshot changing (the account renamed elsewhere) reaches it without its asking.",
+  "module": "AccountProbe",
+  "window": [
+    640,
+    320
+  ],
+  "app": {
+    "id": "so.oxy.accountprobe",
+    "title": "Account probe"
+  },
+  "account": {
+    "registered": [
+      "so.oxy.accountprobe"
+    ],
+    "later": [
+      {
+        "when_shown": "Token for so.oxy.accountprobe",
+        "snapshot": {
+          "account": {
+            "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+            "handle": "ada",
+            "displayName": "Ada King"
+          }
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "the platform's session, shown as the SDK reads it",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Host oxyos, contract 1",
+          "Status signed_in, online",
+          "Signed in as Ada Lovelace (@ada)",
+          "Token not asked"
+        ]
+      }
+    },
+    {
+      "name": "a token for this application's entry, asked at boot",
+      "do": [
+        "press_named",
+        "Ask for a token"
+      ],
+      "expect": {
+        "texts": [
+          "Token for so.oxy.accountprobe until 2026-11-06T12:05:00.000Z"
+        ],
+        "account_session": [
+          "so.oxy.accountprobe token boot: token"
+        ]
+      }
+    },
+    {
+      "name": "the account renamed elsewhere: the service's new snapshot reaches the application",
+      "do": [
+        "wait",
+        800
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Signed in as Ada King (@ada)"
+        ],
+        "absent": [
+          "Signed in as Ada Lovelace (@ada)"
+        ],
+        "account_session": []
+      }
+    }
+  ]
+}

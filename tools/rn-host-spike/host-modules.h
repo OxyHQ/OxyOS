@@ -1,6 +1,7 @@
 // TurboModules the OxyOS host implements for React Native's start-up and Bloom.
 #pragma once
 
+#include "account-session.h"
 #include "application.h"
 #include "network.h"
 #include "renderer.h"
@@ -318,6 +319,9 @@ struct HostServices {
   // delivers what they answer.
   std::unique_ptr<AsyncStorage> storage;
   std::unique_ptr<Connectivity> connectivity;
+  // The machine's Oxy session (account-session.h, docs/adr/0020-oxy-account-login.mdx), made when
+  // `OxyOSAccountSession` is first asked: its answers and the snapshot followed wake the loop.
+  std::unique_ptr<AccountSession> accountSession;
   // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
   // unset without a window.
   std::function<void()> blurFocusedInput;

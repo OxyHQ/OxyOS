@@ -143,17 +143,18 @@ globalThis.expo.modules.ExpoWebBrowser = {
 
 // expo-secure-store: OxyOS keeps no secrets for an application. The machine's Oxy account is the
 // platform's (docs/adr/0020-oxy-account-login.mdx, decision 6): an application never holds the
-// device credential and is to get its session from the platform, which is not available yet. So
-// nothing is ever kept: a read finds nothing, a delete leaves nothing, and keeping a value fails
-// with the reason. The module is there, rather than missing, so that what an application keeps
-// in it never falls back to plain storage (the Oxy SDK's own fallback, AsyncStorage) instead.
+// device credential, and the Oxy SDK in it takes the session from the platform (the session host
+// the framework registers, session-host.js), never from storage of its own. So nothing is ever
+// kept: a read finds nothing, a delete leaves nothing, and keeping a value fails with the reason.
+// The module is there, rather than missing, so that what an application keeps in it never falls
+// back to plain storage (the Oxy SDK's own fallback, AsyncStorage) instead.
 const noSecrets =
-  'OxyOS keeps no secrets for applications: the Oxy account is the platform\'s (ADR 0020), and its session for applications is not available yet';
+  'OxyOS keeps no secrets for applications: the Oxy session is the platform\'s (ADR 0020), and the Oxy SDK takes it from the platform';
 let toldNoSecrets = false;
 const nothingKept = () => {
   if (!toldNoSecrets) {
     toldNoSecrets = true;
-    console.warn(`expo-secure-store: ${noSecrets}. Nothing is kept: the Oxy SDK starts signed out.`);
+    console.warn(`expo-secure-store: ${noSecrets}. Nothing is kept here.`);
   }
   return null;
 };

@@ -524,6 +524,17 @@ so the machine is offline. `login.record`: what the login program must have reco
 ended, each line beginning so, in order (none: nobody signed in). A step's `shell.signed_in` says
 whether the login screen was told someone signed in.
 
+A scenario with `account` runs against a played accounts' service's session socket
+(docs/adr/0020-oxy-account-login.mdx, decision 6; `OXYOS_ACCOUNTD_SESSION_SOCKET`, which every run
+points at a socket of its own, so none asks the machine's): the application ids it knows as the
+session's launches (`account.registered`; any other process is refused `notPermitted`), its
+snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
+the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
+application's window first shows TEXT). A token it mints names the application it is for and is no
+credential. A step's `account_session` expectation is what it was asked in the step, exactly, in
+any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused; `token boot: token`,
+`token preflight: no token`, `subscribe: snapshot`, `remove: removed`).
+
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
 
@@ -939,25 +950,234 @@ def director_args(step, out):
     raise ValueError(f"unknown step {kind}")
 
 
-def serve_accounts(path, accounts):
-    """The accounts' service as the login screen and the login program ask it (`list` over
-    SOCK_SEQPACKET, crates/oxyos-account's ipc.rs), answering `accounts` to anyone."""
+def serve_accounts(path, accounts, login=None, log=None):
+    """The accounts' service as the login screen and the login program ask it (SOCK_SEQPACKET,
+    crates/oxyos-account's ipc.rs), answering anyone: `list` with the accounts; `platform` with
+    `login.platform` (refused `notConfigured` without one); and a setup's conversation (`enroll`,
+    then `secondFactor` while asked) as `login.enroll` plays it: the device credential handed over
+    must be `login.enroll.device` (the played Oxy API's), the password `login.enroll.password`, a
+    second factor `login.enroll.code` when it has one; enrolled, the account (`login.enroll.account`)
+    is listed from then on. What the setup was asked is logged, never what it was sent."""
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     listener.bind(str(path))
     listener.listen(16)
+    login = login or {}
+    accounts = list(accounts)
+
+    def record(asked, answered):
+        if log:
+            with open(log, "a") as out:
+                out.write(json.dumps({"t": time.monotonic_ns(), "asked": asked, "answered": answered}) + "\n")
+
+    def enroll(connection, message):
+        played = login.get("enroll")
+        request = message["enroll"]
+        if not played or request.get("deviceId") != played["device"]["deviceId"] \
+                or request.get("deviceSecret") != played["device"]["deviceSecret"]:
+            answer = {"refused": {"reason": "credentialRefused"}}
+        elif request.get("password") != played["password"]:
+            answer = {"refused": {"reason": "wrongPassword"}}
+        elif played.get("code"):
+            answer = "secondFactorRequired"
+        else:
+            answer = None
+        while True:
+            if answer is None:
+                listed = played["account"]
+                if all(account["user"] != listed["user"] for account in accounts):
+                    accounts.append(listed)
+                answer = {"enrolled": {"accountId": listed["accountId"], "user": listed["user"], "uid": 1001,
+                                       "profile": {"id": listed["accountId"], "username": listed["name"],
+                                                   "displayName": None, "avatar": None}}}
+            record("secondFactor" if record.turn else "enroll",
+                   answer if isinstance(answer, str) else next(iter(answer)))
+            record.turn += 1
+            connection.send(json.dumps(answer).encode())
+            if answer != "secondFactorRequired" and answer != {"refused": {"reason": "secondFactorInvalid"}}:
+                return
+            packet = connection.recv(16384)
+            if not packet:
+                return
+            code = json.loads(packet).get("secondFactor", {}).get("code")
+            answer = None if code == played["code"] else {"refused": {"reason": "secondFactorInvalid"}}
 
     def serve():
         while True:
             connection, _ = listener.accept()
             with connection:
                 try:
-                    if json.loads(connection.recv(16384)) == "list":
+                    message = json.loads(connection.recv(16384))
+                    if message == "list":
                         connection.send(json.dumps({"accounts": accounts}).encode())
-                except (OSError, ValueError):
+                    elif message == "platform":
+                        platform = login.get("platform")
+                        record("platform", "platform" if platform else "refused")
+                        connection.send(json.dumps({"platform": platform} if platform
+                                                   else {"refused": {"reason": "notConfigured"}}).encode())
+                    elif isinstance(message, dict) and "enroll" in message:
+                        record.turn = 0
+                        enroll(connection, message)
+                except (OSError, ValueError, KeyError):
                     pass
+
+    record.turn = 0
+    threading.Thread(target=serve, daemon=True).start()
+    return listener
+
+
+# The played accounts' service's session socket (`account`), what it was asked and its state.
+ACCOUNT = {}
+
+
+def account_snapshot(spec):
+    """The snapshot the played service starts with (`account.snapshot`), as the service tells it."""
+    return dict({"status": "signed_in", "revision": 1, "online": True,
+                 "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "ada",
+                             "displayName": "Ada Lovelace"}}, **spec.get("snapshot", {}))
+
+
+def played_token(application, reason):
+    """A token the played service mints: no credential, only what it names (the application it is
+    for, as a real one's `azp` does), so a probe can say whose it is without showing a token."""
+    import base64
+    claims = json.dumps({"azp": application, "reason": reason}).encode()
+    return "played." + base64.urlsafe_b64encode(claims).decode().rstrip("=")
+
+
+def serve_account_session(path, spec, log):
+    """The accounts' service's session socket (docs/adr/0020-oxy-account-login.mdx, decision 6:
+    SOCK_SEQPACKET, one JSON message a packet) as applications ask it. The service knows a peer by
+    its launch, which the session registers (`account.registered`, the application ids the played
+    service holds as launched; the session's registration itself is the service's and the
+    session's, not this stand-in's): the peer's process (SO_PEERCRED) is looked up by the id its
+    launch gave it (OXYOS_APP_ID, never a process the session did not start, OXYOS_APP_UNRECORDED).
+    Anyone else is refused `notPermitted`. `snapshot` and `subscribe` (pushed again at each change),
+    `token` (a played token naming the application, or none offline or signed out) and Settings'
+    `remove`. Each request is logged ({t, application, asked, answered})."""
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    listener.bind(str(path))
+    listener.listen(16)
+    lock = threading.Lock()
+    subscribers = []
+    ACCOUNT["snapshot"] = account_snapshot(spec)
+    ACCOUNT["log"] = log
+    registered = set(spec.get("registered", []))
+
+    def record(application, asked, answered):
+        with lock, open(log, "a") as out:
+            out.write(json.dumps({"t": time.monotonic_ns(), "application": application,
+                                  "asked": asked, "answered": answered}) + "\n")
+
+    def application_of(connection):
+        pid, _, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                                struct.calcsize("3i")))
+        try:
+            environ = pathlib.Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+        except OSError:
+            return None
+        names = dict(item.split(b"=", 1) for item in environ if b"=" in item)
+        if b"OXYOS_APP_UNRECORDED" in names:
+            return None
+        application = names.get(b"OXYOS_APP_ID", b"").decode() or None
+        return application if application in registered else None
+
+    def push(snapshot):
+        with lock:
+            ACCOUNT["snapshot"] = snapshot
+            for connection in list(subscribers):
+                try:
+                    connection.send(json.dumps({"snapshot": snapshot}).encode())
+                except OSError:
+                    subscribers.remove(connection)
+
+    ACCOUNT["push"] = push
+
+    def converse(connection):
+        application = application_of(connection)
+        with connection:
+            while True:
+                try:
+                    packet = connection.recv(16384)
+                except OSError:
+                    return
+                if not packet:
+                    with lock:
+                        if connection in subscribers:
+                            subscribers.remove(connection)
+                    return
+                try:
+                    message = json.loads(packet)
+                except ValueError:
+                    message = None
+                asked = message if isinstance(message, str) else (
+                    next(iter(message)) if isinstance(message, dict) and len(message) == 1 else "invalid")
+                if asked == "token":
+                    asked = f"token {message['token'].get('reason')}"
+                if application is None:
+                    record(None, asked, "refused")
+                    connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
+                    return
+                snapshot = ACCOUNT["snapshot"]
+                if message in ("snapshot", "subscribe"):
+                    record(application, asked, "snapshot")
+                    with lock:
+                        connection.send(json.dumps({"snapshot": snapshot}).encode())
+                        if message == "subscribe":
+                            subscribers.append(connection)
+                elif asked.startswith("token "):
+                    if snapshot["status"] == "signed_in" and snapshot["online"] and not spec.get("refuse_tokens"):
+                        token = {"accessToken": played_token(application, message["token"]["reason"]),
+                                 "expiresAt": "2026-11-06T12:05:00.000Z"}
+                        record(application, asked, "token")
+                    else:
+                        token = None
+                        record(application, asked, "no token")
+                    connection.send(json.dumps({"token": token}).encode())
+                elif message == {"remove": {}} and application == "so.oxy.settings":
+                    record(application, asked, "removed")
+                    # The real service then ends the account's sessions, this one with them.
+                    connection.send(json.dumps("removed").encode())
+                else:
+                    record(application, asked, "refused")
+                    connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
+                    return
+
+    def serve():
+        while True:
+            connection, _ = listener.accept()
+            threading.Thread(target=converse, args=(connection,), daemon=True).start()
 
     threading.Thread(target=serve, daemon=True).start()
     return listener
+
+
+def account_later(changes, report_path):
+    """The played service's snapshot changing while the run goes on (`account.later`): each
+    [{"when_shown": TEXT, "snapshot": {...}}] once the application's window first shows TEXT, the
+    revision one past the last."""
+    started = time.monotonic_ns()
+
+    def watch():
+        waiting = list(changes)
+        seen = 0
+        deadline = time.monotonic() + 180
+        while waiting and time.monotonic() < deadline:
+            lines = report_path.read_text().splitlines() if report_path.exists() else []
+            for line in lines[seen:]:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
+                        and entry.get("t", 0) >= started \
+                        and any(waiting[0]["when_shown"] in shown for shown in entry.get("texts", [])):
+                    change = waiting.pop(0)
+                    current = ACCOUNT["snapshot"]
+                    ACCOUNT["push"](dict(current, **change["snapshot"], revision=current["revision"] + 1))
+            seen = len(lines)
+            time.sleep(0.02)
+
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def login_program(out, offscreen, login):
@@ -2286,6 +2506,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
         if components > wanted.get("components_max", float("inf")):
             fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
+    if "account_session" in expect:
+        # What the played accounts' service was asked in the step (`account`): "APPLICATION ASKED:
+        # ANSWERED", exactly, in any order (an application none, "-").
+        log = ACCOUNT.get("log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        got = sorted(f"{line['application'] or '-'} {line['asked']}: {line['answered']}"
+                     for line in lines if start <= line["t"] <= end)
+        if got != sorted(expect["account_session"]):
+            fail(f"the accounts' service was asked {got}, expected exactly {sorted(expect['account_session'])}")
     if "served" in expect:
         # The images the store answered in the step (`store.images`), each when its answer ended.
         log = STORE.get("base", pathlib.Path("/nonexistent")) / "images.jsonl"
@@ -3884,6 +4113,16 @@ def main():
     # A local server for the scenario's probe, for as long as the run lasts, and the port after
     # it held bound without listening, so that connecting there is refused at once and nothing
     # else can answer (an unbound port may instead drop the connection, as WSL's firewall does).
+    # The accounts' service's session socket (decision 6): the scenario's played one (`account`),
+    # else a path where nothing listens, so no run ever asks the machine's.
+    account_dir = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-account-"))
+    env["OXYOS_ACCOUNTD_SESSION_SOCKET"] = str(account_dir / "session")
+    if "account" in scenario:
+        account_log = out / "account-session.jsonl"
+        account_log.unlink(missing_ok=True)
+        account_listener = serve_account_session(account_dir / "session", scenario["account"], account_log)
+        if scenario["account"].get("later"):
+            account_later(scenario["account"]["later"], report_path)
     if "http" in scenario:
         port = scenario["http"]["port"]
         # The probe opens every request at once; socketserver's backlog of 5 would drop the rest's

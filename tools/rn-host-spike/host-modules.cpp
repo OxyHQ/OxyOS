@@ -1564,6 +1564,115 @@ std::shared_ptr<TurboModule> createHostModule(
       return rejected(rt, "OxyOS has no Android intents");
     });
     module->listeners();
+  } else if (name == "OxyOSAccountSession") {
+    // The machine's Oxy session (account-session.h, docs/adr/0020-oxy-account-login.mdx), which the
+    // runtime's framework registers as the Oxy SDK's session host (sample/oxyos/session-host.js):
+    //
+    // - In an application the session launched (never the shell, never the login screen, never a
+    //   process it did not start), `available`: the session's snapshot, `snapshot()` once and
+    //   `subscribe()` then `OxyOSAccountSessionChanged` at each change (null once it ended), and
+    //   `getAccessToken(reason)`, a promise of {accessToken, expiresAt} or null. The service knows
+    //   the application by its launch: the host claims nothing. Settings' `remove()` removes its
+    //   account from this computer (the service refuses anyone else).
+    // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup's
+    //   conversation, `enroll(deviceId, deviceSecret, accountId, password)` then
+    //   `secondFactor(code)` while asked, each a promise of the service's answer ({failed} when it
+    //   could not be asked), and `endEnrollment()`. The secrets go to the service and are
+    //   forgotten here; nothing of them is logged.
+    bool available = services.application.recorded && !services.shellWindow;
+    bool setup = services.shellWindow;
+    module->constants(folly::dynamic::object("available", available)("setup", setup));
+    auto session = [&services]() -> AccountSession& {
+      if (!services.accountSession) services.accountSession = std::make_unique<AccountSession>();
+      return *services.accountSession;
+    };
+    // A promise settled on the JavaScript thread by `start(resolve)`.
+    auto promise = [](jsi::Runtime& rt, std::function<void(std::shared_ptr<jsi::Value> resolve)> start) {
+      auto run = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "settle"), 2,
+          [start = std::move(start)](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            start(std::make_shared<jsi::Value>(rt, args[0]));
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
+    };
+    // The service's answer as a value, or {failed: reason} (never a secret: the library says why
+    // without one).
+    auto settle = [invoker](std::shared_ptr<jsi::Value> resolve, const char* what, bool secret) {
+      return [invoker, resolve, what, secret](AccountSession::Answer& answer) {
+        auto json = std::make_shared<std::string>(answer.json.value_or(""));
+        std::string error = answer.error;
+        if (!answer.json) std::cerr << "[host] the Oxy session's " << what << ": " << error << "\n";
+        invoker->invokeAsync([resolve, json, error, secret](jsi::Runtime& rt) {
+          jsi::Value value = json->empty()
+                                 ? (secret ? jsi::Value::null()
+                                           : jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                                           "failed", folly::dynamic::object("reason", error))))
+                                 : jsi::Value::createFromJsonUtf8(rt, reinterpret_cast<const uint8_t*>(json->data()),
+                                                                  json->size());
+          forget(*json);
+          resolve->asObject(rt).asFunction(rt).call(rt, value);
+        });
+      };
+    };
+    module->method("snapshot", [available](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!available) return jsi::Value::null();
+      return jsi::valueFromDynamic(rt, AccountSession::snapshot());
+    });
+    module->method("subscribe", [&services, available, session](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (!available) return jsi::Value(false);
+      return jsi::Value(session().subscribe([&services](const folly::dynamic& snapshot) {
+        if (services.emit) services.emit("OxyOSAccountSessionChanged", snapshot);
+      }));
+    });
+    module->method("getAccessToken", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
+                                                                            size_t count) {
+      if (!available) return resolved(rt, jsi::Value::null());
+      std::string reason = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
+      return promise(rt, [session, settle, reason](std::shared_ptr<jsi::Value> resolve) {
+        session().token(reason, settle(resolve, "token", true));
+      });
+    });
+    module->method("remove", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      return promise(rt, [session, settle](std::shared_ptr<jsi::Value> resolve) {
+        session().remove(settle(resolve, "removal", false));
+      });
+    });
+    module->method("platform", [setup](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!setup) return jsi::Value::null();
+      auto json = AccountSession::platform();
+      return json ? jsi::valueFromDynamic(rt, folly::parseJson(*json)) : jsi::Value::null();
+    });
+    module->method("enroll", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: only the login screen sets accounts up");
+      if (count < 4 || !args[0].isString() || !args[1].isString() || !args[2].isString() || !args[3].isString()) {
+        throw jsi::JSError(rt, "OxyOSAccountSession.enroll: a device id, its secret, an account id and a password");
+      }
+      std::string deviceId = args[0].asString(rt).utf8(rt), deviceSecret = args[1].asString(rt).utf8(rt);
+      std::string accountId = args[2].asString(rt).utf8(rt), password = args[3].asString(rt).utf8(rt);
+      return promise(rt, [session, settle, deviceId = std::move(deviceId), deviceSecret = std::move(deviceSecret),
+                          accountId = std::move(accountId),
+                          password = std::move(password)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().enroll(std::move(deviceId), std::move(deviceSecret), std::move(accountId), std::move(password),
+                         settle(resolve, "setup", false));
+      });
+    });
+    module->method("secondFactor", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
+                                                                     size_t count) {
+      if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: only the login screen sets accounts up");
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: a code");
+      std::string code = args[0].asString(rt).utf8(rt);
+      return promise(rt, [session, settle, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().secondFactor(std::move(code), settle(resolve, "setup", false));
+      });
+    });
+    module->method("endEnrollment", [setup, session](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (setup) session().endEnrollment();
+      return jsi::Value::undefined();
+    });
+    module->listeners();
   } else if (name == "RNCAsyncStorage") {
     // @react-native-async-storage/async-storage (application.h, crates/oxyos-app-storage): kept in
     // the application's data directory, by its id, on a thread of its own; each callback as its

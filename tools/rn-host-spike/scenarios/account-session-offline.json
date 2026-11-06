@@ -1,0 +1,55 @@
+{
+  "about": "The machine's Oxy session offline (docs/adr/0020-oxy-account-login.mdx, decision 6): the account is still signed in, as the platform's session works offline, and a token asked for is none (the service cannot mint without Oxy); the application is told so, never handed an error it would take for signing out.",
+  "module": "AccountProbe",
+  "window": [
+    640,
+    320
+  ],
+  "app": {
+    "id": "so.oxy.accountprobe",
+    "title": "Account probe"
+  },
+  "account": {
+    "registered": [
+      "so.oxy.accountprobe"
+    ],
+    "snapshot": {
+      "online": false
+    }
+  },
+  "steps": [
+    {
+      "name": "signed in, offline",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Host oxyos, contract 1",
+          "Status signed_in, offline",
+          "Signed in as Ada Lovelace (@ada)"
+        ]
+      }
+    },
+    {
+      "name": "no token offline",
+      "do": [
+        "press_named",
+        "Ask for a token"
+      ],
+      "expect": {
+        "texts": [
+          "No token"
+        ],
+        "absent": [
+          "Token for"
+        ],
+        "account_session": [
+          "so.oxy.accountprobe token boot: no token"
+        ]
+      }
+    }
+  ]
+}
