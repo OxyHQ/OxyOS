@@ -1971,6 +1971,15 @@ typedef struct OxyOSPaintPresentTimes {
 } OxyOSPaintPresentTimes;
 int oxyos_paint_last_present(OxyOSPaint* paint, OxyOSPaintPresentTimes* out);
 
+/* The bytes of every surface's GPU buffers and how many there are. 0, or OXYOS_ERROR. */
+int oxyos_paint_memory(OxyOSPaint* paint, uint64_t* bytes, uint32_t* buffers);
+
+/* Frees, of every surface, the GPU buffers the compositor has released but the one holding its
+ * latest frame: what an idle window keeps is the frame it shows (a frame that needs another
+ * buffer makes it again, about half a millisecond, and is given the whole frame). Returns the
+ * bytes freed. */
+uint64_t oxyos_paint_trim(OxyOSPaint* paint, OxyOSClient* client);
+
 #ifdef __cplusplus
 }
 #endif

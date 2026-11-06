@@ -537,6 +537,7 @@ impl Gpu {
             Ok(Image {
                 image,
                 memory,
+                size: requirements.size,
                 fd,
                 modifier,
                 planes,
@@ -580,6 +581,8 @@ struct Opened {
 struct Image {
     image: vk::Image,
     memory: vk::DeviceMemory,
+    /// The bytes of its memory.
+    size: u64,
     fd: OwnedFd,
     modifier: u64,
     planes: Vec<(u32, u32)>,
@@ -629,6 +632,30 @@ impl Swapchain {
         for buffer in self.buffers {
             Self::drop_buffer(gpu, client, buffer);
         }
+    }
+
+    /// The bytes of its buffers' memory, and how many there are.
+    pub(crate) fn memory(&self) -> (u64, usize) {
+        (
+            self.buffers.iter().map(|buffer| buffer.image.size).sum(),
+            self.buffers.len(),
+        )
+    }
+
+    /// Frees every buffer the compositor has released but the one holding the latest frame, which
+    /// the compositor shows (the surface is idle: a buffer is made again when a frame needs one).
+    /// The copy in flight is waited for first. Returns the bytes freed.
+    pub(crate) fn trim(&mut self, gpu: &Gpu, client: &mut Client) -> u64 {
+        let latest = self.buffers.iter().map(|buffer| buffer.written).max();
+        let (keep, spare): (Vec<Buffer>, Vec<Buffer>) = std::mem::take(&mut self.buffers)
+            .into_iter()
+            .partition(|buffer| Some(buffer.written) == latest || !Self::idle(buffer, client));
+        self.buffers = keep;
+        let freed = spare.iter().map(|buffer| buffer.image.size).sum();
+        for buffer in spare {
+            Self::drop_buffer(gpu, client, buffer);
+        }
+        freed
     }
 
     /// Frees the images alone (the connection is gone with the painter).
