@@ -29,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 25;
+pub const VERSION: u16 = 26;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The most candidates an input method hands the system at once (InputMethodCandidate, ADR 0041),
@@ -81,11 +81,16 @@ pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
 pub const MAX_CHOOSER_TEXT_BYTES: usize = 256 * 1024;
 /// Media types a clipboard offer may name (ADR 0007).
 pub const MAX_CLIPBOARD_TYPES: usize = 16;
-/// Media types a drag may offer (ADR 0035).
+/// Media types a drag may offer (ADR 0035), and of its files it may say (version 26).
 pub const MAX_DRAG_TYPES: usize = 16;
+/// The longest media type of a dragged file a drag says (DragFileType, in chunks).
+pub const MAX_FILE_TYPE_BYTES: usize = 255;
 /// The most bytes of `file://` URIs the shell asks the session to put in the Trash at once
 /// (TrashFiles, ADR 0035): room for hundreds of files.
 pub const MAX_TRASH_FILES_BYTES: usize = 256 * 1024;
+/// The most bytes of an application's id and `file://` URIs the shell asks the session to open
+/// with it at once (OpenFiles, ADR 0034): room for hundreds of files.
+pub const MAX_OPEN_FILES_BYTES: usize = 256 * 1024;
 /// The longest keyboard layout told to clients, `layout\tvariant\toptions` (ADR 0029).
 pub const MAX_KEYBOARD_LAYOUT_BYTES: usize = 1024;
 /// The longest locale told to clients, one BCP 47 tag (`Locale`, ADR 0040).

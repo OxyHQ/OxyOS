@@ -507,6 +507,9 @@ fn main() -> Result<()> {
     // checked against the account's files.
     let mut choosers =
         oxyos_compositor::choosers::Choosers::new(oxyos_files::Scope::for_user().ok());
+    // The person's files, which files dropped on an application's icon in the dock are opened
+    // from (docs/adr/0034-the-dock.mdx).
+    let files_scope = oxyos_files::Scope::for_user().ok();
     let mut launcher = oxyos_apps::Launcher::new(
         oxyos_apps::Runtime {
             socket: socket.clone(),
@@ -759,6 +762,39 @@ fn main() -> Result<()> {
                     }
                 }
                 Err(error) => eprintln!("[session] {} not opened: {error}", path.display()),
+            }
+        }
+        // Files dropped on an application's icon in the dock (docs/adr/0034-the-dock.mdx), opened
+        // with that application: only with the person's own drop, those of their files it
+        // declares the types of; none on the login screen.
+        for request in compositor.scene.take_open_files() {
+            if greeter {
+                continue;
+            }
+            let mut said = |line: String| eprintln!("[session] {line}");
+            for file in oxyos_compositor::open_files::files_to_open(
+                files_scope.as_ref(),
+                &request,
+                &mut said,
+            ) {
+                match launcher.open_with(&request.application, &file.path, file.kind) {
+                    Ok(pid) => {
+                        eprintln!(
+                            "[session] opened {} with {} ({pid})",
+                            file.path.display(),
+                            request.application
+                        );
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("[session] {} not opened: {error}", file.path.display())
+                    }
+                }
             }
         }
         // A notification pressed while its application ran nowhere (ADR 0026): the session starts

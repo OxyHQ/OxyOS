@@ -497,8 +497,15 @@ void Window::createDragIcon(uint32_t id, uint32_t width, uint32_t height, int32_
   surfaces_[id] = Surface{};
 }
 
+bool Window::openFiles(uint64_t input, const std::string& application, const std::string& uris) {
+  return !application.empty() && !uris.empty() &&
+         oxyos_client_open_files(client_, input, application.data(), application.size(), uris.data(), uris.size()) ==
+             0;
+}
+
 uint32_t Window::startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uint8_t actions,
-                           const std::vector<std::pair<std::string, std::string>>& contents) {
+                           const std::vector<std::pair<std::string, std::string>>& contents, bool vanish,
+                           const std::string& fileTypes) {
   std::vector<OxyOSDragEntry> entries;
   entries.reserve(contents.size());
   for (const auto& [mime, data] : contents) {
@@ -507,7 +514,9 @@ uint32_t Window::startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uin
                                      .data = reinterpret_cast<const uint8_t*>(data.data()),
                                      .length = data.size()});
   }
-  int64_t drag = oxyos_client_start_drag(client_, surface, icon, serial, actions, entries.data(), entries.size());
+  int64_t drag = oxyos_client_start_drag_with(client_, surface, icon, serial, actions, entries.data(), entries.size(),
+                                              vanish ? OXYOS_DRAG_VANISH : 0,
+                                              fileTypes.empty() ? nullptr : fileTypes.data(), fileTypes.size());
   if (drag <= 0) {
     std::cerr << "[window] drag not started: " << oxyos_last_error() << "\n";
     return 0;

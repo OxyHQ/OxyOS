@@ -178,7 +178,9 @@ pub unsafe extern "C" fn oxyos_applications_watch_changed(
 /// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "iconBody" (the
 /// share of the icon's picture its own body takes when the picture is its own shape, which the
 /// shell draws as it is; null for any other, which it puts in the icon grid's body), "pinned" (its
-/// place in the dock from 1, or null)}]`, sorted by name, in the session's language: `Intl`'s
+/// place in the dock from 1, or null), "opens" (the media types its entry declares it opens, its
+/// `MimeType`: what files dropped on its dock icon it takes, docs/adr/0034-the-dock.mdx)}]`, sorted
+/// by name, in the session's language: `Intl`'s
 /// default locale, which the host keeps the session's (docs/adr/0040-language-and-region.mdx).
 pub fn applications_json() -> String {
     let session = Session::read();
@@ -197,7 +199,7 @@ pub fn applications_json() -> String {
         .iter()
         .map(|app| {
             format!(
-                "{{\"id\":{},\"name\":{},\"icon\":{},\"iconBody\":{},\"pinned\":{}}}",
+                "{{\"id\":{},\"name\":{},\"icon\":{},\"iconBody\":{},\"pinned\":{},\"opens\":[{}]}}",
                 json_string(&app.id),
                 json_string(&app.name),
                 app.icon
@@ -207,7 +209,12 @@ pub fn applications_json() -> String {
                     .as_deref()
                     .and_then(icon_body)
                     .map_or("null".into(), |body| format!("{body}")),
-                app.pinned.map_or("null".into(), |place| place.to_string())
+                app.pinned.map_or("null".into(), |place| place.to_string()),
+                app.opens
+                    .iter()
+                    .map(|media| json_string(media))
+                    .collect::<Vec<_>>()
+                    .join(",")
             )
         })
         .collect();

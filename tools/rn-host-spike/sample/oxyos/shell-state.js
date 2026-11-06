@@ -6,7 +6,8 @@
  * workspaces, active,
  * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper the file of the
  * solar wallpaper's frame that shows the sun now (null without one); applications the session's
- * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null }]., windows numbered by the compositor and workspaces from 0.
+ * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null, opens: [media
+ * types it declares, its MimeType: what files dropped on its dock icon it takes, ADR 0034] }]., windows numbered by the compositor and workspaces from 0.
  * The windows' sizes, { width, height } by window id, are `useWindowSizes()`'s, not the state's.
  * And the outputs (ADR 0018): `output` the one this shell runs on, `outputs` every one, [{ id, x, y,
  * width, height, scale, primary }], in the global space's logical pixels; the primary has the dock.
@@ -73,7 +74,9 @@
  * a URL in the application that opens its scheme, citing the latest input (its serial; 0 not sent;
  * `OxyOSShellLaunch` answers); `emptyTrash()` asks the session to empty the Trash, which asks the
  * person first; `trashFiles(uris)` has it put the files (`file://` URIs) in the Trash, citing the
- * latest input: the drop on the dock's Trash (docs/adr/0035-drag-and-drop.mdx).
+ * latest input: the drop on the dock's Trash (docs/adr/0035-drag-and-drop.mdx); `openFiles(application,
+ * uris)` has it open the files with that application, citing the latest input: the drop on its icon
+ * in the dock (protocol version 26; the session opens those its entry declares the types of).
  *
  * The candidate window (docs/adr/0041-input-methods.mdx): `candidates` is the page an input method
  * handed the system to show at the caret, { candidates: [text], aux, highlighted (-1: none),
@@ -200,6 +203,7 @@ const actions = {
   openUrl: (url) => native?.openUrl(url) ?? 0,
   emptyTrash: () => native?.emptyTrash() ?? false,
   trashFiles: (uris) => native?.trashFiles?.(uris) ?? false,
+  openFiles: (application, uris) => native?.openFiles?.(application, [...uris]) ?? false,
   moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
   activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
   addWorkspace: () => native?.addWorkspace(),

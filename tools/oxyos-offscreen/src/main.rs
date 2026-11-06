@@ -166,6 +166,9 @@ struct Session {
     /// The URLs the shell opened since a step last took them (docs/adr/0034-the-dock.mdx): each
     /// URL and the application started for it.
     pub url_opens: Vec<(String, String)>,
+    /// Files dropped on an application's icon in the dock opened with it (ADR 0034, OpenFiles):
+    /// each file's path and the application, as the session opens them.
+    pub file_opens: Vec<(PathBuf, String)>,
     /// The user's Trashes, followed as the session follows them (`--trash`, a scenario's own home).
     pub trash: Option<oxyos_compositor::trash::Trash>,
     /// The system sounds the session would have played since a step last took them
@@ -276,6 +279,7 @@ impl Session {
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
             url_opens: Vec::new(),
+            file_opens: Vec::new(),
             sounds: oxyos_sound::Recorder::default(),
             trash: None,
             installed_fixture: None,
@@ -703,6 +707,25 @@ impl Session {
         for pid in self.compositor.take_force_quits() {
             if launcher.force_quit(pid) {
                 eprintln!("[launch] force quit {pid}");
+            }
+        }
+        // Files dropped on an application's icon in the dock (ADR 0034), opened with it as the
+        // session opens them: from the run's own home.
+        let requests = self.compositor.scene.take_open_files();
+        if !requests.is_empty() {
+            let scope = oxyos_files::Scope::for_user().ok();
+            for request in requests {
+                let mut said = |line: String| eprintln!("[launch] {line}");
+                for file in
+                    oxyos_compositor::open_files::files_to_open(scope.as_ref(), &request, &mut said)
+                {
+                    match launcher.open_with(&request.application, &file.path, file.kind) {
+                        Ok(_) => self
+                            .file_opens
+                            .push((file.path.clone(), request.application.clone())),
+                        Err(error) => eprintln!("[launch] {}: {error}", file.path.display()),
+                    }
+                }
             }
         }
     }

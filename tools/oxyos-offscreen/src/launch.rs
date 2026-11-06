@@ -2666,6 +2666,22 @@ fn sounds_json(session: &Session) -> String {
     format!("[{}]", played.join(","))
 }
 
+/// The files the shell had opened with an application in the step (ADR 0034, OpenFiles): each
+/// file's path and the application, in order. Taken: the next step reports its own.
+fn files_opened_json(session: &mut Session) -> String {
+    let opened: Vec<String> = std::mem::take(&mut session.file_opens)
+        .into_iter()
+        .map(|(path, application)| {
+            format!(
+                "{{\"path\":{},\"application\":{}}}",
+                json_string(&path.to_string_lossy()),
+                json_string(&application)
+            )
+        })
+        .collect();
+    format!("[{}]", opened.join(","))
+}
+
 fn urls_json(session: &mut Session) -> String {
     let opened: Vec<String> = std::mem::take(&mut session.url_opens)
         .into_iter()
@@ -3125,11 +3141,14 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
                 AppearanceChange::Zoomed => "zoomed",
                 AppearanceChange::Returned { .. } => "returned",
+                AppearanceChange::Vanished { .. } => "vanished",
             };
             // Where a drag's image went back to (its centre), for a scenario to check it is the
             // item's own place.
             let to = match seen.change {
                 AppearanceChange::Returned { x, y } => format!(",\"to\":[{x},{y}]"),
+                // Where it puffed away (its centre): where it was dropped.
+                AppearanceChange::Vanished { x, y } => format!(",\"at\":[{x},{y}]"),
                 _ => String::new(),
             };
             let path: Vec<String> = seen
@@ -5500,10 +5519,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
+        let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

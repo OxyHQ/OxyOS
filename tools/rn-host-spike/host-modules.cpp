@@ -679,6 +679,20 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       return jsi::Value(services.shell.trashFiles && services.shell.trashFiles(uris));
     });
+    // Files dropped on an application's icon in the dock, opened with it (docs/adr/0034-the-dock.mdx).
+    module->method("openFiles", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 2 || !args[0].isString() || !args[1].isObject() || !args[1].asObject(rt).isArray(rt)) {
+        throw jsi::JSError(rt, "OxyOSShell.openFiles: an application's id and the files' file:// URIs");
+      }
+      auto array = args[1].asObject(rt).asArray(rt);
+      std::vector<std::string> uris;
+      for (size_t i = 0; i < array.size(rt); ++i) {
+        auto uri = array.getValueAtIndex(rt, i);
+        if (uri.isString()) uris.push_back(uri.asString(rt).utf8(rt));
+      }
+      return jsi::Value(services.shell.openFiles && services.shell.openFiles(args[0].asString(rt).utf8(rt), uris));
+    });
     module->method("openUrl", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.openUrl: a URL");
@@ -1152,17 +1166,34 @@ std::shared_ptr<TurboModule> createHostModule(
       int preview = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : -1;
       // How many items go (Bloom's `count`), the preview being one of them: at least one.
       int items = count > 3 && args[3].isNumber() ? std::max(1, static_cast<int>(args[3].asNumber())) : 1;
+      // What else the drag says (Bloom's PlatformDragRequest): { vanish }.
+      auto options = count > 4 && args[4].isObject() ? jsi::dynamicFromValue(rt, args[4]) : folly::dynamic::object();
+      // Told why it ended without a drop, before the promise settles (Bloom's onCancel).
+      std::shared_ptr<jsi::Value> onCancel;
+      if (count > 5 && args[5].isObject() && args[5].asObject(rt).isFunction(rt)) {
+        onCancel = std::make_shared<jsi::Value>(rt, args[5]);
+      }
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "drag"), 2,
-          [&services, invoker, data = std::move(data), actions = std::move(actions), preview, items](
+          [&services, invoker, data = std::move(data), actions = std::move(actions), preview, items,
+           options = std::move(options), onCancel](
               jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
-            services.drag.start(data, actions, preview, items, [invoker, resolve](std::optional<std::string> action) {
+            std::function<void(const std::string&)> cancelled;
+            if (onCancel) {
+              cancelled = [invoker, onCancel](const std::string& reason) {
+                invoker->invokeAsync([onCancel, reason](jsi::Runtime& rt) {
+                  onCancel->asObject(rt).asFunction(rt).call(rt, jsi::String::createFromUtf8(rt, reason));
+                });
+              };
+            }
+            auto done = [invoker, resolve](std::optional<std::string> action) {
               invoker->invokeAsync([resolve, action = std::move(action)](jsi::Runtime& rt) {
                 resolve->asObject(rt).asFunction(rt).call(
                     rt, action ? jsi::Value(jsi::String::createFromUtf8(rt, *action)) : jsi::Value::null());
               });
-            });
+            };
+            services.drag.start(data, actions, preview, items, options, std::move(done), std::move(cancelled));
             return jsi::Value::undefined();
           });
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);

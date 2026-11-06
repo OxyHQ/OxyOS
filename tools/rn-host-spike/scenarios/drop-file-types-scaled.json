@@ -1,0 +1,133 @@
+{
+  "about": "A drag of files says their types, and the shell opens files with an application (docs/adr/0035-drag-and-drop.mdx and docs/adr/0034-the-dock.mdx, 6 November 2026, protocol version 26) at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): sample/ShellDropProbe.tsx, run as the session's shell, shows a panel of three drop targets as a dock's icons are; sample/VanishProbe.tsx drags files of the run's home and an application. foto.png held over a zone taking any files tells it its type, image/png, before any drop; dropped on the zone taking only text/markdown (what Inbox's package declares it opens) it is refused and nothing opens. The application dropped on a zone taking `application/x-oxyos-application` is delivered there by its id and, taken, does not vanish. Last, notas.md dropped on the text/markdown zone is opened with Inbox through the session (OpenFiles, citing the drop): Inbox starts with it.",
+  "module": "VanishProbe",
+  "window": [
+    480,
+    300
+  ],
+  "shell": "ShellDropProbe",
+  "home": {
+    "items": {
+      "notas.md": "# notas",
+      "foto.png": "png"
+    }
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "the shell's panel of drop targets, the probe's rows",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Abierto: nothing",
+            "Visto: nothing",
+            "Mantenido: nothing"
+          ]
+        }
+      }
+    },
+    {
+      "name": "foto.png held over the zone taking any files, then Escape: the zone is told its type, image/png, nothing dropped",
+      "do": [
+        "drag_paced_named",
+        [
+          "foto.png",
+          "Tipos",
+          30,
+          30,
+          29
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "foto.png result: none, cancelled: escape"
+        ],
+        "in_shell": {
+          "texts": [
+            "Visto: image/png"
+          ]
+        }
+      }
+    },
+    {
+      "name": "foto.png dropped on the zone taking only text/markdown: refused, nothing opened, the image back to its row",
+      "do": [
+        "drag_paced_named",
+        [
+          "foto.png",
+          "Abrir con Inbox",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "foto.png result: none, cancelled: not-accepted"
+        ],
+        "in_shell": {
+          "texts": [
+            "Abierto: nothing"
+          ]
+        },
+        "files_opened": [],
+        "sounds": []
+      }
+    },
+    {
+      "name": "the application dropped on the zone that keeps applications: kept there, taken, so it does not vanish",
+      "do": [
+        "drag_paced_named",
+        [
+          "Inbox",
+          "Mantener",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Inbox result: move"
+        ],
+        "in_shell": {
+          "texts": [
+            "Mantenido: so.oxy.inbox"
+          ]
+        },
+        "sounds": []
+      }
+    },
+    {
+      "name": "notas.md dropped on the zone taking what Inbox opens (text/markdown): the session opens it with Inbox, citing the drop",
+      "do": [
+        "drag_paced_named",
+        [
+          "notas.md",
+          "Abrir con Inbox",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "notas.md result: copy"
+        ],
+        "in_shell": {
+          "texts": [
+            "Abierto: notas.md (sent)"
+          ]
+        },
+        "files_opened": [
+          {
+            "name": "notas.md",
+            "application": "so.oxy.inbox"
+          }
+        ]
+      }
+    }
+  ]
+}

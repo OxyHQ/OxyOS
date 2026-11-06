@@ -12,6 +12,9 @@ fn every_sound_has_its_freedesktop_name_and_is_in_the_images_theme() {
     assert_eq!(name(Sound::EmptyTrash), "trash-empty");
     assert_eq!(name(Sound::Notification), "message-new-instant");
     assert_eq!(name(Sound::ScreenCapture), "screen-capture");
+    // The poof is OxyOS's own, an interface sound effect as the Trash's (ADR 0035).
+    assert_eq!(name(Sound::Poof), "poof");
+    assert!(is_interface(Sound::Poof));
     assert!(is_interface(Sound::MoveToTrash));
     assert!(is_interface(Sound::EmptyTrash));
     assert!(!is_interface(Sound::Notification));

@@ -1,0 +1,149 @@
+{
+  "about": "A drag that vanishes (docs/adr/0035-drag-and-drop.mdx, 6 November 2026, protocol version 26) at 1 (1280 × 720): sample/VanishProbe.tsx drags an application (its id as `application/x-oxyos-application`, as a dock or a launcher drags one) through the platform's drag, saying it vanishes dropped on nothing. Let go over the desktop, which takes nothing, it goes up in a poof where it is: the compositor's transition `vanished` and none `returned`, the cloud's white at the drop on the held transitions' clock, gone once the clock runs, the `poof` sound exactly once, no drag icon left, and the source told why nothing took it (`not-accepted`, the adapter's onCancel). Dragged again and cancelled with Escape it slides back to its row as any drag, with no sound.",
+  "module": "VanishProbe",
+  "window": [
+    480,
+    300
+  ],
+  "home": {
+    "items": {
+      "notas.md": "# notas",
+      "foto.png": "png"
+    }
+  },
+  "steps": [
+    {
+      "name": "the probe's rows, nothing dragged yet",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Inbox result: none yet, cancelled: nothing"
+        ]
+      }
+    },
+    {
+      "name": "the transitions' clock held",
+      "do": [
+        "transition_clock",
+        "hold"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "sounds": []
+      }
+    },
+    {
+      "name": "the application dragged out and let go over the desktop, which takes nothing: it goes up in a poof where it is, never sliding back, the poof's sound once; the source learns nothing took it",
+      "do": [
+        "drag_paced",
+        [
+          520,
+          250,
+          1100,
+          600,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Inbox result: none, cancelled: not-accepted"
+        ],
+        "sounds": [
+          "poof"
+        ],
+        "drag_icons": {
+          "count": 0
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "vanished"
+            }
+          ]
+        },
+        "output_pixels": {
+          "1100,600": "#f7f8fa"
+        }
+      }
+    },
+    {
+      "name": "a tenth of a second on: the cloud still where it was, whole",
+      "do": [
+        "transition_clock",
+        100
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1100,600": "#f7f8fa"
+        },
+        "sounds": []
+      }
+    },
+    {
+      "name": "the clock runs again: the poof is gone, the desktop where it was",
+      "do": [
+        "transition_clock",
+        "run"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        }
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        600
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1100,600": "!#f7f8fa"
+        },
+        "sounds": []
+      }
+    },
+    {
+      "name": "dragged out again and Escape pressed: it slides back to its row, no poof and no sound",
+      "do": [
+        "drag_paced",
+        [
+          520,
+          250,
+          1100,
+          600,
+          30,
+          30,
+          28
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Inbox result: none, cancelled: escape"
+        ],
+        "sounds": [],
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "returned"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

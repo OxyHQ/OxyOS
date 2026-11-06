@@ -1106,8 +1106,12 @@ int main(int argc, char** argv) {
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
     services.drag.start = [&dragDrop](const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
-                                      int count, std::function<void(std::optional<std::string>)> done) {
-      dragDrop.start(data, actions, preview, count, std::move(done));
+                                      int count, const folly::dynamic& options,
+                                      std::function<void(std::optional<std::string>)> done,
+                                      std::function<void(const std::string&)> cancelled) {
+      auto vanish = options.isObject() ? options.getDefault("vanish", false) : folly::dynamic(false);
+      dragDrop.start(data, actions, preview, count, vanish.isBool() && vanish.asBool(), std::move(done),
+                     std::move(cancelled));
     };
     // The system's interface sounds (Bloom's usePlatformSounds, docs/adr/0044-system-sounds.mdx),
     // citing the latest input the application received, as a Mac's Finder sounds for the person's
@@ -1367,6 +1371,15 @@ int main(int argc, char** argv) {
             for (const auto& uri : uris) list += uri + "\n";
             bool sent = window->trashFiles(lastPress, list);
             oxyos::Report::get().input("trash.files", 0, folly::dynamic::object("count", uris.size())("sent", sent));
+            return sent;
+          },
+          .openFiles = [&window, &lastPress](const std::string& application, const std::vector<std::string>& uris) {
+            std::string list;
+            for (const auto& uri : uris) list += uri + "\n";
+            bool sent = window->openFiles(lastPress, application, list);
+            oxyos::Report::get().input("files.open", 0,
+                                       folly::dynamic::object("application", application)("count", uris.size())(
+                                           "sent", sent));
             return sent;
           },
       };

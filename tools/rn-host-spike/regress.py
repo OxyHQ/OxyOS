@@ -96,6 +96,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   exactly and in order, by their names in the sound theme (`file-trash`, `trash-empty`,
   `message-new-instant`, `screen-capture`): recorded as the session would play them, after the person's settings and
   the output's mute; a step that plays one and does not say so fails;
+- files_opened: the files the shell had opened with an application in the step (ADR 0034,
+  OpenFiles), exactly and in order, each {"name": the file's name, "application": its id};
 - urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say
   so fails;
@@ -2999,6 +3001,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     urls = result.get("urls_opened") or []
     if urls != expect.get("urls_opened", []):
         fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
+    # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,
+    # each {"name": the file's name, "application"}; a step that opens one and does not say so fails.
+    # The step's own, not each of its trees' (`in_shell`).
+    files_opened = [{"name": pathlib.Path(o["path"]).name, "application": o["application"]}
+                    for o in result.get("files_opened") or []]
+    if not step.get("within") and files_opened != expect.get("files_opened", []):
+        fail(f"files opened: {files_opened}, expected {expect.get('files_opened', [])}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "minimize_target" in expect and result.get("minimize_target") != expect["minimize_target"]:
