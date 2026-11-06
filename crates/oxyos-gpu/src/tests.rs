@@ -2720,3 +2720,30 @@ fn a_frame_file_keeps_each_layers_mesh() {
         compose_cpu(80, 50, 0, &layers)
     );
 }
+
+#[test]
+fn a_rectangle_without_a_hole_is_what_is_left_around_it() {
+    let rect = |x, y, width, height| Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    let whole = rect(0, 0, 100, 60);
+    let area = |rects: &[Rect]| -> u64 {
+        rects
+            .iter()
+            .map(|r| u64::from(r.width) * u64::from(r.height))
+            .sum()
+    };
+    // A hole inside: four bands, around it, none overlapping it.
+    let hole = rect(20, 10, 30, 20);
+    let left = whole.without(&hole);
+    assert_eq!(left.len(), 4);
+    assert_eq!(area(&left), 100 * 60 - 30 * 20);
+    assert!(left.iter().all(|r| r.intersect(&hole).is_none()));
+    // Covering it all: nothing; outside it: all of it; over an edge: what is not under it.
+    assert!(whole.without(&rect(-5, -5, 200, 200)).is_empty());
+    assert_eq!(whole.without(&rect(200, 0, 10, 10)), [whole]);
+    assert_eq!(whole.without(&rect(0, 0, 100, 35)), [rect(0, 35, 100, 25)]);
+}

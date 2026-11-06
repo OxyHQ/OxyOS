@@ -255,6 +255,13 @@ impl Screen {
         }
     }
 
+    /// The scanout target (`VulkanCompositor`'s index) of the frame last composed for its
+    /// display: the one the display shows, or is about to.
+    pub fn front_target(&self) -> Option<usize> {
+        let count = self.scanout.len();
+        (count > 0).then(|| self.scanout[(self.scanout_back + count - 1) % count].0)
+    }
+
     /// The time between its display's frames: 8.33 ms at 120 Hz.
     pub fn refresh_period(&self) -> std::time::Duration {
         refresh_period(self.refresh_mhz)
@@ -568,6 +575,10 @@ pub struct Compositor {
     /// Frames shown by putting a full-screen window's buffer on its display's primary plane
     /// (docs/adr/0031-gpu-buffers.mdx, decision 8).
     pub direct_frames: u64,
+    /// Frames shown with a window's buffer on its display's overlay plane (decision 15).
+    pub overlay_frames: u64,
+    /// The pixels composed into the displays' buffers on the GPU, in all.
+    pub display_pixels: u64,
     /// With `gpu_only`: whether every frame shown is read back into `framebuffer`, as the
     /// development compositor's checks need. A session never reads its frames back.
     pub reads_back: bool,
@@ -1100,6 +1111,8 @@ impl Compositor {
             gpu: None,
             gpu_only: false,
             direct_frames: 0,
+            overlay_frames: 0,
+            display_pixels: 0,
             reads_back: true,
             records: true,
             ending: false,
@@ -3924,10 +3937,16 @@ impl Compositor {
             return false;
         }
         // A full-screen window's buffer straight to the display, where it can be (ADR 0031,
-        // decision 8); its surface told whether it could be first.
+        // decision 8), or a window's on an overlay plane (decision 15); its surface told whether
+        // it could be first.
+        let overlaid = self.overlay_candidate(index, layers);
         self.tell_scanout(index);
         if let Some(shown) = self.present_direct(index, layers) {
             return shown;
+        }
+        let assigned = overlaid.and_then(|layer| self.assign_overlay(index, layers, layer));
+        if self.gpu.is_some() && !self.screens[index].scanout.is_empty() {
+            return self.present_composed(index, layers, damage, assigned);
         }
         self.composing_again(index);
         let screen = &mut self.screens[index];
@@ -3935,54 +3954,6 @@ impl Compositor {
             return false;
         };
         let (width, height) = display.size();
-        if let (Some(gpu), false) = (&mut self.gpu, screen.scanout.is_empty()) {
-            let dx = (width.saturating_sub(screen.width) / 2) as i32;
-            let dy = (height.saturating_sub(screen.height) / 2) as i32;
-            let shifted: Vec<oxyos_gpu::Layer<'_>> = layers
-                .iter()
-                .map(|layer| oxyos_gpu::Layer {
-                    x: layer.x + dx,
-                    y: layer.y + dy,
-                    ..*layer
-                })
-                .collect();
-            let damage: Option<Vec<oxyos_gpu::Rect>> = damage.map(|rects| {
-                rects
-                    .iter()
-                    .map(|rect| oxyos_gpu::Rect {
-                        x: rect.x + dx,
-                        y: rect.y + dy,
-                        ..*rect
-                    })
-                    .collect()
-            });
-            let (target, framebuffer) = screen.scanout[screen.scanout_back];
-            // A frame kept for the director's check is waited for; a session's goes to the display
-            // with its completion, if the device gives one, and the turn goes on at once.
-            let composed = if self.gpu_only && self.reads_back {
-                screen.shown_kept = true;
-                gpu.compositor
-                    .compose_to_scanout_kept(target, DESKTOP, &shifted, damage.as_deref())
-                    .map(|()| None)
-            } else {
-                gpu.compositor
-                    .compose_to_scanout(target, DESKTOP, &shifted, damage.as_deref())
-            }
-            .map_err(|error| std::io::Error::other(error.to_string()));
-            let submitted = monotonic();
-            if self.records {
-                gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
-                gpu.host_ms.push(gpu.compositor.last_host_ms());
-                gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
-                gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
-                self.compositions
-                    .push((submitted - self.composing_since).as_secs_f64() * 1e3);
-            }
-            let presented = composed
-                .and_then(|completion| display.present_framebuffer_after(framebuffer, completion));
-            screen.scanout_back = (screen.scanout_back + 1) % screen.scanout.len();
-            return self.handed_over(index, presented, submitted);
-        }
         let mut pixels = vec![DESKTOP; width as usize * height as usize];
         let dx = (width.saturating_sub(screen.width) / 2) as usize;
         let dy = (height.saturating_sub(screen.height) / 2) as usize;
@@ -4006,6 +3977,144 @@ impl Compositor {
         }
         let presented = drawn.and_then(|()| display.present());
         self.handed_over(index, presented, submitted)
+    }
+
+    /// Composes a screen's frame on the GPU straight into one of its display's buffers, and hands
+    /// it to the display, which flips to it at its next refresh, with a window's buffer on the
+    /// overlay plane where it is `assigned` (ADR 0031, decision 15): then only what changed
+    /// outside the window is composed (and what the plane stops covering), and a frame of the
+    /// window alone composes nothing, the overlay plane committed alone. A commit the card
+    /// refuses with the window on the plane is made again with the window composed.
+    fn present_composed(
+        &mut self,
+        index: usize,
+        layers: &[oxyos_gpu::Layer<'_>],
+        damage: Option<&[oxyos_gpu::Rect]>,
+        mut assigned: Option<scanout::Assigned>,
+    ) -> bool {
+        loop {
+            let screen = &mut self.screens[index];
+            let whole = oxyos_gpu::Rect {
+                x: 0,
+                y: 0,
+                width: screen.width,
+                height: screen.height,
+            };
+            let now = assigned.as_ref().map(|assigned| assigned.rect);
+            let damage = scanout::under_overlay(damage, screen.direct.overlay, now, whole);
+            let (Some(gpu), Some(display)) = (&mut self.gpu, screen.display.as_mut()) else {
+                return false;
+            };
+            display.set_overlay(assigned.as_ref().map(|assigned| assigned.placement));
+            let only_overlay = now.is_some()
+                && display.showing()
+                && damage.as_ref().is_some_and(|damage| damage.is_empty());
+            // Shown nothing yet (or again since another session had the display): composed.
+            let damage = if now.is_some() && !display.showing() {
+                scanout::under_overlay(None, None, now, whole)
+            } else {
+                damage
+            };
+            let presented = if only_overlay {
+                // The window alone changed (or nothing did): nothing composed.
+                display.present_overlay().map(|_| None)
+            } else {
+                let (width, height) = display.size();
+                let dx = (width.saturating_sub(screen.width) / 2) as i32;
+                let dy = (height.saturating_sub(screen.height) / 2) as i32;
+                let shifted: Vec<oxyos_gpu::Layer<'_>> = layers
+                    .iter()
+                    .map(|layer| oxyos_gpu::Layer {
+                        x: layer.x + dx,
+                        y: layer.y + dy,
+                        ..*layer
+                    })
+                    .collect();
+                let damage: Option<Vec<oxyos_gpu::Rect>> = damage.map(|rects| {
+                    rects
+                        .iter()
+                        .map(|rect| oxyos_gpu::Rect {
+                            x: rect.x + dx,
+                            y: rect.y + dy,
+                            ..*rect
+                        })
+                        .collect()
+                });
+                let (target, framebuffer) = screen.scanout[screen.scanout_back];
+                // A frame kept for the director's check is waited for; a session's goes to the
+                // display with its completion, if the device gives one, and the turn goes on at
+                // once. With a window on a plane, the director's copy is composed whole.
+                let composed = if self.gpu_only && self.reads_back && now.is_none() {
+                    screen.shown_kept = true;
+                    gpu.compositor
+                        .compose_to_scanout_kept(target, DESKTOP, &shifted, damage.as_deref())
+                        .map(|()| None)
+                } else {
+                    gpu.compositor
+                        .compose_to_scanout(target, DESKTOP, &shifted, damage.as_deref())
+                }
+                .map_err(|error| std::io::Error::other(error.to_string()));
+                if composed.is_ok() {
+                    self.display_pixels += gpu.compositor.last_composed_pixels();
+                }
+                let presented = composed.and_then(|completion| {
+                    display.present_framebuffer_after(framebuffer, completion)
+                });
+                screen.scanout_back = (screen.scanout_back + 1) % screen.scanout.len();
+                presented.map(|()| Some(()))
+            };
+            let submitted = monotonic();
+            if self.records {
+                if let Some(gpu) = &mut self.gpu {
+                    if matches!(presented, Ok(Some(()))) {
+                        gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
+                        gpu.host_ms.push(gpu.compositor.last_host_ms());
+                        gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
+                        gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
+                    }
+                }
+                self.compositions
+                    .push((submitted - self.composing_since).as_secs_f64() * 1e3);
+            }
+            match (presented, assigned.take()) {
+                (Ok(_), Some(assigned)) => {
+                    let screen = &mut self.screens[index];
+                    if screen.direct.overlay.is_none() {
+                        eprintln!(
+                            "[compositor] output {} shows a window's buffer on an overlay plane (modifier {:#x})",
+                            screen.id, assigned.modifier
+                        );
+                    }
+                    screen.direct.overlay = Some(assigned.rect);
+                    screen.direct.next = Some(assigned.held);
+                    screen.direct.shown_direct = false;
+                    self.overlay_frames += 1;
+                    self.director_copy(index, layers);
+                    if self.gpu_only && self.reads_back {
+                        self.screens[index].direct.shown_direct = true;
+                    }
+                    return self.handed_over(index, Ok(()), submitted);
+                }
+                (Err(error), Some(assigned)) => {
+                    // The card took the plane in its test, not in the commit: composed.
+                    eprintln!(
+                        "[kms] a window's buffer could not be shown on the overlay plane: {error}"
+                    );
+                    self.refuse_overlay(index, &assigned);
+                }
+                (presented, None) => {
+                    self.composing_again(index);
+                    let screen = &mut self.screens[index];
+                    if screen.direct.overlay.take().is_some() {
+                        eprintln!(
+                            "[compositor] output {} composes its window again",
+                            screen.id
+                        );
+                    }
+                    return self.handed_over(index, presented.map(|_| ()), submitted);
+                }
+            }
+        }
     }
 
     pub fn handed_over(

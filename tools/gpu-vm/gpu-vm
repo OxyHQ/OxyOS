@@ -5,14 +5,20 @@ buffers: DMA-BUF (udmabuf, the system dma-heap), a render node with DRM syncobj 
 
 The guest is Debian Trixie's own kernel, booted under KVM, on this machine's root file system
 shared read-only (9p), so the command runs the binaries just built, with this machine's
-userspace (Mesa's lavapipe included). The command's working directory and `--writable`
+userspace (Mesa's lavapipe included). With `--vkms`, also the kernel's virtual display (vkms,
+which Debian does not build: built here once from the kernel's own source for its version and
+Debian's headers for it) with overlay planes, a cursor plane and a writeback connector: a KMS
+driver that composes planes, takes TEST_ONLY commits and writes its output back. It is a second
+display then: tests that each take a display may take either (run them one at a time to keep each
+on its own). The command's working directory and `--writable`
 directories are shared read-write; /tmp is the guest's. Nothing on this machine is changed: no
 module is loaded here, no device appears here.
 
-    tools/gpu-vm/gpu-vm [--writable DIR]... [--memory MiB] [--cpus N] -- COMMAND...
+    tools/gpu-vm/gpu-vm [--vkms] [--writable DIR]... [--memory MiB] [--cpus N] -- COMMAND...
 
 The kernel package is downloaded once (apt-get download, no root) into
-~/.cache/oxyos-gpu-vm. The exit status is the command's.
+~/.cache/oxyos-gpu-vm; with `--vkms`, its headers and vkms' source (git.kernel.org's stable tree
+at the kernel's version) too, built with make and the kernel's compiler (gcc-14). The exit status is the command's.
 """
 
 import argparse
@@ -28,6 +34,14 @@ from pathlib import Path
 
 KERNEL_PACKAGE = "linux-image-6.12.111+deb13-amd64-unsigned"
 KERNEL_VERSION = "6.12.111+deb13-amd64"
+# The upstream version the kernel package is (vkms' source), and its headers' packages.
+UPSTREAM = "6.12.111"
+HEADERS = ["linux-headers-6.12.111+deb13-amd64", "linux-headers-6.12.111+deb13-common",
+           "linux-kbuild-6.12.111+deb13"]
+VKMS_FILES = ["Makefile", "vkms_drv.c", "vkms_drv.h", "vkms_plane.c", "vkms_output.c", "vkms_crtc.c",
+              "vkms_composer.c", "vkms_formats.c", "vkms_formats.h", "vkms_writeback.c"]
+# vkms' parameters: two planes over the primary, the cursor's, and its output written back.
+VKMS_PARAMETERS = "enable_overlay=1 enable_cursor=1 enable_writeback=1"
 CACHE = Path.home() / ".cache" / "oxyos-gpu-vm"
 
 # Modules loaded in the guest, in an order that satisfies their dependencies (`modules`
@@ -59,8 +73,40 @@ def fetch():
     return root / "boot" / f"vmlinuz-{KERNEL_VERSION}", root / "usr" / "lib" / "modules" / KERNEL_VERSION, busybox
 
 
-def modules(tree: Path):
-    """The modules WANTED needs, dependencies first, as (name, path)."""
+def vkms():
+    """vkms.ko for the kernel, built once: its source at the kernel's version, Debian's headers."""
+    module = CACHE / "vkms" / "vkms.ko"
+    if module.exists():
+        return module
+    debs = CACHE / "debs"
+    for package in HEADERS:
+        if not list(debs.glob(f"{package}_*.deb")):
+            run("apt-get", "download", package, cwd=debs)
+    headers = CACHE / "headers"
+    shutil.rmtree(headers, ignore_errors=True)
+    for package in HEADERS:
+        run("dpkg-deb", "-x", str(next(debs.glob(f"{package}_*.deb"))), str(headers))
+    source = headers / "usr" / "src"
+    build = source / f"linux-headers-{KERNEL_VERSION}"
+    # Its Makefile names the common headers where the package installs them.
+    makefile = build / "Makefile"
+    makefile.write_text(makefile.read_text().replace("include /usr/src/", f"include {source}/"))
+    src = CACHE / "vkms-src"
+    src.mkdir(parents=True, exist_ok=True)
+    for name in VKMS_FILES:
+        run("curl", "-sfL", "-o", str(src / name),
+            "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/plain/drivers/gpu/drm/vkms/"
+            f"{name}?h=v{UPSTREAM}")
+    # Without BTF: pahole is not needed, and nothing reads a module's BTF here.
+    run("make", "-C", str(build), f"M={src}", "CONFIG_DRM_VKMS=m", "CONFIG_DEBUG_INFO_BTF_MODULES=",
+        "modules", stdout=subprocess.DEVNULL)
+    module.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src / "vkms.ko", module)
+    return module
+
+
+def modules(tree: Path, extra=()):
+    """The modules WANTED and `extra` need, dependencies first, as (name, path)."""
     by_name = {}
     for path in tree.rglob("*.ko.xz"):
         by_name[path.name[: -len(".ko.xz")].replace("-", "_")] = path
@@ -79,7 +125,7 @@ def modules(tree: Path):
             visit(dependency)
         order.append((key, path))
 
-    for name in WANTED:
+    for name in [*WANTED, *extra]:
         visit(name)
     return order
 
@@ -91,7 +137,9 @@ mount -t sysfs sys /sys
 mount -t devtmpfs dev /dev
 # Loopback, for tests serving themselves over 127.0.0.1; the guest has no other network.
 ip link set lo up
-for module in $(cat /modules); do insmod /lib/$module.ko || echo "gpu-vm: $module did not load"; done
+while read -r module parameters; do
+  insmod /lib/$module.ko $parameters || echo "gpu-vm: $module did not load"
+done < /modules
 mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=512000 host /root || { cat /modules; cat /proc/filesystems | grep 9p; dmesg | tail -20; }
 . /config
 mount -t proc proc /root/proc
@@ -120,8 +168,10 @@ def initramfs(work: Path, busybox: Path, order, config: str) -> Path:
         (root / sub).mkdir(parents=True, exist_ok=True)
     shutil.copy(busybox, root / "bin" / "busybox")
     for name, path in order:
-        (root / "lib" / f"{name}.ko").write_bytes(lzma.decompress(path.read_bytes()))
-    (root / "modules").write_text("\n".join(name for name, _ in order) + "\n")
+        data = path.read_bytes()
+        (root / "lib" / f"{name}.ko").write_bytes(lzma.decompress(data) if path.suffix == ".xz" else data)
+    (root / "modules").write_text(
+        "\n".join(f"{name} {VKMS_PARAMETERS}" if name == "vkms" else name for name, _ in order) + "\n")
     (root / "config").write_text(config)
     init = root / "init"
     init.write_text(INIT)
@@ -137,6 +187,8 @@ def initramfs(work: Path, busybox: Path, order, config: str) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--vkms", action="store_true",
+                        help="also the kernel's virtual display, with overlay planes (built once)")
     parser.add_argument("--writable", action="append", default=[], help="a directory shared read-write")
     parser.add_argument("--memory", type=int, default=8192, help="MiB")
     parser.add_argument("--cpus", type=int, default=8)
@@ -149,7 +201,9 @@ def main():
     if not os.access("/dev/kvm", os.R_OK | os.W_OK):
         sys.exit("gpu-vm: /dev/kvm is not usable here")
     kernel, tree, busybox = fetch()
-    order = modules(tree)
+    order = modules(tree, ["drm_kms_helper", "drm_shmem_helper"] if args.vkms else [])
+    if args.vkms:
+        order.append(("vkms", vkms()))
     workdir = Path.cwd().resolve()
     writable = [workdir] + [Path(d).resolve() for d in args.writable]
     with tempfile.TemporaryDirectory(prefix="oxyos-gpu-vm-", dir=CACHE) as scratch:
