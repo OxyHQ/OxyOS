@@ -3065,9 +3065,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                     fail(f"the assistive technology holds a {role} node {node}")
     if "never" in expect:
         # Text that must appear nowhere: not drawn, not reported by the host, not held by the
-        # compositor for an assistive technology. The step's own instruction is left out.
-        held = json.dumps({k: v for k, v in result.items() if k not in STEP_KEYS}, ensure_ascii=False)
-        lines = [json.dumps(line, ensure_ascii=False) for line in report if line["t"] <= end]
+        # compositor for an assistive technology. The step's own instruction is left out, and so
+        # are the reports' own key names (a memory line's `malloc_free` is no password "mal"):
+        # what is looked at is every value they hold.
+        def said(value):
+            if isinstance(value, dict):
+                return "\n".join(said(v) for v in value.values())
+            if isinstance(value, list):
+                return "\n".join(said(v) for v in value)
+            return value if isinstance(value, str) else json.dumps(value)
+        held = said({k: v for k, v in result.items() if k not in STEP_KEYS})
+        lines = [said(line) for line in report if line["t"] <= end]
         for text in expect["never"]:
             if text in held or any(text in line for line in lines):
                 fail(f"{text!r} leaked (host report or compositor)")
