@@ -4937,7 +4937,7 @@ pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;
-pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
+pub use shell::{ShellWindowState, MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod lock;
 pub use lock::{Secret, Submitted};
 mod launch;

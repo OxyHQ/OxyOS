@@ -209,7 +209,8 @@ const DockIcon = memo(function DockIcon({
   /** This icon's menu, while it is the one open. */
   menu: OpenMenu | null;
   setMenu: (menu: OpenMenu | null) => void;
-  activate: (id: string) => void;
+  /** Its press, and whether Option (Alt) was held at it (docs/adr/0034-the-dock.mdx, decision 9). */
+  activate: (id: string, option: boolean) => void;
   /** The running mark's colour, under an application running; none for one that is not. */
   runningColor?: string;
   /** Its menu's rows while it is open. */
@@ -266,11 +267,14 @@ const DockIcon = memo(function DockIcon({
     [openMenu, setMenu],
   );
   const press = useCallback(() => {
+    // Option counts for the press it was held at alone: a key's press (Space, Return) has none.
+    const withOption = option.current;
+    option.current = false;
     if (controlClick.current) {
       controlClick.current = false;
       return;
     }
-    activate(id);
+    activate(id, withOption);
   }, [activate, id]);
   const hoverIn = useCallback(() => setHovered(true), []);
   const hoverOut = useCallback(() => setHovered(false), []);
@@ -535,7 +539,10 @@ export const Dock = memo(function Dock({
   /** What the platform does for the dock's menus: the same object from one render to the next. */
   actions: ShellActions;
   view: string;
-  activateApp: (id: string) => void;
+  /** A press on an application's icon, and whether Option (Alt) was held at it: what a Mac's Dock
+      does, and the frontmost application minimized into its icon (docs/adr/0034-the-dock.mdx,
+      decision 9). The menu's Open launches with it too. */
+  activateApp: (id: string, option: boolean) => void;
   /** The application's App Exposé (docs/adr/0045-app-expose.mdx): its windows alone, large. */
   showAllWindows?: (id: string) => void;
   /** A scroll up (or down) on an application's icon: its App Exposé opens (or closes), as a
@@ -597,7 +604,7 @@ export const Dock = memo(function Dock({
         case "window":
           return actions.focusWindow(command.window);
         case "open":
-          return activateApp(id);
+          return activateApp(id, false);
         case "show-all-windows":
           return showAllWindows?.(id);
         case "hide":
