@@ -331,6 +331,16 @@ impl Running {
     fn runs(&self, now: Duration) -> bool {
         self.elapsed(now) < self.duration
     }
+
+    /// When its clock ends it: its length, unless a swipe drives it.
+    fn ends(&self) -> Option<Duration> {
+        (!self.driven).then_some(self.duration)
+    }
+}
+
+/// A time since a transition began, in whole milliseconds, cut short.
+fn millis(elapsed: Duration) -> u32 {
+    elapsed.as_millis().min(u128::from(u32::MAX)) as u32
 }
 
 /// A window's frame zooming: where the surface was when it began (`at`), and whether it is now
@@ -357,7 +367,11 @@ impl Zoom {
 /// came or went, the opacities of the first and last frames drawn in it, how many frames those
 /// were, whether it ran to its end (not interrupted: a window restored as it went, going
 /// dropped by the lock), and each frame drawn (`path`, the first `MAX_PATH`): when, at what
-/// opacity, and how far along its size and place were.
+/// opacity, and how far along its size and place were. Its end is judged by time, not by its
+/// frames: `ends_ms` is when its clock ends it (its motion's length), `ended_ms` when the frame
+/// that ended it was composed, the one drawing it at its end (an arriving surface whole, a going
+/// one gone, its windows home), however late it came. Frames dropped before it (a loaded machine)
+/// leave the last one drawn in it short of its end, never its end short of its place.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Seen {
     pub kind: Kind,
@@ -366,6 +380,13 @@ pub struct Seen {
     pub last: Option<u8>,
     pub frames: u32,
     pub ended: bool,
+    /// When it ends by its clock, in milliseconds since it began (a zoom is then at its end, held
+    /// there until its window shows its new frame): none for what a swipe drives (it ends with
+    /// the fingers).
+    pub ends_ms: Option<u32>,
+    /// When the frame that ended it was composed, in milliseconds since it began: none while it
+    /// runs or if it was interrupted.
+    pub ended_ms: Option<u32>,
     pub path: Vec<Step>,
 }
 
@@ -755,6 +776,8 @@ impl Transitions {
                 last: None,
                 frames: 0,
                 ended: false,
+                ends_ms: None,
+                ended_ms: None,
                 path: Vec::new(),
             },
         );
@@ -1056,7 +1079,7 @@ impl Transitions {
                 running.runs(now)
             };
             if !runs {
-                ended.push(running.id);
+                ended.push((running.id, running.elapsed(now)));
             }
             runs
         });
@@ -1067,7 +1090,7 @@ impl Transitions {
                 running.runs(now)
             };
             if !runs {
-                ended.push(running.id);
+                ended.push((running.id, running.elapsed(now)));
             }
             runs
         });
@@ -1075,13 +1098,15 @@ impl Transitions {
             let runs = !zoom.ends(now);
             // Moved or resized again, it did not end: it was interrupted.
             if !runs && !zoom.superseded {
-                ended.push(zoom.running.id);
+                ended.push((zoom.running.id, zoom.running.elapsed(now)));
             }
             runs
         });
-        for id in ended {
+        // The frame composed now is the one that ends them, drawn at their end.
+        for (id, elapsed) in ended {
             if let Some(seen) = self.seen.get_mut(&id) {
                 seen.ended = true;
+                seen.ended_ms = Some(millis(elapsed));
             }
         }
         if fingers_only && !springing {
@@ -1109,7 +1134,7 @@ impl Transitions {
             _ if arriving => 1000 - frame.shift_permille,
             _ => frame.shift_permille,
         };
-        let mut drawn: Vec<(u64, Duration, Frame, i32)> = self
+        let mut drawn: Vec<(u64, Duration, Option<Duration>, Frame, i32)> = self
             .arriving
             .values()
             .map(|running| {
@@ -1117,6 +1142,7 @@ impl Transitions {
                 (
                     running.id,
                     running.elapsed(now),
+                    running.ends(),
                     frame,
                     moved(running, &frame, true),
                 )
@@ -1127,6 +1153,7 @@ impl Transitions {
             (
                 running.id,
                 running.elapsed(now),
+                running.ends(),
                 frame,
                 moved(running, &frame, false),
             )
@@ -1136,18 +1163,20 @@ impl Transitions {
             (
                 zoom.running.id,
                 zoom.running.elapsed(now),
+                zoom.running.ends(),
                 frame,
                 frame.shift_permille,
             )
         }));
-        for (id, elapsed, frame, moved) in drawn {
+        for (id, elapsed, ends, frame, moved) in drawn {
             if let Some(seen) = self.seen.get_mut(&id) {
+                seen.ends_ms = ends.map(millis);
                 seen.first.get_or_insert(frame.opacity);
                 seen.last = Some(frame.opacity);
                 seen.frames += 1;
                 if seen.path.len() < MAX_PATH {
                     seen.path.push(Step {
-                        ms: elapsed.as_millis().min(u128::from(u32::MAX)) as u32,
+                        ms: millis(elapsed),
                         opacity: frame.opacity,
                         moved_permille: moved,
                     });
@@ -1480,6 +1509,9 @@ mod tests {
                     last: Some(209),
                     frames: 2,
                     ended: true,
+                    // Ended by its clock at 441 ms, by the frame composed then.
+                    ends_ms: Some(441),
+                    ended_ms: Some(441),
                     // Its size 567 thousandths of the way at 90 ms, from its scale (974).
                     path: vec![
                         Step {
@@ -1501,6 +1533,8 @@ mod tests {
                     last: Some(238),
                     frames: 1,
                     ended: false,
+                    ends_ms: Some(lasts(Kind::Window, Change::Gone).as_millis() as u32),
+                    ended_ms: None,
                     path: vec![Step {
                         ms: 10,
                         opacity: 238,
@@ -1514,11 +1548,51 @@ mod tests {
                     last: None,
                     frames: 0,
                     ended: false,
+                    ends_ms: None,
+                    ended_ms: None,
                     path: Vec::new(),
                 },
             ]
         );
         assert!(t.take_seen().is_empty());
+    }
+
+    /// Frames dropped at its end (a loaded machine): the last frame drawn in it is short of its
+    /// end, but it ends by its clock, never by its frames, and the frame that comes late draws it
+    /// at its end: an arriving surface whole, a going one gone.
+    #[test]
+    fn a_transition_whose_last_frames_are_dropped_ends_by_its_clock() {
+        for arriving in [true, false] {
+            let mut t = Transitions::default();
+            let start = Duration::from_secs(1);
+            let change = if arriving {
+                Change::Arrived
+            } else {
+                Change::Gone
+            };
+            if arriving {
+                t.arrive(KEY, Kind::Overlay, start);
+            } else {
+                t.go(KEY, Kind::Overlay, start, Some(snapshot()));
+            }
+            let end = lasts(Kind::Overlay, change);
+            let late = end + ms(120);
+            for at in [ms(0), ms(17), ms(33), late] {
+                let now = start + at;
+                assert!(t.advance(now), "{at:?}");
+                t.record(now);
+            }
+            // The late frame draws it at its end.
+            assert_eq!(t.arriving(KEY, start + late), Frame::WHOLE);
+            assert_eq!(t.going(start + late).count(), 0);
+            assert!(t.is_empty());
+            let seen = t.take_seen();
+            let seen = &seen[0];
+            assert!(seen.ended, "{seen:?}");
+            assert_eq!(seen.ends_ms, Some(end.as_millis() as u32));
+            assert_eq!(seen.ended_ms, Some(late.as_millis() as u32));
+            assert_eq!(seen.path.last().map(|step| step.ms), Some(33), "{seen:?}");
+        }
     }
 
     #[test]

@@ -287,6 +287,50 @@ fn a_window_moved_into_its_view_flies_there_and_back() {
     assert_eq!(s.window(), window, "the window never moved");
 }
 
+/// The frames at the end of a flight dropped (a loaded machine: none composed between 33 ms in
+/// and well past its end): each flight still ends exactly at its end, in the frame that came
+/// late, in its view arriving and where the window is going, never where the last frame on its
+/// way had it.
+#[test]
+fn a_flight_whose_last_frames_are_dropped_ends_exactly_at_its_end() {
+    let mut s = session("dropped", false);
+    let window = s.window();
+    s.open();
+    s.at_ms(OPEN + 17);
+    s.at_ms(OPEN + 33);
+    let on_its_way = *s.compositor.take_flights()[0].path.last().unwrap();
+    assert_ne!(on_its_way, VIEW, "33 ms in it is on its way");
+    s.at_ms(OPEN + 600);
+    let flights = s.compositor.take_flights();
+    let to = flights
+        .iter()
+        .find(|f| f.arriving)
+        .expect("flying to its view");
+    assert_eq!(to.path, [VIEW], "its end, in the frame that came late");
+    assert_eq!(s.pixel((60, 340)), RED);
+    s.close.send(()).unwrap();
+    let close = OPEN + 1000;
+    s.until(close, "the overview closing", |c| {
+        c.scene.render_list().len() == 1
+    });
+    s.at_ms(close + 17);
+    s.at_ms(close + 33);
+    let flights = s.compositor.take_flights();
+    let back = flights.iter().find(|f| !f.arriving).expect("flying back");
+    assert_eq!(back.path[0], VIEW);
+    assert_ne!(
+        *back.path.last().unwrap(),
+        window,
+        "33 ms in it is on its way"
+    );
+    s.at_ms(close + 600);
+    let flights = s.compositor.take_flights();
+    let back = flights.iter().find(|f| !f.arriving).expect("flying back");
+    assert_eq!(back.path, [window], "its end, in the frame that came late");
+    assert_eq!(s.pixel((window.x + 20, window.y + 50)), RED);
+    assert_eq!(s.pixel((60, 340)), DESKTOP);
+}
+
 /// With reduce motion nothing flies: the window stays where it is while its view, a copy, fades
 /// in with the overlay in the card.
 #[test]

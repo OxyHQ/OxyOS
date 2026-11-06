@@ -3068,6 +3068,8 @@ fn transitions_json(compositor: &mut Compositor) -> String {
         .iter()
         .map(|seen| {
             let opacity = |o: Option<u8>| o.map_or("null".to_string(), |o| o.to_string());
+            // When its clock ends it, and when the frame that ended it came (ms since it began).
+            let ms = |ms: Option<u32>| ms.map_or("null".to_string(), |ms| ms.to_string());
             let change = match seen.change {
                 AppearanceChange::Arrived => "arrived",
                 AppearanceChange::Gone => "gone",
@@ -3092,13 +3094,15 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 .map(|step| format!("[{},{},{}]", step.ms, step.opacity, step.moved_permille))
                 .collect();
             format!(
-                "{{\"kind\":\"{}\",\"change\":\"{change}\"{to},\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{},\"path\":[{}]}}",
+                "{{\"kind\":\"{}\",\"change\":\"{change}\"{to},\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{},\"ends_ms\":{},\"ended_ms\":{},\"path\":[{}]}}",
                 format!("{:?}", seen.kind).to_lowercase(),
                 seen.arriving(),
                 opacity(seen.first),
                 opacity(seen.last),
                 seen.frames,
                 seen.ended,
+                ms(seen.ends_ms),
+                ms(seen.ended_ms),
                 path.join(",")
             )
         })
