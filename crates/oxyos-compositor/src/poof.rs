@@ -106,20 +106,6 @@ pub fn frame(progress: f64, side: u32, scale_120: u32) -> Option<(Size, Vec<u8>)
 mod tests {
     use super::*;
 
-    /// With `OXYOS_POOF_DUMP` a folder, its frames' bytes written there to look at.
-    #[test]
-    fn dump() {
-        let Some(dir) = std::env::var_os("OXYOS_POOF_DUMP") else {
-            return;
-        };
-        for step in 0..=9 {
-            if let Some((size, bytes)) = frame(f64::from(step) / 10.0, 75, 150) {
-                let path = std::path::Path::new(&dir).join(format!("{step}-{}.bgra", size.width));
-                std::fs::write(path, bytes).unwrap();
-            }
-        }
-    }
-
     fn at(size: Size, bytes: &[u8], x: u32, y: u32) -> [u8; 4] {
         let i = ((y * size.width + x) * 4) as usize;
         [bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]
