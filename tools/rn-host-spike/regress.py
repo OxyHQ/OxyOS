@@ -393,7 +393,12 @@ bundle; `--runtimes DIR` holds the runtimes they were built for (`DIR/<abi>/oxyo
 development registry's applications that a package provides run from that package, on its
 runtime's host, its bytecode known by its source bundle's URL; any other module is a probe, run
 from `probes/` on the runtime it was built for. The development registry the shell lists is
-`applications/` with each packaged application's bundle and runtime its package's.
+`applications/` with each packaged application's bundle and runtime its package's: its entry is
+written for each run where the package is (`oxyos-pack entry`, beside the offscreen compositor), so
+packages built on one machine run where they were copied. Whatever XDG directories a run gives (its
+registry, its data, its home), the Vulkan drivers are the machine's (`VK_ADD_DRIVER_FILES`, the
+folders the loader looks in under the caller's environment): the hosts draw on the GPU the
+compositor names, as in a session.
 
 A scenario's `installed` ([{"package": ID, "capabilities": {NAME: DECISION}, "entry": [LINE]}]) is the
 install service's state for the run's user, as it would have it (docs/adr/0030-installing-applications.mdx,
@@ -3118,6 +3123,18 @@ def installed_fixture(root, installed, machine, offscreen):
             "capabilities": app.get("capabilities", {})}))
     return root
 
+def vulkan_driver_folders(environ):
+    """The folders the Vulkan loader finds drivers' manifests in under `environ`, in its order
+    (Linux), as oxyos-gpu-device's `manifest_dirs`: the user's and the system's configuration,
+    then the user's and the system's data."""
+    home = environ.get("HOME")
+    config_home = environ.get("XDG_CONFIG_HOME") or (home and f"{home}/.config")
+    data_home = environ.get("XDG_DATA_HOME") or (home and f"{home}/.local/share")
+    bases = ([config_home] + (environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(os.pathsep) + ["/etc", data_home]
+             + (environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(os.pathsep))
+    return [f"{base}/vulkan/icd.d" for base in bases if base and base.startswith("/")]
+
+
 class Machine:
     """The runtimes and the applications' packages a scenario runs on (ADR 0030)."""
 
@@ -3149,18 +3166,22 @@ class Machine:
         level = json.loads((self.probes / "runtime.json").read_text())
         return self.host(level["abi"]), self.probes / "index.js", self.probes / "index.js"
 
-    def registry(self, into):
+    def registry(self, into, offscreen):
         """The development registry (`applications/`) in `into`: each packaged application's entry the
-        one oxyos-installd writes for it (`packages/applications/`, `oxyos-pack entry`), with the
+        one oxyos-installd writes for it where its package is now (`oxyos-pack entry`, beside the
+        offscreen compositor; the packages may have been built elsewhere and copied), with the
         development registry's place in the dock; any other entry as it is, its icon where its is."""
         source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
         target = into / "oxyos" / "applications"
         target.mkdir(parents=True, exist_ok=True)
+        pack = pathlib.Path(offscreen).resolve().parent / "oxyos-pack"
         for entry in sorted(source.glob("*.desktop")):
             text = entry.read_text().splitlines()
-            installed = self.packages / "applications" / entry.name
-            if entry.stem in self.by_id and installed.is_file():
-                lines = installed.read_text().splitlines()
+            if entry.stem in self.by_id:
+                if not pack.is_file():
+                    raise SystemExit(f"{pack} is not built: the registry's entries for the packages are its")
+                lines = subprocess.run([str(pack), "entry", str(self.by_id[entry.stem]["dir"])], check=True,
+                                       capture_output=True, text=True).stdout.splitlines()
                 lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
             else:
                 lines = [("Icon=" + str((source / line[5:]).resolve()))
@@ -3824,6 +3845,15 @@ def main():
     if "MESA_SHADER_CACHE_DIR" not in env:
         machine_cache = env.get("XDG_CACHE_HOME") or str(pathlib.Path(env.get("HOME", "/tmp")) / ".cache")
         env["MESA_SHADER_CACHE_DIR"] = machine_cache  # Mesa keeps its cache in a folder of its own there
+    # The GPU's drivers are the machine's, as a session's are, wherever the run's XDG directories
+    # (its data, its registry, its home) put the folders the Vulkan loader looks in: those this
+    # environment has are named (VK_ADD_DRIVER_FILES, which the loader and oxyos-gpu-device read
+    # first), unless the developer named drivers alone (VK_DRIVER_FILES). Without them the shell's
+    # and its applications' hosts found no driver and drew on the CPU, and a GPU composition none.
+    if not env.get("VK_DRIVER_FILES") and not env.get("VK_ICD_FILENAMES"):
+        env["VK_ADD_DRIVER_FILES"] = os.pathsep.join(
+            [path for path in env.get("VK_ADD_DRIVER_FILES", "").split(os.pathsep) if path]
+            + vulkan_driver_folders(env))
     # What applications keep (their data and cache directories, application.h) is the run's own,
     # never the user's; a scenario's `app_data` is there before the application starts.
     for kept in ("xdg-data", "xdg-cache"):
@@ -3833,7 +3863,7 @@ def main():
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's, each packaged one from its package.
-        env["XDG_DATA_DIRS"] = str(machine.registry(out / "registry"))
+        env["XDG_DATA_DIRS"] = str(machine.registry(out / "registry", options.offscreen))
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
