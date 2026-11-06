@@ -208,7 +208,7 @@ impl Layer<'_> {
 
 /// A rectangle of the output, in its pixels: a frame's damage, what changed since the previous
 /// frame composed into the same place (docs/adr/0005-damage.mdx).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -237,6 +237,29 @@ impl Rect {
             width: (right - i64::from(x)) as u32,
             height: (bottom - i64::from(y)) as u32,
         })
+    }
+
+    /// What of it `hole` leaves: up to four rectangles that do not overlap, the bands above and
+    /// below the hole and the parts beside it.
+    pub fn without(&self, hole: &Rect) -> Vec<Rect> {
+        let Some(cut) = self.intersect(hole) else {
+            return vec![*self];
+        };
+        let mut left = Vec::with_capacity(4);
+        let band = |y: i64, bottom: i64, x: i64, right: i64| {
+            (bottom > y && right > x).then(|| Rect {
+                x: x as i32,
+                y: y as i32,
+                width: (right - x) as u32,
+                height: (bottom - y) as u32,
+            })
+        };
+        let (x, right) = (i64::from(self.x), self.right());
+        left.extend(band(i64::from(self.y), i64::from(cut.y), x, right));
+        left.extend(band(cut.bottom(), self.bottom(), x, right));
+        left.extend(band(i64::from(cut.y), cut.bottom(), x, i64::from(cut.x)));
+        left.extend(band(i64::from(cut.y), cut.bottom(), cut.right(), right));
+        left
     }
 
     /// The smallest rectangle holding both.

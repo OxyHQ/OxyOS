@@ -1054,6 +1054,20 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   session's). `tests/pointer_motion.rs` holds that the pointer moving over what does not change
   composes nothing and reads no client's pixels.
 
+- **A maximized window was composed, though the display could show it as it is** (6 November
+  2026). The ThinkPad's pipe has four overlay planes, which nothing used. Each frame now assigns
+  one ([ADR 0031](./adr/0031-gpu-buffers), decision 15): a maximized window (a plain opaque
+  rectangle: a client's buffer at its own size, square, uncut, at full opacity) with nothing over
+  it goes on the plane, once the card took it there in a TEST_ONLY commit; the primary plane is
+  composed only where something changed around it, and a frame of the window alone composes
+  nothing, the overlay plane committed alone. A menu over it, or the window going back to its
+  size with its corners, composes it again. On vkms in `tools/gpu-vm --vkms`, `tests/overlay.rs`
+  holds it: a frame of the window composes no pixel, and what the display shows is the CPU
+  reference's frame, pixel for pixel, at every step (with the window's place left out of the
+  frame that takes it off the plane, 368,640 pixels differ: the check is real). The ThinkPad's
+  display is its owner's session's: there, the session's log says when a window goes on the plane
+  (`[compositor] output N shows a window's buffer on an overlay plane`) or the card refuses it.
+
 ## The host on the GPU
 
 The Bloom host draws on the GPU where the compositor offers one ([ADR 0031](./adr/0031-gpu-buffers),
@@ -1121,12 +1135,6 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
   the protocol carries no time for input. Behind a slow frame, two presses keep their order but
   arrive closer together than they were made. Input events need the device's time (libinput's)
   from the compositor to the application.
-- **A maximized window is composed, not scanned out.** A full-screen window's buffer goes on the
-  primary plane ([ADR 0031](./adr/0031-gpu-buffers), decision 8), but the ThinkPad's pipe has
-  four overlay planes that nothing uses: a maximized opaque window with nothing over it could go
-  on one, the shell's bars composed around it, so that its frames compose nothing. It needs the
-  window told its scanout formats as a full-screen one is, a commit tested first, and the
-  composition leaving the window's rectangle to the plane.
 - **The genie's mesh is the costliest layer** (4.7 ms of device time for a whole frame at
   1280 × 720, 0.57 of a 120 Hz refresh): each pixel searches the mesh's rows and filters its box.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).
