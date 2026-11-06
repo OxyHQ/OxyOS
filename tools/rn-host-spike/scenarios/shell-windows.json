@@ -64,7 +64,8 @@
         "react": {},
         "delivered": {
           "1": {
-            "focus.out": 1
+            "focus.out": 1,
+            "leave": 1
           }
         },
         "transitions": {
