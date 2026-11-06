@@ -1013,6 +1013,9 @@ def serve_accounts(path, accounts, login=None, log=None):
                     message = json.loads(connection.recv(16384))
                     if message == "list":
                         connection.send(json.dumps({"accounts": accounts}).encode())
+                    elif isinstance(message, dict) and "check" in message:
+                        # The login program's online check, as an offline service answers it.
+                        connection.send(json.dumps({"checked": {"result": message["check"]["local"]}}).encode())
                     elif message == "platform":
                         platform = login.get("platform")
                         record("platform", "platform" if platform else "refused")
@@ -1021,7 +1024,7 @@ def serve_accounts(path, accounts, login=None, log=None):
                     elif isinstance(message, dict) and "enroll" in message:
                         record.turn = 0
                         enroll(connection, message)
-                except (OSError, ValueError, KeyError):
+                except (OSError, ValueError, KeyError, TypeError):
                     pass
 
     record.turn = 0

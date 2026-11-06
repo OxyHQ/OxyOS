@@ -290,10 +290,19 @@ pub struct Platform {
     pub client_id: String,
 }
 
+/// The service's answer: a platform without a client id is one it cannot set accounts up for.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToldPlatform {
+    api: String,
+    #[serde(default)]
+    client_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum PlatformAnswer {
-    Platform(Platform),
+    Platform(ToldPlatform),
     Refused { reason: String },
 }
 
@@ -307,11 +316,14 @@ pub fn platform_at(socket: &Path) -> Result<Platform, SessionError> {
         .send(&"platform")
         .map_err(|error| failed(socket, error))?;
     match connection.receive::<PlatformAnswer>() {
-        Ok(Some(Some(PlatformAnswer::Platform(platform))))
-            if !platform.api.is_empty() && !platform.client_id.is_empty() =>
-        {
-            Ok(platform)
-        }
+        Ok(Some(Some(PlatformAnswer::Platform(told)))) => match told.client_id {
+            _ if told.api.is_empty() => Err(failed(socket, "a platform without its API")),
+            Some(client_id) if !client_id.is_empty() => Ok(Platform {
+                api: told.api,
+                client_id,
+            }),
+            _ => Err(SessionError::Refused("notConfigured".into())),
+        },
         Ok(Some(Some(PlatformAnswer::Refused { reason }))) => Err(SessionError::Refused(reason)),
         Ok(Some(_)) => Err(failed(socket, "not a platform")),
         Ok(None) => Err(failed(socket, "it closed the connection")),

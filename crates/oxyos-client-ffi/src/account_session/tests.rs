@@ -213,10 +213,11 @@ fn the_platform_is_the_services() {
             json!({"platform": {"api": "https://api.oxy.so", "clientId": "oxy_pk_public"}}),
             json!({"refused": {"reason": "notConfigured"}}),
             json!({"platform": {"api": "https://api.oxy.so", "clientId": ""}}),
+            json!({"platform": {"api": "https://api.oxy.so", "clientId": null}}),
         ]
         .into_iter(),
     );
-    let served = service(&socket, 3, move |message| {
+    let served = service(&socket, 4, move |message| {
         assert_eq!(message, &json!("platform"));
         vec![answers.lock().unwrap().next().unwrap()]
     });
@@ -231,7 +232,15 @@ fn the_platform_is_the_services() {
         platform_at(&socket),
         Err(SessionError::Refused("notConfigured".into()))
     );
-    assert!(platform_at(&socket).is_err(), "no client id, no platform");
+    assert_eq!(
+        platform_at(&socket),
+        Err(SessionError::Refused("notConfigured".into())),
+        "no client id, no platform"
+    );
+    assert_eq!(
+        platform_at(&socket),
+        Err(SessionError::Refused("notConfigured".into()))
+    );
     served.join().unwrap();
     std::fs::remove_dir_all(dir).unwrap();
 }
