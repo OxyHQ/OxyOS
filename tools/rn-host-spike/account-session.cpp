@@ -120,27 +120,35 @@ void AccountSession::remove(Done done) {
       std::move(done));
 }
 
-void AccountSession::enroll(std::string deviceId, std::string deviceSecret, std::string accountId,
-                            std::string password, Done done) {
-  // The secrets live in the job until it runs, and are forgotten there.
-  auto secrets = std::make_shared<std::array<std::string, 4>>(
-      std::array<std::string, 4>{std::move(deviceId), std::move(deviceSecret), std::move(accountId), std::move(password)});
+void AccountSession::holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId) {
+  if (held_) {
+    for (auto& secret : *held_) forget(secret);
+  }
+  held_ = std::make_shared<std::array<std::string, 3>>(
+      std::array<std::string, 3>{std::move(deviceId), std::move(deviceSecret), std::move(accountId)});
+}
+
+void AccountSession::enroll(std::string password, Done done) {
+  auto credential = held_;
+  auto secret = std::make_shared<std::string>(std::move(password));
   run(
-      [this, secrets] {
+      [this, credential, secret] {
         Answer answer;
         oxyos_account_enrollment_free(enrollment_);
-        enrollment_ = oxyos_account_enrollment_new();
-        if (!enrollment_) {
+        enrollment_ = nullptr;
+        if (!credential) {
+          answer.error = "no credential was handed over";
+        } else if (!(enrollment_ = oxyos_account_enrollment_new())) {
           answer.error = oxyos_last_error();
         } else {
           std::string buffer(kMessage, '\0');
-          auto& [deviceId, deviceSecret, accountId, password] = *secrets;
+          auto& [deviceId, deviceSecret, accountId] = *credential;
           answer = answered(oxyos_account_enrollment_enroll(enrollment_, deviceId.c_str(), deviceSecret.c_str(),
-                                                            accountId.c_str(), password.c_str(), buffer.data(),
+                                                            accountId.c_str(), secret->c_str(), buffer.data(),
                                                             buffer.size()),
                             buffer);
         }
-        for (auto& secret : *secrets) forget(secret);
+        forget(*secret);
         return answer;
       },
       std::move(done));
@@ -166,6 +174,10 @@ void AccountSession::secondFactor(std::string code, Done done) {
 }
 
 void AccountSession::endEnrollment() {
+  if (held_) {
+    for (auto& secret : *held_) forget(secret);
+    held_.reset();
+  }
   run(
       [this] {
         oxyos_account_enrollment_free(enrollment_);

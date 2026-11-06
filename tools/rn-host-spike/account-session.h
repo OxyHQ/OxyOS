@@ -16,7 +16,9 @@
 
 #include <folly/dynamic.h>
 
+#include <array>
 #include <condition_variable>
+#include <memory>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -53,9 +55,12 @@ class AccountSession {
   // On the service's thread, answered on the JavaScript thread (`deliver`), in order.
   void token(std::string reason, Done done);
   void remove(Done done);
-  // The login screen's setup: `secrets` are taken and forgotten once sent.
-  void enroll(std::string deviceId, std::string deviceSecret, std::string accountId, std::string password,
-              Done done);
+  // The login screen's setup. The device credential the SDK's sign-in handed over is held here,
+  // not in JavaScript, until the person gives the account's password once more (a credential held
+  // before replaces it); `enroll` sends both, and every secret is forgotten once sent.
+  void holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId);
+  bool holdsCredential() const { return held_ != nullptr; }
+  void enroll(std::string password, Done done);
   void secondFactor(std::string code, Done done);
   void endEnrollment();
   static std::optional<std::string> platform();
@@ -81,6 +86,8 @@ class AccountSession {
   OxyOSAccountEnrollment* enrollment_ = nullptr;
   // The snapshot followed: touched only on the JavaScript thread.
   OxyOSAccountSubscription* subscription_ = nullptr;
+  // The credential held for the setup (device id, secret, account id): JavaScript thread only.
+  std::shared_ptr<std::array<std::string, 3>> held_;
   std::function<void(const folly::dynamic&)> changed_;
 };
 

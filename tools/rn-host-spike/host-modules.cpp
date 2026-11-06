@@ -1574,11 +1574,12 @@ std::shared_ptr<TurboModule> createHostModule(
     //   `getAccessToken(reason)`, a promise of {accessToken, expiresAt} or null. The service knows
     //   the application by its launch: the host claims nothing. Settings' `remove()` removes its
     //   account from this computer (the service refuses anyone else).
-    // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup's
-    //   conversation, `enroll(deviceId, deviceSecret, accountId, password)` then
-    //   `secondFactor(code)` while asked, each a promise of the service's answer ({failed} when it
-    //   could not be asked), and `endEnrollment()`. The secrets go to the service and are
-    //   forgotten here; nothing of them is logged.
+    // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
+    //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
+    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
+    //   person gives the password again, then `secondFactor(code)` while asked, each a promise of
+    //   the service's answer ({failed} when it could not be asked); `endEnrollment()` forgets it
+    //   all. The secrets go to the service and are forgotten here; nothing of them is logged.
     bool available = services.application.recorded && !services.shellWindow;
     bool setup = services.shellWindow;
     module->constants(folly::dynamic::object("available", available)("setup", setup));
@@ -1645,18 +1646,22 @@ std::shared_ptr<TurboModule> createHostModule(
       auto json = AccountSession::platform();
       return json ? jsi::valueFromDynamic(rt, folly::parseJson(*json)) : jsi::Value::null();
     });
+    // The credential the SDK's sign-in obtained, handed over at once and held by the host: true.
+    module->method("holdCredential", [setup, session](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.holdCredential: only the login screen sets accounts up");
+      if (count < 3 || !args[0].isString() || !args[1].isString() || !args[2].isString()) {
+        throw jsi::JSError(rt, "OxyOSAccountSession.holdCredential: a device id, its secret and an account id");
+      }
+      session().holdCredential(args[0].asString(rt).utf8(rt), args[1].asString(rt).utf8(rt),
+                               args[2].asString(rt).utf8(rt));
+      return jsi::Value(true);
+    });
     module->method("enroll", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: only the login screen sets accounts up");
-      if (count < 4 || !args[0].isString() || !args[1].isString() || !args[2].isString() || !args[3].isString()) {
-        throw jsi::JSError(rt, "OxyOSAccountSession.enroll: a device id, its secret, an account id and a password");
-      }
-      std::string deviceId = args[0].asString(rt).utf8(rt), deviceSecret = args[1].asString(rt).utf8(rt);
-      std::string accountId = args[2].asString(rt).utf8(rt), password = args[3].asString(rt).utf8(rt);
-      return promise(rt, [session, settle, deviceId = std::move(deviceId), deviceSecret = std::move(deviceSecret),
-                          accountId = std::move(accountId),
-                          password = std::move(password)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().enroll(std::move(deviceId), std::move(deviceSecret), std::move(accountId), std::move(password),
-                         settle(resolve, "setup", false));
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: the password");
+      std::string password = args[0].asString(rt).utf8(rt);
+      return promise(rt, [session, settle, password = std::move(password)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().enroll(std::move(password), settle(resolve, "setup", false));
       });
     });
     module->method("secondFactor", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
