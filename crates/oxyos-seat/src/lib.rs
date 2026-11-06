@@ -127,11 +127,61 @@ pub struct Seat {
     wake: UnixStream,
 }
 
+/// The system bus, as every connection of the session that is kept makes it: its executor (what
+/// reads its socket, and answers its calls) on a thread of its own waiting with futures-lite's
+/// block_on, never async-io's. A thread waiting long in async-io's (as zbus's internal executor
+/// and its blocking signal iterators do) keeps async-io's reactor thread waking with a backoff,
+/// about ten times, after every message any connection of the process receives: a session doing
+/// nothing would wake for every signal of the system's services (docs/performance.mdx, *Idle*).
+/// It ends with the connection.
+pub fn system_bus() -> io::Result<Connection> {
+    let connection = futures_lite::future::block_on(
+        zbus::connection::Builder::system()
+            .map_err(failed)?
+            .internal_executor(false)
+            .build(),
+    )
+    .map_err(failed)?;
+    let executor = connection.executor().clone();
+    std::thread::Builder::new()
+        .name("oxyos-bus".into())
+        .spawn(move || {
+            futures_lite::future::block_on(async move {
+                // As long as the connection has a task (its socket's reader), as zbus's own.
+                while !executor.is_empty() {
+                    executor.tick().await;
+                }
+            })
+        })?;
+    Ok(connection.into())
+}
+
+/// A proxy's signals, each waited for with futures-lite's block_on (as [`system_bus`] says why).
+pub struct Signals(zbus::proxy::SignalStream<'static>);
+
+impl Signals {
+    pub fn of(
+        receiving: impl std::future::Future<Output = zbus::Result<zbus::proxy::SignalStream<'static>>>,
+    ) -> io::Result<Self> {
+        Ok(Self(
+            futures_lite::future::block_on(receiving).map_err(failed)?,
+        ))
+    }
+}
+
+impl Iterator for Signals {
+    type Item = zbus::Message;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        futures_lite::future::block_on(futures_lite::StreamExt::next(&mut self.0))
+    }
+}
+
 impl Seat {
     /// Takes control of the caller's session (`XDG_SESSION_ID`, or the session of this
     /// process). The session must be on a seat; another controller is not displaced.
     pub fn take() -> io::Result<Self> {
-        let connection = Connection::system().map_err(failed)?;
+        let connection = system_bus()?;
         let manager = Proxy::new(
             &connection,
             LOGIND,
@@ -169,19 +219,21 @@ impl Seat {
         let (wake, mut wake_write) = UnixStream::pair()?;
         wake.set_nonblocking(true)?;
         let signals = Proxy::new(&connection, LOGIND, path, SESSION).map_err(failed)?;
-        let incoming = signals.receive_all_signals().map_err(failed)?;
-        let sleeping = manager.receive_signal("PrepareForSleep").map_err(failed)?;
+        let incoming = Signals::of(signals.inner().receive_all_signals())?;
+        let sleeping = Signals::of(manager.inner().receive_signal("PrepareForSleep"))?;
         // The inhibitors held: logind says its `BlockInhibited` changed. Listened to before the
         // first look, so no change between them is missed.
-        let properties = Proxy::new(
-            &connection,
-            LOGIND,
-            "/org/freedesktop/login1",
-            "org.freedesktop.DBus.Properties",
-        )
-        .map_err(failed)?
-        .receive_signal("PropertiesChanged")
-        .map_err(failed)?;
+        let properties = Signals::of(
+            Proxy::new(
+                &connection,
+                LOGIND,
+                "/org/freedesktop/login1",
+                "org.freedesktop.DBus.Properties",
+            )
+            .map_err(failed)?
+            .inner()
+            .receive_signal("PropertiesChanged"),
+        )?;
         let uid = rustix::process::getuid().as_raw();
         let idle_held = move |manager: &Proxy<'static>| {
             manager
@@ -416,7 +468,7 @@ pub struct Brightness {
 
 impl Brightness {
     pub fn of_session() -> io::Result<Self> {
-        let connection = Connection::system().map_err(failed)?;
+        let connection = system_bus()?;
         Ok(Self {
             session: own_session(&connection)?,
         })

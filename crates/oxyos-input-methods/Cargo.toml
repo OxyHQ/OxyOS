@@ -10,6 +10,8 @@ publish.workspace = true
 zbus = "5"
 # The bodies of its calls.
 serde = "1"
+# Waiting on the bus with its own block_on, never async-io's (`engine_bus`).
+futures-lite = "2"
 
 [lints]
 workspace = true

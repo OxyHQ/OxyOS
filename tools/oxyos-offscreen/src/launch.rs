@@ -4759,7 +4759,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
             oxyos_controls::Worker::inline(Box::new(fake.clone())),
-            Instant::now(),
         ));
         session.controls = Some(fake);
     }

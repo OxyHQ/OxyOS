@@ -490,13 +490,16 @@ impl Session {
             methods.serve(&mut self.compositor, &mut self.settings, now);
         }
         // Wi-Fi and networks (ADR 0038), before the store takes the requests that are its own;
-        // a change of the daemon's has the top bar look again.
+        // a change of the daemon's is told to the top bar.
         if let Some(networks) = self.networks.as_mut() {
             networks.serve(&mut self.compositor.scene);
-            if networks.take_changed() {
-                if let Some(controls) = self.compositor.controls.as_mut() {
-                    controls.refresh_status();
-                }
+            // The top bar's network, told from what the networks' part read.
+            if let (true, Some(network), Some(controls)) = (
+                networks.take_changed(),
+                networks.status(),
+                self.compositor.controls.as_mut(),
+            ) {
+                controls.network_is(&mut self.compositor.scene, network);
             }
         }
         let Some(installs) = self.installs.as_mut() else {

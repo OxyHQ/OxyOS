@@ -153,21 +153,29 @@ impl Reach for Played {
         Ok(Box::new(self.clone()))
     }
 
-    fn watch(&self, stop: &dyn Fn() -> bool, changed: &mut dyn FnMut() -> bool) -> io::Result<()> {
+    fn watch(
+        &self,
+        stop: &crate::stop::Stop,
+        changed: &mut dyn FnMut(&oxyos_networks::Changes) -> bool,
+    ) -> io::Result<()> {
         let mut seen = None;
         loop {
-            if stop() {
+            if stop.given() {
                 return Ok(());
             }
             let version = self.0.lock().unwrap().version;
             if seen != Some(version) {
                 seen = Some(version);
-                if !changed() {
+                if !changed(&oxyos_networks::Changes::Any) {
                     return Ok(());
                 }
             }
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    fn socket(&self) -> Option<std::path::PathBuf> {
+        None
     }
 }
 
@@ -576,4 +584,35 @@ fn forgetting_and_wifi_off_are_told() {
     assert_eq!(answer["network"]["wifi"]["state"], "off");
     assert!(!s.machine.0.lock().unwrap().wifi);
     assert!(s.networks.take_changed());
+}
+
+#[test]
+fn the_top_bar_is_told_the_network_as_read_here() {
+    let mut s = Session::new(Machine {
+        wifi: true,
+        joined: Some("Home".into()),
+        saved: vec![("Home".into(), Some(PASSWORD.into()))],
+        ..Machine::default()
+    });
+    s.until(|s| {
+        s.networks
+            .state()
+            .is_some_and(|state| state.wifi.current.is_some())
+    });
+    assert_eq!(
+        s.networks.status(),
+        Some(oxyos_controls::Network {
+            wifi: oxyos_protocol::WifiState::Connected,
+            signal: 70,
+            ssid: "Home".into(),
+            wired: false,
+        })
+    );
+    let off = s.ask(SHELL, r#"{"wifi":{"enabled":false}}"#, true);
+    s.wait_answer(SHELL, off);
+    s.until(|s| {
+        s.networks.status().is_some_and(|network| {
+            network.wifi == oxyos_protocol::WifiState::Off && network.ssid.is_empty()
+        })
+    });
 }

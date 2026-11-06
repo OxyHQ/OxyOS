@@ -14,7 +14,24 @@
 mod nm;
 mod secret;
 
-pub use nm::{watch, NetworkManager};
+pub use nm::{watch, Changes, NetworkManager};
+
+/// The system bus's address when the environment names none (the D-Bus specification's).
+pub const SYSTEM_BUS: &str = "unix:path=/var/run/dbus/system_bus_socket";
+
+/// The socket a bus at `address` is reached through, where it is a path (`unix:path=…`; the
+/// first of several, `;`-separated): the system bus's for `None` (`DBUS_SYSTEM_BUS_ADDRESS`, else
+/// [`SYSTEM_BUS`]). What a follower waits to be made when the bus cannot be reached.
+pub fn bus_socket(address: Option<&str>) -> Option<std::path::PathBuf> {
+    let system = std::env::var("DBUS_SYSTEM_BUS_ADDRESS").ok();
+    let address = address.or(system.as_deref()).unwrap_or(SYSTEM_BUS);
+    address.split(';').find_map(|one| {
+        let keys = one.strip_prefix("unix:")?;
+        keys.split(',')
+            .find_map(|key| key.strip_prefix("path="))
+            .map(std::path::PathBuf::from)
+    })
+}
 pub use secret::{clear, Secret};
 
 use serde::Serialize;
@@ -35,6 +52,37 @@ impl State {
     /// No daemon: nothing to show.
     pub fn unavailable() -> Self {
         Self::default()
+    }
+
+    /// The state with access points' new strengths (by their objects' paths), as the daemon read
+    /// again would give it: the networks made from them again, strongest first. False, and the
+    /// state to be read whole, when one of them is not among its access points.
+    pub fn with_strengths(&mut self, strengths: &[(String, u8)]) -> bool {
+        for (path, strength) in strengths {
+            match self.wifi.points.iter_mut().find(|(known, _)| known == path) {
+                Some((_, point)) => point.signal = (*strength).min(100),
+                None => return false,
+            }
+        }
+        let points: Vec<AccessPoint> = self
+            .wifi
+            .points
+            .iter()
+            .map(|(_, point)| point.clone())
+            .collect();
+        let current = self
+            .wifi
+            .current
+            .as_ref()
+            .map(|network| network.ssid.clone());
+        self.wifi.networks = networks(&points, &self.wifi.known, current.as_deref());
+        self.wifi.current = self
+            .wifi
+            .networks
+            .iter()
+            .find(|network| network.current)
+            .cloned();
+        true
     }
 }
 
@@ -65,6 +113,10 @@ pub struct Wifi {
     pub known: Vec<Known>,
     /// Of the network joined.
     pub details: Option<Details>,
+    /// The access points the networks are made from, by their objects' paths (the daemon's), so a
+    /// change of their strength is applied as it is signalled ([`State::with_strengths`]). Not told.
+    #[serde(skip)]
+    pub points: Vec<(String, AccessPoint)>,
 }
 
 /// How a network is protected, from what its access point says.

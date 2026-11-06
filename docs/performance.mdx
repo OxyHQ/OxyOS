@@ -334,7 +334,11 @@ React's first render, layout, mount and draw.
 application's first frame, every process's CPU time (`/proc/PID/schedstat`) and context switches
 (every thread's, `/proc/PID/task/*/status`) are sampled over five seconds. The development
 compositor turns every 5 ms by design (its director's pace), so its idle numbers say nothing of
-a session's; a session's are measured on the ThinkPad below.
+a session's. A session's are measured where it runs, read-only: `perf.py --check session` (no
+`--offscreen`, `--runtimes` or `--packages`) finds this user's `oxyos-session` and the Bloom hosts it
+started, samples every thread of each over 30 s while nothing happens on the machine, prints which
+threads woke, and holds each process to the same budget (at most one wakeup a second and 0.1 % of a
+core). It is not among the parts run by default: a person using the machine meanwhile is not idle.
 
 **Memory.** Every process's resident memory while idle (anonymous, file-backed) and its peak
 (`VmHWM`) over the run.
@@ -791,6 +795,31 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   frame) wakes it. `perf.py --check` guards it (at most one wakeup a second).
 - **The session polled every quarter second** for its children: SIGCHLD now wakes it, and it
   waits until what is due on a clock (the sun, a shell restarted, a display's trial mode).
+- **The session woke 92 times a second doing nothing** (the ThinkPad, 6 November 2026,
+  `perf.py session` over 30 s, 0.009 % of a core): the install service's watch retried every
+  100 ms where there was no install service (`installs-watch`, 10 a second) and waited on its
+  socket 200 ms at a time to see whether it should stop; the networks' watch looked at its stop
+  every quarter of a second and read NetworkManager's whole state (every access point's
+  properties, one call each) for each signal, an access point's strength among them every few
+  seconds (`networks-watch` 19, its connection's thread 20 and async-io's reactor 32); the
+  controls read the battery, the network and Bluetooth every 5 s and the levels every 30 s
+  (`oxyos-controls` 5); and two of the `blocking` crate's idle threads woke every half second
+  (2 each). Now every thread of the session waits on its events and on the order to stop, never on
+  a clock (`oxyos_compositor::stop::Stop`): a service's socket made is seen by inotify; the
+  controls follow UPower's, BlueZ's and (at the login screen) NetworkManager's signals, the
+  backlights' sysfs notifications and PipeWire's default devices and volumes
+  (`oxyos_controls::follow`), and the top bar's network is told from what the networks' part read;
+  an access point's strength signalled is applied to the state with no call (`Changes::Strengths`,
+  `State::with_strengths`), and a scan's "last seen" alone wakes nothing. Every connection kept
+  waits on futures-lite's `block_on` (`oxyos_seat::system_bus`): a thread waiting long in
+  async-io's (as zbus's internal executor and blocking iterators do) keeps async-io's reactor
+  thread waking about ten times after every message. `blocking` stays at 1.6.2: 1.7.0's idle
+  threads never end and wake twice a second each (its `main_loop` ends a thread only past its
+  limit); `crates/oxyos-networks/tests/watch_idle.rs` fails with it. On the ThinkPad the session's
+  parts, on its own bus, PipeWire and backlights, woke 0.75 times a second in 20 s, every wakeup an
+  access point's strength NetworkManager signalled (`tests/idle.rs`, run by hand); with no source,
+  `tests/idle.rs` holds them to at most one a second and 0.1 % of a core, and to following a service
+  once its socket is made and stopping at once.
 - **A border drawn with rounded corners visited every pixel of its box** to find the ring: 19 ms
   of a two-panel Inbox's 25 ms frame. Rows now skip the ring's hole and fill what a rounded
   rectangle covers whole at once (pixel for pixel the same).
@@ -934,14 +963,6 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
 - **The GPU path's two changes are not yet seen on a display**: the session's log on the
   ThinkPad will say whether frames went with their completion and how long the GPU composed.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).
-- **The controls' status poll** (every 5 s) wakes four threads 17 times a second in all.
-- **The session wakes 64 times a second doing nothing** (the ThinkPad, 6 November 2026, every
-  thread's context switches over 20 s): the install service's watch retries every 100 ms where
-  there is no install service (`installs-watch`, 10 a second; it also waits on its socket 200 ms at
-  a time), the networks' watch 13 a second (`networks-watch`, a quarter-second wait between tries,
-  with its D-Bus connection's threads and the async runtime's 24 more), the controls' poll 5. Each
-  waits a little at a time to see that it was told to stop; a wait on the stop itself would let them
-  sleep.
 - **A frame's damage composed as several regions was slower than the whole** in the fixture on the
   Iris Xe (the overview opening: 17 ms of device time as 3 to 5 regions covering the output, 10 to
   13 as one), though composed alone, back to back, the two take the same 1.7 ms. Whether a session's

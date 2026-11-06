@@ -13,16 +13,17 @@
 //! showing and never while locked, and hands to the daemon. A wrong one asks again, saying so;
 //! cancelling ends the join. Whoever asked to join learns only whether it joined.
 
+use crate::stop::{identity, Stop};
 use oxyos_compositor_core::scene::SystemRequest;
 use oxyos_compositor_core::{ClientId, Scene};
-use oxyos_networks::{Failure, Plan, Secret, State};
+use oxyos_networks::{Changes, Failure, Plan, Secret, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
@@ -41,8 +42,12 @@ pub trait Daemon {
 pub trait Reach: Send + Sync {
     fn connect(&self) -> io::Result<Box<dyn Daemon>>;
     /// Calls `changed` once, then after each change of the daemon's, until it returns false,
-    /// `stop` returns true (looked at often), or the daemon cannot be followed.
-    fn watch(&self, stop: &dyn Fn() -> bool, changed: &mut dyn FnMut() -> bool) -> io::Result<()>;
+    /// `stop` is given (waited on with the daemon, never looked at on a clock), or the daemon
+    /// cannot be followed.
+    fn watch(&self, stop: &Stop, changed: &mut dyn FnMut(&Changes) -> bool) -> io::Result<()>;
+    /// What to wait for to be made, when it cannot be followed, before it is tried again: the
+    /// bus's socket. `None`: nothing to wait for; it is not tried again.
+    fn socket(&self) -> Option<PathBuf>;
 }
 
 impl Daemon for oxyos_networks::NetworkManager {
@@ -79,13 +84,17 @@ impl Reach for Bus {
         )?))
     }
 
-    fn watch(&self, stop: &dyn Fn() -> bool, changed: &mut dyn FnMut() -> bool) -> io::Result<()> {
+    fn watch(&self, stop: &Stop, changed: &mut dyn FnMut(&Changes) -> bool) -> io::Result<()> {
         oxyos_networks::watch(
             self.address.as_deref(),
             Duration::from_millis(100),
-            stop,
+            stop.fd(),
             changed,
         )
+    }
+
+    fn socket(&self) -> Option<PathBuf> {
+        oxyos_networks::bus_socket(self.address.as_deref())
     }
 }
 
@@ -170,7 +179,7 @@ pub struct Networks {
     sheets: BTreeMap<u32, Sheet>,
     watching: bool,
     changed: bool,
-    stop: Arc<AtomicBool>,
+    stop: Arc<Stop>,
     /// The threads running, waited for when it goes, so their connections to the daemon go too.
     threads: Vec<std::thread::JoinHandle<()>>,
 }
@@ -196,7 +205,7 @@ impl Networks {
             sheets: BTreeMap::new(),
             watching: false,
             changed: false,
-            stop: Arc::new(AtomicBool::new(false)),
+            stop: Arc::new(Stop::new()?),
             threads: Vec::new(),
         })
     }
@@ -211,8 +220,8 @@ impl Networks {
         Ok(self.woken.try_clone()?.into())
     }
 
-    /// Whether the network's state changed since the last call: the hardware controls look again
-    /// (the top bar's Wi-Fi and Ethernet).
+    /// Whether the network's state changed since the last call: the hardware controls are told
+    /// (the top bar's Wi-Fi and Ethernet, [`Self::status`]).
     pub fn take_changed(&mut self) -> bool {
         std::mem::take(&mut self.changed)
     }
@@ -220,6 +229,29 @@ impl Networks {
     /// The state as last read.
     pub fn state(&self) -> Option<&State> {
         self.state.as_ref()
+    }
+
+    /// What the top bar shows of the network (ADR 0025's status), from the state as last read: the
+    /// hardware controls are told it, with no reading of their own (`Controls::network_is`).
+    pub fn status(&self) -> Option<oxyos_controls::Network> {
+        let state = self.state.as_ref()?;
+        if !state.available {
+            return Some(oxyos_controls::Network::UNAVAILABLE);
+        }
+        let wifi = match state.wifi.state {
+            oxyos_networks::WifiState::Unavailable => oxyos_protocol::WifiState::Unavailable,
+            oxyos_networks::WifiState::Off => oxyos_protocol::WifiState::Off,
+            oxyos_networks::WifiState::Disconnected => oxyos_protocol::WifiState::Disconnected,
+            oxyos_networks::WifiState::Connecting => oxyos_protocol::WifiState::Connecting,
+            oxyos_networks::WifiState::Connected => oxyos_protocol::WifiState::Connected,
+        };
+        let current = state.wifi.current.as_ref();
+        Some(oxyos_controls::Network {
+            wifi,
+            signal: current.map_or(0, |network| network.signal),
+            ssid: current.map_or_else(String::new, |network| network.ssid.clone()),
+            wired: state.ethernet.state == oxyos_networks::EthernetState::Connected,
+        })
     }
 
     fn spawn(&mut self, work: impl FnOnce(&dyn Daemon, &Back) + Send + 'static) {
@@ -471,7 +503,7 @@ impl Networks {
 
 impl Drop for Networks {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.stop.give();
         // A join waiting for its password is cancelled.
         self.sheets.clear();
         for thread in self.threads.drain(..) {
@@ -516,36 +548,52 @@ impl Daemon for Absent {
     }
 }
 
-/// Follows the daemon, telling its state as it changes, until the session ends; again after a
-/// pause when the daemon cannot be followed (not started yet, or restarted).
-fn watch(reach: &dyn Reach, back: &Back, stop: &AtomicBool) {
-    while !stop.load(Ordering::Relaxed) {
-        let mut daemon: Option<Box<dyn Daemon>> = None;
-        let stopped = || stop.load(Ordering::Relaxed);
-        let result = reach.watch(&stopped, &mut || {
-            if stop.load(Ordering::Relaxed) {
+/// Follows the daemon, telling its state as it changes, until the session ends. When it cannot be
+/// followed (no bus yet, or the bus restarted), the state is unavailable until the bus's socket is
+/// made (anew), and it is followed again: the thread waits on the bus or that socket, never a
+/// clock.
+fn watch(reach: &dyn Reach, back: &Back, stop: &Stop) {
+    // The bus's socket as it was when it could not be followed: the next try waits for another.
+    let mut failed_on = None;
+    loop {
+        if let Some(socket) = reach.socket() {
+            if !stop.wait_for_path(&socket, failed_on) {
+                return;
+            }
+        }
+        let tried = reach.socket().and_then(|socket| identity(&socket));
+        // The state last read: an access point's strength signalled is applied to it, with no
+        // call to the daemon (its scans say one every few seconds); anything else reads it whole.
+        let mut last: Option<State> = None;
+        let result = reach.watch(stop, &mut |changes| {
+            if stop.given() {
                 return false;
             }
-            if daemon.is_none() {
-                daemon = reach.connect().ok();
+            let applied = match (changes, last.as_mut()) {
+                (Changes::Strengths(strengths), Some(state)) => state.with_strengths(strengths),
+                _ => false,
+            };
+            if !applied {
+                // A connection for the read alone: one kept, its executor's thread waiting on the
+                // bus, would keep async-io's reactor thread waking after every message.
+                last = reach.connect().ok().and_then(|daemon| daemon.state().ok());
             }
-            let state = daemon
-                .as_ref()
-                .and_then(|d| d.state().ok())
-                .unwrap_or_else(State::unavailable);
+            let state = last.clone().unwrap_or_else(State::unavailable);
             back.send(Done::State(Box::new(state)));
             true
         });
+        if stop.given() {
+            return;
+        }
         if let Err(error) = result {
             eprintln!("[networks] following the daemon: {error}");
-            back.send(Done::State(Box::new(State::unavailable())));
         }
-        for _ in 0..20 {
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(250));
+        back.send(Done::State(Box::new(State::unavailable())));
+        if reach.socket().is_none() {
+            stop.wait();
+            return;
         }
+        failed_on = tried;
     }
 }
 

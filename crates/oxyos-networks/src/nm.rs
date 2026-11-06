@@ -10,6 +10,7 @@ use crate::{
 use futures_lite::StreamExt;
 use std::collections::HashMap;
 use std::io;
+use std::os::fd::BorrowedFd;
 use std::time::{Duration, Instant};
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
@@ -293,11 +294,13 @@ impl NetworkManager {
                 } else {
                     None
                 };
-                let points: Vec<AccessPoint> = self
+                wifi.points = self
                     .access_points(&device.path)?
                     .into_iter()
-                    .map(|(_, point)| point)
+                    .map(|(path, point)| (path.to_string(), point))
                     .collect();
+                let points: Vec<AccessPoint> =
+                    wifi.points.iter().map(|(_, point)| point.clone()).collect();
                 wifi.networks = networks(&points, &known, current.as_deref());
                 wifi.current = wifi.networks.iter().find(|n| n.current).cloned();
                 if wifi.state == WifiState::Connected {
@@ -701,23 +704,154 @@ fn wait(
     })
 }
 
-/// Follows the daemon: calls `changed` once it is seen, and again after each change it signals
-/// (a property of any of its objects, a device's state, its name's owner), until `changed`
-/// returns false or `stop` does true (looked at every quarter of a second). Changes that come
-/// together are one call, `settle` after the first. Without the bus, returns the error.
+/// A connection made without an internal executor, its executor (what reads its socket) run by
+/// whoever waits on it with futures-lite's block_on ([`ticked`]). Dropped, the connection closes
+/// and its executor is run until its tasks end, as zbus's own executor thread would, so nothing
+/// of it (its socket) outlives it.
+pub(crate) struct Ticked {
+    bus: Option<zbus::Connection>,
+    executor: zbus::Executor<'static>,
+}
+
+impl Ticked {
+    pub(crate) fn connect(builder: zbus::connection::Builder<'_>) -> io::Result<Self> {
+        let bus = futures_lite::future::block_on(builder.internal_executor(false).build())
+            .map_err(failed)?;
+        let executor = bus.executor().clone();
+        Ok(Self {
+            bus: Some(bus),
+            executor,
+        })
+    }
+
+    pub(crate) fn bus(&self) -> &zbus::Connection {
+        self.bus.as_ref().expect("until dropped")
+    }
+
+    /// `future`, the connection's executor run as it is waited for.
+    pub(crate) fn wait<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+        futures_lite::future::block_on(ticked(&self.executor, future))
+    }
+}
+
+impl Drop for Ticked {
+    fn drop(&mut self) {
+        self.bus = None;
+        futures_lite::future::block_on(async {
+            while !self.executor.is_empty() {
+                self.executor.tick().await;
+            }
+        });
+    }
+}
+
+/// `future`, with `executor` ticked as it is waited for (a connection made without an internal
+/// executor: its socket is read on the waiting thread).
+pub(crate) async fn ticked<T>(
+    executor: &zbus::Executor<'static>,
+    future: impl std::future::Future<Output = T>,
+) -> T {
+    futures_lite::future::or(future, async {
+        loop {
+            executor.tick().await;
+        }
+    })
+    .await
+}
+
+/// What changed, as a signal of the daemon's says: only access points' strengths (each access
+/// point's object path and its strength), which [`State::with_strengths`] applies with no call to
+/// the daemon; or anything else, after which the state is read again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Changes {
+    Strengths(Vec<(String, u8)>),
+    Any,
+}
+
+impl Changes {
+    /// These and `later` as one.
+    fn and(self, later: Option<Changes>) -> Changes {
+        match (self, later) {
+            (changes, None) => changes,
+            (Changes::Strengths(mut seen), Some(Changes::Strengths(more))) => {
+                for (path, strength) in more {
+                    seen.retain(|(known, _)| *known != path);
+                    seen.push((path, strength));
+                }
+                Changes::Strengths(seen)
+            }
+            _ => Changes::Any,
+        }
+    }
+}
+
+/// What a signal of the daemon's changed: an access point's strength alone (`Strengths`), nothing
+/// shown (when it was last seen alone: `None`), or anything else.
+fn changes_of(message: &zbus::Message) -> Option<Changes> {
+    let header = message.header();
+    let properties = header.member().map(|member| member.as_str()) == Some("PropertiesChanged")
+        && header.interface().map(|interface| interface.as_str())
+            == Some("org.freedesktop.DBus.Properties");
+    let path = header.path().map(|path| path.to_string());
+    let read = properties
+        .then(|| {
+            message
+                .body()
+                .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
+                .ok()
+        })
+        .flatten();
+    let (Some((interface, changed, invalidated)), Some(path)) = (read, path) else {
+        return Some(Changes::Any);
+    };
+    if interface != ACCESS_POINT
+        || !invalidated.is_empty()
+        || changed
+            .keys()
+            .any(|key| key != "Strength" && key != "LastSeen")
+    {
+        return Some(Changes::Any);
+    }
+    match changed
+        .get("Strength")
+        .map(|value| u8::try_from(value.clone()))
+    {
+        Some(Ok(strength)) => Some(Changes::Strengths(vec![(path, strength.min(100))])),
+        Some(Err(_)) => Some(Changes::Any),
+        None => None,
+    }
+}
+
+/// Follows the daemon: calls `changed` once it is seen ([`Changes::Any`]), and again with what
+/// changed after each change it signals (a property of any of its objects, a device's state, its
+/// name's owner; an access point last seen again, which shows nothing, is not one), until
+/// `changed` returns false or `stop` is readable (the caller's order to end, waited on with the
+/// bus: the thread wakes only for a signal or the order). Changes that come together are one
+/// call, `settle` after the first. Without the bus, returns the error; returns when the bus
+/// closes.
 pub fn watch(
     address: Option<&str>,
     settle: Duration,
-    stop: &dyn Fn() -> bool,
-    mut changed: impl FnMut() -> bool,
+    stop: BorrowedFd<'_>,
+    mut changed: impl FnMut(&Changes) -> bool,
 ) -> io::Result<()> {
     enum Next {
-        Signal,
+        Signal(Option<Changes>),
         Ended,
-        Tick,
+        Stopped,
     }
-    const TICK: Duration = Duration::from_millis(250);
-    let manager = NetworkManager::connect(address)?;
+    let stop = async_io::Async::new(stop.try_clone_to_owned()?)?;
+    // A connection of its own, its executor (what reads its socket) run on this thread as it
+    // waits, with futures-lite's block_on: a thread waiting long in async-io's (as an internal
+    // executor's does) keeps the reactor's own thread waking with a backoff after every message.
+    let builder = match address {
+        Some(address) => zbus::connection::Builder::address(address),
+        None => zbus::connection::Builder::system(),
+    }
+    .map_err(failed)?;
+    // Declared before the streams on it, so dropped after them.
+    let connection = Ticked::connect(builder)?;
+    let bus = connection.bus();
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender(NM)
@@ -733,59 +867,72 @@ pub fn watch(
         .arg(0, NM)
         .map_err(failed)?
         .build();
-    let inner = manager.bus.inner().clone();
-    let mut signals =
-        async_io::block_on(zbus::MessageStream::for_match_rule(rule, &inner, Some(256)))
-            .map_err(failed)?;
-    let mut owners =
-        async_io::block_on(zbus::MessageStream::for_match_rule(owner, &inner, Some(16)))
-            .map_err(failed)?;
-    if stop() || !changed() {
+    let mut signals = connection
+        .wait(zbus::MessageStream::for_match_rule(rule, bus, Some(256)))
+        .map_err(failed)?;
+    let mut owners = connection
+        .wait(zbus::MessageStream::for_match_rule(owner, bus, Some(16)))
+        .map_err(failed)?;
+    if !changed(&Changes::Any) {
         return Ok(());
     }
     loop {
-        let next = async_io::block_on(futures_lite::future::or(
+        let next = connection.wait(futures_lite::future::or(
             async {
                 match signals.next().await {
-                    Some(_) => Next::Signal,
+                    Some(Ok(message)) => Next::Signal(changes_of(&message)),
+                    Some(Err(_)) => Next::Signal(Some(Changes::Any)),
                     None => Next::Ended,
                 }
             },
             futures_lite::future::or(
                 async {
                     match owners.next().await {
-                        Some(_) => Next::Signal,
+                        Some(_) => Next::Signal(Some(Changes::Any)),
                         None => Next::Ended,
                     }
                 },
                 async {
-                    async_io::Timer::after(TICK).await;
-                    Next::Tick
+                    let _ = stop.readable().await;
+                    Next::Stopped
                 },
             ),
         ));
-        match next {
-            Next::Ended => return Ok(()),
-            Next::Tick if stop() => return Ok(()),
-            Next::Tick => continue,
-            Next::Signal => {
-                // What follows at once is the same change.
-                let until = Instant::now() + settle;
-                async_io::block_on(async {
-                    while futures_lite::future::or(
-                        async { signals.next().await.is_some() },
-                        async {
-                            async_io::Timer::at(until).await;
-                            false
-                        },
-                    )
-                    .await
-                    {}
-                });
-                if stop() || !changed() {
-                    return Ok(());
+        let first = match next {
+            Next::Ended | Next::Stopped => return Ok(()),
+            // Nothing shown changed: no wait, no call.
+            Next::Signal(None) => continue,
+            Next::Signal(Some(changes)) => changes,
+        };
+        // What follows at once is the same change.
+        let until = Instant::now() + settle;
+        let changes = connection.wait(async {
+            let mut changes = first;
+            loop {
+                let more = futures_lite::future::or(
+                    async {
+                        match signals.next().await {
+                            Some(Ok(message)) => Next::Signal(changes_of(&message)),
+                            Some(Err(_)) => Next::Signal(Some(Changes::Any)),
+                            None => Next::Ended,
+                        }
+                    },
+                    async {
+                        async_io::Timer::at(until).await;
+                        Next::Stopped
+                    },
+                )
+                .await;
+                match more {
+                    Next::Signal(more) => changes = changes.and(more),
+                    // The bus closed: told now, and the next wait ends the watch.
+                    Next::Ended => return Changes::Any,
+                    Next::Stopped => return changes,
                 }
             }
+        });
+        if !changed(&changes) {
+            return Ok(());
         }
     }
 }

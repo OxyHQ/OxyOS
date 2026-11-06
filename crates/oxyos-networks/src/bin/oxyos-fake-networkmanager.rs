@@ -837,12 +837,52 @@ enum Act {
     AccessPoint(PointSpec),
     RemoveAccessPoint(String),
     HardwareEnabled(bool),
+    /// An access point's strength, as NetworkManager signals it: its `Strength` alone (with
+    /// `LastSeen`, as NetworkManager's scans say it).
+    Strength(StrengthSpec),
+    /// An access point seen again by a scan: its `LastSeen` alone, nothing else changed.
+    Seen(String),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrengthSpec {
+    ssid: String,
+    strength: u8,
+}
+
+/// Each access point named `ssid`: `PropertiesChanged` on it with `changes` alone, as
+/// NetworkManager tells what a scan changed.
+fn point_changed(model: &Shared, ssid: &str, changes: HashMap<&str, Value>) {
+    let paths: Vec<String> = model
+        .lock()
+        .unwrap()
+        .points
+        .iter()
+        .filter(|point| point.spec.ssid == ssid)
+        .map(|point| point.path.clone())
+        .collect();
+    let invalidated: Vec<&str> = Vec::new();
+    for path in paths {
+        let _ = bus().emit_signal(
+            None::<&str>,
+            path.as_str(),
+            "org.freedesktop.DBus.Properties",
+            "PropertiesChanged",
+            &(
+                "org.freedesktop.NetworkManager.AccessPoint",
+                changes.clone(),
+                &invalidated,
+            ),
+        );
+    }
 }
 
 #[zbus::interface(name = "so.oxy.OxyOS.FakeNetworkManager")]
 impl Control {
     /// Changes the machine: `{"ethernet":"plugged"}`, `{"access_point":{…}}`,
-    /// `{"remove_access_point":"ssid"}`, `{"hardware_enabled":false}`.
+    /// `{"remove_access_point":"ssid"}`, `{"hardware_enabled":false}`,
+    /// `{"strength":{"ssid":…,"strength":N}}`, `{"seen":"ssid"}`.
     fn act(&self, what: String) -> zbus::fdo::Result<()> {
         let act: Act = serde_json::from_str(&what)
             .map_err(|error| zbus::fdo::Error::InvalidArgs(error.to_string()))?;
@@ -893,6 +933,28 @@ impl Control {
             Act::HardwareEnabled(enabled) => {
                 model.lock().unwrap().hardware_enabled = enabled;
                 changed(NM_PATH, "org.freedesktop.NetworkManager");
+            }
+            Act::Strength(spec) => {
+                for point in model.lock().unwrap().points.iter_mut() {
+                    if point.spec.ssid == spec.ssid {
+                        point.spec.strength = spec.strength;
+                    }
+                }
+                point_changed(
+                    &model,
+                    &spec.ssid,
+                    HashMap::from([
+                        ("Strength", Value::from(spec.strength)),
+                        ("LastSeen", Value::from(1000i32)),
+                    ]),
+                );
+            }
+            Act::Seen(ssid) => {
+                point_changed(
+                    &model,
+                    &ssid,
+                    HashMap::from([("LastSeen", Value::from(1000i32))]),
+                );
             }
         });
         Ok(())

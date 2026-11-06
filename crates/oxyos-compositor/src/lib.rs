@@ -46,6 +46,7 @@ pub mod networks;
 pub mod settings;
 pub mod sounds;
 pub mod splash;
+pub mod stop;
 pub mod swipes;
 pub mod transitions;
 pub mod trash;
@@ -4085,9 +4086,6 @@ impl Compositor {
         if let Some(repeat) = self.scene.next_repeat() {
             wait = wait.min(repeat.saturating_sub(self.now()));
         }
-        if let Some(controls) = &self.controls {
-            wait = wait.min(controls.next_wake(Instant::now()));
-        }
         // A transition running composes a frame for every refresh of the fastest display (a
         // display's flip wakes the turn sooner).
         if let (false, Some(period)) = (self.transitions.is_empty(), self.fastest_refresh()) {
@@ -4335,7 +4333,7 @@ impl Compositor {
         self.follow_idle();
         self.authenticate();
         if let Some(controls) = &mut self.controls {
-            controls.serve(&mut self.scene, Instant::now());
+            controls.serve(&mut self.scene);
         }
         self.play_sounds();
         let framing = Instant::now();

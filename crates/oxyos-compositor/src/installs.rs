@@ -21,6 +21,7 @@
 //! store hands the machine nothing else. When the person asks for a change and the install service
 //! is not there, the shell's sheet says so, and the store is told the person was told.
 
+use crate::stop::{identity, Stop};
 use oxyos_compositor_core::{ClientId, Scene};
 use oxyos_install::ipc::{Answer, Request};
 use oxyos_install::socket::Connection;
@@ -28,7 +29,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc;
@@ -279,13 +280,13 @@ pub struct Installs {
     state: Option<String>,
     watching: bool,
     /// Its threads stop when it goes, and are waited for, so nothing of it outlives it.
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    stop: std::sync::Arc<Stop>,
     threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for Installs {
     fn drop(&mut self) {
-        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.stop.give();
         // A flow waiting for a sheet is answered no, and ends.
         self.sheets.clear();
         for thread in self.threads.drain(..) {
@@ -316,7 +317,7 @@ impl Installs {
             decided: BTreeMap::new(),
             state: None,
             watching: false,
-            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            stop: std::sync::Arc::new(Stop::new()?),
             threads: Vec::new(),
         })
     }
@@ -852,49 +853,47 @@ fn permission(socket: &Path, back: &Back, client: ClientId, serial: u32, capabil
 }
 
 /// The account's update state, watched on one connection and sent to the compositor's turn as it
-/// changes; a lost connection is made again. It ends once `stop` is set.
-fn watch(socket: PathBuf, back: Back, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
-    let stopped = || stop.load(std::sync::atomic::Ordering::SeqCst);
+/// changes, until `stop` is given. It waits on the connection, never on a clock: while the service
+/// is not there (or does not answer), for its socket to be made (anew); a lost connection is made
+/// again once it is.
+fn watch(socket: PathBuf, back: Back, stop: std::sync::Arc<Stop>) {
     let mut said = false;
-    while !stopped() {
+    // The socket as it was when it could not be followed: the next try waits for another.
+    let mut failed_on = None;
+    loop {
+        if !stop.wait_for_path(&socket, failed_on) {
+            return;
+        }
+        let tried = identity(&socket);
         let watched = (|| -> std::io::Result<()> {
             let connection = Connection::connect(&socket)?;
             connection.send(&Request::WatchUpdates { uid: None })?;
-            // Waited for a little at a time, so it ends soon after it is told to.
-            connection.set_timeout(Duration::from_millis(200))?;
-            while !stopped() {
-                match connection.receive::<Answer>() {
-                    Ok(Some(Some(Answer::Watching))) | Ok(Some(None)) => {}
-                    Ok(Some(Some(state @ Answer::UpdateState(_)))) => {
+            loop {
+                if !stop.wait_for(connection.as_fd()) {
+                    return Ok(());
+                }
+                match connection.receive::<Answer>()? {
+                    Some(Some(state @ Answer::UpdateState(_))) => {
                         back.send(Done::State(to_json(&state).to_string()));
                     }
-                    Ok(Some(Some(_))) => {}
-                    Ok(None) => return Err(std::io::Error::other("closed")),
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) => {}
-                    Err(error) => return Err(error),
+                    Some(_) => {}
+                    None => return Err(std::io::Error::other("closed")),
                 }
             }
-            Ok(())
         })();
+        if stop.given() {
+            return;
+        }
         if let Err(error) = watched {
             if !said {
                 eprintln!(
-                    "[installs] the install service ({}): {error}; its update state is not watched",
+                    "[installs] the install service ({}): {error}; its update state is followed once it is there",
                     socket.display()
                 );
                 said = true;
             }
         }
-        for _ in 0..20 {
-            if stopped() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
+        failed_on = tried;
     }
 }
 

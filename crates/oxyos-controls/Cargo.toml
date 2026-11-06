@@ -11,6 +11,14 @@ oxyos-protocol = { path = "../oxyos-protocol" }
 oxyos-seat = { path = "../oxyos-seat" }
 # UPower, NetworkManager and BlueZ over the system bus, in safe Rust.
 zbus = "5"
+# Following the bus's signals and the order to stop at once, on zbus's own executor (follow.rs).
+async-io = "2"
+futures-lite = "2"
+# Waiting on sysfs attributes' notifications and the order to stop (follow.rs).
+rustix = { version = "1.1.6", default-features = false, features = ["std", "event"] }
+# PipeWire's default devices and volumes, followed as they change (follow.rs); the session's one
+# audio stack (oxyos-sound plays through it).
+pipewire = { version = "0.10", features = ["v0_3_49"] }
 
 [lints]
 workspace = true
