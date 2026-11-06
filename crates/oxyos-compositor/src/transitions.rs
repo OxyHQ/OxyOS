@@ -814,7 +814,6 @@ impl Transitions {
         if swiped && matches!(appearance.change, Change::Arrived | Change::Gone) {
             let motion = motions(appearance.kind, appearance.change, place);
             if appearance.arrived() {
-                self.drives.overlay_arrived(now);
                 self.start_arriving(
                     appearance.key,
                     appearance.kind,

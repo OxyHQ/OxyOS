@@ -2111,6 +2111,17 @@ impl Compositor {
             self.transitions
                 .appear_swiped(appearance, now, snapshot, &place, swiped);
         }
+        // What a swipe opens begins to move once the shell draws all of it, every one of its
+        // surfaces arrived: its backdrop and the windows' surface set off together, wherever the
+        // fingers or their spring are (ADR 0046).
+        if let Some(drive) = overlay_drive {
+            if self
+                .scene
+                .gesture_overlay_drawn(drive.client, drive.output, drive.overlay)
+            {
+                self.transitions.drives.overlay_arrived(now);
+            }
+        }
         // Those already shown when a swipe began closing them follow it from now on.
         if overlay_drive.is_some() {
             for item in &list {
