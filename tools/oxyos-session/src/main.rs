@@ -245,13 +245,15 @@ fn main() -> Result<()> {
     // Applied before any client connects, so each is told them with its Welcome.
     settings.apply(&mut compositor, settings::now());
     // The machine's volumes, backlights, battery and network, on a thread of their own: every
-    // call may wait on another process (ADR 0025).
+    // call may wait on another process (ADR 0025). Each is read again as it changes, never on a
+    // clock; the network by the networks' part below, which the login screen has not.
     match oxyos_controls::Worker::spawn(Box::new(oxyos_controls::Session::new())) {
         Ok(worker) => {
-            compositor.controls = Some(oxyos_compositor::controls::Controls::new(
-                worker,
-                Instant::now(),
-            ))
+            let mut controls = oxyos_compositor::controls::Controls::new(worker);
+            if let Err(error) = controls.follow(greeter, PathBuf::from("/sys")) {
+                eprintln!("[session] following the hardware's changes: {error}; read when asked");
+            }
+            compositor.controls = Some(controls);
         }
         Err(error) => eprintln!("[session] the hardware keys: {error}; they do nothing"),
     }
@@ -592,10 +594,13 @@ fn main() -> Result<()> {
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
             networks.serve(&mut compositor.scene);
-            if networks.take_changed() {
-                if let Some(controls) = compositor.controls.as_mut() {
-                    controls.refresh_status();
-                }
+            // The top bar's network, told from what the networks' part read.
+            if let (true, Some(network), Some(controls)) = (
+                networks.take_changed(),
+                networks.status(),
+                compositor.controls.as_mut(),
+            ) {
+                controls.network_is(&mut compositor.scene, network);
             }
         }
         if let Some(installs) = installs.as_mut() {

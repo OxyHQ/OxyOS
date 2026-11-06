@@ -33,6 +33,12 @@ step's expected result) and measures, from what the processes report and from /p
   frames the compositor composed while it ran, how far apart and how long composing each took, and
   how many each transition drew against its claim (one a refresh, which the gate holds only as at
   most);
+- the session idle (`session`, not among the parts run by default): a running `oxyos-session` of this
+  user and the Bloom hosts it started (the shell, the applications), read-only from /proc over
+  SESSION_WINDOW_S while nothing happens on the machine: each process's CPU and wakeups, and each
+  thread's, held to the idle budget (at most one wakeup a second and 0.1 % of a core, the session's
+  own process as an application). It needs no --offscreen, --runtimes or --packages, and touches
+  nothing of the session;
 - applications side by side: the shell, Settings and three more applications on one compositor, and
   each host's memory from /proc/PID/smaps_rollup once all have drawn: RSS, PSS (a shared page's
   size divided among the processes mapping it) and USS (its private pages), and what of each
@@ -54,6 +60,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--check]
                [interactions] [responses] [shell] [cold-start] [idle] [applications] [refresh] [genie]
+       perf.py [--out DIR] [--check] session
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -162,6 +169,9 @@ SIDE_BY_SIDE_WAIT_MS = 40000
 JOINING = [("Inbox", "OxyBloom"), ("Allo", "EditingProbe"), ("WindowProbe", "WindowProbe")]
 IDLE_SETTLE_S = 2.0
 IDLE_WINDOW_S = 5.0
+
+# The session idle: how long a running session is sampled while nothing happens.
+SESSION_WINDOW_S = 30.0
 
 # What --check holds the numbers to.
 BUDGETS = {
@@ -692,6 +702,72 @@ def idle(options, name, scenario, out):
 
 
 
+def session_processes():
+    """This user's running `oxyos-session` and the Bloom hosts it started, by pid: what each is (the
+    session, or a host by its module: OxyOSShell, an application's)."""
+    found = {}
+    for entry in pathlib.Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+            parent = int((entry / "stat").read_text().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        found[int(entry.name)] = (argv, parent)
+    sessions = {pid for pid, (argv, _) in found.items() if pathlib.Path(argv[0].decode(errors="replace")).name == "oxyos-session"}
+    processes = {pid: "oxyos-session" for pid in sessions}
+    for pid, (argv, parent) in found.items():
+        if parent in sessions and pathlib.Path(argv[0].decode(errors="replace")).name == "oxyos-bloom-host" and len(argv) > 2:
+            processes[pid] = argv[2].decode(errors="replace")
+    return processes
+
+
+def threads_of(pid):
+    """A process's CPU time (ns, every thread's) and each thread's context switches, by thread id
+    and name."""
+    cpu = int(pathlib.Path(f"/proc/{pid}/schedstat").read_text().split()[0])
+    threads = {}
+    for task in pathlib.Path(f"/proc/{pid}/task").iterdir():
+        try:
+            status = (task / "status").read_text()
+        except OSError:
+            continue
+        name = next((line.split(":", 1)[1].strip() for line in status.splitlines() if line.startswith("Name:")), "?")
+        switches = sum(int(line.split()[1]) for line in status.splitlines() if "ctxt_switches" in line)
+        threads[task.name] = (name, switches)
+    return cpu, threads
+
+
+def session_idle(window):
+    """The running session idle (the module's doc): each process's CPU % and wakeups a second over
+    `window` seconds, and its threads that woke; None without a session."""
+    processes = session_processes()
+    if not processes:
+        return None
+    before, started = {pid: threads_of(pid) for pid in processes}, time.monotonic()
+    time.sleep(window)
+    elapsed = time.monotonic() - started
+    measured = {}
+    for pid, who in processes.items():
+        try:
+            cpu, threads = threads_of(pid)
+        except OSError:
+            continue  # it ended meanwhile
+        woke = {}
+        for tid, (name, switches) in threads.items():
+            if tid in before[pid][1]:
+                woke[name] = woke.get(name, 0) + switches - before[pid][1][tid][1]
+        measured[f"{who} ({pid})"] = {
+            "cpu_percent": round((cpu - before[pid][0]) / (elapsed * 1e9) * 100, 3),
+            "wakeups_per_s": round(sum(woke.values()) / elapsed, 2),
+            "threads": {name: round(count / elapsed, 2) for name, count in sorted(woke.items()) if count},
+        }
+    return {"window_s": round(elapsed, 1), "processes": measured}
+
+
 def smaps(pid):
     """A process's memory from smaps_rollup (kB), and each bytecode file it maps: resident and
     proportional (kB), and whether its resident pages are shared."""
@@ -863,6 +939,14 @@ def show(results):
                  f"{m['anon_mib']:.0f}", f"{m['file_mib']:.0f}", m["peak_rss_mib"]]
                 for name, processes in results["idle"].items() for who, m in processes.items()]
         print(table(rows, ["idle", "process", "CPU %", "wakeups/s", "RSS MiB", "anon", "file", "peak"]))
+    if results.get("session"):
+        rows = [[who, f"{m['cpu_percent']:.3f}", f"{m['wakeups_per_s']:.2f}",
+                 ", ".join(f"{name} {rate}" for name, rate in m["threads"].items()) or "none"]
+                for who, m in results["session"]["processes"].items()]
+        print(table(rows, [f"session idle, {results['session']['window_s']} s", "CPU %", "wakeups/s",
+                           "threads that woke (a second)"]))
+    elif "session" in results:
+        print("session idle: no oxyos-session of this user is running")
 
 
 def check(results):
@@ -892,6 +976,11 @@ def check(results):
                 over.append(f"idle {name}: {who} woke {m['wakeups_per_s']:.1f} times a second")
             if m["cpu_percent"] > BUDGETS["idle_host_cpu_percent"]:
                 over.append(f"idle {name}: {who} used {m['cpu_percent']:.2f}% CPU")
+    for who, m in ((results.get("session") or {}).get("processes") or {}).items():
+        if m["wakeups_per_s"] > BUDGETS["idle_host_wakeups_per_s"]:
+            over.append(f"session idle: {who} woke {m['wakeups_per_s']:.2f} times a second ({m['threads']})")
+        if m["cpu_percent"] > BUDGETS["idle_host_cpu_percent"]:
+            over.append(f"session idle: {who} used {m['cpu_percent']:.3f}% CPU")
     for name, r in results.get("genie", {}).items():
         refresh = r["refresh_ms"]
         if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
@@ -911,10 +1000,11 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, applications, refresh, genie (all by default)")
-    parser.add_argument("--offscreen", required=True)
-    parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
-    parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
+                        help="interactions, responses, shell, cold-start, idle, applications, refresh, genie (all "
+                             "by default), and session (the running session idle, only when named)")
+    parser.add_argument("--offscreen")
+    parser.add_argument("--runtimes", help="the runtimes (regress.py)")
+    parser.add_argument("--packages", help="the applications' packages and the probes (regress.py)")
     parser.add_argument("--out", default=None)
     parser.add_argument("--runs", type=int, default=3, help="runs of each scenario, pooled")
     parser.add_argument("--gpu-only", action="store_true", help="compose on the Vulkan device alone")
@@ -924,8 +1014,10 @@ def main():
     options = parser.parse_args()
     every = ["interactions", "responses", "shell", "cold-start", "idle", "applications", "refresh", "genie"]
     parts = options.parts or every
-    if not set(parts) <= set(every):
+    if not set(parts) <= set(every) | {"session"}:
         parser.error(f"unknown parts {parts}")
+    if set(parts) - {"session"} and not (options.offscreen and options.runtimes and options.packages):
+        parser.error("--offscreen, --runtimes and --packages are needed for every part but session")
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-perf-"))
     out.mkdir(parents=True, exist_ok=True)
 
@@ -948,6 +1040,8 @@ def main():
     if "genie" in parts:
         results["genie"] = {name: genie(options, name, scenario, steps, what, out)
                             for name, scenario, steps, what in GENIE}
+    if "session" in parts:
+        results["session"] = session_idle(SESSION_WINDOW_S)
     results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)

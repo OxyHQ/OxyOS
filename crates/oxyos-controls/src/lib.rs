@@ -31,6 +31,7 @@ pub mod backlight;
 pub mod bluetooth;
 mod bus;
 mod fake;
+pub mod follow;
 pub mod network;
 pub mod power;
 mod session;
@@ -367,6 +368,15 @@ impl Worker {
                 // A worker that ended (its thread panicked) acts no more; the session goes on.
                 let _ = commands.send(command);
             }
+        }
+    }
+
+    /// Where commands go from another thread (what follows the system's changes, `follow`), for
+    /// a worker on a thread of its own; none for an inline one.
+    pub fn commands(&self) -> Option<Sender<Command>> {
+        match self {
+            Self::Inline { .. } => None,
+            Self::Thread { commands, .. } => Some(commands.clone()),
         }
     }
 

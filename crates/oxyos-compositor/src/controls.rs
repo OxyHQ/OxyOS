@@ -9,26 +9,26 @@
 //! they are pressed; the system's answer follows, and corrects it if the system did otherwise.
 //! A volume key unmutes, as a Mac's does. The keyboard backlight's key turns it off and back on to
 //! where it was, unless the firmware changes it itself (a ThinkPad's Fn+Space): then its key
-//! is only told, and the level is read. The battery, the network and Bluetooth are looked at
-//! every few seconds and when the Control Center opens; the levels, which other programs change
-//! too, less often.
+//! is only told, and the level is read. The battery, the network, Bluetooth and the levels, which
+//! other programs and the firmware change too, are read when the Control Center opens and, in a
+//! session, as they change ([`Following`]: never looked at on a clock, so a session doing nothing
+//! wakes for nothing).
 
+use crate::stop::{identity, Stop};
 use oxyos_compositor_core::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, OutputId,
     PowerStatus, Scene,
 };
+use oxyos_controls::follow::{self, Change};
 use oxyos_controls::{
     stepped, Battery, Bluetooth, Command, Control, Level, Network, Outcome, Worker, FULL_LEVEL,
 };
 use oxyos_protocol::{PreeditText, WifiState, TEXT_CHUNK_BYTES};
 use std::collections::BTreeMap;
 use std::os::fd::BorrowedFd;
-use std::time::{Duration, Instant};
-
-/// How often the battery, the network and Bluetooth are looked at.
-pub const STATUS_EVERY: Duration = Duration::from_secs(5);
-/// How often the levels are looked at (another program may change them).
-pub const LEVELS_EVERY: Duration = Duration::from_secs(30);
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 pub struct Controls {
     worker: Worker,
@@ -37,8 +37,8 @@ pub struct Controls {
     keyboard_by_firmware: bool,
     /// The keyboard's backlight before its key turned it off.
     keyboard_before: u32,
-    next_status: Instant,
-    next_levels: Instant,
+    /// What follows the system's changes (a session's), stopped when the controls go.
+    following: Option<Following>,
 }
 
 /// A level as the scene keeps it.
@@ -98,7 +98,7 @@ pub fn bluetooth_status(bluetooth: Bluetooth) -> BluetoothStatus {
 
 impl Controls {
     /// Controls through `worker`, which is asked at once what the system has.
-    pub fn new(mut worker: Worker, now: Instant) -> Self {
+    pub fn new(mut worker: Worker) -> Self {
         worker.send(Command::ReadLevels);
         worker.send(Command::ReadStatus);
         Self {
@@ -106,21 +106,23 @@ impl Controls {
             levels: BTreeMap::new(),
             keyboard_by_firmware: false,
             keyboard_before: FULL_LEVEL,
-            next_status: now + STATUS_EVERY,
-            next_levels: now + LEVELS_EVERY,
+            following: None,
         }
+    }
+
+    /// Follows the system's changes (a session's: its worker on a thread of its own), each read
+    /// again as it changes: the bus's services (NetworkManager too where `network`, when no other
+    /// part follows it), the backlights under `sysfs` and PipeWire. Nothing for an inline worker.
+    pub fn follow(&mut self, network: bool, sysfs: PathBuf) -> std::io::Result<()> {
+        if let Some(commands) = self.worker.commands() {
+            self.following = Some(Following::start(commands, network, sysfs)?);
+        }
+        Ok(())
     }
 
     /// What wakes the compositor's turn when the worker has answers.
     pub fn wake_fd(&self) -> Option<BorrowedFd<'_>> {
         self.worker.wake_fd()
-    }
-
-    /// How long the turn may wait before the system is looked at again.
-    pub fn next_wake(&self, now: Instant) -> Duration {
-        self.next_status
-            .min(self.next_levels)
-            .saturating_duration_since(now)
     }
 
     /// Whether the output is muted or at no volume, as the system last said it (or as last set):
@@ -133,25 +135,18 @@ impl Controls {
         )
     }
 
-    /// The battery, the network and Bluetooth looked at now: the network's daemon said it changed
-    /// (docs/adr/0038-networks.mdx), so the top bar follows a cable or a network at once.
-    pub fn refresh_status(&mut self) {
-        self.worker.send(Command::ReadStatus);
+    /// The network as the networks' part read it (docs/adr/0038-networks.mdx), which follows the
+    /// daemon: told as if read here, so the top bar follows a cable or a network at once with no
+    /// reading of the daemon again.
+    pub fn network_is(&mut self, scene: &mut Scene, network: Network) {
+        self.outcome(scene, Outcome::Network(network));
     }
 
-    /// One turn: the keys and requests the scene took, the system looked at when it is time,
-    /// and the worker's answers told to the scene.
-    pub fn serve(&mut self, scene: &mut Scene, now: Instant) {
+    /// One turn: the keys and requests the scene took, and the worker's answers told to the
+    /// scene.
+    pub fn serve(&mut self, scene: &mut Scene) {
         for request in scene.take_control_requests() {
             self.request(scene, request);
-        }
-        if now >= self.next_status {
-            self.next_status = now + STATUS_EVERY;
-            self.worker.send(Command::ReadStatus);
-        }
-        if now >= self.next_levels {
-            self.next_levels = now + LEVELS_EVERY;
-            self.worker.send(Command::ReadLevels);
         }
         for outcome in self.worker.outcomes() {
             self.outcome(scene, outcome);
@@ -270,3 +265,114 @@ impl Controls {
 
 #[cfg(test)]
 mod tests;
+
+/// The threads that follow the system's changes for a session's controls (`oxyos_controls::follow`),
+/// each sending the worker the read of what changed. Each waits on its source and the order to
+/// stop, never a clock; a source that goes (the bus, PipeWire restarted) is followed again once
+/// its socket is made anew. They stop and are waited for when it goes.
+pub struct Following {
+    stop: Arc<Stop>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+/// The read a change asks for.
+fn read(change: Change) -> Command {
+    match change {
+        Change::Status => Command::ReadStatus,
+        Change::Level(control) => Command::ReadLevel(control, None),
+    }
+}
+
+/// Follows a source with `follow` until `stop` is given: again whenever it goes, once `socket` is
+/// made anew (or, with none, never again).
+fn again(
+    what: &str,
+    stop: &Stop,
+    socket: Option<PathBuf>,
+    mut follow: impl FnMut(&Stop) -> std::io::Result<()>,
+) {
+    let mut failed_on = None;
+    let mut said = false;
+    loop {
+        if let Some(socket) = &socket {
+            if !stop.wait_for_path(socket, failed_on) {
+                return;
+            }
+        }
+        let tried = socket.as_deref().and_then(identity);
+        let result = follow(stop);
+        if stop.given() {
+            return;
+        }
+        if let Err(error) = result {
+            if !said {
+                eprintln!("[controls] following {what}: {error}; again once it is there");
+                said = true;
+            }
+        }
+        if socket.is_none() {
+            stop.wait();
+            return;
+        }
+        failed_on = tried;
+    }
+}
+
+impl Following {
+    fn start(commands: Sender<Command>, network: bool, sysfs: PathBuf) -> std::io::Result<Self> {
+        let stop = Arc::new(Stop::new()?);
+        let mut threads = Vec::new();
+        let spawn = |name: &str, run: Box<dyn FnOnce() + Send>| {
+            std::thread::Builder::new().name(name.into()).spawn(run)
+        };
+        {
+            let (stop, commands) = (stop.clone(), commands.clone());
+            threads.push(spawn(
+                "controls-bus",
+                Box::new(move || {
+                    let socket = oxyos_networks::bus_socket(None);
+                    again("the system bus", &stop, socket, |stop| {
+                        follow::bus(network, stop.fd(), |change| {
+                            commands.send(read(change)).is_ok()
+                        })
+                    });
+                }),
+            )?);
+        }
+        {
+            let (stop, commands) = (stop.clone(), commands.clone());
+            threads.push(spawn(
+                "controls-backlights",
+                Box::new(move || {
+                    again("the backlights", &stop, None, |stop| {
+                        follow::backlights(Path::new(&sysfs), stop.fd(), |change| {
+                            commands.send(read(change)).is_ok()
+                        })
+                    });
+                }),
+            )?);
+        }
+        {
+            let stop = stop.clone();
+            threads.push(spawn(
+                "controls-audio",
+                Box::new(move || {
+                    again("PipeWire", &stop, follow::pipewire_socket(), |stop| {
+                        let commands = commands.clone();
+                        follow::audio(stop.fd(), move |change| commands.send(read(change)).is_ok())
+                    });
+                }),
+            )?);
+        }
+        Ok(Self { stop, threads })
+    }
+}
+
+impl Drop for Following {
+    fn drop(&mut self) {
+        self.stop.give();
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}

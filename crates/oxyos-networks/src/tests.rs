@@ -165,3 +165,17 @@ fn the_state_as_the_shell_and_settings_read_it() {
     assert_eq!(json["ethernet"]["state"], "unplugged");
     assert!(json["joining"].is_null());
 }
+
+#[test]
+fn a_bus_is_waited_for_by_its_socket() {
+    use std::path::PathBuf;
+    assert_eq!(
+        bus_socket(Some("unix:path=/run/played/bus,guid=0123")),
+        Some(PathBuf::from("/run/played/bus"))
+    );
+    assert_eq!(
+        bus_socket(Some("tcp:host=localhost,port=1;unix:path=/run/b")),
+        Some(PathBuf::from("/run/b"))
+    );
+    assert_eq!(bus_socket(Some("unix:abstract=/tmp/dbus-x")), None);
+}

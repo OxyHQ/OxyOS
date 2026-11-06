@@ -36,7 +36,6 @@ struct Machine {
     scene: Scene,
     controls: Controls,
     fake: Fake,
-    now: Instant,
 }
 
 impl Machine {
@@ -77,19 +76,17 @@ impl Machine {
             )
             .unwrap();
         let fake = Fake::parse(described).unwrap();
-        let now = Instant::now();
         let mut machine = Self {
             scene,
-            controls: Controls::new(Worker::inline(Box::new(fake.clone())), now),
+            controls: Controls::new(Worker::inline(Box::new(fake.clone()))),
             fake,
-            now,
         };
         machine.serve();
         machine
     }
 
     fn serve(&mut self) {
-        self.controls.serve(&mut self.scene, self.now);
+        self.controls.serve(&mut self.scene);
     }
 
     fn keys(&mut self, codes: &[u32]) {
@@ -396,34 +393,46 @@ fn the_control_center_sets_levels_mutes_and_wifi() {
 }
 
 #[test]
-fn the_battery_and_the_network_are_looked_at_every_few_seconds() {
+fn the_system_is_read_as_it_changes_never_on_a_clock() {
     let mut machine = Machine::new(MACHINE);
     machine.told();
     machine
         .fake
         .change("battery = charging\nbattery_percent = 65\non_ac = true")
         .unwrap();
-    machine.serve();
-    assert!(machine.told().0.is_empty(), "not yet");
-    assert!(machine.controls.next_wake(machine.now) <= STATUS_EVERY);
-    machine.now += STATUS_EVERY;
-    machine.serve();
-    assert_eq!(
-        machine.told().0,
-        [Event::Power {
-            battery: BatteryState::Charging,
-            percent: 65,
-            on_ac: true,
-            minutes: 0
-        }]
-    );
-    // The levels, less often.
+    for _ in 0..3 {
+        machine.serve();
+    }
+    assert!(machine.told().0.is_empty(), "nothing reads it unasked");
+    // A session's worker, on a thread of its own: what follows the system's changes sends it the
+    // read of what changed (`Following`), and the shell is told.
+    machine.controls = Controls::new(Worker::spawn(Box::new(machine.fake.clone())).unwrap());
+    let commands = machine.controls.worker.commands().unwrap();
+    let until = |machine: &mut Machine, want: &dyn Fn(&Event) -> bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            machine.serve();
+            if machine.told().0.iter().any(want) {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "not told");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    until(&mut machine, &|event| matches!(event, Event::Power { .. }));
+    machine.fake.change("battery_percent = 70").unwrap();
+    commands.send(read(Change::Status)).unwrap();
+    until(&mut machine, &|event| {
+        matches!(event, Event::Power { percent: 70, .. })
+    });
     machine.fake.change("display_brightness = 1").unwrap();
-    machine.now += LEVELS_EVERY;
-    machine.serve();
-    assert!(machine
-        .levels()
-        .contains(&(Control::DisplayBrightness, FULL_LEVEL, false, false)));
+    commands
+        .send(read(Change::Level(Control::DisplayBrightness)))
+        .unwrap();
+    until(
+        &mut machine,
+        &|event| matches!(event, Event::ControlLevel { control: Control::DisplayBrightness, level_65536, bezel: false, .. } if *level_65536 == FULL_LEVEL),
+    );
 }
 
 #[test]

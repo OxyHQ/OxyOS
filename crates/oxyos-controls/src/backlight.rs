@@ -121,6 +121,11 @@ impl Device {
         setter.set(self.subsystem, &self.name, raw_of(level, max))
     }
 
+    /// One of its attributes' files (`actual_brightness`, `brightness_hw_changed`).
+    pub fn attribute(&self, name: &str) -> PathBuf {
+        self.path.join(name)
+    }
+
     /// Whether the firmware changes it itself (the kernel reports its changes,
     /// `brightness_hw_changed`).
     pub fn changed_by_firmware(&self) -> bool {

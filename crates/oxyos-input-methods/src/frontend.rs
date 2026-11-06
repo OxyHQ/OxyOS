@@ -499,10 +499,7 @@ impl Worker {
             &self.sources.layout,
         )?;
         let mut processes = self.engine.start_fcitx(&self.paths, bus)?;
-        let connection =
-            zbus::blocking::connection::Builder::address(self.paths.address().as_str())
-                .and_then(|builder| builder.build())
-                .map_err(failed)?;
+        let connection = engine_bus(self.paths.address().as_str())?;
         // fcitx5 is up once it owns its name (pinyin's dictionaries load first).
         let dbus = zbus::blocking::fdo::DBusProxy::new(&connection).map_err(failed)?;
         let start = Instant::now();
@@ -527,7 +524,10 @@ impl Worker {
         let reader = std::thread::Builder::new()
             .name("oxyos-input-methods-bus".into())
             .spawn(move || {
-                for message in zbus::blocking::MessageIterator::from(&reading) {
+                let mut messages = zbus::MessageStream::from(reading.inner());
+                while let Some(message) =
+                    futures_lite::future::block_on(futures_lite::StreamExt::next(&mut messages))
+                {
                     let Ok(message) = message else { break };
                     if feed.send(Input::Message(message)).is_err() {
                         return;
@@ -958,6 +958,34 @@ impl Worker {
             _ => {}
         }
     }
+}
+
+/// The engine's bus at `address`, its executor (what reads its socket) on a thread of its own
+/// waiting with futures-lite's block_on, and read with it too, never async-io's: a thread waiting
+/// long in async-io's (as zbus's internal executor and blocking iterators do) keeps async-io's
+/// reactor thread waking with a backoff after every message any connection of the session
+/// receives (`oxyos_seat::system_bus`, docs/performance.mdx, *Idle*). The thread ends with the
+/// connection.
+fn engine_bus(address: &str) -> Result<zbus::blocking::Connection, Stop> {
+    let connection = futures_lite::future::block_on(
+        zbus::connection::Builder::address(address)
+            .map_err(failed)?
+            .internal_executor(false)
+            .build(),
+    )
+    .map_err(failed)?;
+    let executor = connection.executor().clone();
+    std::thread::Builder::new()
+        .name("oxyos-input-methods-executor".into())
+        .spawn(move || {
+            futures_lite::future::block_on(async move {
+                while !executor.is_empty() {
+                    executor.tick().await;
+                }
+            })
+        })
+        .map_err(failed)?;
+    Ok(connection.into())
 }
 
 #[cfg(test)]

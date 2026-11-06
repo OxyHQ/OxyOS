@@ -56,7 +56,8 @@ impl Session {
 
     fn bus(&mut self) -> io::Result<&Connection> {
         if self.bus.is_none() {
-            self.bus = Some(Connection::system().map_err(crate::bus::failed)?);
+            // Kept, its executor waiting without waking (`oxyos_seat::system_bus`).
+            self.bus = Some(oxyos_seat::system_bus()?);
         }
         Ok(self.bus.as_ref().expect("connected"))
     }

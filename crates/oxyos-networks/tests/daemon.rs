@@ -329,23 +329,51 @@ fn scans_and_watching_the_daemon() {
     until(|| daemon.held()["scans"] == 1);
     let (told, seen) = std::sync::mpsc::channel();
     let address = daemon.address.clone();
+    // Never told to stop: it ends with the test.
+    let (never, _kept) = std::os::unix::net::UnixStream::pair().unwrap();
     std::thread::spawn(move || {
-        oxyos_networks::watch(Some(&address), Duration::from_millis(30), &|| false, || {
-            told.send(()).is_ok()
-        })
+        use std::os::fd::AsFd;
+        oxyos_networks::watch(
+            Some(&address),
+            Duration::from_millis(30),
+            never.as_fd(),
+            |changes: &oxyos_networks::Changes| told.send(changes.clone()).is_ok(),
+        )
     });
-    seen.recv_timeout(Duration::from_secs(5))
-        .expect("told at start");
+    assert_eq!(
+        seen.recv_timeout(Duration::from_secs(5))
+            .expect("told at start"),
+        oxyos_networks::Changes::Any
+    );
+    // An access point's strength is told as that alone, by its object; seen again by a scan, it
+    // is not told at all.
+    let before = manager.state().unwrap();
+    daemon.act(json!({"seen": "Café Libre"}));
+    daemon.act(json!({"strength": {"ssid": "Café Libre", "strength": 90}}));
+    let told = seen
+        .recv_timeout(Duration::from_secs(5))
+        .expect("told of the strength");
+    let oxyos_networks::Changes::Strengths(strengths) = told else {
+        panic!("{told:?} is not the strength alone");
+    };
+    let mut applied = before.clone();
+    assert!(applied.with_strengths(&strengths));
+    let read = manager.state().unwrap();
+    assert_eq!(applied, read, "applied as a read gives it");
+    assert_eq!(read.wifi.networks[0].ssid, "Café Libre");
     daemon.act(json!({"ethernet": "plugged"}));
-    seen.recv_timeout(Duration::from_secs(5))
-        .expect("told of the cable");
+    assert_eq!(
+        seen.recv_timeout(Duration::from_secs(5))
+            .expect("told of the cable"),
+        oxyos_networks::Changes::Any
+    );
     until(|| manager.state().unwrap().ethernet.state == EthernetState::Connected);
     let ethernet = manager.state().unwrap().ethernet;
     assert_eq!(ethernet.speed, 1000);
     assert_eq!(ethernet.details.unwrap().ipv4.unwrap().address, "10.0.0.20");
     daemon.act(json!({"ethernet": "unplugged"}));
     until(|| manager.state().unwrap().ethernet.state == EthernetState::Unplugged);
-    daemon.act(json!({"access_point": {"ssid": "Biblioteca", "strength": 88}}));
+    daemon.act(json!({"access_point": {"ssid": "Biblioteca", "strength": 95}}));
     until(|| {
         manager
             .state()
