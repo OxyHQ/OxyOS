@@ -21,12 +21,14 @@ RestartSec=1s
 UMask=0077
 
 # Oxy's API, OxyOS's public client id there (the registry's OxyOS application; public, not a
-# secret), and the one program that may register a session's launches. The file below may name
+# secret), and the one program that may register a session's launches, with the login program
+# that must have started it. The file below may name
 # another API and its client (a development server); without a client id nothing is set up and
 # passwords are not checked online.
 Environment=OXYOS_OXY_API=https://api.oxy.so
 Environment=OXYOS_OXY_CLIENT_ID=oxy_dk_ee7af26b21c2ff9e70f59e43dc2359106280665d779b74a8
 Environment=OXYOS_SESSION_PROGRAM=/usr/bin/oxyos-session
+Environment=OXYOS_LOGIN_PROGRAM=/usr/libexec/oxyos/oxyos-login
 EnvironmentFile=-/etc/oxyos/accountd.conf
 
 # Its own: /var/lib/oxyos/accounts (0700) and its sockets' directory, /run/oxyos/accountd (0755:

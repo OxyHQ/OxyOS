@@ -6,9 +6,12 @@
 //!   Mode 0666: every peer is known by the kernel (`SO_PEERCRED` and `SO_PEERPIDFD`), never by
 //!   what it sends. A peer that is neither of the two below is answered
 //!   `{"refused": {"reason": "notPermitted"}}`, once its first message is read, and nothing else.
-//! - **The registrar** is the session program: its uid is an enrolled account's user, and the
-//!   program its pidfd's process runs (`/proc/<pid>/exe`, the file itself, not a path) is
-//!   `OXYOS_SESSION_PROGRAM`'s, owned by root and writable by no group or other. It says what it
+//! - **The registrar** is the session program the login program started: its uid is an enrolled
+//!   account's user; the program its pidfd's process runs (`/proc/<pid>/exe`, the file itself, not
+//!   a path) is `OXYOS_SESSION_PROGRAM`'s, owned by root and writable by no group or other; and its
+//!   parent is a root process running `OXYOS_LOGIN_PROGRAM`'s file (the login program's worker,
+//!   which starts the session with a clean environment). The session program run by the user
+//!   itself (from a terminal, with `LD_PRELOAD`) is no registrar: its parent is the user's. It says what it
 //!   launched, the launched process handed over as a pidfd (`SCM_RIGHTS`), which must be its own
 //!   child and its user's:
 //!
@@ -42,7 +45,9 @@
 //!   refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
 //!   of the peer's own account.
 //! - **Limits,** as the service's own socket: every peer waits at most [`IDLE`] for its next
-//!   message but a registrar or a subscriber, at most [`MAX_REGISTRARS`] registrars per user,
+//!   message but a registrar or a subscriber, at most [`MAX_REGISTRARS`] registrars and
+//!   [`MAX_APPLICATION_CONNECTIONS`] application connections per user (so one user's applications
+//!   never keep another's lock from its check),
 //!   [`MAX_REGISTRATIONS`] registrations per registrar and [`MAX_SUBSCRIPTIONS`] subscriptions per
 //!   registration. Every answer follows the message it answers, and no connection is closed with
 //!   a message unread.
@@ -73,6 +78,11 @@ pub const SESSION_PROGRAM: &str = "/usr/bin/oxyos-session";
 pub const IDLE: Duration = Duration::from_secs(60);
 /// Registrar connections of one user at once.
 pub const MAX_REGISTRARS: usize = 4;
+/// Application connections of one user at once.
+pub const MAX_APPLICATION_CONNECTIONS: usize = 16;
+
+/// The login program, unless `OXYOS_LOGIN_PROGRAM` names another: the registrar's parent.
+pub const LOGIN_PROGRAM: &str = "/usr/libexec/oxyos/oxyos-login";
 /// Registrations of one registrar at once.
 pub const MAX_REGISTRATIONS: usize = 512;
 /// Subscriptions of one registration at once.
@@ -131,22 +141,38 @@ impl Answer {
 #[derive(Clone, Debug)]
 pub struct Registrars {
     pub program: PathBuf,
-    /// The program's owner: root (the tests', their own user).
+    /// The program that starts it, whose process is the registrar's parent.
+    pub parent: PathBuf,
+    /// Both programs' owner and the parent's user: root (the tests', their own user).
     pub owner: u32,
 }
 
 impl Registrars {
-    pub fn new(program: PathBuf) -> Self {
-        Self { program, owner: 0 }
+    pub fn new(program: PathBuf, parent: PathBuf) -> Self {
+        Self {
+            program,
+            parent,
+            owner: 0,
+        }
     }
 
-    /// Whether `pidfd`'s process runs the session program, judged while it lives.
+    /// Whether `pidfd`'s process runs the session program and its parent, of the owner's user,
+    /// the login program; judged while it lives.
     fn runs_program(&self, pidfd: &OwnedFd) -> bool {
-        let Ok(program) = Program::at(&self.program) else {
+        let (Ok(program), Ok(parent)) = (Program::at(&self.program), Program::at(&self.parent))
+        else {
             return false;
         };
-        pidfd::while_alive(pidfd, Program::of_process)
-            .is_some_and(|(_, running)| running.is(&program, self.owner))
+        pidfd::while_alive(pidfd, |pid| {
+            let running = Program::of_process(pid)?;
+            let status = pidfd::status(pid)?;
+            let started_by = Program::of_process(status.parent)?;
+            let starter = pidfd::status(status.parent)?;
+            Ok(running.is(&program, self.owner)
+                && started_by.is(&parent, self.owner)
+                && starter.uid == self.owner)
+        })
+        .is_some_and(|(_, verified)| verified)
     }
 }
 
@@ -188,7 +214,26 @@ pub struct Sessions<A, U> {
     registrations: Mutex<Vec<Arc<Registration>>>,
     /// Registrar connections open, by uid.
     open_registrars: Mutex<Vec<u32>>,
+    /// Application connections open, by uid.
+    open_applications: Mutex<Vec<u32>>,
     next: AtomicU64,
+}
+
+/// Takes one of `uid`'s places among `open`, if it has fewer than `limit`.
+fn take(open: &Mutex<Vec<u32>>, uid: u32, limit: usize) -> bool {
+    let mut open = open.lock().unwrap_or_else(|p| p.into_inner());
+    if open.iter().filter(|held| **held == uid).count() >= limit {
+        return false;
+    }
+    open.push(uid);
+    true
+}
+
+fn give_back(open: &Mutex<Vec<u32>>, uid: u32) {
+    let mut open = open.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(index) = open.iter().position(|held| *held == uid) {
+        open.remove(index);
+    }
 }
 
 fn eventfd() -> io::Result<OwnedFd> {
@@ -221,6 +266,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
             registrars,
             registrations: Mutex::new(Vec::new()),
             open_registrars: Mutex::new(Vec::new()),
+            open_applications: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
         }
     }
@@ -259,6 +305,11 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
         if let Some(registration) = registration {
             if registration.alive()
                 && matches!(pidfd::pid(pidfd.as_fd()), Ok(Some(pid)) if pid == peer_pid)
+                && take(
+                    &self.open_applications,
+                    peer.uid,
+                    MAX_APPLICATION_CONNECTIONS,
+                )
             {
                 return Kind::Application(registration);
             }
@@ -271,14 +322,9 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
         if !self.registrars.runs_program(&pidfd) {
             return Kind::Refused;
         }
-        let mut open = self
-            .open_registrars
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if open.iter().filter(|uid| **uid == peer.uid).count() >= MAX_REGISTRARS {
+        if !take(&self.open_registrars, peer.uid, MAX_REGISTRARS) {
             return Kind::Refused;
         }
-        open.push(peer.uid);
         Kind::Registrar {
             id: self.next.fetch_add(1, Ordering::SeqCst),
             enrollment: Box::new(enrollment),
@@ -315,6 +361,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                         );
                     }
                 }
+                give_back(&self.open_applications, registration.uid);
             }
         }
     }
@@ -322,19 +369,15 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
     /// A peer classified and then not served (too many at once): what classifying it took is
     /// given back. Its connection is closed unanswered.
     pub fn unserved(&self, kind: Kind) {
-        if let Kind::Registrar { enrollment, .. } = kind {
-            self.release_registrar(enrollment.uid);
+        match kind {
+            Kind::Registrar { enrollment, .. } => self.release_registrar(enrollment.uid),
+            Kind::Application(registration) => give_back(&self.open_applications, registration.uid),
+            Kind::Refused => {}
         }
     }
 
     fn release_registrar(&self, uid: u32) {
-        let mut open = self
-            .open_registrars
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if let Some(index) = open.iter().position(|open| *open == uid) {
-            open.remove(index);
-        }
+        give_back(&self.open_registrars, uid);
     }
 
     fn drop_registrar(&self, registrar: u64) {

@@ -16,7 +16,9 @@
 //! - `OXYOS_OXY_CLIENT_ID`: OxyOS's public client id, which the platform's sign-ins name; without
 //!   it nothing is set up (`notConfigured`) and passwords are not checked online;
 //! - `OXYOS_SESSION_PROGRAM`: the session program, `/usr/bin/oxyos-session` by default, the one
-//!   program that may register launches.
+//!   program that may register launches;
+//! - `OXYOS_LOGIN_PROGRAM`: the login program, `/usr/libexec/oxyos/oxyos-login` by default, whose
+//!   root process must be the registering session program's parent.
 //!
 //! `oxyos-accountd [--state DIRECTORY] [--pictures DIRECTORY] [--socket PATH]
 //! [--session-socket PATH] [--api URL] [--enroller USER]`:
@@ -47,7 +49,8 @@ use std::sync::Arc;
 const MAX_CONVERSATIONS: usize = 4;
 /// Refusals of peers that may not enroll at once, each at most `ipc::REFUSAL_WAIT` long.
 const MAX_REFUSALS: usize = 4;
-/// Connections of sessions and their applications at once (registrars and subscribers stay).
+/// Applications' connections at once, every user's (each user has at most
+/// `session::MAX_APPLICATION_CONNECTIONS`; registrars are counted apart).
 const MAX_SESSION_CONNECTIONS: usize = 64;
 /// Refusals on the session socket at once.
 const MAX_SESSION_REFUSALS: usize = 4;
@@ -60,6 +63,7 @@ struct Options {
     api: String,
     client_id: Option<String>,
     session_program: PathBuf,
+    login_program: PathBuf,
     enroller: String,
 }
 
@@ -80,6 +84,9 @@ fn options() -> Result<Options, String> {
         client_id: env("OXYOS_OXY_CLIENT_ID"),
         session_program: env("OXYOS_SESSION_PROGRAM")
             .unwrap_or_else(|| session::SESSION_PROGRAM.into())
+            .into(),
+        login_program: env("OXYOS_LOGIN_PROGRAM")
+            .unwrap_or_else(|| session::LOGIN_PROGRAM.into())
             .into(),
         enroller: "oxyos-login".into(),
     };
@@ -106,8 +113,8 @@ fn options() -> Result<Options, String> {
             }
         }
     }
-    if !options.session_program.is_absolute() {
-        return Err("OXYOS_SESSION_PROGRAM must be an absolute path".into());
+    if !options.session_program.is_absolute() || !options.login_program.is_absolute() {
+        return Err("OXYOS_SESSION_PROGRAM and OXYOS_LOGIN_PROGRAM must be absolute paths".into());
     }
     Ok(options)
 }
@@ -172,6 +179,11 @@ fn enrollers(name: &str) -> Enrollers {
 struct Slot(Arc<AtomicUsize>);
 
 impl Slot {
+    /// No slot of a shared pool: the peer is bounded otherwise.
+    fn none() -> Self {
+        Self(Arc::new(AtomicUsize::new(1)))
+    }
+
     fn take(open: &Arc<AtomicUsize>, limit: usize) -> Option<Self> {
         if open.fetch_add(1, Ordering::SeqCst) >= limit {
             open.fetch_sub(1, Ordering::SeqCst);
@@ -204,9 +216,12 @@ fn sessions(listener: Listener, sessions: Arc<Sessions<HttpApi, SystemUsers>>) {
         };
         let uid = connection.peer().map_or(u32::MAX, |peer| peer.uid);
         let kind = sessions.classify(&connection);
+        // A registrar is bounded by its user's few (session::MAX_REGISTRARS), never by the
+        // applications': no application keeps a lock from its check.
         let slot = match kind {
             Kind::Refused => Slot::take(&refusals, MAX_SESSION_REFUSALS),
-            _ => Slot::take(&connections, MAX_SESSION_CONNECTIONS),
+            Kind::Registrar { .. } => Some(Slot::none()),
+            Kind::Application(_) => Slot::take(&connections, MAX_SESSION_CONNECTIONS),
         };
         let Some(slot) = slot else {
             eprintln!(
@@ -264,7 +279,10 @@ fn run() -> Result<(), String> {
     );
     let session_service = Arc::new(Sessions::new(
         platform.clone(),
-        Registrars::new(options.session_program.clone()),
+        Registrars::new(
+            options.session_program.clone(),
+            options.login_program.clone(),
+        ),
     ));
     std::thread::Builder::new()
         .name("oxyos-accountd-sessions".into())

@@ -19,6 +19,12 @@ fn me() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
+/// The program the test's parent runs (cargo's test runner), standing for the login program.
+fn parent_program() -> PathBuf {
+    let parent = rustix::process::getppid().expect("the test has a parent");
+    std::fs::read_link(format!("/proc/{}/exe", parent.as_raw_nonzero())).unwrap()
+}
+
 struct Socket {
     path: PathBuf,
     sessions: Arc<Sessions<FakeApi, FakeUsers>>,
@@ -35,6 +41,7 @@ fn service(api: FakeApi) -> Socket {
         machine.platform.clone(),
         Registrars {
             program: std::env::current_exe().unwrap(),
+            parent: parent_program(),
             owner: me(),
         },
     ));
@@ -451,6 +458,7 @@ fn a_program_that_is_not_the_session_program_registers_nothing() {
         machine.platform.clone(),
         Registrars {
             program: PathBuf::from("/bin/sh"),
+            parent: parent_program(),
             owner: 0,
         },
     ));
@@ -476,6 +484,81 @@ fn a_program_that_is_not_the_session_program_registers_nothing() {
     let mut child = child;
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[test]
+fn the_session_program_not_started_by_the_login_program_registers_nothing() {
+    // The session program run by the user itself (from a terminal, say): its parent is not the
+    // login program.
+    let machine = machine_as(FakeApi::default(), PASSWORD, Some(me()));
+    let path = machine.dir.path().join("session");
+    let listener = crate::ipc::Listener::bind(&path).unwrap();
+    let sessions = Arc::new(Sessions::new(
+        machine.platform.clone(),
+        Registrars {
+            program: std::env::current_exe().unwrap(),
+            parent: PathBuf::from("/bin/sh"),
+            owner: me(),
+        },
+    ));
+    let serving = sessions.clone();
+    std::thread::spawn(move || {
+        let connection = listener.accept().unwrap();
+        let kind = serving.classify(&connection);
+        serving.serve(&connection, kind, |_| {});
+    });
+    let registrar = Registrar::connect(&path).unwrap();
+    let child = std::process::Command::new("sleep")
+        .arg("5")
+        .spawn()
+        .unwrap();
+    let pidfd = pidfd::open(child.id()).unwrap();
+    assert_eq!(
+        registrar
+            .register("so.oxy.settings", true, pidfd.as_fd())
+            .unwrap(),
+        Err(Reason::NotPermitted)
+    );
+    assert!(sessions.registered().is_empty());
+    let mut child = child;
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+#[test]
+fn one_users_applications_cannot_take_every_connection() {
+    let socket = service(FakeApi::default());
+    let registrar = Registrar::connect(&socket.path).unwrap();
+    // A registered application holding its user's every connection open (subscribed).
+    let mut apps = Vec::new();
+    for _ in 0..crate::session::MAX_APPLICATION_CONNECTIONS + 1 {
+        let mut app =
+            Application::start(&socket, serde_json::json!([{"send": "subscribe"}, "wait"]));
+        registrar
+            .register("so.oxy.dropsea", false, app.pidfd().as_fd())
+            .unwrap()
+            .unwrap();
+        app.go();
+        apps.push(app);
+    }
+    let mut answers: Vec<serde_json::Value> = apps.iter_mut().map(|app| app.line()).collect();
+    answers.sort_by_key(|answer| answer.get("refused").is_some());
+    assert!(answers[..crate::session::MAX_APPLICATION_CONNECTIONS]
+        .iter()
+        .all(|answer| answer.get("snapshot").is_some()));
+    assert_eq!(
+        answers[crate::session::MAX_APPLICATION_CONNECTIONS],
+        not_permitted()
+    );
+    // The registrar's check is not held back by them.
+    assert_eq!(
+        crate::session::check(&socket.path, Secret::new(PASSWORD), Local::Accepted).unwrap(),
+        Checked::ACCEPTED
+    );
+    for app in apps {
+        app.end();
+    }
+    socket.machine.platform.settle();
 }
 
 #[test]
