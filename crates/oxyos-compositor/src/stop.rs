@@ -21,14 +21,20 @@ pub struct Stop {
     write: UnixStream,
 }
 
-/// What a path is: its device and inode, so a socket made again is told from the one before.
-pub type Identity = (u64, u64);
+/// What a path is: its device, inode and when its inode last changed (made, to the nanosecond), so
+/// a socket made again is told from the one before even when its inode's number is reused.
+pub type Identity = (u64, u64, i64, i64);
 
 /// `path`'s identity, if it is there.
 pub fn identity(path: &Path) -> Option<Identity> {
-    std::fs::metadata(path)
-        .ok()
-        .map(|metadata| (metadata.dev(), metadata.ino()))
+    std::fs::metadata(path).ok().map(|metadata| {
+        (
+            metadata.dev(),
+            metadata.ino(),
+            metadata.ctime(),
+            metadata.ctime_nsec(),
+        )
+    })
 }
 
 /// What makes a path or the directories above it: an entry made, moved in or removed, the
@@ -113,16 +119,21 @@ impl Stop {
             self.wait();
             return false;
         };
+        let name = path
+            .file_name()
+            .map(|name| name.as_encoded_bytes().to_vec());
         loop {
             if self.given() {
                 return false;
             }
             // Watched before it is looked at, so nothing made in between is missed.
+            let mut own = None;
             if let Some(dir) = path
                 .parent()
                 .and_then(|parent| parent.ancestors().find(|d| d.is_dir()))
             {
-                let _ = inotify::add_watch(&watch, dir, MADE);
+                let watched = inotify::add_watch(&watch, dir, MADE).ok();
+                own = watched.filter(|_| Some(dir) == path.parent());
             }
             if let Some(now) = identity(path) {
                 if Some(now) != before {
@@ -132,9 +143,20 @@ impl Stop {
             if !self.wait_for(watch.as_fd()) {
                 return false;
             }
+            // Made (or moved) there while watched: a new one, whatever it looks like.
+            let mut made = false;
             let mut buffer = [MaybeUninit::<u8>::uninit(); 4096];
             let mut reader = inotify::Reader::new(&watch, &mut buffer);
-            while reader.next().is_ok() {}
+            while let Ok(event) = reader.next() {
+                made |= Some(event.wd()) == own
+                    && event
+                        .events()
+                        .intersects(inotify::ReadFlags::CREATE | inotify::ReadFlags::MOVED_TO)
+                    && event.file_name().map(|file| file.to_bytes().to_vec()) == name;
+            }
+            if made && path.exists() {
+                return true;
+            }
         }
     }
 }
