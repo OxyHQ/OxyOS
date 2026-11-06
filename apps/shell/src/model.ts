@@ -90,6 +90,10 @@ export type ShellSnapshot = {
 export type ShellActions = {
   activateApp: (id: string) => void;
   focusWindow: (id: string) => void;
+  /** Minimizes a window into its application's dock icon (the genie, docs/adr/0043-the-genie.mdx),
+      where the platform can: the dock's press on the frontmost application (docs/adr/0034-the-dock.mdx,
+      decision 9). */
+  minimizeWindow?: (id: string) => void;
   /** Gives the keyboard back to the active window, as the top bar driven from the keyboard is
       left (docs/adr/0024-system-shortcuts.mdx); where the platform has no such focus, nothing. */
   returnKeyboard?: () => void;

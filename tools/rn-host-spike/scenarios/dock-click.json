@@ -1,0 +1,418 @@
+{
+  "about": "A press on a dock icon (docs/adr/0034-the-dock.mdx, decision 9) at 1 (1280 × 720), as a Mac's Dock takes it and one thing more, the owner's decision: Allo (GenieProbe, one colour edge to edge) and Inbox (PressProbe, the `companion`) with the session's shell, both kept in the dock. Allo frontmost, a press on its icon minimizes its window into the icon through the genie (ADR 0043) and Inbox takes the keyboard; pressed again, the window comes back out of it, frontmost with the keyboard. A press on Inbox's icon, running and behind, brings it forward and minimizes nothing. An Option-click on Allo's brings Allo forward and hides every other application shown (Inbox); a press on Inbox's icon shows it again; an Option-click on it, frontmost, hides it, as a Mac's Dock does. Each step checks every window's state as the shell is told it (its application, minimized, hidden, active), the compositor's focus, what each window is delivered (exactly: focus moving, never a press or a key but Option's own), that neither application's React tree hears anything, and that nothing reaches a client it was not for.",
+  "module": "GenieProbe",
+  "window": [
+    800,
+    500
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      300,
+      200
+    ],
+    "at": [
+      40,
+      60
+    ],
+    "app": "so.oxy.inbox"
+  },
+  "preferences": {
+    "dock": "so.oxy.allo,so.oxy.inbox"
+  },
+  "steps": [
+    {
+      "name": "Allo's window takes a press: Allo is frontmost, Inbox's window behind it",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on Allo's icon, the frontmost application's: its window goes into the icon through the genie, Inbox's takes the keyboard",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": false,
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "pressed again: the window comes back out of the icon, the genie in reverse, frontmost with the keyboard",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on Inbox's icon, running and not frontmost: its window comes forward with the keyboard, nothing minimized",
+      "do": [
+        "press_named",
+        "Inbox"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "transitions": {
+          "count": 0
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Option held: Inbox's window, which has the keyboard, is told the key",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "an Option-click on Allo's icon: Allo comes forward with the keyboard and every other application shown hides, Inbox",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on Inbox's icon, hidden: it shows again, frontmost with the keyboard",
+      "do": [
+        "press_named",
+        "Inbox"
+      ],
+      "expect": {
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Option held again",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "an Option-click on Inbox's icon, the frontmost application's: Inbox hides, as a Mac's Dock hides it, and Allo takes the keyboard",
+      "do": [
+        "press_named",
+        "Inbox"
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    }
+  ]
+}

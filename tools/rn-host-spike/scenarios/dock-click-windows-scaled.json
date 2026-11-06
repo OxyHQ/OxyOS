@@ -1,0 +1,284 @@
+{
+  "about": "A press on the dock icon of an application of two windows (docs/adr/0034-the-dock.mdx, decision 9) at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo is GenieProbe's window and PressProbe's (the `companion`, launched for the same application), with the session's shell. Allo frontmost, a press on its icon minimizes both its windows into it together through the genie (ADR 0043); pressed again, both come back out of it, the one that was frontmost frontmost again with the keyboard. Minimized each on its own (Super+M), a press brings back the one used last alone, as a Mac's Dock does. Each step checks every window's state as the shell is told it, the compositor's focus, what each window is delivered (exactly), the transitions run, that neither React tree hears anything, and that nothing reaches a client it was not for.",
+  "module": "GenieProbe",
+  "window": [
+    800,
+    500
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      300,
+      200
+    ],
+    "at": [
+      40,
+      60
+    ],
+    "app": "so.oxy.allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "preferences": {
+    "dock": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's first window takes a press: Allo is frontmost, its two windows shown",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on Allo's icon: both its windows go into the icon together, through the genie; nothing has the keyboard",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": false,
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "transitions": {
+          "count": 2,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "ended": true
+            },
+            {
+              "kind": "window",
+              "change": "minimized",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          },
+          "companion": {}
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "pressed again: both come back out of the icon, the one that was frontmost frontmost again, with the keyboard",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "transitions": {
+          "count": 2,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            },
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "focus.in": 1,
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+M minimizes the first window on its own; the other takes the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "expect": {
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "Super+M again: the second, used last, goes too",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "expect": {
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "delivered": {
+          "companion": {
+            "focus.out": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "a press on Allo's icon, every window minimized on its own: the one used last comes back alone, as on a Mac, with the keyboard",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "expect": {
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            }
+          ]
+        },
+        "delivered": {
+          "companion": {
+            "focus.in": 1
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    }
+  ]
+}

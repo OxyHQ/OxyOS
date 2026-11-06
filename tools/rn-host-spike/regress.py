@@ -141,6 +141,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   and ending exactly in its view, a going one beginning in its view's place the step before and
   ending exactly where its window is (its last frame the one that ended it, at its end, whatever
   frames were dropped before);
+- window_states: every window as the shell is told of it once the step settled, by its number,
+  exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
+  matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
@@ -2982,6 +2985,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "minimize_target" in expect and result.get("minimize_target") != expect["minimize_target"]:
         fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
+    if "window_states" in expect:
+        # Every window as the shell is told of it once the step settled, by its number, exactly:
+        # each given key ("app", "workspace", "minimized", "hidden", "focused") matching, and no
+        # window more or fewer (the dock's press, ADR 0034's decision 9).
+        got = result.get("window_states") or {}
+        wanted = expect["window_states"]
+        if set(got) != set(wanted) or any(
+            got[number].get(key) != value for number, state in wanted.items() for key, value in state.items()
+        ):
+            fail(f"the windows are {got}, expected {wanted}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]

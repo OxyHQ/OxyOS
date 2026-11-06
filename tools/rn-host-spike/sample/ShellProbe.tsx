@@ -539,6 +539,9 @@ function SessionShell() {
         shell.trashFiles(uris);
       },
       focusWindow: (id) => shell.focusWindow(Number(id)),
+      // The dock's press on the frontmost application (ADR 0034, decision 9): its windows into its
+      // icon through the genie (ADR 0043).
+      minimizeWindow: (id) => shell.minimizeWindow(Number(id)),
       // The top bar left from the keyboard (ADR 0024): the keyboard back with the window whose
       // menus the bar shows, the active one.
       returnKeyboard: () => {

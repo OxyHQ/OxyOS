@@ -2126,6 +2126,20 @@ fn drawn_windows(compositor: &Compositor) -> Vec<(SurfaceKey, Rect)> {
     drawn
 }
 
+/// The windows in the order they are drawn, bottom to top: a window raised (an application brought
+/// forward from the dock, ADR 0034's decision 9) answers a step though no client draws anew.
+fn window_order(compositor: &Compositor) -> Vec<SurfaceKey> {
+    compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, .. } => compositor.scene.window_number(key).map(|_| key),
+            _ => None,
+        })
+        .collect()
+}
+
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
@@ -2205,6 +2219,7 @@ fn settle(
     // Where the compositor draws the windows (ADR 0046): a swipe's answer is the windows moved,
     // which no client draws.
     let mut drawn_last = drawn_windows(&session.compositor);
+    let mut order_last = window_order(&session.compositor);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -2241,8 +2256,14 @@ fn settle(
         let drawn_now = drawn_windows(&session.compositor);
         let drawn_changed = drawn_now != drawn_last;
         drawn_last = drawn_now;
-        let shell_changed =
-            shell_now != shell_last || launched_changed || companion_changed || drawn_changed;
+        let order_now = window_order(&session.compositor);
+        let order_changed = order_now != order_last;
+        order_last = order_now;
+        let shell_changed = shell_now != shell_last
+            || launched_changed
+            || companion_changed
+            || drawn_changed
+            || order_changed;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -2355,6 +2376,29 @@ fn minimize_target_json(compositor: &Compositor) -> String {
         Some(r) => format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
         None => "null".to_string(),
     }
+}
+
+/// Each window as the shell is told of it once the step settled, by its number: its application,
+/// its desktop, and whether it is minimized, hidden with its application and active (the dock's
+/// press, ADR 0034's decision 9).
+fn window_states_json(compositor: &Compositor) -> String {
+    let states: Vec<String> = compositor
+        .scene
+        .shell_window_states()
+        .iter()
+        .map(|w| {
+            format!(
+                "\"{}\":{{\"app\":{},\"workspace\":{},\"minimized\":{},\"hidden\":{},\"focused\":{}}}",
+                w.number,
+                json_string(&w.app_id),
+                w.workspace,
+                w.minimized,
+                w.hidden,
+                w.focused
+            )
+        })
+        .collect();
+    format!("{{{}}}", states.join(","))
 }
 
 /// The surface of the application holding keyboard focus, or null.
@@ -5459,7 +5503,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5479,6 +5523,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             minimize_target_json(&session.compositor),
+            window_states_json(&session.compositor),
             session.compositor.scene.pointer_shape(),
             pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),

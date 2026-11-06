@@ -5389,6 +5389,36 @@ fn titles_come_in_order_within_their_limit_from_a_windows_owner() {
 }
 
 #[test]
+fn the_windows_are_reported_as_the_shell_is_told_them() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let (first, second) = (
+        h.scene.window_number(window).unwrap(),
+        h.scene.window_number(other).unwrap(),
+    );
+    let state = |h: &Harness, number: u32| {
+        let found = h.scene.shell_window_states();
+        let state = found.iter().find(|w| w.number == number).unwrap().clone();
+        (state.minimized, state.hidden, state.focused)
+    };
+    h.request(SHELL, Request::FocusWindow { window: first })
+        .unwrap();
+    assert_eq!(state(&h, first), (false, false, true));
+    assert_eq!(state(&h, second), (false, false, false));
+    // Minimized: the other window has the keyboard.
+    h.request(SHELL, Request::MinimizeWindow { window: first })
+        .unwrap();
+    assert_eq!(state(&h, first), (true, false, false));
+    assert_eq!(state(&h, second), (false, false, true));
+    // Hidden with its application: off the screen, as minimized, and hidden.
+    h.request(SHELL, Request::HideApplication { window: second })
+        .unwrap();
+    assert_eq!(state(&h, second), (true, true, false));
+    assert_eq!(h.scene.shell_window_states().len(), 2);
+}
+
+#[test]
 fn the_shell_focuses_minimizes_moves_and_closes_windows_and_manages_workspaces() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
