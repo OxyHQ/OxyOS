@@ -1,0 +1,33 @@
+{
+  "about": "Dropsea (OxyHQ/Dropsea, on @oxy.so/services 14.11.0's host mode) takes its Oxy session from the platform (docs/adr/0020-oxy-account-login.mdx, decision 6): the runtime's framework registered the machine's Oxy session before Dropsea's bundle ran, and Dropsea's own Oxy SDK, finding it, reads the account from the accounts' service (played: it knows Dropsea by its launch) and asks it for a token of Dropsea's own at boot, running no sign-in of its own. The machine is offline but for a store of the run's own (`store`), so the played token reaches no server.",
+  "module": "Dropsea",
+  "window": [
+    1024,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Pictures/": "",
+      "notes.txt": "hello"
+    }
+  },
+  "account": {
+    "registered": [
+      "so.oxy.dropsea"
+    ]
+  },
+  "steps": [],
+  "store": {},
+  "final": {
+    "account_session": [
+      "so.oxy.dropsea snapshot: snapshot",
+      "so.oxy.dropsea subscribe: snapshot",
+      "so.oxy.dropsea token boot: token"
+    ]
+  }
+}

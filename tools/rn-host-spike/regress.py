@@ -3530,10 +3530,16 @@ def install_service(spec, machine, offscreen):
         description = {key: value for key, value in manifest.items() if key not in ("files", "runtime")}
         description["versionCode"] = later["versionCode"]
         description["version"] = f"0.{later['versionCode']}.0"
-        description.pop("capabilities", None)
-        if later.get("capabilities"):
-            description["capabilities"] = [{"name": name, "purpose": {"en": "Scenario."}}
-                                           for name in later["capabilities"]]
+        # What it opens keeps the capability that says so (`open-files` for its types, `url-schemes`
+        # for its schemes), which oxyos-pack checks agree; every other is the later version's own.
+        opens = description.get("opens", {})
+        kept = {"open-files"} if opens.get("types") else set()
+        kept |= {"url-schemes"} if opens.get("schemes") else set()
+        capabilities = [c for c in description.pop("capabilities", []) if c["name"] in kept]
+        capabilities += [{"name": name, "purpose": {"en": "Scenario."}}
+                         for name in later.get("capabilities", []) if name not in kept]
+        if capabilities:
+            description["capabilities"] = sorted(capabilities, key=lambda c: c["name"])
         (base / "description.json").write_text(json.dumps(description))
         run(pack, "pack", dir, base / "description.json", machine.runtimes / str(manifest["runtime"]["abi"]) / "runtime.json", developer)
         run(pack, "publish", dir, repository, keys, developer)
