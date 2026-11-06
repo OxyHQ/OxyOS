@@ -906,6 +906,63 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
     µs. `mounts_tests.rs` counts the reads, and mounts and unmounts a volume in a mount namespace of
     its own (`unshare`) to see each at once.
 
+- **The GPU composed slowly at the clock it runs at** (6 November 2026). On the ThinkPad's Iris
+  Xe at its efficient clock, 300 MHz, where it stays for a compositor's bursts, a whole
+  1600 × 1000 desktop frame at 1.25 took 7.7 ms of device time and the overview 7.5, more than the
+  CPU reference on one core (3.4 to 4.2 ms); the session's log showed spans of 10 to 15 ms a frame
+  at the median, and a frame late at its vblank has i915 boost the GPU to its 1300 MHz. It was not
+  the pixels but reading the layer table: every pixel tested every layer twice (for the topmost
+  covering it, then to compose), each field of a layer a read of its own, and the device waits on
+  those reads at that clock. Now the CPU works out, for the regions composed, each 32 × 32 bin's
+  layers (`vulkan/bins.rs`: those touching it, from the topmost covering it whole and opaque); a
+  workgroup composes a 16 × 8 tile (the damage grown to the tiles' grid, a row of a tile a whole
+  cache line), its pixels taking only their bin's layers, each read whole at once; and a copy at
+  its own size, most of a frame, blends two channels at a time with exact divisions by 255. Byte
+  for byte the CPU reference's (every Vulkan test, and every frame of the runs below). Device
+  time, ms, at 300 MHz, the median of the frames of `replay --repeat 20` (17 frames dumped from
+  `perf-window-drag-scaled.json`, `shell-thumbnails.json`, `perf-settings-scroll.json` and
+  `windows.json`), before and after, two runs each:
+
+  | composed | before | after |
+  |---|---|---|
+  | whole frames | 3.44 / 3.44 | 1.25 / 1.26 |
+  | a window's damage | 1.37 / 1.24 | 0.74 / 0.63 |
+  | a window dragged (its rectangle before and after) | 1.04 / 1.28 | 0.75 / 0.63 |
+  | five scattered changes | 0.24 / 0.29 | 0.14 / 0.13 |
+  | whole frames, one a refresh (60 Hz) | 3.14 / 3.42 | 1.26 / 1.25 |
+  | the desktop at 1.25, whole (1600 × 1000, 5 layers) | 7.72 | 2.11 |
+  | the overview, whole | 7.46 | 1.72 |
+
+  And `perf.py --runs 2 --gpu-only interactions genie` on the ThinkPad, the GPU's time composing
+  a whole frame at the median of the runs, ms (the fixture composes every frame whole):
+
+  | interaction | before | after |
+  |---|---|---|
+  | window drag | 5.35 | 1.88 |
+  | window drag at 1.25 | 9.41 | 4.13 |
+  | live resize | 3.39 | 1.21 |
+  | Dropsea live resize | 4.65 | 1.34 |
+  | zoom | 5.03 | 2.58 |
+  | window views | 8.55 | 4.50 |
+  | Settings scroll | 4.34 | 1.94 |
+  | genie at 120 Hz | 5.74 | 4.72 |
+  | genie at 1.25, 60 Hz | 11.05 | 7.23 |
+
+  The drag at 1.25 now composes every refresh at 120 Hz (200 frames 8.0 ms apart; 129 frames 13.5
+  ms apart before). `perf.py --check` holds the device's time to 0.6 of a refresh at the median of
+  the runs (`device_refreshes_median`); three parts were over it before, none is now.
+- **Every display commit looked its properties up by name**: a lookup reads every property of the
+  object, one ioctl each, about 230 ioctls for a frame's commit and as many for each pointer
+  motion, 134 µs (median) on the ThinkPad's card. Each handle is now looked up once and kept.
+- **Moving the pointer committed the frame shown again**, its primary plane with it (on Intel's
+  display, a primary plane updated has its frame compressed again whole, FBC, which the ThinkPad's
+  panel uses). It now commits the cursor plane alone; a card that refuses that has the frame
+  shown committed with it, as before. In a virtual machine (virtio-gpu, in `tools/gpu-vm`), whose
+  cursor plane is now shown with the hotspot it asks for, `oxyos-kms-show` moves the pointer alone
+  3,473 times in a second, each commit taken and its flip reported (the ThinkPad's is its owner's
+  session's). `tests/pointer_motion.rs` holds that the pointer moving over what does not change
+  composes nothing and reads no client's pixels.
+
 ## The host on the GPU
 
 The Bloom host draws on the GPU where the compositor offers one ([ADR 0031](./adr/0031-gpu-buffers),
@@ -960,10 +1017,12 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
   the protocol carries no time for input. Behind a slow frame, two presses keep their order but
   arrive closer together than they were made. Input events need the device's time (libinput's)
   from the compositor to the application.
-- **The GPU path's two changes are not yet seen on a display**: the session's log on the
-  ThinkPad will say whether frames went with their completion and how long the GPU composed.
+- **A maximized window is composed, not scanned out.** A full-screen window's buffer goes on the
+  primary plane ([ADR 0031](./adr/0031-gpu-buffers), decision 8), but the ThinkPad's pipe has
+  four overlay planes that nothing uses: a maximized opaque window with nothing over it could go
+  on one, the shell's bars composed around it, so that its frames compose nothing. It needs the
+  window told its scanout formats as a full-screen one is, a commit tested first, and the
+  composition leaving the window's rectangle to the plane.
+- **The genie's mesh is the costliest layer** (4.7 ms of device time for a whole frame at
+  1280 × 720, 0.57 of a 120 Hz refresh): each pixel searches the mesh's rows and filters its box.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).
-- **A frame's damage composed as several regions was slower than the whole** in the fixture on the
-  Iris Xe (the overview opening: 17 ms of device time as 3 to 5 regions covering the output, 10 to
-  13 as one), though composed alone, back to back, the two take the same 1.7 ms. Whether a session's
-  display path shows it is to be measured there.

@@ -179,6 +179,11 @@ BUDGETS = {
     # 95th percentile.
     "compose_refreshes_p95": 1.0,
     "host_busy_refreshes_p95": 1.0,
+    # The GPU composing a whole frame (its own time, --gpu-only) within 0.6 of a refresh, at the
+    # median of the runs: a session composes only what changed, and a device that composes in
+    # bursts this short stays at its efficient clock (the Iris Xe's 300 MHz) and is never boosted
+    # for a frame late at its vblank.
+    "device_refreshes_median": 0.6,
     # An application or the shell doing nothing wakes at most once a second and uses no CPU to
     # speak of.
     "idle_host_wakeups_per_s": 1.0,
@@ -511,7 +516,7 @@ def frames_between(report, start, end):
 def interaction(options, name, scenario, steps, what, out, claims=None):
     """Every run's measured steps, pooled: the compositor's frames and the hosts'; with `claims` a
     list, each run's rate claims (`rate_claims`) appended to it."""
-    intervals, compose, reads, latency = [], [], [], []
+    intervals, compose, reads, latency, device = [], [], [], [], []
     late = composed = 0
     refresh = refresh_ms(SCENARIOS / scenario)
     hosts = {source: {"busy": [], "js": [], "js_cpu": [], "render": []} for source in ("window", "shell")}
@@ -522,6 +527,10 @@ def interaction(options, name, scenario, steps, what, out, claims=None):
             claims.append(rate_claims(json.loads((SCENARIOS / scenario).read_text()), summary, report))
         for key, value in sampler.peaks().items():
             peaks[key] = max(peaks.get(key, 0), value)
+        # The GPU's own time composing a frame (its timestamps), at the run's median: on the
+        # device, each frame whole (the fixture has no display to compose damage into).
+        if (summary.get("gpu") or {}).get("device_ms_median") is not None:
+            device.append(summary["gpu"]["device_ms_median"])
         for index in steps:
             step = summary["steps"][index - 1]
             frames = step.get("composed", [])
@@ -561,6 +570,7 @@ def interaction(options, name, scenario, steps, what, out, claims=None):
         "late_frames": late,
         "compose_ms": percentiles(compose),
         "read_ms": percentiles(reads),
+        "device_ms": percentiles(device),
         "window": {key: percentiles(values) for key, values in hosts["window"].items()},
         "shell": {key: percentiles(values) for key, values in hosts["shell"].items()},
         "latency_ms": percentiles(latency),
@@ -873,11 +883,12 @@ def show(results):
         rows = []
         for name, r in results["interactions"].items():
             rows.append([name, r["frames_composed"], spread(r["frame_interval_ms"]), r["late_frames"],
-                         spread(r["compose_ms"]), spread(r["read_ms"]), spread(r["window"]["busy"]),
+                         spread(r["compose_ms"]), spread(r["read_ms"]),
+                         r["device_ms"]["p50"] if r.get("device_ms") else "—", spread(r["window"]["busy"]),
                          spread(r["window"]["js"]), spread(r["window"].get("js_cpu")), spread(r["shell"]["busy"]),
                          spread(r["latency_ms"])])
         print(table(rows, ["interaction", "frames", "interval ms p50/p95/max", "late", "compose ms",
-                           "of it reading clients ms", "app frame work ms", "app JS ms", "app JS CPU ms",
+                           "of it reading clients ms", "GPU device ms (runs' median)", "app frame work ms", "app JS ms", "app JS CPU ms",
                            "shell frame work ms", "latency ms"]))
         print()
     if "responses" in results:
@@ -956,6 +967,10 @@ def check(results):
         refresh = r["refresh_ms"]
         if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
             over.append(f"{name}: composing took {r['compose_ms']['p95']} ms at p95 (a refresh is {refresh} ms)")
+        device = r.get("device_ms")
+        if device and device["p50"] > BUDGETS["device_refreshes_median"] * refresh:
+            over.append(f"{name}: the GPU composed a frame in {device['p50']} ms at the median of the runs "
+                        f"({BUDGETS['device_refreshes_median']} of a refresh is {BUDGETS['device_refreshes_median'] * refresh:.2f} ms)")
         for source in ("window", "shell"):
             busy = r[source]["busy"]
             if busy and busy["p95"] > BUDGETS["host_busy_refreshes_p95"] * refresh:
@@ -985,6 +1000,10 @@ def check(results):
         refresh = r["refresh_ms"]
         if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
             over.append(f"{name}: composing took {r['compose_ms']['p95']} ms at p95 (a refresh is {refresh} ms)")
+        device = r.get("device_ms")
+        if device and device["p50"] > BUDGETS["device_refreshes_median"] * refresh:
+            over.append(f"{name}: the GPU composed a frame in {device['p50']} ms at the median of the runs "
+                        f"({BUDGETS['device_refreshes_median']} of a refresh is {BUDGETS['device_refreshes_median'] * refresh:.2f} ms)")
     claims = {name: r["claims"] for name, r in results.get("genie", {}).items()}
     for name, entries in [*results.get("refresh", {}).items(), *claims.items()]:
         for e in entries:

@@ -102,3 +102,36 @@ fn a_hotplug_is_a_drm_change_of_the_card_itself() {
     assert!(!crate::hotplug::is_hotplug(b"", "dri/card1"));
     assert!(!crate::hotplug::is_hotplug(b"SUBSYSTEM=drm", "dri/card1"));
 }
+
+/// The cursor plane's properties: the pointer placed by its hotspot, the plane's whole buffer its
+/// source, on the display's CRTC; hidden, the plane off. A pointer moved alone commits these and
+/// nothing else (`Display::present_again`), the primary plane left out of the commit.
+#[test]
+fn the_pointer_is_placed_by_its_hotspot_and_hidden_with_its_plane_off() {
+    use drm::control::{crtc, framebuffer, property::Value};
+    let crtc: crtc::Handle = drm::control::from_u32(82).unwrap();
+    let image: framebuffer::Handle = drm::control::from_u32(302).unwrap();
+    let shown = display::pointer_properties(crtc, (256, 256), Some((1160, 1150, image, (8, 5))));
+    let value = |name: &str| {
+        shown
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, value)| *value)
+            .unwrap_or_else(|| panic!("no {name}"))
+    };
+    assert_eq!(shown.len(), 10);
+    assert!(matches!(value("CRTC_ID"), Value::CRTC(Some(c)) if c == crtc));
+    assert!(matches!(value("FB_ID"), Value::Framebuffer(Some(f)) if f == image));
+    assert!(matches!(value("CRTC_X"), Value::SignedRange(1152)));
+    assert!(matches!(value("CRTC_Y"), Value::SignedRange(1145)));
+    assert!(matches!(value("SRC_W"), Value::UnsignedRange(w) if w == 256 << 16));
+    assert!(matches!(value("CRTC_H"), Value::UnsignedRange(256)));
+    let hidden = display::pointer_properties(crtc, (256, 256), None);
+    assert!(matches!(
+        hidden.as_slice(),
+        [
+            ("CRTC_ID", Value::CRTC(None)),
+            ("FB_ID", Value::Framebuffer(None))
+        ]
+    ));
+}

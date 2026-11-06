@@ -226,6 +226,10 @@ impl Card {
         };
         card.set_client_capability(ClientCapability::UniversalPlanes, true)?;
         card.set_client_capability(ClientCapability::Atomic, true)?;
+        // A virtual machine's display (virtio-gpu, vmwgfx, QXL) shows its cursor plane only to a
+        // client that gives the pointer's hotspot, which the host's own pointer follows; others
+        // refuse the capability and need none.
+        let _ = card.set_client_capability(ClientCapability::CursorPlaneHotspot, true);
         Ok(card)
     }
 

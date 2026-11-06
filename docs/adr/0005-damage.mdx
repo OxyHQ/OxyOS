@@ -65,7 +65,7 @@ Each step lands only with the CPU reference comparison passing on hardware and t
 
 ## Results
 
-**The output's damage (decisions 1 and 2).** The development compositor works out each frame's damage from the scene (`oxyos-offscreen`'s `output_damage`, unit-tested). The Vulkan compositor composes only that: the background and the layers' parts within each damaged region, and their bounding box past eight regions. Each scanout target keeps what changed since it was last written, and a target or output of unknown content is composed whole. `oxyos-gpu`'s tests check, on a device, that:
+**The output's damage (decisions 1 and 2).** The development compositor works out each frame's damage from the scene (`oxyos-offscreen`'s `output_damage`, unit-tested). The Vulkan compositor composes only that: the damaged regions made disjoint (their bounding box past 32), grown to its grid of 16 × 8 tiles (a workgroup's; a pixel composed again that did not change is the same pixel), each pixel taking only the layers of its 32 × 32 bin, which the CPU works out for the regions from the layer table (those touching the bin, from the topmost covering it whole and opaque). Each scanout target keeps what changed since it was last written, and a target or output of unknown content is composed whole. `oxyos-gpu`'s tests check, on a device, that:
 - damaged composition gives the reference's frame;
 - damage that leaves out where a layer was leaves it there, so the limit is real;
 - alternating scanout targets each show the reference's frame.
