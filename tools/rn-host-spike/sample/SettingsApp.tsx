@@ -499,6 +499,17 @@ function useInputSources(snapshot: SettingsSnapshot, session: boolean) {
   return parseInputSources(told);
 }
 
+/**
+ * The page the session started Settings to show (docs/adr/0019-settings.mdx): its launch URL's,
+ * `oxyos-settings://PAGE`, which the shell or an application opened (an application's request to
+ * manage the Oxy account, `oxyos-settings://oxy-account`); none for a plain launch.
+ */
+function launchPage(): string | undefined {
+  const url: unknown = TurboModuleRegistry.get<any>('OxyOSApplication')?.getConstants().launchURL;
+  const match = typeof url === 'string' ? /^oxyos-settings:\/\/([a-z0-9-]+)\/?$/i.exec(url) : null;
+  return match ? match[1]!.toLowerCase() : undefined;
+}
+
 export default function SettingsApp() {
   const model = useSettingsModel();
   const install = useInstallModel();
@@ -524,7 +535,7 @@ export default function SettingsApp() {
   return (
     <SafeAreaProvider>
       <BloomProvider platform={oxyosSurfaces} locale={locale}>
-        <Settings snapshot={snapshot} actions={actions} />
+        <Settings snapshot={snapshot} actions={actions} initialPage={launchPage()} />
       </BloomProvider>
     </SafeAreaProvider>
   );

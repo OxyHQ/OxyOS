@@ -51,10 +51,16 @@ impl Scene {
         };
         match request {
             Request::LockSession {} => {
-                if !grants.shell {
-                    return Err(ErrorCode::Unauthorized);
+                // The shell locks at any time; an application only while one of its windows is
+                // the active one, the person using it (the Oxy SDK's sign in, which on OxyOS is
+                // the lock, docs/adr/0020-oxy-account-login.mdx). Otherwise it is ignored: what
+                // the person is not using never locks them out.
+                let active = self
+                    .active_window()
+                    .is_some_and(|window| window.client == client);
+                if grants.shell || active {
+                    self.lock();
                 }
-                self.lock();
                 Ok(())
             }
             Request::AuthenticateSecret { surface, secret } => {

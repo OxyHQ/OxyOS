@@ -1765,7 +1765,16 @@ function NetworkPage({ snapshot, strings, locale }: PageProps) {
  * catalogue is chosen from the locale its root gives `BloomProvider`, so it switches in the same
  * render as Bloom's own words when the session tells a new one.
  */
-export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; actions: SettingsActions }) {
+export function Settings({
+  snapshot,
+  actions,
+  initialPage,
+}: {
+  snapshot: SettingsSnapshot;
+  actions: SettingsActions;
+  /** The page to open at (its launch URL's, `oxyos-settings://PAGE`), when it is one of its pages. */
+  initialPage?: string;
+}) {
   const told = useBloomLocale();
   const strings = messagesFor(resolveBloomLanguage(told));
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
@@ -1839,11 +1848,14 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
           network: { title: words.network, content: <NetworkPage {...props} /> },
         }),
   };
+  // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
+  const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);
   return (
     <SettingsLayout
       groups={groups}
       pages={pages}
-      defaultPage="appearance"
+      defaultPage={opened ? initialPage : "appearance"}
+      initialView={opened ? "page" : "navigation"}
       labels={{ nav: strings.title }}
       testID="settings"
     />

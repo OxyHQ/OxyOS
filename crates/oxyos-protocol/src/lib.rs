@@ -29,7 +29,18 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 25;
+pub const VERSION: u16 = 26;
+/// The first version whose compositor takes an application's `OpenUrl` for the platform's
+/// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
+/// unauthorized, closing the connection, so a client asks it only of this version or newer.
+pub const APPLICATION_OPENS_SETTINGS_VERSION: u16 = 26;
+/// The first version whose compositor takes an application's `LockSession` while one of its
+/// windows is the active one (docs/adr/0010-lock-screen.mdx): an older one refuses it as
+/// unauthorized, closing the connection, so a client asks it only of this version or newer.
+pub const APPLICATION_LOCKS_VERSION: u16 = 26;
+/// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
+/// opens Settings at that page, from the shell or any application citing its input.
+pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// The most candidates an input method hands the system at once (InputMethodCandidate, ADR 0041),

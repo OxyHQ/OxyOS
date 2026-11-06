@@ -864,7 +864,16 @@ int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t
 /* The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
  * whose entry declares its scheme, citing `input`, an input it received (docs/adr/0034-the-dock.mdx).
  * A LAUNCH_RESULT answers: code, `serial`; flag, whether it was opened. Refused to a compositor of a
- * version before 8. */
+ * version before 8. An application may ask it only for the platform's Settings at a page
+ * (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), and only of a compositor whose version
+ * (`oxyos_client_protocol_version`) is OXYOS_APPLICATION_OPENS_SETTINGS_VERSION or newer: an
+ * older one, and any other URL, closes the connection as unauthorized. */
+#define OXYOS_PLATFORM_SETTINGS_SCHEME "oxyos-settings"
+#define OXYOS_APPLICATION_OPENS_SETTINGS_VERSION 26
+/* An application locks the session (`oxyos_client_lock_session`) only while one of its windows is
+ * the active one, and only of a compositor of this version or newer: an older one closes the
+ * connection as unauthorized. A request while its window is not the active one is ignored. */
+#define OXYOS_APPLICATION_LOCKS_VERSION 26
 int oxyos_client_open_url(OxyOSClient* client, uint32_t serial, uint64_t input, const char* url,
                           size_t length);
 /* Settings (the `settings` grant, docs/adr/0019-settings.mdx) changes the preference `key` (not

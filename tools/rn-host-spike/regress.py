@@ -96,9 +96,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   exactly and in order, by their names in the sound theme (`file-trash`, `trash-empty`,
   `message-new-instant`, `screen-capture`): recorded as the session would play them, after the person's settings and
   the output's mute; a step that plays one and does not say so fails;
-- urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
+- urls_opened: the URLs the shell opened in the step (ADR 0034), and those applications opened (the
+  platform's Settings, `oxyos-settings:`, docs/adr/0019-settings.mdx), exactly and in order, each
   {"url", "application"}: the application started for it; a step that opens one and does not say
   so fails;
+- signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
+  docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
+  development compositor records it and goes on. A step that signs out and does not say so fails;
 - screenshots: with the scenario's `screenshots` (files written as the session writes them, in the
   run's own Desktop and Documents, docs/adr/0024-system-shortcuts.mdx), the files saved in the
   step, exactly and in order ("saved": each its "name" as a regular expression, "folder", "output",
@@ -2978,6 +2982,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     urls = result.get("urls_opened") or []
     if urls != expect.get("urls_opened", []):
         fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
+    if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
+        fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "minimize_target" in expect and result.get("minimize_target") != expect["minimize_target"]:

@@ -7,6 +7,7 @@ import AndroidProbe from './AndroidProbe';
 import ClipboardProbe from './ClipboardProbe';
 import FileSystemProbe from './FileSystemProbe';
 import PressProbe from './PressProbe';
+import SettingsUrlProbe from './SettingsUrlProbe';
 import NotificationProbe from './NotificationProbe';
 import NotificationSoundProbe from './NotificationSoundProbe';
 import ImageProbe from './ImageProbe';
@@ -63,6 +64,7 @@ import TextDragPeer from './TextDragPeer';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
+AppRegistry.registerComponent('SettingsUrlProbe', () => SettingsUrlProbe);
 AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('ImageProbe', () => ImageProbe);
 AppRegistry.registerComponent('ImeProbe', () => ImeProbe);

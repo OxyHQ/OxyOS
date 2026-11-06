@@ -1541,21 +1541,55 @@ std::shared_ptr<TurboModule> createHostModule(
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
     // thumbnail pressed, `file://`, docs/adr/0028-file-access.mdx, decision 6) or a URL of a scheme
     // its entry declares (the dock's Trash opening Dropsea at dropsea://trash, docs/adr/0034-the-dock.mdx);
-    // else none. An application does not open links yet (there is no browser, and no request for
-    // one), so none can be opened: asked, it says so, and opening one fails with the reason.
+    // else none. An application opens no other application's links yet (there is no browser, and no
+    // request for one) but the platform's Settings (below): any other fails with the reason.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       const char* url = std::getenv("OXYOS_LAUNCH_URL");
       if (url && *url) return resolved(rt, jsi::String::createFromUtf8(rt, url));
       return resolved(rt, jsi::Value::null());
     });
-    module->method("canOpenURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      return resolved(rt, jsi::Value(false));
-    });
-    module->method("openURL", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      std::string url = count > 0 ? text(rt, args[0]) : "";
+    // The one kind an application opens is the platform's Settings at a page
+    // (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), as a Mac's application opens
+    // `x-apple.systempreferences:`: asked of the session from its window, citing the person's
+    // latest press or key, resolved once the session opened it.
+    auto schemeOf = [](const std::string& url) {
       auto colon = url.find(':');
       std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
-      return rejected(rt, "OxyOS has no application that opens " + scheme + " links yet (" + url + ")");
+      std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+      return scheme;
+    };
+    auto opensSettings = [&services, schemeOf](const std::string& url) {
+      return services.openSettingsUrl && url.find(':') != std::string::npos &&
+             schemeOf(url) == OXYOS_PLATFORM_SETTINGS_SCHEME;
+    };
+    module->method("canOpenURL", [opensSettings](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      return resolved(rt, jsi::Value(count > 0 && args[0].isString() && opensSettings(args[0].asString(rt).utf8(rt))));
+    });
+    module->method("openURL", [&services, invoker, opensSettings, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
+                                                                           size_t count) {
+      std::string url = count > 0 ? text(rt, args[0]) : "";
+      if (!opensSettings(url)) {
+        return rejected(rt, "OxyOS has no application that opens " + schemeOf(url) + " links yet (" + url + ")");
+      }
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "openURL"), 2,
+          [&services, invoker, url](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            auto reject = std::make_shared<jsi::Value>(rt, args[1]);
+            services.openSettingsUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
+              invoker->invokeAsync([resolve, reject, opened, reason, url](jsi::Runtime& rt) {
+                if (opened) {
+                  resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(true));
+                  return;
+                }
+                auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(
+                    rt, "OxyOS did not open " + url + ": " + reason);
+                reject->asObject(rt).asFunction(rt).call(rt, error);
+              });
+            });
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
     module->method("openSettings", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       return rejected(rt, "OxyOS has no settings page for an application yet");

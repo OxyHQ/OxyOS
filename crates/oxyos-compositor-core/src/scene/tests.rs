@@ -5547,12 +5547,11 @@ impl Harness {
 fn the_shell_locks_and_the_lock_screen_is_told() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    h.activate(other);
     h.clear_log();
-    // Only the shell may lock.
-    assert_eq!(
-        h.request(APP, Request::LockSession {}),
-        Err(ErrorCode::Unauthorized)
-    );
+    // An application whose window is not the active one locks nothing, and is not cut off.
+    h.request(APP, Request::LockSession {}).unwrap();
     assert!(!h.scene.is_locked());
     h.request(SHELL, Request::LockSession {}).unwrap();
     assert!(h.scene.is_locked());
@@ -5578,6 +5577,24 @@ fn the_shell_locks_and_the_lock_screen_is_told() {
         vec![Event::LockState { locked: false }]
     );
     assert!(h.rendered(window));
+}
+
+#[test]
+fn an_application_locks_only_while_its_window_is_the_active_one() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    h.activate(other);
+    h.request(APP, Request::LockSession {}).unwrap();
+    assert!(!h.scene.is_locked());
+    h.activate(window);
+    h.clear_log();
+    h.request(APP, Request::LockSession {}).unwrap();
+    assert!(h.scene.is_locked());
+    assert_eq!(
+        without_outputs(h.events_for(LOCKER)),
+        vec![Event::LockState { locked: true }]
+    );
 }
 
 #[test]

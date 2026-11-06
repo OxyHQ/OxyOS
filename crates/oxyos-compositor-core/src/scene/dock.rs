@@ -13,7 +13,8 @@
 //!   handed whole to the program, which validates it, keeps it in the user's preferences and tells
 //!   the scene, which tells every shell.
 //! - **URLs the shell opens**, handed to the program, which starts the application whose entry
-//!   declares the scheme and answers as it answers a launch.
+//!   declares the scheme and answers as it answers a launch. An application opens one kind of URL
+//!   only: the platform's Settings at a page (`oxyos-settings:`, docs/adr/0019-settings.mdx).
 //! - **The Trash**: how many items it holds, as the program says, told to every shell; and the
 //!   shell's request to empty it, handed to the program, which asks the person in a system sheet.
 //!
@@ -23,7 +24,7 @@ use super::launch::assemble;
 use super::{ClientId, Scene, SurfaceKey};
 use oxyos_protocol::{
     ApplicationListKind, ErrorCode, Event, PreeditText, TextChunk, MAX_APPLICATION_LIST_BYTES,
-    MAX_URL_BYTES,
+    MAX_URL_BYTES, PLATFORM_SETTINGS_SCHEME,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -331,8 +332,17 @@ impl Scene {
         last: bool,
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
-        if !self.clients[&client].shell {
-            return Err(ErrorCode::Unauthorized);
+        // The shell opens any URL; an application only the platform's Settings at a page
+        // (`oxyos-settings:`, docs/adr/0019-settings.mdx), as a Mac's application opens
+        // `x-apple.systempreferences:`, and one at a time: its first chunk names the scheme, and
+        // beginning one drops whatever else it was sending.
+        if !self.clients[&client].shell && index == 0 {
+            if !opens_platform_settings(text.as_str()) {
+                return Err(ErrorCode::Unauthorized);
+            }
+            self.dock
+                .url_receiving
+                .retain(|&(from, _), _| from != client);
         }
         let dock = &mut self.dock;
         let Some(url) = assemble(
@@ -359,7 +369,8 @@ impl Scene {
         Ok(())
     }
 
-    /// The URLs the shell asked to open since the last call, in order: the program opens each it
+    /// The URLs the shell (and applications, the platform's Settings) asked to open since the last
+    /// call, in order: the program opens each it
     /// may and answers each with [`Scene::launched`], as a launch.
     pub fn take_url_requests(&mut self) -> Vec<UrlRequest> {
         std::mem::take(&mut self.dock.urls)
@@ -424,4 +435,13 @@ impl Scene {
         dock.url_receiving.retain(|(asker, _), _| *asker != client);
         dock.urls.retain(|request| request.client != client);
     }
+}
+
+/// Whether `text` (a URL, or its first chunk) opens the platform's Settings: it begins with its
+/// scheme, `oxyos-settings`, in any case (RFC 3986), and `:`.
+pub(super) fn opens_platform_settings(text: &str) -> bool {
+    let scheme = PLATFORM_SETTINGS_SCHEME;
+    text.len() > scheme.len()
+        && text.as_bytes()[scheme.len()] == b':'
+        && text.as_bytes()[..scheme.len()].eq_ignore_ascii_case(scheme.as_bytes())
 }
