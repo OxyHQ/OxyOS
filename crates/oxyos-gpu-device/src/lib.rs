@@ -150,23 +150,58 @@ pub fn manifest_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Every driver manifest in `dirs`, each folder's in name order, the first of a library kept.
-pub fn manifests_in(dirs: &[PathBuf]) -> Vec<Manifest> {
+/// Where the Vulkan loader finds drivers' manifests, in its order (Linux), each a manifest or a
+/// folder of them: those `VK_DRIVER_FILES` names alone where it is set (else the older
+/// `VK_ICD_FILENAMES`); otherwise those `VK_ADD_DRIVER_FILES` names, then [`manifest_dirs`]. The
+/// device still chooses among them ([`Drivers::find`]): a driver the environment names is loaded
+/// only when it is the device's own.
+pub fn manifest_paths() -> Vec<PathBuf> {
+    manifest_paths_with(&|name| std::env::var_os(name), manifest_dirs)
+}
+
+/// As [`manifest_paths`], the environment's variables read with `var` and the loader's own
+/// folders from `dirs`.
+pub fn manifest_paths_with(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    dirs: impl FnOnce() -> Vec<PathBuf>,
+) -> Vec<PathBuf> {
+    let var = |name: &str| var(name).filter(|value| !value.is_empty());
+    let named = |value: std::ffi::OsString| -> Vec<PathBuf> {
+        std::env::split_paths(&value)
+            .filter(|path| !path.as_os_str().is_empty())
+            .collect()
+    };
+    if let Some(only) = var("VK_DRIVER_FILES").or_else(|| var("VK_ICD_FILENAMES")) {
+        return named(only);
+    }
+    let mut paths = var("VK_ADD_DRIVER_FILES").map(named).unwrap_or_default();
+    paths.extend(dirs());
+    paths
+}
+
+/// Every driver manifest in `paths` (each a manifest, or a folder whose manifests are read in
+/// name order), the first of a library kept.
+pub fn manifests_in(paths: &[PathBuf]) -> Vec<Manifest> {
     let mut found: Vec<Manifest> = Vec::new();
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
+    for path in paths {
+        let files = if path.is_file() {
+            vec![path.clone()]
+        } else {
+            let Ok(entries) = std::fs::read_dir(path) else {
+                continue;
+            };
+            let mut files: Vec<PathBuf> = entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.extension()
+                        .is_some_and(|extension| extension == "json")
+                })
+                .collect();
+            files.sort();
+            files
         };
-        let mut paths: Vec<PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .is_some_and(|extension| extension == "json")
-            })
-            .collect();
-        paths.sort();
-        for manifest in paths.iter().filter_map(|path| Manifest::read(path)) {
+        for manifest in files.iter().filter_map(|file| Manifest::read(file)) {
             if !found
                 .iter()
                 .any(|known| known.library_name() == manifest.library_name())
@@ -202,12 +237,13 @@ pub struct Drivers {
 
 impl Drivers {
     /// The drivers of the GPU whose DRM node (render or primary) is `device`, among those
-    /// installed where the Vulkan loader finds them; lavapipe alone for `0`.
+    /// installed where the Vulkan loader finds them ([`manifest_paths`]); lavapipe alone for `0`.
     pub fn for_device(device: u64) -> Self {
-        Self::find(Path::new(SYSTEM_ROOT), device, &manifest_dirs())
+        Self::find(Path::new(SYSTEM_ROOT), device, &manifest_paths())
     }
 
-    /// As [`Self::for_device`], sysfs under `root` and the manifests in `dirs`.
+    /// As [`Self::for_device`], sysfs under `root` and the manifests in `dirs` (manifests or
+    /// folders of them).
     pub fn find(root: &Path, device: u64, dirs: &[PathBuf]) -> Self {
         let kernel_driver = (device != 0).then(|| kernel_driver(root, device)).flatten();
         let libraries = match (device, &kernel_driver) {

@@ -1,5 +1,5 @@
 {
-  "about": "The overview shows each window live (docs/adr/0022-window-views.mdx): the application (sample/EditingProbe.tsx, Allo, 600 × 360) runs beside the shell; the dock's overview button opens the overview, and its card for Allo shows Allo's own pixels, drawn by the compositor where the card's OxyOSWindowView is (477 × 286 at 262, 182, the window's proportions, from the WindowSize the shell was told): its text fields' tint, its white, under the card's title bar, box-filtered. The shell sent that one view, never a pixel. A press on the card goes to the shell under the window drawn there, never to Allo: the overview closes and Allo is focused, and where the card was the wallpaper shows again. With the compositor drawing no views, the card is its own #eef3f8 and the first step fails.",
+  "about": "The overview shows each window live (docs/adr/0022-window-views.mdx): the application (sample/EditingProbe.tsx, Allo, 600 × 360) runs beside the shell; the dock's overview button opens the overview, and Mission Control moves the window itself into its card (as App Exposé does, ADR 0045): it flies from where it is to where the card's OxyOSWindowView is (477 × 286 at 262, 182, the window's proportions, from the WindowSize the shell was told) and shows Allo's own pixels there, its text fields' tint, its white, under the card's title bar, box-filtered. The shell sent that one view, never a pixel. Where the window was, beside and below the card, the desktop's tile shows, not the window left behind. A press on the card goes to the shell under the window drawn there, never to Allo: the overview closes, the window flies home and Allo is focused, and where the card was the wallpaper shows again. With the compositor drawing no views, the card is its own #eef3f8 and the first step fails; with the window left where it was, its dimmed pixels show below the card (#b4bdc4 at 500, 474) and beside it.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -42,7 +42,19 @@
           "300,420": "#ffffff",
           "600,400": "#ffffff",
           "500,467": "#ffffff",
-          "500,474": "#b3bcc3"
+          "500,474": "#5176c4",
+          "900,300": "#4971c3"
+        },
+        "window_views": {
+          "windows": [
+            1
+          ],
+          "moved": true
+        },
+        "flights": {
+          "arriving": [
+            1
+          ]
         }
       }
     },
@@ -65,6 +77,14 @@
         },
         "output_pixels": {
           "300,420": "#5481fb"
+        },
+        "window_views": {
+          "windows": []
+        },
+        "flights": {
+          "going": [
+            1
+          ]
         }
       }
     }

@@ -334,3 +334,85 @@ fn dev_t_round_trips() {
     // glibc's: 226:129 is 0xe281.
     assert_eq!(makedev(226, 129), 0xe281);
 }
+
+#[test]
+fn the_environment_names_drivers_as_it_does_to_the_loader() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| std::ffi::OsString::from(value))
+        }
+    };
+    let system = || vec![PathBuf::from("/usr/share/vulkan/icd.d")];
+    // Nothing named: the loader's own folders.
+    assert_eq!(manifest_paths_with(&env(&[]), system), system());
+    // Added ones come first, then the loader's folders.
+    assert_eq!(
+        manifest_paths_with(
+            &env(&[("VK_ADD_DRIVER_FILES", "/run/a/icd.d:/opt/intel_icd.json")]),
+            system
+        ),
+        [
+            PathBuf::from("/run/a/icd.d"),
+            PathBuf::from("/opt/intel_icd.json"),
+            PathBuf::from("/usr/share/vulkan/icd.d"),
+        ]
+    );
+    // VK_DRIVER_FILES alone, before the older name and anything added; empty is unset.
+    assert_eq!(
+        manifest_paths_with(
+            &env(&[
+                ("VK_DRIVER_FILES", "/opt/lvp_icd.json"),
+                ("VK_ICD_FILENAMES", "/old.json"),
+                ("VK_ADD_DRIVER_FILES", "/run/a/icd.d"),
+            ]),
+            system
+        ),
+        [PathBuf::from("/opt/lvp_icd.json")]
+    );
+    assert_eq!(
+        manifest_paths_with(
+            &env(&[("VK_DRIVER_FILES", ""), ("VK_ICD_FILENAMES", "/old.json")]),
+            system
+        ),
+        [PathBuf::from("/old.json")]
+    );
+}
+
+#[test]
+fn a_manifest_named_is_read_and_the_device_still_chooses() {
+    let machine = intel_and_nvidia();
+    // Another folder (as VK_ADD_DRIVER_FILES names one) and a manifest named by its own path.
+    let added = machine.root.join("added");
+    fs::create_dir_all(&added).unwrap();
+    fs::write(
+        added.join("intel.json"),
+        r#"{"ICD": {"library_path": "/opt/mesa/libvulkan_intel.so"}}"#,
+    )
+    .unwrap();
+    let nvk = machine.root.join("nvk.json");
+    fs::write(&nvk, r#"{"ICD": {"library_path": "libvulkan_nouveau.so"}}"#).unwrap();
+    let paths = [added, nvk, machine.root.join("icd.d")];
+    let intel = makedev(226, 129);
+    let drivers = Drivers::find(&machine.root, intel, &paths);
+    let libraries: Vec<PathBuf> = drivers
+        .manifests
+        .iter()
+        .map(|manifest| manifest.library.clone())
+        .collect();
+    // The added Intel driver first, the installed one of the same library left out, HASVK after;
+    // NVK, named by its own path, is not the Intel GPU's and is never chosen.
+    assert_eq!(
+        libraries,
+        [
+            PathBuf::from("/opt/mesa/libvulkan_intel.so"),
+            PathBuf::from("libvulkan_intel_hasvk.so"),
+        ]
+    );
+    let all = manifests_in(&paths);
+    assert!(all
+        .iter()
+        .any(|manifest| manifest.library == Path::new("libvulkan_nouveau.so")));
+}
