@@ -89,6 +89,8 @@ pub enum Step {
     /// node named `to`, as the assistive technology holds them: a file dragged onto the dock's
     /// Trash, wherever the dock's row places it (docs/adr/0035-drag-and-drop.mdx). Resolved to a
     /// `DragPaced` as it is run.
+    /// `to` may be a point of the output instead, `@x,y` (an icon dragged off the dock, ADR
+    /// 0034's decision 10); with `held`, the button stays held at the end, as `DragPaced`'s.
     DragPacedNamed {
         from: String,
         to: String,
@@ -96,6 +98,7 @@ pub enum Step {
         hz: u32,
         escape_after: Option<u32>,
         rest_ms: u32,
+        held: bool,
     },
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
@@ -518,11 +521,13 @@ impl Step {
                 hz,
                 escape_after,
                 rest_ms,
+                held,
             } => format!(
-                "\"drag_paced_named\":[{},{},{motions},{hz}{}]",
+                "\"drag_paced_named\":[{},{},{motions},{hz}{}{}]",
                 json_string(from),
                 json_string(to),
-                rest_suffix(*escape_after, *rest_ms)
+                rest_suffix(*escape_after, *rest_ms),
+                if *held { ",\"held\"" } else { "" }
             ),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
@@ -1300,7 +1305,7 @@ impl Launch {
                     let given = value
                         .and_then(|v| v.to_str())
                         .map_or(0, |v| v.split(',').count());
-                    let n = numbers(value, given.clamp(2, 4))?;
+                    let n = numbers(value, given.clamp(2, 5))?;
                     if n[0] < 1 || n[1] < 1 {
                         return Err(
                             "--drag-paced-named needs at least one motion at 1 Hz or more".into(),
@@ -1315,6 +1320,7 @@ impl Launch {
                         hz: n[1] as u32,
                         escape_after: n.get(2).filter(|at| **at > 0).map(|at| *at as u32),
                         rest_ms: n.get(3).map_or(0, |ms| (*ms).max(0) as u32),
+                        held: n.get(4).is_some_and(|held| *held != 0),
                     }
                 }
                 Some("--hold-output") => {
@@ -2948,9 +2954,19 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
         hz,
         escape_after,
         rest_ms,
+        held,
     } = step
     {
         let at = |name: &str| {
+            // `@x,y`: a point of the output, not a node.
+            if let Some((x, y)) = name
+                .strip_prefix('@')
+                .and_then(|point| point.split_once(','))
+            {
+                if let (Ok(x), Ok(y)) = (x.trim().parse(), y.trim().parse()) {
+                    return Ok((x, y));
+                }
+            }
             named_point(session, name)
                 .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))
         };
@@ -2961,7 +2977,7 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
             hz: *hz,
             escape_after: *escape_after,
             rest_ms: *rest_ms,
-            held: false,
+            held: *held,
         });
     }
     let Step::Named { kind, name, ms } = step else {

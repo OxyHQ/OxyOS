@@ -36,6 +36,38 @@ export function keepInDock(snapshot: DockState, id: string, keep: boolean): stri
   return keep ? [...kept, id] : kept;
 }
 
+/** The kept list with `id` put at `index` among the others kept: moved there if it is kept, kept
+    there if it is not (docs/adr/0034-the-dock.mdx, decision 10). */
+export function keptWithAt(kept: readonly string[], id: string, index: number): string[] {
+  const others = kept.filter((other) => other !== id);
+  const at = Math.max(0, Math.min(others.length, Math.round(index)));
+  return [...others.slice(0, at), id, ...others.slice(at)];
+}
+
+/** The width of one application's place in the dock: its icon and the space to the next. */
+export const DOCK_SLOT = 58;
+
+/**
+ * Where an application dragged over the dock would go (docs/adr/0034-the-dock.mdx, decision 10):
+ * its place among those kept (0 to `kept`, those kept without it), from `x`, the pointer's
+ * distance from the left of the first application's place as the dock lays them out with the gap
+ * open. The gap is then always under the pointer, whichever way it moves, so it never flickers
+ * between two places; past the applications kept it is their end, before them their start.
+ */
+export function gapAt(x: number, kept: number): number {
+  return Math.max(0, Math.min(kept, Math.floor(x / DOCK_SLOT)));
+}
+
+/** Where the application `id`, kept in the dock, can move one place (`step` -1 left, 1 right) from
+    the keyboard or an assistive technology: the kept list after, or null where it cannot go (the
+    first left, the last kept right, one not kept: its place is its running). */
+export function moveInDock(snapshot: DockState, id: string, step: -1 | 1): string[] | null {
+  const kept = keptIds(snapshot);
+  const at = kept.indexOf(id);
+  if (at < 0 || at + step < 0 || at + step >= kept.length) return null;
+  return keptWithAt(kept, id, at + step);
+}
+
 /** The applications opened at login with `id` among them or not, in their order. */
 export function openAtLogin(snapshot: DockState, id: string, open: boolean): string[] {
   const listed = (snapshot.openAtLogin ?? []).filter((listed) => listed !== id);

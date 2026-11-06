@@ -1,0 +1,347 @@
+{
+  "about": "Arranging the dock by dragging (docs/adr/0034-the-dock.mdx, decision 10) at 1.25 (1600 × 1000, the ThinkPad's: 1280 × 800 logical): Allo (sample/EditingProbe.tsx) with the shell and the development registry (Dropsea, Atlas and Inbox kept). Atlas dragged along the dock lifts out of its place as the gap opens there, at once, then the gap follows the pointer to Dropsea's place, Dropsea sliding right on the spring (each place's width as laid out, frame by frame, monotonic); let go, Atlas is kept first, in the gap at once, the person's dock kept by the session in the preferences file. Dropsea, not running, dragged off the dock and let go over the window vanishes there in a poof with the poof's sound, once, and leaves the dock. Allo, running and not kept, dragged between Atlas and Inbox is kept there; dragged off again it is no longer kept but stays, running, its picture going back, with no poof. Atlas dragged off with Escape before the release goes back and nothing changes. Each step checks the person's list as the session keeps it, the sounds played, the drag icons left, the keyboard staying with Allo, exactly what each client is told of each drag (the window only of one crossing it, nothing leaked), and that Allo's React tree hears nothing.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Allo's window; the dock keeps Dropsea, Atlas and Inbox, and Allo runs after them",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "focus_surface": 1,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Atlas dragged to Dropsea's place and held: Atlas lifts out of its place as the gap opens there at once, then the gap follows the pointer, Dropsea sliding right on the spring and the gap behind it closing",
+      "do": [
+        "drag_paced_named",
+        [
+          "Atlas",
+          "@622,772",
+          30,
+          30,
+          0,
+          0,
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "sounds": [],
+        "drag_icons": {
+          "count": 1
+        },
+        "focus_surface": 1,
+        "in_shell": {
+          "committed": {
+            "dock-place-so.oxy.atlas": {
+              "width": [
+                58.4,
+                0
+              ]
+            },
+            "dock-gap-so.oxy.inbox": {
+              "width": [
+                0,
+                57.6,
+                0
+              ]
+            },
+            "dock-gap-so.oxy.dropsea": {
+              "width": [
+                0,
+                58.4
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-place-so.oxy.atlas": [
+              1,
+              1
+            ],
+            "dock-gap-so.oxy.inbox": [
+              8,
+              200
+            ],
+            "dock-gap-so.oxy.dropsea": [
+              8,
+              200
+            ]
+          }
+        },
+        "output_pixels": {
+          "835,942": "#002b64",
+          "862,985": "#002b64"
+        },
+        "delivered": {
+          "shell_drags": {
+            "drag.enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "let go: Atlas is kept first, in the gap at once; the person's dock kept by the session",
+      "do": [
+        "release_output",
+        [
+          622,
+          772
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "focus_surface": 1,
+        "in_shell": {
+          "committed": {
+            "dock-place-so.oxy.atlas": {
+              "width": [
+                0,
+                58.4
+              ]
+            },
+            "dock-gap-so.oxy.dropsea": {
+              "width": [
+                58.4,
+                0
+              ]
+            }
+          },
+          "committed_frames": {
+            "dock-place-so.oxy.atlas": [
+              1,
+              1
+            ],
+            "dock-gap-so.oxy.dropsea": [
+              1,
+              1
+            ]
+          }
+        },
+        "output_pixels": {
+          "835,942": "#002b64",
+          "862,985": "#002b64"
+        },
+        "preferences_file": {
+          "dock": "so.oxy.atlas,so.oxy.dropsea,so.oxy.inbox"
+        },
+        "delivered": {
+          "shell_drags": {
+            "drag.drop": 1,
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Dropsea, not running, dragged off the dock and let go over the window: it vanishes there in a poof with its sound, once, and leaves the dock",
+      "do": [
+        "drag_paced_named",
+        [
+          "Dropsea",
+          "@640,300",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "focus_surface": 1,
+        "sounds": [
+          "poof"
+        ],
+        "drag_icons": {
+          "count": 0
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "vanished"
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Dropsea"
+            }
+          ]
+        },
+        "preferences_file": {
+          "dock": "so.oxy.atlas,so.oxy.inbox"
+        },
+        "delivered": {
+          "1": {
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1
+          },
+          "shell_drags": {
+            "drag.cancelled": 1,
+            "drag.enter": 2,
+            "drag.leave": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Allo, running and not kept, dragged between Atlas and Inbox: kept there",
+      "do": [
+        "drag_paced_named",
+        [
+          "Allo",
+          "@680,772",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "focus_surface": 1,
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "preferences_file": {
+          "dock": "so.oxy.atlas,so.oxy.allo,so.oxy.inbox"
+        },
+        "delivered": {
+          "1": {
+            "leave": 1
+          },
+          "shell_drags": {
+            "drag.drop": 1,
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1,
+            "drag.enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Allo, kept and running, dragged off the dock and let go: no longer kept, it stays after those kept until it quits, its picture going back; no poof, no sound",
+      "do": [
+        "drag_paced_named",
+        [
+          "Allo",
+          "@640,300",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "returned"
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "name": "Allo"
+            }
+          ]
+        },
+        "preferences_file": {
+          "dock": "so.oxy.atlas,so.oxy.inbox"
+        },
+        "delivered": {
+          "1": {
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1
+          },
+          "shell_drags": {
+            "drag.cancelled": 1,
+            "drag.enter": 2,
+            "drag.leave": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Atlas dragged off the dock, Escape pressed before the release: it goes back to its place, nothing changes, nothing is said or played",
+      "do": [
+        "drag_paced_named",
+        [
+          "Atlas",
+          "@640,300",
+          30,
+          30,
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "sounds": [],
+        "drag_icons": {
+          "count": 0
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "dragicon",
+              "change": "returned"
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "name": "Atlas"
+            }
+          ]
+        },
+        "preferences_file": {
+          "dock": "so.oxy.atlas,so.oxy.inbox"
+        },
+        "delivered": {
+          "1": {
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1
+          },
+          "shell_drags": {
+            "drag.cancelled": 1,
+            "drag.enter": 2,
+            "drag.leave": 2
+          }
+        }
+      }
+    }
+  ]
+}

@@ -8,6 +8,8 @@ order: 48
 
 Status: **accepted; implemented** (the host's keyboard focus and ring, the accessibility tree's modal rules, Super+F3 and Super+F8, the shell's and Settings' fixes, Bloom's; decisions 8 to 26, the audit's follow-up of 2 and 3 November 2026, implemented). Builds on [ADR 0003](./0003-accessibility-protocol) (the accessibility tree), [ADR 0014](./0014-screen-reader) (the screen reader), [ADR 0024](./0024-system-shortcuts) (Super+F2, decision 9) and [ADR 0034](./0034-the-dock).
 
+**6 November 2026: the dock's icons are arranged without a pointer** ([ADR 0034](./0034-the-dock), decision 10). With the dock's keyboard (Super+F3), Option and ← or → move the focused icon kept a place along those kept, the keyboard staying on it and its new place said once, politely (*Atlas, posición 3 de 3*); at an end nothing moves and nothing is said. An application's icon offers the screen reader *Mover a la izquierda* and *Mover a la derecha* where it can move, *Quitar del Dock* when kept and *Mantener en el Dock* when not, beside its menu's own action (decision 12). `keyboard-dock-arrange.json` and `keyboard-dock-arrange-scaled.json` check each, the person's list as the session keeps it and what is said.
+
 **2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
 
 ## Problem

@@ -125,7 +125,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   `to`, monotonically (a view scaled up and back: the dock's Trash under a drag). A view it does not list must not move: the driver may set it (a node's first frame sets
   its start), but always to the same values. `animated_frames` may be [least, most], or such bounds by view ({testID: bounds});
 - committed: the same for what React's commits changed in the step (opacity, translation, scale
-  (`transform.scale`) and the top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn, of views with a
+  (`transform.scale`), the top corners' radii, `borderTopLeftRadius` and `borderTopRightRadius` as drawn,
+  and `width` as laid out (a dock's place opening as icons slide apart), of views with a
   testID, as mounted: a JavaScript-driven Animated's and Reanimated's frames among them), with
   `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
 - animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
@@ -837,7 +838,9 @@ def director_args(step, out):
         return args + ["--scroll-paced", ",".join(map(str, value))]
     if kind == "drag_paced_named":
         # A paced drag from the node of one accessible name to the node of another (a file onto the
-        # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035).
+        # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
+        # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
+        # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
         return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
     if kind in ("press_named", "press_secondary_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by

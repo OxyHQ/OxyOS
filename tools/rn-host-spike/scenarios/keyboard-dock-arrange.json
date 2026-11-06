@@ -1,0 +1,280 @@
+{
+  "about": "Arranging the dock without a pointer (docs/adr/0034-the-dock.mdx, decision 10) at 1 (1280 × 720), the screen reader on in Spanish: Allo (sample/EditingProbe.tsx) with the shell and the development registry (Dropsea, Atlas and Inbox kept). Super+F3 and → reach Atlas; Option-→ moves it a place right, the session keeping the person's dock in the preferences file, the keyboard staying on it and its new place said once; at the end it moves no further and nothing is said; Option-← moves it back. The screen reader's actions on the icons: Mover a la izquierda moves Inbox, Quitar del Dock takes Dropsea out (not running, it leaves), Mantener en el Dock keeps Allo, running, at the end. Escape gives Allo the keyboard back. Each step checks the person's list as the session keeps it, the keyboard's focus, what is said, and that Allo hears nothing.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "reader": {},
+  "steps": [
+    {
+      "name": "Allo's window; the reader on",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Super+F3: the keyboard on the dock's first icon",
+      "do": [
+        "key",
+        [
+          125,
+          61
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-launcher",
+            "ring": true
+          }
+        }
+      }
+    },
+    {
+      "name": "→ to escritorios",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-overview",
+            "ring": true
+          }
+        }
+      }
+    },
+    {
+      "name": "→ to Dropsea",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-so.oxy.dropsea",
+            "ring": true
+          }
+        }
+      }
+    },
+    {
+      "name": "→ to Atlas",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-so.oxy.atlas",
+            "ring": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Option-→ moves Atlas a place right, past Inbox: the person's dock, kept by the session; the keyboard stays on Atlas, its new place said once",
+      "do": [
+        "key",
+        [
+          56,
+          106
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-so.oxy.atlas",
+            "ring": true
+          }
+        },
+        "preferences_file": {
+          "dock": "so.oxy.dropsea,so.oxy.inbox,so.oxy.atlas"
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Atlas, posición 3 de 3"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Option-→ again: Atlas is the last kept; nothing moves, nothing is said",
+      "do": [
+        "key",
+        [
+          56,
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-so.oxy.atlas",
+            "ring": true
+          }
+        },
+        "preferences_file": {
+          "dock": "so.oxy.dropsea,so.oxy.inbox,so.oxy.atlas"
+        },
+        "announcements": [],
+        "spoken": []
+      }
+    },
+    {
+      "name": "Option-← moves it back a place, before Inbox",
+      "do": [
+        "key",
+        [
+          56,
+          105
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "keyboard_focus": {
+            "target": "dock-so.oxy.atlas",
+            "ring": true
+          }
+        },
+        "preferences_file": {
+          "dock": "so.oxy.dropsea,so.oxy.atlas,so.oxy.inbox"
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Atlas, posición 2 de 3"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the reader's action Mover a la izquierda on Inbox: before Atlas",
+      "do": [
+        "a11y-action",
+        [
+          "custom:Mover a la izquierda",
+          "Inbox"
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "preferences_file": {
+          "dock": "so.oxy.dropsea,so.oxy.inbox,so.oxy.atlas"
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Inbox, posición 2 de 3"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the reader's action Quitar del Dock on Dropsea, not running: it leaves the dock",
+      "do": [
+        "a11y-action",
+        [
+          "custom:Quitar del Dock",
+          "Dropsea"
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "preferences_file": {
+          "dock": "so.oxy.inbox,so.oxy.atlas"
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Dropsea"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the reader's action Mantener en el Dock on Allo, running and not kept: kept, at the end of those kept",
+      "do": [
+        "a11y-action",
+        [
+          "custom:Mantener en el Dock",
+          "Allo"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "preferences_file": {
+          "dock": "so.oxy.inbox,so.oxy.atlas,so.oxy.allo"
+        }
+      }
+    },
+    {
+      "name": "Escape leaves the dock: the keyboard back with Allo",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "keyboard_focus": null
+      }
+    }
+  ]
+}
