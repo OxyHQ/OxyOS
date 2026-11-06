@@ -3530,6 +3530,13 @@ def install_service(spec, machine, offscreen):
         if later.get("capabilities"):
             description["capabilities"] = [{"name": name, "purpose": {"en": "Scenario."}}
                                            for name in later["capabilities"]]
+        # What it opens goes with the capability that lets it (a manifest declares both or
+        # neither): a version without `open-files` opens no types, one without `url-schemes` no
+        # schemes.
+        opens = {part: values for part, values in description.pop("opens", {}).items()
+                 if {"types": "open-files", "schemes": "url-schemes"}.get(part) in later.get("capabilities", [])}
+        if opens:
+            description["opens"] = opens
         (base / "description.json").write_text(json.dumps(description))
         run(pack, "pack", dir, base / "description.json", machine.runtimes / str(manifest["runtime"]["abi"]) / "runtime.json", developer)
         run(pack, "publish", dir, repository, keys, developer)
