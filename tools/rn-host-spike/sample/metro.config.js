@@ -331,6 +331,15 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
           // accept, so the runtime and its framework have one copy of each (one expo-constants,
           // one expo-modules-core).
           result = sharedRequest(context, moduleName, platform);
+          // A package with an `import` and a `require` build of a module (react-native-css's
+          // components) has one in the framework: a package of this folder's (the login screen's
+          // Oxy SDK) reaching it the other way gets the framework's rather than a second copy, as
+          // an application does (applicationRequest).
+          if (FRAMEWORK?.packages[packageOf(moduleName)] && isBare(moduleName) && result.type === 'sourceFile'
+              && !FRAMEWORK.modules[ids.keyOf(result.filePath, ID_OPTIONS).key]) {
+            const other = sharedRequest({ ...context, isESMImport: !context.isESMImport }, moduleName, platform);
+            if (other.type === 'sourceFile' && FRAMEWORK.modules[ids.keyOf(other.filePath, ID_OPTIONS).key]) result = other;
+          }
         } else {
           result = context.resolveRequest(context, moduleName, platform);
         }

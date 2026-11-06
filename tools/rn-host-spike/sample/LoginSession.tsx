@@ -4,17 +4,21 @@
  * `oxyos-session --greeter`), the compositor locked from the start. Its root, the output's
  * background, is the wallpaper; the login screen is a lock surface of its own, the only thing the
  * compositor shows and reaches. The accounts are the accounts' service's; the password goes
- * through the compositor to the login program, never further into JavaScript.
+ * through the compositor to the login program, never further into JavaScript. Adding an account
+ * runs the Oxy SDK's own sign-in (SetupSignIn.tsx) and hands the credential and the password to
+ * the accounts' service through the host (`OxyOSAccountSession`), never keeping either here.
  */
 import * as React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, TurboModuleRegistry, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
-import { LoginScreen, type LoginActions } from '../../../apps/login/src/LoginScreen';
+import { LoginScreen, type LoginActions, type SetupActions } from '../../../apps/login/src/LoginScreen';
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
+import { enrollAnswerFrom, platformFrom } from '../../../apps/login/src/setup';
+import { SetupSignIn } from './SetupSignIn';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useSessionLocale } from './oxyos/locale';
@@ -38,6 +42,26 @@ async function reachable(api: string): Promise<boolean> {
   }
 }
 
+const accountSession = TurboModuleRegistry.get<{
+  getConstants(): { setup: boolean };
+  platform(): unknown;
+  enroll(password: string): Promise<unknown>;
+  secondFactor(code: string): Promise<unknown>;
+  endEnrollment(): void;
+}>('OxyOSAccountSession');
+
+/** Setting an account up through the host: the accounts' service's platform and its setup. */
+const setupActions: SetupActions | undefined =
+  accountSession && accountSession.getConstants().setup
+    ? {
+        platform: () => platformFrom(accountSession.platform()),
+        SignIn: SetupSignIn,
+        enroll: async (password) => enrollAnswerFrom(await accountSession.enroll(password)),
+        secondFactor: async (code) => enrollAnswerFrom(await accountSession.secondFactor(code)),
+        end: () => accountSession.endEnrollment(),
+      }
+    : undefined;
+
 export default function LoginSession() {
   const shell = useOxyOSShell();
   const now = useMinuteClock();
@@ -58,7 +82,9 @@ export default function LoginSession() {
     authenticate: (account, password) => shell.authenticate(password, account),
     answer: shell.authentication ?? undefined,
     capsLock: !!state?.capsLock,
-    online: () => reachable(state?.oxyApi ?? 'https://api.oxy.so'),
+    online: (api) => reachable(api ?? state?.oxyApi ?? 'https://api.oxy.so'),
+    setup: setupActions,
+    reloadAccounts: () => setAccounts(accountsFrom(shell.accounts())),
     announce: (text, polite) => shell.announce(text, polite),
   };
   const { Surface, Masked } = oxyosShell;
