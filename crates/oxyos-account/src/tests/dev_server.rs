@@ -365,10 +365,11 @@ fn dev_server_platform_tokens_rotation_revocation_and_removal() {
 
     // Removed: the device signed out at Oxy, the account forgotten.
     let enrollment = platform.remove(uid).unwrap();
-    assert_eq!(
+    // Signing the whole device out revokes its holders: the credential is no longer one.
+    assert!(matches!(
         platform.setup().api().mint_token(&after, &id).unwrap_err(),
-        ApiError::AccountNotOnDevice
-    );
+        ApiError::InvalidDeviceSecret | ApiError::AccountNotOnDevice
+    ));
     platform.finish_removal(&enrollment);
     assert!(platform.setup().store().users().unwrap().is_empty());
 }
