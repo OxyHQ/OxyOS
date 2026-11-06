@@ -17,8 +17,14 @@
 //!   the platform credential (`/session/device/app-token`), cached per account and application,
 //!   minted again about a minute before they expire, or at once when an application says the one
 //!   it has was refused. Offline, none: the snapshot still says signed in.
-//! - **The snapshot** ([`Platform::snapshot`]) applications see: the SDK's `OxyHostSnapshot`, its
-//!   revision raised on every change, which subscribers are woken for ([`Platform::watch`]).
+//! - **The snapshot** ([`Platform::snapshot`]) applications see: the SDK's `OxyHostSnapshot`.
+//!   Subscribers are woken for every change ([`Platform::watch`]), but its revision changes only
+//!   when its status or its account does (signed in, signed out, removed, another account): the
+//!   SDK takes a new revision for a switch of account, so a profile read anew or Oxy reached or
+//!   not is told with the same revision.
+//! - **Mints are rationed** per account and application: after a refusal or offline none is tried
+//!   for a while, and at most [`MAX_MINTS`] in [`MINT_WINDOW`] (Oxy allows twelve), however often
+//!   an application asks.
 //! - **Removing an account** ([`Platform::remove`], decision 5): its device ended online when Oxy
 //!   can be reached, its verifier locked and credential forgotten at once; then its sessions
 //!   ended, its user and home removed, its file and picture forgotten.
@@ -43,6 +49,14 @@ use std::time::{Duration, SystemTime};
 
 /// A cached token is minted again this long before it expires.
 pub const REFRESH_BEFORE: Duration = Duration::from_secs(60);
+
+/// At most this many mints per account and application in [`MINT_WINDOW`].
+pub const MAX_MINTS: usize = 10;
+pub const MINT_WINDOW: Duration = Duration::from_secs(15 * 60);
+/// After a mint Oxy refused, none for that application is tried for this long.
+pub const REFUSED_HOLDOFF: Duration = Duration::from_secs(60);
+/// After a mint that found Oxy unreachable, none for that application is tried for this long.
+pub const OFFLINE_HOLDOFF: Duration = Duration::from_secs(15);
 
 /// How long removing an account waits for its user's processes to end before `userdel` gives up.
 const REMOVE_WAIT: Duration = if cfg!(test) {
@@ -167,8 +181,14 @@ struct Live {
     tokens: HashMap<Attestation, Cached>,
     /// Whether the last call to Oxy reached it.
     online: bool,
-    /// The snapshot's revision: the last change's.
+    /// The snapshot's revision: that of the last change of its status or account.
     revision: u64,
+    /// The status and account the revision is for, once a snapshot was made.
+    identity: Option<(Status, Option<String>)>,
+    /// No mint for an application before this (it was refused, or Oxy was unreachable).
+    holdoff: HashMap<Attestation, SystemTime>,
+    /// Each application's mints in the last [`MINT_WINDOW`].
+    mints: HashMap<Attestation, Vec<SystemTime>>,
 }
 
 struct Cached {
@@ -274,14 +294,26 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             tokens: HashMap::new(),
             online: false,
             revision: base,
+            identity: None,
+            holdoff: HashMap::new(),
+            mints: HashMap::new(),
         });
         f(entry)
     }
 
-    /// The account changed: its snapshot's revision is raised and its subscribers woken.
-    fn changed(&self, enrollment: &Enrollment) {
+    /// The account was signed out or removed: a new revision, whatever snapshots were made between.
+    fn switched(&self, enrollment: &Enrollment) {
         let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
-        self.with_live(enrollment.user.as_str(), |live| live.revision = revision);
+        self.with_live(enrollment.user.as_str(), |live| {
+            live.revision = revision;
+            live.identity = None;
+        });
+        self.changed(enrollment);
+    }
+
+    /// Something the snapshot says changed: its subscribers are woken (its revision is the
+    /// snapshot's to decide).
+    fn changed(&self, enrollment: &Enrollment) {
         let mut watchers = self.watchers.lock().unwrap_or_else(|p| p.into_inner());
         watchers.retain(|(uid, waker)| match waker.upgrade() {
             Some(waker) => {
@@ -343,7 +375,21 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 };
             }
         };
+        let status = match enrollment.state() {
+            State::Ready => Status::SignedIn,
+            State::SignInAgain => Status::SignedOut,
+        };
+        let identity = (
+            status,
+            (status == Status::SignedIn).then(|| enrollment.account.as_str().to_owned()),
+        );
         let (revision, online) = self.with_live(enrollment.user.as_str(), |live| {
+            if live.identity.as_ref() != Some(&identity) {
+                if live.identity.is_some() {
+                    live.revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
+                }
+                live.identity = Some(identity);
+            }
             (live.revision, live.online)
         });
         if enrollment.state() == State::SignInAgain {
@@ -393,7 +439,33 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 return cached;
             }
         }
+        // Rationed: not while held off after a failure, and at most MAX_MINTS in the window (the
+        // cached token, if any, stays for the next ordinary request).
+        let may = self.with_live(&user, |live| {
+            if live
+                .holdoff
+                .get(attestation)
+                .is_some_and(|until| *until > now)
+            {
+                return false;
+            }
+            let recent = live.mints.entry(attestation.clone()).or_default();
+            recent.retain(|at| now.duration_since(*at).is_ok_and(|age| age < MINT_WINDOW));
+            if recent.len() >= MAX_MINTS {
+                return false;
+            }
+            recent.push(now);
+            true
+        });
+        if !may {
+            return None;
+        }
         self.with_live(&user, |live| live.tokens.remove(attestation));
+        let hold = |wait: Duration| {
+            self.with_live(&user, |live| {
+                live.holdoff.insert(attestation.clone(), now + wait);
+            })
+        };
         match self
             .setup
             .api()
@@ -401,6 +473,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         {
             Ok(minted) => {
                 self.reached(&enrollment, true);
+                self.with_live(&user, |live| live.holdoff.remove(attestation));
                 if minted.account_id != enrollment.account.as_str() {
                     eprintln!("oxyos-accountd: Oxy minted a token for another account: dropped");
                     return None;
@@ -423,6 +496,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 })
             }
             Err(ApiError::Offline(_)) => {
+                hold(OFFLINE_HOLDOFF);
                 self.reached(&enrollment, false);
                 None
             }
@@ -432,6 +506,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 None
             }
             Err(error) => {
+                hold(REFUSED_HOLDOFF);
                 self.reached(&enrollment, true);
                 eprintln!("oxyos-accountd: {user}: no token for {attestation:?}: {error}");
                 None
@@ -741,7 +816,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 enrollment.user
             );
         }
-        self.changed(enrollment);
+        self.switched(enrollment);
         if let Err(error) = self.setup.users().end_sessions(&enrollment.user) {
             eprintln!(
                 "oxyos-accountd: {}: its sessions cannot be ended: {error}",
@@ -791,7 +866,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 .map_err(|error| RemoveError::Failed(error.to_string()))?;
         }
         self.with_live(enrollment.user.as_str(), |live| live.tokens.clear());
-        self.changed(&enrollment);
+        self.switched(&enrollment);
         eprintln!(
             "oxyos-accountd: {}: removed from this machine; its sessions end",
             enrollment.user

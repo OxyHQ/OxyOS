@@ -190,15 +190,16 @@ fn offline_there_is_no_token_and_the_snapshot_still_says_signed_in() {
 }
 
 #[test]
-fn the_snapshot_is_the_sdks_and_its_revision_rises_with_each_change() {
+fn the_snapshot_is_the_sdks_and_its_revision_changes_only_with_its_account() {
     let machine = machine(FakeApi::default());
     let uid = machine.uid();
     let before = machine.platform.snapshot(uid);
     assert!(!before.online);
     machine.platform.token(uid, &dropsea(), TokenReason::Boot);
+    // Oxy reached: told, with the same revision (the SDK takes a new one for another account).
     let after = machine.platform.snapshot(uid);
     assert!(after.online);
-    assert!(after.revision > before.revision);
+    assert_eq!(after.revision, before.revision);
     let json = serde_json::to_value(&after).unwrap();
     assert_eq!(
         json,
@@ -215,6 +216,15 @@ fn the_snapshot_is_the_sdks_and_its_revision_rises_with_each_change() {
         })
     );
     // A user with no account: signed out, no account.
+    // Signed out by Oxy: a new revision.
+    machine.api().revoke();
+    machine
+        .platform
+        .token(uid, &Attestation::OwnPlatform, TokenReason::Boot);
+    let signed_out = machine.platform.snapshot(uid);
+    assert_eq!(signed_out.status, Status::SignedOut);
+    assert!(signed_out.revision > after.revision);
+    assert_eq!(machine.platform.snapshot(uid).revision, signed_out.revision);
     let nobody = machine.platform.snapshot(uid + 1);
     assert_eq!(nobody.status, Status::SignedOut);
     assert_eq!(nobody.account, None);
@@ -544,4 +554,45 @@ fn a_user_that_cannot_be_removed_stays_signed_out() {
     machine.platform.finish_removal(&enrollment);
     assert_eq!(machine.stored().state(), State::SignInAgain);
     assert_eq!(machine.users().names(), [account().user_name().as_str()]);
+}
+
+#[test]
+fn mints_are_rationed_per_application() {
+    let machine = machine(FakeApi::default());
+    let uid = machine.uid();
+    // An application Oxy does not recognise: refused once, then not asked again for a while.
+    let unknown = Attestation::Entry("org.example.unknown".into());
+    assert_eq!(
+        machine.platform.token(uid, &unknown, TokenReason::Boot),
+        None
+    );
+    assert_eq!(
+        machine
+            .platform
+            .token(uid, &unknown, TokenReason::Response401),
+        None
+    );
+    let asked = |api: &FakeApi| {
+        api.calls()
+            .iter()
+            .filter(|call| **call == Call::AppToken)
+            .count()
+    };
+    assert_eq!(asked(machine.api()), 1);
+    // However often an application says its token was refused, at most MAX_MINTS in the window.
+    for _ in 0..crate::platform::MAX_MINTS + 5 {
+        machine
+            .platform
+            .token(uid, &dropsea(), TokenReason::Response401);
+    }
+    assert_eq!(asked(machine.api()), 1 + crate::platform::MAX_MINTS);
+    // The cached token is still handed out meanwhile; another application has its own ration.
+    assert!(machine
+        .platform
+        .token(uid, &dropsea(), TokenReason::Preflight)
+        .is_some());
+    assert!(machine
+        .platform
+        .token(uid, &Attestation::OwnPlatform, TokenReason::Boot)
+        .is_some());
 }

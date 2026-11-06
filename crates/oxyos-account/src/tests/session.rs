@@ -364,9 +364,10 @@ fn a_subscriber_is_told_every_change() {
     );
     let second = app.line();
     assert_eq!(second["snapshot"]["online"], true);
-    assert!(
-        second["snapshot"]["revision"].as_u64().unwrap()
-            > first["snapshot"]["revision"].as_u64().unwrap()
+    // The same account: the same revision.
+    assert_eq!(
+        second["snapshot"]["revision"],
+        first["snapshot"]["revision"]
     );
     // Signed out by Oxy: signed out.
     socket.machine.api().revoke();
@@ -377,6 +378,10 @@ fn a_subscriber_is_told_every_change() {
     );
     let third = app.line();
     assert_eq!(third["snapshot"]["status"], "signed_out");
+    assert!(
+        third["snapshot"]["revision"].as_u64().unwrap()
+            > first["snapshot"]["revision"].as_u64().unwrap()
+    );
     assert_eq!(third["snapshot"]["account"], serde_json::Value::Null);
     app.end();
 }
