@@ -21,6 +21,9 @@ oxyos-sound = { path = "../../crates/oxyos-sound" }
 oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
+# The accounts' service's session socket: what it launches registered, the lock's online check
+# (docs/adr/0020-oxy-account-login.mdx). Its sockets only, not its HTTP client.
+oxyos-account = { path = "../../crates/oxyos-account", default-features = false }
 oxyos-apps = { path = "../../crates/oxyos-apps" }
 # Where the user's Desktop and Documents are, for screenshots (xdg-user-dirs).
 oxyos-preferences = { path = "../../crates/oxyos-preferences" }

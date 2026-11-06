@@ -2,10 +2,16 @@
 //! never a production one. Ignored by default; run with
 //!
 //! ```text
-//! OXYOS_ACCOUNT_DEV_API=http://127.0.0.1:55490 \
+//! OXYOS_ACCOUNT_DEV_API=http://127.0.0.1:55490 OXYOS_ACCOUNT_DEV_CLIENT_ID=… \
 //! OXYOS_ACCOUNT_DEV_IDENTIFIER=… OXYOS_ACCOUNT_DEV_PASSWORD=… \
-//! cargo test -p oxyos-account dev_server -- --ignored
+//! cargo test -p oxyos-account dev_server -- --ignored --test-threads 1
 //! ```
+//!
+//! `OXYOS_ACCOUNT_DEV_CLIENT_ID` is the public client id of the development database's `OxyOS`
+//! application (`platformHost: 'oxyos'`), whose registry recognises `so.oxy.dropsea`. The platform
+//! tests (`dev_server_platform_*`) take an account of their own each, as the setup tests do:
+//! `OXYOS_ACCOUNT_DEV_PLATFORM_IDENTIFIER` and `…_PLATFORM_PASSWORD` (they set it up, mint, rotate,
+//! remove; each run needs the account fresh or signed out).
 //!
 //! An account with an authenticator is set up too when `OXYOS_ACCOUNT_DEV_TOTP_IDENTIFIER`,
 //! `OXYOS_ACCOUNT_DEV_TOTP_PASSWORD` and `OXYOS_ACCOUNT_DEV_TOTP_COMMAND` (a shell command that
@@ -17,7 +23,8 @@
 //! system's tools on a root of the test's own, so nothing on this machine changes.
 
 use super::{crypt_verifies, Root, TempDir};
-use crate::api::{DeviceCredential, HttpApi, OxyApi};
+use crate::api::{ApiError, Attestation, DeviceCredential, HttpApi, OxyApi, PlatformClient};
+use crate::platform::{Checked, Local, Platform, Status, TokenReason};
 use crate::setup::{Progress, Request, Setup, SetupError};
 use crate::store::Store;
 use crate::users::SystemUsers;
@@ -59,6 +66,12 @@ struct Machine {
     _state: TempDir,
 }
 
+fn client() -> PlatformClient {
+    PlatformClient {
+        client_id: env("OXYOS_ACCOUNT_DEV_CLIENT_ID").expect("OXYOS_ACCOUNT_DEV_CLIENT_ID"),
+    }
+}
+
 fn machine(api: &str) -> Machine {
     let root = Root::new("dev-server");
     let state = TempDir::new("dev-server-state");
@@ -68,7 +81,8 @@ fn machine(api: &str) -> Machine {
             HttpApi::new(api).unwrap(),
             SystemUsers::with_prefix(root.path()),
             store,
-        ),
+        )
+        .with_platform(client()),
         root,
         _state: state,
     }
@@ -97,7 +111,19 @@ fn assert_enrolled(
     assert!(verifier.starts_with("$y$"));
     assert!(crypt_verifies(password, &verifier));
     let stored = machine.setup.store().get(&account).unwrap().unwrap();
-    assert_eq!(&stored.credential, credential);
+    // The platform credential the sign-in issued is kept: not the one handed over, which Oxy
+    // retired as it issued it (R1).
+    let kept = stored.credential.as_ref().unwrap();
+    assert_eq!(kept.device_id, credential.device_id);
+    assert_ne!(kept.device_secret, credential.device_secret);
+    assert_eq!(
+        machine
+            .setup
+            .api()
+            .mint_token(credential, &account)
+            .unwrap_err(),
+        ApiError::InvalidDeviceSecret
+    );
     let file = machine
         .setup
         .store()
@@ -108,7 +134,7 @@ fn assert_enrolled(
     machine
         .setup
         .api()
-        .mint_token(&stored.credential, &account)
+        .mint_token(stored.credential.as_ref().unwrap(), &account)
         .unwrap();
 }
 
@@ -226,4 +252,154 @@ fn dev_server_setup_with_an_authenticator() {
     );
     machine.setup.second_factor(&pending, &code()).unwrap();
     assert_enrolled(&machine, &account, &credential, &password);
+}
+
+/// An account of its own set up on a machine of the test's own, as the platform holds it.
+fn platform_machine(
+    api: &str,
+) -> (
+    Platform<HttpApi, SystemUsers>,
+    Root,
+    TempDir,
+    String,
+    String,
+) {
+    assert!(
+        super::passwd_tools(),
+        "the dev-server tests make users with the passwd tools"
+    );
+    let identifier = env("OXYOS_ACCOUNT_DEV_PLATFORM_IDENTIFIER")
+        .expect("OXYOS_ACCOUNT_DEV_PLATFORM_IDENTIFIER");
+    let password =
+        env("OXYOS_ACCOUNT_DEV_PLATFORM_PASSWORD").expect("OXYOS_ACCOUNT_DEV_PLATFORM_PASSWORD");
+    let (account, credential) = sdk_sign_in(api, &identifier, &password);
+    let Machine {
+        setup,
+        root,
+        _state: state,
+    } = machine(api);
+    let Progress::Enrolled(_) = setup
+        .enroll(request(&account, &credential, &password))
+        .unwrap()
+    else {
+        panic!("the platform account has no authenticator");
+    };
+    (Platform::new(setup), root, state, account, password)
+}
+
+#[test]
+#[ignore = "needs an Oxy API development server: see this file's documentation"]
+fn dev_server_platform_tokens_rotation_revocation_and_removal() {
+    let api = env("OXYOS_ACCOUNT_DEV_API").expect("OXYOS_ACCOUNT_DEV_API");
+    let (platform, _root, _state, account, password) = platform_machine(&api);
+    let platform = std::sync::Arc::new(platform);
+    let id = AccountId::parse(&account).unwrap();
+    let stored = || platform.setup().store().get(&id).unwrap().unwrap();
+    let uid = stored().uid;
+    let user = id.user_name();
+
+    // Tokens: Dropsea's by its desktop entry id, OxyOS's own; cached, minted again when refused.
+    let dropsea = Attestation::Entry("so.oxy.dropsea".into());
+    let first = platform
+        .token(uid, &dropsea, TokenReason::Boot)
+        .expect("a token for so.oxy.dropsea");
+    assert!(!first.access_token.is_empty());
+    assert_eq!(
+        platform
+            .token(uid, &dropsea, TokenReason::Preflight)
+            .unwrap(),
+        first
+    );
+    let own = platform
+        .token(uid, &Attestation::OwnPlatform, TokenReason::Boot)
+        .expect("a token for OxyOS itself");
+    assert_ne!(own.access_token, first.access_token);
+    let fresh = platform
+        .token(uid, &dropsea, TokenReason::Response401)
+        .unwrap();
+    assert_ne!(fresh.access_token, first.access_token);
+    // An application the registry does not recognise gets none.
+    assert!(platform
+        .token(
+            uid,
+            &Attestation::Entry("so.oxy.not-an-application".into()),
+            TokenReason::Boot
+        )
+        .is_none());
+    let snapshot = platform.snapshot(uid);
+    assert_eq!(snapshot.status, Status::SignedIn);
+    assert!(snapshot.online);
+    assert_eq!(snapshot.account.unwrap().id, account);
+
+    // Every online check is the platform's own sign-in: the credential rotates, the old one is
+    // retired, the new one mints.
+    let before = stored().credential.unwrap();
+    assert_eq!(
+        platform.check(
+            user.as_str(),
+            Secret::new(password.as_str()),
+            Local::Accepted
+        ),
+        Checked::ACCEPTED
+    );
+    platform.settle();
+    let after = stored().credential.unwrap();
+    assert_ne!(after.device_secret, before.device_secret);
+    assert_eq!(
+        platform.setup().api().mint_token(&before, &id).unwrap_err(),
+        ApiError::InvalidDeviceSecret
+    );
+    assert!(platform
+        .token(uid, &dropsea, TokenReason::Preflight)
+        .is_some());
+    // A wrong password, PAM rejecting it too: rejected, nothing rotated.
+    assert_eq!(
+        platform.check(
+            user.as_str(),
+            Secret::new("not the password"),
+            Local::Rejected
+        ),
+        Checked::REJECTED
+    );
+    assert_eq!(stored().credential.unwrap(), after);
+
+    // Removed: the device signed out at Oxy, the account forgotten.
+    let enrollment = platform.remove(uid).unwrap();
+    assert_eq!(
+        platform.setup().api().mint_token(&after, &id).unwrap_err(),
+        ApiError::AccountNotOnDevice
+    );
+    platform.finish_removal(&enrollment);
+    assert!(platform.setup().store().users().unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "needs an Oxy API development server: see this file's documentation"]
+fn dev_server_platform_revocation_signs_the_account_out() {
+    let api = env("OXYOS_ACCOUNT_DEV_API").expect("OXYOS_ACCOUNT_DEV_API");
+    let (platform, _root, _state, account, password) = platform_machine(&api);
+    let platform = std::sync::Arc::new(platform);
+    let id = AccountId::parse(&account).unwrap();
+    let stored = platform.setup().store().get(&id).unwrap().unwrap();
+    let credential = stored.credential.unwrap();
+    // Oxy's own device list ends the device's session (as removing it there would).
+    let token = platform.setup().api().mint_token(&credential, &id).unwrap();
+    platform.setup().api().sign_out_device(&token).unwrap();
+    // The next mint finds it gone: signed out on the machine.
+    assert!(platform
+        .token(stored.uid, &Attestation::OwnPlatform, TokenReason::Boot)
+        .is_none());
+    let now = platform.setup().store().get(&id).unwrap().unwrap();
+    assert_eq!(now.state(), crate::store::State::SignInAgain);
+    assert_eq!(platform.snapshot(stored.uid).status, Status::SignedOut);
+    assert_eq!(
+        platform
+            .check(
+                id.user_name().as_str(),
+                Secret::new(password),
+                Local::Accepted
+            )
+            .reason,
+        Some(crate::platform::CheckReason::SignInAgain)
+    );
 }

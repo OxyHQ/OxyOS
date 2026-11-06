@@ -948,8 +948,10 @@ def director_args(step, out):
 
 
 def serve_accounts(path, accounts):
-    """The accounts' service as the login screen and the login program ask it (`list` over
-    SOCK_SEQPACKET, crates/oxyos-account's ipc.rs), answering `accounts` to anyone."""
+    """The accounts' service as the login screen and the login program ask it (over
+    SOCK_SEQPACKET, crates/oxyos-account's ipc.rs), to anyone: `list` answered `accounts`, and
+    the login program's online `check` answered as an offline service answers it, PAM's word
+    standing."""
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     listener.bind(str(path))
     listener.listen(16)
@@ -959,9 +961,13 @@ def serve_accounts(path, accounts):
             connection, _ = listener.accept()
             with connection:
                 try:
-                    if json.loads(connection.recv(16384)) == "list":
+                    request = json.loads(connection.recv(16384))
+                    if request == "list":
                         connection.send(json.dumps({"accounts": accounts}).encode())
-                except (OSError, ValueError):
+                    elif isinstance(request, dict) and "check" in request:
+                        local = request["check"]["local"]
+                        connection.send(json.dumps({"checked": {"result": local}}).encode())
+                except (OSError, ValueError, KeyError, TypeError):
                     pass
 
     threading.Thread(target=serve, daemon=True).start()

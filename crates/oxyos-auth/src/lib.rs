@@ -19,7 +19,7 @@ pub mod login;
 mod pam;
 pub mod user;
 
-pub use checker::{Answer, Attempt, Checker};
+pub use checker::{Answer, Attempt, Checker, Online};
 
 /// A password on its way to PAM: overwritten in memory when dropped, never printed.
 pub struct Secret(Zeroizing<Vec<u8>>);

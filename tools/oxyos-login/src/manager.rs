@@ -8,9 +8,16 @@
 //!   runs and nothing else is checked; another is `Busy`.
 //! - **Only an enrolled account.** An account the accounts' service does not list is refused
 //!   without PAM (`enrolled: false`), throttled together with every other such name.
+//! - **The online check** (ADR 0020 decision 2, step 3). Once the worker's PAM has answered, the
+//!   accounts' service is asked with that answer (`check`), and its answer stands: a password PAM
+//!   rejected that Oxy accepts (changed elsewhere; the service has replaced the verifier) is
+//!   checked by PAM again with a new worker, which then opens the session; a password PAM
+//!   accepted is refused only when the service says so (an account Oxy signed out, or a password
+//!   Oxy says was changed while it can ask). The service unreachable, nobody signs in
+//!   (decision 7), and that is no guess.
 //! - **The throttle** is the lock's (`oxyos_auth::Throttle`, ADR 0010), one per account: five
 //!   rejections free, then 30 s doubling to 15 min; an acceptance resets it. A failure that was no
-//!   guess (PAM broken, the worker gone) rejects without counting.
+//!   guess (PAM broken, the worker gone, the service unreachable) rejects without counting.
 //! - **The handover.** Accepted: the login screen is told, shows the splash and ends; if it has
 //!   not within [`GREETER_GRACE`] it is stopped, and killed after as long again. Only once it has
 //!   ended (its logind session closed, the card's DRM master let go) is the person's session
@@ -39,6 +46,41 @@ pub enum Checked {
     Failed,
 }
 
+/// What PAM said of a password, as the accounts' service is told it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Local {
+    Accepted,
+    Rejected,
+}
+
+/// What the accounts' service answered of a password.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Online {
+    Accepted,
+    Rejected,
+    /// The service did not answer: nobody signs in, and it was no guess.
+    Unreachable,
+}
+
+/// Where a password's check is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// A worker's PAM checks it; `online_accepted`: the service already accepted it (the
+    /// verifier was replaced), so PAM's answer is the last.
+    Pam { online_accepted: bool },
+    /// The accounts' service checks it after PAM said `local` (the worker, if PAM accepted,
+    /// waits to open the session).
+    Online { local: Local },
+}
+
+/// The password being checked: for which account, how far, and the online check it waits for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Checking {
+    pub account: String,
+    pub step: Step,
+    pub check: u64,
+}
+
 /// What the login program does next.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -52,6 +94,13 @@ pub enum Action {
     Answer { verdict: Verdict, wait_s: u32 },
     /// Starts a worker for `account` and gives it the password the login screen sent.
     Check { account: String },
+    /// Asks the accounts' service to check the password online, PAM having said `local`; its
+    /// answer comes back with `check` ([`Manager::online_checked`]).
+    CheckOnline {
+        account: String,
+        local: Local,
+        check: u64,
+    },
     /// Ends the worker checking a password, unanswered.
     AbandonCheck,
     /// Tells the worker whose password was accepted to open the session and start it.
@@ -60,9 +109,8 @@ pub enum Action {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
-    /// The login screen is starting or running; `checking` the account whose password a worker
-    /// is checking.
-    Greeter { checking: Option<String> },
+    /// The login screen is starting or running; `checking` the password being checked.
+    Greeter { checking: Option<Checking> },
     /// `account` signed in; the login screen is ending. `stopped`: it was asked to.
     HandingOver {
         account: String,
@@ -81,6 +129,8 @@ pub struct Manager {
     throttles: BTreeMap<String, Throttle>,
     unknown: Throttle,
     greeter_started: Option<Instant>,
+    /// The last online check asked: an answer to an earlier one is no answer.
+    checks: u64,
 }
 
 /// Whole seconds, rounded up: a wait of 0.2 s is still a wait.
@@ -96,6 +146,7 @@ impl Manager {
             throttles: BTreeMap::new(),
             unknown: Throttle::default(),
             greeter_started: Some(now),
+            checks: 0,
         };
         (
             manager,
@@ -146,47 +197,131 @@ impl Manager {
             }];
         }
         self.state = State::Greeter {
-            checking: Some(account.to_owned()),
+            checking: Some(Checking {
+                account: account.to_owned(),
+                step: Step::Pam {
+                    online_accepted: false,
+                },
+                check: self.checks,
+            }),
         };
         vec![Action::Check {
             account: account.to_owned(),
         }]
     }
 
+    /// The password is accepted: the login screen is told, and ends.
+    fn accept(&mut self, account: String, now: Instant) -> Vec<Action> {
+        self.throttle(&account, true).record(Outcome::Accepted, now);
+        self.state = State::HandingOver {
+            account,
+            until: now + GREETER_GRACE,
+            stopped: false,
+        };
+        vec![Action::Answer {
+            verdict: Verdict::Accepted,
+            wait_s: 0,
+        }]
+    }
+
+    /// The password is refused; `counted`: it was a guess, which the throttle counts.
+    fn reject(&mut self, account: &str, counted: bool, now: Instant) -> Vec<Action> {
+        let throttle = self.throttle(account, true);
+        if counted {
+            throttle.record(Outcome::Rejected, now);
+        }
+        let wait_s = seconds(throttle.wait(now).unwrap_or_default());
+        self.state = State::Greeter { checking: None };
+        vec![Action::Answer {
+            verdict: Verdict::Rejected,
+            wait_s,
+        }]
+    }
+
+    /// The online check of PAM's `local` answer, asked.
+    fn ask_online(&mut self, account: String, local: Local) -> Vec<Action> {
+        self.checks += 1;
+        let check = self.checks;
+        self.state = State::Greeter {
+            checking: Some(Checking {
+                account: account.clone(),
+                step: Step::Online { local },
+                check,
+            }),
+        };
+        vec![Action::CheckOnline {
+            account,
+            local,
+            check,
+        }]
+    }
+
     /// The worker checking a password answered.
     pub fn checked(&mut self, checked: Checked, now: Instant) -> Vec<Action> {
         let State::Greeter {
-            checking: Some(account),
+            checking:
+                Some(Checking {
+                    account,
+                    step: Step::Pam { online_accepted },
+                    ..
+                }),
         } = &self.state
         else {
             return Vec::new();
         };
-        let account = account.clone();
-        match checked {
-            Checked::Accepted => {
-                self.throttle(&account, true).record(Outcome::Accepted, now);
-                self.state = State::HandingOver {
+        let (account, online_accepted) = (account.clone(), *online_accepted);
+        match (checked, online_accepted) {
+            // The service has accepted it already: PAM's answer is the last.
+            (Checked::Accepted, true) => self.accept(account, now),
+            (Checked::Rejected, true) => self.reject(&account, true, now),
+            (Checked::Accepted, false) => self.ask_online(account, Local::Accepted),
+            (Checked::Rejected, false) => self.ask_online(account, Local::Rejected),
+            (Checked::Failed, _) => self.reject(&account, false, now),
+        }
+    }
+
+    /// The accounts' service answered online check `check`.
+    pub fn online_checked(&mut self, check: u64, online: Online, now: Instant) -> Vec<Action> {
+        let State::Greeter {
+            checking:
+                Some(Checking {
                     account,
-                    until: now + GREETER_GRACE,
-                    stopped: false,
+                    step: Step::Online { local },
+                    check: asked,
+                }),
+        } = &self.state
+        else {
+            return Vec::new();
+        };
+        if *asked != check {
+            return Vec::new();
+        }
+        let (account, local) = (account.clone(), *local);
+        // A worker waiting to open the session it accepted is ended unless it opens one.
+        let abandon = |mut actions: Vec<Action>| {
+            if local == Local::Accepted {
+                actions.insert(0, Action::AbandonCheck);
+            }
+            actions
+        };
+        match (online, local) {
+            (Online::Accepted, Local::Accepted) => self.accept(account, now),
+            // Changed elsewhere, and the verifier replaced: PAM checks it again, and its worker
+            // opens the session.
+            (Online::Accepted, Local::Rejected) => {
+                self.state = State::Greeter {
+                    checking: Some(Checking {
+                        account: account.clone(),
+                        step: Step::Pam {
+                            online_accepted: true,
+                        },
+                        check,
+                    }),
                 };
-                vec![Action::Answer {
-                    verdict: Verdict::Accepted,
-                    wait_s: 0,
-                }]
+                vec![Action::Check { account }]
             }
-            Checked::Rejected | Checked::Failed => {
-                let throttle = self.throttle(&account, true);
-                if checked == Checked::Rejected {
-                    throttle.record(Outcome::Rejected, now);
-                }
-                let wait_s = seconds(throttle.wait(now).unwrap_or_default());
-                self.state = State::Greeter { checking: None };
-                vec![Action::Answer {
-                    verdict: Verdict::Rejected,
-                    wait_s,
-                }]
-            }
+            (Online::Rejected, _) => abandon(self.reject(&account, true, now)),
+            (Online::Unreachable, _) => abandon(self.reject(&account, false, now)),
         }
     }
 
@@ -236,7 +371,40 @@ impl Manager {
     pub fn worker_ended(&mut self, now: Instant) -> Vec<Action> {
         match &self.state {
             // Checking, it went without an answer: no guess, and nobody signed in.
-            State::Greeter { checking: Some(_) } => self.checked(Checked::Failed, now),
+            State::Greeter {
+                checking:
+                    Some(Checking {
+                        step: Step::Pam { .. },
+                        ..
+                    }),
+            } => self.checked(Checked::Failed, now),
+            // It rejected the password and ended, as a worker does: the service is being asked.
+            State::Greeter {
+                checking:
+                    Some(Checking {
+                        step:
+                            Step::Online {
+                                local: Local::Rejected,
+                            },
+                        ..
+                    }),
+            } => Vec::new(),
+            // It accepted, and went before the service answered: there is nothing to open the
+            // session, so nobody signs in, and it was no guess.
+            State::Greeter {
+                checking:
+                    Some(Checking {
+                        account,
+                        step:
+                            Step::Online {
+                                local: Local::Accepted,
+                            },
+                        ..
+                    }),
+            } => {
+                let account = account.clone();
+                self.reject(&account, false, now)
+            }
             // The session ended (signed out), or never opened: the login screen again.
             State::Opening { .. } | State::Session { .. } => {
                 self.state = State::Greeter { checking: None };
@@ -279,6 +447,36 @@ mod tests {
         vec![Action::Answer { verdict, wait_s }]
     }
 
+    /// PAM's answer, then the service's agreeing with it (online, nothing changed elsewhere).
+    fn pam(manager: &mut Manager, checked: Checked, now: Instant) -> Vec<Action> {
+        let actions = manager.checked(checked, now);
+        match actions.as_slice() {
+            [Action::CheckOnline { local, check, .. }] => {
+                let online = match local {
+                    Local::Accepted => Online::Accepted,
+                    Local::Rejected => Online::Rejected,
+                };
+                manager.online_checked(*check, online, now)
+            }
+            _ => actions,
+        }
+    }
+
+    /// PAM's answer: the online check it asks for.
+    fn asks_online(manager: &mut Manager, checked: Checked, local: Local, now: Instant) -> u64 {
+        let actions = manager.checked(checked, now);
+        let [Action::CheckOnline {
+            account,
+            local: asked,
+            check,
+        }] = actions.as_slice()
+        else {
+            panic!("an online check: {actions:?}");
+        };
+        assert_eq!((account.as_str(), *asked), (ADA, local));
+        *check
+    }
+
     fn signed_in(manager: &mut Manager, now: Instant) {
         assert_eq!(
             manager.attempt(ADA, true, now),
@@ -287,7 +485,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            manager.checked(Checked::Accepted, now),
+            pam(manager, Checked::Accepted, now),
             answer(Verdict::Accepted, 0)
         );
     }
@@ -351,7 +549,7 @@ mod tests {
         // One at a time.
         assert_eq!(manager.attempt(ADA, true, now), answer(Verdict::Busy, 0));
         assert_eq!(
-            manager.checked(Checked::Rejected, now),
+            pam(&mut manager, Checked::Rejected, now),
             answer(Verdict::Rejected, 0)
         );
         assert_eq!(manager.state(), &State::Greeter { checking: None });
@@ -370,13 +568,13 @@ mod tests {
         for _ in 0..4 {
             manager.attempt(ADA, true, now);
             assert_eq!(
-                manager.checked(Checked::Rejected, now),
+                pam(&mut manager, Checked::Rejected, now),
                 answer(Verdict::Rejected, 0)
             );
         }
         manager.attempt(ADA, true, now);
         assert_eq!(
-            manager.checked(Checked::Rejected, now),
+            pam(&mut manager, Checked::Rejected, now),
             answer(Verdict::Rejected, 30)
         );
         // Throttled: no worker is started, the wait is said.
@@ -393,12 +591,12 @@ mod tests {
                 account: other.into()
             }]
         );
-        manager.checked(Checked::Rejected, now);
+        pam(&mut manager, Checked::Rejected, now);
         // The wait over, a sixth rejection doubles it.
         now += Duration::from_secs(20);
         manager.attempt(ADA, true, now);
         assert_eq!(
-            manager.checked(Checked::Rejected, now),
+            pam(&mut manager, Checked::Rejected, now),
             answer(Verdict::Rejected, 60)
         );
         now += Duration::from_secs(60);
@@ -410,7 +608,7 @@ mod tests {
         for _ in 0..4 {
             manager.attempt(ADA, true, now);
             assert_eq!(
-                manager.checked(Checked::Rejected, now),
+                pam(&mut manager, Checked::Rejected, now),
                 answer(Verdict::Rejected, 0)
             );
         }
@@ -423,7 +621,7 @@ mod tests {
         for _ in 0..10 {
             manager.attempt(ADA, true, now);
             assert_eq!(
-                manager.checked(Checked::Failed, now),
+                pam(&mut manager, Checked::Failed, now),
                 answer(Verdict::Rejected, 0)
             );
         }
@@ -496,7 +694,7 @@ mod tests {
         );
         assert_eq!(manager.state(), &State::Greeter { checking: None });
         // The abandoned check's answer, if it comes, signs nobody in.
-        assert!(manager.checked(Checked::Accepted, soon).is_empty());
+        assert!(pam(&mut manager, Checked::Accepted, soon).is_empty());
         assert_eq!(manager.state(), &State::Greeter { checking: None });
         // Later, at once.
         let later = now + Duration::from_secs(60);
@@ -537,5 +735,111 @@ mod tests {
                 after: Duration::ZERO
             }]
         );
+    }
+
+    #[test]
+    fn pams_answer_goes_to_the_service_before_anyone_signs_in() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        manager.attempt(ADA, true, now);
+        let check = asks_online(&mut manager, Checked::Accepted, Local::Accepted, now);
+        // Not yet: the login screen is told nothing until the service answers.
+        assert!(matches!(
+            manager.state(),
+            State::Greeter { checking: Some(_) }
+        ));
+        assert_eq!(manager.attempt(ADA, true, now), answer(Verdict::Busy, 0));
+        // An answer to another check is no answer.
+        assert!(manager
+            .online_checked(check + 1, Online::Accepted, now)
+            .is_empty());
+        assert_eq!(
+            manager.online_checked(check, Online::Accepted, now),
+            answer(Verdict::Accepted, 0)
+        );
+        assert!(matches!(manager.state(), State::HandingOver { .. }));
+        assert_eq!(manager.greeter_ended(now), [Action::OpenSession]);
+    }
+
+    #[test]
+    fn a_password_changed_elsewhere_is_checked_by_pam_again_and_signs_in() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        manager.attempt(ADA, true, now);
+        let check = asks_online(&mut manager, Checked::Rejected, Local::Rejected, now);
+        // The worker that rejected it ends, as rejecting workers do: that is expected.
+        assert!(manager.worker_ended(now).is_empty());
+        // Oxy accepts it, and the service replaced the verifier: a new worker checks it.
+        assert_eq!(
+            manager.online_checked(check, Online::Accepted, now),
+            [Action::Check {
+                account: ADA.into()
+            }]
+        );
+        // PAM now accepts, and its answer is the last: no second online check.
+        assert_eq!(
+            manager.checked(Checked::Accepted, now),
+            answer(Verdict::Accepted, 0)
+        );
+        assert_eq!(manager.greeter_ended(now), [Action::OpenSession]);
+    }
+
+    #[test]
+    fn the_service_refusing_a_password_pam_accepted_ends_its_worker_and_counts() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        for _ in 0..5 {
+            manager.attempt(ADA, true, now);
+            let check = asks_online(&mut manager, Checked::Accepted, Local::Accepted, now);
+            let actions = manager.online_checked(check, Online::Rejected, now);
+            assert_eq!(actions[0], Action::AbandonCheck);
+        }
+        // Counted: the fifth waits.
+        assert_eq!(
+            manager.attempt(ADA, true, now),
+            answer(Verdict::Throttled, 30)
+        );
+    }
+
+    #[test]
+    fn the_service_unreachable_signs_nobody_in_and_is_not_counted() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        for _ in 0..10 {
+            manager.attempt(ADA, true, now);
+            let check = asks_online(&mut manager, Checked::Accepted, Local::Accepted, now);
+            assert_eq!(
+                manager.online_checked(check, Online::Unreachable, now),
+                [
+                    Action::AbandonCheck,
+                    Action::Answer {
+                        verdict: Verdict::Rejected,
+                        wait_s: 0
+                    }
+                ]
+            );
+            assert_eq!(manager.state(), &State::Greeter { checking: None });
+        }
+        // A PAM rejection whose online check cannot be asked: refused, no worker to end.
+        manager.attempt(ADA, true, now);
+        let check = asks_online(&mut manager, Checked::Rejected, Local::Rejected, now);
+        assert_eq!(
+            manager.online_checked(check, Online::Unreachable, now),
+            answer(Verdict::Rejected, 0)
+        );
+    }
+
+    #[test]
+    fn an_accepting_worker_gone_before_the_service_answered_opens_nothing() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        manager.attempt(ADA, true, now);
+        let check = asks_online(&mut manager, Checked::Accepted, Local::Accepted, now);
+        assert_eq!(manager.worker_ended(now), answer(Verdict::Rejected, 0));
+        // The service's late acceptance signs nobody in.
+        assert!(manager
+            .online_checked(check, Online::Accepted, now)
+            .is_empty());
+        assert_eq!(manager.state(), &State::Greeter { checking: None });
     }
 }

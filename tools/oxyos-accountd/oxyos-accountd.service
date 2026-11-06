@@ -1,9 +1,11 @@
-# oxyos-accountd: the Oxy accounts set up on the machine (docs/adr/0020-oxy-account-login.mdx).
-# It runs as root, because it makes users and sets their verifiers with the system's tools
-# (useradd, chpasswd, userdel), and is confined to what that needs: its own state, the user
-# database, the homes it makes, and the network to Oxy's API.
+# oxyos-accountd: the Oxy accounts set up on the machine and the platform's Oxy session
+# (docs/adr/0020-oxy-account-login.mdx). It runs as root, because it makes users and sets their
+# verifiers with the system's tools (useradd, chpasswd, usermod, userdel), and is confined to what
+# that needs: its own state, the user database, the homes it makes, the network to Oxy's API,
+# logind (to end a signed-out account's sessions) and reading which program a session's process
+# runs.
 #
-# Not installed by the image yet (ADR 0020, step 2 brings the login program that uses it).
+# Not installed by the image (AGENTS.md's image rules); ADR 0020 says what a machine installs.
 
 [Unit]
 Description=OxyOS accounts
@@ -18,7 +20,15 @@ Restart=on-failure
 RestartSec=1s
 UMask=0077
 
-# Its own: /var/lib/oxyos/accounts (0700) and the socket's directory, /run/oxyos/accountd.
+# Oxy's API, and the one program that may register a session's launches. OxyOS's public client id
+# (OXYOS_OXY_CLIENT_ID, the registry's, not a secret) is the machine's, in the file below; without
+# it nothing is set up and passwords are not checked online.
+Environment=OXYOS_OXY_API=https://api.oxy.so
+Environment=OXYOS_SESSION_PROGRAM=/usr/bin/oxyos-session
+EnvironmentFile=-/etc/oxyos/accountd.conf
+
+# Its own: /var/lib/oxyos/accounts (0700) and its sockets' directory, /run/oxyos/accountd (0755:
+# its socket and the session socket, both 0666, whose peers the kernel names).
 StateDirectory=oxyos/accounts
 StateDirectoryMode=0700
 RuntimeDirectory=oxyos/accountd
@@ -39,8 +49,10 @@ ProtectHome=tmpfs
 BindPaths=/home
 
 # Root, and only the capabilities making users needs: owning a home and its skeleton's files to
-# the new user, and reaching into a user's home to remove it.
-CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_FSETID
+# the new user, and reaching into a user's home to remove it; and CAP_SYS_PTRACE, which reading
+# another user's /proc/<pid>/exe and status takes (the program a session's process runs, a
+# launched process's parent): it reads them, and traces nothing (ptrace is not in its filter).
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_FSETID CAP_SYS_PTRACE
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
 
@@ -61,12 +73,13 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 KeyringMode=private
 
-# Its socket, and HTTPS to Oxy's API.
+# Its sockets, logind's bus (loginctl), and HTTPS to Oxy's API.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 # @system-service holds @chown, which making a home needs: so @privileged, which holds it too, is
 # not taken away.
 SystemCallFilter=@system-service
+SystemCallFilter=~ptrace process_vm_readv process_vm_writev
 SystemCallErrorNumber=EPERM
 
 [Install]

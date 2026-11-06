@@ -15,7 +15,8 @@ fn enrollment() -> Enrollment {
             display_name: Some("Ada Lovelace".into()),
             avatar: None,
         },
-        credential: credential(),
+        credential: Some(credential()),
+        password_changed: false,
     }
 }
 
@@ -60,7 +61,7 @@ fn a_file_is_replaced_whole() {
     let store = Store::open(&dir.path().join("accounts")).unwrap();
     store.put(&enrollment()).unwrap();
     let mut changed = enrollment();
-    changed.credential.device_secret = crate::Secret::new("another-secret");
+    changed.credential.as_mut().unwrap().device_secret = crate::Secret::new("another-secret");
     store.put(&changed).unwrap();
     assert_eq!(store.get(&account()).unwrap(), Some(changed));
     assert_eq!(fs::read_dir(store.directory()).unwrap().count(), 1);
@@ -164,4 +165,70 @@ fn the_login_screen_is_listed_each_account_without_its_credential() {
     assert_eq!(listed[0].name, "ada");
     assert_eq!(broken.len(), 1);
     assert!(broken[0].starts_with("oxy-other"));
+}
+
+#[test]
+fn an_account_signed_out_keeps_its_file_without_a_credential_and_lists_so() {
+    let dir = TempDir::new("store-signed-out");
+    let store = Store::open(&dir.path().join("accounts")).unwrap();
+    let mut signed_out = enrollment();
+    signed_out.credential = None;
+    signed_out.password_changed = false;
+    store.put(&signed_out).unwrap();
+    let read = store.get(&account()).unwrap().unwrap();
+    assert_eq!(read.state(), crate::store::State::SignInAgain);
+    let (listed, broken) = store.list().unwrap();
+    assert!(broken.is_empty());
+    assert_eq!(listed[0].state, crate::store::State::SignInAgain);
+    // By user and by uid, as the sockets find their peers' accounts.
+    let user = account().user_name();
+    assert_eq!(store.get_user(user.as_str()).unwrap(), Some(signed_out));
+    assert_eq!(store.get_uid(1001).unwrap().unwrap().user, user);
+    assert_eq!(store.get_uid(1002).unwrap(), None);
+    assert_eq!(store.get_user("../x").unwrap(), None);
+}
+
+#[test]
+fn the_flag_is_kept_and_a_version_1_file_is_read_as_ready() {
+    let dir = TempDir::new("store-versions");
+    let store = Store::open(&dir.path().join("accounts")).unwrap();
+    let mut flagged = enrollment();
+    flagged.password_changed = true;
+    store.put(&flagged).unwrap();
+    assert!(store.get(&account()).unwrap().unwrap().password_changed);
+    // Step 1's files: a credential, no flag.
+    let file = store
+        .directory()
+        .join(format!("{}.json", account().user_name()));
+    fs::write(
+        &file,
+        serde_json::json!({
+            "version": 1,
+            "accountId": account().as_str(),
+            "user": account().user_name().as_str(),
+            "uid": 1001,
+            "profile": {"id": account().as_str(), "username": "ada"},
+            "credential": {"deviceId": "device-1", "deviceSecret": DEVICE_SECRET},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let read = store.get(&account()).unwrap().unwrap();
+    assert_eq!(read.state(), crate::store::State::Ready);
+    assert!(!read.password_changed);
+    // A version 1 file without a credential is no account's.
+    fs::write(
+        &file,
+        serde_json::json!({
+            "version": 1,
+            "accountId": account().as_str(),
+            "user": account().user_name().as_str(),
+            "uid": 1001,
+            "profile": {"id": account().as_str()},
+            "credential": null,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert!(store.get(&account()).is_err());
 }

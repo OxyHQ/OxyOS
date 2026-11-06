@@ -1222,6 +1222,15 @@ pub fn url_scheme(url: &str) -> Option<String> {
     valid.then(|| scheme.to_ascii_lowercase())
 }
 
+/// Who is told of each process the launcher starts, at its launch record
+/// (docs/adr/0020-oxy-account-login.mdx, step 5): the session registers it with the accounts'
+/// service, which gives the platform's Oxy session to registered processes alone. It is handed a
+/// pidfd of the process, opened right after it started and before anything could reap it, so the
+/// process is the one launched. It must not wait: the launcher runs on the compositor's turn.
+pub trait Registrar {
+    fn register(&self, launched: &Launched, pidfd: rustix::fd::OwnedFd);
+}
+
 /// How a process is started: as the application, to open a file or a URL, or as the file chooser.
 #[derive(Clone, Copy)]
 enum Start<'a> {
@@ -1249,6 +1258,9 @@ pub struct Launcher {
     children: Vec<(std::process::Child, Launched)>,
     /// The development compositor's grants by id ([`Launcher::with_fixture_grants`]).
     fixture_grants: Vec<(String, Grants)>,
+    /// Told of each verified application started ([`Launcher::with_registrar`]); none, nothing
+    /// is told (the development compositor).
+    registrar: Option<Box<dyn Registrar>>,
 }
 
 impl Launcher {
@@ -1262,7 +1274,15 @@ impl Launcher {
             trusted: Box::new(administrator_written),
             children: Vec::new(),
             fixture_grants: Vec::new(),
+            registrar: None,
         }
+    }
+
+    /// Each system or installed application started is told to `registrar` as it starts (a
+    /// development entry has no Oxy identity, and is not).
+    pub fn with_registrar(mut self, registrar: Box<dyn Registrar>) -> Self {
+        self.registrar = Some(registrar);
+        self
     }
 
     /// The development compositor's grants (`--grant ID=GRANT,...`), which a scenario gives as the
@@ -1492,22 +1512,34 @@ impl Launcher {
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
         let pid = child.id();
-        self.children.push((
-            child,
-            Launched {
-                id: application.id,
-                name: application.name,
-                grants,
-                origin: application.origin,
-                capabilities,
-                opened,
-                chooser: matches!(how, Start::Chooser { .. }),
-                url: match how {
-                    Start::Url(url) => Some(url.to_string()),
-                    _ => None,
-                },
+        // Its pidfd now: the child is the launcher's, unreaped until `reap`, so the pid is still
+        // the process just started.
+        let pidfd = match (&self.registrar, application.origin.verified()) {
+            (Some(_), true) => i32::try_from(pid)
+                .ok()
+                .and_then(rustix::process::Pid::from_raw)
+                .map(|pid| rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty())),
+            _ => None,
+        };
+        let launched = Launched {
+            id: application.id,
+            name: application.name,
+            grants,
+            origin: application.origin,
+            capabilities,
+            opened,
+            chooser: matches!(how, Start::Chooser { .. }),
+            url: match how {
+                Start::Url(url) => Some(url.to_string()),
+                _ => None,
             },
-        ));
+        };
+        match (pidfd, &self.registrar) {
+            (Some(Ok(pidfd)), Some(registrar)) => registrar.register(&launched, pidfd),
+            (Some(Err(error)), _) => eprintln!("[apps] {id} not registered: its pidfd: {error}"),
+            _ => {}
+        }
+        self.children.push((child, launched));
         Ok(pid)
     }
 

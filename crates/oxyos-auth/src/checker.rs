@@ -1,6 +1,10 @@
 //! Checking off the compositor's thread: PAM may take seconds (a failure's delay), and the
 //! compositor never waits. One password is checked at a time, on a thread of its own; the
 //! throttle decides whether one may be tried at all.
+//!
+//! A session's checker may also have an online check (docs/adr/0020-oxy-account-login.mdx,
+//! step 3): given the password and PAM's answer, it answers what stands, or nothing when it
+//! cannot be asked, and PAM's answer stands. The throttle counts what stands.
 
 use crate::{Authenticator, Outcome, Secret, Throttle};
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -25,6 +29,10 @@ pub struct Answer {
     pub wait: Duration,
 }
 
+/// The online check after PAM: the password and PAM's answer, the answer that stands (`None`:
+/// PAM's).
+pub type Online = Box<dyn Fn(Secret, Outcome) -> Option<Outcome> + Send>;
+
 pub struct Checker {
     passwords: mpsc::Sender<Secret>,
     answers: mpsc::Receiver<Result<Outcome, crate::Error>>,
@@ -37,6 +45,15 @@ pub struct Checker {
 impl Checker {
     /// A checker of passwords for `authenticator`'s user, on a thread that lives as long as it.
     pub fn spawn(authenticator: Authenticator) -> std::io::Result<Self> {
+        Self::spawn_with(authenticator, None)
+    }
+
+    /// A checker whose PAM answers are then given to `online`.
+    pub fn spawn_online(authenticator: Authenticator, online: Online) -> std::io::Result<Self> {
+        Self::spawn_with(authenticator, Some(online))
+    }
+
+    fn spawn_with(authenticator: Authenticator, online: Option<Online>) -> std::io::Result<Self> {
         let (ready, signal) = rustix::pipe::pipe_with(
             rustix::pipe::PipeFlags::CLOEXEC | rustix::pipe::PipeFlags::NONBLOCK,
         )?;
@@ -46,7 +63,17 @@ impl Checker {
             .name("oxyos-auth".into())
             .spawn(move || {
                 for secret in received {
-                    if answered.send(authenticator.check(secret)).is_err() {
+                    let answer = match &online {
+                        None => authenticator.check(secret),
+                        Some(online) => {
+                            let bytes = secret.into_bytes();
+                            let again = Secret::new(bytes.to_vec());
+                            let checked = authenticator.check(Secret::new(bytes.to_vec()));
+                            drop(bytes);
+                            checked.map(|local| online(again, local).unwrap_or(local))
+                        }
+                    };
+                    if answered.send(answer).is_err() {
                         break;
                     }
                     let _ = rustix::io::write(&signal, &[1]);
