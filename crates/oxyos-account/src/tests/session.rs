@@ -256,8 +256,9 @@ fn only_the_registrars_own_children_are_registered() {
     let socket = service(FakeApi::default());
     let registrar = Registrar::connect(&socket.path).unwrap();
     // A process that is not its child: the test's parent.
-    let parent = rustix::process::getppid().unwrap();
-    if let Ok(pidfd) = pidfd::open(parent.as_raw_nonzero().get() as u32) {
+    let parent = rustix::process::getppid();
+    if let Some(Ok(pidfd)) = parent.map(|parent| pidfd::open(parent.as_raw_nonzero().get() as u32))
+    {
         assert_eq!(
             registrar
                 .register("so.oxy.dropsea", false, pidfd.as_fd())
