@@ -3064,10 +3064,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "never" in expect:
         # Text that must appear nowhere: not drawn, not reported by the host, not held by the
         # compositor for an assistive technology. The step's own instruction is left out.
-        held = json.dumps({k: v for k, v in result.items() if k not in STEP_KEYS}, ensure_ascii=False)
-        lines = [json.dumps(line, ensure_ascii=False) for line in report if line["t"] <= end]
+        # What they hold, not the names of their fields: a password "mal" is not in a memory
+        # line's "malloc_in_use".
+        def values(item):
+            if isinstance(item, dict):
+                return [text for value in item.values() for text in values(value)]
+            if isinstance(item, list):
+                return [text for value in item for text in values(value)]
+            return [item] if isinstance(item, str) else []
+        held = values({k: v for k, v in result.items() if k not in STEP_KEYS})
+        lines = [values(line) for line in report if line["t"] <= end]
         for text in expect["never"]:
-            if text in held or any(text in line for line in lines):
+            if any(text in value for value in held) or any(text in value for line in lines for value in line):
                 fail(f"{text!r} leaked (host report or compositor)")
     if "frame_px" in expect:
         # The size in pixels of the latest frame of the window and of each open popup.
