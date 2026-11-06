@@ -1,0 +1,20 @@
+{
+  "about": "What an idle window gives back (docs/performance.mdx, *Memory*; memory.h): Settings' sidebar scrolled by a touchpad at 60 Hz, which keeps the window's frames in flight in up to three GPU buffers and Skia's scratch textures in use, then left alone. Once the window has been idle a second, its host trims: of the painter's buffers it keeps the one the compositor shows, of Skia's cache nothing it could purge, and writes its account (the report's `memory` line). Counts, not sizes, so the same on any machine; perf.py's `memory` holds the sizes on the ThinkPad.",
+  "module": "OxyOSSettings",
+  "window": [960, 300],
+  "app": {"id": "so.oxy.settings", "title": "Settings"},
+  "settings": {"app": "so.oxy.settings", "preferences": {"appearance": "light", "accent": "oxy"}},
+  "steps": [
+    {
+      "name": "The sidebar scrolled down 240 px in 60 events at 60 Hz",
+      "do": ["scroll_paced", [150, 200, 240, 60, 60]],
+      "expect": {"scrolled": {"presented_min": 30}}
+    },
+    {
+      "name": "Left alone, the window gives back its spare buffers and Skia's scratch textures",
+      "do": ["wait", 2500],
+      "allow_unchanged": true,
+      "expect": {"memory": {"buffers_max": 1, "skia_purgeable_max": 0}}
+    }
+  ]
+}

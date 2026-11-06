@@ -31,7 +31,9 @@
 #include "shell-state.h"
 #include "shell-surface.h"
 #include "svg.h"
+#include "memory.h"
 #include "report.h"
+#include "skia-gpu.h"
 #include "renderer.h"
 #include "text.h"
 #include "textinput.h"
@@ -454,6 +456,8 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
 }
 
 int main(int argc, char** argv) {
+  // Before anything allocates much or a thread starts (memory.h).
+  oxyos::configureProcessMemory();
   // A pipe or socket whose reader went away (a paste's receiver, a server) is an error on that
   // write, never a signal that ends the app.
   std::signal(SIGPIPE, SIG_IGN);
@@ -756,6 +760,25 @@ int main(int argc, char** argv) {
   oxyos::ShellState shellState(output);
   if (shellMode) shellState.followApplications();
   if (windowed) {
+    // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
+    // shell's and the login screen's, by their package's id (the manifest beside the bundle).
+    std::string cacheDirectory = application.cacheDirectory;
+    if (shellMode && bundleFile.has_parent_path()) {
+      std::ifstream manifest(bundleFile.parent_path() / "manifest.json");
+      std::stringstream text;
+      text << manifest.rdbuf();
+      try {
+        auto parsed = folly::parseJson(text.str());
+        if (parsed.isObject() && parsed.count("id") && parsed["id"].isString()) {
+          std::string path(4096, '\0');
+          int64_t length = oxyos_application_directory(parsed["id"].asString().c_str(), 1, path.data(), path.size());
+          if (length > 0 && static_cast<size_t>(length) < path.size()) cacheDirectory = path.substr(0, length);
+        }
+      } catch (const std::exception&) {
+        // No manifest (a probe run as a shell): nothing is kept.
+      }
+    }
+    if (!cacheDirectory.empty()) oxyos::setPipelineCacheDirectory(cacheDirectory + "/skia");
     try {
       window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})
                          : std::make_unique<oxyos::Window>(socket, static_cast<uint32_t>(width),
@@ -769,6 +792,8 @@ int main(int argc, char** argv) {
       }
       // The painter is started now, beside the runtime and the application loading.
       window->choosePainter();
+      oxyos::Memory::get().setBufferTrim([&window] { return window->trimBuffers(); });
+      oxyos::Memory::get().addRuntime("worklets", [&worklets] { return worklets.uiRuntime(); });
       // Where the window's frames spend their time, in the session's log (frame-diagnostics.h).
       oxyos::FrameDiagnostics::get().start(applicationName);
       window->resized();
@@ -873,6 +898,8 @@ int main(int argc, char** argv) {
   instance->loadScript(
       JSBigFileString::fromPath(bundlePath), bundlePath,
       [framework, url = runtimeOf.frameworkURL](jsi::Runtime& runtime) {
+        // The application's runtime lives as long as the instance, which outlives the loop.
+        oxyos::Memory::get().addRuntime("hermes", [at = &runtime] { return at; });
         stage("framework");
         runtime.evaluateJavaScript(framework, url);
         stage("bundle");
@@ -2890,6 +2917,12 @@ int main(int argc, char** argv) {
         // It waits only after a second idle turn, since what one turn dispatches (an event for
         // Fabric's beat) is delivered on the next.
         idleTurns = busy ? 0 : idleTurns + 1;
+        // What an idle window does not need is given back once it has been idle a while (memory.h).
+        if (busy || dirty) {
+          oxyos::Memory::get().worked(Clock::now());
+        } else {
+          oxyos::Memory::get().tick(Clock::now());
+        }
         // A frame ready to draw whose window's frame before is not answered waits for the compositor.
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
@@ -2901,7 +2934,7 @@ int main(int argc, char** argv) {
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
-                           editing.nextBlink()}) {
+                           editing.nextBlink(), oxyos::Memory::get().nextDeadline()}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;
