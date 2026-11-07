@@ -1,5 +1,6 @@
 import { styled } from "react-native-css";
 import {
+  AccessibilityInfo,
   View,
   Pressable,
   type PressableProps,
@@ -38,3 +39,16 @@ export const Scroll = styleScroll(ScrollView, {
 export const PressArea = styled(Pressable) as ComponentType<
   PressableProps & { className?: string }
 >;
+
+/**
+ * Moves the screen reader's focus to `view` (React Native's accessibility focus), where the
+ * platform has it: React Native for the web has no such event, and the browser's own focus is all
+ * there is there.
+ */
+export function focusForAccessibility(view: ComponentRef<typeof View> | null | undefined) {
+  if (!view || typeof AccessibilityInfo.sendAccessibilityEvent !== "function") return;
+  AccessibilityInfo.sendAccessibilityEvent(
+    view as Parameters<typeof AccessibilityInfo.sendAccessibilityEvent>[0],
+    "focus",
+  );
+}

@@ -223,13 +223,14 @@ test("revealing shows a file or a folder selected in its folder, and nothing els
   assert.equal(draggable(item("settings:wifi", "settings", { url: "oxyos-settings://wifi" })), false);
 });
 
-test("a row says its title, kind and location; in grey, where it is or what it is", () => {
+test("a row says its title, kind and location; in grey, where it is, or in Top Hit what it is", () => {
   const doc = item("file:///home/ana/plan.pdf", "pdf", { title: "plan.pdf", location: "Documents" });
   assert.equal(rowLabel(doc, en), "plan.pdf, PDF document, Documents");
   assert.equal(rowLabel(doc, es), "plan.pdf, Documento PDF, Documents");
   assert.equal(rowDetail(doc, en), "Documents");
-  assert.equal(rowDetail(item("settings:wifi", "settings"), en), "System Settings");
-  assert.equal(rowDetail(item("application:a", "application"), en), "");
+  assert.equal(rowDetail(item("settings:wifi", "settings"), en), "");
+  assert.equal(rowDetail(item("settings:wifi", "settings"), en, true), "System Settings");
+  assert.equal(rowDetail(item("application:a", "application"), en, true), "");
   assert.equal(rowLabel(item("application:a", "application", { title: "Allo" }), en), "Allo, Application");
 });
 

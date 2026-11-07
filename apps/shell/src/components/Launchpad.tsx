@@ -1,6 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef, useState, type ComponentRef } from "react";
 import {
-  AccessibilityInfo,
   StyleSheet,
   View,
   useColorScheme,
@@ -14,12 +13,13 @@ import { BloomColorScope } from "@oxy.so/bloom/theme";
 import { Search } from "@oxy.so/bloom/search";
 import { usePlatformDrag } from "@oxy.so/bloom/platform-surface";
 import { APPLICATION_TYPE, DRAG_SLOP, shellDrag } from "../app-drag";
-import { Box, PressArea } from "../primitives";
+import { Box, PressArea, focusForAccessibility } from "../primitives";
 import { AppIcon } from "../apps";
 import { Wallpaper } from "./Wallpaper";
 import type { ShellWallpaper } from "../wallpaper";
 import type { ShellApplication, ShellFolder } from "../model";
-import type { ShellKeyboard } from "../platform";
+import type { ShellKeyboard, ShellSearch } from "../platform";
+import { applicationOf } from "../spotlight";
 import {
   HIGHLIGHT_PADDING,
   SEARCH_HEIGHT,
@@ -96,15 +96,6 @@ const DraggableAppIcon = memo(function DraggableAppIcon({ app, size }: { app: Sh
   );
 });
 
-/** Moves the screen reader's focus to `view` (React Native's accessibility focus). */
-function focusForAccessibility(view: ComponentRef<typeof View> | null | undefined) {
-  if (view) {
-    AccessibilityInfo.sendAccessibilityEvent(
-      view as Parameters<typeof AccessibilityInfo.sendAccessibilityEvent>[0],
-      "focus",
-    );
-  }
-}
 
 /** Read by the screen reader, drawn nowhere: Launchpad shows no count. */
 const SAID_ONLY = {
@@ -185,6 +176,7 @@ export const Launchpad = memo(function Launchpad({
   escapeRequest = 0,
   searchRequest = 0,
   keyboard,
+  search: service,
 }: {
   /** Whether it is shown. It stays mounted while hidden, as macOS keeps Launchpad, so showing it
       draws what is already built instead of building it then. */
@@ -199,10 +191,35 @@ export const Launchpad = memo(function Launchpad({
   searchRequest?: number;
   /** The platform's keys before the focused field, where it has them (the arrows and Return). */
   keyboard?: ShellKeyboard;
+  /** The system's search (docs/adr/0051-search.mdx), where the platform has it: what is typed
+      finds the applications it returns, in its order, as Spotlight's do. Without it, the names that
+      hold what is typed. */
+  search?: ShellSearch;
 }) {
   const messages = useShellMessages();
   const words = messages.launchpad;
   const [query, setQuery] = useState("");
+  // The applications the search service found for the latest text it answered (until it answers
+  // the first, the names that hold the text); an answer to an earlier text is dropped.
+  const [found, setFound] = useState<readonly string[] | null>(null);
+  const asked = useRef(0);
+  const wanted = query.trim();
+  useEffect(() => {
+    const mine = ++asked.current;
+    if (!service || !wanted) {
+      setFound(null);
+      return;
+    }
+    service
+      .query({ text: wanted, categories: ["application"], limit: Math.max(1, applications.length), language: messages.language })
+      .then(
+        (results) => {
+          if (mine !== asked.current) return;
+          setFound(results.items.flatMap((item) => applicationOf(item) ?? []));
+        },
+        (error: unknown) => console.warn("Launchpad's search failed", { error }),
+      );
+  }, [service, wanted, applications.length, messages.language]);
   const [folder, setFolder] = useState<ShellFolder | null>(null);
   const [page, setPage] = useState(0);
   // The icon highlighted by the arrows (an index into every entry), none until one is pressed;
@@ -220,13 +237,20 @@ export const Launchpad = memo(function Launchpad({
   const { columns, rows, gridWidth, iconSize, rowHeight, labelSize } = layout;
   const capacity = columns * rows;
   const grouped = new Set(folders.flatMap((group) => [...group.appIds]));
-  const entries: Entry[] = applications
-    .filter(
-      (app) =>
-        (query || !grouped.has(app.id)) &&
-        normalize(app.name).includes(normalize(query)),
-    )
-    .map((app) => ({ app }));
+  const byId = new Map(applications.map((app) => [app.id, app]));
+  const entries: Entry[] =
+    query && found
+      ? found.flatMap((id) => {
+          const app = byId.get(id);
+          return app ? [{ app }] : [];
+        })
+      : applications
+          .filter(
+            (app) =>
+              (query || !grouped.has(app.id)) &&
+              normalize(app.name).includes(normalize(query)),
+          )
+          .map((app) => ({ app }));
   if (!query) entries.push(...folders.map((group) => ({ folder: group })));
   const pageCount = Math.max(1, Math.ceil(entries.length / capacity));
   const currentPage = Math.min(page, pageCount - 1);

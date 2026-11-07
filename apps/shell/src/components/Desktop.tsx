@@ -9,7 +9,6 @@ import {
   type PointerEvent,
   type TextLayoutEvent,
 } from "react-native";
-import Svg, { Path } from "react-native-svg";
 import { Directory, File, Paths } from "expo-file-system";
 import { DropZone, type DropTargetDragEvent, type DropTargetDropEvent } from "@oxy.so/bloom/drop-zone";
 import { usePlatformDrag, usePlatformFiles, type PlatformFiles } from "@oxy.so/bloom/platform-surface";
@@ -65,6 +64,7 @@ import type { ShellKeyboard } from "../platform";
 import { useShellMessages } from "../useShellMessages";
 import { useAccent } from "./accent";
 import { FOLDER_ICON } from "./folder-icon";
+import { DocumentIcon } from "./DocumentIcon";
 
 /** What the top bar's desktop menus ask of the desktop (File › Open, File › Move to Trash,
     Edit › Select All), a new `id` for each. */
@@ -804,27 +804,9 @@ const Picture = memo(function Picture({ item, kind }: { item: DesktopItem; kind:
       />
     );
   }
-  const Glyph = kind === "image" ? RiFileImageLine : GLYPHS[kind];
-  return (
-    <View style={PICTURE}>
-      <Svg width={DESKTOP_ICON} height={DESKTOP_ICON} viewBox="0 0 64 64">
-        <Path
-          d="M14 4h26l14 14v40a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
-          fill="#ffffff"
-          stroke="#c9c9cf"
-          strokeWidth={1.2}
-        />
-        <Path d="M40 4v12a2 2 0 0 0 2 2h12" fill="none" stroke="#c9c9cf" strokeWidth={1.2} />
-      </Svg>
-      <View style={GLYPH}>
-        <Glyph width={GLYPH_SIZE} height={GLYPH_SIZE} fill="#6e6e78" />
-      </View>
-    </View>
-  );
+  return <DocumentIcon glyph={kind === "image" ? RiFileImageLine : GLYPHS[kind]} size={DESKTOP_ICON} />;
 });
 const PICTURE = { width: DESKTOP_ICON, height: DESKTOP_ICON } as const;
-const GLYPH_SIZE = 24;
-const GLYPH = { position: "absolute", left: 0, right: 0, top: 26, alignItems: "center" } as const;
 
 /**
  * Its name (decision 3), white with a shadow on the wallpaper, up to two lines and cut in the

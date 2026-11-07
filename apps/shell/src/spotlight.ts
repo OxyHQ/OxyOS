@@ -210,7 +210,7 @@ export function openingOf(
   rules: FileRules,
 ): SpotlightOpening | null {
   if (item.category === "application") {
-    const id = item.application ?? (item.id.startsWith("application:") ? item.id.slice("application:".length) : "");
+    const id = applicationOf(item);
     return id ? { kind: "application", id } : null;
   }
   if (item.category === "settings") {
@@ -229,6 +229,14 @@ export function openingOf(
   if (item.url) return { kind: "url", url: item.url };
   if (item.application) return { kind: "application", id: item.application };
   return null;
+}
+
+/** An application result's application: the one the service names, else its id's
+    (`application:<id>`). Null for any other result. */
+export function applicationOf(item: SearchItem): string | null {
+  if (item.category !== "application") return null;
+  if (item.application) return item.application;
+  return item.id.startsWith("application:") ? item.id.slice("application:".length) || null : null;
 }
 
 /** Showing a file or a folder where it is, as a Mac's ⌘Return shows it in Finder: Dropsea at its
@@ -254,11 +262,12 @@ export function kindName(item: SearchItem, messages: ShellMessages): string {
   return messages.spotlight.kinds[item.category];
 }
 
-/** What a row says in grey after its title: where it is, or what it is (an application says
-    nothing more, as a Mac's row of one does). */
-export function rowDetail(item: SearchItem, messages: ShellMessages): string {
+/** What a row says in grey after its title: where it is; else, in Top Hit, whose header does not
+    say it, what it is (an application nothing more, as a Mac's row of one). Elsewhere its
+    section's header says what it is. */
+export function rowDetail(item: SearchItem, messages: ShellMessages, top = false): string {
   if (item.location) return item.location;
-  return item.category === "application" ? "" : kindName(item, messages);
+  return top && item.category !== "application" ? kindName(item, messages) : "";
 }
 
 /** A row's name for assistive technologies: "Title, kind, location". */
