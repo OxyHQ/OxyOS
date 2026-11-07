@@ -6,7 +6,7 @@ order: 60
 
 # ADR 0051: Search
 
-Status: **accepted; implemented** in the platform (steps 1 to 4), the shell, Settings and Bloom (steps 5 and 6) and Dropsea (step 7). Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 30) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+Status: **accepted; implemented** (steps 1 to 7): the platform, the shell, Settings, Bloom and Dropsea. Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 30) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
 
 ## Problem
 
@@ -164,23 +164,24 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
    - the language's words, phrases, filters, spans and tokens;
    - text, UTF-16 and binary files; Word, PowerPoint in slide order, Excel, OpenDocument, EPUB without its scripts; a broken archive; a PDF read by MuPDF and a broken one;
    - names found as they are typed, folded accents, words and phrases in the text, every filter, `within`, applications first and used items rising, an exact name beating a longer one, recent files above old ones, who sees what, folders and sources removed, snippets.
-2. **The indexer and the service** (`indexer`, `service`, `sched`). *Done.* Tests through the control socket on homes the tests make:
+2. **The crawler, the writer and the service** (`indexer`, `writer`, `service`, `sched`). *Done.* Tests through the control socket on homes the tests make:
    - a file made, written again, renamed, a folder moved, a file and a folder deleted, a folder moved in and out of the places, a folder made hidden; and every exclusion (hidden, dependency, `CACHEDIR.TAG`, `.noindex`);
-   - a restart reading only the files changed while it was not running;
+   - a restart reading only the files changed while it was not running (`read` 3, then 2);
    - the applications and Settings' declared pages in two languages, the top hit, donations seen by their application and the shell alone, a client not launched refused, another application unable to remove them, usage;
-   - Settings alone keeping folders and categories out, and letting them back;
-   - watchers told; the indexer's thread in both idle classes and its threads inheriting them;
-   - `tests/idle.rs`: once indexed, the service's threads wake **0** times in 4 s, and the writer's threads are gone.
-3. **The protocol, the broker, the host and the adapter** (version 30, `oxyos_compositor::search`, `OxyOSSearch`, `sample/oxyos/search.js`), and the keys of decision 12. *Done.*
-4. **Scenarios and budgets.** *Done.* `scenarios/spotlight.json` and `spotlight-scaled.json` (at 1 and 1.25), on a home the scenario makes:
-   - Super+Space, typing, the sections and the top hit, the arrows, Return opening, Super+Return revealing in Dropsea, Escape;
-   - a file made while the panel is open appearing;
-   - the keyboard's focus and every delivery exact.
+   - Settings alone keeping folders and categories out, and letting them back; the launcher finding applications whatever Spotlight shows;
+   - watchers told; a thread in both idle classes, and the threads it starts inheriting them;
+   - `tests/idle.rs`: once indexed, the service's three threads wake **0** times in 4 s, and tantivy's threads are gone.
+3. **The protocol, the broker, the host and the adapter** (version 30, `oxyos_compositor::search`, `OxyOSSearch`, `sample/oxyos/search.js`), and the keys of decision 12. *Done.* Protocol, scene and broker tests (the broker with a played service: identity, routing, a client gone, the service dying); `ime-sources*`, `settings-input-sources*` and `system-shortcuts` on the keys moved.
+4. **Scenarios and budgets.** *Done.* Each at 1 and 1.25, through the real service on a home the scenario makes, the keyboard's focus and every delivery exact (Allo receives nothing while Spotlight has the keyboard):
+   - `spotlight`: Super+Space; a name found as it is typed, the top hit selected, a hidden folder's file never shown; a word of a file's text; a file written while the panel shows appearing in it (`home.later` waiting for a text the shell shows); ↓ and the screen reader's focus; Escape clearing, then closing, the window given the keyboard back; Ajustes by its name in Spanish; Appearance by the terms Settings declares (`modo oscuro`), Return opening Settings at it (`oxyos-settings://appearance`).
+   - `settings-spotlight`: the page, every category on, Applications switched off and on, the service's configuration written each time.
+   - `dropsea-search`: Dropsea's field searching the computer (three folders), *Kind: PDF* offered for `pd`, ↓ and Return making it a token and the results narrowing; Spotlight's Super+Return opening Dropsea at the folder, the item selected.
+   - The launcher's own (`launcher`, `launchpad-reader`, `installed-application`, `settings-privacy`) through the service: names at once, the service's answer added; `launchpad-reader` by words' beginnings as the service matches.
 
-   `settings-spotlight*.json` covers a category switched off and a folder kept out, and `dropsea-search*.json` Dropsea's tokens. `perf.py search` measures indexing throughput, the index's size, query latency (budget: 50 ms at the 95th percentile for typical questions, from the shell's request to its answer) and the service's idle wakeups (budget: none) and memory.
-5. **Bloom 17.20.0:** `PlatformSearch`, `usePlatformSearch`, and `Search`'s tokens (`tokens`, `onRemoveToken`). *Done* (OxyHQ/Bloom).
+   `perf.py search` measures indexing throughput, the index's size, question latency (budget: 50 ms at the 95th percentile), a file written until found, and idle wakeups (budget: none), CPU and memory ([performance](../performance#search)): on 3,000 generated files, 2,124 files a second (1,948 a CPU second), 1.5 MiB, questions 1.5 / 3.2 / 5.8 ms (p50, p95, max), 0.4 s from written to found, 0 wakeups idle, 24 MiB resident.
+5. **Bloom 17.20.0:** `PlatformSearch`, `usePlatformSearch`, and `Search`'s tokens (`tokens`, `onRemoveToken`). *Done* (OxyHQ/Bloom#657).
 6. **The shell's panel, the launcher, Settings › Spotlight and Settings' `searchable.json`.** *Done.*
-7. **Dropsea's search over the service, its tokens, and `select` in its `files` URL.** *Done* (OxyHQ/Dropsea).
+7. **Dropsea's search over the service, its tokens, and `select` in its `files` URL.** *Done* (OxyHQ/Dropsea#49, #50).
 
 ## Not in this decision
 
