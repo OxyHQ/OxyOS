@@ -11,8 +11,9 @@
 //! where it was, unless the firmware changes it itself (a ThinkPad's Fn+Space): then its key
 //! is only told, and the level is read. The battery, the network, Bluetooth and the levels, which
 //! other programs and the firmware change too, are read when the Control Center opens and, in a
-//! session, as they change ([`Following`]: never looked at on a clock, so a session doing nothing
-//! wakes for nothing).
+//! session, as they change ([`Following`], and the volumes as the session's sound says them,
+//! [`Controls::audio_is`]: never looked at on a clock, so a session doing nothing wakes for
+//! nothing).
 
 use crate::stop::{identity, Stop};
 use oxyos_compositor_core::{
@@ -112,7 +113,8 @@ impl Controls {
 
     /// Follows the system's changes (a session's: its worker on a thread of its own), each read
     /// again as it changes: the bus's services (NetworkManager too where `network`, when no other
-    /// part follows it), the backlights under `sysfs` and PipeWire. Nothing for an inline worker.
+    /// part follows it) and the backlights under `sysfs`; the volumes are told by the sound's part
+    /// ([`Self::audio_is`]). Nothing for an inline worker.
     pub fn follow(&mut self, network: bool, sysfs: PathBuf) -> std::io::Result<()> {
         if let Some(commands) = self.worker.commands() {
             self.following = Some(Following::start(commands, network, sysfs)?);
@@ -140,6 +142,30 @@ impl Controls {
     /// reading of the daemon again.
     pub fn network_is(&mut self, scene: &mut Scene, network: Network) {
         self.outcome(scene, Outcome::Network(network));
+    }
+
+    /// A request as the Control Center's (Settings' Sound page sets a volume this way, so the
+    /// keys, the bezel and the slider follow it).
+    pub fn ask(&mut self, scene: &mut Scene, request: ControlRequest) {
+        self.request(scene, request);
+    }
+
+    /// The volumes as the session's sound says them (docs/adr/0056-sound-devices.mdx), which
+    /// follows PipeWire: told as if read here, each only when it changed.
+    pub fn audio_is(&mut self, scene: &mut Scene, state: &oxyos_audio::State) {
+        for control in [Control::OutputVolume, Control::InputVolume] {
+            let level = oxyos_controls::audio_level(state, control);
+            if self.levels.get(&control) != Some(&level) {
+                self.outcome(
+                    scene,
+                    Outcome::Level {
+                        control,
+                        level,
+                        tag: None,
+                    },
+                );
+            }
+        }
     }
 
     /// One turn: the keys and requests the scene took, and the worker's answers told to the
@@ -268,8 +294,8 @@ mod tests;
 
 /// The threads that follow the system's changes for a session's controls (`oxyos_controls::follow`),
 /// each sending the worker the read of what changed. Each waits on its source and the order to
-/// stop, never a clock; a source that goes (the bus, PipeWire restarted) is followed again once
-/// its socket is made anew. They stop and are waited for when it goes.
+/// stop, never a clock; a source that goes (the bus restarted) is followed again once its socket
+/// is made anew. They stop and are waited for when it goes.
 pub struct Following {
     stop: Arc<Stop>,
     threads: Vec<std::thread::JoinHandle<()>>,
@@ -287,7 +313,7 @@ fn read(change: Change) -> Command {
 
 /// Follows a source with `follow` until `stop` is given: again whenever it goes, once `socket` is
 /// made anew (or, with none, never again).
-fn again(
+pub(crate) fn again(
     what: &str,
     stop: &Stop,
     socket: Option<PathBuf>,
@@ -350,18 +376,6 @@ impl Following {
                         follow::backlights(Path::new(&sysfs), stop.fd(), |change| {
                             commands.send(read(change)).is_ok()
                         })
-                    });
-                }),
-            )?);
-        }
-        {
-            let stop = stop.clone();
-            threads.push(spawn(
-                "controls-audio",
-                Box::new(move || {
-                    again("PipeWire", &stop, follow::pipewire_socket(), |stop| {
-                        let commands = commands.clone();
-                        follow::audio(stop.fd(), move |change| commands.send(read(change)).is_ok())
                     });
                 }),
             )?);

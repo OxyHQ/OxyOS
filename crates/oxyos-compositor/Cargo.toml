@@ -22,6 +22,8 @@ oxyos-preferences = { path = "../oxyos-preferences" }
 oxyos-solar = { path = "../oxyos-solar" }
 oxyos-auth = { path = "../oxyos-auth" }
 oxyos-controls = { path = "../oxyos-controls" }
+# The sound's outputs and inputs, through PipeWire (docs/adr/0056-sound-devices.mdx).
+oxyos-audio = { path = "../oxyos-audio" }
 # The system's sounds (docs/adr/0044-system-sounds.mdx).
 oxyos-sound = { path = "../oxyos-sound" }
 # The input-method engine and the session as its frontend (ADR 0041).

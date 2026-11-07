@@ -147,6 +147,10 @@ struct Session {
     networks: Option<oxyos_compositor::networks::Networks>,
     networks_waker: Option<std::os::fd::RawFd>,
     network_control: Option<zbus::blocking::Connection>,
+    /// `--sound FILE`: the session's sound's part (docs/adr/0056-sound-devices.mdx) over a played
+    /// machine, which a step changes and whose state each step's result says.
+    sound: Option<oxyos_compositor::sound_devices::SoundDevices>,
+    played_sound: Option<std::sync::Arc<oxyos_audio::Played>>,
     /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
@@ -280,6 +284,8 @@ impl Session {
             trash_waker: None,
             controls: None,
             networks: None,
+            sound: None,
+            played_sound: None,
             networks_waker: None,
             input_methods: None,
             input_methods_waker: None,
@@ -507,6 +513,13 @@ impl Session {
         if let Some(methods) = self.input_methods.as_mut() {
             let now = oxyos_compositor::settings::now();
             methods.serve(&mut self.compositor, &mut self.settings, now);
+        }
+        // The sound's outputs and inputs (ADR 0056), before the store takes the requests left.
+        if let Some(sound) = self.sound.as_mut() {
+            sound.serve(
+                &mut self.compositor.scene,
+                self.compositor.controls.as_mut(),
+            );
         }
         // Wi-Fi and networks (ADR 0038), before the store takes the requests that are its own;
         // a change of the daemon's is told to the top bar.
@@ -822,6 +835,7 @@ impl Session {
         }
         // The networks' side, its threads waited for, its waker and its connections given back.
         self.networks = None;
+        self.sound = None;
         if let Some(bus) = self.network_control.take() {
             let _ = bus.close();
         }

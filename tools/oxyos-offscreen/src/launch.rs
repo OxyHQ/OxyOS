@@ -295,6 +295,9 @@ pub enum Step {
     /// The played network daemon changes the machine (`--network-bus`, docs/adr/0038-networks.mdx):
     /// its control interface's `Act`, a cable plugged or an access point appearing.
     Network(String),
+    /// The played sound changes (`--sound`, docs/adr/0056-sound-devices.mdx): headphones plugged
+    /// in, a display unplugged, another program's volume (`oxyos_audio::Played::act`).
+    Sound(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -479,6 +482,7 @@ impl Step {
             Step::WaitNamed { name, ms } => format!("waiting for {name:?} (at most {ms} ms)"),
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
             Step::Network(what) => format!("the network daemon: {what}"),
+            Step::Sound(what) => format!("the sound: {what}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -682,6 +686,7 @@ impl Step {
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
             Step::Network(what) => format!("\"network\":{}", json_string(what)),
+            Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -870,6 +875,11 @@ pub struct Launch {
     /// the played machine's network (`--controls`) follows it too, and each step's result says
     /// what the daemon holds (`network`).
     pub network_bus: Option<String>,
+    /// `--sound FILE`: the session's sound (docs/adr/0056-sound-devices.mdx) is a machine played
+    /// as FILE describes it (`oxyos_audio::Played`), acted on in the turn; the played machine's
+    /// volumes (`--controls`) are its chosen devices', and each step's result says what it is
+    /// then (`sound`).
+    pub sound: Option<PathBuf>,
     /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
     /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
     /// in a directory of the run's own with nothing learned before.
@@ -897,7 +907,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1001,6 +1011,7 @@ impl Launch {
         let (mut reader, mut reader_locale, mut reader_off) = (None, None, false);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
+        let mut sound = None;
         let mut input_methods = None;
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
@@ -1117,6 +1128,10 @@ impl Launch {
                 }
                 Some("--input-methods") => {
                     input_methods = Some(PathBuf::from(args.next().ok_or(USAGE)?));
+                    continue;
+                }
+                Some("--sound") => {
+                    sound = Some(PathBuf::from(args.next().ok_or(USAGE)?));
                     continue;
                 }
                 Some("--network-bus") => {
@@ -1556,6 +1571,10 @@ impl Launch {
                     let path = args.next().and_then(|p| p.to_str()).ok_or(USAGE)?;
                     Step::Menu(path.to_string())
                 }
+                Some("--sound-act") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Sound(what.to_string())
+                }
                 Some("--network") => {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Network(what.to_string())
@@ -1737,6 +1756,7 @@ impl Launch {
                 screenshots,
                 controls,
                 network_bus,
+                sound,
                 input_methods,
                 input_sources_available,
                 outputs: screens,
@@ -4736,6 +4756,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::WaitNamed { .. }
         | Step::Clipboard(_)
         | Step::Network(_)
+        | Step::Sound(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -4898,9 +4919,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             .map(std::os::fd::AsRawFd::as_raw_fd);
         session.input_methods = Some(methods);
     }
+    // The sound played (ADR 0056), acted on in the turn itself, as the controls' machine.
+    if let Some(file) = &launch.sound {
+        let played = std::sync::Arc::new(oxyos_audio::Played::parse(&fs::read_to_string(file)?)?);
+        session.sound = Some(oxyos_compositor::sound_devices::SoundDevices::new(
+            played.clone(),
+        ));
+        session.played_sound = Some(played);
+    }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
         let mut fake = oxyos_controls::Fake::from_file(file.clone())?;
+        if let Some(played) = &session.played_sound {
+            fake = fake.with_sound(played.clone());
+        }
         if let Some(address) = &launch.network_bus {
             fake = fake.with_network_bus(address)?;
         }
@@ -5410,6 +5442,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Sound(_)) => {
+                if let Step::Sound(what) = step {
+                    session
+                        .played_sound
+                        .as_ref()
+                        .ok_or("a sound step needs --sound")?
+                        .act(what)?;
+                }
+                0
+            }
             _ if matches!(step, Step::Clipboard(_)) => {
                 if let (Step::Clipboard(contents), Some(pasteboard)) =
                     (step, session.pasteboard.as_mut())
@@ -5626,7 +5668,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5653,6 +5695,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             session.network_state(),
+            session
+                .played_sound
+                .as_ref()
+                .map_or("null".to_string(), |played| played.machine().to_string()),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(
                 &session.compositor,

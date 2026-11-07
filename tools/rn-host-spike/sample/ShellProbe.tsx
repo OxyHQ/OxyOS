@@ -9,7 +9,15 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
-import { inputSources, network, useInputSourcesState, useNetworkState, useSystemSheets } from './oxyos/system';
+import {
+  inputSources,
+  network,
+  sound as soundApi,
+  useInputSourcesState,
+  useNetworkState,
+  useSoundState,
+  useSystemSheets,
+} from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
@@ -408,6 +416,8 @@ function SessionShell() {
   const { sheets, answer, answerPassword } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
+  // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
+  const sound = useSoundState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
   // One the shell cannot read is refused: it never confirms what it did not show.
@@ -643,8 +653,15 @@ function SessionShell() {
         network.join(ssid);
       },
       openWifiSettings: () => act.menuCommand('system.settings'),
+      // The outputs (ADR 0056): the session plays to the one chosen. Sound Settings opens
+      // Settings as Wi-Fi Settings does.
+      sound,
+      selectOutput: (id) => {
+        soundApi.select('output', id);
+      },
+      openSoundSettings: () => act.menuCommand('system.settings'),
     };
-  }, [told, bezel, networks, act]);
+  }, [told, bezel, networks, sound, act]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;
