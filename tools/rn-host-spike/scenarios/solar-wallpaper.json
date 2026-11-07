@@ -1,5 +1,5 @@
 {
-  "about": "The solar wallpaper (ADR 0012): with the wallpaper's folder given (OXYOS_WALLPAPER), the shell shows the frame of the sun now where the system's time zone is, chosen by the OS (crates/oxyos-solar). At 03:00 in Madrid on the June solstice (01:00 UTC, the sun 26° below the horizon, the morning's darkest twilight: frame 1), the desktop is that night frame, not the day frame the shell shows without the system (frame 8: #4378ff where this checks #121838).",
+  "about": "The sun's wallpaper (ADR 0012, ADR 0048): OxyOS's own Horizon chosen, whose Automatic follows the sun where the system's time zone is, chosen by the OS (crates/oxyos-solar, crates/oxyos-wallpaper). At 03:00 in Madrid on the June solstice (01:00 UTC, the sun 26° below the horizon) the desktop is Horizon's night, not its day (its preview, what a zone with no sun shows): its deep blue sky (#070c22 at the top), where the day's is light.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -7,14 +7,16 @@
     360
   ],
   "shell": "OxyOSShell",
+  "preferences": {
+    "wallpaper": "horizon"
+  },
   "wallpaper": {
-    "folder": "assets/wallpapers/solar-gradients",
     "tz": "Europe/Madrid",
     "now": 1782003600
   },
   "steps": [
     {
-      "name": "the desktop shows the night's frame: the shell was given it",
+      "name": "the desktop shows Horizon's night: the session told the shell the choice and the host chose the sun's variant",
       "do": [
         "press_output",
         [
@@ -25,9 +27,9 @@
       "allow_unchanged": true,
       "expect": {
         "output_pixels": {
-          "1100,400": "#1f295b",
-          "200,600": "#384787",
-          "640,100": "#121838"
+          "200,600": "#070b1b",
+          "640,100": "#070c22",
+          "160,250": "#09102b"
         }
       }
     }

@@ -1,0 +1,67 @@
+{
+  "about": "A display's wallpaper is the person's choice, kept for that display (ADR 0048, decisions 2, 3 and 6), each drawn by its shell at its fit: six displays side by side, the first (the primary, with the dock) a colour (the default `wallpaper`), the others photos of the repository's (`wallpaper.output-N`): the test JPEG (16:9) filling its display, fitted within it over its margin's colour, and stretched to it; the shell's 192-pixel Allo icon centred at its own size, and tiled. At 1.25.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    300,
+    160
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "600x375@1.25,600x375@1.25,600x375@1.25,600x375@1.25,600x375@1.25,600x375@1.25",
+  "preferences": {
+    "appearance": "light",
+    "wallpaper": "color:1f5fd6",
+    "wallpaper.output-2": "photo:fill:000000:{repo}/assets/test-images/p3-5120x2880.jpg",
+    "wallpaper.output-3": "photo:fit:203040:{repo}/assets/test-images/p3-5120x2880.jpg",
+    "wallpaper.output-4": "photo:center:102030:{repo}/tools/shell-preview/assets/apps/allo.png",
+    "wallpaper.output-5": "photo:tile:102030:{repo}/tools/shell-preview/assets/apps/allo.png",
+    "wallpaper.output-6": "photo:stretch:000000:{repo}/assets/test-images/p3-5120x2880.jpg"
+  },
+  "steps": [
+    {
+      "name": "each display shows its own wallpaper at its fit: the colour; the photo filling (cropped), fitted (its margin's colour below it) and stretched (each its own place of the gradient's rings); the icon centred at its size and tiled over their colour",
+      "do": [
+        "wait",
+        1500
+      ],
+      "expect": {
+        "output_pixels": {
+          "25,75": "#1f5fd6",
+          "575,250": "#1f5fd6"
+        },
+        "screen_pixels": {
+          "2": {
+            "187,75": "#00b485",
+            "75,250": "#00bf62",
+            "375,312": "#ffad00"
+          },
+          "3": {
+            "300,367": "#203040",
+            "187,75": "#00a282",
+            "75,250": "#00c066"
+          },
+          "4": {
+            "300,200": "#ffffff",
+            "250,150": "#ffffff",
+            "150,60": "#102030",
+            "350,350": "#102030",
+            "575,50": "#102030",
+            "25,360": "#102030"
+          },
+          "5": {
+            "75,75": "#ffffff",
+            "325,75": "#ffffff",
+            "225,225": "#102030",
+            "475,225": "#102030"
+          },
+          "6": {
+            "187,75": "#00a882",
+            "75,250": "#00c16f",
+            "300,367": "#ffad00"
+          }
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

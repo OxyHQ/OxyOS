@@ -1,0 +1,133 @@
+{
+  "about": "Each desktop its own wallpaper (ADR 0048, decision 3): with Show on all desktops off, the first desktop shows the display's choice (Blue) and the second the one kept for it (`wallpaper.output-1.2`, a red); the session tells the shell what the active desktop shows as it changes, and the shell fades it in. Added from Mission Control, the second desktop is reached and left by three fingers flicked across. At 1.25.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "preferences": {
+    "appearance": "light",
+    "wallpaper": "color:1f5fd6",
+    "wallpaper_all_desktops": "false",
+    "wallpaper.output-1.2": "color:d6451f"
+  },
+  "steps": [
+    {
+      "name": "the first desktop shows the display's wallpaper, Blue",
+      "do": [
+        "wait",
+        1500
+      ],
+      "expect": {
+        "workspaces": [
+          1,
+          0
+        ],
+        "output_pixels": {
+          "1375,500": "#1f5fd6",
+          "50,150": "#1f5fd6"
+        },
+        "react": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Super+↑: Mission Control",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "a second desktop added",
+      "do": [
+        "press_named",
+        "Añadir escritorio"
+      ],
+      "expect": {
+        "workspaces": [
+          2,
+          0
+        ],
+        "react": {}
+      }
+    },
+    {
+      "name": "Super+↑ again: closed",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "three fingers flicked left: the second desktop, its own wallpaper faded in",
+      "do": [
+        "swipe",
+        [
+          3,
+          -60,
+          0,
+          3,
+          120
+        ]
+      ],
+      "expect": {
+        "workspaces": [
+          2,
+          1
+        ],
+        "output_pixels": {
+          "1375,500": "#d6451f",
+          "800,500": "#d6451f",
+          "50,150": "#d6451f"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "flicked right: the first desktop, Blue again; the window has the keyboard again, and the session kept every choice as it was",
+      "do": [
+        "swipe",
+        [
+          3,
+          60,
+          0,
+          3,
+          120
+        ]
+      ],
+      "expect": {
+        "workspaces": [
+          2,
+          0
+        ],
+        "output_pixels": {
+          "1375,500": "#1f5fd6",
+          "50,150": "#1f5fd6"
+        },
+        "react": {},
+        "focus_surface": 1,
+        "preferences_file": {
+          "wallpaper": "color:1f5fd6",
+          "wallpaper_all_desktops": "false",
+          "wallpaper.output-1.2": "color:d6451f"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

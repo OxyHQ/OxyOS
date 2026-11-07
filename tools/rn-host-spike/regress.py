@@ -422,7 +422,8 @@ Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
 `wallpaper_all_desktops`, and the session's own lines, `wallpaper.DISPLAY` and
-`wallpaper.DISPLAY.N`). A scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
+`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). A
+scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
 follows (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on) and the time zone whose sun a
 `sun` wallpaper's Automatic follows (ADR 0012).
 
@@ -4421,7 +4422,11 @@ def main():
     # a step's frames settle.
     given = {"appearance": "light", "caret_blink": "false", **scenario.get("preferences", {}),
              **scenario.get("settings", {}).get("preferences", {})}
-    preferences.write_text("".join(f"{key} = {value}\n" for key, value in given.items()))
+    # "{repo}" in a value is the repository's root: a wallpaper of a file of its own (ADR 0048's
+    # `photo:FIT:RRGGBB:PATH` takes an absolute path).
+    repo = str(pathlib.Path(__file__).resolve().parents[2])
+    preferences.write_text("".join(f"{key} = {str(value).replace('{repo}', repo)}\n"
+                                   for key, value in given.items()))
     command += ["--preferences", str(preferences)]
     if "settings" in scenario:
         command += ["--grant-settings", scenario["settings"]["app"]]
