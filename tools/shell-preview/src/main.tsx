@@ -5,13 +5,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BloomProvider } from "@oxy.so/bloom/provider";
 import { Shell, type ShellCommand } from "../../../apps/shell/src/Shell";
 import "./styles.css";
-import { previewNetworks, previewSnapshot, previewSound, previewWallpaper } from "./fixtures";
+import { previewBluetooth, previewNetworks, previewSnapshot, previewSound, previewWallpaper } from "./fixtures";
 import type {
   ShellActions,
   ShellControls,
 } from "../../../apps/shell/src/model";
 import { isProtected, type NetworkState } from "../../../apps/shell/src/network";
 import type { SoundState } from "../../../apps/shell/src/sound";
+import { bluetoothSummary, type BluetoothState } from "../../../apps/shell/src/bluetooth";
 import type { SheetText } from "../../../apps/shell/src/sheet";
 import { shellMessages } from "../../../apps/shell/src/messages";
 
@@ -90,7 +91,6 @@ function Preview() {
     },
     power: { battery: "discharging", percent: 64, onAC: false, minutes: 200 },
     network: { wifi: "connected", signal: 73, ssid: "Oxy", wired: false },
-    bluetooth: { state: "on", connected: 1 },
   });
   // The played networks (docs/adr/0038-networks.mdx): a known or open network is joined in a
   // moment; a protected one asks its password in the sheet (one starting "mal" is wrong); one
@@ -138,6 +138,29 @@ function Preview() {
       setNetworks((current) => ({ ...current, joining: ssid }));
       ask({ kind: "wifi-password", ssid, security: network.security, incorrect: false });
     }
+  };
+  // The played Bluetooth (docs/adr/0055-bluetooth.mdx): a paired device connects or disconnects in
+  // a moment; the mouse is out of reach, and its connection fails in the session's sheet.
+  const [bluetoothDevices, setBluetoothDevices] = useState<BluetoothState>(previewBluetooth);
+  const changeDevice = (id: string, change: Partial<BluetoothState["devices"][number]>) =>
+    setBluetoothDevices((current) => ({
+      ...current,
+      devices: current.devices.map((device) => (device.id === id ? { ...device, ...change } : device)),
+    }));
+  const connectDevice = (id: string) => {
+    const device = bluetoothDevices.devices.find((candidate) => candidate.id === id);
+    if (!device) return;
+    changeDevice(id, { busy: "connecting" });
+    window.setTimeout(() => {
+      if (device.kind === "mouse") {
+        changeDevice(id, { busy: null });
+        ask({ kind: "bluetooth-failed", name: device.name, device: device.kind, reason: "timeout" });
+      } else changeDevice(id, { busy: null, connected: true });
+    }, 1200);
+  };
+  const disconnectDevice = (id: string) => {
+    changeDevice(id, { busy: "disconnecting" });
+    window.setTimeout(() => changeDevice(id, { busy: null, connected: false }), 600);
   };
   const shownSheet = sheet && {
     id: sheet.id,
@@ -201,6 +224,18 @@ function Preview() {
         },
       })),
     openSoundSettings: () => console.info("[shell preview] Sound settings intent"),
+    bluetooth: bluetoothSummary(bluetoothDevices),
+    bluetoothDevices,
+    setBluetooth: (on) =>
+      setBluetoothDevices((current) => ({
+        ...current,
+        adapter: current.adapter && { ...current.adapter, powered: on },
+        // Off, every device is disconnected.
+        devices: on ? current.devices : current.devices.map((device) => ({ ...device, connected: false, busy: null })),
+      })),
+    connectBluetooth: connectDevice,
+    disconnectBluetooth: disconnectDevice,
+    openBluetoothSettings: () => console.info("[shell preview] Bluetooth settings intent", "oxyos-settings://bluetooth"),
   };
   const [now, setNow] = useState(() => new Date());
   const [command, setCommand] = useState<ShellCommand>();

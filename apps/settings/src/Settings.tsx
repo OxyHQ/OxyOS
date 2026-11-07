@@ -18,6 +18,7 @@ import {
 import {
   RiAccessibilityLine,
   RiAddLine,
+  RiBluetoothLine,
   RiCalendarLine,
   RiCheckLine,
   RiComputerLine,
@@ -133,6 +134,7 @@ import {
 } from "./sound";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import { WallpaperPage } from "./WallpaperPage";
+import { BluetoothPage } from "./BluetoothPage";
 import { accountView, type AccountView } from "./account";
 import {
   formatSize as formatBytes,
@@ -2238,20 +2240,19 @@ export function Settings({
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
   const props = { snapshot, actions, strings, locale };
   const words = strings.pages;
-  // Wi-Fi and Network first, as a Mac lists them, only with the platform's `network` grant.
+  // Wi-Fi, Bluetooth and Network first, as a Mac lists them: Wi-Fi and Network only with the
+  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx).
+  const networked = snapshot.network !== undefined;
+  const bluetooth = snapshot.bluetooth !== undefined;
+  const connectionItems: SettingsNavGroup["items"] = [
+    ...(networked ? [{ key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" }] : []),
+    ...(bluetooth ? [{ key: "bluetooth", label: words.bluetooth, icon: RiBluetoothLine, page: "bluetooth" }] : []),
+    ...(networked ? [{ key: "network", label: words.network, icon: RiGlobalLine, page: "network" }] : []),
+  ];
   const connections: SettingsNavGroup[] =
-    snapshot.network === undefined
+    connectionItems.length === 0
       ? []
-      : [
-          {
-            key: "connections",
-            label: strings.groups.connections,
-            items: [
-              { key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" },
-              { key: "network", label: words.network, icon: RiGlobalLine, page: "network" },
-            ],
-          },
-        ];
+      : [{ key: "connections", label: strings.groups.connections, items: connectionItems }];
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
@@ -2341,6 +2342,7 @@ export function Settings({
           wifi: { title: words.wifi, content: <WifiPage {...props} /> },
           network: { title: words.network, content: <NetworkPage {...props} /> },
         }),
+    ...(bluetooth ? { bluetooth: { title: words.bluetooth, content: <BluetoothPage {...props} /> } } : {}),
   };
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

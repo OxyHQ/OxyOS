@@ -37,6 +37,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Wi-Fi and networks through NetworkManager (docs/adr/0038-networks.mdx).
 oxyos-networks = { path = "../oxyos-networks" }
+# Bluetooth (docs/adr/0055-bluetooth.mdx): BlueZ followed and the pairing agent served by
+# oxyos-bluetooth on a thread of the session's, its commands sent over an async channel.
+oxyos-bluetooth = { path = "../oxyos-bluetooth" }
+async-channel = "2"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "fs"] }
 # Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): encoded as PNG (image-rs's png, as
 # oxyos-image decodes), named by the local time (jiff, as oxyos-solar finds the sun).

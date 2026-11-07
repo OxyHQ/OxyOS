@@ -28,8 +28,10 @@ oxyos-audio = { path = "../../crates/oxyos-audio" }
 # the session tells of them.
 oxyos-preferences = { path = "../../crates/oxyos-preferences" }
 serde_json = "1"
-# A played NetworkManager's control interface (`--network-bus`, docs/adr/0038-networks.mdx).
+# A played NetworkManager's control interface (`--network-bus`, docs/adr/0038-networks.mdx), and
+# the played BlueZ (`oxyos-fake-bluez`, docs/adr/0055-bluetooth.mdx), which serves its bus.
 zbus = "5"
+serde = "1"
 # zbus's reactor, started before the descriptors are counted.
 async-io = "2"
 # The run's home, which a file chooser's answer is checked against (ADR 0029, decision 8).
@@ -37,6 +39,11 @@ oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.
 evdev = "0.13"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "process"] }
+
+[dev-dependencies]
+# The session's connection to BlueZ, tested against the played one (tests/bluetooth_*.rs).
+oxyos-bluetooth = { path = "../../crates/oxyos-bluetooth" }
+async-channel = "2"
 
 [lints]
 workspace = true

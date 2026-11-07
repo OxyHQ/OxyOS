@@ -1,7 +1,8 @@
 // Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
 // and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), the shell's system sheets,
-// and the capabilities an application asks for at first use. The session decides; nothing here
+// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), Wi-Fi and networks
+// (`network`), Bluetooth (`bluetooth`), the shell's system sheets, and the capabilities an
+// application asks for at first use. The session decides; nothing here
 // grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -15,6 +16,10 @@ let lastState = null;
 /** The network as the session last told it (docs/adr/0038-networks.mdx), and who follows it. */
 const networkListeners = new Set();
 let lastNetwork = null;
+
+/** Bluetooth as the session last told it (docs/adr/0055-bluetooth.mdx), and who follows it. */
+const bluetoothListeners = new Set();
+let lastBluetooth = null;
 
 /** The input sources as the session last told them (docs/adr/0041-input-methods.mdx), and who
     follows them. */
@@ -37,6 +42,11 @@ function toldInputSources(state) {
   for (const listener of inputSourcesListeners) listener(state);
 }
 
+function toldBluetooth(state) {
+  lastBluetooth = state;
+  for (const listener of bluetoothListeners) listener(state);
+}
+
 function toldNetwork(state) {
   lastNetwork = state;
   for (const listener of networkListeners) listener(state);
@@ -53,6 +63,7 @@ if (native) {
     if (serial === 0) {
       if (answer && answer.updateState) told(answer.updateState);
       if (answer && answer.network) toldNetwork(answer.network);
+      if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
       if (answer && answer.inputSources) toldInputSources(answer.inputSources);
       if (answer && answer.sound) toldSound(answer.sound);
       if (answer && typeof answer.inputLevel === 'number') {
@@ -69,6 +80,7 @@ if (native) {
     waiting.delete(serial);
     if (answer && answer.updateState) told(answer.updateState);
     if (answer && answer.network) toldNetwork(answer.network);
+    if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
     if (answer && answer.inputSources) toldInputSources(answer.inputSources);
     if (answer && answer.sound) toldSound(answer.sound);
     asked.resolve(answer);
@@ -153,6 +165,40 @@ export function useNetworkState() {
   React.useEffect(() => {
     const unsubscribe = network.subscribe(setState);
     network.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the shell (its `shell` grant) and Settings (the
+ * `bluetooth` grant) ask the session, which alone speaks to BlueZ and is the machine's pairing
+ * agent. The state is told as it changes; a connection is answered once it is done
+ * (`{connected}`, `{paired}` or `{failed: {reason}}`), any code a pairing needs asked or shown in
+ * the shell's system sheets on the way. Settings holds discovery while its Bluetooth page is open
+ * (`discover(true)`, then `discover(false)`); the session ends it when Settings goes.
+ */
+export const bluetooth = {
+  state: () => ask({ bluetooth: {} }),
+  setPower: (on) => ask({ bluetoothPower: { on } }),
+  discover: (on) => ask({ bluetoothDiscover: { on } }),
+  connect: (id) => ask({ bluetoothConnect: { id } }),
+  disconnect: (id) => ask({ bluetoothDisconnect: { id } }),
+  forget: (id) => ask({ bluetoothForget: { id } }),
+  rename: (id, name) => ask({ bluetoothRename: { id, name } }),
+  current: () => lastBluetooth,
+  subscribe(listener) {
+    bluetoothListeners.add(listener);
+    return () => bluetoothListeners.delete(listener);
+  },
+};
+
+/** Bluetooth as it changes, for a view: asked once, then followed. */
+export function useBluetoothState() {
+  const [state, setState] = React.useState(lastBluetooth);
+  React.useEffect(() => {
+    const unsubscribe = bluetooth.subscribe(setState);
+    bluetooth.state();
     return unsubscribe;
   }, []);
   return state;
@@ -301,5 +347,11 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ password: { sheet, password } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword };
+  // A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the PIN or passkey the person
+  // typed, to the session alone, citing the press or key that submitted it, as a password is.
+  const answerCode = React.useCallback((sheet, code) => {
+    native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword, answerCode };
 }

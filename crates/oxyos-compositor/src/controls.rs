@@ -40,6 +40,8 @@ pub struct Controls {
     keyboard_before: u32,
     /// What follows the system's changes (a session's), stopped when the controls go.
     following: Option<Following>,
+    /// Bluetooth is told by the Bluetooth part (`bluetooth_is`, ADR 0055), which follows BlueZ.
+    bluetooth_followed: bool,
 }
 
 /// A level as the scene keeps it.
@@ -108,16 +110,18 @@ impl Controls {
             keyboard_by_firmware: false,
             keyboard_before: FULL_LEVEL,
             following: None,
+            bluetooth_followed: false,
         }
     }
 
     /// Follows the system's changes (a session's: its worker on a thread of its own), each read
-    /// again as it changes: the bus's services (NetworkManager too where `network`, when no other
-    /// part follows it) and the backlights under `sysfs`; the volumes are told by the sound's part
-    /// ([`Self::audio_is`]). Nothing for an inline worker.
-    pub fn follow(&mut self, network: bool, sysfs: PathBuf) -> std::io::Result<()> {
+    /// again as it changes: the bus's services (UPower; NetworkManager and BlueZ too where `own`,
+    /// when no other part follows them, as at the login screen) and the backlights under `sysfs`;
+    /// the volumes are told by the sound's part ([`Self::audio_is`]). Nothing for an inline
+    /// worker.
+    pub fn follow(&mut self, own: bool, sysfs: PathBuf) -> std::io::Result<()> {
         if let Some(commands) = self.worker.commands() {
-            self.following = Some(Following::start(commands, network, sysfs)?);
+            self.following = Some(Following::start(commands, own, sysfs)?);
         }
         Ok(())
     }
@@ -142,6 +146,13 @@ impl Controls {
     /// reading of the daemon again.
     pub fn network_is(&mut self, scene: &mut Scene, network: Network) {
         self.outcome(scene, Outcome::Network(network));
+    }
+
+    /// Bluetooth as the Bluetooth part has it (ADR 0055), which alone follows BlueZ in a session:
+    /// told as if read here.
+    pub fn bluetooth_is(&mut self, scene: &mut Scene, bluetooth: oxyos_controls::Bluetooth) {
+        self.bluetooth_followed = true;
+        self.outcome(scene, Outcome::Bluetooth(bluetooth));
     }
 
     /// A request as the Control Center's (Settings' Sound page sets a volume this way, so the
@@ -175,6 +186,11 @@ impl Controls {
             self.request(scene, request);
         }
         for outcome in self.worker.outcomes() {
+            // Bluetooth followed by its own part: what the worker read of it (as the Control
+            // Center opens) is not a second word on it.
+            if self.bluetooth_followed && matches!(outcome, Outcome::Bluetooth(_)) {
+                continue;
+            }
             self.outcome(scene, outcome);
         }
     }
@@ -347,7 +363,7 @@ pub(crate) fn again(
 }
 
 impl Following {
-    fn start(commands: Sender<Command>, network: bool, sysfs: PathBuf) -> std::io::Result<Self> {
+    fn start(commands: Sender<Command>, own: bool, sysfs: PathBuf) -> std::io::Result<Self> {
         let stop = Arc::new(Stop::new()?);
         let mut threads = Vec::new();
         let spawn = |name: &str, run: Box<dyn FnOnce() + Send>| {
@@ -360,9 +376,7 @@ impl Following {
                 Box::new(move || {
                     let socket = oxyos_networks::bus_socket(None);
                     again("the system bus", &stop, socket, |stop| {
-                        follow::bus(network, stop.fd(), |change| {
-                            commands.send(read(change)).is_ok()
-                        })
+                        follow::bus(own, stop.fd(), |change| commands.send(read(change)).is_ok())
                     });
                 }),
             )?);
