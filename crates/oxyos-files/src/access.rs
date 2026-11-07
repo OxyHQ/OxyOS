@@ -13,11 +13,12 @@
 //! - **A move between volumes** copies and then deletes what it moved, as Android does when a
 //!   rename cannot.
 //! - **Copies** keep links as links: a copied folder's link into somewhere else stays a link, and
-//!   nothing is read through it.
+//!   nothing is read through it. They keep every item's `user.` attributes, its tags among them
+//!   (docs/adr/0049-file-tags.mdx), so a move between volumes keeps them as a rename does.
 //! - **Open files** (`FileHandle`) are numbered; each keeps its own offset.
 
 use crate::scope::Access;
-use crate::{entries, uri, Error, Scope};
+use crate::{entries, tags, uri, Error, Scope};
 use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -571,9 +572,12 @@ fn copy_into_place(from: &Path, to: &Path, overwrite: bool) -> Result<(), Error>
     placed
 }
 
-/// Copies an item to `to`, where nothing is: a file's content and mode, a link as a link, a
-/// folder and everything in it.
+/// Copies an item to `to`, where nothing is: a file's content, mode and `user.` attributes (its
+/// tags among them, docs/adr/0049-file-tags.mdx), a link as a link, a folder with its attributes
+/// and everything in it. The attributes are given while the copy is still the user's to write
+/// (a read-only item's mode comes last), since Linux checks write access to set one.
 fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
+    use std::os::unix::fs::OpenOptionsExt;
     let own = std::fs::symlink_metadata(from)?;
     if own.file_type().is_symlink() {
         std::os::unix::fs::symlink(std::fs::read_link(from)?, to)?;
@@ -583,9 +587,19 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
             let item = item?;
             copy_tree(&item.path(), &to.join(item.file_name()))?;
         }
+        tags::copy_to_folder(from, to)?;
         std::fs::set_permissions(to, own.permissions())?;
     } else {
-        std::fs::copy(from, to)?;
+        let mut source = File::open(from)?;
+        let mut copy = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(to)?;
+        // The kernel's copy (copy_file_range), as std::fs::copy makes it.
+        std::io::copy(&mut source, &mut copy)?;
+        tags::copy_to_file(from, &copy)?;
+        copy.set_permissions(own.permissions())?;
     }
     Ok(())
 }

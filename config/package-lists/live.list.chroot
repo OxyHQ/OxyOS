@@ -1,7 +1,8 @@
 # OxyOS target-runtime manifest: the Debian base the native platform runs on.
-# There is no graphical session yet. Do not add a display server, compositor,
-# greeter, browser shell or desktop application here: none of them run on the
-# OxyOS display protocol, and scripts/check-image-config.py rejects them.
+# The graphical session is not in the image yet, but the libraries it loads are.
+# Do not add a display server, compositor, greeter, toolkit, browser shell or
+# desktop application here: none of them run on the OxyOS display protocol, and
+# scripts/check-image-config.py rejects them.
 #
 # One manifest for every architecture (amd64, arm64). What only one architecture has is in a
 # live-build conditional, "#if ARCHITECTURES <arch>" to "#endif" (not nested); everything else
@@ -31,6 +32,52 @@ network-manager
 pipewire-audio
 upower
 bluez
+# The clock, from the network's time servers (SNTP): systemd's own client, enabled by its package.
+# Settings shows whether the clock is synchronized from it (docs/adr/0019-settings.mdx); a
+# machine that lost its time otherwise fails TLS, and with it the Oxy account's sign-in.
+systemd-timesyncd
+
+# What the OxyOS runtime loads: oxyos-session, oxyos-login and the Bloom host link these, or open
+# them, on the machine that runs them (each binary's NEEDED and /proc/<pid>/maps, on an installed
+# ThinkPad). The session and the runtime are not packaged into the image yet (docs/adr/0023-
+# installing-oxyos.mdx, step 5); a machine installed from it, which they are deployed onto, must
+# not need apt for its libraries.
+# - Vulkan: the loader, and Mesa's drivers (Intel's, AMD's, NVK; lavapipe on the CPU), which the
+#   compositor and the Bloom host's painter open for their GPU alone (docs/adr/0031-gpu-buffers.mdx,
+#   decision 14). Debian's Mesa links its X11 and Wayland window-system integration, which brings
+#   their client libraries: inert residue, reported by the audit and refused by its --gate
+#   (docs/iso-build.mdx, "Known residue").
+mesa-vulkan-drivers
+libvulkan1
+# - Input: libinput, the compositor's devices (it brings libwacom and its quirks).
+libinput10
+# - Text: ICU (Hermes and React Native's text), HarfBuzz and FreeType (the Bloom host's shaping
+#   and glyphs).
+libicu76
+libharfbuzz0b
+libfreetype6
+# - Fonts the Bloom host falls back to: Noto Sans CJK (Chinese, Japanese, Korean) and Noto Color
+#   Emoji (docs/adr/0041-input-methods.mdx). Bloom's own faces are in the runtime.
+fonts-noto-cjk
+fonts-noto-color-emoji
+# - The input-method engine's run-time packages (docs/adr/0041-input-methods.mdx, decision 1;
+#   tools/input-methods/build.sh's RUNTIME_PACKAGES): fcitx5 itself is built toolkit-free and
+#   installed with the runtime, as Debian's fcitx5 packages link Cairo, Pango, X11 and Wayland.
+#   anthy-common recommends kasumi, a GTK 3 program: archives/no-display-stack.pref.chroot pins
+#   it out.
+dbus-daemon
+libjson-c5
+libfmt10
+libboost-iostreams1.83.0
+libhangul1
+libhangul-data
+libanthy1t64
+anthy-common
+xkb-data
+iso-codes
+# - The screen reader's voice (docs/adr/0014-screen-reader.mdx, decision 3): the reader runs
+#   espeak-ng for each utterance, through PipeWire's PulseAudio server.
+espeak-ng
 
 # Utilities
 bash-completion

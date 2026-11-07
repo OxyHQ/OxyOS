@@ -1,5 +1,5 @@
 {
- "about": "Dropsea's list view's column headers (docs/adr/0039-keyboard-access.mdx), as Finder's: they are no stops of the keyboard's Tab, which goes from the items to the toolbar and back, as a Mac's table headers are not in the key view loop; they stay in the tree, buttons named by their column and its order, which a pointer and the screen reader press (the keyboard sorts from View > Sort By). Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (1280 × 720).",
+ "about": "Dropsea's list view's column headers (docs/adr/0039-keyboard-access.mdx), as Finder's: they are no stops of the keyboard's Tab, which goes from the items to the toolbar and back, as a Mac's table headers are not in the key view loop; they stay in the tree, buttons named by their column and its order, which a pointer and the screen reader press (the keyboard sorts from View > Sort By). Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (1280 × 720). The sidebar's Tags section (OxyHQ/Dropsea#43, Finder's: each favourite tag a row with its actions button, then All Tags…) comes after Locations, so Tab goes through its stops before the sidebar's Dropsea button.",
  "locale": "en_US.UTF-8",
  "module": "Dropsea",
  "window": [
@@ -196,7 +196,415 @@
    }
   },
   {
-   "name": "Tab: sidebar-logo, said once",
+   "name": "Tab: the Tags section's Red, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Red",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Red, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Red": 1,
+     "blur@Trash": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Red's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Red",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Red, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Red": 1,
+     "blur@Red": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's Orange, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Orange",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Orange, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Orange": 1,
+     "blur@Red": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Orange's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Orange",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Orange, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Orange": 1,
+     "blur@Orange": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's Yellow, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Yellow",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Yellow, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Yellow": 1,
+     "blur@Orange": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Yellow's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Yellow",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Yellow, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Yellow": 1,
+     "blur@Yellow": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's Green, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Green",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Green, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Green": 1,
+     "blur@Yellow": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Green's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Green",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Green, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Green": 1,
+     "blur@Green": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's Blue, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Blue",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Blue, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Blue": 1,
+     "blur@Green": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Blue's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Blue",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Blue, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Blue": 1,
+     "blur@Blue": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's Purple, said once, the sidebar scrolling it into view",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Purple",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Purple, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@Blue": 1,
+     "focus@Purple": 1,
+     "scroll@sidebar-scroll": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Purple's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Purple",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Purple, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Purple": 1,
+     "blur@Purple": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's Grey, said once, the sidebar scrolling it into view",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Grey",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Grey, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@Purple": 1,
+     "focus@Grey": 1,
+     "scroll@sidebar-scroll": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Grey's actions button (its menu, closed), said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Grey",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Grey, collapsed, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@Grey": 1,
+     "blur@Grey": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the Tags section's All Tags…, said once, the sidebar scrolling it into view",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "All Tags…",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "All Tags…, button",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@Grey": 1,
+     "focus@All Tags…": 1,
+     "scroll@sidebar-scroll": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: sidebar-logo, said once, after the Tags section",
    "do": [
     "key",
     [
@@ -218,7 +626,7 @@
     "announcements": [],
     "react": {
      "focus@sidebar-logo": 1,
-     "blur@Trash": 1
+     "blur@All Tags…": 1
     }
    }
   },

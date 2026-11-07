@@ -467,6 +467,13 @@ messages! {
         // the application's id on the first line, then the files' `file://` URIs one a line, in
         // chunks (`index` 0 begins it, `last` sends it).
         250 => OpenFiles { input: u64, index: u16, last: bool, text: PreeditText },
+        // Version 28 (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 8). The volume a file
+        // the drag `drag` carries is on, before its StartDrag, as DragFileType says its type (in
+        // chunks; distinct, at most MAX_DRAG_TYPES): the file system the item itself is on, as the
+        // platform names it (`MAJOR:MINOR`, its device number), never its path. Targets are told
+        // them (DragOfferFileVolume), so one taking files into a folder prefers a move when every
+        // file is on that folder's volume and a copy when one is not, as Finder does.
+        252 => DragFileVolume { drag: u32, index: u16, last: bool, text: PreeditText },
         // Accessibility (ADR 0003, version 13): a node's place among the items of its collection
         // in a snapshot being sent, 1-based of `count` (a list's row: "3 of 21"), as Android's
         // CollectionItemInfo and VoiceOver say it.
@@ -657,7 +664,7 @@ messages! {
         // minimized nor hidden with its application. The dock's top corners are square while one
         // does, as the window's own are.
         81 => OutputCovered { output: u32, covered: bool },
-        // To the session's shell (docs/adr/0048-wallpapers.mdx, version 28): the wallpaper the
+        // To the session's shell (docs/adr/0048-wallpapers.mdx, version 29): the wallpaper the
         // person chose for what `output` shows now (its active desktop's, else its display's,
         // else the default), `oxyos_preferences::wallpaper::Choice`'s text in chunks as
         // Preference's, for every output when the shell connects and whenever one changes. Each
@@ -817,7 +824,9 @@ messages! {
         // surface-local, as a Pointer's.
         // `file_types` (version 26): how many media types of the files it carries follow the
         // offered types (DragOfferFileType), each a dragged file's as its source declares it.
-        240 => DragEnter { surface: u32, offer: u32, serial: u64, x: i32, y: i32, actions: DragActions, types: u8, modifiers: u8, file_types: u8 },
+        // `file_volumes` (version 28): how many volumes of its files follow those
+        // (DragOfferFileVolume).
+        240 => DragEnter { surface: u32, offer: u32, serial: u64, x: i32, y: i32, actions: DragActions, types: u8, modifiers: u8, file_types: u8, file_volumes: u8 },
         241 => DragOfferType { offer: u32, mime: TextChunk },
         242 => DragMotion { surface: u32, offer: u32, x: i32, y: i32, time_ns: u64, modifiers: u8 },
         243 => DragLeave { surface: u32, offer: u32 },
@@ -842,6 +851,10 @@ messages! {
         // To a target (version 26, ADR 0035): the media type of a file the drag carries, after its
         // DragEnter's offered types, `file_types` of them, each in chunks as DragFileType's.
         252 => DragOfferFileType { offer: u32, index: u16, last: bool, text: PreeditText },
+        // To a target (version 28, docs/adr/0047-finder-drags-and-the-desktop.mdx): a volume the
+        // drag's files are on, after its files' types, `file_volumes` of them, each in chunks as
+        // DragFileVolume's.
+        253 => DragOfferFileVolume { offer: u32, index: u16, last: bool, text: PreeditText },
     }
 }
 

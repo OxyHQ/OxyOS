@@ -1,0 +1,127 @@
+---
+title: "ADR 0047: Finder's drags, and the desktop's files"
+description: Files and folders dragged as on a Mac — onto a folder, a sidebar place or a path bar segment in Dropsea, onto another window, onto the desktop and back, onto the dock — with Finder's rules (a move on the same volume, a copy onto another; Option copies, Command moves), spring-loaded folders, Finder's conflict alert, progress that can be stopped, and Undo for moves and copies. The desktop shows the items of ~/Desktop as a Mac's does, drawn by the shell on the platform's file service. Protocol version 28.
+order: 56
+---
+
+# ADR 0047: Finder's drags, and the desktop's files
+
+Status: **accepted**. Builds on [ADR 0028](./0028-file-access) (files, places and the Trash through `expo-file-system` and Bloom's adapter; the home's standard folders stay), [ADR 0035](./0035-drag-and-drop) (drag and drop between applications; the drag's image; files' types), [ADR 0034](./0034-the-dock) (the dock's Trash and its application icons, which open files dropped on them), [ADR 0009](./0009-session-shell) (the shell) and [ADR 0044](./0044-system-sounds) (the Trash's sounds).
+
+## Problem
+
+The owner, on 7 November 2026: "todavía no puedo arrastrar archivos/carpetas a otras carpetas o al desktop como en macOS". What a Mac does and OxyOS did not:
+
+- **The desktop has no files.** On a Mac the desktop is a folder, `~/Desktop`, shown as icons over the wallpaper: dragged onto, out of, arranged, opened. OxyOS's desktop is only its wallpaper, so a file has nowhere to be dropped "on the desktop". [ADR 0028](./0028-file-access) left "files on the desktop" out, and gave the shell no file access at all.
+- **Dropsea takes a drop on a folder in its items and on nothing else.** Finder's sidebar places (Desktop, Documents, Downloads, a volume, the Trash) and its path bar take drops too, and a folder held under a drag opens (spring-loaded folders). Dropsea's sidebar is Bloom's, whose rows take only Bloom's own row drags; Dropsea has no path bar.
+- **Every drop on a folder prefers a move.** Finder moves on the same volume and copies onto another, the pointer badged with a green plus for a copy. A target cannot know before the drop where the dragged files are: it sees their types, never their URIs ([ADR 0035](./0035-drag-and-drop), decision 4).
+- **A name already taken refuses the item**, saying so in the status bar, where Finder asks: Keep Both, Stop or Replace. A long copy shows nothing and cannot be stopped. Undo takes back moves but not copies.
+
+## What a Mac does
+
+- **The desktop** is Finder's window onto `~/Desktop`, beneath every window: icons laid out from the top right, down and then leftward, each its picture (64 points by default) over its name in white on the wallpaper, up to two lines, cut in the middle; selected, the picture on a grey rounded square and the name on a blue (inactive: grey) rounded pill. A click selects, Shift and Command add, a band from the background selects what it touches, a double click opens, an icon dragged elsewhere on the desktop stays where it is let go (on the grid with Snap to Grid). Command-Delete puts the selection in the Trash, Command-O opens, the arrows move the selection, VoiceOver reads each icon.
+- **Dragging files** (`NSDraggingSession`, Finder as destination): a drop on a folder, on a sidebar place or a path bar item goes into that folder; on the same volume it moves, onto another it copies; Option forces a copy, Command a move; dropped on what is dragged, nothing.
+- **Spring-loaded folders**: a folder, a sidebar place or a path bar item held under a drag for the spring-loading delay (a setting, about half a second by default) blinks and opens in its window; the drag goes on. If the drag then leaves the window or ends without a drop in it, the window goes back to where it was.
+- **A name taken**: "An item named “notes.txt” already exists in this location. Do you want to replace it with the one you're moving?" with Keep Both (the new one named `notes 2.txt`), Stop and Replace, and Apply to All when several clash.
+- **Progress**: an operation that takes more than a moment shows a progress window (in Finder's toolbar's pie too) with its items and a stop button; stopped, what was done stays.
+- **Undo**: Edit › Undo takes back a move (the items go back) and a copy (the copies go to the Trash); Redo does it again.
+
+## Decision
+
+### The desktop
+
+1. **The shell shows the items of `~/Desktop` as a Mac's desktop does**, in `apps/shell` with Bloom, beneath every window, on the display that has the dock (the primary, [ADR 0018](./0018-several-displays)), in the area between the top bar and the dock. The desktop is the person's `desktop` place ([ADR 0028](./0028-file-access), decision 5); with none (no `XDG_DESKTOP_DIR` and no `~/Desktop`) it shows only the wallpaper. Items whose names begin with a dot are not shown, as on a Mac.
+
+2. **The shell has the platform's file service** (amending [ADR 0028](./0028-file-access), decision 1, *Who has it*): the shell's window, as an application's, has `expo-file-system` and the adapter's `files` (the places and the Trash), with the scope of decision 2. Its own folders (`Paths.document`, `Paths.cache`) are its package's (`so.oxy.shell`), as its pipeline cache already is. The login screen still has none.
+
+3. **Its icons, as a Mac's:** a picture of 64 logical pixels (a folder's, a document's by its kind, an image's thumbnail) over its name, white with a shadow on the wallpaper, up to two lines and cut in the middle; selected, the picture on a translucent dark rounded square and the name on the accent's pill (grey while the desktop does not have the keyboard). Laid out on a grid from the top right, down then leftward. Each icon is an accessible element named by its name, with its kind and whether it is selected, and the actions Open and Move to Trash.
+
+4. **Where each icon is** is the person's, kept in the shell's own folder (`Paths.document`, `desktop.json`, by name): an icon dragged on the desktop lands on the free grid cell nearest where it was let go, several keeping their arrangement; an item new to the desktop takes the cell where it was dropped, or the first free cell from the top right. An item gone forgets its cell. A display too small for a kept cell puts the icon in the first free one, without forgetting.
+
+5. **Choosing and opening**, as on a Mac: a press selects, Shift and Super add or remove, a band from the background selects what it touches, a press on the background clears the selection. A double press opens: a folder in Dropsea at that folder (`dropsea://files?uri=…`, the shell's `openUrl`), a file with the application whose entry declares its type (its `MimeType`, the shell's `opens`; [ADR 0035](./0035-drag-and-drop), *Vanishing drags, files' types and files opened with an application*, decision 3), and a file no application opens in Dropsea, shown in its folder. With the keyboard (a press on the desktop gives the shell's desktop the keyboard, as a click on a Mac's desktop makes Finder active): the arrows move the selection, Shift extends it, Super+O and Super+↓ open, Super+Backspace puts the selection in the Trash (the dock's `TrashFiles`, with the Trash's sound), Super+A selects everything, Escape clears the selection.
+
+6. **The desktop as a source:** selected icons dragged past 4 pixels become the platform's drag of their files ([ADR 0035](./0035-drag-and-drop), decision 10), allowing copy, move and link, the pressed icon's view the image and the count of the items stacked on it. Dropped on the desktop itself, the icons move to where they were let go and no file moves; on a folder of the desktop, into it; elsewhere, wherever the target takes them: a Dropsea folder, place or path segment, an application's icon in the dock (opened with it), the Trash.
+
+7. **The desktop as a target:** the desktop is a `DropZone` taking files, move and copy, whose `folder` is `~/Desktop` (decision 9): a drop moves or copies the files into it at the drop point, or into the desktop folder icon under the pointer, which is highlighted meanwhile. The rules of [ADR 0035](./0035-drag-and-drop), decision 13 (amended) hold: a folder dropped into itself, or a move of one of the platform's places, does nothing.
+
+### Finder's rules for every drop of files
+
+8. **A move on the same volume, a copy onto another.** A target that takes files into a folder prefers a move when every dragged file is on that folder's volume and a copy when any is not, as Finder does; Option (Alt) still forces a copy and Command (Super) a move ([ADR 0035](./0035-drag-and-drop), decision 5), and the pointer's green plus says a copy. A target sees no URI before the drop, so the drag says its files' volumes, as it says their types:
+   - **A volume** is the file system an item is on, named by the platform: the device number of the item itself (a link's own, since a move moves the link), `MAJOR:MINOR`, which is what decides whether a move is a rename (`oxyos_files_volume`, oxyos-files). It names no path.
+   - **The source says them** (`DragFileVolume { drag, index, last, text }`, before its `StartDrag`, as `DragFileType`: distinct, one a line, at most 16, in chunks). A target is told them after the files' types (`DragOfferFileVolume { offer, index, last, text }`, with how many in `DragEnter`'s `file_volumes`), never a client of version 27 or older. The Bloom host says them for every drag of files it starts.
+   - **The target compares:** the Bloom host, for a drop target with a `folder` (Bloom's `DropZone.folder`, the host's `dropFolder`), answers a drag of files with move preferred when each volume told is the folder's, and copy otherwise, if the target allows both; any other target, or a drag that told no volumes, keeps its preferred action. When a target's props change during a drag (the folder under the pointer changed), the host answers the compositor again at once, not at the next motion.
+
+9. **Bloom:** `DropZone`'s `folder` (a `file://` URI where files dropped on it go; ignored on the web, which has no such folders). The adapter's `DropTarget` takes it.
+
+10. **A window knows a drag is over it** (for spring-loading's way back): Bloom's `useWindowDrag({ onEnter, onExit })`, the adapter's `drag.watchWindow(listener)`. `onEnter` when a drag first comes over any of the window's surfaces; `onExit(dropped)` when it has left all of them or ended, `dropped` true when it was dropped on one of them, told once that drop was delivered (after the target's `onDrop`). The Bloom host follows the compositor's `DragEnter` and `DragLeave` of its surfaces. On the web, the document's `dragenter`, `dragleave` (leaving the page) and `drop`.
+
+11. **Bloom's sidebar rows take drops:** a tree row's `drop` (`SidebarTreeItem.drop`, `DropZone`'s props but its style and children) makes the row a drop zone, drawn as Finder draws a sidebar row under a drag it would take (the accent's rounded highlight), its own row drags unchanged.
+
+### Dropsea ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea))
+
+12. **Where files drop:** a folder among the items, in the icon and list views (Dropsea has no column view); a sidebar place (the home, its standard folders, a volume) into it; the sidebar's Trash into the Trash, with the Trash's sound, move alone; a segment of the path bar into that folder; another Dropsea window. Each target's `folder` is where its drop goes, so each prefers a move or a copy by decision 8.
+
+13. **The path bar**, Finder's (View › Show Path Bar, ⌥⌘P; shown): at the foot of a folder's window, above the status bar, the folders from the home (or the volume's root, or the computer's root for a folder outside both) to the one shown, each a press away and each a drop target.
+
+14. **Spring-loaded folders:** a folder among the items, a sidebar place or a path segment held under a drag Dropsea would take for half a second (the target lit meanwhile) blinks twice and opens in its window; the drag goes on, over what it opened. When the window's drag exits without a drop on it (decision 10: it left the window, Escape, or a drop elsewhere), the window goes back to where it was when the first folder sprang open. A drop in it keeps the window where it is. Escape cancels the drag ([ADR 0035](./0035-drag-and-drop), decision 7), and so springs the window back.
+
+15. **A name taken: Finder's alert.** Before anything moves, the names the drop would take are checked; for each clash, an alert: “An item named “notes.txt” already exists in this location. Do you want to replace it with the one you're moving (copying)?”, **Keep Both** (the item goes as `notes 2.txt`, the first number free, as Finder names it), **Stop** (nothing more is done; what was done stays) and **Replace** (the item there goes to the Trash first, so it can be put back, then the item takes its place). With several clashes, *Apply to All*. Replacing a folder with one of its own items, or an item with itself, is not offered.
+
+16. **Progress that can be stopped.** A move or copy not done within half a second shows its progress in the window's status bar: “Copying 3 items to Documents”, a bar by the bytes known (each file's size; a folder counts once done), and a stop button. Stopped, the item being copied finishes (the file service copies one item in one call) and no other starts; what was done stays and is undoable.
+
+17. **Undo and Redo of moves and copies**, as Finder's: Undo Move takes the items back where they were (as before, [OxyHQ/Dropsea#39](https://github.com/OxyHQ/Dropsea/pull/39)); Undo Copy puts the copies in the Trash; Redo does each again. A move or copy that replaced items is undone without putting back what it replaced (it is in the Trash).
+
+The rules that stand: dropping onto what is being dragged moves nothing; the home's standard folders cannot be moved, renamed or trashed ([ADR 0028](./0028-file-access), decision 2; [ADR 0035](./0035-drag-and-drop), decision 13); the drag's image is a Mac's ([ADR 0035](./0035-drag-and-drop), *The drag's image*); the Trash sounds ([ADR 0044](./0044-system-sounds)).
+
+### Protocol version 28
+
+| Direction | Opcode | Message |
+| --- | --- | --- |
+| Request | 252 | `DragFileVolume { drag, index, last, text }` |
+| Event | 253 | `DragOfferFileVolume { offer, index, last, text }`, never to a client of version 27 |
+| Event | 240 | `DragEnter` grows `file_volumes` (a version 27 reader reads none) |
+
+The client library tells an older compositor no volumes (the drag goes as before). In the C ABI: `oxyos_client_start_drag_with_volumes`, which takes the files' volumes beside their types (`oxyos_client_start_drag_with` keeps its signature, as the C ABI only adds), `OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME` (`DRAG_ENTER`'s `flag` the count), `oxyos_files_volume` and `oxyos_files_folder_volume` (the volume items dropped into a folder go to: a link to a folder is followed, as the files land where it leads).
+
+## Tests
+
+- **Protocol:** the request and the event round-trip, version 28's; `DragEnter`'s count left out for version 27 and read back as none.
+- **Scene** (`scene/tests/drag.rs`): a drag's volumes told its target after its files' types, in chunks, each once, never to a window the pointer never crossed nor to a client of version 27.
+- **oxyos-files and the C ABI:** two items on one file system have one volume, on two (the run's directory and `/dev/shm`) two; a link's is its own.
+- **Bloom:** `DropZone`'s `folder` passed to the adapter's target; `useWindowDrag` on the web (a drag entering, leaving the page, dropped); a sidebar row's `drop` making a drop zone and its highlight.
+- **Dropsea**, on real files (`tests/node-file-system.ts`): Keep Both's names, Replace's Trash, Stop; a copy's progress by bytes and its stop between items; Undo and Redo of a copy and of a move; the path bar's segments; spring-loading's way back.
+- **Scenarios** (`regress.py`, each at 1 and 1.25, the disk, focus and exact deliveries checked):
+  - `desktop-files`: the desktop's icons and names from `~/Desktop`; a press, Shift and a band selecting; a double press on a folder opening Dropsea there; the keyboard's arrows, Super+Backspace putting an item in the Trash; the screen reader's names.
+  - `desktop-drag`: a Dropsea file dropped on the desktop is moved into `~/Desktop`, at the drop point; a desktop file dropped on a Dropsea folder moves there; one dropped on the dock's Trash goes to the Trash; an icon dragged on the desktop keeps its new place in `desktop.json`, the file unmoved; Option's copy.
+  - `dropsea-sidebar-drop`: files dropped on Documents and on the Trash in the sidebar, Option's copy on a place, the place's highlight.
+  - `dropsea-spring-loading`: a folder held under a drag opens; the drag left over the desktop springs the window back; a drop in the folder sprung keeps it; Escape springs it back.
+  - `dropsea-path-bar`: the path bar's segments, a drop on one, a press going there.
+  - `dropsea-conflict`: Keep Both, Replace (the old item in the Trash) and Stop; Undo of the copy.
+
+## Order of work
+
+1. This ADR.
+2. Protocol version 28, the scene, the client library, the C ABI and `oxyos_files_volume`; the Bloom host's volumes, `dropFolder`, answering again on a change, and the window's drag; the shell's file service.
+3. Bloom: `DropZone.folder`, `useWindowDrag`, the sidebar rows' `drop` (a minor release).
+4. The desktop in the shell, with `desktop-files` and `desktop-drag`.
+5. Dropsea, with its scenarios.
+
+## Results
+
+**Step 2, the platform** (protocol version 28, the scene, the client library, the C ABI, `oxyos-files`; the Bloom host's volumes, `dropFolder`, answering again on a change, and the window's drag):
+- Version 28's request and event in the protocol's table (`docs/native-foundation.mdx`) and [ADR 0033](./0033-protocol-versions)'s: `DragFileVolume` (request 252), `DragOfferFileVolume` (event 253) and `file_volumes` at the end of `DragEnter`, which a version 27 writer leaves out and a version 27 reader reads as none (`versions.rs`' grown fields: `DragEnter` grew in 26 and again in 28). Protocol tests: the request and the event round-trip as version 28's, never written for 27 and refused from it; `DragEnter` a byte shorter for 27 and two for 25, read back with none.
+- The scene (`scene/drag.rs`) keeps a drag's volumes as it keeps its files' types (in chunks, distinct, at most 16, up to `MAX_FILE_VOLUME_BYTES` each) and tells each target it enters after the files' types, each once, never a target of version 27 (`VOLUMES_VERSION`). Scene tests (`scene/tests/drag.rs`): a long one in chunks and a repeated one said once, told after the types, anew at each entering, to the source's own window as to another's, never to a window the pointer never crossed; a target of version 27 counts none and is told none, its files' types still told.
+- `oxyos-client`'s `DragOptions::volumes`, said only to a compositor of version 28. `oxyos-files`' `volume` module: `of` (the item's own device number, `MAJOR:MINOR`, a link's own: `lstat`) and `inside` (the volume items dropped into a folder go to: a link to a folder is followed, since the files land where it leads). Its tests on real files: two items and a folder of the run's directory on one volume, an item in `/dev/shm` on another, a link here to a file there here, a link here to a folder there dropping there, nothing there none.
+- The C ABI: `oxyos_client_start_drag_with_volumes` (the volumes one a line beside the files' types; `oxyos_client_start_drag_with` keeps its signature and says none, the ABI only adding), `OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME` (`DRAG_ENTER`'s `flag` the count), `oxyos_files_volume` and `oxyos_files_folder_volume`. Its tests: a client of a compositor of version 28 says each volume once after the files' types and reads a target's volumes whole; of version 27, says none and reads none, the files' types and the drag as before; the two volume calls on one and two file systems and through links, and a buffer too small.
+- The Bloom host (`drag.cpp`): every drag of files says its files' volumes (`dragFileVolumes`, distinct, at most 16). `OxyOSDropTargetView`'s `dropFolder` (the adapter's `DropTarget` passes Bloom's `folder`): a drag of files that told volumes, taken by a target allowing both copy and move, is answered with a move preferred when each volume is the folder's (`oxyos_files_folder_volume`, learnt once a drag) and a copy when one is not (`folderPreference`); any other answer as before. When a commit mounts during a drag, the host answers the compositor again at once (`DragDrop::mounted`, from the loop's `takeChanged`), without telling the target `dragOver` for it.
+- The window's drag (decision 10): the host tells JavaScript `{ type: 'enter' }` when a drag first comes over any of the client's surfaces and `{ type: 'exit', dropped }` when, once a turn's events are all read, it is over none of them (`dropped: false`), or when a drop on one of them was delivered: `dropped: true` after the target's `onDrop` ran (the drop's event is flushed by the next turn's beat, then the exit is sent). The adapter's `drag.watchWindow(listener)` returns the function that stops it.
+- `drag-drop-folder.json` and `drag-drop-folder-scaled.json` (`sample/FolderDropProbe.tsx`, the companion, a target taking files into the home with copy its own first choice, learning its folder two seconds after a drag enters): the home's file held over it is a copy with the pointer's green plus before it knows its folder; the pointer still, the folder learnt commits and the host answers again: a move, no badge; Option held, a copy and the green plus; released, the drop's action a move; dropped again with Option, a copy; each time the window's drag entered, then exited dropped after its `onDrop` ("after 1 drops"); a drag across the window and let go over the desktop beyond exits it not dropped. Exact deliveries at 1 and 1.25. Another volume cannot be staged in a run's home: the Rust and C ABI tests cover it.
+
+## Not in this decision
+
+- **Dropsea's column view and tabs**: Dropsea has neither; each is a change of its own, and takes drops by decision 12 when it comes.
+- **Spring-loading on the desktop** (a desktop folder held under a drag opening a Dropsea window that closes again when the drag leaves it): the shell would open a window mid-drag, which needs a way to close it again that the platform does not have.
+- **Progress within one file and stopping mid-file**: the file service copies a file in one call (`expo-file-system`'s `copy`); progress is by items and their sizes.
+- **Undo on the desktop**: Edit › Undo is Dropsea's; the desktop's moves are undone in Dropsea or by dragging back.
+- **Aliases** (a drop with Option and Command, a link): taken by nothing that takes files into a folder.
+- **Touch drags** ([ADR 0035](./0035-drag-and-drop)).

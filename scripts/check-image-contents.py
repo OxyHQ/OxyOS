@@ -45,13 +45,23 @@ CONFIG_CHECK = load_config_check()
 FORBIDDEN_PACKAGE = CONFIG_CHECK.FORBIDDEN_PACKAGE
 
 # Debian's packaging, not the configuration: libpipewire-0.3-modules depends on libpulse0, which
-# links the X11 client libraries. Inert libraries, no server, no DISPLAY (docs/iso-build.mdx,
-# "Known residue"). Each must be named here with its reason; anything else forbidden fails.
+# links the X11 client libraries, and Mesa's Vulkan drivers link their X11 and Wayland
+# window-system integration. Inert libraries, no server, no DISPLAY or WAYLAND_DISPLAY
+# (docs/iso-build.mdx, "Known residue"). Each must be named here with its reason; anything else
+# forbidden fails.
+MESA_WSI = "mesa-vulkan-drivers links it (Mesa's window-system integration)"
 RESIDUE = {
     "libx11-6": "libpulse0 (from libpipewire-0.3-modules) links it",
     "libx11-data": "libx11-6's locale data",
-    "libx11-xcb1": "libpulse0 links it",
+    "libx11-xcb1": "libpulse0 and mesa-vulkan-drivers link it",
     "libxcb1": "libx11-6 depends on it",
+    "libwayland-client0": MESA_WSI,
+    "libxcb-dri3-0": MESA_WSI,
+    "libxcb-present0": MESA_WSI,
+    "libxcb-randr0": MESA_WSI,
+    "libxcb-shm0": MESA_WSI,
+    "libxcb-sync1": MESA_WSI,
+    "libxcb-xfixes0": MESA_WSI,
 }
 
 # Files that are a display server, compositor, greeter, session or toolkit, whatever package (or
@@ -65,8 +75,9 @@ FORBIDDEN_FILE = re.compile(
 
 # The residue's files: the libraries above, and /etc/X11 directories other packages keep data
 # in (xkb-data's keyboard layouts, which xkbcommon reads; dbus-user-session's snippet for X
-# sessions, which nothing here runs).
-RESIDUE_FILE = re.compile(r"/lib(X11|X11-xcb|xcb)\.so|^etc/X11/")
+# sessions, which nothing here runs). Matched before FORBIDDEN_FILE: Wayland's client library is
+# residue, its server, EGL and cursor libraries are not.
+RESIDUE_FILE = re.compile(r"/lib(X11|X11-xcb|xcb|xcb-(dri3|present|randr|shm|sync|xfixes)|wayland-client)\.so|^etc/X11/")
 
 # Paths a build generates in /usr that no package lists.
 GENERATED = re.compile(
@@ -204,6 +215,16 @@ def closure(packages, reasons):
     return explained
 
 
+def oxyos_packages():
+    """Each binary package OxyOS rebuilds (tools/image/packages/<source>/source) and its version."""
+    wanted = {}
+    for source in sorted((ROOT / "tools" / "image" / "packages").glob("*/source")):
+        values = dict(re.findall(r'^([A-Z_0-9]+)="([^"]*)"', source.read_text(), re.M))
+        for name in values.get("BINARIES", "").split():
+            wanted[name] = values["VERSION"]
+    return wanted
+
+
 def parse_listing(path):
     files = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -268,15 +289,22 @@ def audit_image(audit, gate):
     if leftovers:
         notes.append(f"removed packages with configuration left: {', '.join(leftovers)}")
 
+    # OxyOS's patched Debian packages (tools/image/packages/): the image has OxyOS's version,
+    # never Debian's, which lacks the patches (Plymouth's: docs/adr/0017-boot-logo.mdx).
+    for name, version in oxyos_packages().items():
+        installed = packages.get(name, {}).get("Version")
+        if installed is not None and installed != version:
+            violations.append(f"package {name} is {installed}, not OxyOS's {version} (tools/image/packages)")
+
     # 3. Files.
     files = parse_listing(audit / "files.txt")
     for rel in sorted(files):
-        if FORBIDDEN_FILE.search(rel):
-            violations.append(f"forbidden file: /{rel}")
-        elif RESIDUE_FILE.search(rel):
+        if RESIDUE_FILE.search(rel):
             shown = "/".join(rel.split("/")[:3]) if rel.startswith("etc/X11/") else rel
             if f"file /{shown}" not in residue:
                 residue.append(f"file /{shown}")
+        elif FORBIDDEN_FILE.search(rel):
+            violations.append(f"forbidden file: /{rel}")
     owned = {path for paths in files_of.values() for path in paths} | diverted(audit)
     if owned:
         includes = {str(p.relative_to(INCLUDES)) for p in INCLUDES.rglob("*") if p.is_file()}
@@ -306,6 +334,11 @@ def audit_image(audit, gate):
         wanted = re.search(r'^OS_ID="?([^"\n]+)"?', conf, re.M).group(1)
         if f"ID={wanted}" not in os_release.read_text().splitlines():
             violations.append(f"/etc/os-release does not say ID={wanted}")
+
+    # The clock is synchronized: systemd-timesyncd enabled, as its package enables it.
+    if "systemd-timesyncd" in packages and \
+            "etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service" not in files:
+        violations.append("systemd-timesyncd is installed but not enabled (sysinit.target.wants)")
 
     # 5. The boot logo in the initramfs.
     initrd = audit / "initrd-files.txt"

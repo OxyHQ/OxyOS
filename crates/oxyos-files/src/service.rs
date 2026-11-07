@@ -42,27 +42,40 @@
 //! | `watchPath` | `uri`, `debounce` (ms) | the watch |
 //! | `places` | | `{home, favourites: [{key, uri}], volumes: [{name, uri}], trash: COUNT}` |
 //! | `trash` | `uris` | `[{uri, ok, result | error, message}]`, `result` its URI in the Trash |
-//! | `trashed` | | `[{uri, name, isDirectory, originalUri, deletedAt, size, lastModified}]` |
+//! | `trashed` | | `[{uri, name, isDirectory, originalUri, deletedAt, size, lastModified, tags}]` |
 //! | `restore` | `uris` (in the Trash) | `[{uri, ok, result | error, message}]` |
 //! | `erase` | `uris` (in the Trash) | `[{uri, ok, result | error, message}]` |
 //! | `emptyTrash` | | the count removed |
 //! | `watchTrash`, `watchPlaces` | | the watch |
+//! | `tagsIn` | `uri` (a folder) | `{ITEM_URI: [TAG]}`: each item with tags, its URI as `list` writes it |
+//! | `tagsOf` | `uris` | `[[TAG] | null]`: null for an item not there or not reached |
+//! | `changeTags` | `uris`, `add: [TAG]`, `remove: [NAME]` | `[{uri, ok, result | error, message}]`, `result` its URI |
+//! | `tagged` (requested) | `name` | `[{uri, name, isDirectory, size, lastModified, tags}]`, from the index |
+//! | `tagNames` (requested) | | `[{name, count}]`, from the index |
+//! | `watchTags` | | the watch: the index's items changed |
 //! | `unwatch` | `watch` | null |
 //! | `download` (requested) | `url`, `to`, `toDirectory`, `headers`, `idempotent`, `resume` | the file's URI, null if paused |
 //! | `upload` (requested) | `uri`, `url`, `method`, `headers`, `uploadType`, `fieldName`, `mimeType`, `parameters` | `{body, status, headers}` |
 //! | `cancelTransfer` | `transfer` (its request's id) | null |
 //! | `pauseTransfer` | `transfer` | `{resumeData}`: the bytes written, or null |
+//!
+//! A `TAG` is `{name, color}`, `color` one of Finder's seven (`red`, `orange`, `yellow`, `green`,
+//! `blue`, `purple`, `grey`) or null (docs/adr/0049-file-tags.mdx). `changeTags` removes, then
+//! adds; a name that cannot be a tag's refuses the whole request (`invalid`). `tagged` and
+//! `tagNames` start the index of the person's tagged items ([`TagIndex`]) and are answered once
+//! its first crawl ended, never holding the requests behind them; `watchTags` starts it too.
 
 use crate::access::{self, Encoding, Handles, Mode, Relocation};
 use crate::places::{self, Favourite};
 use crate::scope::Access;
+use crate::tag_index::{TagIndex, Tagged};
+use crate::tags::{self, Color, Tag};
 use crate::transfer::{self, Live};
 use crate::watch::{Change, Event, Watcher};
 use crate::{trash, uri, Error, Scope};
 use oxyos_net::Network;
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
@@ -110,6 +123,29 @@ struct Context {
     network: Network,
     /// Downloads and uploads running, by their request's id.
     transfers: Mutex<HashMap<u64, Arc<Live>>>,
+    /// The index of tagged items, once an application asked it something.
+    tag_index: Mutex<Option<Arc<TagIndex>>>,
+    /// The watches told when it changes (`watchTags`).
+    tag_watches: Arc<Mutex<BTreeSet<u32>>>,
+    shared: Arc<Shared>,
+}
+
+impl Context {
+    /// The index of tagged items, started the first time it is wanted.
+    fn tag_index(&self) -> Result<Arc<TagIndex>, Error> {
+        let mut index = self.tag_index.lock().expect("lock");
+        if let Some(index) = index.as_ref() {
+            return Ok(index.clone());
+        }
+        let (shared, watches) = (self.shared.clone(), self.tag_watches.clone());
+        let started = Arc::new(TagIndex::start(self.scope.clone(), move || {
+            for id in watches.lock().expect("lock").iter() {
+                shared.event(json!({ "watch": id }));
+            }
+        })?);
+        *index = Some(started.clone());
+        Ok(started)
+    }
 }
 
 /// The service: its thread runs requests; its queue holds what it answered and saw.
@@ -171,6 +207,9 @@ impl Service {
             handles: Handles::default(),
             network: Network::new()?,
             transfers: Mutex::new(HashMap::new()),
+            tag_index: Mutex::new(None),
+            tag_watches: Arc::new(Mutex::new(BTreeSet::new())),
+            shared: shared.clone(),
         });
         let (requests, received) = mpsc::channel::<(u64, String, Vec<u8>)>();
         let thread = {
@@ -179,7 +218,24 @@ impl Service {
                 .name("oxyos-files".into())
                 .spawn(move || {
                     for (id, request, bytes) in received {
-                        if transfer(&context, &shared, id, &request) {
+                        // Downloads, uploads and the index's questions are answered when they
+                        // end, never holding the requests behind them.
+                        let parsed = (request.len() <= MAX_REQUEST_BYTES)
+                            .then(|| serde_json::from_str::<Value>(&request).ok())
+                            .flatten();
+                        let op = parsed
+                            .as_ref()
+                            .and_then(|parsed| parsed.get("op")?.as_str());
+                        let (a_transfer, a_question) = (
+                            matches!(op, Some("download" | "upload")),
+                            matches!(op, Some("tagged" | "tagNames")),
+                        );
+                        if let (true, Some(parsed)) = (a_transfer || a_question, parsed) {
+                            if a_transfer {
+                                transfer(&context, &shared, id, parsed);
+                            } else {
+                                indexed(&context, &shared, id, &parsed);
+                            }
                             continue;
                         }
                         let (json, bytes) = answer(&context, &request, &bytes);
@@ -244,16 +300,9 @@ impl AsFd for Service {
     }
 }
 
-/// Starts a download or an upload on a thread of its own, if `request` is one: it is answered
-/// when it ends, as `id`, its progress said as events (`{"transfer": ID, "progress": {...}}`).
-fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, request: &str) -> bool {
-    let Ok(parsed) = serde_json::from_str::<Value>(request) else {
-        return false;
-    };
-    let op = parsed.get("op").and_then(Value::as_str);
-    if !matches!(op, Some("download" | "upload")) {
-        return false;
-    }
+/// Starts a download or an upload (`parsed`) on a thread of its own: it is answered when it ends,
+/// as `id`, its progress said as events (`{"transfer": ID, "progress": {...}}`).
+fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, parsed: Value) {
     let live = Arc::new(Live::default());
     context
         .transfers
@@ -288,7 +337,120 @@ fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, request: &str
             bytes: Vec::new(),
         });
     }
-    true
+}
+
+/// Asks the index of tagged items `tagged` or `tagNames` (`parsed`): answered as `id` once its
+/// first crawl ended, from whichever thread has the answer then, so the requests behind it never
+/// wait for the crawl.
+fn indexed(context: &Context, shared: &Arc<Shared>, id: u64, parsed: &Value) {
+    let op = parsed.get("op").and_then(Value::as_str);
+    let reply = {
+        let shared = shared.clone();
+        move |ended: Result<Value, Error>| {
+            shared.push(Reply {
+                id,
+                json: ended_json(ended),
+                bytes: Vec::new(),
+            });
+        }
+    };
+    let index = match context.tag_index() {
+        Ok(index) => index,
+        Err(error) => return reply(Err(error)),
+    };
+    if op == Some("tagNames") {
+        index.names(move |names| {
+            reply(Ok(names
+                .into_iter()
+                .map(|(name, count)| json!({ "name": name, "count": count }))
+                .collect()));
+        });
+    } else {
+        match text(parsed, "name").and_then(tags::valid) {
+            Ok(name) => index.tagged(name, move |found| reply(Ok(tagged_json(found)))),
+            Err(error) => reply(Err(error)),
+        }
+    }
+}
+
+/// The items the index found, as `tagged` answers them: those still there.
+fn tagged_json(found: Vec<Tagged>) -> Value {
+    found
+        .into_iter()
+        .filter_map(|(path, tags)| {
+            let entry = crate::entries::entry(&path).ok()?;
+            Some(json!({
+                "uri": uri::of(&path, entry.folder),
+                "name": entry.name,
+                "isDirectory": entry.folder,
+                "size": (!entry.folder).then_some(entry.size),
+                "lastModified": entry.modified_ms,
+                "tags": tags::json(&tags),
+            }))
+        })
+        .collect()
+}
+
+/// The tags a request gives (`add`): `[{name, color}]`, each name one a tag can have.
+fn tags_given(request: &Value, key: &str) -> Result<Vec<Tag>, Error> {
+    let Some(given) = request.get(key) else {
+        return Ok(Vec::new());
+    };
+    let invalid = || Error::Invalid(format!("`{key}` holds tags: [{{name, color}}]"));
+    given
+        .as_array()
+        .ok_or_else(invalid)?
+        .iter()
+        .map(|tag| {
+            let name = tag
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(invalid)?;
+            let color = match tag.get("color") {
+                None | Some(Value::Null) => None,
+                Some(color) => Some(
+                    color
+                        .as_str()
+                        .and_then(Color::parse)
+                        .ok_or_else(|| Error::Invalid(format!("no tag colour {color}")))?,
+                ),
+            };
+            Ok(Tag::new(tags::valid(name)?, color))
+        })
+        .collect()
+}
+
+/// The tags of what a folder holds, by each item's URI as `list` writes it; items with none, or
+/// whose link leads out of the scope, left out.
+fn tags_in(scope: &Scope, folder_uri: &str) -> Result<Value, Error> {
+    let folder = scope.reach(&uri::path_of(folder_uri)?, Access::Read)?;
+    match std::fs::metadata(&folder) {
+        Ok(found) if !found.is_dir() => return Err(Error::NotAFolder),
+        Ok(_) => {}
+        Err(error) => return Err(error.into()),
+    }
+    let mut found = serde_json::Map::new();
+    for item in std::fs::read_dir(&folder)? {
+        let Ok(item) = item else { continue };
+        let Some(name) = item.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        let mut path = item.path();
+        if item.file_type().is_ok_and(|kind| kind.is_symlink()) {
+            match path.to_str().map(|link| scope.reach(link, Access::Read)) {
+                Some(Ok(reached)) => path = reached,
+                _ => continue,
+            }
+        }
+        let Ok(tags) = tags::read(&path) else {
+            continue;
+        };
+        if !tags.is_empty() {
+            let directory = path.is_dir();
+            found.insert(uri::child(folder_uri, &name, directory), tags::json(&tags));
+        }
+    }
+    Ok(Value::Object(found))
 }
 
 fn ended_json(ended: Result<Value, Error>) -> String {
@@ -547,6 +709,7 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
                         "deletedAt": item.deleted_ms,
                         "size": (!item.entry.folder).then_some(item.entry.size),
                         "lastModified": item.entry.modified_ms,
+                        "tags": tags::json(&tags::read(&item.id).unwrap_or_default()),
                     })
                 })
                 .collect(),
@@ -584,7 +747,48 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
                 .collect();
             value(context.watcher.watch(&folders, true)?.into())
         }
-        "download" | "upload" => Err(Error::Invalid(format!(
+        "tagsIn" => value(tags_in(scope, text(request, "uri")?)?),
+        "tagsOf" => value(
+            texts(request, "uris")?
+                .into_iter()
+                .map(|item| {
+                    uri::path_of(item)
+                        .and_then(|path| scope.reach(&path, Access::Read))
+                        .and_then(|path| tags::read(&path))
+                        .map_or(Value::Null, |tags| tags::json(&tags))
+                })
+                .collect(),
+        ),
+        "changeTags" => {
+            let add = tags_given(request, "add")?;
+            let remove = match request.get("remove") {
+                None => Vec::new(),
+                Some(_) => texts(request, "remove")?
+                    .into_iter()
+                    .map(|name| tags::valid(name).map(String::from))
+                    .collect::<Result<Vec<_>, _>>()?,
+            };
+            value(
+                texts(request, "uris")?
+                    .into_iter()
+                    .map(|item| {
+                        let changed = uri::path_of(item)
+                            .and_then(|path| scope.reach(&path, Access::Write))
+                            .and_then(|path| tags::change(&path, &add, &remove))
+                            .map(|_| item.to_string());
+                        outcome(item, changed)
+                    })
+                    .collect(),
+            )
+        }
+        "watchTags" => {
+            let _index = context.tag_index()?;
+            // A watch of the watcher's own numbering, which the index's changes tell.
+            let watch = context.watcher.watch(&[], false)?;
+            context.tag_watches.lock().expect("lock").insert(watch);
+            value(watch.into())
+        }
+        "download" | "upload" | "tagged" | "tagNames" => Err(Error::Invalid(format!(
             "{op} is answered when it ends: it is requested, never called"
         ))),
         "cancelTransfer" => {
@@ -604,9 +808,9 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
         }
         "unwatch" => {
             let id = number(request, "watch")?;
-            context
-                .watcher
-                .unwatch(u32::try_from(id).map_err(|_| Error::Invalid("no such watch".into()))?);
+            let id = u32::try_from(id).map_err(|_| Error::Invalid("no such watch".into()))?;
+            context.tag_watches.lock().expect("lock").remove(&id);
+            context.watcher.unwatch(id);
             done()
         }
         other => Err(Error::Invalid(format!("no operation {other:?}"))),

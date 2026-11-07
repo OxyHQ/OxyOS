@@ -12,6 +12,10 @@
 #                                            arm64), then audit what it installed
 #   tools/image/build.sh audit [ISO]         audit an image (default: the newest in out/)
 #   tools/image/build.sh clean [--arch A]    remove A's build tree, keep its package cache
+#   tools/image/build.sh packages [--arch A] build OxyOS's patched Debian packages
+#                                            (tools/image/packages/) into packages/<arch>/; the
+#                                            build runs it first, and a machine installed by hand
+#                                            takes them from there (docs/iso-build.mdx)
 #
 # The build runs natively for its architecture: an arm64 image is built in the arm64 container,
 # which an x86-64 host runs through QEMU's user-mode emulation (Debian's qemu-user-binfmt, whose
@@ -21,7 +25,8 @@
 # Environment:
 #   OXYOS_BUILD_DIR  work directory (default ~/oxyos-build): build/<arch>/ (live-build's tree
 #                    and cache/), out/ (images, logs, package lists), audit/ (extracted
-#                    databases). Not /tmp: a build needs several GB, and /tmp is often RAM.
+#                    databases), packages/ (OxyOS's patched Debian packages, their sources).
+#                    Not /tmp: a build needs several GB, and /tmp is often RAM.
 #   OXYOS_FRESH=1    drop the package and bootstrap caches before building.
 #   DOCKER           the docker command (default: docker, else "sudo -n docker" when that works).
 #
@@ -138,11 +143,12 @@ audit() {
 
 command=build
 case "${1:-}" in
-    build | audit | clean) command=$1; shift ;;
+    build | audit | clean | packages) command=$1; shift ;;
 esac
 case "$command" in
     build)
         architecture=$(architecture_of "$@")
+        container "$architecture" packages
         container "$architecture" build
         audit "$(newest_image "$architecture")"
         ;;
@@ -152,5 +158,9 @@ case "$command" in
     clean)
         architecture=$(architecture_of "$@")
         container "$architecture" clean
+        ;;
+    packages)
+        architecture=$(architecture_of "$@")
+        container "$architecture" packages
         ;;
 esac

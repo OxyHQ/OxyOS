@@ -962,6 +962,9 @@ int main(int argc, char** argv) {
       if (auto content = shellSurfaces.content(surface)) return content;
       return popups.content(surface);
     });
+    // The window's drag (Bloom's useWindowDrag, the adapter's drag.watchWindow): a drag coming over
+    // this client's surfaces and leaving them, told as a device event.
+    dragDrop.watchWindow([&services](const folly::dynamic& event) { services.emit("OxyOSWindowDrag", event); });
     // While a popup is open, the pointer over the surface it hangs from reaches only the views it
     // tracks: a menu bar's titles (popup.h).
     pointer.admitsHover([&](uint32_t surface, facebook::react::Tag view) { return popups.tracks(surface, view); });
@@ -2012,6 +2015,8 @@ int main(int argc, char** argv) {
           Beat::tickAll();
         }
         bool ranJs = javascript(Part::JavaScript, [&] { return loop->drain(); });
+        // A drop delivered last turn had its onDrop run now: the window's drag it ended is told.
+        dragDrop.ranJavaScript();
         bool pulled = mounter.pull();
         bool busy = ranJs || pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
@@ -2277,6 +2282,8 @@ int main(int argc, char** argv) {
               editing.handle(event);
             });
         diagnostics.leave(handling);
+        // A drag that left this client's last surface in those events has left the window.
+        dragDrop.observed();
         if (!connected) break;
         if (!shellMode) diagnostics.windowState(window->maximized(), window->active());
         // The window's display's refresh, told before its first configure and when it changes.
@@ -2793,6 +2800,8 @@ int main(int argc, char** argv) {
         bool mounted = mounter.takeChanged();
         if (mounted) {
           editing.attached();
+          // A drop target under a drag may have changed (its folder): the compositor answered anew.
+          dragDrop.mounted();
           dirty = true;
           busy = true;
           popups.changed();
