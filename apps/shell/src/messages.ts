@@ -306,6 +306,28 @@ const en = (f: Formats) => ({
     saved: "Screenshot saved",
   },
   wallpaper: "Wallpaper",
+  /** The desktop's files (desktop.ts, docs/adr/0047-finder-drags-and-the-desktop.mdx). */
+  desktop: {
+    kinds: {
+      folder: "Folder",
+      image: "Image",
+      audio: "Audio",
+      video: "Video",
+      pdf: "PDF document",
+      text: "Text document",
+      archive: "Archive",
+      document: "Document",
+    },
+    open: "Open",
+    moveToTrash: "Move to Trash",
+    selectAll: "Select All",
+    file: "File",
+    edit: "Edit",
+    /** Why a drop did nothing (ADR 0035, decision 13). */
+    intoItself: "An item can't be moved into itself",
+    place: (name: string) => `“${name}” stays where it is`,
+    taken: (name: string) => `An item named “${name}” is already there`,
+  },
   /** The system's sheets (sheet.ts). */
   sheet: {
     install: (name: string) => `Install ${name}?`,
@@ -584,6 +606,26 @@ const es = (f: Formats): Catalogue => ({
     saved: "Captura de pantalla guardada",
   },
   wallpaper: "Fondo de escritorio",
+  desktop: {
+    kinds: {
+      folder: "Carpeta",
+      image: "Imagen",
+      audio: "Audio",
+      video: "Vídeo",
+      pdf: "Documento PDF",
+      text: "Documento de texto",
+      archive: "Archivo comprimido",
+      document: "Documento",
+    },
+    open: "Abrir",
+    moveToTrash: "Trasladar a la papelera",
+    selectAll: "Seleccionar todo",
+    file: "Archivo",
+    edit: "Edición",
+    intoItself: "Un ítem no se puede trasladar dentro de sí mismo",
+    place: (name) => `“${name}” se queda donde está`,
+    taken: (name) => `Ya hay un ítem llamado “${name}”`,
+  },
   sheet: {
     install: (name) => `¿Instalar ${name}?`,
     update: (name) => `¿Actualizar ${name}?`,

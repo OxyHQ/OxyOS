@@ -606,17 +606,23 @@ int main(int argc, char** argv) {
   });
   // The user's files (files.h, docs/adr/0028-file-access.mdx), for an application's window: the
   // application's own folders are its data and cache directories (application.h, ADR 0030), only
-  // if the session started it, and its bundle's folder is read-only. Events reach JavaScript as
+  // if the session started it, and its bundle's folder is read-only. The session's shell has them
+  // too, for the desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 2), its own
+  // folders its package's; the login screen has none. Events reach JavaScript as
   // RCTDeviceEventEmitter events from the loop below.
   const auto application = oxyos::Application::launched(bundlePath, moduleName);
   std::error_code bundleError;
   auto bundleFile = std::filesystem::canonical(bundlePath, bundleError);
+  // A host run as a shell is known by its package (the manifest beside its bundle).
+  const auto package =
+      shellMode && !bundleError ? oxyos::Application::package(bundleFile) : oxyos::Application{};
+  const bool shellFiles = package.id == oxyos::kShellPackage;
   oxyos::Files files(
       [&instance](const std::string& event, folly::dynamic payload) {
         instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                        folly::dynamic::array(event, std::move(payload)));
       },
-      application, bundleError ? std::string() : bundleFile.parent_path().string());
+      shellFiles ? package : application, bundleError ? std::string() : bundleFile.parent_path().string());
   oxyos::HostServices services{blobs, networking};
   // The application it runs, as its launcher started it (application.h).
   services.application = application;
@@ -768,22 +774,8 @@ int main(int argc, char** argv) {
   if (windowed) {
     // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
     // shell's and the login screen's, by their package's id (the manifest beside the bundle).
-    std::string cacheDirectory = application.cacheDirectory;
-    if (shellMode && bundleFile.has_parent_path()) {
-      std::ifstream manifest(bundleFile.parent_path() / "manifest.json");
-      std::stringstream text;
-      text << manifest.rdbuf();
-      try {
-        auto parsed = folly::parseJson(text.str());
-        if (parsed.isObject() && parsed.count("id") && parsed["id"].isString()) {
-          std::string path(4096, '\0');
-          int64_t length = oxyos_application_directory(parsed["id"].asString().c_str(), 1, path.data(), path.size());
-          if (length > 0 && static_cast<size_t>(length) < path.size()) cacheDirectory = path.substr(0, length);
-        }
-      } catch (const std::exception&) {
-        // No manifest (a probe run as a shell): nothing is kept.
-      }
-    }
+    // No manifest (a probe run as a shell): nothing is kept.
+    std::string cacheDirectory = shellMode ? package.cacheDirectory : application.cacheDirectory;
     if (!cacheDirectory.empty()) oxyos::setPipelineCacheDirectory(cacheDirectory + "/skia");
     try {
       window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})
@@ -812,7 +804,7 @@ int main(int argc, char** argv) {
       const char* appId = std::getenv("OXYOS_APP_ID");
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
       services.applicationWindow = !shellMode;
-      if (!shellMode) services.files = &files;
+      if (!shellMode || shellFiles) services.files = &files;
       services.shellWindow = shellMode;
       // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): protocol version 10.
       services.drag.available = window->protocolVersion() >= 10;
@@ -1417,6 +1409,12 @@ int main(int argc, char** argv) {
                                        folly::dynamic::object("application", application)("count", uris.size())(
                                            "sent", sent));
             return sent;
+          },
+          .focusDesktop = [&window, &lastPress] {
+            if (lastPress == 0) return false;
+            window->focusShellSurface(oxyos::Window::kToplevel, lastPress);
+            oxyos::Report::get().input("focus.asked", oxyos::Window::kToplevel);
+            return true;
           },
       };
     }
@@ -2134,6 +2132,12 @@ int main(int argc, char** argv) {
                 }
               }
               if (event.kind == OXYOS_EVENT_FOCUS) {
+                // The shell's desktop, its background, gaining or losing the keyboard
+                // (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 5): its selection is
+                // drawn in the accent's colour only while it has it.
+                if (shellMode && event.surface == oxyos::Window::kToplevel) {
+                  services.emit("OxyOSShellDesktopKeyboard", folly::dynamic::object("focused", event.flag != 0));
+                }
                 if (event.flag) {
                   keyboardSurface = event.surface;
                 } else if (keyboardSurface == event.surface && !popups.closedByApplication(event.surface) &&
@@ -2217,7 +2221,9 @@ int main(int argc, char** argv) {
               }
               if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
                   (event.kind == OXYOS_EVENT_KEY && event.flag) ||
-                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE) ||
+                  // An assistive technology's action, as the compositor counts it: any but moving
+                  // its focus (a custom action, the desktop's Move to Trash, ADR 0047, cites it).
+                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail != OXYOS_ACTION_FOCUS) ||
                   // A choice in the shell's bar is the person's input: Edit > Paste may cite it.
                   event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED ||
                   // So is a system shortcut the shell shows: the search's field may cite it.

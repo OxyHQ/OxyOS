@@ -1,0 +1,331 @@
+{
+  "about": "Files dragged to, from and on the desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 4, 6 and 7) at 1 (1280 × 720), Dropsea showing the run's home beside it: plan.txt dragged from Dropsea onto the desktop moves into ~/Desktop and takes the cell where it was let go (desktop.json); lista.txt dragged from Dropsea onto the desktop's folder Proyectos moves into it; notas.txt dragged from the desktop onto Documents in Dropsea moves there; informe.txt dragged from the desktop onto the dock's Trash goes to the Trash with its sound; foto.png dragged on the desktop keeps its new place in desktop.json and the file stays where it is; Proyectos dragged onto Pictures in Dropsea with Option held is copied, the original kept. Each step checks the disk and exactly what each client was delivered.",
+  "locale": "es_ES.UTF-8",
+  "module": "Dropsea",
+  "window": [
+    580,
+    460
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Desktop/": "",
+      "Desktop/Proyectos/": "",
+      "Desktop/notas.txt": "notas",
+      "Desktop/informe.txt": "informe",
+      "Desktop/foto.png": {
+        "png": [
+          40,
+          30,
+          "#3a7bd5"
+        ]
+      },
+      "Documents/": "",
+      "Pictures/": "",
+      "plan.txt": "p",
+      "lista.txt": "l"
+    }
+  },
+  "steps": [
+    {
+      "name": "the desktop and Dropsea's home",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "plan.txt",
+          "lista.txt"
+        ],
+        "in_shell": {
+          "texts": [
+            "Proyectos",
+            "notas.txt",
+            "informe.txt",
+            "foto.png"
+          ]
+        },
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#6": 2,
+          "insetsChange@RNCSafeAreaProvider#18": 2,
+          "insetsChange@RNCSafeAreaProvider#10": 2
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "plan.txt dragged from Dropsea onto the desktop: moved into ~/Desktop, at the cell where it was let go",
+      "do": [
+        "drag_paced_named",
+        [
+          "plan.txt",
+          "@1000,500",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "plan.txt": false,
+          "Desktop/plan.txt": "p",
+          ".local/share/oxyos/apps/so.oxy.shell/desktop.json": "{\n  \"cells\": {\n    \"Proyectos\": [\n      0,\n      3\n    ],\n    \"foto.png\": [\n      0,\n      0\n    ],\n    \"informe.txt\": [\n      0,\n      1\n    ],\n    \"notas.txt\": [\n      0,\n      2\n    ],\n    \"plan.txt\": [\n      2,\n      4\n    ]\n  }\n}\n"
+        },
+        "in_shell": {
+          "texts": [
+            "plan.txt"
+          ]
+        },
+        "react": {
+          "touchStart@item-plan.txt": 1,
+          "touchMove@item-plan.txt": 1,
+          "touchCancel@item-plan.txt": 1,
+          "drag.dragEnter@OxyOSDropTargetView#606": 1,
+          "drag.dragOver@OxyOSDropTargetView#606": [
+            1,
+            40
+          ],
+          "drag.dragLeave@OxyOSDropTargetView#606": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "lista.txt dragged from Dropsea onto the desktop's folder Proyectos: moved into it",
+      "do": [
+        "drag_paced_named",
+        [
+          "lista.txt",
+          "Proyectos",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "lista.txt": false,
+          "Desktop/Proyectos/lista.txt": "l"
+        },
+        "react": {
+          "touchStart@item-lista.txt": 1,
+          "touchMove@item-lista.txt": 1,
+          "touchCancel@item-lista.txt": 1,
+          "drag.dragEnter@OxyOSDropTargetView#606": 1,
+          "drag.dragOver@OxyOSDropTargetView#606": [
+            1,
+            40
+          ],
+          "drag.dragLeave@OxyOSDropTargetView#606": 1
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "notas.txt dragged from the desktop onto Documents in Dropsea: moved there",
+      "do": [
+        "drag_paced_named",
+        [
+          "notas.txt",
+          "Documents",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/notas.txt": false,
+          "Documents/notas.txt": "notas"
+        },
+        "in_shell": {
+          "absent": [
+            "notas.txt"
+          ]
+        },
+        "react": {
+          "drag.dragEnter@OxyOSDropTargetView#606": 1,
+          "drag.dragOver@OxyOSDropTargetView#606": [
+            1,
+            40
+          ],
+          "drag.dragLeave@OxyOSDropTargetView#606": 1,
+          "drag.drop@OxyOSDropTargetView#606": 1
+        },
+        "delivered": {
+          "1": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "informe.txt dragged from the desktop onto the dock's Trash: in the Trash, with its sound",
+      "do": [
+        "drag_paced_named",
+        [
+          "informe.txt",
+          "Papelera",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/informe.txt": false,
+          "trash": [
+            "informe.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ],
+        "react": {
+          "drag.dragEnter@OxyOSDropTargetView#606": 1,
+          "drag.dragOver@OxyOSDropTargetView#606": [
+            1,
+            40
+          ],
+          "drag.dragLeave@OxyOSDropTargetView#606": 1
+        },
+        "delivered": {
+          "1": {
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "foto.png dragged on the desktop: it keeps its new place in desktop.json, the file where it was",
+      "do": [
+        "drag_paced_named",
+        [
+          "foto.png",
+          "@1100,560",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/foto.png": true,
+          ".local/share/oxyos/apps/so.oxy.shell/desktop.json": "{\n  \"cells\": {\n    \"Proyectos\": [\n      0,\n      3\n    ],\n    \"foto.png\": [\n      1,\n      4\n    ],\n    \"plan.txt\": [\n      2,\n      4\n    ]\n  }\n}\n"
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "a press on the desktop's background: the desktop has the keyboard, where Option is held",
+      "do": [
+        "press_output",
+        [
+          150,
+          600
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Proyectos dragged from the desktop onto Pictures in Dropsea with Option held: copied, the original kept",
+      "do": [
+        "drag_paced_named",
+        [
+          "Proyectos",
+          "Pictures",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/Proyectos/lista.txt": "l",
+          "Pictures/Proyectos/lista.txt": "l"
+        },
+        "react": {
+          "drag.dragEnter@OxyOSDropTargetView#606": 1,
+          "drag.dragOver@OxyOSDropTargetView#606": [
+            1,
+            40
+          ],
+          "drag.dragLeave@OxyOSDropTargetView#606": 1,
+          "drag.drop@OxyOSDropTargetView#606": 1
+        },
+        "delivered": {
+          "1": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option let go",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    }
+  ]
+}

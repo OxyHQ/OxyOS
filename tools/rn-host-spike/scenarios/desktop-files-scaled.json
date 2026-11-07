@@ -1,0 +1,465 @@
+{
+  "about": "The desktop shows ~/Desktop as a Mac's does (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 1 to 5) at 1 (1280 × 720): the shell, which has the platform's file service now, lists the run's Desktop beneath the window, from the top right, each icon named by its name with its kind (the dot file not shown, the long name cut in its middle on its second line), and keeps where each is in its own folder's desktop.json. A press on notas.txt selects it and gives the desktop the keyboard, the window inactive; Super with a press adds Fotos; a band from the background selects what it touches; a press on the background clears. The arrows go from icon to icon; Ctrl+Backspace puts the selection in the Trash with the Trash's sound; a double press on Fotos opens Dropsea there; the screen reader's Move to Trash puts foto.png in the Trash; a press in the window gives it the keyboard back. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "1600x1000@1.25",
+  "home": {
+    "items": {
+      "Desktop/": "",
+      "Desktop/Fotos/": "",
+      "Desktop/notas.txt": "notas",
+      "Desktop/foto.png": {
+        "png": [
+          40,
+          30,
+          "#3a7bd5"
+        ]
+      },
+      "Desktop/informe trimestral de ventas y previsiones del equipo.pdf": "pdf",
+      "Desktop/.oculto": "no se ve"
+    }
+  },
+  "steps": [
+    {
+      "name": "the desktop's icons from ~/Desktop, top right, down then leftward; the dot file not shown; each named, with its kind",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Fotos",
+            "notas.txt",
+            "foto.png"
+          ],
+          "absent": [
+            ".oculto"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "value": "Carpeta",
+              "state": [],
+              "custom": [
+                "Abrir",
+                "Trasladar a la papelera"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "notas.txt",
+              "value": "Documento de texto"
+            },
+            {
+              "role": "Button",
+              "name": "foto.png",
+              "value": "Imagen"
+            },
+            {
+              "role": "Button",
+              "name": "informe trimestral de ventas y previsiones del equipo.pdf",
+              "value": "Documento PDF"
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": ".oculto"
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {},
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.shell/desktop.json": "{\n  \"cells\": {\n    \"Fotos\": [\n      0,\n      1\n    ],\n    \"foto.png\": [\n      0,\n      0\n    ],\n    \"informe trimestral de ventas y previsiones del equipo.pdf\": [\n      0,\n      2\n    ],\n    \"notas.txt\": [\n      0,\n      3\n    ]\n  }\n}\n"
+        }
+      }
+    },
+    {
+      "name": "a press on notas.txt selects it and gives the desktop the keyboard: the window is no longer active, and the bar shows the desktop's File and Edit menus",
+      "do": [
+        "press_named",
+        "notas.txt"
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "notas.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": []
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Archivo",
+            "Edición"
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "focus_surface": null,
+        "output_pixels": {
+          "1528,559": "#9422ae",
+          "1488,469": "#3e61b8"
+        }
+      }
+    },
+    {
+      "name": "Super with a press on Fotos adds it",
+      "do": [
+        "key_down",
+        [
+          125
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the press",
+      "do": [
+        "press_named",
+        "Fotos"
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "notas.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Super let go",
+      "do": [
+        "key_up",
+        [
+          125
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a press on the background clears the selection",
+      "do": [
+        "press_output",
+        [
+          1000,
+          600
+        ]
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "notas.txt",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": []
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "a band from the background over foto.png and Fotos selects them, and nothing else",
+      "do": [
+        "drag_output",
+        [
+          1120,
+          50,
+          1250,
+          200
+        ]
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "foto.png",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "notas.txt",
+              "state": []
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "the arrows go from icon to icon: Down from Fotos selects the PDF alone",
+      "do": [
+        "key",
+        [
+          108
+        ]
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "foto.png",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "informe trimestral de ventas y previsiones del equipo.pdf",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Shift+Down adds notas.txt",
+      "do": [
+        "key",
+        [
+          42,
+          108
+        ]
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "informe trimestral de ventas y previsiones del equipo.pdf",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "notas.txt",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Ctrl+Backspace puts both in the Trash, with the Trash's sound",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/notas.txt": false,
+          "Desktop/informe trimestral de ventas y previsiones del equipo.pdf": false,
+          "trash": [
+            "informe trimestral de ventas y previsiones del equipo.pdf",
+            "notas.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ],
+        "in_shell": {
+          "absent": [
+            "notas.txt"
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "the screen reader's Move to Trash on foto.png puts it in the Trash, with the Trash's sound",
+      "do": [
+        "a11y-action",
+        [
+          "custom:Trasladar a la papelera",
+          "foto.png"
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/foto.png": false,
+          "trash": [
+            "foto.png",
+            "informe trimestral de ventas y previsiones del equipo.pdf",
+            "notas.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ],
+        "in_shell": {
+          "absent": [
+            "foto.png"
+          ]
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "a press on Fotos selects it, the desktop having the keyboard again: its name on the accent's pill",
+      "do": [
+        "press_named",
+        "Fotos"
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "output_pixels": {
+          "1528,279": "#9422ae"
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "a press in the window gives it the keyboard back: the selection's pill goes grey, as a Mac's inactive one",
+      "do": [
+        "press",
+        [
+          300,
+          300
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "output_pixels": {
+          "1528,279": "#72778c"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Fotos",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a double press on Fotos opens Dropsea there",
+      "do": [
+        "double_press_named",
+        "Fotos"
+      ],
+      "expect": {
+        "urls_opened": [
+          {
+            "url": "dropsea://files?uri={home}%2FDesktop%2FFotos%2F",
+            "application": "so.oxy.dropsea"
+          }
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    }
+  ]
+}

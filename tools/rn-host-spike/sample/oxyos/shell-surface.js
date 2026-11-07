@@ -13,6 +13,7 @@ import * as React from 'react';
 import { DeviceEventEmitter, StyleSheet, View } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { oxyosSurfaces } from './platform-surface';
+import { focusDesktop, useDesktopKeyboard } from './shell-state';
 
 const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () => ({
   uiViewClassName: 'OxyOSShellSurface',
@@ -188,7 +189,9 @@ function ScrollTarget({ onScroll, style, children }) {
 }
 
 // The keys the shell's surfaces receive, offered before the focused field (the host's
-// OxyOSKeyboard, as an application's window has it): Launchpad's arrows and Return.
+// OxyOSKeyboard, as an application's window has it): Launchpad's arrows and Return. The desktop
+// (docs/adr/0047-finder-drags-and-the-desktop.mdx) asks for the keyboard for the shell's background
+// at a press on it, and follows whether it has it.
 export const oxyosShell = {
   Surface,
   Masked,
@@ -196,4 +199,6 @@ export const oxyosShell = {
   MinimizeTarget,
   ScrollTarget,
   keyboard: oxyosSurfaces.keyboard,
+  focusDesktop,
+  useDesktopKeyboard,
 };

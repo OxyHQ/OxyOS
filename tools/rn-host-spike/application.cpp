@@ -43,6 +43,25 @@ std::string directory(const std::string& id, uint8_t which) {
 
 }  // namespace
 
+Application Application::package(const std::filesystem::path& bundleFile) {
+  Application package;
+  std::ifstream manifest(bundleFile.parent_path() / "manifest.json");
+  if (!manifest) return package;
+  std::stringstream text;
+  text << manifest.rdbuf();
+  try {
+    auto parsed = folly::parseJson(text.str());
+    if (!parsed.isObject() || !parsed.count("id") || !parsed["id"].isString()) return package;
+    package.id = parsed["id"].asString();
+  } catch (const std::exception&) {
+    return package;
+  }
+  package.recorded = true;
+  package.dataDirectory = directory(package.id, 0);
+  package.cacheDirectory = directory(package.id, 1);
+  return package;
+}
+
 Application Application::launched(const std::string& bundlePath, const std::string& module) {
   Application application;
   const char* id = std::getenv("OXYOS_APP_ID");
