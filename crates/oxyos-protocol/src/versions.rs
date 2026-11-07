@@ -20,7 +20,8 @@ use std::io::{self, Read, Write};
 /// did not: an older compositor delivers every press as one the view under it takes, ADR 0016).
 /// Version 25: what a system shortcut asks of what the shell shows (a key's toggle,
 /// docs/adr/0046-interactive-gestures.mdx). Version 26: how many media types of its files a drag
-/// entering a target carries (none: an older compositor never tells them, ADR 0035).
+/// entering a target carries (none: an older compositor never tells them, ADR 0035). Version 28:
+/// how many volumes of its files it carries (none, likewise; ADR 0047).
 const GROWN: &[(u16, u8, &[u8])] = &[
     (3, 4, &[0; 8]),
     (3, 5, &[0; 8]),
@@ -35,6 +36,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
     (19, 4, &[0]),
     (25, 100, &[0]),
     (26, 240, &[0]),
+    (28, 240, &[0]),
 ];
 
 /// The opcodes each version added, by direction (a request and an event may share an opcode):
@@ -60,7 +62,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 25, which view a touchpad's swipe drives a shell surface is (`SetGestureOverlay`,
 /// docs/adr/0046-interactive-gestures.mdx); version 26, a drag vanishing where it is dropped on
 /// nothing, its files' media types, and the shell's files opened with an application (ADR 0035
-/// and ADR 0034), both ways, a target's events sent unasked.
+/// and ADR 0034), both ways, a target's events sent unasked; version 28, the volumes a drag's
+/// files are on (ADR 0047), both ways, a target's events sent unasked.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -76,6 +79,7 @@ const EVENTS_ADDED: Added = &[
     (18, 59..=64),
     (22, 81..=81),
     (26, 252..=252),
+    (28, 253..=253),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -93,6 +97,7 @@ const REQUESTS_ADDED: Added = &[
     (24, 94..=94),
     (25, 95..=95),
     (26, 248..=250),
+    (28, 252..=252),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

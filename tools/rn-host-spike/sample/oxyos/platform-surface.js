@@ -384,7 +384,7 @@ const dragAvailable = Boolean(nativeDrag?.getConstants()?.available);
 
 const OxyOSDropTargetView = NativeComponentRegistry.get('OxyOSDropTargetView', () => ({
   uiViewClassName: 'OxyOSDropTargetView',
-  validAttributes: { acceptKinds: true, dropActions: true, disabled: true, acceptFileTypes: true },
+  validAttributes: { acceptKinds: true, dropActions: true, disabled: true, acceptFileTypes: true, dropFolder: true },
   directEventTypes: {
     topDragEnter: { registrationName: 'onNativeDragEnter' },
     topDragOver: { registrationName: 'onNativeDragOver' },
@@ -457,6 +457,7 @@ function DropTarget({
   accept,
   actions,
   acceptFileTypes,
+  folder,
   disabled,
   onDragEnter,
   onDragOver,
@@ -472,6 +473,10 @@ function DropTarget({
       dropActions={actions.join('\n')}
       // Files whose types it does not take are no files to it: the host answers the compositor so.
       acceptFileTypes={(acceptFileTypes ?? []).join('\n')}
+      // Where files dropped on it go (Bloom's DropZone `folder`, protocol version 28): the host
+      // prefers a move when every dragged file is on this folder's volume and a copy when one is
+      // not, as Finder does, if the target allows both.
+      dropFolder={folder ?? ''}
       disabled={Boolean(disabled)}
       style={style}
       testID={testID}
@@ -493,6 +498,17 @@ function DropTarget({
   );
 }
 
+// The window's drag (Bloom's useWindowDrag): the host tells a drag coming over any of this
+// application's surfaces, and its leaving them all or ending, `dropped` when it was dropped on one
+// of them, once that drop's onDrop ran.
+const windowDragListeners = new Set();
+if (dragAvailable) {
+  DeviceEventEmitter.addListener('OxyOSWindowDrag', (event) => {
+    const told = event.type === 'exit' ? { type: 'exit', dropped: Boolean(event.dropped) } : { type: 'enter' };
+    for (const listener of [...windowDragListeners]) listener(told);
+  });
+}
+
 const drag = dragAvailable
   ? {
       // The dragged view itself is the image, as it looks (stacked and badged for several items).
@@ -511,6 +527,12 @@ const drag = dragAvailable
           { vanish: Boolean(vanish) },
           onCancel ? (reason) => onCancel(reason) : undefined,
         );
+      },
+      watchWindow(listener) {
+        windowDragListeners.add(listener);
+        return () => {
+          windowDragListeners.delete(listener);
+        };
       },
     }
   : undefined;

@@ -173,6 +173,11 @@ typedef struct OxyOSClient OxyOSClient;
  * carries (code: the offer; detail: the chunk's index, 0 begins a type; flag: 1 on its last chunk;
  * text: the chunk); DRAG_ENTER's height says how many types follow. */
 #define OXYOS_EVENT_DRAG_OFFER_FILE_TYPE 252
+/* Version 28 (docs/adr/0047-finder-drags-and-the-desktop.mdx): to a target, after its
+ * DRAG_OFFER_FILE_TYPEs, a chunk of a volume the drag's files are on, as oxyos_files_volume names
+ * one (code: the offer; detail: the chunk's index, 0 begins a volume; flag: 1 on its last chunk;
+ * text: the chunk); DRAG_ENTER's flag says how many volumes follow. */
+#define OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME 253
 /* oxyos_client_start_drag_with's flags (version 26): dropped on nothing that takes it, the drag's
  * image vanishes in a poof where it is instead of sliding back. */
 #define OXYOS_DRAG_VANISH 1
@@ -1207,6 +1212,15 @@ int64_t oxyos_client_start_drag(OxyOSClient* client, uint32_t surface, uint32_t 
 int64_t oxyos_client_start_drag_with(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
                                      uint8_t actions, const OxyOSDragEntry* entries, size_t count, uint32_t flags,
                                      const char* file_types, size_t file_types_length);
+/* The same, saying also the volumes the drag's files are on (version 28,
+ * docs/adr/0047-finder-drags-and-the-desktop.mdx): `volumes`, `volumes_length` bytes of them, one
+ * a line, as oxyos_files_volume names them (NULL and 0 for none), which targets are told, so one
+ * taking files into a folder prefers a move on that folder's volume and a copy onto another. A
+ * compositor of an older version is told none. */
+int64_t oxyos_client_start_drag_with_volumes(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
+                                             uint8_t actions, const OxyOSDragEntry* entries, size_t count,
+                                             uint32_t flags, const char* file_types, size_t file_types_length,
+                                             const char* volumes, size_t volumes_length);
 /* Ends this client's drag, going on or dropped and not finished. */
 int oxyos_client_cancel_drag(OxyOSClient* client, uint32_t drag);
 /* A target answers the entering `serial` of the drag `offer`, and each motion: the offered type it
@@ -1817,6 +1831,16 @@ OxyOSFilesReply* oxyos_files_take(OxyOSFiles* files);
  * application/octet-stream; written NUL-terminated into `out` (`capacity` bytes). Its length, or
  * OXYOS_ERROR. A drag of files says them (oxyos_client_start_drag_with). */
 int oxyos_files_media_type(const char* uri, size_t length, char* out, size_t capacity);
+/* The volume of the item a file:// URI names (`length` bytes): the file system it is on, as
+ * "MAJOR:MINOR" (its device number), the item's own (a link's own, not what it leads to); written
+ * NUL-terminated into `out` (`capacity` bytes). Its length, or OXYOS_ERROR (nothing there, not a
+ * file's URI, or it does not fit). A drag of files says them (oxyos_client_start_drag_with_volumes;
+ * docs/adr/0047-finder-drags-and-the-desktop.mdx). */
+int oxyos_files_volume(const char* uri, size_t length, char* out, size_t capacity);
+/* The volume items dropped into the folder a file:// URI names go to: the folder's own, or for a
+ * link to a folder that of the folder it leads to; named, written and returned as
+ * oxyos_files_volume's. A drop target compares a drag's volumes with it. */
+int oxyos_files_folder_volume(const char* uri, size_t length, char* out, size_t capacity);
 /* The id of the request a reply answers; 0 for an event (a watch's change). */
 uint64_t oxyos_files_reply_id(const OxyOSFilesReply* reply);
 /* A reply's JSON, NUL-terminated, its length in `*length` (if not NULL); valid until it is freed. */

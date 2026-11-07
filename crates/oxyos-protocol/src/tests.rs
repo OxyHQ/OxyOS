@@ -552,6 +552,12 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new("so.oxy.allo\nfile:///a.png").unwrap(),
         },
+        Request::DragFileVolume {
+            drag: 3,
+            index: 0,
+            last: true,
+            text: PreeditText::new("259:1").unwrap(),
+        },
     ]
 }
 
@@ -960,6 +966,7 @@ fn events() -> Vec<Event> {
             types: 2,
             modifiers: MODIFIER_ALT,
             file_types: 1,
+            file_volumes: 1,
         },
         Event::DragOfferType {
             offer: 2,
@@ -970,6 +977,12 @@ fn events() -> Vec<Event> {
             index: 0,
             last: true,
             text: PreeditText::new("image/png").unwrap(),
+        },
+        Event::DragOfferFileVolume {
+            offer: 2,
+            index: 0,
+            last: true,
+            text: PreeditText::new("259:1").unwrap(),
         },
         Event::DragMotion {
             surface: 1,
@@ -2245,6 +2258,7 @@ fn drags_are_version_10_and_never_written_for_version_9() {
         types: 1,
         modifiers: 0,
         file_types: 0,
+        file_volumes: 0,
     };
     assert_eq!(event_since(&enter), 10);
     let mut bytes = Vec::new();
@@ -2775,6 +2789,7 @@ fn version_26_vanishing_drags_file_types_and_opening_files_are_only_version_26s(
         types: 2,
         modifiers: 0,
         file_types,
+        file_volumes: 0,
     };
     let enter = entering(2);
     let mut old = Vec::new();
@@ -2787,4 +2802,66 @@ fn version_26_vanishing_drags_file_types_and_opening_files_are_only_version_26s(
         entering(0)
     );
     assert_eq!(read_event_for(&mut Cursor::new(new), 26).unwrap(), enter);
+}
+
+#[test]
+fn version_28_a_drags_volumes_are_only_version_28s() {
+    // The request is version 28's: an older compositor would close the connection for it.
+    let request = Request::DragFileVolume {
+        drag: 1,
+        index: 0,
+        last: true,
+        text: PreeditText::new("259:1").unwrap(),
+    };
+    assert_eq!(request_since(&request), 28);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &request).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), request);
+    // A volume is never told a version 27 target, and a version 27 reader refuses it.
+    let volume = Event::DragOfferFileVolume {
+        offer: 1,
+        index: 0,
+        last: true,
+        text: PreeditText::new("8:2").unwrap(),
+    };
+    assert_eq!(event_since(&volume), 28);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &volume, 27).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &volume, 28).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 27).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 28).unwrap(), volume);
+    // DragEnter grows its count of volumes: a version 27 writer leaves it out (a byte shorter),
+    // read back as none, its files' types kept; a version 25 writer leaves out both.
+    let entering = |file_types, file_volumes| Event::DragEnter {
+        surface: 1,
+        offer: 1,
+        serial: 2,
+        x: 0,
+        y: 0,
+        actions: DragActions::MOVE,
+        types: 2,
+        modifiers: 0,
+        file_types,
+        file_volumes,
+    };
+    let enter = entering(1, 2);
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &enter, 28).unwrap());
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &enter, 27).unwrap());
+    let mut older = Vec::new();
+    assert!(write_event_for(&mut older, &enter, 25).unwrap());
+    assert_eq!(old.len() + 1, new.len());
+    assert_eq!(older.len() + 2, new.len());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 28).unwrap(), enter);
+    assert_eq!(
+        read_event_for(&mut Cursor::new(old), 27).unwrap(),
+        entering(1, 0)
+    );
+    assert_eq!(
+        read_event_for(&mut Cursor::new(older), 25).unwrap(),
+        entering(0, 0)
+    );
 }

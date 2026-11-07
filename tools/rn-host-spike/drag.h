@@ -10,6 +10,16 @@
 // dragEnter, dragOver and dragLeave, and at the drop its drop with the content, received through
 // the pipes the source writes, from the host's loop, once complete.
 //
+// A drag of files says the volumes its files are on (protocol version 28,
+// docs/adr/0047-finder-drags-and-the-desktop.mdx), and a drop target taking files into a folder
+// (its `dropFolder`, Bloom's DropZone `folder`) prefers a move when each is that folder's volume and
+// a copy when one is not, as Finder does. When a target's props change during a drag (a commit), the
+// compositor is answered again at once.
+//
+// The window's drag (Bloom's useWindowDrag, the adapter's drag.watchWindow): JavaScript is told when
+// a drag first comes over any of this client's surfaces and when it has left them all or ended,
+// whether it was dropped on one of them, told once that drop was delivered (after its onDrop).
+//
 // Every editable text input that is not secure is a drop target for text too, as an NSTextView is
 // (docs/adr/0037-text-editing.mdx): TextEditing shows the drop caret and inserts what is dropped.
 // The innermost target under the point takes the drag, so a field inside a drop target takes the
@@ -53,6 +63,10 @@ class OxyOSDropTargetViewProps final : public ViewProps {
   // version 26): a drag of files is taken as `files` only when each of its files' types matches
   // one; empty, any files.
   std::string acceptFileTypes;
+  // The folder files dropped on it go into, a file:// URI (Bloom's DropZone `folder`, version 28):
+  // a drag of files that says its volumes is answered with a move preferred when each is this
+  // folder's volume, and a copy when one is not, if it allows both. Empty: its preferred action.
+  std::string dropFolder;
 };
 
 using OxyOSDropTargetViewShadowNode =
@@ -77,6 +91,13 @@ std::vector<std::pair<std::string, std::string>> dragContents(const folly::dynam
 // The media types of the files a drag of `data` carries (each file:// URI's, as the platform names
 // it: oxyos_files_media_type), distinct, one a line; empty for none.
 std::string dragFileTypes(const folly::dynamic& data);
+// The volumes the files of a drag of `data` are on (each file:// URI's, as the platform names it:
+// oxyos_files_volume, the item's own), distinct, at most 16, one a line; empty for none.
+std::string dragFileVolumes(const folly::dynamic& data);
+// The action a target taking files into a folder on `folderVolume` prefers for a drag of files on
+// `volumes`, as Finder does: a move when each is the folder's volume, a copy when one is not. None
+// (keep its own preference) when the drag told no volumes or the folder's is not known.
+std::optional<uint8_t> folderPreference(const std::vector<std::string>& volumes, const std::string& folderVolume);
 // Whether a drag of files of `fileTypes` is one a target accepting `accepted` (media types or
 // `type/*`, case and parameters aside) takes: every one matches; none told, not taken.
 bool filesTaken(const std::vector<std::string>& fileTypes, const std::vector<std::string>& accepted);
@@ -94,6 +115,18 @@ class DragDrop {
   // Every compositor event: a drag over this client's surfaces, what came of its own drag, and the
   // pointer presses a drag may start from.
   void observe(const OxyOSEvent& event);
+  // The events of one turn were all observed: a drag that left this client's last surface (and did
+  // not enter another of them meanwhile) has left the window.
+  void observed();
+  // The tree changed (a commit mounted): the drop target under the drag, and its props, may have,
+  // so the compositor is answered again, at once rather than at the next motion. The target is not
+  // told dragOver for it (that would ask JavaScript for the commit that told it).
+  void mounted();
+  // JavaScript ran the events queued before it (the loop's beat and drain): a drop it was given is
+  // delivered, and the window's drag that ended with it can be told.
+  void ranJavaScript();
+  // Who is told the window's drag: {"type": "enter"} and {"type": "exit", "dropped": bool}.
+  void watchWindow(std::function<void(const folly::dynamic&)> tell) { tellWindow_ = std::move(tell); }
 
   // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`:
   // `count` items, the view `preview` (-1: none) being the one pressed, its image (dragStack: as
@@ -112,7 +145,7 @@ class DragDrop {
   bool start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,
              std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done,
              bool vanish = false, const std::string& fileTypes = {},
-             std::function<void(const std::string&)> cancelled = nullptr);
+             std::function<void(const std::string&)> cancelled = nullptr, const std::string& volumes = {});
   // Draws the drag's icon once the compositor configured it.
   void present();
 
@@ -142,6 +175,11 @@ class DragDrop {
     size_t fileExpected = 0;
     std::vector<std::string> fileTypes;
     std::string fileTypeChunks;
+    // The volumes its files are on (version 28), as many as DRAG_ENTER said, and the one being told
+    // in chunks.
+    size_t volumesExpected = 0;
+    std::vector<std::string> volumes;
+    std::string volumeChunks;
     float x = 0, y = 0;  // surface-local, logical
     uint8_t action = 0;  // the action the compositor last told
     facebook::react::Tag view = -1;  // the drop target under the pointer
@@ -175,8 +213,12 @@ class DragDrop {
   // drop target's around it, as a web page's input takes no files).
   std::string fieldType() const;
   // The drop target under the offer's point, the answer to give the compositor, and JavaScript
-  // told of a target entered, moved over or left.
-  void update();
+  // told of a target entered, moved over (`moved`: the pointer moved, not the tree) or left.
+  void update(bool moved = true);
+  // The volume files dropped into `folder` go to (oxyos_files_folder_volume), once a drag.
+  std::optional<std::string> folderVolume(const std::string& folder);
+  // The window's drag: told JavaScript as it begins and ends.
+  void tellWindow(folly::dynamic event);
   // The event a target is told: the point in it, the action, the kinds offered it takes.
   folly::dynamic event(facebook::react::Tag view) const;
   void dispatch(facebook::react::Tag view, const char* name, const folly::dynamic& payload);
@@ -204,6 +246,14 @@ class DragDrop {
   std::function<void(const Display&, Canvas&)> iconDraw_;
   uint64_t iconDrawnFor_ = 0;
   TextEditing* editing_ = nullptr;
+  // The drop targets' folders' volumes, learnt once a drag (a folder's volume changes only as a
+  // file system is mounted over it).
+  std::map<std::string, std::optional<std::string>> folderVolumes_;
+  // The window's drag, as JavaScript was told it: outside; over a surface of this client; dropped on
+  // one and still being received; delivered (its onDrop queued), told at JavaScript's next run.
+  enum class Presence { Outside, Over, Dropped, Delivered };
+  Presence presence_ = Presence::Outside;
+  std::function<void(const folly::dynamic&)> tellWindow_;
 };
 
 }  // namespace oxyos

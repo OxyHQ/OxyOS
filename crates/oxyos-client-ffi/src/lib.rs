@@ -338,6 +338,11 @@ pub const OXYOS_EVENT_DRAG_CANCELLED: u32 = 249;
 /// DRAG_OFFER_TYPEs (code: the offer; detail: the chunk's index, 0 begins a type; flag: 1 on its
 /// last chunk; text: the chunk). DRAG_ENTER's `height` says how many types follow.
 pub const OXYOS_EVENT_DRAG_OFFER_FILE_TYPE: u32 = 252;
+/// To a target (version 28, docs/adr/0047-finder-drags-and-the-desktop.mdx): a chunk of a volume
+/// the drag's files are on, after its DRAG_OFFER_FILE_TYPEs (code: the offer; detail: the chunk's
+/// index, 0 begins a volume; flag: 1 on its last chunk; text: the chunk), as `oxyos_files_volume`
+/// names one. DRAG_ENTER's `flag` says how many volumes follow.
+pub const OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME: u32 = 253;
 /// oxyos_client_start_drag_with's flags: dropped on nothing that takes it, the drag's image
 /// vanishes in a poof where it is instead of sliding back (version 26).
 pub const OXYOS_DRAG_VANISH: u32 = 1;
@@ -1050,6 +1055,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             types,
             modifiers,
             file_types,
+            file_volumes,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_DRAG_ENTER,
@@ -1061,7 +1067,24 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 detail: actions.bits().into(),
                 width: types.into(),
                 height: file_types.into(),
+                flag: file_volumes,
                 modifiers,
+                ..out
+            }
+        }
+        Event::DragOfferFileVolume {
+            offer,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME,
+                code: offer,
+                detail: u32::from(index),
+                flag: u8::from(last),
                 ..out
             }
         }
@@ -2315,6 +2338,27 @@ pub unsafe extern "C" fn oxyos_client_start_drag(
     }
 }
 
+/// `length` bytes at `text`, one item a line, as a list: empty for NULL or no bytes; an error for
+/// bytes that are not UTF-8.
+///
+/// # Safety
+/// `text` is NULL or points to `length` readable bytes.
+#[allow(unsafe_code)]
+unsafe fn line_list(text: *const c_char, length: usize) -> Result<Vec<String>, ()> {
+    if text.is_null() || length == 0 {
+        return Ok(Vec::new());
+    }
+    // SAFETY: per the contract, `text` points to `length` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(text.cast::<u8>(), length) };
+    let text = std::str::from_utf8(bytes).map_err(|_| ())?;
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 /// [`oxyos_client_start_drag`], saying more of the drag (version 26,
 /// docs/adr/0035-drag-and-drop.mdx): `flags`, OXYOS_DRAG_VANISH for a drag whose image vanishes in
 /// a poof where it is dropped on nothing; `file_types`, `file_types_length` bytes of the media types
@@ -2339,25 +2383,63 @@ pub unsafe extern "C" fn oxyos_client_start_drag_with(
     file_types: *const c_char,
     file_types_length: usize,
 ) -> i64 {
-    let file_types = if file_types.is_null() || file_types_length == 0 {
-        String::new()
-    } else {
-        // SAFETY: per the contract, `file_types` points to `file_types_length` readable bytes.
-        let bytes =
-            unsafe { std::slice::from_raw_parts(file_types.cast::<u8>(), file_types_length) };
-        match std::str::from_utf8(bytes) {
-            Ok(text) => text.to_owned(),
-            Err(_) => return fail("the file types are UTF-8").into(),
-        }
+    // SAFETY: forwarded caller contract (no volumes: a null pointer of no length).
+    unsafe {
+        oxyos_client_start_drag_with_volumes(
+            client,
+            surface,
+            icon,
+            serial,
+            actions,
+            entries,
+            count,
+            flags,
+            file_types,
+            file_types_length,
+            std::ptr::null(),
+            0,
+        )
+    }
+}
+
+/// [`oxyos_client_start_drag_with`], saying also the volumes the drag's files are on (version 28,
+/// docs/adr/0047-finder-drags-and-the-desktop.mdx): `volumes`, `volumes_length` bytes of them, one
+/// a line, as `oxyos_files_volume` names them (NULL and 0 for none), which targets are told, so
+/// one taking files into a folder prefers a move on the folder's volume and a copy onto another.
+/// A compositor of a version before 28 is told none, and the drag goes as before.
+///
+/// # Safety
+/// As [`oxyos_client_start_drag_with`]'s; `volumes` is NULL or points to `volumes_length` readable
+/// bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn oxyos_client_start_drag_with_volumes(
+    client: *mut OxyOSClient,
+    surface: u32,
+    icon: u32,
+    serial: u64,
+    actions: u8,
+    entries: *const OxyOSDragEntry,
+    count: usize,
+    flags: u32,
+    file_types: *const c_char,
+    file_types_length: usize,
+    volumes: *const c_char,
+    volumes_length: usize,
+) -> i64 {
+    // SAFETY: per the contract, each is NULL or points to its length's readable bytes.
+    let Ok(file_types) = (unsafe { line_list(file_types, file_types_length) }) else {
+        return fail("the file types are UTF-8").into();
+    };
+    // SAFETY: as above.
+    let Ok(volumes) = (unsafe { line_list(volumes, volumes_length) }) else {
+        return fail("the volumes are UTF-8").into();
     };
     let options = oxyos_client::DragOptions {
         vanish: flags & OXYOS_DRAG_VANISH != 0,
-        file_types: file_types
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(str::to_owned)
-            .collect(),
+        file_types,
+        volumes,
     };
     // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {

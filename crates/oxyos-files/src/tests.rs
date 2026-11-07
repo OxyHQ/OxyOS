@@ -6,7 +6,7 @@ use crate::places::{self, Favourite, Volume};
 use crate::trash;
 use crate::watch::{Change, Watcher};
 use crate::{Access, Error, Scope};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
@@ -573,4 +573,75 @@ fn a_watched_folder_says_when_its_items_change() {
     // A folder that goes says so.
     std::fs::remove_dir(&music).expect("remove");
     assert_eq!(changes(&heard), vec![tunes]);
+}
+
+#[test]
+fn items_on_one_file_system_are_on_one_volume_and_on_two_on_two() {
+    use crate::volume;
+    let place = Place::new("volume");
+    let a = crate::uri::of(&place.file("a.txt", "a"), false);
+    let b = crate::uri::of(&place.file("Documents/b.txt", "b"), false);
+    let folder = crate::uri::of(&place.dir("Documents"), true);
+    let one = volume::of(&a).unwrap();
+    assert_eq!(volume::of(&b).unwrap(), one);
+    assert_eq!(volume::of(&folder).unwrap(), one);
+    assert_eq!(volume::inside(&folder).unwrap(), one);
+    // MAJOR:MINOR, and nothing of the path.
+    let (major, minor) = one.split_once(':').expect("MAJOR:MINOR");
+    assert!(major.parse::<u32>().is_ok() && minor.parse::<u32>().is_ok());
+    // Nothing there has no volume.
+    assert!(matches!(
+        volume::of(&crate::uri::of(&place.path("gone.txt"), false)),
+        Err(Error::NotFound)
+    ));
+    // /dev/shm is a file system of its own, so another volume than the run's directory.
+    let Some(shm_place) = elsewhere_than(&place, "volumes") else {
+        return;
+    };
+    let elsewhere = shm_place.join("c.txt");
+    std::fs::write(&elsewhere, "c").expect("a file in /dev/shm");
+    let other = volume::of(&crate::uri::of(&elsewhere, false));
+    let _ = std::fs::remove_dir_all(&shm_place);
+    assert_ne!(other.unwrap(), one);
+}
+
+/// A folder of the test's own in /dev/shm, another file system than `place`'s; none (the test
+/// skipped) where the temporary directory is on /dev/shm's.
+fn elsewhere_than(place: &Place, name: &str) -> Option<PathBuf> {
+    let shm = Path::new("/dev/shm");
+    let device = |path: &Path| std::fs::metadata(path).map(|found| found.dev());
+    if device(shm).ok() == device(&place.root).ok() {
+        eprintln!("skipped: /dev/shm is on the temporary directory's file system");
+        return None;
+    }
+    let folder = shm.join(format!("oxyos-files-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).expect("a folder in /dev/shm");
+    Some(folder)
+}
+
+#[test]
+fn a_links_volume_is_its_own_and_a_folder_link_drops_where_it_leads() {
+    use crate::volume;
+    let place = Place::new("volume-link");
+    let Some(shm_place) = elsewhere_than(&place, "volume-links") else {
+        return;
+    };
+    let file = shm_place.join("far.txt");
+    std::fs::write(&file, "far").expect("a file in /dev/shm");
+    // Links in the run's directory to a file and a folder on /dev/shm.
+    let to_file = place.path("far.txt");
+    let to_folder = place.path("Far");
+    std::os::unix::fs::symlink(&file, &to_file).unwrap();
+    std::os::unix::fs::symlink(&shm_place, &to_folder).unwrap();
+    let here = volume::of(&crate::uri::of(&place.root, true)).unwrap();
+    let there = volume::of(&crate::uri::of(&file, false)).unwrap();
+    let link = volume::of(&crate::uri::of(&to_file, false)).unwrap();
+    // A folder link named as a folder (its URI ending in `/`) is still the link itself.
+    let folder_link = volume::of(&crate::uri::of(&to_folder, true)).unwrap();
+    let dropped_into = volume::inside(&crate::uri::of(&to_folder, true)).unwrap();
+    let _ = std::fs::remove_dir_all(&shm_place);
+    assert_ne!(here, there);
+    assert_eq!(link, here);
+    assert_eq!(folder_link, here);
+    assert_eq!(dropped_into, there);
 }

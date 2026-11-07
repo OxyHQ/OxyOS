@@ -6,7 +6,7 @@ order: 42
 
 # ADR 0033: Protocol versions and compatibility
 
-Status: **accepted; implemented** (versions 2 to 17). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
+Status: **accepted; implemented** (versions 2 to 28). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
 
 ## Problem
 
@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 24). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 28). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -66,6 +66,7 @@ A platform cannot break installed applications on every change of its protocol. 
    | 25 | Swipes that follow the fingers ([ADR 0046](./0046-interactive-gestures)): `intent` at the end of `SystemShortcut` (event 100): a key's toggle (0), a swipe's Open (1) and Close (2) of Mission Control or App Exposé. A version 24 shell reads every shortcut without it as the toggle it meant (`GROWN`), and is never sent an Open or a Close (`event_since`), which it would take for a toggle; a swipe opens nothing there. And which view a swipe drives a shell surface is (`SetGestureOverlay`, request 95, the `GestureOverlay` wire enum), which the client library refuses to a compositor of version 24 or older, and the Bloom host does not send there. |
    | 26 | The dock's drags ([ADR 0035](./0035-drag-and-drop), [ADR 0034](./0034-the-dock)): a drag dropped on nothing vanishes in a poof (`DragVanish`, request 248), a drag of files says each file's media type to targets (`DragFileType`, request 249; `DragOfferFileType`, event 252; `DragEnter`'s file types count), and the shell opens files dropped on an application's icon with it (`OpenFiles`, request 250). |
    | 27 | An application opens the platform's Settings at a page ([ADR 0019](./0019-settings)): `OpenUrl` (request 233), until now the shell's alone, is taken from any client for a URL of the scheme `oxyos-settings` (`PLATFORM_SETTINGS_SCHEME`), its first chunk naming it, and the session opens it as it opens the shell's, only for an input the application received. No message changes, only who may send one; but a compositor of version 26 or older refuses it as unauthorized and closes the connection, so the Bloom host asks it only of version 27 or newer (`APPLICATION_OPENS_SETTINGS_VERSION`, the C ABI's `OXYOS_APPLICATION_OPENS_SETTINGS_VERSION`), and on an older one an application's request to open Settings fails, saying why. And `LockSession` (request 53), until now the shell's alone, is taken from an application while one of its windows is the active one (the Oxy SDK's sign in, [ADR 0020](./0020-oxy-account-login)), and ignored, not refused, while none is; the host asks it only of version 27 or newer (`APPLICATION_LOCKS_VERSION`, `OXYOS_APPLICATION_LOCKS_VERSION`). |
+   | 28 | Finder's move on the same volume and copy onto another ([ADR 0047](./0047-finder-drags-and-the-desktop), decision 8): a drag of files says the volumes its files are on (`DragFileVolume`, request 252, before its `StartDrag`, in chunks as `DragFileType`), and a target is told them after the files' types (`DragOfferFileVolume`, event 253, with `file_volumes` at the end of `DragEnter`). Sent unasked, so never to a client of version 27 or older, whose `DragEnter` leaves the count out (a version 27 reader reads none); the client library tells a compositor of version 27 or older no volumes, and the drag goes as before. In the C ABI, `oxyos_client_start_drag_with_volumes` beside `oxyos_client_start_drag_with` (whose signature stays), `OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME`, `oxyos_files_volume` and `oxyos_files_folder_volume`. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

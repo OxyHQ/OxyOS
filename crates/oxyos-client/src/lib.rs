@@ -102,12 +102,17 @@ type Offer = Vec<(TextChunk, std::sync::Arc<[u8]>)>;
 
 /// What a drag says beyond its content (version 26, docs/adr/0035-drag-and-drop.mdx): whether,
 /// dropped on nothing that takes it, it vanishes in a poof where it is instead of sliding back
-/// (an item dragged out of a dock), and the media types of the files it carries.
+/// (an item dragged out of a dock), and the media types of the files it carries; and (version
+/// 28, docs/adr/0047-finder-drags-and-the-desktop.mdx) the volumes they are on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DragOptions {
     pub vanish: bool,
     /// Distinct, at most MAX_DRAG_TYPES of at most MAX_FILE_TYPE_BYTES each: others are left out.
     pub file_types: Vec<String>,
+    /// The volumes its files are on, as the platform names them (`oxyos_files::volume`):
+    /// distinct, at most MAX_DRAG_TYPES of at most MAX_FILE_VOLUME_BYTES each; others are left
+    /// out. A compositor of a version before 28 is told none.
+    pub volumes: Vec<String>,
 }
 
 /// Offers kept for the clipboard: the latest few, of which it holds one.
@@ -731,8 +736,10 @@ impl Client {
     }
 
     /// [`Client::start_drag`], saying more of the drag (version 26, ADR 0035): whether it
-    /// vanishes in a poof dropped on nothing, and its files' media types, which targets are told.
-    /// A compositor of an older version is told neither, and the drag goes as before.
+    /// vanishes in a poof dropped on nothing, and its files' media types, which targets are told;
+    /// and (version 28, ADR 0047) the volumes its files are on, which targets are told too. A
+    /// compositor of an older version is told what its version has of these, and the drag goes as
+    /// before.
     pub fn start_drag_with(
         &mut self,
         surface: u32,
@@ -760,30 +767,31 @@ impl Client {
             self.send(&Request::DragType { drag, mime: *mime })?;
         }
         if self.version >= 26 {
-            let mut told: Vec<&str> = Vec::new();
-            for mime in &options.file_types {
-                if mime.is_empty()
-                    || mime.len() > oxyos_protocol::MAX_FILE_TYPE_BYTES
-                    || told.len() >= oxyos_protocol::MAX_DRAG_TYPES
-                    || told.contains(&mime.as_str())
-                {
-                    continue;
-                }
-                told.push(mime);
-                let chunks = TextChunk::split(mime);
-                let count = chunks.len();
-                for (index, chunk) in chunks.iter().enumerate() {
-                    self.send(&Request::DragFileType {
-                        drag,
-                        index: index as u16,
-                        last: index + 1 == count,
-                        text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
-                    })?;
-                }
-            }
+            self.say_in_chunks(
+                &options.file_types,
+                oxyos_protocol::MAX_FILE_TYPE_BYTES,
+                |index, last, text| Request::DragFileType {
+                    drag,
+                    index,
+                    last,
+                    text,
+                },
+            )?;
             if options.vanish {
                 self.send(&Request::DragVanish { drag })?;
             }
+        }
+        if self.version >= 28 {
+            self.say_in_chunks(
+                &options.volumes,
+                oxyos_protocol::MAX_FILE_VOLUME_BYTES,
+                |index, last, text| Request::DragFileVolume {
+                    drag,
+                    index,
+                    last,
+                    text,
+                },
+            )?;
         }
         self.send(&Request::StartDrag {
             drag,
@@ -886,6 +894,37 @@ impl Client {
                 last: index + 1 == count,
                 text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
             })?;
+        }
+        Ok(())
+    }
+
+    /// Says each of `texts` of a drag, in chunks (`say`: DragFileType, DragFileVolume): each
+    /// distinct, at most MAX_DRAG_TYPES of 1 to `longest` bytes; the others left out.
+    fn say_in_chunks(
+        &self,
+        texts: &[String],
+        longest: usize,
+        say: impl Fn(u16, bool, PreeditText) -> Request,
+    ) -> io::Result<()> {
+        let mut told: Vec<&str> = Vec::new();
+        for text in texts {
+            if text.is_empty()
+                || text.len() > longest
+                || told.len() >= oxyos_protocol::MAX_DRAG_TYPES
+                || told.contains(&text.as_str())
+            {
+                continue;
+            }
+            told.push(text);
+            let chunks = TextChunk::split(text);
+            let count = chunks.len();
+            for (index, chunk) in chunks.iter().enumerate() {
+                self.send(&say(
+                    index as u16,
+                    index + 1 == count,
+                    PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                ))?;
+            }
         }
         Ok(())
     }
