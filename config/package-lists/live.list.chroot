@@ -75,6 +75,9 @@ libanthy1t64
 anthy-common
 xkb-data
 iso-codes
+# - PDFs' text for the search service (docs/adr/0051-search.mdx, decision 2): MuPDF's `mutool`,
+#   which needs neither cairo nor X11's libraries (Poppler's pdftotext needs both).
+mupdf-tools
 # - The screen reader's voice (docs/adr/0014-screen-reader.mdx, decision 3): the reader runs
 #   espeak-ng for each utterance, through PipeWire's PulseAudio server.
 espeak-ng

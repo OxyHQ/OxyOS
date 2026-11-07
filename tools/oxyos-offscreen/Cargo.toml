@@ -17,6 +17,8 @@ oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-vt = { path = "../../crates/oxyos-vt" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+# The search service, which this program runs as its child (docs/adr/0051-search.mdx).
+oxyos-search = { path = "../../crates/oxyos-search" }
 # The system's sounds, recorded (docs/adr/0044-system-sounds.mdx).
 oxyos-sound = { path = "../../crates/oxyos-sound" }
 oxyos-input-methods = { path = "../../crates/oxyos-input-methods" }

@@ -39,6 +39,12 @@ step's expected result) and measures, from what the processes report and from /p
   thread's, held to the idle budget (at most one wakeup a second and 0.1 % of a core, the session's
   own process as an application). It needs no --offscreen, --runtimes or --packages, and touches
   nothing of the session;
+- search: the session's search service (docs/adr/0051-search.mdx) run as the program runs it
+  (`oxyos-offscreen --search-service`, its standard input the control socket) on a home of
+  SEARCH_FILES generated files (text, Markdown, code, Word documents, PDFs, some tagged): how fast
+  it indexes them (files a second, and a second of its CPU), the index's size, how long typical
+  questions take from the socket to their answer, how soon a file written is found, and, once
+  indexed, its CPU, wakeups and memory while nothing happens. --check holds it to SEARCH_BUDGETS;
 - memory: the shell, Settings and four more applications (Dropsea among them when it is packaged) on
   one compositor, each host measured once every one drew and then stayed idle until it trimmed what
   it holds (memory.h): from /proc/PID/smaps_rollup its RSS, PSS (a shared page's size divided among
@@ -67,6 +73,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--check]
                [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
+       perf.py --offscreen BIN [--out DIR] [--check] search
        perf.py [--out DIR] [--check] session
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
@@ -230,6 +237,26 @@ MEMORY_BUDGETS = {
     "Dropsea": {"footprint_mib": 86, "pss_mib": 68},
 }
 
+
+
+# What --check holds the search service to (`search`, docs/adr/0051-search.mdx). A typical question
+# is answered within 50 ms at the 95th percentile (the owner's budget); once indexed, the service
+# wakes never and uses no CPU while nothing happens (the idle rule: no timers); it indexes at least
+# SEARCH_FILES_PER_CPU_S files a second of its own CPU (its throughput by the wall clock depends on
+# what else the machine does, its indexer being in the idle class); its memory while idle and its
+# index's size per file stay bounded.
+SEARCH_BUDGETS = {
+    "query_ms_p95": 50.0,
+    "idle_wakeups_per_s": 0.0,
+    "idle_cpu_percent": 0.01,
+    "files_per_cpu_s": 300.0,
+    "found_after_write_ms": 1500.0,
+    "idle_rss_mib": 64.0,
+    "index_bytes_per_file": 4096.0,
+}
+
+# The generated home's size.
+SEARCH_FILES = 3000
 
 
 def percentiles(values):
@@ -771,6 +798,204 @@ def idle(options, name, scenario, out):
 
 
 
+WORDS = ("harbour lighthouse quarterly report budget invoice meeting notes travel madrid córdoba camión "
+         "rojo verde project roadmap design review kernel compositor index search spotlight window dock "
+         "settings privacy keyboard battery network photo album summer winter recipe garden").split()
+
+
+def search_home(home, count):
+    """A home of `count` files: text, Markdown, code, Word documents and PDFs in nested folders,
+    every tenth tagged Work (freedesktop.org's attribute, ADR 0049), deterministic."""
+    import random
+    import zipfile
+    rng = random.Random(51)
+    pdfs = shutil.which("mutool") is not None
+    made = 0
+    for n in range(count):
+        folder = home / ["Documents", "Projects", "Notes", "Desktop"][n % 4] / f"group {n % 37}" / f"set {n % 5}"
+        folder.mkdir(parents=True, exist_ok=True)
+        words = " ".join(rng.choice(WORDS) for _ in range(rng.randint(40, 400)))
+        title = f"{rng.choice(WORDS)} {rng.choice(WORDS)} {n}"
+        kind = n % 10
+        if kind < 4:
+            path = folder / f"{title}.txt"
+            path.write_text(words)
+        elif kind < 6:
+            path = folder / f"{title}.md"
+            path.write_text(f"# {title}\n\n{words}\n")
+        elif kind < 8:
+            path = folder / f"{title.replace(' ', '_')}.rs"
+            path.write_text(f"// {words}\nfn main() {{}}\n")
+        elif kind == 8 or not pdfs:
+            path = folder / f"{title}.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", f'<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>{words}</w:t></w:r></w:p></w:body></w:document>')
+        else:
+            path = folder / f"{title}.pdf"
+            path.write_bytes(minimal_pdf(" ".join(words.split()[:30])))
+        if n % 10 == 3:
+            os.setxattr(path, "user.xdg.tags", b"Work")
+        made += 1
+    return made
+
+
+def minimal_pdf(words):
+    """A one-page PDF saying `words` (PDF 1.4, its cross-reference table computed)."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({words}) Tj ET"
+    objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+               "/Resources << /Font << /F1 5 0 R >> >> >>",
+               f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+               "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for n, body in enumerate(objects):
+        offsets.append(len(out))
+        out += f"{n + 1} 0 obj\n{body}\nendobj\n".encode("latin-1")
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += "".join(f"{offset:010} 00000 n \n" for offset in offsets).encode()
+    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+class SearchService:
+    """The search service as the program runs it, its control socket ours, asking as the shell."""
+
+    def __init__(self, offscreen, root):
+        import socket
+        self.root = root
+        ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        environment = dict(os.environ, HOME=str(root / "home"), XDG_CACHE_HOME=str(root / "cache"),
+                           XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"),
+                           USER="perf")
+        self.process = subprocess.Popen([offscreen, "--search-service"], stdin=theirs.fileno(),
+                                        env=environment, stderr=open(root / "service.log", "w"))
+        theirs.close()
+        self.socket = ours
+        self.lines = ours.makefile("r")
+        self.serial = 0
+
+    def ask(self, ask):
+        self.serial += 1
+        line = {"ask": {"client": 1, "serial": self.serial, "text": json.dumps(ask),
+                        "asker": {"id": "so.oxy.shell", "launched": True, "shell": True, "settings": False}}}
+        self.socket.sendall((json.dumps(line) + "\n").encode())
+        while True:
+            message = json.loads(self.lines.readline())
+            if message["answer"]["serial"] == self.serial:
+                return json.loads(message["answer"]["text"])
+
+    def cpu_ns(self):
+        """Its CPU time, every thread's, from schedstat."""
+        total = 0
+        for task in pathlib.Path(f"/proc/{self.process.pid}/task").iterdir():
+            try:
+                total += int((task / "schedstat").read_text().split()[0])
+            except (OSError, IndexError, ValueError):
+                pass
+        return total
+
+    def wakeups(self):
+        total = 0
+        for task in pathlib.Path(f"/proc/{self.process.pid}/task").iterdir():
+            try:
+                for line in (task / "status").read_text().splitlines():
+                    if line.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
+                        total += int(line.split(":")[1])
+            except OSError:
+                pass
+        return total
+
+    def memory(self):
+        status = pathlib.Path(f"/proc/{self.process.pid}/status").read_text()
+        return {key: int(value.split()[0]) / 1024 for key, value in
+                (line.split(":", 1) for line in status.splitlines())
+                if key in ("VmRSS", "VmHWM", "RssAnon", "RssFile")}
+
+    def stop(self):
+        self.socket.close()
+        try:
+            self.process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+
+
+SEARCH_QUESTIONS = ["h", "har", "harbour", "quarterly rep", "camion rojo", '"design review"', "kind:pdf",
+                    "tag:work budget", "date:week notes", "name:invoice", "lighthouse kind:text",
+                    "spotlight compositor index"]
+
+
+def search(options, out):
+    """Indexing throughput, the index's size, questions' latency, a write found, and idle."""
+    runs = []
+    for run in range(options.runs):
+        root = out / f"search-{run + 1}"
+        shutil.rmtree(root, ignore_errors=True)
+        (root / "home").mkdir(parents=True)
+        files = search_home(root / "home", SEARCH_FILES)
+        service = SearchService(options.offscreen, root)
+        try:
+            started, cpu_started = time.monotonic(), service.cpu_ns()
+            while True:
+                status = service.ask({"status": {}})["status"]
+                if not status["indexing"] and status["items"] >= files:
+                    break
+                if time.monotonic() - started > 600:
+                    raise RuntimeError(f"the search service never indexed the home: {status}")
+                time.sleep(0.05)
+            elapsed, cpu_s = time.monotonic() - started, (service.cpu_ns() - cpu_started) / 1e9
+            latencies = []
+            for _ in range(10):
+                for text in SEARCH_QUESTIONS:
+                    asked = time.perf_counter()
+                    answer = service.ask({"query": {"text": text}})
+                    latencies.append((time.perf_counter() - asked) * 1000)
+                    assert "results" in answer, answer
+            # A file written is found.
+            written = time.monotonic()
+            (root / "home" / "Documents" / "zanzibar.txt").write_text("a voyage to zanzibar")
+            while not service.ask({"query": {"text": "zanzibar"}})["results"]["items"]:
+                if time.monotonic() - written > 30:
+                    raise RuntimeError("a file written was never found")
+                time.sleep(0.01)
+            found_ms = (time.monotonic() - written) * 1000
+            while service.ask({"status": {}})["status"]["indexing"]:
+                time.sleep(0.05)
+            time.sleep(IDLE_SETTLE_S)
+            before_cpu, before_wakeups, before = service.cpu_ns(), service.wakeups(), time.monotonic()
+            time.sleep(IDLE_WINDOW_S)
+            window = time.monotonic() - before
+            idle = {"cpu_percent": (service.cpu_ns() - before_cpu) / (window * 1e9) * 100,
+                    "wakeups_per_s": (service.wakeups() - before_wakeups) / window}
+            final = service.ask({"status": {}})["status"]
+            memory = service.memory()
+            runs.append({"files": files, "items": final["items"], "index_bytes": final["bytes"],
+                         "index_s": elapsed, "cpu_s": cpu_s, "files_per_s": files / elapsed,
+                         "files_per_cpu_s": files / max(cpu_s, 1e-6), "latencies": latencies,
+                         "found_after_write_ms": found_ms, "idle": idle, "memory": memory,
+                         "reads_pdf": final["readsPdf"]})
+        finally:
+            service.stop()
+
+    def median(key, of=lambda run, key: run[key]):
+        return round(statistics.median(of(run, key) for run in runs), 2)
+
+    pooled = [latency for run in runs for latency in run["latencies"]]
+    return {
+        "files": runs[0]["files"], "items": runs[0]["items"], "reads_pdf": runs[0]["reads_pdf"],
+        "index_s": median("index_s"), "files_per_s": median("files_per_s"),
+        "files_per_cpu_s": median("files_per_cpu_s"), "index_bytes": median("index_bytes"),
+        "index_bytes_per_file": round(statistics.median(run["index_bytes"] / run["files"] for run in runs), 1),
+        "query_ms": percentiles(pooled), "found_after_write_ms": median("found_after_write_ms"),
+        "idle_cpu_percent": round(statistics.median(run["idle"]["cpu_percent"] for run in runs), 4),
+        "idle_wakeups_per_s": round(statistics.median(run["idle"]["wakeups_per_s"] for run in runs), 2),
+        "idle_rss_mib": round(statistics.median(run["memory"]["VmRSS"] for run in runs), 1),
+        "idle_anon_mib": round(statistics.median(run["memory"]["RssAnon"] for run in runs), 1),
+        "peak_rss_mib": round(max(run["memory"]["VmHWM"] for run in runs), 1),
+    }
+
+
 def session_processes():
     """This user's running `oxyos-session` and the Bloom hosts it started, by pid: what each is (the
     session, or a host by its module: OxyOSShell, an application's)."""
@@ -1082,11 +1307,42 @@ def show(results):
                            "threads that woke (a second)"]))
     elif "session" in results:
         print("session idle: no oxyos-session of this user is running")
+    if "search" in results:
+        show_search(results["search"])
+
+
+def show_search(r):
+    print(table([[r["files"], r["items"], r["index_s"], r["files_per_s"], r["files_per_cpu_s"],
+                  f"{r['index_bytes'] / 1048576:.1f} MiB ({r['index_bytes_per_file']} B a file)",
+                  f"{r['query_ms']['p50']} / {r['query_ms']['p95']} / {r['query_ms']['max']}",
+                  r["found_after_write_ms"], r["idle_wakeups_per_s"], r["idle_cpu_percent"],
+                  f"{r['idle_rss_mib']} ({r['idle_anon_mib']} anonymous), peak {r['peak_rss_mib']}"]],
+                ["files", "items", "indexed in s", "files/s", "files/CPU s", "index",
+                 "question ms p50/p95/max", "written to found ms", "idle wakeups/s", "idle CPU %",
+                 "memory MiB"]))
+    if not r["reads_pdf"]:
+        print("(no mutool here: PDFs were indexed by name; Word documents stood in for them)")
 
 
 def check(results):
     """The budgets results exceed, as messages."""
     over = []
+    r = results.get("search")
+    if r:
+        if r["query_ms"]["p95"] > SEARCH_BUDGETS["query_ms_p95"]:
+            over.append(f"search: questions took {r['query_ms']['p95']} ms at p95")
+        if r["idle_wakeups_per_s"] > SEARCH_BUDGETS["idle_wakeups_per_s"]:
+            over.append(f"search: the service woke {r['idle_wakeups_per_s']} times a second idle")
+        if r["idle_cpu_percent"] > SEARCH_BUDGETS["idle_cpu_percent"]:
+            over.append(f"search: the service used {r['idle_cpu_percent']}% CPU idle")
+        if r["files_per_cpu_s"] < SEARCH_BUDGETS["files_per_cpu_s"]:
+            over.append(f"search: {r['files_per_cpu_s']} files indexed a second of CPU")
+        if r["found_after_write_ms"] > SEARCH_BUDGETS["found_after_write_ms"]:
+            over.append(f"search: a file written was found after {r['found_after_write_ms']} ms")
+        if r["idle_rss_mib"] > SEARCH_BUDGETS["idle_rss_mib"]:
+            over.append(f"search: {r['idle_rss_mib']} MiB resident idle")
+        if r["index_bytes_per_file"] > SEARCH_BUDGETS["index_bytes_per_file"]:
+            over.append(f"search: the index takes {r['index_bytes_per_file']} bytes a file")
     for name, r in results.get("interactions", {}).items():
         refresh = r["refresh_ms"]
         if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
@@ -1151,7 +1407,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
                         help="interactions, responses, shell, cold-start, idle, memory, refresh, genie (all "
-                             "by default), and session (the running session idle, only when named)")
+                             "by default), search (the search service, only when named, needs --offscreen "
+                             "alone) and session (the running session idle, only when named)")
     parser.add_argument("--offscreen")
     parser.add_argument("--runtimes", help="the runtimes (regress.py)")
     parser.add_argument("--packages", help="the applications' packages and the probes (regress.py)")
@@ -1164,10 +1421,12 @@ def main():
     options = parser.parse_args()
     every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
     parts = options.parts or every
-    if not set(parts) <= set(every) | {"session"}:
+    if not set(parts) <= set(every) | {"session", "search"}:
         parser.error(f"unknown parts {parts}")
-    if set(parts) - {"session"} and not (options.offscreen and options.runtimes and options.packages):
-        parser.error("--offscreen, --runtimes and --packages are needed for every part but session")
+    if set(parts) - {"session", "search"} and not (options.offscreen and options.runtimes and options.packages):
+        parser.error("--offscreen, --runtimes and --packages are needed for every part but session and search")
+    if "search" in parts and not options.offscreen:
+        parser.error("--offscreen is needed for search")
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-perf-"))
     out.mkdir(parents=True, exist_ok=True)
 
@@ -1195,6 +1454,8 @@ def main():
                             for name, scenario, steps, what in GENIE}
     if "session" in parts:
         results["session"] = session_idle(SESSION_WINDOW_S)
+    if "search" in parts:
+        results["search"] = search(options, out)
     results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)

@@ -1,0 +1,187 @@
+---
+title: "ADR 0051: Search"
+description: Spotlight on OxyOS. A per-user search service, the session program run again as its child, keeps one tantivy index of the person's files (names, kinds, dates, tags and text, read by proven readers), the applications, Settings' pages and what applications donate, current by inotify and never by a crawl, at the scheduler's idle class. The compositor brokers every client's questions with the identity only it knows; Super+Space opens the shell's Spotlight panel; the launcher, Dropsea and Settings › Spotlight use the same service through Bloom's PlatformSearch.
+order: 60
+---
+
+# ADR 0051: Search
+
+Status: **accepted; implemented** in the platform (steps 1 to 4), the shell, Settings and Bloom (steps 5 and 6) and Dropsea (step 7). Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 30) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+
+## Problem
+
+On a Mac, ⌘Space opens Spotlight: a field in the middle of the screen, and as the person types, their applications, documents, folders, System Settings' panes, contacts and mail, grouped, the best first, a preview of the one selected beside them. Return opens it, ⌘Return shows it in Finder, and it can be dragged out. Finder's search field asks the same index, with tokens ("Kind: PDF"). The index is current a moment after a file is saved, and costs the battery nothing while the Mac does nothing.
+
+OxyOS searched only the launcher's applications, by name, in the shell's memory. Dropsea filtered the folder it showed. Nothing knew what a document said, and ADR 0049's tag index lives in each application's process, for tags alone.
+
+## Options
+
+**Where the index lives.**
+
+- (a) *Each application's own*, as ADR 0049's tag index is: every application that searches crawls the home and holds its watches. Two applications, two crawls; the shell's Spotlight a third.
+- (b) *In the compositor's process*: one index, but a document crafted to exhaust its reader, or a large crawl's memory, would be the session's.
+- (c) *A user daemon of systemd's* (`background.slice`, as KDE's Baloo runs): systemd's cgroup weights, but the daemon would then need to learn, by itself and unforgeably, which application is asking, and the session's processes have no user manager to depend on (the login program starts the session directly, ADR 0020).
+- (d) *A child process of the session program*, the program run again with `--search-service`: one index for the session, out of the compositor's address space, ending with the session, and asked only through the compositor, which already knows every client (its grants, its launch record).
+
+(d).
+
+**The engine.** A full-text index is not ours to write: **tantivy** (Quickwit's, a Lucene-class engine in Rust: BM25, phrase and prefix queries, fast fields, segments merged in the background). SQLite's FTS5 was the other candidate; tantivy needs no C library, gives phrase queries and per-field scoring directly, and is what Rust search engines use.
+
+**Reading documents.** Proven readers only:
+
+- text, Markdown and code: their bytes;
+- Word, PowerPoint, Excel, OpenDocument and EPUB are ZIP archives of XML: the `zip` and `quick-xml` crates, reading the parts the formats keep their text in (KDE's and GNOME's extractors read the same parts);
+- PDF: Poppler's `pdftotext` was the first choice, but `poppler-utils` depends on cairo and through it on X11's libraries, which the image may not hold. **MuPDF's `mutool`** (`mupdf-tools`) depends on neither. It is run as a program of its own, so a PDF crafted to hang or crash its reader never reaches the service.
+
+**Keeping current.** fanotify's whole-file-system marks need `CAP_SYS_ADMIN`; unprivileged, it watches inodes as inotify does. So inotify, one watch per folder, as the tag index (ADR 0049) does.
+
+## Decision
+
+1. **The service.** `oxyos-search` (`crates/oxyos-search`) is a library and a process: the program running the compositor (`oxyos-session`, and `oxyos-offscreen` in development) runs itself again as `<program> --search-service`, its standard input one end of a socket pair, its only channel. It sets `PR_SET_PDEATHSIG`, so it ends with the program; it ends too when the socket closes.
+   - **Started** with the session, after the shell (the index is ready before the person searches); in the development compositor, at the first question, so scenarios that never search never start it.
+   - **Stopped or crashed:** questions waiting are answered `unavailable`, and the next question starts it again, no sooner than five seconds after the last start.
+   - The login screen has none.
+
+2. **The index** (`index.rs`), in `$XDG_CACHE_HOME/oxyos/search/index-1`: a cache, made again when it is missing, damaged or of another version.
+   - **One document per item.** Its record (id, source, category, titles in each language, keywords, tags, dates, size) is stored as JSON. Indexed:
+     - its titles as words, as every beginning of each word (the edge n-grams of search-as-you-type), and whole;
+     - its keywords and tags likewise, its tags also as filters;
+     - its text, as words with positions;
+     - every folder above it, so `within` is one term and a folder's items go in one step;
+     - its dates and size.
+   - **Words are folded:** lowercase, accents removed (tantivy's ASCII folding), so `camion` finds *Camión*.
+   - **The text itself is not stored.** A result's snippet is read again from its file, so the index holds words alone. At most 1 MiB of text an item; files over 256 MiB are found by name.
+   - **Ids:** a file's or folder's `file://` URI, `application:<id>`, `settings:<page>`, and `<application id>:<its id>` for an application's own items.
+
+3. **What is indexed.**
+   - **Files and folders** in the person's places (the home and the volumes mounted for them, ADR 0028): name, kind (from the name, `oxyos_files::mime`), dates, size, tags (ADR 0049's attributes), and text (decision 2's readers) for text, Markdown, source code, PDF, Word, PowerPoint, Excel, OpenDocument and EPUB.
+   - **Left out**, as Baloo and Spotlight leave them:
+     - hidden files and folders (a name starting with `.`) and every Trash;
+     - ADR 0049's dependency and build folders (`node_modules`, `__pycache__`, …);
+     - a folder whose name ends with `.noindex` (a Mac's convention);
+     - a folder holding a `CACHEDIR.TAG` (the Cache Directory Tagging Specification: Cargo's `target`, pip's and many other caches write it);
+     - the folders the person kept out (decision 9).
+   - **Applications:** those the launcher lists, as the program tells the service (decision 7), with their names and their entries' `Keywords`.
+   - **Declared items:** a package may carry `searchable.json` beside its manifest: items it declares, each with its titles and keywords by language and the URL that opens it, as a Mac's preference panes declare their search terms.
+     - Settings' package declares every page (`settings:<page>`, `oxyos-settings://<page>`). Only the system Settings' package (`so.oxy.settings`, an id no other source can shadow, ADR 0030 decision 7) declares items of the Settings category; any other package's are its own.
+   - **Donated items:** what a running application gives (decision 8).
+
+4. **Kept current, never crawled again for a change** (`indexer.rs`), on one thread:
+   - **The first crawl reconciles.** Every folder is watched before it is read. An item the index holds as it is on the disk (its modification time in nanoseconds and its size) is not read again; one changed or new is read; one gone is removed. A session starting on an index of a hundred thousand files reads their metadata, not their text.
+   - **Then inotify says each change:**
+     - an item made, written and closed (`IN_CLOSE_WRITE`), or its attributes changed (tags, `touch`): read again;
+     - deleted: removed, a folder with what it held;
+     - moved within the places: removed where it was, read where it is (a folder crawled);
+     - moved in from outside: crawled; moved out: removed;
+     - made hidden or kept out: removed.
+   - **Each changed path settles** 400 ms after its last event before it is read, so a file written in many steps is read once.
+   - **Volumes** mounted and unmounted are followed by the mount table, as the file service's watches follow it.
+   - **Lost events** (`IN_Q_OVERFLOW`) reconcile everything again, as the first crawl does.
+   - **The watch limit:** past `fs.inotify.max_user_watches`, folders are indexed but not followed, and the service says it is partial (`status`).
+   - **Commits:**
+     - what was written is committed once nothing waits, or every two seconds while a crawl goes on, so results appear as it goes;
+     - each commit is told to the service's reader, which reloads (tantivy's reader that follows the directory itself polls it on a clock: not used);
+     - after a commit with nothing waiting, the writer is closed: its threads end and its memory is given back.
+
+5. **The query language and the ranking** (`query.rs`, `index.rs`).
+   - **Words** match as beginnings of words in the title and the keywords (`rep` finds *Report*), and as words in the text, the last one also as a beginning (what is being typed). Every word must match somewhere.
+   - **"Quoted phrases"** match in order, in the title or the text.
+   - **Typed filters**, in English and Spanish, as Spotlight's:
+     - `kind:` (`tipo:`): a category by its name or a common word (`pdf`, `image`, `carpeta`, `presentación`);
+     - `tag:` (`etiqueta:`): a tag, case aside, `tag:"Two words"`;
+     - `date:` (`fecha:`): `today`, `yesterday`, `week`, `month`, `year` (the last 7, 30 or 365 days, in the system's time zone), a day `2026-11-07`, a month, a year;
+     - `name:` (`nombre:`): the title alone.
+
+     An unknown `word:value` is words. A field's **tokens** are the same filters, chosen rather than typed.
+   - **Ranking:**
+     - BM25 over the fields: a title's beginnings ×3, its whole words ×2, keywords and tags ×1.5, the text ×1, a beginning in the text ×0.5. The whole text typed being the title (or a file's name without its extension) ×10.
+     - Then each of the 400 best is weighed: by its category (an application ×1.6, a Settings page ×1.2, a folder ×1.1, as Spotlight puts applications first); by recency (a file or donated item changed or opened lately up to ×1.5, halving each 30 days); by use (opened from a search, `1 + 0.6·ln(1 + times)`, its weight halving over 60 days to half).
+     - What the person opened is kept in `$XDG_DATA_HOME/oxyos/search/usage.json` (the 10 000 most recent).
+   - **The top hit** is the best item if every word typed begins a word of its title; none otherwise (a match in the text alone is no top hit).
+   - **Categories**, each a section of the results, a `kind:` and a switch in Settings: application, settings, folder, document, pdf, text, source, presentation, spreadsheet, image, movie, music, archive, contact, event, mail, message, other.
+
+6. **Who sees what.** The compositor tells the service, with each question, who asks: the launched application's id (from its launch record), whether the session launched it, and its `shell` and `settings` grants.
+   - **The shell** sees every item, but the categories the person turned off for Spotlight.
+   - **Any other client** sees the files and folders, which it reaches through `expo-file-system` anyway (ADR 0028; when applications are confined, its results follow its scope), and, if the session launched it, its own declared and donated items. It never sees the applications, Settings' pages or another application's items.
+   - **Donating and removing** are a launched application's, its own items alone. A client the session did not launch donates nothing.
+   - **The preferences** are Settings' (`settings`), as its other pages' are.
+
+7. **The protocol: version 30** (ADR 0033).
+   - **Questions:** `SearchRequest { serial, index, last, text }` and `SearchText`, chunked JSON as `SystemRequest`/`SystemText` are, from **any** client (no grant): what it may see is decided by the service from the identity the compositor adds. `SearchText` serial 0 is told unasked: `{"changed": {}}` to a client that asked to watch.
+   - **The program brokers** (`oxyos_compositor::search`). A writer thread and a reader thread carry newline-delimited JSON over the socket, so the compositor's turn never waits on the service:
+     - to the service: the session's languages, the applications the launcher lists (`id`, `name`, `keywords`, `icon`, `package`), each question with its asker, and each client gone;
+     - from the service: each answer, for its client.
+   - **What a client asks** (the vocabulary in `service.rs`):
+     - `query` (`text`, `tokens`, `within`, `categories`, `limit`, `language`) ← `results` (`items`, `topHit`, `indexing`);
+     - `watch`, `used`;
+     - `donate`, `remove` and `removeAll` (answered once the index holds them);
+     - `preferences` and `setPreferences`;
+     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`).
+   - **An item:** `id`, `category`, `title` (in the language asked), `uri` for a file (a folder's ending in `/`), `url`, `application`, `icon`, `contentType`, `size`, `modified`, `created`, `lastUsed`, `tags`, `snippet` (of a text, source or office document among the first ten, about 160 characters around the first word found) and `location` (its folder from the home, `Documents › Work`).
+   - **The host** (`OxyOSSearch`) and **Bloom's `PlatformSearch`** (`usePlatformSearch`, Bloom 17.20.0): `query`, `watch`, `used`, and `index.donate`, `index.remove`, `index.removeAll` (Core Spotlight's `CSSearchableIndex`). The shell has the same as its platform's `search`, and Settings as its actions' `search` (`preferences`, `setPreferences`, `status`).
+
+8. **Applications' items, Core Spotlight's way.** An application donates `{id, title, category, text?, keywords?, url, modified?}`: contacts, events, mail and messages later, through the applications that keep them.
+   - The category is one of contact, event, mail, message or other; at most 1000 items a request; 64 KiB of text an item.
+   - The shell opens one with its `url`, which the application is launched or told with (ADR 0034's `OpenUrl`).
+   - The index is a cache: an application donates again what it wants found when its items change, as Core Spotlight asks its applications to.
+
+9. **Settings › Spotlight** (*Spotlight*), a page of Settings' general group, as on a Mac (`oxyos-settings://spotlight`):
+   - **Search results:** a switch for each category, saved by the service (`$XDG_CONFIG_HOME/oxyos/search.json`). A category turned off leaves the shell's results; Dropsea's search is not changed, as Finder's is not by Spotlight's switches.
+   - **Search Privacy:** the folders kept out, added with the system's folder chooser and removed. A folder kept out is removed from the index at once and never read; let back in, it is crawled.
+   - **The index's status:** indexing or not, and how many items it holds.
+
+10. **The search panel** (`apps/shell/src/components/Spotlight.tsx`). **Super+Space** opens it, as ⌘Space opens Spotlight, at the owner's request (ADR 0024 and 0041 amended; below); again, it closes.
+    - **The panel:** floating, centred, a fifth of the way down; its field large. As the person types, results come grouped by category with small headers: **Top Hit** first, then each section in the order of its best item, a few rows each. On the right, a preview of the selected item: its picture or icon, title, kind, size, dates, tags, snippet and location.
+    - **Keys:** ↑ ↓ go through the results; Return opens; **Super+Return** shows a file or folder in Dropsea (`dropsea://files?uri=…&select=…`), as ⌘Return shows it in Finder. Escape clears the text, and closes with none.
+    - **Live:** a file or folder row can be dragged out, as the desktop's icons are (ADR 0047). While the panel is open, the results follow the index (`watch`).
+    - **Opening:** an application is opened, a file with its application, a folder in Dropsea, a page in Settings, anything else at its URL; and the service is told it was used.
+    - **The launcher's search** (Super alone) asks the same service for applications, in its order.
+
+11. **Dropsea's search** (OxyHQ/Dropsea) asks the service for the person's files when it runs on a platform with `search`, within the place shown or everywhere ("This Computer"), with tokens for kinds, tags and dates as Finder offers them; elsewhere, as before.
+
+12. **The system's keys change** (ADR 0024 and 0041, amended 8 November 2026):
+    - **Super+Space** is Spotlight;
+    - **Super+Return** shows Spotlight's selection in Dropsea;
+    - **Super+Alt+Space** chooses the input source used before, as Super+Space did, and each further Space while Super and Alt are held the one before that;
+    - **Super+Alt+Shift+Space** chooses the next in the list;
+    - Control+Super+Space stays emoji, and Super alone stays the launcher.
+
+13. **Battery and idle** (docs/performance.mdx's rules).
+    - **The indexer is in the CPU's idle class** (`SCHED_IDLE`, the class cgroup v2's `cpu.idle` and systemd's `CPUWeight=idle` give a cgroup's tasks) and the disk's (`IOPRIO_CLASS_IDLE`). Its threads and the PDF reader it starts inherit both. The service's answering thread keeps the normal class, so a question is answered at once while the indexer works.
+      - Not a cgroup of its own: the session's processes share one logind scope with no delegated subtree and no user manager to ask for one (decision 1).
+    - **While nothing happens, nothing wakes:** both threads wait on their descriptors with no deadline. A deadline exists only while a change is settling or a crawl is committing. The writer and its threads exist only while there is something to write.
+    - **The PDF reader** runs under `prlimit` (1 GiB of memory, 20 s of CPU) and is killed after 30 s.
+
+## Steps
+
+1. **The index, its readers and its language** (`crates/oxyos-search`: `category`, `query`, `extract`, `index`). *Done.* Tests:
+   - each category from names;
+   - the language's words, phrases, filters, spans and tokens;
+   - text, UTF-16 and binary files; Word, PowerPoint in slide order, Excel, OpenDocument, EPUB without its scripts; a broken archive; a PDF read by MuPDF and a broken one;
+   - names found as they are typed, folded accents, words and phrases in the text, every filter, `within`, applications first and used items rising, an exact name beating a longer one, recent files above old ones, who sees what, folders and sources removed, snippets.
+2. **The indexer and the service** (`indexer`, `service`, `sched`). *Done.* Tests through the control socket on homes the tests make:
+   - a file made, written again, renamed, a folder moved, a file and a folder deleted, a folder moved in and out of the places, a folder made hidden; and every exclusion (hidden, dependency, `CACHEDIR.TAG`, `.noindex`);
+   - a restart reading only the files changed while it was not running;
+   - the applications and Settings' declared pages in two languages, the top hit, donations seen by their application and the shell alone, a client not launched refused, another application unable to remove them, usage;
+   - Settings alone keeping folders and categories out, and letting them back;
+   - watchers told; the indexer's thread in both idle classes and its threads inheriting them;
+   - `tests/idle.rs`: once indexed, the service's threads wake **0** times in 4 s, and the writer's threads are gone.
+3. **The protocol, the broker, the host and the adapter** (version 30, `oxyos_compositor::search`, `OxyOSSearch`, `sample/oxyos/search.js`), and the keys of decision 12. *Done.*
+4. **Scenarios and budgets.** *Done.* `scenarios/spotlight.json` and `spotlight-scaled.json` (at 1 and 1.25), on a home the scenario makes:
+   - Super+Space, typing, the sections and the top hit, the arrows, Return opening, Super+Return revealing in Dropsea, Escape;
+   - a file made while the panel is open appearing;
+   - the keyboard's focus and every delivery exact.
+
+   `settings-spotlight*.json` covers a category switched off and a folder kept out, and `dropsea-search*.json` Dropsea's tokens. `perf.py search` measures indexing throughput, the index's size, query latency (budget: 50 ms at the 95th percentile for typical questions, from the shell's request to its answer) and the service's idle wakeups (budget: none) and memory.
+5. **Bloom 17.20.0:** `PlatformSearch`, `usePlatformSearch`, and `Search`'s tokens (`tokens`, `onRemoveToken`). *Done* (OxyHQ/Bloom).
+6. **The shell's panel, the launcher, Settings › Spotlight and Settings' `searchable.json`.** *Done.*
+7. **Dropsea's search over the service, its tokens, and `select` in its `files` URL.** *Done* (OxyHQ/Dropsea).
+
+## Not in this decision
+
+- **ADR 0049's tag index** stays in each application's process. Dropsea's sidebar tags could ask this service (`tag:`) once its answers carry what the sidebar shows; a later change.
+- **Image, audio and video metadata** (EXIF, ID3: a camera's model, an artist): the kinds are indexed, not their metadata.
+- **Content of legacy binary formats** (`.doc`, `.xls`, `.ppt`, RTF, iWork): found by name.
+- **Text in images** (OCR) and natural-language questions ("photos from last summer").
+- **Calculations, definitions and web results** in the panel.
+- **Contacts, events and mail**: the protocol is here; the applications that donate them are theirs.

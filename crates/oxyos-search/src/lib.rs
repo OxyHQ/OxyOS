@@ -7,11 +7,18 @@
 //! - [`extract`]: the text of a file, by proven readers (UTF-8 text, ZIP and XML for office
 //!   documents, MuPDF for PDFs).
 //! - [`index`]: tantivy's index, its fields and the ranking.
+//! - [`indexer`]: the thread that keeps the index current, at the idle class ([`sched`]).
+//! - [`service`]: the service's process, its control socket and who sees what.
 
 pub mod category;
 pub mod extract;
 pub mod index;
+pub mod indexer;
 pub mod query;
+mod sched;
+pub mod service;
 
 #[cfg(test)]
 mod index_tests;
+#[cfg(test)]
+mod service_tests;
