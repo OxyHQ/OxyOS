@@ -138,6 +138,11 @@ fn requests() -> Vec<Request> {
             surface: 1,
             text: TextChunk::new("nate@").unwrap(),
         },
+        Request::TextInputContentType {
+            surface: 1,
+            content: TextContentType::Email,
+            paired: true,
+        },
         Request::TextInputSelection {
             surface: 1,
             anchor: 5,
@@ -826,6 +831,11 @@ fn events() -> Vec<Event> {
             end: 3,
             style: PreeditStyle::Converting,
         },
+        Event::TextInputFill {
+            surface: 1,
+            paired: true,
+            text: TextChunk::new("fixture-password").unwrap(),
+        },
         Event::TextInputDone {
             surface: 1,
             serial: 12,
@@ -1232,6 +1242,36 @@ fn notification_fields_and_outcomes_are_closed_sets() {
     .unwrap();
     bytes[4 + 1 + 4] = 11;
     assert!(read_request(&mut Cursor::new(bytes)).is_err());
+}
+
+#[test]
+fn text_content_types_are_a_closed_set() {
+    for (raw, content) in [
+        (0, TextContentType::None),
+        (1, TextContentType::Username),
+        (2, TextContentType::Email),
+        (3, TextContentType::Password),
+        (4, TextContentType::NewPassword),
+        (5, TextContentType::OneTimeCode),
+    ] {
+        assert_eq!(TextContentType::from_raw(raw), Some(content));
+    }
+    assert!(TextContentType::from_raw(6).is_none());
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::TextInputContentType {
+            surface: 1,
+            content: TextContentType::Password,
+            paired: false,
+        },
+    )
+    .unwrap();
+    // The content type follows the 4-byte length, the opcode and the surface.
+    let mut bad = bytes.clone();
+    bad[4 + 1 + 4] = 6;
+    assert!(read_request(&mut Cursor::new(bad)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
 }
 
 #[test]
@@ -1868,6 +1908,25 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         read_event_for(&mut Cursor::new(&v29), 29).unwrap(),
         wallpaper
     );
+    // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) is version 30's: a field of a
+    // compositor of version 29 never says what it holds, and is never filled.
+    let content = Request::TextInputContentType {
+        surface: 1,
+        content: TextContentType::Username,
+        paired: true,
+    };
+    assert_eq!(request_since(&content), 30);
+    let fill = Event::TextInputFill {
+        surface: 1,
+        paired: false,
+        text: TextChunk::new("bea@example.com").unwrap(),
+    };
+    assert_eq!(event_since(&fill), 30);
+    assert!(!write_event_for(&mut nothing, &fill, 29).unwrap());
+    let mut v30 = Vec::new();
+    assert!(write_event_for(&mut v30, &fill, 30).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v30), 30).unwrap(), fill);
+    assert!(read_event_for(&mut Cursor::new(&v30), 29).is_err());
     // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
     let scroll = Event::Scroll {
         surface: 1,
@@ -2906,7 +2965,7 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
 }
 
 #[test]
-fn version_30_search_is_only_version_30s() {
+fn version_31_search_is_only_version_31s() {
     // A request of the index's vocabulary goes in chunks of whole characters, each a packet, and
     // the chunks read back are the text sent.
     let text = format!(r#"{{"query":{{"text":"{}"}}}}"#, "ñandú ".repeat(40));
@@ -2921,7 +2980,7 @@ fn version_30_search_is_only_version_30s() {
             last: index + 1 == count,
             text: PreeditText::new(chunk.as_str()).unwrap(),
         };
-        assert_eq!(request_since(&request), 30);
+        assert_eq!(request_since(&request), 31);
         write_request(&mut bytes, &request).unwrap();
     }
     let mut cursor = Cursor::new(bytes);
@@ -2940,22 +2999,22 @@ fn version_30_search_is_only_version_30s() {
         }
     }
     assert_eq!(read, text);
-    // The index's answer is never told a version 29 client, and a version 29 reader refuses it.
+    // The index's answer is never told a version 30 client, and a version 30 reader refuses it.
     let answer = Event::SearchText {
         serial: 7,
         index: 0,
         last: true,
         text: PreeditText::new(r#"{"changed":{}}"#).unwrap(),
     };
-    assert_eq!(event_since(&answer), 30);
+    assert_eq!(event_since(&answer), 31);
     let mut old = Vec::new();
-    assert!(!write_event_for(&mut old, &answer, 29).unwrap());
+    assert!(!write_event_for(&mut old, &answer, 30).unwrap());
     assert!(old.is_empty());
     let mut new = Vec::new();
-    assert!(write_event_for(&mut new, &answer, 30).unwrap());
-    assert!(read_event_for(&mut Cursor::new(new.clone()), 29).is_err());
-    assert_eq!(read_event_for(&mut Cursor::new(new), 30).unwrap(), answer);
-    // Spotlight and Reveal are never told a version 29 shell, which would refuse them as values
+    assert!(write_event_for(&mut new, &answer, 31).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 30).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 31).unwrap(), answer);
+    // Spotlight and Reveal are never told a version 30 shell, which would refuse them as values
     // outside its set; the launcher's search still is.
     for shortcut in [SystemShortcut::Spotlight, SystemShortcut::Reveal] {
         let event = Event::SystemShortcut {
@@ -2964,14 +3023,14 @@ fn version_30_search_is_only_version_30s() {
             output: 1,
             intent: ShortcutIntent::Toggle,
         };
-        assert_eq!(event_since(&event), 30);
+        assert_eq!(event_since(&event), 31);
         let mut old = Vec::new();
-        assert!(!write_event_for(&mut old, &event, 29).unwrap());
+        assert!(!write_event_for(&mut old, &event, 30).unwrap());
         assert!(old.is_empty());
         let mut new = Vec::new();
-        assert!(write_event_for(&mut new, &event, 30).unwrap());
-        assert!(read_event_for(&mut Cursor::new(new.clone()), 29).is_err());
-        assert_eq!(read_event_for(&mut Cursor::new(new), 30).unwrap(), event);
+        assert!(write_event_for(&mut new, &event, 31).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 30).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 31).unwrap(), event);
     }
     let search = Event::SystemShortcut {
         shortcut: SystemShortcut::Search,
@@ -2980,6 +3039,6 @@ fn version_30_search_is_only_version_30s() {
         intent: ShortcutIntent::Toggle,
     };
     let mut old = Vec::new();
-    assert!(write_event_for(&mut old, &search, 29).unwrap());
-    assert_eq!(read_event_for(&mut Cursor::new(old), 29).unwrap(), search);
+    assert!(write_event_for(&mut old, &search, 30).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(old), 30).unwrap(), search);
 }

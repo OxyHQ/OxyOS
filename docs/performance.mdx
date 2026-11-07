@@ -898,6 +898,16 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   icons, Launchpad, the overview, the panels) are memoized with handlers that stay the same, so a
   change renders what shows it. `shell-events.json` holds it (`renders`) and `perf.py shell`
   measures it.
+- **Every level of the microphone rendered the whole of Settings** (7 November 2026). While Sound's
+  Input tab shows, the session tells Settings the input's level about 23 times a second as long as
+  the microphone hears ([ADR 0056](./adr/0056-sound-devices), decision 7), and Settings held it in
+  its root's state and handed it down in its snapshot: each level rendered the window again, its
+  rail, its page's header and the whole page, 546 components and 19 to 30 ms of JavaScript on
+  this machine (three to four times that on the ThinkPad, more than a refresh, for every level).
+  The meter now follows the level itself (`SoundActions.followLevel`, `followInputLevel` in
+  `sample/oxyos/system.js`), and the input is metered while the meter shows, its first follower to
+  its last: a level renders the meter alone, its 18 components (its sixteen segments), 2.6 to
+  4.1 ms of the frame's JavaScript. `sound-settings.json` holds it (`renders`).
 - **Another window's size rendered the session's shell and its dock** (17 components for every
   zoom, restore or resize): the windows' sizes were in the state `ShellSession` reads, for the
   overview's cards alone. They are now apart (`useWindowSizes` in `sample/oxyos/shell-state.js`,

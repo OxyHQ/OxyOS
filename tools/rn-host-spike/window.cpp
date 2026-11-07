@@ -528,8 +528,6 @@ uint32_t Window::startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uin
   return static_cast<uint32_t>(drag);
 }
 
-void Window::cancelDrag(uint32_t drag) { oxyos_client_cancel_drag(client_, drag); }
-
 void Window::acceptDrag(uint32_t offer, uint64_t serial, const std::string& mime, uint8_t actions, uint8_t preferred) {
   oxyos_client_accept_drag(client_, offer, serial, mime.empty() ? nullptr : mime.data(), mime.size(), actions,
                            preferred);
@@ -732,6 +730,14 @@ void Window::activateNotification(uint32_t notification, uint8_t action, uint64_
 
 uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField) {
   int64_t serial = oxyos_client_text_input(client_, surface, field, newField ? 1 : 0);
+  if (serial < 0) failed("cannot tell the text field");
+  return static_cast<uint32_t>(serial);
+}
+
+uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField, uint8_t content,
+                           bool paired) {
+  int64_t serial =
+      oxyos_client_text_input_with_content(client_, surface, field, newField ? 1 : 0, content, paired ? 1 : 0);
   if (serial < 0) failed("cannot tell the text field");
   return static_cast<uint32_t>(serial);
 }

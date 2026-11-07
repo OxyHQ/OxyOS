@@ -2,8 +2,11 @@
 # (docs/adr/0020-oxy-account-login.mdx). It runs as root, because it makes users and sets their
 # verifiers with the system's tools (useradd, chpasswd, usermod, userdel), and is confined to what
 # that needs: its own state, the user database, the homes it makes, the network to Oxy's API,
-# logind (to end a signed-out account's sessions) and reading which program a session's process
-# runs.
+# logind (to end a signed-out account's sessions), reading which program a session's process
+# runs, and systemd, to start oxyos-erase.service and restart the machine when an administrator
+# erases it (docs/adr/0054-recovery-and-erasing.mdx). That unit writes the erase request and the
+# firmware's next boot with its own privileges: this one never writes to the EFI system partition
+# or the firmware's variables, and the sandbox below gives it neither.
 #
 # Not installed by the image (AGENTS.md's image rules); ADR 0020 says what a machine installs.
 
@@ -31,10 +34,18 @@ Environment=OXYOS_SESSION_PROGRAM=/usr/bin/oxyos-session
 Environment=OXYOS_LOGIN_PROGRAM=/usr/libexec/oxyos/oxyos-login
 EnvironmentFile=-/etc/oxyos/accountd.conf
 
-# Its own: /var/lib/oxyos/accounts (0700) and its sockets' directory, /run/oxyos/accountd (0755:
-# its socket and the session socket, both 0666, whose peers the kernel names).
-StateDirectory=oxyos/accounts
+# Its own: /var/lib/oxyos/accounts and /var/lib/oxyos/keychain (0700; a directory per account's
+# keychain in it, ADR 0050) and its sockets' directory, /run/oxyos/accountd (0755: its socket and
+# the session socket, both 0666, whose peers the kernel names).
+StateDirectory=oxyos/accounts oxyos/keychain
 StateDirectoryMode=0700
+
+# The keychains' keys are locked in memory while their sessions are unlocked (mlock, ADR 0050
+# decision 2): a page per key, a few per account, counted against RLIMIT_MEMLOCK, which it has
+# without CAP_IPC_LOCK. A key that cannot be locked keeps its keychain locked, so the limit is set
+# well above what it needs. Nothing it holds is ever written to a core file.
+LimitMEMLOCK=16M
+LimitCORE=0
 RuntimeDirectory=oxyos/accountd
 RuntimeDirectoryMode=0755
 
@@ -77,7 +88,7 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 KeyringMode=private
 
-# Its sockets, logind's bus (loginctl), and HTTPS to Oxy's API.
+# Its sockets, logind's bus (loginctl), systemd's (systemctl), and HTTPS to Oxy's API.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 # @system-service holds @chown, which making a home needs: so @privileged, which holds it too, is

@@ -26,7 +26,7 @@ mod tests;
 mod text_input;
 pub use candidates::Candidates;
 pub use gpu::{GpuChange, GpuTable, SyncPoints, MAX_PLANES};
-pub use text_input::{Field, Transaction};
+pub use text_input::{Field, FillText, Transaction};
 
 /// The compositor closed the connection. A socket closed while requests were still unread
 /// reports a reset instead of end-of-file; both mean the same to the client.
@@ -627,9 +627,9 @@ impl Client {
     /// Asks the session's search index (docs/adr/0051-search.mdx) one request of its vocabulary,
     /// `text` (JSON), in chunks; SearchText events naming `serial` answer, and SearchText with
     /// serial 0 tells what this connection asked to watch changed. Any client may ask. Refused
-    /// here, sending nothing, to a compositor of a version before 30, which has no search.
+    /// here, sending nothing, to a compositor of a version before 31, which has no search.
     pub fn search_request(&self, serial: u32, text: &str) -> io::Result<()> {
-        if self.version < 30 {
+        if self.version < 31 {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "the compositor's protocol version has no search",

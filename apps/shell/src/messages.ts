@@ -128,6 +128,19 @@ const en = (f: Formats) => ({
     previousPage: "Previous Page",
     nextPage: "Next Page",
   },
+  /** AutoFill's list at a field (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+  autofill: {
+    /** The list's name while nothing is highlighted. */
+    list: "Passwords",
+    /** A new password's suggestion, as Safari offers it. */
+    strongPassword: "Use Strong Password",
+    /** What a code's row is, for its login's username. */
+    code: (username: string) => (username ? `Verification code for ${username}` : "Verification code"),
+    /** An item, its second line, its place and how many there are:
+        "bea@example.com, example.com, 1 of 2". */
+    item: (primary: string, secondary: string, place: number, count: number) =>
+      `${primary}, ${secondary}, ${f.number(place)} of ${f.number(count)}`,
+  },
   /** The shell's own menus, while no application is active, and an application's own menu. */
   menus: {
     about: "About OxyOS",
@@ -578,6 +591,12 @@ const es = (f: Formats): Catalogue => ({
     candidate: (text, place, count) => `${text}, ${f.number(place)} de ${f.number(count)}`,
     previousPage: "Página anterior",
     nextPage: "Página siguiente",
+  },
+  autofill: {
+    list: "Contraseñas",
+    strongPassword: "Usar contraseña segura",
+    code: (username) => (username ? `Código de verificación de ${username}` : "Código de verificación"),
+    item: (primary, secondary, place, count) => `${primary}, ${secondary}, ${f.number(place)} de ${f.number(count)}`,
   },
   menus: {
     about: "Acerca de OxyOS",

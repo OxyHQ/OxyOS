@@ -65,6 +65,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// and ADR 0034), both ways, a target's events sent unasked; version 28, the volumes a drag's
 /// files are on (ADR 0047), both ways, a target's events sent unasked; version 29, each output's
 /// wallpaper (`OutputWallpaper`, docs/adr/0048-wallpapers.mdx), told to the shell; version 30,
+/// AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): a field's content type
+/// (`TextInputContentType`) and a fill of the credential the person picked (`TextInputFill`),
+/// sent only to a field that told its content type; version 31,
 /// search (`SearchRequest`, `SearchText`, docs/adr/0051-search.mdx), both ways, asked by any
 /// client, the index's changes sent unasked to a client that asked to watch them.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
@@ -84,7 +87,8 @@ const EVENTS_ADDED: Added = &[
     (26, 252..=252),
     (28, 253..=253),
     (29, 82..=82),
-    (30, 164..=164),
+    (30, 65..=65),
+    (31, 164..=164),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -103,7 +107,8 @@ const REQUESTS_ADDED: Added = &[
     (25, 95..=95),
     (26, 248..=250),
     (28, 252..=252),
-    (30, 164..=164),
+    (30, 69..=69),
+    (31, 164..=164),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -124,14 +129,14 @@ fn since(added: Added, opcode: u8) -> u16 {
 /// (`ApplicationListKind::NotificationSoundsOff`); version 24's shortcuts to Mission Control and
 /// App Exposé (ADR 0045); and version 25's shortcut opening or closing what it shows, a swipe's
 /// (docs/adr/0046-interactive-gestures.mdx), which a version 24 shell would take for a toggle;
-/// and version 30's shortcuts to Spotlight and to reveal what it has chosen
+/// and version 31's shortcuts to Spotlight and to reveal what it has chosen
 /// (docs/adr/0051-search.mdx).
 pub fn event_since(event: &Event) -> u16 {
     match event {
         Event::SystemShortcut {
             shortcut: SystemShortcut::Spotlight | SystemShortcut::Reveal,
             ..
-        } => 30,
+        } => 31,
         Event::SystemShortcut {
             intent: ShortcutIntent::Open | ShortcutIntent::Close,
             ..

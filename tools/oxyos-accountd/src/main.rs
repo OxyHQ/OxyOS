@@ -8,7 +8,18 @@
 //!   login screen where Oxy is. Only root and the login program's user may.
 //! - The session socket (`oxyos-account`'s `session`): the session program registers what it
 //!   launches and checks the lock's passwords online; the applications it launched get the
-//!   platform's Oxy session (snapshots, tokens) and Settings removes the account.
+//!   platform's Oxy session (snapshots, tokens) and Settings removes the account, or erases the
+//!   machine ([ADR 0054](../../../docs/adr/0054-recovery-and-erasing.mdx), `oxyos-account`'s
+//!   `erase`): an administrator's own password, checked by PAM under `oxyos-accountd`
+//!   ([`passwords`]), `oxyos-erase.service` started to arm it, then the machine restarted.
+//! - The accounts' keychains (`oxyos-account`'s `keychain`, ADR 0050): unlocked by the login
+//!   program and the session's lock with the account's password, locked with the session; AutoFill
+//!   for the session, the vault for Settings, synced with Oxy with OxyOS's own token. Their keys are
+//!   locked in memory: a keychain whose keys cannot be stays locked (the unit's `LimitMEMLOCK`).
+//!
+//! The first account set up on a machine is its administrator (a member of `sudo`); at its start
+//! the service makes the enrolled account with the lowest uid one where accounts are enrolled and
+//! none is (a machine set up before administrators existed).
 //!
 //! Its configuration is its unit's environment:
 //! - `OXYOS_OXY_API`: Oxy's API, `https://api.oxy.so` by default (plain HTTP only to this
@@ -20,9 +31,10 @@
 //! - `OXYOS_LOGIN_PROGRAM`: the login program, `/usr/libexec/oxyos/oxyos-login` by default, whose
 //!   root process must be the registering session program's parent.
 //!
-//! `oxyos-accountd [--state DIRECTORY] [--pictures DIRECTORY] [--socket PATH]
-//! [--session-socket PATH] [--api URL] [--enroller USER]`:
+//! `oxyos-accountd [--state DIRECTORY] [--keychains DIRECTORY] [--pictures DIRECTORY]
+//! [--socket PATH] [--session-socket PATH] [--api URL] [--enroller USER]`:
 //! - `--state`: the enrolled accounts, `/var/lib/oxyos/accounts` by default;
+//! - `--keychains`: the accounts' keychains, `/var/lib/oxyos/keychain` by default (0700, root's);
 //! - `--pictures`: the accounts' pictures, `/var/lib/oxyos/pictures` by default;
 //! - `--socket`: its own socket, `/run/oxyos/accountd/socket` by default;
 //! - `--session-socket`: the session socket, `/run/oxyos/accountd/session` by default;
@@ -33,9 +45,13 @@
 //! It logs what each request came to (the account's user, the reason it was refused) on standard
 //! error, the journal's; never a password, a secret, a code or a token.
 
-use oxyos_account::api::{HttpApi, PlatformClient};
+mod passwords;
+
+use oxyos_account::api::{Attestation, HttpApi, PlatformClient};
+use oxyos_account::erase::{Eraser, Systemctl};
 use oxyos_account::ipc::{self, Enrollers, Listener, Outcome, Peer};
-use oxyos_account::platform::Platform;
+use oxyos_account::keychain::service::{self as keychain, KeychainService, Memory, TokenSource};
+use oxyos_account::platform::{Platform, TokenReason};
 use oxyos_account::session::{self, Event, Kind, Registrars, Sessions};
 use oxyos_account::setup::Setup;
 use oxyos_account::store::{Store, PICTURES_DIRECTORY, STATE_DIRECTORY};
@@ -57,6 +73,7 @@ const MAX_SESSION_REFUSALS: usize = 4;
 
 struct Options {
     state: PathBuf,
+    keychains: PathBuf,
     pictures: PathBuf,
     socket: PathBuf,
     session_socket: PathBuf,
@@ -77,6 +94,7 @@ fn env(name: &str) -> Option<String> {
 fn options() -> Result<Options, String> {
     let mut options = Options {
         state: STATE_DIRECTORY.into(),
+        keychains: keychain::STATE_DIRECTORY.into(),
         pictures: PICTURES_DIRECTORY.into(),
         socket: ipc::SOCKET.into(),
         session_socket: session::SOCKET.into(),
@@ -99,6 +117,7 @@ fn options() -> Result<Options, String> {
         };
         match argument.as_str() {
             "--state" => options.state = value()?.into(),
+            "--keychains" => options.keychains = value()?.into(),
             "--pictures" => options.pictures = value()?.into(),
             "--socket" => options.socket = value()?.into(),
             "--session-socket" => options.session_socket = value()?.into(),
@@ -107,7 +126,8 @@ fn options() -> Result<Options, String> {
             _ => {
                 return Err(format!(
                     "unknown argument {argument}\n\
-                     usage: oxyos-accountd [--state DIRECTORY] [--pictures DIRECTORY] \
+                     usage: oxyos-accountd [--state DIRECTORY] [--keychains DIRECTORY] \
+                     [--pictures DIRECTORY] \
                      [--socket PATH] [--session-socket PATH] [--api URL] [--enroller USER]"
                 ))
             }
@@ -142,6 +162,9 @@ fn log(peer: &Peer, outcome: &Outcome) {
         Outcome::Checked { user, checked } => {
             eprintln!("oxyos-accountd: {who} checked {user}'s password: {checked:?}")
         }
+        Outcome::KeychainUnlocked { user, state } => {
+            eprintln!("oxyos-accountd: {who} unlocked {user}'s keychain: {state:?}")
+        }
     }
 }
 
@@ -157,9 +180,33 @@ fn session_log(uid: u32, event: &Event) {
             eprintln!("oxyos-accountd: uid {uid}'s lock checked its password: {checked:?}")
         }
         Event::Removed => eprintln!("oxyos-accountd: uid {uid}'s Settings removed its account"),
+        Event::ErasePreviewed => {
+            eprintln!("oxyos-accountd: uid {uid}'s Settings asked what erasing would do")
+        }
+        Event::Erasing {
+            signed_out,
+            not_signed_out,
+        } => eprintln!(
+            "oxyos-accountd: uid {uid}'s Settings erased this machine: {signed_out} accounts \
+             signed out online, {not_signed_out} not; restarting"
+        ),
+        Event::EraseRefused(reason) => {
+            eprintln!("oxyos-accountd: uid {uid}'s Settings: the erase refused: {reason:?}")
+        }
         Event::Refused(_) => {
             eprintln!("oxyos-accountd: uid {uid} on the session socket: not permitted")
         }
+    }
+}
+
+/// What this machine calls itself as a member of a vault: its host name, else `OxyOS`.
+fn machine_name() -> String {
+    let name = std::fs::read_to_string("/etc/hostname").unwrap_or_default();
+    let name = name.trim();
+    if name.is_empty() || name.len() > 256 {
+        "OxyOS".into()
+    } else {
+        name.to_owned()
     }
 }
 
@@ -264,16 +311,47 @@ fn run() -> Result<(), String> {
              passwords are not checked online"
         ),
     }
+    match setup.ensure_administrator() {
+        Ok(Some(user)) => eprintln!(
+            "oxyos-accountd: no enrolled account was an administrator: {user}, the first set up, \
+             is now"
+        ),
+        Ok(None) => {}
+        Err(error) => eprintln!("oxyos-accountd: the machine has no administrator: {error}"),
+    }
     let platform: Arc<Service> = Arc::new(Platform::new(setup));
+    // The accounts' keychains, synced with OxyOS's own token for each account.
+    let tokens = Arc::downgrade(&platform);
+    let token: TokenSource = Box::new(move |uid, refresh| {
+        let reason = if refresh {
+            TokenReason::Response401
+        } else {
+            TokenReason::Preflight
+        };
+        tokens
+            .upgrade()?
+            .token(uid, &Attestation::OwnPlatform, reason)
+            .map(|token| token.access_token)
+    });
+    let keychains = KeychainService::new(
+        HttpApi::new(&options.api)?,
+        options.keychains.clone(),
+        machine_name(),
+        token,
+        Memory::Locked,
+    );
+    platform.set_keychains(keychains);
     let listener = Listener::bind(&options.socket)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;
     let session_listener = Listener::bind(&options.session_socket)
         .map_err(|error| format!("{}: {error}", options.session_socket.display()))?;
     eprintln!(
-        "oxyos-accountd: listening on {} and {}, accounts in {}, Oxy at {}, sessions run {}",
+        "oxyos-accountd: listening on {} and {}, accounts in {}, keychains in {}, Oxy at {}, \
+         sessions run {}",
         options.socket.display(),
         options.session_socket.display(),
         options.state.display(),
+        options.keychains.display(),
         options.api,
         options.session_program.display()
     );
@@ -282,6 +360,10 @@ fn run() -> Result<(), String> {
         Registrars::new(
             options.session_program.clone(),
             options.login_program.clone(),
+        ),
+        Eraser::new(
+            Box::new(Systemctl::new()),
+            Box::new(passwords::PamPasswords::new()),
         ),
     ));
     std::thread::Builder::new()

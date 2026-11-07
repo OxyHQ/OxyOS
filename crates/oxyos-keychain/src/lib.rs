@@ -16,8 +16,13 @@
 //!
 //! **Secrets.** Keys, passwords, codes, items and recovery keys are overwritten when dropped
 //! ([`zeroize`]) and never appear in `Debug`, `Display` or an error. Long-lived keys are boxed so
-//! that moving their holder leaves no copy behind. Locking them against swap (`mlock`) is the
-//! service's to do when it holds them (step 2); this crate does not pretend to.
+//! that moving their holder leaves no copy behind, and their holders can lock them against swap
+//! ([`memory`]: `pin`), which the service does for every key it holds (step 2).
+//! - [`vault`]: the vault as a member device holds it: making one, joining one (by approval or
+//!   the recovery key), approving another device, syncing, writing items, removing a member with
+//!   the vault key's rotation, and what applications may be offered (OxyOS ADR 0050 decision 5).
+//! - [`server`]: Oxy's answers (`docs/identity/keychain.md`), and checking them against what the
+//!   machine verified: a pinned genesis and head, its own member, monotonic revisions.
 //!
 //! **No hand-made cryptography.** Every primitive is RustCrypto's or dalek's; JCS (RFC 8785) is
 //! `serde_json_canonicalizer`'s, and JSON that holds secrets is written in its canonical form
@@ -29,19 +34,22 @@ pub mod item;
 pub mod keybag;
 pub mod keyring;
 pub mod keys;
+pub mod memory;
 pub mod password;
 pub mod recovery;
 pub mod roster;
 pub mod seal;
 mod secret;
+pub mod server;
 pub mod store;
 pub mod totp;
+pub mod vault;
 pub mod wire;
 pub mod wrap;
 
 pub use error::{Error, Result};
 pub use secret::SecretString;
-pub use wire::{ItemId, MemberId, VaultId};
+pub use wire::{EnrollmentId, ItemId, MemberId, VaultId};
 
 #[cfg(test)]
 mod tests;

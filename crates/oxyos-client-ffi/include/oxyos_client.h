@@ -91,7 +91,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_SHEET_TEXT 161
 #define OXYOS_EVENT_SHEET_DISMISSED 162
 #define OXYOS_EVENT_CAPABILITY_RESULT 163
-/* Search (docs/adr/0051-search.mdx, protocol version 30). */
+/* Search (docs/adr/0051-search.mdx, protocol version 31). */
 #define OXYOS_EVENT_SEARCH_TEXT 164
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
@@ -123,7 +123,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_MISSION_CONTROL 12
 #define OXYOS_SHORTCUT_APP_EXPOSE 13
 /* Super+Space: Spotlight, as a Mac's Command-Space; Super+Return: what Spotlight has chosen
- * revealed where it is, as a Mac's Command-Return (protocol version 30, docs/adr/0051-search.mdx). */
+ * revealed where it is, as a Mac's Command-Return (protocol version 31, docs/adr/0051-search.mdx). */
 #define OXYOS_SHORTCUT_SPOTLIGHT 14
 #define OXYOS_SHORTCUT_REVEAL 15
 /* What a SYSTEM_SHORTCUT asks, its flag (protocol version 25, docs/adr/0046-interactive-gestures.mdx):
@@ -410,7 +410,7 @@ typedef struct OxyOSClient OxyOSClient;
  *               OXYOS_SHORTCUT_* (the application switcher's moves, quit and hide of the
  *               application it chose, its end on Super's release or its cancel; the launcher's
  *               search; the keyboard to the top bar's menus, Super+F2; Spotlight, Super+Space,
- *               and what it has chosen revealed, Super+Return, version 30); code: the output to show
+ *               and what it has chosen revealed, Super+Return, version 31); code: the output to show
  *               it on; serial: a user input of the shell's,
  *               which oxyos_client_focus_shell_surface may cite.
  *   CAPTURE_MODE  to a shell with the `shortcuts` grant (docs/adr/0024-system-shortcuts.mdx,
@@ -1313,6 +1313,22 @@ typedef struct OxyOSTextField {
 int64_t oxyos_client_text_input(OxyOSClient* client, uint32_t surface, const OxyOSTextField* field,
                                 uint8_t new_field);
 
+/* What a field holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+#define OXYOS_CONTENT_NONE 0
+#define OXYOS_CONTENT_USERNAME 1
+#define OXYOS_CONTENT_EMAIL 2
+#define OXYOS_CONTENT_PASSWORD 3
+#define OXYOS_CONTENT_NEW_PASSWORD 4
+#define OXYOS_CONTENT_ONE_TIME_CODE 5
+
+/* oxyos_client_text_input, with what the field holds for AutoFill: `content` (OXYOS_CONTENT_*)
+ * and, non-zero `paired`, that its window has the other field of the account's pair (a username's
+ * or an email's password field, a password's username field), which a fill fills too. A
+ * compositor older than protocol version 30 is told neither, and never fills. */
+int64_t oxyos_client_text_input_with_content(OxyOSClient* client, uint32_t surface,
+                                             const OxyOSTextField* field, uint8_t new_field,
+                                             uint8_t content, uint8_t paired);
+
 /* One styled segment of a composition, in bytes of it. */
 typedef struct OxyOSPreeditSegment {
   uint32_t begin;
@@ -1343,6 +1359,25 @@ typedef struct OxyOSTextTransaction {
 
 /* The transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_text_transaction(OxyOSClient* client, OxyOSTextTransaction* out);
+
+/* AutoFill's fill of the transaction the TEXT_INPUT event just returned completed: the whole text
+ * the focused field (`has_fill`) and its paired field (`has_paired_fill`) are to hold, each
+ * replacing what it held, applied with the rest of the transaction. A credential: the strings are
+ * not NUL-terminated, stay valid until the next oxyos_client_poll, which overwrites them, and are
+ * never to be logged. */
+typedef struct OxyOSTextFill {
+  uint32_t surface;
+  uint8_t has_fill;
+  uint8_t has_paired_fill;
+  const char* fill;
+  size_t fill_length;
+  const char* paired_fill;
+  size_t paired_fill_length;
+} OxyOSTextFill;
+
+/* The fill of the transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled,
+ * or 0 (no transaction, or one with no fill). */
+int oxyos_client_text_fill(OxyOSClient* client, OxyOSTextFill* out);
 
 /* Input methods' candidates, drawn by the session's shell (docs/adr/0041-input-methods.mdx). */
 #define OXYOS_NO_CANDIDATE 255
@@ -1914,6 +1949,14 @@ typedef struct OxyOSFilesReply OxyOSFilesReply;
  * if they are not there, run from the bundle in the folder `bundle` (read-only; NULL for none), or
  * NULL. */
 OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length);
+/* oxyos_files_new_with's flag: the application may not reach the network (an installed version whose
+ * account did not grant `network`, docs/adr/0030-installing-applications.mdx, decision 8), so its
+ * downloads and uploads fail as the network's would ({"ok": false, "error": "network"}) before anything
+ * is asked. */
+#define OXYOS_FILES_NO_NETWORK 1
+/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK); other bits are ignored. */
+OxyOSFiles* oxyos_files_new_with(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length,
+                                 uint32_t flags);
 /* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
 void oxyos_files_free(OxyOSFiles* files);
 /* Readable while replies are queued (for poll/epoll). */
@@ -2020,6 +2063,20 @@ int64_t oxyos_account_session_token(const char* reason, char* out, size_t capaci
 /* Removes the calling application's account from this computer (decision 5): Settings alone may.
  * Blocks while the service revokes, ends the account's sessions and forgets it. 0, or OXYOS_ERROR. */
 int oxyos_account_session_remove(void);
+/* Erasing this computer (docs/adr/0054-recovery-and-erasing.mdx): Settings alone may ask. What it
+ * would do, for the calling application's account: JSON {"available" (it has a recovery),
+ * "administrator" (the account is one), "online", "accounts": [{"name", "handle" (or null),
+ * "signsOutOnline"}]}, the asking account first; OXYOS_ERROR when the service could not be asked or
+ * refused. */
+int64_t oxyos_account_session_erase_preview(char* out, size_t capacity);
+/* Erases this computer with the administrator's `password` (secret: copied into a buffer this
+ * library overwrites; overwrite your own). Blocks while the service checks it, arms the erase and
+ * signs the accounts out online: never on the interface's thread. The answer, JSON:
+ * {"erasing": {"signedOut", "notSignedOut"}} (the machine restarts and its recovery erases it), or
+ * {"refused": {"reason" ("notPermitted", "notAdministrator", "wrongPassword", "throttled",
+ * "unavailable", "failed"), "retryAfter"? (seconds, throttled)}}, nothing changed. Give
+ * OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_erase_all(const char* password, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */

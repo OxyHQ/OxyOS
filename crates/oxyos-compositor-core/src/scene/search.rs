@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The first protocol version with search: a client of an older one is never sent its answers,
 /// and could not have asked.
-pub const SEARCH_VERSION: u16 = 30;
+pub const SEARCH_VERSION: u16 = 31;
 /// Asks assembled and not yet taken by the program; one more is answered busy.
 pub const MAX_SEARCH_ASKS: usize = 64;
 /// Asks one client may be sending in chunks at once.

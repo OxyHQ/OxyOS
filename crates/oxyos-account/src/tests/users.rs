@@ -1,7 +1,9 @@
 //! The system's real `useradd`, `chpasswd` and `userdel`, on a root of the tests' own.
 
 use super::{account, crypt_verifies, Root, TempDir, PASSWORD};
-use crate::users::{passwd_entry, verifier_password, SystemUsers, Users, UsersError};
+use crate::users::{
+    group_members, passwd_entry, verifier_password, SystemUsers, Users, UsersError, ADMINISTRATORS,
+};
 use crate::Secret;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -164,4 +166,45 @@ fn a_passwd_entry_is_read_as_passwd_5_says() {
     assert_eq!(passwd_entry(&passwd, "oxyos-logi").unwrap(), None);
     assert!(passwd_entry(&passwd, "broken").is_err());
     assert!(passwd_entry(&dir.path().join("missing"), "root").is_err());
+}
+
+#[test]
+fn an_administrator_is_a_member_of_sudo_until_it_is_removed() {
+    if !super::passwd_tools() {
+        return;
+    }
+    let root = Root::new("users-administrator");
+    let users = SystemUsers::with_prefix(root.path());
+    let name = account().user_name();
+    users.create(&name).unwrap();
+    assert_eq!(users.is_administrator(&name), Ok(false));
+    users.make_administrator(&name).unwrap();
+    assert_eq!(users.is_administrator(&name), Ok(true));
+    assert!(root
+        .read("group")
+        .lines()
+        .any(|line| line == format!("{ADMINISTRATORS}:x:27:{name}")));
+    // userdel takes it out of the group.
+    users.remove(&name).unwrap();
+    assert_eq!(users.is_administrator(&name), Ok(false));
+    assert_eq!(users.make_administrator(&name), Err(UsersError::Missing));
+}
+
+#[test]
+fn a_groups_members_are_read_from_its_fourth_field() {
+    let dir = TempDir::new("group-file");
+    let group = dir.path().join("group");
+    fs::write(
+        &group,
+        "root:x:0:\nsudo:x:27:oxy-a,oxy-b\nusers:x:100:\nbroken:x\n",
+    )
+    .unwrap();
+    assert_eq!(
+        group_members(&group, "sudo"),
+        Ok(Some(vec!["oxy-a".into(), "oxy-b".into()]))
+    );
+    assert_eq!(group_members(&group, "users"), Ok(Some(vec![])));
+    assert_eq!(group_members(&group, "wheel"), Ok(None));
+    assert!(group_members(&group, "broken").is_err());
+    assert!(group_members(&dir.path().join("missing"), "sudo").is_err());
 }

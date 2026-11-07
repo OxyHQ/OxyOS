@@ -1,5 +1,7 @@
 #include "files.h"
 
+#include "system.h"
+
 #include <folly/json.h>
 
 #include <iostream>
@@ -25,8 +27,12 @@ Files::~Files() { oxyos_files_free(files_); }
 bool Files::started() {
   if (!tried_) {
     tried_ = true;
-    files_ = oxyos_files_new(appId_.empty() ? nullptr : appId_.data(), appId_.size(),
-                             bundleDirectory_.empty() ? nullptr : bundleDirectory_.data(), bundleDirectory_.size());
+    // Its downloads and uploads reach the network as its own requests do: only with `network`
+    // (docs/adr/0030-installing-applications.mdx, decision 8), which the service then refuses.
+    uint32_t flags = LaunchCapabilities::current().allows("network") ? 0 : OXYOS_FILES_NO_NETWORK;
+    files_ = oxyos_files_new_with(appId_.empty() ? nullptr : appId_.data(), appId_.size(),
+                                  bundleDirectory_.empty() ? nullptr : bundleDirectory_.data(),
+                                  bundleDirectory_.size(), flags);
     if (!files_) {
       failure_ = std::string("the file service could not start: ") + oxyos_last_error();
       std::cerr << "[host] " << failure_ << "\n";

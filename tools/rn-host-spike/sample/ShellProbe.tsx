@@ -11,11 +11,13 @@ import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import {
   bluetooth,
+  autofill as autofillApi,
   inputSources,
   network,
   power,
   sound as soundApi,
   useBluetoothState,
+  useAutofillState,
   useInputSourcesState,
   useNetworkState,
   usePowerState,
@@ -23,6 +25,7 @@ import {
   useSystemSheets,
 } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
+import { readAutofill } from '../../../apps/shell/src/autofill';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
@@ -34,6 +37,7 @@ import type {
   ShellBatteryMenu,
   ShellEnergyApp,
   ShellInputMethod,
+  ShellAutofill,
   ShellLock,
   ShellMenu,
   ShellMenuItem,
@@ -249,7 +253,10 @@ function ProbeShell({
   screenshots,
   inputMethod,
   battery,
+  autofill,
 }: {
+  /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+  autofill?: ShellAutofill;
   /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
   screenshots?: ShellScreenshots;
   /** The session's system sheet to show now (ADR 0030). */
@@ -296,6 +303,7 @@ function ProbeShell({
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      autofill={autofill}
     />
   );
 }
@@ -775,6 +783,19 @@ function SessionShell() {
         : undefined,
     [!!powerState, showPercentage, lowPower, shell.openUrl],
   );
+
+  // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
+  // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
+  const autofillTold = useAutofillState();
+  const autofill: ShellAutofill = React.useMemo(
+    () => ({
+      list: readAutofill(autofillTold),
+      choose: (index) => {
+        autofillApi.choose(index);
+      },
+    }),
+    [autofillTold],
+  );
   const first = dock ? sheets[0] : undefined;
   const sheet = React.useMemo(() => {
     const firstText = first ? readSheet(first.text) : null;
@@ -808,6 +829,7 @@ function SessionShell() {
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      autofill={autofill}
     />
   );
 }

@@ -12,6 +12,11 @@
 //!   revocation, removing an account, applications' tokens and the snapshot they see.
 //! - [`session`]: the session socket, where the session registers what it launched and its
 //!   applications ask for the platform's session; and its clients.
+//! - [`keychain`]: the accounts' keychains (ADR 0050) on both sockets: AutoFill for the session,
+//!   the vault for Settings, the unlock for the login program; with the `keychain` feature, the
+//!   service's own (`keychain::service`), over `oxyos-keychain`.
+//! - [`erase`]: erasing the machine, Settings' request: an administrator's password, the erase
+//!   armed by its unit, the accounts signed out online, the machine restarted.
 //! - [`pidfd`]: processes known by pidfd, never by a pid alone.
 //!
 //! Each of the network, the users and the store is a seam: the tests run every rule without
@@ -23,8 +28,10 @@
 //! parser's scratch space for escaped text) are not this crate's to overwrite.
 
 pub mod api;
+pub mod erase;
 mod id;
 pub mod ipc;
+pub mod keychain;
 pub mod pidfd;
 pub mod platform;
 mod secret;

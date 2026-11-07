@@ -6,7 +6,7 @@ order: 60
 
 # ADR 0051: Search
 
-Status: **accepted; implemented** (steps 1 to 7): the platform, the shell, Settings, Bloom and Dropsea. Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 30) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+Status: **accepted; implemented** (steps 1 to 7): the platform, the shell, Settings, Bloom and Dropsea. Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 31) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
 
 ## Problem
 
@@ -106,7 +106,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
    - **Donating and removing** are a launched application's, its own items alone. A client the session did not launch donates nothing.
    - **The preferences** are Settings' (`settings`), as its other pages' are.
 
-7. **The protocol: version 30** (ADR 0033).
+7. **The protocol: version 31** (ADR 0033).
    - **Questions:** `SearchRequest { serial, index, last, text }` and `SearchText`, chunked JSON as `SystemRequest`/`SystemText` are, from **any** client (no grant): what it may see is decided by the service from the identity the compositor adds. `SearchText` serial 0 is told unasked: `{"changed": {}}` to a client that asked to watch.
    - **The program brokers** (`oxyos_compositor::search`). A writer thread and a reader thread carry newline-delimited JSON over the socket, so the compositor's turn never waits on the service:
      - to the service: the session's languages, the applications the launcher lists (`id`, `name`, `keywords`, `icon`, `package`), each question with its asker, and each client gone;
@@ -171,7 +171,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
    - Settings alone keeping folders and categories out, and letting them back; the launcher finding applications whatever Spotlight shows;
    - watchers told; a thread in both idle classes, and the threads it starts inheriting them;
    - `tests/idle.rs`: once indexed, the service's three threads wake **0** times in 4 s, and tantivy's threads are gone.
-3. **The protocol, the broker, the host and the adapter** (version 30, `oxyos_compositor::search`, `OxyOSSearch`, `sample/oxyos/search.js`), and the keys of decision 12. *Done.* Protocol, scene and broker tests (the broker with a played service: identity, routing, a client gone, the service dying); `ime-sources*`, `settings-input-sources*` and `system-shortcuts` on the keys moved.
+3. **The protocol, the broker, the host and the adapter** (version 31, `oxyos_compositor::search`, `OxyOSSearch`, `sample/oxyos/search.js`), and the keys of decision 12. *Done.* Protocol, scene and broker tests (the broker with a played service: identity, routing, a client gone, the service dying); `ime-sources*`, `settings-input-sources*` and `system-shortcuts` on the keys moved.
 4. **Scenarios and budgets.** *Done.* Each at 1 and 1.25, through the real service on a home the scenario makes, the keyboard's focus and every delivery exact (Allo receives nothing while Spotlight has the keyboard):
    - `spotlight`: Super+Space; a name found as it is typed, the top hit selected, a hidden folder's file never shown; a word of a file's text; a file written while the panel shows appearing in it (`home.later` waiting for a text the shell shows); ↓ and the screen reader's focus; Escape clearing, then closing, the window given the keyboard back; Ajustes by its name in Spanish; Appearance by the terms Settings declares (`modo oscuro`), Return opening Settings at it (`oxyos-settings://appearance`).
    - `settings-spotlight`: the page, every category on, Applications switched off and on, the service's configuration written each time.

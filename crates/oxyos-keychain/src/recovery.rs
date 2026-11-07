@@ -10,6 +10,7 @@
 //! reads `I` and `L` as 1 and `O` as 0.
 
 use crate::keys::KeyPairs;
+use crate::memory::Pinned;
 use crate::wire::{box_key, getrandom, signing_key};
 use crate::{Error, Result};
 use data_encoding::{Encoding, Specification};
@@ -34,7 +35,7 @@ pub struct RecoveryPublic {
     pub signing_key: [u8; 32],
 }
 
-pub struct RecoveryKey(Box<Zeroizing<[u8; LENGTH]>>);
+pub struct RecoveryKey(Box<Zeroizing<[u8; LENGTH]>>, Option<Pinned>);
 
 /// Crockford's base32: its 32 symbols, lowercase read as uppercase, `I`/`L` as 1, `O` as 0,
 /// hyphens and white space passed over.
@@ -56,11 +57,11 @@ impl RecoveryKey {
     pub fn generate() -> Result<Self> {
         let mut bytes = Box::new(Zeroizing::new([0u8; LENGTH]));
         getrandom(&mut **bytes)?;
-        Ok(Self(bytes))
+        Ok(Self(bytes, None))
     }
 
     pub fn from_bytes(bytes: &[u8; LENGTH]) -> Self {
-        Self(Box::new(Zeroizing::new(*bytes)))
+        Self(Box::new(Zeroizing::new(*bytes)), None)
     }
 
     /// Reads the recovery key as the person typed it.
@@ -85,7 +86,7 @@ impl RecoveryKey {
         }
         let mut bytes = Box::new(Zeroizing::new([0u8; LENGTH]));
         bytes.copy_from_slice(&buffer[..LENGTH]);
-        Ok(Self(bytes))
+        Ok(Self(bytes, None))
     }
 
     /// The text shown to the person: eight groups of four, joined by hyphens.
@@ -100,6 +101,14 @@ impl RecoveryKey {
             text.extend(group.iter().map(|byte| *byte as char));
         }
         text
+    }
+
+    /// Locks the key in memory while it is held ([`crate::memory`]).
+    pub fn pin(&mut self) -> Result<()> {
+        if self.1.is_none() {
+            self.1 = Some(Pinned::of(&**self.0)?);
+        }
+        Ok(())
     }
 
     /// The recovery signing and box keys.

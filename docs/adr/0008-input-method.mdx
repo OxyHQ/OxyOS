@@ -27,6 +27,7 @@ The Bloom host already applies Android's input connection to its text inputs (co
    - `TextInputSurrounding { surface, text }` in chunks, then `TextInputSelection { surface, anchor, cursor }`: up to 4,000 bytes around the caret, and the selection within them in bytes;
    - `TextInputCaret { surface, rect }`: the caret's rectangle in surface coordinates;
    - `TextInputCommit { surface, serial }`: the state is complete. `serial` counts the client's commits; the input method's changes say which commit they were based on (decision 3).
+   - since protocol version 30, `TextInputContentType { surface, content, paired }`: what the field holds for AutoFill (a username, an email, a password, a new password, a verification code, or none) and whether its window has the other field of the account's pair ([ADR 0050](./0050-keychain-autofill-and-passkeys), decision 6).
 
    Only the surface with keyboard focus counts; the others' state is kept and ignored.
 
@@ -44,6 +45,8 @@ The Bloom host already applies Android's input connection to its text inputs (co
    - `Done { serial }`: apply them. `serial` is the client's latest commit the input method had seen, so a field whose text changed since then knows the transaction was meant for other text (the role of text-input-v3's serial on Wayland). Such a field applies the commit at its selection and drops the deletion, which could remove text the user did not see.
 
    The compositor relays these from the input method to the focused client. Today's `Text` and `Preedit` events become a transaction of one, so the compositor's own compose keeps its behaviour.
+
+   AutoFill's fill is a transaction too (version 30, [ADR 0050](./0050-keychain-autofill-and-passkeys)): `TextInputFill { paired, text }` in chunks, the whole text of the focused field and of its paired field, each replacing what it held, applied at `Done` with the rest. The compositor sends one only for the item the person picked in its own list; no input method ever sends one.
 
 4. **What an input method may see.**
    - A field with the `password` or `PIN` purpose, or the `sensitive` hint, never reaches the input method: its keys go straight to the application and its state is not sent. On Android a password field likewise turns off the keyboard's learning and suggestions.

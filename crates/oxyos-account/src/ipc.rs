@@ -49,6 +49,14 @@
 //!   ← {"checked": {"result": "accepted" | "rejected",
 //!                  "reason"?: "passwordChanged" | "signInAgain"}}       and the connection ends
 //!   ```
+//! - **The keychain's unlock** (ADR 0050 step 2; the login program's, as root alone, once PAM
+//!   accepted the password; the login screen's user may not):
+//!
+//!   ```text
+//!   → {"unlockKeychain": {"user": "oxy-…", "password"}}
+//!   ← {"keychain": "off" | "member" | … | "needsPreviousPassword" | "locked"}
+//!                                                                     and the connection ends
+//!   ```
 //! - Messages are received into buffers overwritten afterwards; their secrets are [`Secret`]s.
 
 use crate::api::{DeviceCredential, OxyApi, Profile};
@@ -103,6 +111,11 @@ pub enum Request {
         user: String,
         password: Secret,
         local: Local,
+    },
+    /// The login program's, once PAM accepted `password` for `user` (root alone).
+    UnlockKeychain {
+        user: String,
+        password: Secret,
     },
 }
 
@@ -190,6 +203,7 @@ pub enum Answer {
     Accounts(Vec<Account>),
     Platform(PlatformConfig),
     Checked(Checked),
+    Keychain(crate::keychain::KeychainState),
 }
 
 impl Answer {
@@ -289,6 +303,11 @@ pub enum Outcome {
     Checked {
         user: String,
         checked: Checked,
+    },
+    /// The login program unlocked `user`'s keychain.
+    KeychainUnlocked {
+        user: String,
+        state: crate::keychain::KeychainState,
     },
 }
 
@@ -630,6 +649,31 @@ pub fn serve<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static
         let Some(request) = connection.receive::<Request>()? else {
             return Ok(());
         };
+        // The keychain's unlock is the login program's alone, which runs as root: never the login
+        // screen's user, whose screen runs JavaScript (ADR 0050 decision 2).
+        if let Some(Request::UnlockKeychain { user, password }) = request {
+            let answer = match (
+                peer.uid,
+                platform.keychains(),
+                platform.setup().store().get_user(&user),
+            ) {
+                (0, Some(keychains), Ok(Some(enrollment))) => {
+                    let state = keychains.unlock(enrollment.uid, &user, &password);
+                    log(
+                        &peer,
+                        &Outcome::KeychainUnlocked {
+                            user: user.clone(),
+                            state,
+                        },
+                    );
+                    Answer::Keychain(state)
+                }
+                (0, None, _) => Answer::Keychain(crate::keychain::KeychainState::Locked),
+                (0, _, _) => Answer::refused(Reason::InvalidAccount),
+                _ => Answer::refused(Reason::NotPermitted),
+            };
+            return connection.send(&answer);
+        }
         let (turn, outcome) = conversation.answer(request);
         log(&peer, &outcome);
         match turn {
@@ -690,6 +734,26 @@ pub fn platform(socket: &Path) -> io::Result<PlatformConfig> {
     match ask(socket, &Request::Platform, LIST_WAIT)? {
         Answer::Platform(platform) => Ok(platform),
         _ => Err(unexpected("platform")),
+    }
+}
+
+/// How long the login program waits for the keychain's unlock (Argon2id at 64 MiB).
+pub const UNLOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// Unlocks `user`'s keychain with the password PAM accepted, at the service at `socket` (the login
+/// program's, as root).
+pub fn unlock_keychain(
+    socket: &Path,
+    user: &str,
+    password: Secret,
+) -> io::Result<crate::keychain::KeychainState> {
+    let request = Request::UnlockKeychain {
+        user: user.to_owned(),
+        password,
+    };
+    match ask(socket, &request, UNLOCK_WAIT)? {
+        Answer::Keychain(state) => Ok(state),
+        _ => Err(unexpected("unlockKeychain")),
     }
 }
 

@@ -524,6 +524,9 @@ pub struct Scene {
     /// system, and the shell drawing them now with the list it was told (ADR 0041).
     shell_candidates: BTreeMap<ClientId, u32>,
     candidates_told: Option<(ClientId, input_method::CandidateList)>,
+    /// AutoFill's list (docs/adr/0050-keychain-autofill-and-passkeys.mdx), drawn by a shell in the
+    /// same candidates surface.
+    autofill: autofill::Autofill,
     /// The input-source shortcuts pressed (ADR 0041), for the program running the compositor.
     input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
@@ -1186,6 +1189,7 @@ impl Scene {
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
         self.forget_candidates_shell(client);
+        self.forget_autofill_shell(client);
         self.forget_shell_client(client);
         self.forget_switcher(client);
         self.forget_capture_shell(client);
@@ -1639,6 +1643,11 @@ impl Scene {
                 cursor,
             } => self.text_input_selection(key(surface), anchor, cursor),
             Request::TextInputCaret { surface, rect } => self.text_input_caret(key(surface), rect),
+            Request::TextInputContentType {
+                surface,
+                content,
+                paired,
+            } => self.text_input_content(key(surface), content, paired),
             Request::TextInputCommit { surface, serial } => {
                 self.text_input_commit(key(surface), serial)?;
                 self.refresh_input_method();
@@ -5069,6 +5078,11 @@ mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 mod input_method;
 pub use input_method::{KeySymbol, MAX_PENDING_KEYS};
+mod autofill;
+pub use autofill::{
+    AutofillItem, AutofillKind, AutofillList, AutofillPick, AutofillQuery, MAX_AUTOFILL_ITEMS,
+    MAX_AUTOFILL_TEXT_BYTES,
+};
 pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;

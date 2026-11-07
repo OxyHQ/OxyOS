@@ -2,7 +2,7 @@
 //! the service's protocol, on directories the tests make (`tests::Place`).
 
 use crate::access::{self, Encoding, Handles, Mode, Relocation};
-use crate::service::{Reply, Service};
+use crate::service::{NetworkAccess, Reply, Service, NOT_GRANTED_THE_NETWORK};
 use crate::tests::{scope_in, text, Place};
 use crate::watch::{Change, Event, Kind, Watcher};
 use crate::{mime, uri, Access, Error, Root, Scope};
@@ -939,7 +939,7 @@ fn the_service_answers_at_once_or_in_order_with_bytes_beside() {
     let home = scope.home().to_path_buf();
     let documents = scope.application().expect("app").documents.clone();
     place.dir("home/ada/Documents");
-    let service = Service::new(scope).expect("service");
+    let service = Service::new(scope, NetworkAccess::Granted).expect("service");
 
     let (media, _) = call(
         &service,
@@ -1405,7 +1405,7 @@ fn transfers_are_requested_answered_when_they_end_and_cancelled_by_id() {
     let scope = application(&place);
     let documents = scope.application().expect("app").documents.clone();
     let (base, _) = transfer_server();
-    let service = Service::new(scope).expect("service");
+    let service = Service::new(scope, NetworkAccess::Granted).expect("service");
     let (refused, _) = call(&service, json!({"op": "download", "url": base}), &[]);
     assert_eq!(refused["error"], "invalid");
     let request = json!({ "op": "download", "url": format!("{base}/slow"), "to": u(&documents.join("s.bin")) });
@@ -1444,6 +1444,45 @@ fn transfers_are_requested_answered_when_they_end_and_cancelled_by_id() {
     );
     let (paused, _) = call(&service, json!({"op": "pauseTransfer", "transfer": 5}), &[]);
     assert_eq!(paused["error"], "invalid");
+}
+
+#[test]
+fn an_application_without_the_network_transfers_nothing() {
+    // An installed version whose account did not grant `network` (ADR 0030, decision 8): its
+    // downloads and uploads fail as a transfer the network could not make, as Android's do without
+    // the INTERNET permission, before anything is asked of the server, with the words its own
+    // requests are refused with, and nothing is written.
+    let place = Place::new("service-no-network");
+    let scope = application(&place);
+    let documents = scope.application().expect("app").documents.clone();
+    std::fs::write(documents.join("notes.txt"), "Hola").expect("notes");
+    let (base, sent) = transfer_server();
+    let service = Service::new(scope, NetworkAccess::Refused).expect("service");
+    let download = json!({ "op": "download", "url": format!("{base}/report"), "to": u(&documents.join("r.txt")) });
+    let upload = json!({ "op": "upload", "uri": u(&documents.join("notes.txt")), "url": format!("{base}/upload") });
+    for (id, request) in [(1, download), (2, upload)] {
+        let (answer, _) = ask(&service, id, request, Vec::new());
+        assert_eq!(
+            (
+                answer["ok"].clone(),
+                answer["error"].clone(),
+                answer["message"].clone()
+            ),
+            (
+                false.into(),
+                "network".into(),
+                NOT_GRANTED_THE_NETWORK.into()
+            )
+        );
+    }
+    assert!(!documents.join("r.txt").exists());
+    assert!(
+        sent.lock().expect("lock").is_empty(),
+        "the server was asked"
+    );
+    // The rest of the service is the application's as before.
+    let (paths, _) = call(&service, json!({"op": "paths"}), &[]);
+    assert_eq!(paths["ok"], true);
 }
 
 #[test]

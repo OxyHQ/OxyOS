@@ -8,6 +8,7 @@ import type {
   ShellControls,
   ShellInputMethod,
   ShellBatteryMenu,
+  ShellAutofill,
   ShellLock,
   ShellMenu,
   ShellNotification,
@@ -35,6 +36,7 @@ import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
+import { AutofillWindow } from "./components/AutofillWindow";
 import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
 import type { SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
@@ -130,6 +132,7 @@ export const Shell = memo(function Shell({
   screenshots,
   inputMethod,
   battery,
+  autofill,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -185,6 +188,9 @@ export const Shell = memo(function Shell({
   /** The battery's menu, where the platform has the session's battery and energy
       (docs/adr/0057-battery-and-energy.mdx). */
   battery?: ShellBatteryMenu;
+  /** AutoFill, where the platform has it (docs/adr/0050-keychain-autofill-and-passkeys.mdx): its
+      list at a field's caret, drawn in the candidate window's surface. */
+  autofill?: ShellAutofill;
 }) {
   const { Surface } = platform;
   const messages = useShellMessages();
@@ -873,9 +879,13 @@ export const Shell = memo(function Shell({
             batteryMenu={battery}
           />
         </Surface>
-        {inputMethod && (
+        {(inputMethod || autofill) && (
+          // What the system shows at a field's caret: AutoFill's list, or an input method's
+          // candidates (docs/adr/0050-keychain-autofill-and-passkeys.mdx, ADR 0041).
           <Surface kind="candidates" style={CANDIDATES_AREA}>
-            {inputMethod.candidates ? (
+            {autofill?.list ? (
+              <AutofillWindow list={autofill.list} onChoose={autofill.choose} />
+            ) : inputMethod?.candidates ? (
               <CandidateWindow
                 list={inputMethod.candidates}
                 onChoose={inputMethod.choose}

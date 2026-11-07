@@ -11,7 +11,8 @@
  * the fixture's is the one its own preferences give. Its Oxy account is the machine's Oxy session
  * as the platform gives every application (oxyos/session-host.js, docs/adr/0020-oxy-account-login.mdx):
  * signing out is the session's (`signOut`, with the `settings` grant), removing the account the
- * accounts' service's, which only Settings may ask.
+ * accounts' service's, which only Settings may ask, as is erasing the computer (General › Transfer
+ * or Reset, docs/adr/0054-recovery-and-erasing.mdx).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -40,7 +41,7 @@ import {
   privacy,
   sound as systemSound,
   updates as systemUpdates,
-  useInputLevel,
+  followInputLevel,
   useInputSourcesState,
   useBluetoothState,
   useNetworkState,
@@ -55,6 +56,7 @@ import {
   type AccountOutcome,
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
+import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
@@ -626,13 +628,11 @@ const SOUND_FIXTURE: SoundState = {
 /**
  * Sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): in a session, the state it tells
  * Settings (its `settings` grant), followed, and its requests, the input's level metered while the
- * Input tab asks for it; none until the session has told it. Without a session, the fixture,
+ * Input tab's meter follows it; none until the session has told it. Without a session, the fixture,
  * changed where it is (its level stays at nothing).
  */
-function useSoundModel(): { sound: SoundState | null; level: number; actions: SoundActions | undefined } {
+function useSoundModel(): { sound: SoundState | null; actions: SoundActions | undefined } {
   const told: SoundState | null = useSoundState();
-  const [metering, setMetering] = React.useState(false);
-  const level: number = useInputLevel(metering);
   const [fixture, setFixture] = React.useState(SOUND_FIXTURE);
   const session = React.useMemo<SoundActions>(
     () => ({
@@ -648,7 +648,7 @@ function useSoundModel(): { sound: SoundState | null; level: number; actions: So
       setBalance: (balance) => {
         systemSound.setBalance(balance);
       },
-      meter: setMetering,
+      followLevel: followInputLevel,
     }),
     [],
   );
@@ -664,11 +664,11 @@ function useSoundModel(): { sound: SoundState | null; level: number; actions: So
       setVolume: (direction, volume) => change(direction, (side) => ({ ...side, volume })),
       setMuted: (direction, muted) => change(direction, (side) => ({ ...side, muted })),
       setBalance: (balance) => change('output', (side) => ({ ...side, balance })),
-      meter: () => {},
+      followLevel: () => () => {},
     };
   }, []);
-  if (!available) return { sound: fixture, level: 0, actions: local };
-  return { sound: told, level, actions: told ? session : undefined };
+  if (!available) return { sound: fixture, actions: local };
+  return { sound: told, actions: told ? session : undefined };
 }
 
 /** The reference ThinkPad's battery (docs/adr/0057-battery-and-energy.mdx): 64 %, discharging with
@@ -981,7 +981,11 @@ type SessionHost = { snapshot(): unknown; subscribe(listener: () => void): () =>
 const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as
   | SessionHost
   | undefined;
-const accountSession = TurboModuleRegistry.get<{ remove(): Promise<unknown> }>('OxyOSAccountSession');
+const accountSession = TurboModuleRegistry.get<{
+  remove(): Promise<unknown>;
+  erasePreview(): Promise<unknown>;
+  eraseAll(password: string): Promise<unknown>;
+}>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
   const reason = (answer as { refused?: { reason?: string }; failed?: { reason?: string } } | null);
@@ -991,6 +995,16 @@ const accountActions: AccountActions = {
   signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
   remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
 };
+
+/** Erasing the computer, the accounts' service's (Settings alone may ask): what it would do, read
+    strictly, and the erase with the administrator's password, handed to the host, which sends it
+    to the service and forgets it. */
+const eraseActions: EraseActions | undefined = accountSession
+  ? {
+      preview: async () => erasePreviewFrom(await accountSession.erasePreview()),
+      eraseAll: async (password) => eraseOutcomeFrom(await accountSession.eraseAll(password)),
+    }
+  : undefined;
 
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
@@ -1027,7 +1041,6 @@ export default function SettingsApp() {
     network: networks.network,
     bluetooth: bluetooth.bluetooth,
     sound: sound.sound,
-    soundInputLevel: sound.level,
     power: power.power,
     inputSources,
     account: useAccount(),
@@ -1045,6 +1058,7 @@ export default function SettingsApp() {
     // Settings › Spotlight (docs/adr/0051-search.mdx): the session's search index, which takes its
     // preferences from Settings alone.
     search: oxyosSurfaces.search,
+    erase: sessionHost ? eraseActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

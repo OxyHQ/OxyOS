@@ -101,11 +101,6 @@ impl Scene {
         self.shell_windows.wallpapers = wallpapers;
     }
 
-    /// What each output was last said to show.
-    pub fn output_wallpapers(&self) -> &BTreeMap<OutputId, String> {
-        &self.shell_windows.wallpapers
-    }
-
     pub(super) fn forget_shell_client(&mut self, client: ClientId) {
         self.shell_windows.told.remove(&client);
         self.shell_windows.applications.remove(&client);
@@ -121,6 +116,8 @@ impl Scene {
                 .insert(client, id.to_string());
             // Started for a notification's response (ADR 0026): it is given it now.
             self.deliver_pending_responses(client, id);
+            // Its field focused before its launch record was found is offered AutoFill now.
+            self.refresh_autofill();
         }
     }
 

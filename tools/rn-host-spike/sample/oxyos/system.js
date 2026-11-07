@@ -40,6 +40,16 @@ let lastInputSources = null;
     who follows them, and who follows the input's level. */
 const soundListeners = new Set();
 let lastSound = null;
+
+/** AutoFill's list the session last told the shell to draw (docs/adr/0050-keychain-autofill-and-passkeys.mdx),
+    null when none, and who follows it. */
+const autofillListeners = new Set();
+let lastAutofill = null;
+
+function toldAutofill(list) {
+  lastAutofill = list ?? null;
+  for (const listener of autofillListeners) listener(lastAutofill);
+}
 const inputLevelListeners = new Set();
 
 function toldSound(state) {
@@ -76,6 +86,7 @@ if (native) {
       if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
       if (answer && answer.inputSources) toldInputSources(answer.inputSources);
       if (answer && answer.sound) toldSound(answer.sound);
+      if (answer && 'autofill' in answer) toldAutofill(answer.autofill);
       if (answer && typeof answer.inputLevel === 'number') {
         for (const listener of inputLevelListeners) listener(answer.inputLevel);
       }
@@ -279,6 +290,32 @@ export function useInputSourcesState() {
 }
 
 /**
+ * AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6): the session tells the
+ * shell (its `shell` grant) the list to draw at a field's caret (`{autofill: {content, items,
+ * highlighted}}`, `{autofill: null}` to hide it), and the shell picks the item pressed
+ * (`choose`, citing the press), answered `{chosen: {}}` or `{refused: {reason}}`. The application
+ * whose field it is never sees the list.
+ */
+export const autofill = {
+  choose: (index) => ask({ chooseAutofill: { index } }),
+  current: () => lastAutofill,
+  subscribe(listener) {
+    autofillListeners.add(listener);
+    return () => autofillListeners.delete(listener);
+  },
+};
+
+/** AutoFill's list as the session tells it, for a view. */
+export function useAutofillState() {
+  const [state, setState] = React.useState(lastAutofill);
+  React.useEffect(() => {
+    setState(lastAutofill);
+    return autofill.subscribe(setState);
+  }, []);
+  return state;
+}
+
+/**
  * The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): the shell (its `shell` grant)
  * and Settings (its `settings` grant) ask the session, which alone speaks to PipeWire. Asked once,
  * the state is told again as it changes (`{sound: {available, output, input}}`, each side its
@@ -312,21 +349,17 @@ export function useSoundState() {
   return state;
 }
 
-/** The chosen input's level (0 to 1) while `on`: metered from when it is on until it is off or
-    the view goes, so nothing listens to the input meanwhile. */
-export function useInputLevel(on) {
-  const [level, setLevel] = React.useState(0);
-  React.useEffect(() => {
-    if (!on || !native) return undefined;
-    inputLevelListeners.add(setLevel);
-    sound.meter(true);
-    return () => {
-      inputLevelListeners.delete(setLevel);
-      setLevel(0);
-      if (inputLevelListeners.size === 0) sound.meter(false);
-    };
-  }, [on]);
-  return level;
+/** Follows the chosen input's level (0 to 1): metered from the first follower until the last
+    stops, so nothing listens to the input while no view shows its level (ADR 0056, decision 7).
+    Returns the stop. */
+export function followInputLevel(listener) {
+  if (!native) return () => {};
+  inputLevelListeners.add(listener);
+  if (inputLevelListeners.size === 1) sound.meter(true);
+  return () => {
+    if (!inputLevelListeners.delete(listener)) return;
+    if (inputLevelListeners.size === 0) sound.meter(false);
+  };
 }
 
 /** The update state as it changes, for a page: asked once, then followed. */

@@ -1,6 +1,7 @@
 import type { AccountActions, AccountSnapshot } from "./account";
 import type { BluetoothActions, BluetoothState } from "./bluetooth";
 import type { LowPowerMode, PowerActions, PowerState } from "./battery";
+import type { EraseActions } from "./erase";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { SoundActions, SoundState } from "./sound";
@@ -151,8 +152,6 @@ export type SettingsSnapshot = {
   /** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx), as the session tells them:
       null until it has. */
   sound?: SoundState | null;
-  /** The chosen input's level (0 to 1), told only while Sound's Input tab meters it. */
-  soundInputLevel?: number;
   /** The battery and energy (docs/adr/0057-battery-and-energy.mdx), as the session tells them:
       none where the platform tells none; null until it has. */
   power?: PowerState | null;
@@ -223,6 +222,10 @@ export type SettingsActions = {
   sound?: SoundActions;
   account?: AccountActions;
   power?: PowerActions;
+  /** Erasing the computer (General › Transfer or Reset, docs/adr/0054-recovery-and-erasing.mdx):
+      none where the platform has no account session to ask (a development session started from a
+      terminal), which offers no erase. */
+  erase?: EraseActions;
   /** Settings › Spotlight's platform (docs/adr/0051-search.mdx). */
   search?: SettingsSearch;
   /** The system's folder chooser (docs/adr/0028-file-access.mdx): the folder chosen, as a

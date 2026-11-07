@@ -160,8 +160,6 @@ uint32_t cachePolicy(ImageSource::CacheStategy cache) {
 // (Fresco's main disk cache's default).
 constexpr uint64_t kDiskCacheBytes = 40ull << 20;
 
-// What an application without the network is told (network.cpp says the same of its requests).
-constexpr const char* kNoNetwork = "this application was not granted the network";
 
 }  // namespace
 
@@ -186,9 +184,6 @@ Images::~Images() {
 }
 
 void Images::connect(OxyOSNet* net, const std::string& cacheDirectory) {
-  // An installed version reaches the Internet only if its account granted `network`
-  // (docs/adr/0030-installing-applications.mdx, decision 8), images included.
-  networkAllowed_ = LaunchCapabilities::fromEnvironment().allows("network");
   std::string directory = cacheDirectory.empty() ? "" : cacheDirectory + "/images";
   if (oxyos_images_connect(loader_, net, directory.empty() ? nullptr : directory.data(), directory.size(),
                            kDiskCacheBytes) != 0) {
@@ -208,8 +203,10 @@ bool Images::fetch(uint64_t id, const std::string& uri, const ImageSource& sourc
 bool Images::fetchRemote(uint64_t id, const std::string& uri,
                          const std::vector<std::pair<std::string, std::string>>& given, uint32_t cache, bool memory,
                          bool disk, uint32_t want, const Key& key, const std::string& cacheKey, std::string& error) {
-  if (!networkAllowed_) {
-    error = kNoNetwork;
+  // An installed version reaches the Internet only if its account granted `network`
+  // (docs/adr/0030-installing-applications.mdx, decision 8), images included.
+  if (!LaunchCapabilities::current().allows("network")) {
+    error = kNotGrantedTheNetwork;
     return false;
   }
   if (!connected_) {
@@ -331,7 +328,7 @@ void Images::sync(float scale) {
     bool covering = resizeMode == ImageResizeMode::Cover || resizeMode == ImageResizeMode::Stretch;
     auto resolved = resolveImageSource(source->uri);
     shown.remote = resolved.remote;
-    if (resolved.remote && !networkAllowed_) resolved.error = kNoNetwork;
+    if (resolved.remote && !LaunchCapabilities::current().allows("network")) resolved.error = kNotGrantedTheNetwork;
     // How the renderer places it (drawImage): an SVG document is drawn for that, at its natural
     // size at this scale for center, repeat and none.
     auto placement = resizeMode == ImageResizeMode::None ? SvgRequest::Placement::Natural

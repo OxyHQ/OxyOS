@@ -32,6 +32,7 @@
 //! bytecode as trusted input). `entry` prints the Desktop Entry `oxyos-installd` writes for the
 //! package installed at DIR (`oxyos_install::install::entry_text`), for a development registry.
 
+use oxyos_install::time::now;
 use oxyos_package::{
     open_directory, read_package, verify_tree, Manifest, SigningKey, HERMES_BYTECODE_MAGIC,
     RESERVED,
@@ -160,13 +161,6 @@ fn read_store_keys(dir: &Path) -> Result<oxyos_install::repository::StoreKeys> {
         snapshot: key("snapshot")?,
         timestamp: key("timestamp")?,
     })
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 /// A new repository at `dir`, root 1 for the store's keys in `keys`.

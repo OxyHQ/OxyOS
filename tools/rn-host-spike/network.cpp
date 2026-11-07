@@ -97,8 +97,7 @@ void Networking::send(Request request) {
   // An installed version reaches the Internet only if its account granted `network`, as the
   // session told this launch (docs/adr/0030-installing-applications.mdx, decision 8): refused as
   // a failed request, which fetch and XMLHttpRequest report, never a crash.
-  static const bool allowed = LaunchCapabilities::fromEnvironment().allows("network");
-  if (!allowed) return reject(request.id, "this application was not granted the network");
+  if (!LaunchCapabilities::current().allows("network")) return reject(request.id, kNotGrantedTheNetwork);
   std::vector<OxyOSNetHeader> headers;
   for (const auto& [name, value] : request.headers) {
     headers.push_back({name.data(), name.size(), value.data(), value.size()});

@@ -200,7 +200,7 @@ wire_enum! {
     /// swiped up on a touchpad) and App Exposé (Super+↓, a Mac's Control-↓, or the same fingers
     /// swiped down), since version 24 (ADR 0045); and Spotlight (Super+Space, a Mac's ⌘Space) and
     /// what Spotlight has chosen revealed where it is (Super+Return, a Mac's ⌘Return), since
-    /// version 30 (docs/adr/0051-search.mdx).
+    /// version 31 (docs/adr/0051-search.mdx).
     SystemShortcut: u8 {
         SwitcherNext = 1, SwitcherPrevious = 2, SwitcherQuit = 3, SwitcherHide = 4,
         SwitcherDone = 5, SwitcherCancel = 6, Search = 7, MenuBar = 8, Dock = 9, StatusMenus = 10,
@@ -301,6 +301,14 @@ wire_enum! {
     TextPurpose: u8 {
         Normal = 0, Digits = 1, Number = 2, Phone = 3, Url = 4, Email = 5, Name = 6,
         Password = 7, Pin = 8, Date = 9, Time = 10,
+    }
+}
+wire_enum! {
+    /// What a field holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision
+    /// 6), beside its purpose: an account's name, an email address used as one, its password, a
+    /// new password being chosen, a verification code; or none.
+    TextContentType: u8 {
+        None = 0, Username = 1, Email = 2, Password = 3, NewPassword = 4, OneTimeCode = 5,
     }
 }
 wire_enum! {

@@ -15,8 +15,8 @@ use oxyos_client::{
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, CaptureDestination,
     CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, PanelEdge, Politeness,
-    Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk, TextHints,
-    TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
+    Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
+    TextContentType, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -273,7 +273,7 @@ pub const OXYOS_SHORTCUT_NOTIFICATIONS: u32 = 11;
 pub const OXYOS_SHORTCUT_MISSION_CONTROL: u32 = 12;
 pub const OXYOS_SHORTCUT_APP_EXPOSE: u32 = 13;
 /// Super+Space: Spotlight, as a Mac's ⌘Space; and Super+Return: what Spotlight has chosen
-/// revealed where it is, as a Mac's ⌘Return (protocol version 30, docs/adr/0051-search.mdx).
+/// revealed where it is, as a Mac's ⌘Return (protocol version 31, docs/adr/0051-search.mdx).
 pub const OXYOS_SHORTCUT_SPOTLIGHT: u32 = 14;
 pub const OXYOS_SHORTCUT_REVEAL: u32 = 15;
 /// What a SYSTEM_SHORTCUT asks (its flag, protocol version 25, docs/adr/0046-interactive-gestures.mdx):
@@ -443,7 +443,7 @@ pub const OXYOS_EVENT_SYSTEM_TEXT: u32 = 160;
 pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
-/// Search (docs/adr/0051-search.mdx, protocol version 30): a chunk of the search index's answer to
+/// Search (docs/adr/0051-search.mdx, protocol version 31): a chunk of the search index's answer to
 /// oxyos_client_search_request `code` (0: what the client asked to watch changed, unasked);
 /// detail, its index (0 begins it); flag 1 on the last; text, the chunk.
 pub const OXYOS_EVENT_SEARCH_TEXT: u32 = 164;
@@ -673,6 +673,31 @@ pub struct OxyOSTextTransaction {
     pub preedit_length: usize,
     pub segments: *const OxyOSPreeditSegment,
     pub segment_count: usize,
+}
+
+/// What a field holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx), as
+/// `oxyos_client_text_input_with_content` takes it (the protocol's `TextContentType`).
+pub const OXYOS_CONTENT_NONE: u8 = 0;
+pub const OXYOS_CONTENT_USERNAME: u8 = 1;
+pub const OXYOS_CONTENT_EMAIL: u8 = 2;
+pub const OXYOS_CONTENT_PASSWORD: u8 = 3;
+pub const OXYOS_CONTENT_NEW_PASSWORD: u8 = 4;
+pub const OXYOS_CONTENT_ONE_TIME_CODE: u8 = 5;
+
+/// AutoFill's fill of the transaction the TEXT_INPUT event just returned completed, as
+/// `oxyos_client_text_fill` gives it: the whole text the focused field (`has_fill`) and its paired
+/// field (`has_paired_fill`) are to hold, each replacing what it held. A credential: its strings
+/// (not NUL-terminated) stay valid until the next `oxyos_client_poll`, which overwrites them.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSTextFill {
+    pub surface: u32,
+    pub has_fill: u8,
+    pub has_paired_fill: u8,
+    pub fill: *const c_char,
+    pub fill_length: usize,
+    pub paired_fill: *const c_char,
+    pub paired_fill_length: usize,
 }
 
 /// One of an input method's candidates, as `oxyos_client_input_candidates` gives it: UTF-8, not
@@ -1219,7 +1244,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::TextInputCommitText { .. }
         | Event::TextInputPreeditText { .. }
         | Event::TextInputPreeditCursor { .. }
-        | Event::TextInputPreeditSegment { .. } => return None,
+        | Event::TextInputPreeditSegment { .. }
+        | Event::TextInputFill { .. } => return None,
         // Only to the input method, which is never a C client.
         Event::InputMethodActivate {}
         | Event::InputMethodDeactivate {}
@@ -2808,7 +2834,7 @@ pub unsafe extern "C" fn oxyos_client_system_request(
 
 /// Asks the session's search index one request of its vocabulary (docs/adr/0051-search.mdx):
 /// `text`, NUL-terminated UTF-8 JSON. Any client may ask; SEARCH_TEXT events naming `serial`
-/// answer. 0 on success; an error, sending nothing, to a compositor of a version before 30.
+/// answer. 0 on success; an error, sending nothing, to a compositor of a version before 31.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`; `text` a NUL-terminated string.
@@ -4758,6 +4784,37 @@ pub unsafe extern "C" fn oxyos_client_text_input(
     new_field: u8,
 ) -> i64 {
     // SAFETY: forwarded caller contract.
+    unsafe {
+        oxyos_client_text_input_with_content(
+            client,
+            surface,
+            field,
+            new_field,
+            OXYOS_CONTENT_NONE,
+            0,
+        )
+    }
+}
+
+/// `oxyos_client_text_input`, with what the field holds for AutoFill
+/// (docs/adr/0050-keychain-autofill-and-passkeys.mdx): `content` (OXYOS_CONTENT_*) and, non-zero
+/// `paired`, that its window has the other field of the account's pair (a username's or an
+/// email's password field, a password's username field), which a fill fills too. A compositor
+/// older than protocol version 30 is told neither, and never fills.
+///
+/// # Safety
+/// As `oxyos_client_text_input`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_text_input_with_content(
+    client: *mut OxyOSClient,
+    surface: u32,
+    field: *const OxyOSTextField,
+    new_field: u8,
+    content: u8,
+    paired: u8,
+) -> i64 {
+    // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {
         fail("null client");
         return -1;
@@ -4775,12 +4832,13 @@ pub unsafe extern "C" fn oxyos_client_text_input(
                 // SAFETY: per the contract, `text` points to `length` readable bytes.
                 unsafe { std::slice::from_raw_parts(field.text.cast::<u8>(), field.length) }
             };
-            let (Some(purpose), Some(hints), Ok(text)) = (
+            let (Some(purpose), Some(hints), Some(content), Ok(text)) = (
                 TextPurpose::from_raw(field.purpose),
                 TextHints::new(field.hints),
+                TextContentType::from_raw(content),
                 std::str::from_utf8(bytes),
             ) else {
-                fail("invalid purpose, hints or text");
+                fail("invalid purpose, hints, content type or text");
                 return -1;
             };
             let (anchor, cursor) = (field.anchor as usize, field.cursor as usize);
@@ -4803,6 +4861,8 @@ pub unsafe extern "C" fn oxyos_client_text_input(
                 anchor,
                 cursor,
                 caret,
+                content,
+                paired: paired != 0,
             };
             client.text_input(surface, Some(&field), new_field != 0)
         }
@@ -4863,6 +4923,53 @@ pub unsafe extern "C" fn oxyos_client_text_transaction(
         preedit_length: transaction.preedit.len(),
         segments: wrapper.segments.as_ptr(),
         segment_count: wrapper.segments.len(),
+    };
+    1
+}
+
+/// Fills `*out` with AutoFill's fill of the transaction the TEXT_INPUT event just returned
+/// completed (docs/adr/0050-keychain-autofill-and-passkeys.mdx): 1, or 0 if the last event was
+/// not one or carried no fill. Its strings (not NUL-terminated) stay valid until the next
+/// `oxyos_client_poll`.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `out` points to a writable
+/// `OxyOSTextFill`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_text_fill(
+    client: *mut OxyOSClient,
+    out: *mut OxyOSTextFill,
+) -> c_int {
+    // SAFETY: per the contract, a non-null pointer is a live, exclusively used OxyOSClient.
+    let Some(wrapper) = (unsafe { client.as_mut() }) else {
+        return fail("null client");
+    };
+    // SAFETY: the caller passes a writable fill or NULL.
+    let Some(out) = (unsafe { out.as_mut() }) else {
+        return fail("null fill");
+    };
+    let Some(transaction) = wrapper.client.transaction() else {
+        return 0;
+    };
+    if transaction.fill.is_none() && transaction.paired_fill.is_none() {
+        return 0;
+    }
+    let text = |fill: &Option<oxyos_client::FillText>| {
+        fill.as_ref().map_or((std::ptr::null(), 0), |fill| {
+            (fill.as_str().as_ptr().cast(), fill.as_str().len())
+        })
+    };
+    let (fill, fill_length) = text(&transaction.fill);
+    let (paired_fill, paired_fill_length) = text(&transaction.paired_fill);
+    *out = OxyOSTextFill {
+        surface: transaction.surface,
+        has_fill: u8::from(transaction.fill.is_some()),
+        has_paired_fill: u8::from(transaction.paired_fill.is_some()),
+        fill,
+        fill_length,
+        paired_fill,
+        paired_fill_length,
     };
     1
 }

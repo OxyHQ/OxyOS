@@ -261,14 +261,6 @@ impl Scene {
         self.choosers.open.contains_key(&id)
     }
 
-    /// The asker of request `id` and the window it asked for, while it is open.
-    pub fn chooser_asker(&self, id: u32) -> Option<(ClientId, SurfaceKey)> {
-        self.choosers
-            .open
-            .get(&id)
-            .map(|open| (open.asker, open.window))
-    }
-
     /// `client` is the chooser the program started for request `id`: its first window becomes the
     /// asking window's sheet, and it alone answers. False if the request is no longer open or has
     /// a chooser, or the client serves another.

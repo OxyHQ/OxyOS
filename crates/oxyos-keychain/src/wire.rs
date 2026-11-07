@@ -11,7 +11,8 @@ use zeroize::Zeroizing;
 /// The largest integer JavaScript holds exactly, the most a counter or `seq` may be.
 pub const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
-pub(crate) fn b64(bytes: &[u8]) -> String {
+/// Base64url without padding, as the wire writes binary.
+pub fn b64(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -139,6 +140,7 @@ macro_rules! uuid_id {
 uuid_id!(VaultId, "vault id");
 uuid_id!(MemberId, "member id");
 uuid_id!(ItemId, "item id");
+uuid_id!(EnrollmentId, "enrollment id");
 
 /// Fills `bytes` from the system's CSPRNG.
 pub(crate) fn getrandom(bytes: &mut [u8]) -> Result<()> {
@@ -193,6 +195,36 @@ pub fn is_timestamp(text: &str) -> bool {
         _ => return false,
     };
     (1..=days).contains(&day) && number(11, 13) < 24 && number(14, 16) < 60 && number(17, 19) < 60
+}
+
+/// `at` as the keychain writes timestamps (JavaScript's `toISOString`): UTC, milliseconds.
+pub fn timestamp(at: std::time::SystemTime) -> String {
+    let since = at.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let seconds = since.as_secs();
+    let days = (seconds / 86_400) as i64;
+    let rest = seconds % 86_400;
+    // Days to the civil date (Howard Hinnant's `civil_from_days`).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rest / 3600,
+        rest / 60 % 60,
+        rest % 60,
+        since.subsec_millis()
+    )
+}
+
+/// Now, as [`timestamp`] writes it.
+pub fn now() -> String {
+    timestamp(std::time::SystemTime::now())
 }
 
 /// A 32-byte key on the wire, of any value (a public key checked where it is used, an
@@ -326,6 +358,23 @@ mod tests {
             found += 1;
         }
         assert!(found > 0);
+    }
+
+    #[test]
+    fn timestamps_are_written_as_javascript_writes_them() {
+        use std::time::{Duration, UNIX_EPOCH};
+        for (seconds, millis, text) in [
+            (0, 0, "1970-01-01T00:00:00.000Z"),
+            (1_709_164_799, 999, "2024-02-28T23:59:59.999Z"),
+            (1_709_251_200, 5, "2024-03-01T00:00:00.005Z"),
+            (1_793_966_400, 120, "2026-11-06T12:00:00.120Z"),
+            (951_782_400, 0, "2000-02-29T00:00:00.000Z"),
+        ] {
+            let at = UNIX_EPOCH + Duration::from_secs(seconds) + Duration::from_millis(millis);
+            assert_eq!(timestamp(at), text);
+            assert!(is_timestamp(text));
+        }
+        assert!(is_timestamp(&now()));
     }
 
     #[test]

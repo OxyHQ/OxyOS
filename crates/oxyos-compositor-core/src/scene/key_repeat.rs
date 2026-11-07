@@ -60,6 +60,11 @@ impl Scene {
     /// Where a press of `key` would go now, if it repeats there: the order `keyboard` takes keys
     /// in, without acting.
     fn repeat_route(&self, key: u32) -> Option<Route> {
+        // AutoFill's list took it (docs/adr/0050-keychain-autofill-and-passkeys.mdx): it does
+        // not repeat into the field.
+        if self.autofill.held.contains(&key) {
+            return None;
+        }
         if let Some(repeats) = self.reader_repeats(key) {
             return repeats.then_some(Route::Reader);
         }

@@ -263,7 +263,6 @@ class Window {
   uint32_t startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uint8_t actions,
                      const std::vector<std::pair<std::string, std::string>>& contents, bool vanish = false,
                      const std::string& fileTypes = {}, const std::string& volumes = {});
-  void cancelDrag(uint32_t drag);
   void acceptDrag(uint32_t offer, uint64_t serial, const std::string& mime, uint8_t actions, uint8_t preferred);
   int receiveDrop(uint32_t offer, const std::string& mime);
   void finishDrop(uint32_t offer);
@@ -357,8 +356,13 @@ class Window {
   // none is (`field` null); only what changed is sent. Returns the commit serial transactions
   // made for this state carry. Throws on failure.
   uint32_t textInput(uint32_t surface, const OxyOSTextField* field, bool newField);
+  // The same with what the field holds for AutoFill (OXYOS_CONTENT_*) and whether its pair is on
+  // the surface (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+  uint32_t textInput(uint32_t surface, const OxyOSTextField* field, bool newField, uint8_t content, bool paired);
   // Inside `dispatch`'s callback, for a TEXT_INPUT event: the transaction it completed.
   bool transaction(OxyOSTextTransaction& out) { return oxyos_client_text_transaction(client_, &out) == 1; }
+  // AutoFill's fill of that transaction, if it carries one.
+  bool fill(OxyOSTextFill& out) { return oxyos_client_text_fill(client_, &out) == 1; }
 
   // Called once the window is configured, before the application starts (docs/adr/0031-gpu-buffers.mdx,
   // decision 12): chooses the painter, the GPU's where the compositor names a GPU this process

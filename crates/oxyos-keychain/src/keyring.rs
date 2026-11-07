@@ -2,6 +2,7 @@
 //! member and to the recovery key. Its plaintext is
 //! `JCS({ "generations": { "<g>": "<VK_g base64url>", … } })`.
 
+use crate::memory::Pinned;
 use crate::secret;
 use crate::wire::{b64_secret, getrandom, unb64_secret};
 use crate::{Error, Result};
@@ -11,29 +12,46 @@ use std::fmt;
 use zeroize::{Zeroize, Zeroizing};
 
 /// One generation of the vault key: 32 bytes, boxed, overwritten when dropped.
-pub struct VaultKey(Box<[u8; 32]>);
+pub struct VaultKey {
+    key: Box<[u8; 32]>,
+    /// Declared after the key: let go once the key is overwritten (`Drop` runs first).
+    pinned: Option<Pinned>,
+}
 
 impl VaultKey {
+    fn from_box(key: Box<[u8; 32]>) -> Self {
+        Self { key, pinned: None }
+    }
+
     fn generate() -> Result<Self> {
         let mut key = Box::new([0u8; 32]);
         getrandom(&mut *key)?;
-        Ok(Self(key))
+        Ok(Self::from_box(key))
     }
 
     pub(crate) fn bytes(&self) -> &[u8; 32] {
-        &self.0
+        &self.key
+    }
+
+    fn pin(&mut self) -> Result<()> {
+        if self.pinned.is_none() {
+            self.pinned = Some(Pinned::of(&*self.key)?);
+        }
+        Ok(())
     }
 }
 
 impl Drop for VaultKey {
     fn drop(&mut self) {
-        self.0.zeroize();
+        self.key.zeroize();
     }
 }
 
 /// Every generation of the vault key, from 1 to the newest, none missing.
 pub struct Keyring {
     generations: BTreeMap<u32, VaultKey>,
+    /// Its keys are locked in memory, and so is every generation added.
+    pinned: bool,
 }
 
 /// The keyring as written: `generations` keyed by the generation in decimal. A `BTreeMap` of
@@ -49,7 +67,36 @@ impl Keyring {
     pub fn generate() -> Result<Self> {
         let mut generations = BTreeMap::new();
         generations.insert(1, VaultKey::generate()?);
-        Ok(Self { generations })
+        Ok(Self {
+            generations,
+            pinned: false,
+        })
+    }
+
+    /// Locks every generation's key in memory, and those added later ([`crate::memory`]).
+    pub fn pin(&mut self) -> Result<()> {
+        for key in self.generations.values_mut() {
+            key.pin()?;
+        }
+        self.pinned = true;
+        Ok(())
+    }
+
+    /// A copy of the keyring (its keys pinned if these are), for a rotation that is not this
+    /// keyring's until Oxy accepts it.
+    pub fn duplicate(&self) -> Result<Self> {
+        let mut copy = Self {
+            generations: self
+                .generations
+                .iter()
+                .map(|(generation, key)| (*generation, VaultKey::from_box(Box::new(*key.bytes()))))
+                .collect(),
+            pinned: false,
+        };
+        if self.pinned {
+            copy.pin()?;
+        }
+        Ok(copy)
     }
 
     /// The newest generation and its key.
@@ -76,7 +123,11 @@ impl Keyring {
             .generation()
             .checked_add(1)
             .ok_or(Error::Malformed("generation"))?;
-        self.generations.insert(next, VaultKey::generate()?);
+        let mut key = VaultKey::generate()?;
+        if self.pinned {
+            key.pin()?;
+        }
+        self.generations.insert(next, key);
         Ok(next)
     }
 
@@ -110,13 +161,16 @@ impl Keyring {
                 return Err(malformed());
             }
             let bytes = unb64_secret::<32>(key.expose(), "keyring")?;
-            generations.insert(generation, VaultKey(Box::new(*bytes)));
+            generations.insert(generation, VaultKey::from_box(Box::new(*bytes)));
         }
         let contiguous = generations.keys().copied().eq(1..=generations.len() as u32);
         if generations.is_empty() || !contiguous {
             return Err(malformed());
         }
-        let keyring = Self { generations };
+        let keyring = Self {
+            generations,
+            pinned: false,
+        };
         // Not a second spelling of the same keyring (a duplicate key, spaces, another order).
         if *keyring.to_plaintext()? != *plaintext {
             return Err(malformed());
@@ -130,8 +184,9 @@ impl Keyring {
             generations: keys
                 .iter()
                 .enumerate()
-                .map(|(i, key)| (i as u32 + 1, VaultKey(Box::new(*key))))
+                .map(|(i, key)| (i as u32 + 1, VaultKey::from_box(Box::new(*key))))
                 .collect(),
+            pinned: false,
         }
     }
 }

@@ -37,12 +37,28 @@ class TextInputComponentDescriptor final
       const facebook::react::Props::Shared& props,
       const facebook::react::ShadowNodeFamily::Shared& family) const override;
 
+  // Keeps each props' `textContentType` (textContentTypeOf), which Android's props do not parse.
+  facebook::react::Props::Shared cloneProps(const facebook::react::PropsParserContext& context,
+                                            const facebook::react::Props::Shared& props,
+                                            facebook::react::RawProps rawProps) const override;
+
  protected:
   void adopt(facebook::react::ShadowNode& shadowNode) const override;
 
  private:
   std::shared_ptr<const facebook::react::TextLayoutManager> textLayoutManager_;
 };
+
+// A text input's `textContentType` (`username`, `password`, `newPassword`, `oneTimeCode`,
+// `emailAddress`, …), as JavaScript gave it: iOS's prop, which React Native's Android props drop
+// and the OxyOS runtime sends (sample/oxyos/Libraries/NativeComponent/BaseViewConfig.oxyos.js), so
+// that a field says what it holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx)
+// whichever of it and `autoComplete` the application set. Empty for none.
+std::string textContentTypeOf(const facebook::react::Props& props);
+
+// What an input holds for AutoFill (OXYOS_CONTENT_*), from its `textContentType` and, without
+// one, its `autoComplete` (Android's names, as React Native maps the web's, and the web's).
+uint8_t autofillContent(const facebook::react::AndroidTextInputProps& props, const std::string& textContentType);
 
 // Where a view is drawn: its surface and its frame in that surface's logical coordinates.
 struct Placement {
@@ -132,6 +148,12 @@ class TextEditing {
     dragging_ = false;
     pendingDrag_.reset();
   }
+  // AutoFill's fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx), part of the transaction
+  // just applied: the focused input's whole text replaced by `fill`, and its paired input's (the
+  // other field of the account's pair, `Field::paired`) by `paired_fill`, each as an edit the
+  // person made: React hears their change as it hears typing, and the focused input's is one edit
+  // to undo. The text is never logged.
+  void fill(const OxyOSTextFill& fill);
   // A change from the compositor's text input for the focused input (ADR 0008), applied as one
   // edit, as Android's input connection applies a batch of deleteSurroundingText, commitText and
   // setComposingText. `current`: made for the state last told; if not, its deletion is dropped,
@@ -141,7 +163,9 @@ class TextEditing {
   // What the compositor is told about the focused input (ADR 0008): the surface it is drawn on,
   // what it is for (OXYOS_PURPOSE_*, OXYOS_HINT_*), its text without the composition, the
   // selection within that, and the caret's rectangle in the surface's logical coordinates. A
-  // password's text and selection are never told.
+  // password's text and selection are never told. What it holds for AutoFill (OXYOS_CONTENT_*)
+  // and whether the same surface has the other field of the account's pair (`paired`): a
+  // username's or an email's password field, a password's username or email field.
   struct Field {
     facebook::react::Tag tag = -1;
     uint32_t surface = 0;
@@ -149,6 +173,8 @@ class TextEditing {
     uint32_t hints = 0;
     std::string text;
     size_t anchor = 0, cursor = 0;
+    uint8_t content = OXYOS_CONTENT_NONE;
+    bool paired = false;
     bool operator==(const Field&) const = default;
   };
   std::optional<Field> field() const;
@@ -256,6 +282,15 @@ class TextEditing {
                                  float y, bool inside) const;
   // An input's text, focused or not.
   std::string valueOf(facebook::react::Tag tag) const;
+  // What the input `tag` holds for AutoFill (OXYOS_CONTENT_*).
+  uint8_t contentOf(facebook::react::Tag tag) const;
+  // The other field of the account's pair for the input `tag` on its surface, -1 for none: for a
+  // username or an email, the first password input after it in the tree (else the nearest before
+  // it); for a password, the nearest username or email input before it (else the first after).
+  facebook::react::Tag pairedOf(facebook::react::Tag tag) const;
+  // An unfocused input's whole text set to `text`, as Android's EditText reports a change made
+  // to it: its state, then its change event; its undo history and kept selection go.
+  void setUnfocusedText(facebook::react::Tag tag, std::string text);
   // Whether a surface-local point is on the focused input's selection as drawn.
   bool onSelection(uint32_t surface, float x, float y) const;
   // A primary press held on the selection, as NSTextView takes it: moved kDragThreshold it drags

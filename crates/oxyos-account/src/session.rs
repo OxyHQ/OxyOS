@@ -22,6 +22,10 @@
 //!   ← {"checked": {"result", "reason"?}}                                  for its own account
 //!   ```
 //!
+//!   Accepted, its account's keychain is unlocked with that password; the registrar also asks
+//!   AutoFill's requests and locks the keychain when the session locks (`crate::keychain`). The
+//!   session's last registrar connection closed, its keychain locks.
+//!
 //!   A registration lives while its process does (the service watches the pidfd) and while the
 //!   registrar's connection stays open: the session keeps one for its life, and closing it drops
 //!   every registration made on it.
@@ -36,6 +40,12 @@
 //!   → {"token": {"reason": "boot" | "preflight" | "response-401"}}
 //!                                        ← {"token": {"accessToken", "expiresAt"}} | {"token": null}
 //!   → {"remove": {}}                     ← "removed" | {"refused": {"reason"}}
+//!   → {"erasePreview": {}}               ← {"erasePreview": {"available", "administrator",
+//!                                            "online", "accounts": [{"name", "handle",
+//!                                            "signsOutOnline"}]}}
+//!   → {"eraseAll": {"password"}}         ← {"erasing": {"signedOut", "notSignedOut"}}, then the
+//!                                          machine restarts | {"refused": {"reason",
+//!                                          "retryAfter"?}}
 //!   ```
 //!
 //!   `Snapshot` is the SDK's `OxyHostSnapshot`: `{"status": "signed_in" | "signed_out" |
@@ -43,7 +53,12 @@
 //!   "online"}`. A token is the application's own (Settings and the shell, registered as system
 //!   applications, are OxyOS's; any other by its desktop entry id); null offline, signed out or
 //!   refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
-//!   of the peer's own account.
+//!   of the peer's own account. So are `erasePreview` and `eraseAll`, erasing the machine
+//!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx), [`erase`](crate::erase)): an
+//!   erase is refused `notAdministrator`, `wrongPassword`, `throttled` (with `retryAfter`, in
+//!   seconds), `unavailable` (no recovery) or `failed`, and a refusal changed nothing. The keychain's
+//!   requests (`crate::keychain`) are Settings' too; any other application is refused
+//!   `notPermitted`.
 //! - **Limits,** as the service's own socket: every peer waits at most [`IDLE`] for its next
 //!   message but a registrar or a subscriber, at most [`MAX_REGISTRARS`] registrars and
 //!   [`MAX_APPLICATION_CONNECTIONS`] application connections per user (so one user's applications
@@ -53,7 +68,12 @@
 //!   a message unread.
 
 use crate::api::OxyApi;
+use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
+use crate::keychain::{
+    self, AuditView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView, JoinMethod,
+    MemberView, Status, Suggestion,
+};
 use crate::pidfd::{self, Program};
 use crate::platform::{self, Checked, Local, Platform, Snapshot, Token, TokenReason};
 use crate::secret::Secret;
@@ -109,6 +129,80 @@ pub enum Request {
         reason: TokenReason,
     },
     Remove {},
+    // The keychain (ADR 0050 step 2, `crate::keychain`): the registrar's.
+    #[serde(rename_all = "camelCase")]
+    AutofillSuggest {
+        desktop_entry_id: String,
+        field: Field,
+    },
+    #[serde(rename_all = "camelCase")]
+    AutofillFill {
+        desktop_entry_id: String,
+        #[serde(rename = "ref")]
+        reference: String,
+        field: Field,
+    },
+    AutofillGenerate {},
+    KeychainLock {},
+    // Settings'.
+    KeychainStatus {},
+    KeychainCreate {},
+    #[serde(rename_all = "camelCase")]
+    KeychainConfirmRecoveryKey {
+        recovery_key: Secret,
+    },
+    #[serde(rename_all = "camelCase")]
+    KeychainJoin {
+        method: JoinMethod,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        recovery_key: Option<Secret>,
+    },
+    KeychainEnrollments {},
+    #[serde(rename_all = "camelCase")]
+    KeychainApprove {
+        enrollment_id: String,
+        #[serde(default)]
+        confirm: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    KeychainDeny {
+        enrollment_id: String,
+    },
+    KeychainMembers {},
+    #[serde(rename_all = "camelCase")]
+    KeychainRemoveMember {
+        member_id: String,
+    },
+    KeychainVerify {
+        password: Secret,
+    },
+    KeychainList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<Secret>,
+        #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+        kind: Option<ItemKind>,
+    },
+    #[serde(rename_all = "camelCase")]
+    KeychainReveal {
+        item_id: String,
+    },
+    KeychainPut {
+        item: ItemInput,
+    },
+    #[serde(rename_all = "camelCase")]
+    KeychainDelete {
+        item_id: String,
+    },
+    KeychainAudit {},
+    KeychainRekey {
+        previous: Secret,
+        current: Secret,
+    },
+    KeychainLeave {},
+    ErasePreview {},
+    EraseAll {
+        password: Secret,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,22 +212,118 @@ pub enum Reason {
     InvalidRequest,
     TooMany,
     Failed,
+    // The keychain's.
+    /// The keychain is locked (the session is, or was never unlocked since the service started).
+    Locked,
+    /// Oxy cannot be reached.
+    Offline,
+    /// Oxy refused, or answered what does not verify: nothing of it was kept.
+    Oxy,
+    /// The account has no vault, or the machine is no member of it.
+    NotMember,
+    /// The account already has a vault (join it), or this machine is a member already.
+    VaultExists,
+    /// Another device removed this machine, or the vault was reset.
+    Removed,
+    /// The keybag is sealed under a password the machine no longer has (`keychainRekey`).
+    NeedsPreviousPassword,
+    /// Settings must verify the person first (`keychainVerify`).
+    VerificationRequired,
+    WrongPassword,
+    /// Too many wrong passwords: try again later (an erase says when, `retryAfter`).
+    Throttled,
+    /// Not the recovery key shown, or not the vault's.
+    RecoveryKeyMismatch,
+    /// No such item, enrollment, member or suggestion (or its `ref` died with a lock).
+    NotFound,
+    /// The enrollment was denied.
+    Denied,
+    /// The enrollment's ten minutes are over.
+    Expired,
+    /// Another device wrote first: try again.
+    Conflict,
+    /// An erase asked by an account that is not one of the machine's administrators.
+    NotAdministrator,
+    /// An erase of a machine without a recovery.
+    Unavailable,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Answer {
     Registered,
-    Refused { reason: Reason },
+    Refused {
+        reason: Reason,
+        /// Seconds until another attempt may be made (`throttled`).
+        #[serde(
+            default,
+            rename = "retryAfter",
+            skip_serializing_if = "Option::is_none"
+        )]
+        retry_after: Option<u64>,
+    },
     Checked(Checked),
     Snapshot(Snapshot),
     Token(Option<Token>),
     Removed,
+    // The keychain's (`crate::keychain`).
+    AutofillSuggestions(Vec<Suggestion>),
+    AutofillCredential {
+        username: Secret,
+        password: Secret,
+    },
+    AutofillCode {
+        code: Secret,
+    },
+    GeneratedPassword(Secret),
+    KeychainLocked,
+    KeychainStatus(Status),
+    #[serde(rename_all = "camelCase")]
+    KeychainRecoveryKey {
+        recovery_key: Secret,
+    },
+    KeychainEnrollment(EnrollmentView),
+    KeychainEnrollments(Vec<EnrollmentView>),
+    KeychainApproved,
+    KeychainDenied,
+    KeychainMembers(Vec<MemberView>),
+    KeychainMemberRemoved,
+    KeychainVerified,
+    KeychainItems(Vec<ItemSummary>),
+    KeychainItem(ItemView),
+    #[serde(rename_all = "camelCase")]
+    KeychainSaved {
+        item_id: String,
+    },
+    KeychainDeleted,
+    KeychainAudit(AuditView),
+    KeychainLeft,
+    ErasePreview(ErasePreview),
+    Erasing(Erasing),
 }
 
 impl Answer {
     pub fn refused(reason: Reason) -> Self {
-        Answer::Refused { reason }
+        Answer::Refused {
+            reason,
+            retry_after: None,
+        }
+    }
+}
+
+impl From<Refusal> for Answer {
+    fn from(refusal: Refusal) -> Self {
+        let (reason, retry_after) = match refusal {
+            Refusal::NotAdministrator => (Reason::NotAdministrator, None),
+            Refusal::WrongPassword => (Reason::WrongPassword, None),
+            Refusal::Throttled { retry_after } => (Reason::Throttled, Some(retry_after)),
+            Refusal::Unavailable => (Reason::Unavailable, None),
+            Refusal::Failed => (Reason::Failed, None),
+        };
+        Answer::Refused {
+            reason,
+            retry_after,
+        }
     }
 }
 
@@ -210,6 +400,7 @@ pub enum Kind {
 /// The session socket's side of the service.
 pub struct Sessions<A, U> {
     platform: Arc<Platform<A, U>>,
+    eraser: Eraser,
     registrars: Registrars,
     registrations: Mutex<Vec<Arc<Registration>>>,
     /// Registrar connections open, by uid.
@@ -252,17 +443,33 @@ fn drain(fd: &OwnedFd) {
 /// What a connection's peer did, for the service's log: never a secret.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event {
-    Registered { id: String, pid: i32 },
-    RegistrationRefused { id: String, reason: Reason },
+    Registered {
+        id: String,
+        pid: i32,
+    },
+    RegistrationRefused {
+        id: String,
+        reason: Reason,
+    },
     Checked(Checked),
     Removed,
+    /// Settings asked what erasing would do.
+    ErasePreviewed,
+    /// The erase is armed: the machine restarts. How many accounts were signed out online, and
+    /// how many not.
+    Erasing {
+        signed_out: usize,
+        not_signed_out: usize,
+    },
+    EraseRefused(Reason),
     Refused(Reason),
 }
 
 impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessions<A, U> {
-    pub fn new(platform: Arc<Platform<A, U>>, registrars: Registrars) -> Self {
+    pub fn new(platform: Arc<Platform<A, U>>, registrars: Registrars, eraser: Eraser) -> Self {
         Self {
             platform,
+            eraser,
             registrars,
             registrations: Mutex::new(Vec::new()),
             open_registrars: Mutex::new(Vec::new()),
@@ -345,9 +552,23 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                 pid,
             } => {
                 let uid = enrollment.uid;
+                if let Some(keychains) = self.platform.keychains() {
+                    keychains.session_opened(uid, enrollment.user.as_str());
+                }
                 let served = self.serve_registrar(connection, id, &enrollment, pid, &mut log);
                 self.drop_registrar(id);
                 self.release_registrar(uid);
+                // The session's last connection gone, its keychain locks (ADR 0050 decision 2).
+                if let Some(keychains) = self.platform.keychains() {
+                    let remaining = self
+                        .open_registrars
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .iter()
+                        .filter(|held| **held == uid)
+                        .count();
+                    keychains.session_closed(uid, remaining);
+                }
                 if let Err(error) = served {
                     eprintln!("oxyos-accountd: a session's connection ended: {error}");
                 }
@@ -470,11 +691,28 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     }
                 }
                 Some(Request::Check { password, local }) => {
+                    let unlocking = Secret::new(password.expose());
                     let checked = self
                         .platform
                         .check(enrollment.user.as_str(), password, local);
                     log(&Event::Checked(checked));
-                    Answer::Checked(checked)
+                    connection.send(&Answer::Checked(checked))?;
+                    // Accepted, the password opens the account's keychain (ADR 0050 decision 2),
+                    // after the lock has its answer: the keybag's Argon2id never delays it.
+                    if checked.result == platform::Verdict::Accepted {
+                        if let Some(keychains) = self.platform.keychains() {
+                            keychains.unlock(enrollment.uid, enrollment.user.as_str(), &unlocking);
+                        }
+                    }
+                    continue;
+                }
+                Some(request) if keychain::is_registrar_request(&request) => {
+                    match self.platform.keychains() {
+                        Some(keychains) => {
+                            keychains.registrar(enrollment.uid, enrollment.user.as_str(), request)
+                        }
+                        None => Answer::refused(Reason::Locked),
+                    }
                 }
                 Some(_) => Answer::refused(Reason::NotPermitted),
                 None => Answer::refused(Reason::InvalidRequest),
@@ -566,29 +804,69 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     Answer::Token(self.platform.token(uid, &attestation, reason))
                 }
                 Some(Request::Subscribe) => return self.subscribe(connection, registration),
-                Some(Request::Remove {}) => {
-                    if !(registration.system
-                        && registration.desktop_entry_id == platform::OWN_APPLICATIONS[0])
-                    {
-                        Answer::refused(Reason::NotPermitted)
-                    } else {
-                        match self.platform.remove(uid) {
-                            Ok(enrollment) => {
-                                log(&Event::Removed);
-                                let sent = connection.send(&Answer::Removed);
-                                self.platform.finish_removal(&enrollment);
-                                return sent;
+                Some(Request::Remove {} | Request::ErasePreview {} | Request::EraseAll { .. })
+                    if !is_settings(registration) =>
+                {
+                    Answer::refused(Reason::NotPermitted)
+                }
+                Some(Request::ErasePreview {}) => {
+                    log(&Event::ErasePreviewed);
+                    Answer::ErasePreview(self.eraser.preview(&self.platform, uid))
+                }
+                Some(Request::EraseAll { password }) => {
+                    match self.eraser.erase_all(&self.platform, uid, password) {
+                        Ok(erasing) => {
+                            log(&Event::Erasing {
+                                signed_out: erasing.signed_out.len(),
+                                not_signed_out: erasing.not_signed_out.len(),
+                            });
+                            let sent = connection.send(&Answer::Erasing(erasing));
+                            self.eraser.restart();
+                            return sent;
+                        }
+                        Err(refusal) => {
+                            let answer = Answer::from(refusal);
+                            if let Answer::Refused { reason, .. } = &answer {
+                                log(&Event::EraseRefused(*reason));
                             }
-                            Err(error) => {
-                                eprintln!("oxyos-accountd: uid {uid}: not removed: {error:?}");
-                                Answer::refused(Reason::Failed)
-                            }
+                            answer
                         }
                     }
                 }
+                Some(Request::Remove {}) => match self.platform.remove(uid) {
+                    Ok(enrollment) => {
+                        log(&Event::Removed);
+                        let sent = connection.send(&Answer::Removed);
+                        self.platform.finish_removal(&enrollment);
+                        return sent;
+                    }
+                    Err(error) => {
+                        eprintln!("oxyos-accountd: uid {uid}: not removed: {error:?}");
+                        Answer::refused(Reason::Failed)
+                    }
+                },
                 Some(Request::Register { .. } | Request::Check { .. }) => {
                     Answer::refused(Reason::NotPermitted)
                 }
+                // The keychain is Settings' alone to manage (ADR 0050 decision 5), and AutoFill
+                // the registrar's: any other application never learns whether it holds anything.
+                Some(request) if keychain::is_keychain_request(&request) => {
+                    let settings = registration.system
+                        && registration.desktop_entry_id == platform::OWN_APPLICATIONS[0];
+                    match (
+                        settings && !keychain::is_registrar_request(&request),
+                        self.platform.keychains(),
+                        self.platform.enrollment_of(uid),
+                    ) {
+                        (true, Some(keychains), Ok(Some(enrollment))) => {
+                            keychains.settings(uid, enrollment.user.as_str(), request)
+                        }
+                        (true, None, _) => Answer::refused(Reason::Locked),
+                        (true, _, _) => Answer::refused(Reason::Failed),
+                        (false, _, _) => Answer::refused(Reason::NotPermitted),
+                    }
+                }
+                Some(_) => Answer::refused(Reason::NotPermitted),
                 None => Answer::refused(Reason::InvalidRequest),
             };
             connection.send(&answer)?;
@@ -669,6 +947,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
     }
 }
 
+/// Whether a registration is Settings', registered as a system application: the one that may
+/// remove its account and erase the machine.
+fn is_settings(registration: &Registration) -> bool {
+    registration.system && registration.desktop_entry_id == platform::OWN_APPLICATIONS[0]
+}
+
 /// A desktop entry id as Oxy's registry takes one: `so.oxy.dropsea`.
 pub fn valid_entry_id(id: &str) -> bool {
     let mut parts = id.split('.');
@@ -724,7 +1008,23 @@ impl Registrar {
         )?;
         match self.connection.receive::<Answer>()? {
             Some(Some(Answer::Registered)) => Ok(Ok(())),
-            Some(Some(Answer::Refused { reason })) => Ok(Err(reason)),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
+            Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
+            None => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the service closed the connection",
+            )),
+        }
+    }
+}
+
+impl Registrar {
+    /// Locks the session's keychain (the session locked).
+    pub fn keychain_lock(&self) -> io::Result<Result<(), Reason>> {
+        self.connection.send(&Request::KeychainLock {})?;
+        match self.connection.receive::<Answer>()? {
+            Some(Some(Answer::KeychainLocked)) => Ok(Ok(())),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
             Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
             None => Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -764,7 +1064,7 @@ pub fn check(socket: &Path, password: Secret, local: Local) -> io::Result<Checke
         crate::ipc::CHECK_WAIT,
     )? {
         Answer::Checked(checked) => Ok(checked),
-        Answer::Refused { reason } => Err(io::Error::new(
+        Answer::Refused { reason, .. } => Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("refused: {reason:?}"),
         )),
@@ -779,8 +1079,15 @@ pub fn check(socket: &Path, password: Secret, local: Local) -> io::Result<Checke
 /// process still running. Without the service nothing is registered, and applications simply get
 /// no token.
 pub struct RegistrarThread {
-    launches: std::sync::mpsc::Sender<(String, bool, OwnedFd)>,
+    launches: std::sync::mpsc::Sender<Job>,
     wake: std::os::unix::net::UnixStream,
+}
+
+/// What the registrar's thread is given to do.
+enum Job {
+    Register(String, bool, OwnedFd),
+    /// The session locked: its keychain locks too (ADR 0050 decision 2).
+    KeychainLock,
 }
 
 /// The waits before connecting again to a service that went.
@@ -807,11 +1114,17 @@ impl RegistrarThread {
     /// Registers the process `pidfd` is, launched as `desktop_entry_id` (`system`: a system
     /// application of the image's policy).
     pub fn register(&self, desktop_entry_id: &str, system: bool, pidfd: OwnedFd) {
-        if self
-            .launches
-            .send((desktop_entry_id.to_owned(), system, pidfd))
-            .is_ok()
-        {
+        self.send(Job::Register(desktop_entry_id.to_owned(), system, pidfd));
+    }
+
+    /// Tells the service the session locked, so the account's keychain locks with it. Without
+    /// the service there is nothing unlocked to lock.
+    pub fn keychain_lock(&self) {
+        self.send(Job::KeychainLock);
+    }
+
+    fn send(&self, job: Job) {
+        if self.launches.send(job).is_ok() {
             use std::io::Write;
             let _ = (&self.wake).write(&[1]);
         }
@@ -820,7 +1133,7 @@ impl RegistrarThread {
 
 fn registrar_thread(
     socket: &Path,
-    launches: &std::sync::mpsc::Receiver<(String, bool, OwnedFd)>,
+    launches: &std::sync::mpsc::Receiver<Job>,
     woken: &std::os::unix::net::UnixStream,
     log: &dyn Fn(&str),
 ) {
@@ -897,7 +1210,19 @@ fn registrar_thread(
             if let Ok(0) = (&*woken).read(&mut bytes) {
                 return;
             }
-            while let Ok((id, system, pidfd)) = launches.try_recv() {
+            while let Ok(job) = launches.try_recv() {
+                let (id, system, pidfd) = match job {
+                    Job::Register(id, system, pidfd) => (id, system, pidfd),
+                    Job::KeychainLock => {
+                        if let Some(connected) = &registrar {
+                            if !lock_keychain(connected, log) {
+                                registrar = None;
+                                retry = Some((Instant::now() + RECONNECT[0], 0));
+                            }
+                        }
+                        continue;
+                    }
+                };
                 if let Some(connected) = &registrar {
                     if !register_one(connected, &id, system, &pidfd, log) {
                         registrar = None;
@@ -919,6 +1244,22 @@ fn registrar_thread(
                     (None, Some(wait)) => Some((Instant::now() + *wait, made + 1)),
                 };
             }
+        }
+    }
+}
+
+/// Locks the session's keychain; false if the connection failed (the service went, and with it
+/// whatever it had unlocked).
+fn lock_keychain(registrar: &Registrar, log: &dyn Fn(&str)) -> bool {
+    match registrar.keychain_lock() {
+        Ok(Ok(())) => true,
+        Ok(Err(reason)) => {
+            log(&format!("the keychain was not locked: {reason:?}"));
+            true
+        }
+        Err(error) => {
+            log(&format!("locking the keychain: {error}"));
+            false
         }
     }
 }

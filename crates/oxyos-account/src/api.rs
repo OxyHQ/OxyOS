@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[cfg(feature = "http")]
-mod http;
+pub(crate) mod http;
 #[cfg(feature = "http")]
 pub use http::HttpApi;
 

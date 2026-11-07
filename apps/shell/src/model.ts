@@ -1,3 +1,4 @@
+import type { AutofillList } from "./autofill";
 import type { CandidateList, InputSourcesState } from "./input-sources";
 import type { ImageSourcePropType } from "react-native";
 import type { NetworkState } from "./network";
@@ -354,6 +355,18 @@ export type ShellScreenshots = {
   end: () => void;
   /** Opens a saved screenshot in the application that opens it. */
   open: (id: number) => void;
+};
+
+/**
+ * AutoFill as the platform has it (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6):
+ * the list the session tells the shell to draw at a field's caret, in the same window as an input
+ * method's candidates, and the press that picks an item. The application never sees the list.
+ */
+export type ShellAutofill = {
+  /** The list to show; null while there is none. */
+  list: AutofillList | null;
+  /** An item pressed (its index in the list): the session fills it. */
+  choose: (index: number) => void;
 };
 
 /**

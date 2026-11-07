@@ -171,6 +171,15 @@
     }
   },
   {
+    "id": "settings:transfer-reset",
+    "url": "oxyos-settings://transfer-reset",
+    "titles": { "en": "Transfer or Reset", "es": "Transferir o restablecer" },
+    "keywords": {
+      "en": ["reset", "erase", "erase all content and settings", "factory reset", "wipe", "start over", "transfer", "restore"],
+      "es": ["restablecer", "borrar", "borrar contenidos y ajustes", "restaurar valores de fábrica", "formatear", "empezar de nuevo", "transferir", "restaurar"]
+    }
+  },
+  {
     "id": "settings:privacy",
     "url": "oxyos-settings://privacy",
     "titles": { "en": "Privacy", "es": "Privacidad" },

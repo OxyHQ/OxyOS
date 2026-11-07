@@ -166,14 +166,6 @@ pub struct Output {
 }
 
 impl Output {
-    /// The mode it is driven at: its preferred (the panel's native), else its first.
-    pub fn preferred_mode(&self) -> Option<&Mode> {
-        self.modes
-            .iter()
-            .find(|mode| mode.preferred)
-            .or(self.modes.first())
-    }
-
     /// Who the display is (docs/adr/0018-several-displays.mdx): its EDID's manufacturer, product
     /// and serial, so that its settings follow it to any port; without a serial, its maker and
     /// product on this connector; without an EDID, the connector.

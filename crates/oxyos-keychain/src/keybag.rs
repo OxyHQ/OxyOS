@@ -11,6 +11,7 @@
 //! re-seals the same keybag key (new salt, new nonce) given the old password; without it, the
 //! keybag cannot be opened, by design.
 
+use crate::memory::Pinned;
 use crate::seal::{self, NONCE_LENGTH};
 use crate::wire::{b64, getrandom, unb64_fixed};
 use crate::{Error, Result};
@@ -29,11 +30,27 @@ pub const PARALLELISM: u32 = 1;
 pub const SALT_LENGTH: usize = 16;
 
 /// The keybag key, in memory only while the session is unlocked.
-pub struct KeybagKey(Box<Zeroizing<[u8; 32]>>);
+pub struct KeybagKey {
+    key: Box<Zeroizing<[u8; 32]>>,
+    /// Declared after the key: dropped once the key is overwritten.
+    pinned: Option<Pinned>,
+}
 
 impl KeybagKey {
+    fn new(key: Box<Zeroizing<[u8; 32]>>) -> Self {
+        Self { key, pinned: None }
+    }
+
     pub(crate) fn bytes(&self) -> &[u8; 32] {
-        &self.0
+        &self.key
+    }
+
+    /// Locks the key in memory ([`crate::memory`]).
+    pub fn pin(&mut self) -> Result<()> {
+        if self.pinned.is_none() {
+            self.pinned = Some(Pinned::of(&**self.key)?);
+        }
+        Ok(())
     }
 }
 
@@ -84,7 +101,7 @@ impl Keybag {
     pub fn create(password: &str) -> Result<(Self, KeybagKey)> {
         let mut key = Box::new(Zeroizing::new([0u8; 32]));
         getrandom(&mut **key)?;
-        let key = KeybagKey(key);
+        let key = KeybagKey::new(key);
         Ok((Self::wrap(&key, password)?, key))
     }
 
@@ -132,7 +149,7 @@ impl Keybag {
             })?;
         let mut key = Box::new(Zeroizing::new([0u8; 32]));
         key.copy_from_slice(&opened);
-        Ok(KeybagKey(key))
+        Ok(KeybagKey::new(key))
     }
 
     /// The same keybag key wrapped by `new`, given the `old` password that opens it.

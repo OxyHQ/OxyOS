@@ -493,13 +493,17 @@ int main(int argc, char** argv) {
   // (docs/adr/0039-keyboard-access.mdx, decision 26): "focus-first", the focus sent before the
   // commit asking for the keyboard is mounted and the keyboard asked for only once the region's
   // tree is published with that focus; "grant-first", the focus held until the compositor has
-  // given the region the keyboard. Unset, nothing is forced.
+  // given the region the keyboard; "popup-focus-first", the compositor's keyboard moves (its focus
+  // in and out) held from a menu's opening until its tree is published with JavaScript's
+  // accessibility focus, as a loaded machine reads the keyboard's enter on a menu after Bloom's
+  // move into it. Unset, nothing is forced.
   const std::string testOrder = [] {
     const char* order = std::getenv("OXYOS_HOST_TEST_ORDER");
     return std::string(order ? order : "");
   }();
   const bool focusFirst = shellMode && testOrder == "focus-first";
   const bool grantFirst = shellMode && testOrder == "grant-first";
+  const bool popupFocusFirst = shellMode && testOrder == "popup-focus-first";
   const bool windowed = outPath == "--window" || shellMode;
   const uint32_t output = shellMode && argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4])) : 1;
   const char* socket = std::getenv("OXYOS_COMPOSITOR_SOCKET");
@@ -818,7 +822,7 @@ int main(int argc, char** argv) {
       // The system's interface sounds (docs/adr/0044-system-sounds.mdx): protocol version 23, an
       // application's window (the session plays the shell's dock's own).
       services.soundsAvailable = !shellMode && window->protocolVersion() >= 23;
-      // Search (docs/adr/0051-search.mdx): protocol version 30, every window and the shell.
+      // Search (docs/adr/0051-search.mdx): protocol version 31, every window and the shell.
       services.search.available = window->protocolVersion() >= 30;
       // A file chooser the session started (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): what
       // it shows, known before JavaScript starts, so Bloom's adapter is the chooser's from the start.
@@ -1482,7 +1486,7 @@ int main(int argc, char** argv) {
     // Installing applications (docs/adr/0030-installing-applications.mdx): what this launch may use,
     // the session's answers, the shell's sheets and capability results, assembled from chunks;
     // requests cite the latest press, as the session requires of what changes anything.
-    auto launchCapabilities = oxyos::LaunchCapabilities::fromEnvironment();
+    auto& launchCapabilities = oxyos::LaunchCapabilities::current();
     oxyos::ChunkTexts systemTexts, sheetTexts;
     // A saved screenshot's path, assembled from its chunks (docs/adr/0024-system-shortcuts.mdx).
     oxyos::ChunkTexts screenshotPaths;
@@ -1946,6 +1950,12 @@ int main(int argc, char** argv) {
       auto in = shellSurfaces.surfaceOf(view.tag);
       return in && shellSurfaces.keyboardRegion() == *in && keyboardSurface != *in;
     };
+    // A scenario's "popup-focus-first" order: from the moment a menu opens (before the compositor
+    // can answer it) until its tree is published with JavaScript's focus or it is gone, the
+    // compositor's keyboard moves are held, in order, and handled after.
+    uint32_t keyboardHeldFor = 0;
+    std::set<uint32_t> keyboardHeldOnce;
+    std::vector<OxyOSEvent> keyboardHeld;
     // Accessibility focus, as Android's accessibility focus (separate from input focus): the
     // view a screen reader would be on, which the tree marks and the screen reader follows.
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
@@ -1965,10 +1975,16 @@ int main(int argc, char** argv) {
       // accessibility focus from JavaScript while the keyboard is elsewhere: Bloom gives a closed
       // menu's trigger the focus back (a row chosen closes it after the bar gave the window the
       // keyboard), and the person is in the window, not on the bar. The assistive technology's own
-      // focus moves (an action) are not these, and go anywhere.
+      // focus moves (an action) are not these, and go anywhere. Nor is a move into a menu the
+      // person opened over the region (its item pressed): the menu is where they are now. Whether
+      // the view is in a popup is the tree's, which the commit carries, never the compositor's
+      // answer: on a loaded machine Bloom's move into the menu reaches the host before the
+      // compositor's keyboard enter on the popup does (docs/adr/0039-keyboard-access.mdx,
+      // decision 26), and judged by that grant the move was declined, the menu's first row
+      // unfocused and unsaid.
       if (type == "focus" && releasedRegion != 0 && keyboardSurface != releasedRegion &&
           shellSurfaces.keyboardRegion() != releasedRegion &&
-          !(keyboardSurface != 0 && popups.content(keyboardSurface)) &&
+          !(keyboardSurface != 0 && popups.content(keyboardSurface)) && !oxyos::inPopupView(tree, view.tag) &&
           shellSurfaces.surfaceOf(view.tag) == releasedRegion) {
         oxyos::Report::get().input("a11y.focus.declined", releasedRegion);
         return;
@@ -2093,7 +2109,7 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> sheetsGone, capabilityResults;
         bool responded = false;
         Part handling = diagnostics.enter(Part::Events);
-        bool connected = window->dispatch([&](const OxyOSEvent& event) {
+        auto handleEvent = [&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
               diagnostics.input(event.kind, event.detail, event.time_ns);
@@ -2305,13 +2321,32 @@ int main(int argc, char** argv) {
                   }
                   auto told = toldSerials.find(change.surface);
                   editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
+                  // AutoFill's fill, the person's pick (docs/adr/0050-keychain-autofill-and-passkeys.mdx):
+                  // the field and its pair replaced whole; its text is never reported.
+                  OxyOSTextFill filled{};
+                  if (window->fill(filled)) editing.fill(filled);
                 }
               }
               if (withheld) return;
               dragDrop.observe(event);
               pointer.handle(event);
               editing.handle(event);
-            });
+            };
+        // A scenario's "popup-focus-first" order: the keyboard's moves held for a menu's focus,
+        // handled now that it has it (or is gone), before what came since.
+        if (keyboardHeldFor != 0 &&
+            (accessibility.publishedFocus(keyboardHeldFor) || !popups.content(keyboardHeldFor))) {
+          oxyos::Report::get().input("test.keyboard.given", keyboardHeldFor);
+          keyboardHeldFor = 0;
+          for (const auto& held : std::exchange(keyboardHeld, {})) handleEvent(held);
+        }
+        bool connected = window->dispatch([&](const OxyOSEvent& event) {
+          if (keyboardHeldFor != 0 && event.kind == OXYOS_EVENT_FOCUS) {
+            keyboardHeld.push_back(event);
+            return;
+          }
+          handleEvent(event);
+        });
         diagnostics.leave(handling);
         // A drag that left this client's last surface in those events has left the window.
         dragDrop.observed();
@@ -2887,6 +2922,12 @@ int main(int argc, char** argv) {
           busy = true;
         }
         if (!settling) popups.sync(lastPress);
+        if (popupFocusFirst && keyboardHeldFor == 0) {
+          if (auto opened = popups.awaitingFocus(); opened != 0 && keyboardHeldOnce.insert(opened).second) {
+            oxyos::Report::get().input("test.keyboard.held", opened);
+            keyboardHeldFor = opened;
+          }
+        }
         // The compositor is told about the focused input before the frame showing it, so its
         // state is in place when that frame is; the caret is only measured again when something
         // that moves it changed.
@@ -2912,7 +2953,8 @@ int main(int argc, char** argv) {
                 told.caret_height = static_cast<uint32_t>(std::ceil(caret->size.height));
               }
               bool newField = !toldField || toldField->tag != field->tag || toldField->surface != field->surface;
-              toldSerials[field->surface] = window->textInput(field->surface, &told, newField);
+              toldSerials[field->surface] =
+                  window->textInput(field->surface, &told, newField, field->content, field->paired);
             }
             toldField = std::move(field);
             toldCaret = caret;

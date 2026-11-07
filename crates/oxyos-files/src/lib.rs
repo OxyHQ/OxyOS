@@ -47,7 +47,7 @@ pub mod watch;
 
 pub use scope::{Access, Application, Root, Scope};
 #[cfg(feature = "service")]
-pub use service::Service;
+pub use service::{NetworkAccess, Service};
 
 /// Why a request was not done.
 #[derive(Debug)]
