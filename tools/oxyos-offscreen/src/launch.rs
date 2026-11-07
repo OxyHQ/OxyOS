@@ -2408,6 +2408,46 @@ fn window_states_json(compositor: &Compositor) -> String {
 }
 
 /// The surface of the application holding keyboard focus, or null.
+/// Where the person's input goes once a step settled, whichever client's: the surface with the
+/// keyboard focus and the surface the pointer is over (its enter), each as {"client", "pid",
+/// "surface", "shown"}, or null; regress.py checks them against the events each host received,
+/// and that the keyboard's is shown (keys to a surface that is not reach nobody).
+fn input_focus_json(compositor: &Compositor) -> String {
+    let key = |key: Option<oxyos_compositor_core::SurfaceKey>| {
+        key.map_or("null".to_string(), |key| {
+            let pid = compositor.peers.get(&key.client).map_or(0, |peer| peer.pid);
+            format!(
+                "{{\"client\":{},\"pid\":{pid},\"surface\":{},\"shown\":{}}}",
+                key.client,
+                key.id,
+                compositor.scene.shown(key)
+            )
+        })
+    };
+    format!(
+        "{{\"keyboard\":{},\"pointer\":{}}}",
+        key(compositor.scene.focus()),
+        key(compositor.scene.pointer_focus())
+    )
+}
+
+/// Every input event routed to a client in the run, in order (`Compositor::delivery_log`): each
+/// [t_ns, client, pid, surface, kind, serial].
+fn deliveries_json(compositor: &Compositor) -> String {
+    let entries: Vec<String> = compositor
+        .delivery_log
+        .iter()
+        .flatten()
+        .map(|d| {
+            format!(
+                "[{},{},{},{},\"{}\",{}]",
+                d.t_ns, d.client, d.pid, d.surface, d.kind, d.serial
+            )
+        })
+        .collect();
+    format!("[{}]", entries.join(","))
+}
+
 fn focus_json(compositor: &Compositor) -> String {
     match compositor.scene.focus() {
         Some(key) if key.client == CLIENT => key.id.to_string(),
@@ -4726,6 +4766,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         outputs => Session::with_outputs(outputs)?,
     };
+    // Every input event routed to a client from before the first connects, for regress.py to
+    // check against what each host says it received (`deliveries` in the summary).
+    session.compositor.delivery_log = Some(Vec::new());
     // The preferences before any client connects, so each is told them with its Welcome, and
     // the session's locale (ADR 0040): the person's language and region over this program's
     // environment's (`LC_ALL`, `LC_MESSAGES`, `LANG`); a login screen's is the environment's alone.
@@ -5558,10 +5601,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
+            input_focus_json(&session.compositor),
             delivered_json(&session),
             popups_json(&session.compositor),
             answer.window.x,
@@ -5759,10 +5803,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .join(",");
     // The reader, if on, ends with the session as the other clients do.
     children.0.append(&mut screen_reader.0);
+    // What was routed until the session ends; finishing it ends the clients, whose last input
+    // has been read by then.
+    let deliveries = deliveries_json(&session.compositor);
     session.finish(&mut children)?;
     drop(seat);
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"outputs\":[{}],\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"applications\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"outputs\":[{}],\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"applications\":[{}],\"deliveries\":{deliveries},\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         session_outputs,
         launch.command.first().cloned().unwrap_or_default(),
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),

@@ -102,6 +102,9 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       default:
         failed("compositor connection");
     }
+    // The person's input, as received, and handled as the cause of what it delivers to React.
+    Report::get().received(event);
+    Report::Handling handling(event);
     Surface* target = surface(event.surface);
     if (event.kind == OXYOS_EVENT_CONFIGURE && target) {
       float scale = event.scale_120 / 120.0f;

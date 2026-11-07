@@ -554,6 +554,21 @@ credential. A step's `account_session` expectation is what it was asked in the s
 any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused; `token boot: token`,
 `token preflight: no token`, `subscribe: snapshot`, `remove: removed`).
 
+Every scenario, every step, whatever it says (docs/adr/0016-windows.mdx, decision 11): the person's
+input reached exactly whom it should, once. The development compositor records every input event
+it routes (the pointer's, motion among them, the keyboard's and what it types, touches, scrolls,
+pinches, resting fingers, an assistive technology's actions, menu commands, focus changes, a drag's
+events: `deliveries`, each with its serial, client, process and surface), and each Bloom host every
+one it receives (`received`) and the input that caused each React event it delivers; the run fails
+when the keyboard's input reached a surface without the keyboard focus or two surfaces had it at
+once, when the pointer's reached a surface it is not over (its Enter, no Leave since) or two were
+entered at once, when a release reached a surface with no press, when an event was routed twice,
+when a step settled with the compositor's keyboard or pointer focus not where the events routed
+left them (`input_focus`) or with the keyboard focus on a surface not shown, when a host received an event other than once, when one input made a
+host deliver the same React event to the same view twice, or made the pointer's input reach a view
+of another surface, and when any input reached a client that is neither the application, its shell,
+companion or file chooser, nor one the shell launched (`leaked`, which `delivered` checks too).
+
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
 
@@ -2251,6 +2266,215 @@ def between(start, end, share):
     return [left, top, right - left, bottom - top]
 
 
+# The keyboard's input: only ever to the surface the keyboard focus is on (its Focus in, no Focus
+# out since).
+KEYBOARD_KINDS = {"key.press", "key.release", "text", "preedit", "text_input"}
+# The pointer's: only ever to the surface it is over (its Enter, no Leave since). A scroll, a pinch
+# and resting fingers go on reaching the surface they began on until they end (ADR 0042, ADR 0046),
+# wherever the pointer goes meanwhile, and are not among them.
+POINTER_KINDS = {"pointer.motion", "pointer.press", "pointer.release", "pointer.cancel"}
+# What the pointer causes in React: delivered only on the surface its input reached.
+POINTER_CAUSES = POINTER_KINDS | {"pointer.enter", "pointer.leave", "scroll", "touch.down", "touch.motion",
+                                  "touch.up", "touch.cancel", "pinch.begin", "pinch.update", "pinch.end",
+                                  "pinch.cancel", "hold.begin", "hold.end", "hold.cancel"}
+
+
+# What the compositor's record holds that no Bloom host receives: its markers of a surface or a
+# client gone, and the keys it gives the input method.
+HOST_UNSEEN = {"destroyed", "disconnected", "im.key.press", "im.key.release"}
+
+
+def host_reports(out):
+    """Every Bloom host's report of the run (the application's, the shell's on each output, the
+    companion's, the file choosers', the launched applications'), each as its lines."""
+    return {path.name: ended_report(path) for path in sorted(out.glob("host-report.jsonl*")) if path.is_file()}
+
+
+def check_input_delivery(summary, reports, failures):
+    """The person's input reached exactly whom it should, once (docs/adr/0016-windows.mdx, decision
+    11), checked for every scenario and every step from the compositor's record of every
+    input event it routed (`deliveries`: when, to which client and process, which surface, its kind
+    and serial) and each Bloom host's of what it received (`received`) and delivered to React
+    (`deliver`, with the input that caused it):
+
+    - the compositor routed the keyboard's input only to the surface with the keyboard focus, as its
+      Focus events told it, one surface at a time; the pointer's only to the surface it is over, as
+      its Enter and Leave told it, one surface at a time; a release only to the surface that has the
+      press, with no event routed twice;
+    - once each step settled, where it says the keyboard focus and the pointer are is where those
+      events left them;
+    - every host received each event routed to it exactly once, and nothing that was not;
+    - no input made a host deliver the same React event to the same view twice, and the pointer's
+      input never made one reach a view of another surface than the one it reached."""
+    deliveries = summary.get("deliveries")
+    if deliveries is None:
+        failures.append("input delivery: the director recorded no deliveries (an oxyos-offscreen without them)")
+        return
+    steps = summary["steps"]
+    bounds = [summary["t_launch"]] + [result.get("t_settled") or summary["t_launch"] for result in steps]
+
+    def when(t):
+        if t <= bounds[0]:
+            return "the launch"
+        for index in range(1, len(bounds)):
+            if t <= bounds[index]:
+                return f"step {index}"
+        return "after the last step"
+
+    seen = set()
+    failed = []
+
+    def fail(t, message):
+        failed.append(f"input delivery, {when(t)}: {message}")
+
+    # The compositor's routing, as its clients were told it.
+    focused = None
+    entered = None
+    pressed = collections.Counter()
+    dead = set()
+    for t, client, pid, surface, kind, serial in deliveries:
+        key = (client, surface)
+        who = f"client {client} (pid {pid}) surface {surface}"
+        # A surface its client destroyed, or a client gone: nothing more reaches it, and what it
+        # held is no longer anyone's.
+        if kind in ("destroyed", "disconnected"):
+            gone = (lambda k: k == key) if kind == "destroyed" else (lambda k: k[0] == client)
+            dead.add(key if kind == "destroyed" else (client, None))
+            if focused is not None and gone(focused):
+                focused = None
+            if entered is not None and gone(entered):
+                entered = None
+            for k in [k for k in pressed if gone(k)]:
+                pressed.pop(k)
+            continue
+        if key in dead or (client, None) in dead:
+            continue
+        if serial:
+            if (client, surface, kind, serial) in seen:
+                fail(t, f"{kind} {serial} routed twice to {who}")
+            seen.add((client, surface, kind, serial))
+        if kind == "focus.in":
+            if focused is not None and focused != key:
+                fail(t, f"the keyboard focus came to {who} while client {focused[0]} surface {focused[1]} still had it")
+            focused = key
+        elif kind == "focus.out":
+            if focused != key:
+                fail(t, f"the keyboard focus left {who}, which did not have it")
+            else:
+                focused = None
+        elif kind in KEYBOARD_KINDS and focused != key:
+            fail(t, f"{kind} {serial} routed to {who}, which does not have the keyboard focus "
+                    f"({'none' if focused is None else f'client {focused[0]} surface {focused[1]}'})")
+        if kind == "pointer.enter":
+            if entered is not None and entered != key:
+                fail(t, f"the pointer entered {who} while client {entered[0]} surface {entered[1]} had not been left")
+            entered = key
+        elif kind == "pointer.leave":
+            if entered != key:
+                fail(t, f"the pointer left {who}, which it was not over")
+            else:
+                entered = None
+            pressed.pop(key, None)
+        elif kind in POINTER_KINDS and entered != key:
+            fail(t, f"{kind} {serial} routed to {who}, which the pointer is not over "
+                    f"({'none' if entered is None else f'client {entered[0]} surface {entered[1]}'})")
+        if kind == "pointer.press":
+            pressed[key] += 1
+        elif kind == "pointer.release":
+            if pressed[key] <= 0:
+                fail(t, f"a release ({serial}) routed to {who}, which has no press")
+            else:
+                pressed[key] -= 1
+        elif kind == "pointer.cancel":
+            pressed.pop(key, None)
+    # Where each step left them, against what was routed by then.
+    for index, result in enumerate(steps):
+        said = result.get("input_focus")
+        end = result.get("t_settled")
+        if said is None or end is None:
+            continue
+        focus_at, pointer_at = None, None
+        for t, client, pid, surface, kind, serial in deliveries:
+            if t > end:
+                break
+            if kind in ("destroyed", "disconnected"):
+                gone = (lambda k: k == (client, surface)) if kind == "destroyed" else (lambda k: k[0] == client)
+                focus_at = None if focus_at is not None and gone(focus_at) else focus_at
+                pointer_at = None if pointer_at is not None and gone(pointer_at) else pointer_at
+            elif kind == "focus.in":
+                focus_at = (client, surface)
+            elif kind == "focus.out" and focus_at == (client, surface):
+                focus_at = None
+            elif kind == "pointer.enter":
+                pointer_at = (client, surface)
+            elif kind == "pointer.leave" and pointer_at == (client, surface):
+                pointer_at = None
+        # The keyboard focus on a surface not shown (a window minimized, a menu gone) would take
+        # the keys typed next to nobody.
+        if said.get("keyboard") and said["keyboard"].get("shown") is False:
+            failed.append(f"input delivery, step {index + 1}: the keyboard focus is on client "
+                          f"{said['keyboard']['client']} surface {said['keyboard']['surface']}, which is not shown")
+        for what, routed in (("keyboard", focus_at), ("pointer", pointer_at)):
+            state = said.get(what)
+            state = None if state is None else (state["client"], state["surface"])
+            if state != routed:
+                failed.append(f"input delivery, step {index + 1}: the compositor's {what} focus is "
+                              f"{state}, but its clients were told {routed}")
+
+    # Each host: what it received against what was routed to its process.
+    received = collections.defaultdict(collections.Counter)
+    last_received = {}
+    for name, lines in reports.items():
+        for line in lines:
+            if line["kind"] == "received":
+                received[line["pid"]][(line["surface"], line["event"], line["serial"])] += 1
+                last_received[line["pid"]] = max(last_received.get(line["pid"], 0), line["t"])
+    # When each process's connection went, if it did.
+    gone_at = {pid: t for t, client, pid, surface, kind, serial in deliveries if kind == "disconnected"}
+    routed = collections.defaultdict(collections.Counter)
+    for t, client, pid, surface, kind, serial in deliveries:
+        # Not an event (a surface or client gone), or the input method's (not a Bloom host).
+        if pid in received and kind not in HOST_UNSEEN:
+            routed[pid][(surface, kind, serial)] += 1
+    end = bounds[-1]
+    for pid, got in received.items():
+        sent = routed.get(pid, collections.Counter())
+        for item, count in (got - sent).items():
+            failures.append(f"input delivery: the host of pid {pid} received {item[1]} {item[2]} on surface "
+                            f"{item[0]} {count} more time(s) than it was routed")
+        for item, count in (sent - got).items():
+            # Routed as the run ended (a host closed with it unread) is not a loss.
+            times = [t for t, client, p, surface, kind, serial in deliveries
+                     if p == pid and (surface, kind, serial) == item]
+            del times[:-count]
+            # Routed to a client that had stopped reading and then went (an application closing as
+            # the menu that quit it gives it the keyboard back): never read, and never lost.
+            left_unread = (pid in gone_at and times and min(times) <= gone_at[pid]
+                           and last_received.get(pid, 0) < min(times))
+            if times and min(times) <= end and not left_unread:
+                failures.append(f"input delivery, {when(min(times))}: the host of pid {pid} never received "
+                                f"{item[1]} {item[2]} on surface {item[0]} ({count} routed)")
+
+    # Each host's React events, by the input that caused them.
+    for name, lines in reports.items():
+        caused = collections.Counter()
+        for line in lines:
+            if line["kind"] != "deliver" or "input_serial" not in line:
+                continue
+            # The same event to the same view, the same in every way, for the same input.
+            identity = json.dumps({k: v for k, v in line.items() if k != "t"}, sort_keys=True)
+            caused[identity] += 1
+            if caused[identity] == 2:
+                fail(line["t"], f"{name}: {line['cause']} {line['input_serial']} delivered {line['event']} "
+                                f"to {line['target']} twice")
+            if (line["cause"] in POINTER_CAUSES and line.get("surface")
+                    and line["surface"] != line.get("cause_surface")):
+                fail(line["t"], f"{name}: {line['cause']} {line['input_serial']} on surface "
+                                f"{line.get('cause_surface')} delivered {line['event']} to {line['target']} on "
+                                f"surface {line['surface']}")
+    failures.extend(failed)
+
+
 def check_views(index, step, result, results, failures):
     """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
     as the director reported them once the step settled: `window_views` ("windows", exactly those
@@ -2915,6 +3139,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"{leaked} input events reached another client")
         if delivered != wanted:
             fail(f"compositor delivered {delivered}, expected exactly {wanted}")
+    elif result.get("delivered", {}).get("leaked"):
+        # Whatever a step says, no input reaches a client that is neither the application, its
+        # shell, its companion, its file chooser nor one the shell launched.
+        fail(f"{result['delivered']['leaked']} input events reached another client")
     if "popup_events" in expect:
         # Popup lifecycle (open, reposition, close, dismissed) in this step, exactly.
         got = {}
@@ -3210,19 +3438,19 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                     fail(f"the assistive technology holds a {role} node {node}")
     if "never" in expect:
         # Text that must appear nowhere: not drawn, not reported by the host, not held by the
-        # compositor for an assistive technology. The step's own instruction is left out, and so
-        # are the reports' own key names (a memory line's `malloc_free` is no password "mal"):
-        # what is looked at is every value they hold.
-        def said(value):
-            if isinstance(value, dict):
-                return "\n".join(said(v) for v in value.values())
-            if isinstance(value, list):
-                return "\n".join(said(v) for v in value)
-            return value if isinstance(value, str) else json.dumps(value)
-        held = said({k: v for k, v in result.items() if k not in STEP_KEYS})
-        lines = [said(line) for line in report if line["t"] <= end]
+        # compositor for an assistive technology. The step's own instruction is left out.
+        # What they hold, not the names of their fields: a password "mal" is not in a memory
+        # line's "malloc_in_use".
+        def values(item):
+            if isinstance(item, dict):
+                return [text for value in item.values() for text in values(value)]
+            if isinstance(item, list):
+                return [text for value in item for text in values(value)]
+            return [item] if isinstance(item, str) else []
+        held = values({k: v for k, v in result.items() if k not in STEP_KEYS})
+        lines = [values(line) for line in report if line["t"] <= end]
         for text in expect["never"]:
-            if text in held or any(text in line for line in lines):
+            if any(text in value for value in held) or any(text in value for line in lines for value in line):
                 fail(f"{text!r} leaked (host report or compositor)")
     if "frame_px" in expect:
         # The size in pixels of the latest frame of the window and of each open popup.
@@ -3679,6 +3907,13 @@ def install_service(spec, machine, offscreen):
         if later.get("capabilities"):
             description["capabilities"] = [{"name": name, "purpose": {"en": "Scenario."}}
                                            for name in later["capabilities"]]
+        # What it opens goes with the capability that lets it (a manifest declares both or
+        # neither): a version without `open-files` opens no types, one without `url-schemes` no
+        # schemes.
+        opens = {part: values for part, values in description.pop("opens", {}).items()
+                 if {"types": "open-files", "schemes": "url-schemes"}.get(part) in later.get("capabilities", [])}
+        if opens:
+            description["opens"] = opens
         (base / "description.json").write_text(json.dumps(description))
         run(pack, "pack", dir, base / "description.json", machine.runtimes / str(manifest["runtime"]["abi"]) / "runtime.json", developer)
         run(pack, "publish", dir, repository, keys, developer)
@@ -4448,6 +4683,8 @@ def main():
                            out / f"launch-{index + 2}.png", shell_report, spoken,
                            out / "preferences", refresh_hz, recorder)
         check_views(index, step, result, summary["steps"], failures)
+    # The person's input reached whom it should, once (every scenario, every step).
+    check_input_delivery(summary, host_reports(out), failures)
     # Each host's frame diagnostics against its report, and the log they wrote to.
     check_diagnostics(report, run.stdout + run.stderr, failures)
     primary = (scenario.get("outputs") or "").split(",")[0]
