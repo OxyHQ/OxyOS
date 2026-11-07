@@ -22,6 +22,8 @@ oxyos-sound = { path = "../../crates/oxyos-sound" }
 oxyos-input-methods = { path = "../../crates/oxyos-input-methods" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
+# The sound played (docs/adr/0056-sound-devices.mdx).
+oxyos-audio = { path = "../../crates/oxyos-audio" }
 # The input methods the preferences know (`--input-sources-available`, ADR 0041) and the JSON
 # the session tells of them.
 oxyos-preferences = { path = "../../crates/oxyos-preferences" }

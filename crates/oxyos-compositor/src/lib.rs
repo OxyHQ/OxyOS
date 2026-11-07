@@ -48,6 +48,7 @@ pub mod motion;
 pub mod networks;
 pub mod settings;
 pub mod sign_out;
+pub mod sound_devices;
 pub mod sounds;
 pub mod splash;
 pub mod stop;

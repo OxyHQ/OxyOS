@@ -173,6 +173,7 @@ const en = (f: Formats) => ({
   controlCenter: {
     wifiNetworks: "Wi-Fi Networks",
     bluetoothDevices: "Bluetooth Devices",
+    outputDevices: "Output Devices",
     darkMode: "Dark Mode",
     display: "Display",
     keyboard: "Keyboard",
@@ -198,6 +199,15 @@ const en = (f: Formats) => ({
     off: "Wi-Fi is off",
     searching: "Looking for networks…",
     joined: (ssid: string) => `Connected to ${ssid}`,
+  },
+  /** The Control Center's Sound view (sound.ts, SoundPanel). */
+  sound: {
+    back: "Back to Control Center",
+    output: "Output",
+    settings: "Sound Settings…",
+    builtInSpeakers: "Built-in Speakers",
+    externalHeadphones: "External Headphones",
+    lineOut: "Line Out",
   },
   /** The Control Center's Bluetooth view (bluetooth.ts, BluetoothPanel, docs/adr/0055-bluetooth.mdx). */
   bluetooth: {
@@ -533,6 +543,7 @@ const es = (f: Formats): Catalogue => ({
   controlCenter: {
     wifiNetworks: "Redes Wi-Fi",
     bluetoothDevices: "Dispositivos Bluetooth",
+    outputDevices: "Dispositivos de salida",
     darkMode: "Modo oscuro",
     display: "Pantalla",
     keyboard: "Teclado",
@@ -557,6 +568,14 @@ const es = (f: Formats): Catalogue => ({
     off: "Wi-Fi desactivada",
     searching: "Buscando redes…",
     joined: (ssid) => `Conectado a ${ssid}`,
+  },
+  sound: {
+    back: "Volver al centro de control",
+    output: "Salida",
+    settings: "Ajustes de sonido…",
+    builtInSpeakers: "Altavoces integrados",
+    externalHeadphones: "Auriculares externos",
+    lineOut: "Salida de línea",
   },
   bluetooth: {
     back: "Atrás",

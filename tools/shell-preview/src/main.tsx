@@ -5,12 +5,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BloomProvider } from "@oxy.so/bloom/provider";
 import { Shell, type ShellCommand } from "../../../apps/shell/src/Shell";
 import "./styles.css";
-import { previewBluetooth, previewNetworks, previewSnapshot, previewWallpaper } from "./fixtures";
+import { previewBluetooth, previewNetworks, previewSnapshot, previewSound, previewWallpaper } from "./fixtures";
 import type {
   ShellActions,
   ShellControls,
 } from "../../../apps/shell/src/model";
 import { isProtected, type NetworkState } from "../../../apps/shell/src/network";
+import type { SoundState } from "../../../apps/shell/src/sound";
 import { bluetoothSummary, type BluetoothState } from "../../../apps/shell/src/bluetooth";
 import type { SheetText } from "../../../apps/shell/src/sheet";
 import { shellMessages } from "../../../apps/shell/src/messages";
@@ -95,6 +96,8 @@ function Preview() {
   // moment; a protected one asks its password in the sheet (one starting "mal" is wrong); one
   // OxyOS cannot join says so. As the session does, never the shell.
   const [networks, setNetworks] = useState<NetworkState>(previewNetworks);
+  // The played sound (docs/adr/0056-sound-devices.mdx): an output chosen is played to at once.
+  const [sound, setSound] = useState<SoundState>(previewSound);
   const [sheet, setSheet] = useState<{ id: number; text: SheetText } | null>(null);
   const sheets = useRef(0);
   const ask = (text: SheetText) => {
@@ -211,6 +214,16 @@ function Preview() {
     scanNetworks: () => console.info("[shell preview] scan intent"),
     joinNetwork: (ssid) => join(ssid),
     openWifiSettings: () => console.info("[shell preview] Wi-Fi settings intent"),
+    sound,
+    selectOutput: (id) =>
+      setSound((current) => ({
+        ...current,
+        output: {
+          ...current.output,
+          devices: current.output.devices.map((device) => ({ ...device, selected: device.id === id })),
+        },
+      })),
+    openSoundSettings: () => console.info("[shell preview] Sound settings intent"),
     bluetooth: bluetoothSummary(bluetoothDevices),
     bluetoothDevices,
     setBluetooth: (on) =>

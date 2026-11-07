@@ -2,6 +2,7 @@ import type { AccountActions, AccountSnapshot } from "./account";
 import type { BluetoothActions, BluetoothState } from "./bluetooth";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
+import type { SoundActions, SoundState } from "./sound";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
 import type { AddedWallpaper, WallpaperCatalog } from "./wallpaper";
 
@@ -134,6 +135,11 @@ export type SettingsSnapshot = {
   /** Bluetooth (docs/adr/0055-bluetooth.mdx), as the session tells it: none without the platform's
       `bluetooth` grant (the page and its sidebar item are not there). */
   bluetooth?: BluetoothState;
+  /** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx), as the session tells them:
+      null until it has. */
+  sound?: SoundState | null;
+  /** The chosen input's level (0 to 1), told only while Sound's Input tab meters it. */
+  soundInputLevel?: number;
   /** The input sources (docs/adr/0041-input-methods.mdx, decision 6) as the session tells them;
       null until it has. */
   inputSources?: InputSourcesState | null;
@@ -191,6 +197,7 @@ export type SettingsActions = {
   privacy?: PrivacyActions;
   network?: NetworkActions;
   bluetooth?: BluetoothActions;
+  sound?: SoundActions;
   account?: AccountActions;
 };
 

@@ -119,6 +119,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   (its State: "wifi_enabled", "active", "connections" with each one's "ssid", "psk" and
   "permissions", "attempts", "scans", "ethernet"), each key given matching: a dict key by key, a
   list item by item and of the same length;
+- sound: with the scenario's `sound` (a machine's outputs and inputs played by the development
+  compositor, docs/adr/0056-sound-devices.mdx: `outputs`, `inputs`, `configured_outputs`...),
+  what it is once the step settled ("default_output", "default_input", "configured_outputs",
+  "metering", each device's "volume", "balance" and "muted", and "calls", every change the
+  session made, in order), each key given matching: a dict key by key, a list item by item and of
+  the same length;
 - bluetooth: with the scenario's `bluetooth` (a BlueZ played by oxyos-fake-bluez on a bus of the
   run's own, docs/adr/0055-bluetooth.mdx), what it holds once the step settled ("adapter" with its
   "powered", "discovering", "discoverable", "discovery_clients"; "agent" with its "capability" and
@@ -554,7 +560,8 @@ compositor), which checks them with PAM from a configuration of the run's own (`
 accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's API is a refused port,
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
-code, for the one account it plays, committing the device credential `oxy.device`; every request
+code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks,
+for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
@@ -987,6 +994,10 @@ def director_args(step, out):
         # The person chooses a command in the session's bar (ADR 0021), by its path:
         # "View > Show Full URL".
         return args + ["--menu", value]
+    if kind == "sound":
+        # The played sound changes as the world would (ADR 0056): {"plug": {"direction", "device"}},
+        # {"unplug": {"id"}}, {"change": {"id", "kind", "name", "volume", "muted", "level"}}.
+        return args + ["--sound-act", json.dumps(value)]
     if kind == "network":
         # The played network daemon changes the machine (ADR 0038): {"ethernet": "plugged"},
         # {"access_point": {...}}, {"remove_access_point": ssid}, {"hardware_enabled": false}.
@@ -1256,7 +1267,7 @@ def played_oxy(spec, log):
     and logged so. Returns its base URL and the server."""
     import secrets as _secrets
 
-    state = {"has_password": spec.get("has_password", True)}
+    state = {"has_password": spec.get("has_password", True), "requests": {}}
     lock = threading.Lock()
 
     class Oxy(BaseHTTPRequestHandler):
@@ -1273,7 +1284,9 @@ def played_oxy(spec, log):
             self.end_headers()
             self.wfile.write(data)
             with lock, open(log, "a") as out:
-                out.write(json.dumps({"t": time.monotonic_ns(), "request": f"{self.command} {self.path.split('?')[0]}",
+                # A device sign-in's secret token is in its status path: logged as `{token}`.
+                logged = re.sub(r"^/auth/session/status/.*", "/auth/session/status/{token}", self.path.split("?")[0])
+                out.write(json.dumps({"t": time.monotonic_ns(), "request": f"{self.command} {logged}",
                                       "status": status}) + "\n")
 
         def body(self):
@@ -1307,6 +1320,21 @@ def played_oxy(spec, log):
                 self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS"}})
             elif path in ("/", "/health"):
                 self.reply(200, {"ok": True})
+            elif path.startswith("/auth/session/status/"):
+                # The screen asking whether its QR was approved. With `qr.approve` a phone approved
+                # it by the time the screen first asks: the stand-in for a person scanning it with
+                # Commons and pressing Allow (Oxy's approval itself is Oxy's, never the machine's).
+                with lock:
+                    request = state["requests"].get(path.rsplit("/", 1)[1])
+                    if request and spec.get("qr", {}).get("approve") and request["status"] == "pending":
+                        request["status"] = "authorized"
+                if not request:
+                    self.reply(404, {"error": "not_found", "message": "Session not found"})
+                elif request["status"] == "authorized":
+                    self.reply(200, {"authorized": True, "status": "authorized", "sessionId": "played-session",
+                                     "purpose": "device_sign_in"})
+                else:
+                    self.reply(200, {"authorized": False, "status": request["status"], "purpose": "device_sign_in"})
             else:
                 self.reply(404, {"error": "not_found", "message": "not played"})
 
@@ -1323,6 +1351,36 @@ def played_oxy(spec, log):
                     self.reply(200, self.session())
                 else:
                     self.reply(400, {"error": "invalid_code", "code": "INVALID_CODE", "message": "Invalid code"})
+            elif path == "/auth/session/create":
+                # The sign-in's QR (`qr`): a request a phone approves, its secret token the screen's.
+                token, code = body.get("sessionToken"), _secrets.token_hex(8)
+                if not token or body.get("clientId") != "oxy_pk_played":
+                    self.reply(400, {"error": "invalid_request", "message": "Invalid request"})
+                else:
+                    with lock:
+                        state["requests"][token] = {"code": code, "status": "pending"}
+                    self.reply(200, {"authorizeCode": code, "qrPayload": f"oxycommons://approve?code={code}",
+                                     "approvalUrl": f"https://auth.oxy.so/device?user_code={code}",
+                                     "expiresAt": body.get("expiresAt"), "status": "pending"})
+            elif path.startswith("/auth/session/deny/"):
+                # A request the screen withdrew (the QR left the screen while still approvable).
+                code = path.rsplit("/", 1)[1]
+                with lock:
+                    for request in state["requests"].values():
+                        if request["code"] == code and request["status"] == "pending":
+                            request["status"] = "cancelled"
+                self.reply(200, {"success": True})
+            elif path == "/auth/session/claim":
+                # The approved request exchanged once for the session, and the device credential.
+                with lock:
+                    request = state["requests"].get(body.get("sessionToken"))
+                    ok = request is not None and request["status"] == "authorized"
+                    if ok:
+                        request["status"] = "consumed"
+                if ok:
+                    self.reply(200, dict(self.session(), user=self.user()))
+                else:
+                    self.reply(400, {"error": "invalid_request", "message": "Invalid or expired session"})
             elif path == "/users/me/reauth/email":
                 self.reply(200, {"verificationId": "played-reauth", "expiresAt": int(time.time() * 1000) + 600000})
             elif path == "/auth/signin/password":
@@ -3711,6 +3769,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             held = json.loads(held) if isinstance(held, str) else held
             for problem in matches_within(expect["network"], held, "the network daemon's"):
                 fail(problem)
+    if "sound" in expect:
+        # The played sound once the step settled (ADR 0056): what the session chose and set.
+        held = result.get("sound")
+        if held is None:
+            fail("no played sound (the scenario needs `sound`)")
+        else:
+            for problem in matches_within(expect["sound"], held, "the sound's"):
+                fail(problem)
     if "bluetooth" in expect:
         # What the played BlueZ holds once the step settled (ADR 0055): the session's calls, its
         # agent and discovery, not only what was drawn.
@@ -4606,6 +4672,12 @@ def main():
         controls.write_text("".join(f"{key} = {str(value).lower() if isinstance(value, bool) else value}\n"
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
+    if "sound" in scenario:
+        # The machine's outputs and inputs (ADR 0056), played in the development compositor as the
+        # scenario describes them.
+        sound = out / "sound.json"
+        sound.write_text(json.dumps(scenario["sound"]))
+        command += ["--sound", str(sound)]
     if scenario.get("installed"):
         command += ["--installed-fixture", str(installed_fixture(out / "installed", scenario["installed"],
                                                                   machine, options.offscreen))]

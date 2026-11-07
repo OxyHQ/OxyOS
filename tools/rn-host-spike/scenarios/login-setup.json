@@ -37,7 +37,7 @@
   },
   "steps": [
     {
-      "name": "online: the SDK's own sign-in, OxyOS's client id from the accounts' service",
+      "name": "online: the SDK's own chooser, OxyOS's client id from the accounts' service; its QR beside the form, the field focused",
       "do": [
         "wait",
         2500
@@ -48,11 +48,13 @@
           "texts": [
             "Add an Oxy Account",
             "Sign in",
-            "Email or username"
+            "Email or username",
+            "Scan with Commons to sign in"
           ],
           "absent": [
             "Adding an account needs an internet connection. Connect and try again."
-          ]
+          ],
+          "focus_input": "signin-identifier"
         }
       }
     },
@@ -61,12 +63,16 @@
       "do": [
         "press",
         [
-          639,
-          515
+          411,
+          383
         ]
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "in_shell": {
+          "focus_input": "signin-identifier"
+        }
+      }
     },
     {
       "name": "typed",

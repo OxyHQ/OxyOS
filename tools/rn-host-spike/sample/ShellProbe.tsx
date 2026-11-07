@@ -13,9 +13,11 @@ import {
   bluetooth,
   inputSources,
   network,
+  sound as soundApi,
   useBluetoothState,
   useInputSourcesState,
   useNetworkState,
+  useSoundState,
   useSystemSheets,
 } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
@@ -416,6 +418,8 @@ function SessionShell() {
   const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
+  // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
+  const sound = useSoundState();
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
   const bluetoothDevices = useBluetoothState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
@@ -653,6 +657,13 @@ function SessionShell() {
         network.join(ssid);
       },
       openWifiSettings: () => act.menuCommand('system.settings'),
+      // The outputs (ADR 0056): the session plays to the one chosen. Sound Settings opens
+      // Settings as Wi-Fi Settings does.
+      sound,
+      selectOutput: (id) => {
+        soundApi.select('output', id);
+      },
+      openSoundSettings: () => act.menuCommand('system.settings'),
       // Bluetooth (ADR 0055): the session turns it on and off, connects and disconnects, asking
       // what a pairing needs and saying what failed in its own sheets. Bluetooth Settings opens
       // Settings at its Bluetooth page, a URL the shell opens as any other.
@@ -670,7 +681,7 @@ function SessionShell() {
         shell.openUrl('oxyos-settings://bluetooth');
       },
     };
-  }, [told, bezel, networks, bluetoothDevices, act]);
+  }, [told, bezel, networks, sound, bluetoothDevices, act]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;

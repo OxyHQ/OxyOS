@@ -33,14 +33,17 @@ import {
 import { useSessionLocale } from './oxyos/locale';
 import {
   available,
-  bluetooth as systemBluetooth,
   session as systemSession,
+  bluetooth as systemBluetooth,
   network as systemNetwork,
   privacy,
+  sound as systemSound,
   updates as systemUpdates,
-  useBluetoothState,
+  useInputLevel,
   useInputSourcesState,
+  useBluetoothState,
   useNetworkState,
+  useSoundState,
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
@@ -57,6 +60,7 @@ import type {
   BluetoothDevice,
   BluetoothState,
 } from '../../../apps/settings/src/bluetooth';
+import type { SoundActions, SoundDirection, SoundSide, SoundState } from '../../../apps/settings/src/sound';
 import {
   INPUT_METHODS,
   inputSourcesOf,
@@ -568,6 +572,75 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
   return told ? { network: told, actions: session } : { network: undefined, actions: undefined };
 }
 
+/** A machine's sound without a session: the built-in speakers chosen and a display's beside them,
+    the built-in microphone chosen. */
+const SOUND_FIXTURE: SoundState = {
+  available: true,
+  output: {
+    devices: [
+      { id: 'speakers', name: 'Speakers', kind: 'speakers', transport: 'builtIn', selected: true },
+      { id: 'dell', name: 'DELL U2720Q', kind: 'hdmi', transport: 'hdmi', selected: false },
+    ],
+    volume: 0.5,
+    muted: false,
+    balance: 0,
+  },
+  input: {
+    devices: [{ id: 'microphone', name: 'Microphone', kind: 'microphone', transport: 'builtIn', selected: true }],
+    volume: 0.75,
+    muted: false,
+    balance: null,
+  },
+};
+
+/**
+ * Sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): in a session, the state it tells
+ * Settings (its `settings` grant), followed, and its requests, the input's level metered while the
+ * Input tab asks for it; none until the session has told it. Without a session, the fixture,
+ * changed where it is (its level stays at nothing).
+ */
+function useSoundModel(): { sound: SoundState | null; level: number; actions: SoundActions | undefined } {
+  const told: SoundState | null = useSoundState();
+  const [metering, setMetering] = React.useState(false);
+  const level: number = useInputLevel(metering);
+  const [fixture, setFixture] = React.useState(SOUND_FIXTURE);
+  const session = React.useMemo<SoundActions>(
+    () => ({
+      select: (direction, id) => {
+        systemSound.select(direction, id);
+      },
+      setVolume: (direction, volume) => {
+        systemSound.setVolume(direction, volume);
+      },
+      setMuted: (direction, muted) => {
+        systemSound.setMuted(direction, muted);
+      },
+      setBalance: (balance) => {
+        systemSound.setBalance(balance);
+      },
+      meter: setMetering,
+    }),
+    [],
+  );
+  const local = React.useMemo<SoundActions>(() => {
+    const change = (direction: SoundDirection, side: (side: SoundSide) => SoundSide) =>
+      setFixture((state) => ({ ...state, [direction]: side(state[direction]) }));
+    return {
+      select: (direction, id) =>
+        change(direction, (side) => ({
+          ...side,
+          devices: side.devices.map((device) => ({ ...device, selected: device.id === id })),
+        })),
+      setVolume: (direction, volume) => change(direction, (side) => ({ ...side, volume })),
+      setMuted: (direction, muted) => change(direction, (side) => ({ ...side, muted })),
+      setBalance: (balance) => change('output', (side) => ({ ...side, balance })),
+      meter: () => {},
+    };
+  }, []);
+  if (!available) return { sound: fixture, level: 0, actions: local };
+  return { sound: told, level, actions: told ? session : undefined };
+}
+
 /**
  * Bluetooth (docs/adr/0055-bluetooth.mdx): the state the session tells a client with its
  * `bluetooth` grant, followed, and its requests. The session tells nothing without the grant, so
@@ -830,6 +903,7 @@ export default function SettingsApp() {
   const install = useInstallModel();
   const networks = useNetworkModel();
   const bluetooth = useBluetoothModel();
+  const sound = useSoundModel();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
     ...model.snapshot,
@@ -837,6 +911,8 @@ export default function SettingsApp() {
     privacy: install.privacy,
     network: networks.network,
     bluetooth: bluetooth.bluetooth,
+    sound: sound.sound,
+    soundInputLevel: sound.level,
     inputSources,
     account: useAccount(),
   };
@@ -846,6 +922,7 @@ export default function SettingsApp() {
     privacy: install.privacyActions,
     network: networks.actions,
     bluetooth: bluetooth.actions,
+    sound: sound.actions,
     account: sessionHost ? accountActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.

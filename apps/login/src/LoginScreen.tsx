@@ -31,6 +31,9 @@ export type { LoginAccount, Accounts } from "./model";
 export type SetupSignInProps = {
   platform: SetupPlatform;
   onSignedIn: (account: SignedInAccount) => void;
+  /** The width the SDK's sign-in asks of its card (its split card, with the QR), padding
+      included; null for the card's own. */
+  onFrameWidth: (maxWidth: number | null) => void;
 };
 
 /** Setting an account up (docs/adr/0020-oxy-account-login.mdx, decision 4): the platform's. */
@@ -183,6 +186,9 @@ function SetupPanel({
   const words = useLoginMessages().setup;
   const { height } = useWindowDimensions();
   const setup = actions.setup;
+  // The card the SDK's sign-in is on: as wide as it asks (its split card, with the QR a phone
+  // scans, beside the form), else the setup's own.
+  const [frameWidth, setFrameWidth] = useState<number | null>(null);
   const [answer, setAnswer] = useState<ShellLock["answer"]>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -225,11 +231,16 @@ function SetupPanel({
   if (step.step === "signIn" && setup) {
     const SignIn = setup.SignIn;
     // The SDK's sign-in on a card of its own over the dimmed wallpaper, as a Mac's setup shows its
-    // sign-in: its words in its own colours, legible whatever the wallpaper.
+    // sign-in: its words in its own colours, legible whatever the wallpaper. The card is the
+    // SDK's surface, as an app's account dialog is: it grows to the width the sign-in asks.
     content = (
       <Box
         className="mt-4 overflow-hidden"
-        style={{ width: 512, maxWidth: "100%", backgroundColor: "rgba(18,18,22,0.88)", borderRadius: 24 }}
+        style={{
+          width: "100%",
+          backgroundColor: "rgba(18,18,22,0.88)",
+          borderRadius: 24,
+        }}
       >
         {/* Taller than the screen (a code under a form), it scrolls within its card. */}
         <ScrollView
@@ -237,7 +248,11 @@ function SetupPanel({
           style={{ maxHeight: Math.max(240, height - 150) }}
           contentContainerStyle={{ paddingHorizontal: 32, paddingVertical: 28 }}
         >
-          <SignIn platform={step.platform} onSignedIn={(account) => setStep({ step: "password", account })} />
+          <SignIn
+            platform={step.platform}
+            onSignedIn={(account) => setStep({ step: "password", account })}
+            onFrameWidth={setFrameWidth}
+          />
         </ScrollView>
       </Box>
     );
@@ -298,7 +313,7 @@ function SetupPanel({
     <Box
       testID="login-setup"
       className="items-center"
-      style={step.step === "signIn" ? { width: 512, maxWidth: "100%" } : { maxWidth: 360 }}
+      style={step.step === "signIn" ? { width: frameWidth ?? 512, maxWidth: "100%" } : { maxWidth: 360 }}
     >
       <Text style={white(17, "600")}>{words.title}</Text>
       {content}
