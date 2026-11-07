@@ -14,6 +14,9 @@ pub const MAX_WORKSPACES: u32 = 16;
 pub(super) struct Workspaces {
     pub(super) count: u32,
     pub(super) active: u32,
+    /// Workspaces removed since the program running the compositor last asked, in order: what it
+    /// keeps for each (a desktop's wallpaper, docs/adr/0048-wallpapers.mdx) follows them.
+    removed: Vec<u32>,
 }
 
 impl Default for Workspaces {
@@ -21,6 +24,7 @@ impl Default for Workspaces {
         Self {
             count: 1,
             active: 0,
+            removed: Vec::new(),
         }
     }
 }
@@ -29,6 +33,24 @@ impl Scene {
     /// How many workspaces there are, and the active one.
     pub fn workspaces(&self) -> (u32, u32) {
         (self.workspaces.count, self.workspaces.active)
+    }
+
+    /// The workspaces removed since the last call, each numbered as it was when it went.
+    pub fn take_removed_workspaces(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.workspaces.removed)
+    }
+
+    /// The output that holds most of the topmost window shown of a client with the `settings`
+    /// grant (docs/adr/0048-wallpapers.mdx: a wallpaper is chosen for the display Settings is
+    /// on), if it shows one.
+    pub fn settings_output(&self) -> Option<super::OutputId> {
+        self.roots.iter().rev().copied().find_map(|key| {
+            let node = &self.nodes[&key];
+            (node.role == Role::Toplevel
+                && self.clients.get(&key.client).is_some_and(|g| g.settings)
+                && self.visible(key))
+            .then_some(node.output)
+        })
     }
 
     /// The workspace of a window (a toplevel), if it is one.
@@ -145,6 +167,7 @@ impl Scene {
             }
         }
         self.workspaces.count -= 1;
+        self.workspaces.removed.push(index);
         let active = self.workspaces.active;
         match active.cmp(&index) {
             Ordering::Equal => self.workspaces.active = neighbour,

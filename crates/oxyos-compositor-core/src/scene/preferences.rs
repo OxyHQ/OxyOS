@@ -145,6 +145,27 @@ impl Scene {
         }
     }
 
+    /// One preference as kept now, told to the clients with the `settings` grant if it changed:
+    /// a value that follows where Settings is (docs/adr/0048-wallpapers.mdx: `wallpaper`, the
+    /// choice of the display and desktop Settings' window is on).
+    pub fn set_preference_value(&mut self, key: &str, value: &str) {
+        let values = &mut self.preferences.values;
+        match values.iter_mut().find(|(k, _)| k == key) {
+            Some((_, kept)) if kept == value => return,
+            Some((_, kept)) => *kept = value.to_owned(),
+            None => values.push((key.to_owned(), value.to_owned())),
+        }
+        let settings: Vec<ClientId> = self
+            .clients
+            .iter()
+            .filter(|(_, grants)| grants.settings)
+            .map(|(client, _)| *client)
+            .collect();
+        for client in settings {
+            self.tell_preference(client, key, value);
+        }
+    }
+
     /// The drawing preferences, to `client`, once the program running the compositor said them.
     pub(super) fn tell_drawing(&mut self, client: ClientId) {
         if let Some(drawing) = self.preferences.drawing {

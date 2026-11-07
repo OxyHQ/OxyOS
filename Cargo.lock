@@ -1860,8 +1860,10 @@ dependencies = [
  "oxyos-ipc",
  "oxyos-net",
  "oxyos-paint",
+ "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-solar",
+ "oxyos-wallpaper",
  "png",
  "ring",
  "rustix",
@@ -2293,6 +2295,18 @@ version = "0.1.0"
 dependencies = [
  "rustix",
  "signal-hook",
+]
+
+[[package]]
+name = "oxyos-wallpaper"
+version = "0.1.0"
+dependencies = [
+ "oxyos-image",
+ "oxyos-preferences",
+ "oxyos-solar",
+ "png",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

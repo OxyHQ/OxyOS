@@ -29,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 27;
+pub const VERSION: u16 = 28;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -84,7 +84,7 @@ pub const NO_ACCESSIBLE_PARENT: u32 = u32::MAX;
 pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 /// The longest `key=value` of a preference changed (`SetPreference`) or told (`Preference`,
 /// ADR 0019), in bytes.
-pub const MAX_PREFERENCE_BYTES: usize = 128;
+pub const MAX_PREFERENCE_BYTES: usize = 1200;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
 /// The most a ChooseFiles, AnswerFileChooser or FilesChosen may hold, in bytes (ADR 0029,
