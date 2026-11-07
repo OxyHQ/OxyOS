@@ -32,11 +32,21 @@ pub struct Config {
     /// The session program (`oxyos-session`), which runs both the login screen (`--greeter`) and
     /// the person's session.
     pub session: PathBuf,
-    /// The Bloom host and the bundle with the login screen (`OxyOSLogin`) and the shell
-    /// (`OxyOSShell`).
+    /// The Bloom host both run on.
     pub host: PathBuf,
-    pub bundle: PathBuf,
+    /// The login screen's package's bundle (`OxyOSLogin`).
+    pub login_bundle: PathBuf,
+    /// The shell's package's bundle (`OxyOSShell`), the person's session's shell.
+    pub shell_bundle: PathBuf,
 }
+
+/// Runtime 1's Bloom host, where the image installs it (docs/adr/0030-installing-applications.mdx,
+/// decision 2).
+pub const HOST: &str = "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host";
+/// The login screen's and the shell's packages, platform applications of the image (ADR 0030,
+/// decision 13).
+pub const LOGIN_BUNDLE: &str = "/usr/lib/oxyos/apps/so.oxy.login/index.hbc";
+pub const SHELL_BUNDLE: &str = "/usr/lib/oxyos/apps/so.oxy.shell/index.hbc";
 
 struct Worker {
     child: Child,
@@ -121,6 +131,34 @@ fn worker_args(
     args
 }
 
+/// A person's worker: their session, the session program with the shell's package as its shell
+/// on the Bloom host the login screen runs on (which also starts any development entry that names
+/// no runtime of its own).
+fn person_args(
+    config: &Config,
+    account: &str,
+    passed: &dyn Fn(&str) -> Option<String>,
+) -> Vec<OsString> {
+    let shell = format!(
+        "{},{},OxyOSShell",
+        config.host.display(),
+        config.shell_bundle.display()
+    );
+    worker_args(
+        config,
+        "oxyos-login",
+        account,
+        "user",
+        &[("OXYOS_BLOOM_HOST", config.host.display().to_string())],
+        vec![
+            config.session.clone().into(),
+            "--shell".into(),
+            shell.into(),
+        ],
+        passed,
+    )
+}
+
 /// The login screen's worker: a greeter session of the login program's user, the session program
 /// in its login screen mode with the login screen as its shell, given the screen reader and the
 /// wallpaper the unit names (`passed`, the login program's environment): Super+F5 starts the
@@ -129,7 +167,7 @@ fn greeter_args(config: &Config, passed: &dyn Fn(&str) -> Option<String>) -> Vec
     let shell = format!(
         "{},{},OxyOSLogin",
         config.host.display(),
-        config.bundle.display()
+        config.login_bundle.display()
     );
     worker_args(
         config,
@@ -381,29 +419,9 @@ impl Login {
     }
 
     fn start_person(&self, account: &str) -> std::io::Result<Worker> {
-        let config = &self.config;
-        let shell = format!(
-            "{},{},OxyOSShell",
-            config.host.display(),
-            config.bundle.display()
-        );
-        let args = worker_args(
-            config,
-            "oxyos-login",
-            account,
-            "user",
-            &[
-                ("OXYOS_BLOOM_HOST", config.host.display().to_string()),
-                ("OXYOS_BLOOM_BUNDLE", config.bundle.display().to_string()),
-            ],
-            vec![
-                config.session.clone().into(),
-                "--shell".into(),
-                shell.into(),
-            ],
-            &|name| std::env::var(name).ok(),
-        );
-        Worker::spawn(args)
+        Worker::spawn(person_args(&self.config, account, &|name| {
+            std::env::var(name).ok()
+        }))
     }
 
     fn start_greeter(&mut self) {
@@ -639,8 +657,9 @@ mod tests {
             seat: "seat0".into(),
             vt: 1,
             session: "/usr/bin/oxyos-session".into(),
-            host: "/usr/libexec/oxyos/oxyos-bloom-host".into(),
-            bundle: "/usr/share/oxyos/bloom/index.js".into(),
+            host: HOST.into(),
+            login_bundle: LOGIN_BUNDLE.into(),
+            shell_bundle: SHELL_BUNDLE.into(),
         };
         let unit = |name: &str| match name {
             "OXYOS_READER" => Some("/usr/libexec/oxyos/oxyos-reader".to_string()),
@@ -667,5 +686,49 @@ mod tests {
         assert!(!args
             .iter()
             .any(|arg| arg.to_string_lossy().starts_with("OXYOS_READER=")));
+    }
+
+    #[test]
+    fn the_login_screen_and_the_session_run_their_own_packages() {
+        let config = Config {
+            dev: false,
+            confdir: None,
+            record: None,
+            greeter_user: "oxyos-login".into(),
+            socket: "/run/oxyos/login/greeter".into(),
+            accountd: "/run/oxyos/accountd".into(),
+            seat: "seat0".into(),
+            vt: 1,
+            session: "/usr/bin/oxyos-session".into(),
+            host: HOST.into(),
+            login_bundle: LOGIN_BUNDLE.into(),
+            shell_bundle: SHELL_BUNDLE.into(),
+        };
+        let strings = |args: Vec<OsString>| -> Vec<String> {
+            args.into_iter()
+                .map(|arg| arg.into_string().unwrap())
+                .collect()
+        };
+        let greeter = strings(greeter_args(&config, &|_| None));
+        assert!(greeter.contains(&format!("{HOST},{LOGIN_BUNDLE},OxyOSLogin")));
+        assert!(!greeter.iter().any(|arg| arg.contains(SHELL_BUNDLE)));
+        let person = strings(person_args(&config, "oxy-a", &|_| None));
+        let program = &person[person.iter().position(|arg| arg == "--").unwrap() + 1..];
+        assert_eq!(
+            program,
+            [
+                "/usr/bin/oxyos-session",
+                "--shell",
+                &format!("{HOST},{SHELL_BUNDLE},OxyOSShell")
+            ]
+        );
+        // The session is told the host, never a bundle: an entry without one is not the shell's.
+        assert!(person
+            .iter()
+            .any(|arg| arg == &format!("OXYOS_BLOOM_HOST={HOST}")));
+        assert!(!person
+            .iter()
+            .any(|arg| arg.starts_with("OXYOS_BLOOM_BUNDLE=")));
+        assert!(!person.iter().any(|arg| arg.contains(LOGIN_BUNDLE)));
     }
 }

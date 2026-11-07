@@ -20,8 +20,12 @@
 //! The decisions are `manager.rs`'s, a state machine tested without a seat; `run.rs` carries them
 //! out; `worker.rs` is a worker's process (`oxyos-login --worker`); `channel.rs` what they say.
 //!
-//! `oxyos-login [--session PROGRAM] [--host BLOOM_HOST] [--bundle BUNDLE] [--vt N]
-//! [--greeter-user USER] [--socket PATH] [--accountd PATH]`
+//! `oxyos-login [--session PROGRAM] [--host BLOOM_HOST] [--login-bundle BUNDLE]
+//! [--shell-bundle BUNDLE] [--vt N] [--greeter-user USER] [--socket PATH] [--accountd PATH]`
+//!
+//! The login screen and the shell are packages of their own (docs/adr/0030-installing-applications.mdx,
+//! decision 13): by default the image's, `/usr/lib/oxyos/apps/so.oxy.login` and `so.oxy.shell`, on
+//! runtime 1's host.
 //!
 //! `oxyos-login --dev --pam-confdir DIR --record FILE [--socket PATH] [--accountd PATH]`: the
 //! development path, as the developer's own user. No login screen is started: the development
@@ -38,7 +42,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: oxyos-login [--session PROGRAM] [--host BLOOM_HOST] \
-                     [--bundle BUNDLE] [--vt N] [--greeter-user USER] [--socket PATH] \
+                     [--login-bundle BUNDLE] [--shell-bundle BUNDLE] [--vt N] \
+                     [--greeter-user USER] [--socket PATH] \
                      [--accountd PATH] | --dev --pam-confdir DIR --record FILE [--socket PATH] \
                      [--accountd PATH]";
 
@@ -53,8 +58,9 @@ fn options(mut args: impl Iterator<Item = String>) -> Result<run::Config, String
         seat: "seat0".into(),
         vt: 1,
         session: "/usr/bin/oxyos-session".into(),
-        host: "/usr/libexec/oxyos/oxyos-bloom-host".into(),
-        bundle: "/usr/share/oxyos/bloom/index.js".into(),
+        host: run::HOST.into(),
+        login_bundle: run::LOGIN_BUNDLE.into(),
+        shell_bundle: run::SHELL_BUNDLE.into(),
     };
     while let Some(arg) = args.next() {
         if arg == "--dev" {
@@ -68,7 +74,8 @@ fn options(mut args: impl Iterator<Item = String>) -> Result<run::Config, String
         match arg.as_str() {
             "--session" => config.session = path(),
             "--host" => config.host = path(),
-            "--bundle" => config.bundle = path(),
+            "--login-bundle" => config.login_bundle = path(),
+            "--shell-bundle" => config.shell_bundle = path(),
             "--vt" => config.vt = value.parse().map_err(|_| USAGE)?,
             "--greeter-user" => config.greeter_user = value,
             "--socket" => config.socket = path(),
