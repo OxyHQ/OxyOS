@@ -1,4 +1,5 @@
 #include "drag.h"
+#include "text-util.h"
 
 #include "report.h"
 
@@ -49,14 +50,9 @@ std::vector<std::string> lines(const std::string& text) {
   return out;
 }
 
-std::string lower(std::string text) {
-  std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return std::tolower(c); });
-  return text;
-}
-
 // A media type without its parameters, lowercase.
 std::string plainType(const std::string& type) {
-  auto plain = lower(type.substr(0, type.find(';')));
+  auto plain = lowercase(type.substr(0, type.find(';')));
   auto first = plain.find_first_not_of(" \t");
   auto last = plain.find_last_not_of(" \t");
   return first == std::string::npos ? std::string() : plain.substr(first, last - first + 1);
@@ -73,7 +69,7 @@ std::vector<std::string> kindTypes(const std::string& kind) {
   if (kind == "url") return {"text/uri-list", "text/x-moz-url"};
   if (kind == "text") return {"text/plain;charset=utf-8", "text/plain"};
   if (kind == "html") return {"text/html"};
-  return {lower(kind)};
+  return {lowercase(kind)};
 }
 
 uint8_t actionBit(const std::string& action) {
@@ -129,7 +125,7 @@ std::vector<std::pair<std::string, std::string>> dragContents(const folly::dynam
   if (auto other = data.find("other"); other != data.items().end() && other->second.isObject()) {
     for (const auto& [key, value] : other->second.items()) {
       if (!key.isString() || !value.isString()) continue;
-      auto mime = lower(key.asString());
+      auto mime = lowercase(key.asString());
       bool named = std::any_of(out.begin(), out.end(), [&](const auto& entry) { return entry.first == mime; });
       if (!mime.empty() && !named) out.emplace_back(mime, value.asString());
     }
@@ -208,7 +204,7 @@ std::vector<std::string> DragDrop::offeredKinds(const OxyOSDropTargetViewProps& 
   std::vector<std::string> out;
   if (!offer_) return out;
   std::set<std::string> offered;
-  for (const auto& type : offer_->types) offered.insert(lower(type));
+  for (const auto& type : offer_->types) offered.insert(lowercase(type));
   auto acceptedFiles = lines(props.acceptFileTypes);
   for (const auto& kind : lines(props.acceptKinds)) {
     auto types = kindTypes(kind);
@@ -257,7 +253,7 @@ std::string DragDrop::fieldType() const {
   if (!offer_) return {};
   auto offered = [&](const char* type) -> std::optional<std::string> {
     for (const auto& t : offer_->types) {
-      if (lower(t) == type) return t;
+      if (lowercase(t) == type) return t;
     }
     return std::nullopt;
   };
@@ -314,7 +310,7 @@ void DragDrop::update(bool moved) {
       for (const auto& kind : offeredKinds(*props)) {
         for (const auto& type : kindTypes(kind)) {
           auto offered = std::find_if(offer_->types.begin(), offer_->types.end(),
-                                      [&](const std::string& t) { return lower(t) == type; });
+                                      [&](const std::string& t) { return lowercase(t) == type; });
           if (offered != offer_->types.end()) {
             mime = *offered;
             kindTaken = kind;
@@ -443,7 +439,7 @@ void DragDrop::drop(const OxyOSEvent& event) {
   for (const auto& kind : offeredKinds(*props)) {
     for (const auto& type : kindTypes(kind)) {
       auto offered = std::find_if(offer_->types.begin(), offer_->types.end(),
-                                  [&](const std::string& t) { return lower(t) == type; });
+                                  [&](const std::string& t) { return lowercase(t) == type; });
       if (offered == offer_->types.end()) continue;
       if (asked.insert(*offered).second) {
         int fd = window_.receiveDrop(offer_->offer, *offered);
@@ -503,7 +499,7 @@ bool DragDrop::deliver() {
       if (!failed && editing_ && !it->pipes.empty()) {
         const auto& pipe = it->pipes.front();
         std::string text = pipe.bytes;
-        if (lower(pipe.mime) == "text/uri-list") {
+        if (lowercase(pipe.mime) == "text/uri-list") {
           text.clear();
           for (const auto& line : lines(pipe.bytes)) {
             if (line[0] != '#') text += (text.empty() ? "" : "\n") + line;

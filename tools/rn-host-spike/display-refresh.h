@@ -12,6 +12,12 @@
 
 namespace oxyos {
 
+// The steady clock now, in milliseconds: what frames paced by the display are timed in (worklets',
+// Reanimated's and Animated's native driver's frame callbacks are given it).
+inline double nowMs() {
+  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 class DisplayRefresh {
  public:
   using Clock = std::chrono::steady_clock;

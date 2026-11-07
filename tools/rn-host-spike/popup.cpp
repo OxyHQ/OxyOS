@@ -1,4 +1,5 @@
 #include "popup.h"
+#include "trace.h"
 
 #include "accessibility.h"
 #include "report.h"
@@ -47,11 +48,6 @@ enum Edge : uint8_t { Center = 0, Top = 1, Bottom = 2, Left = 3, Right = 4, TopL
                       TopRight = 7, BottomRight = 8 };
 // Its adjustment flags.
 constexpr uint8_t kSlideX = 1, kSlideY = 2, kFlipX = 4, kFlipY = 8;
-
-bool tracing() {
-  static const bool trace = std::getenv("OXYOS_HOST_TRACE") != nullptr;
-  return trace;
-}
 
 }  // namespace
 

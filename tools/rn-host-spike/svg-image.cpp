@@ -1,4 +1,5 @@
 #include "svg-image.h"
+#include "text-util.h"
 
 #include <include/core/SkCanvas.h>
 #include <include/core/SkStream.h>
@@ -25,11 +26,6 @@ namespace {
 // The largest picture made, in pixels: a side of 16384 as the compositor's buffers, and 4096 ×
 // 4096 in all (64 MiB), an SVG wanted larger drawn at that and scaled.
 constexpr double kMaxSide = 16384, kMaxPixels = 4096.0 * 4096.0;
-
-std::string lower(std::string text) {
-  for (auto& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return text;
-}
 
 // The first kilobyte of the document, or nullopt if it cannot be read.
 std::optional<std::string> head(const SvgSource& source) {
@@ -91,7 +87,7 @@ Document parse(const SvgSource& source) {
 }  // namespace
 
 bool svgByName(const std::string& path) {
-  return path.size() > 4 && lower(path.substr(path.size() - 4)) == ".svg";
+  return path.size() > 4 && lowercase(path.substr(path.size() - 4)) == ".svg";
 }
 
 bool svgBySniffing(const std::string& bytes) {

@@ -1,4 +1,5 @@
 #include "textinput.h"
+#include "trace.h"
 
 #include <folly/json.h>
 
@@ -139,11 +140,6 @@ AttributedString attributed(const AndroidTextInputProps& props, const std::strin
     string.appendFragment({.string = text, .textAttributes = string.getBaseTextAttributes(), .parentShadowView = {}});
   }
   return string;
-}
-
-bool tracing() {
-  static const bool trace = std::getenv("OXYOS_HOST_TRACE") != nullptr;
-  return trace;
 }
 
 }  // namespace
