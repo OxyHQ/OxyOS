@@ -1,0 +1,249 @@
+{
+  "about": "Finder's path bar in Dropsea (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 12 and 13): at the foot of a folder's window, above the status bar, the folders from the home down to the one shown, each a press away and each a drop target. Documents and then Taxes opened (a double click each): the path bar reads home › Documents › Taxes. receipt.txt dragged onto the path bar's “home” moves into the home; a press on its “Documents” goes there. View › Hide Path Bar (⌥⌘P) hides it and View › Show Path Bar shows it again. Every step checks the disk.",
+  "module": "Dropsea",
+  "window": [
+    640,
+    560
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/Taxes/": "",
+      "Documents/Taxes/receipt.txt": "paid",
+      "notes.txt": "hello"
+    }
+  },
+  "steps": [
+    {
+      "name": "the home, its path bar reading “home”",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Documents",
+          "notes.txt",
+          "2 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Toolbar",
+              "name": "Path"
+            },
+            {
+              "role": "Link",
+              "name": "home"
+            }
+          ]
+        },
+        "menus": {
+          "View > Hide Path Bar": {
+            "shortcut": "Mod+Alt+P"
+          },
+          "View > Show Path Bar": null
+        }
+      }
+    },
+    {
+      "name": "Documents opened (a double click): home › Documents",
+      "do": [
+        "double_press",
+        [
+          296,
+          114
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Taxes",
+          "1 item"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Link",
+              "name": "home"
+            },
+            {
+              "role": "Link",
+              "name": "Documents"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Taxes opened: home › Documents › Taxes",
+      "do": [
+        "double_press",
+        [
+          296,
+          114
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "receipt.txt",
+          "1 item"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Link",
+              "name": "home"
+            },
+            {
+              "role": "Link",
+              "name": "Documents"
+            },
+            {
+              "role": "Link",
+              "name": "Taxes"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "receipt.txt dragged onto the path bar's “home”: it moves into the home, the window staying in Taxes",
+      "do": [
+        "drag_paced",
+        [
+          616,
+          180,
+          582,
+          578,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "receipt.txt"
+        ],
+        "texts": [
+          "0 items"
+        ],
+        "home": {
+          "receipt.txt": "paid",
+          "Documents/Taxes/receipt.txt": false
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a press on the path bar's “Documents” goes there, Taxes selected as the folder it came from",
+      "do": [
+        "press",
+        [
+          345,
+          512
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Taxes",
+          "1 of 1 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Documents"
+            },
+            {
+              "role": "Link",
+              "name": "home"
+            },
+            {
+              "role": "Link",
+              "name": "Documents"
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "Link",
+              "name": "Taxes"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "View › Hide Path Bar: the path bar goes",
+      "do": [
+        "menu",
+        "View > Hide Path Bar"
+      ],
+      "expect": {
+        "at_absent": {
+          "window": [
+            {
+              "role": "Toolbar",
+              "name": "Path"
+            },
+            {
+              "role": "Link",
+              "name": "home"
+            }
+          ]
+        },
+        "menus": {
+          "View > Show Path Bar": {
+            "shortcut": "Mod+Alt+P"
+          },
+          "View > Hide Path Bar": null
+        }
+      }
+    },
+    {
+      "name": "View › Show Path Bar: it is back",
+      "do": [
+        "menu",
+        "View > Show Path Bar"
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Toolbar",
+              "name": "Path"
+            },
+            {
+              "role": "Link",
+              "name": "home"
+            },
+            {
+              "role": "Link",
+              "name": "Documents"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
