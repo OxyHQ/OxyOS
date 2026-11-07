@@ -177,7 +177,13 @@ pub fn run(options: Options) -> Result<(), String> {
             eprintln!("[login] showing terminal {}: {error}", options.vt);
         }
     }
-    if let Err(error) = login.open_session() {
+    // The login screen's session is never authenticated, so it establishes no credentials.
+    let opened = if options.class == "greeter" {
+        login.open_greeter_session()
+    } else {
+        login.open_session()
+    };
+    if let Err(error) = opened {
         let _ = channel.tell(FromWorker::Failed);
         return Err(format!("{}: {error}", options.user));
     }
