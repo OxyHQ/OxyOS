@@ -18,6 +18,15 @@
     }
   },
   {
+    "id": "settings:bluetooth",
+    "url": "oxyos-settings://bluetooth",
+    "titles": { "en": "Bluetooth", "es": "Bluetooth" },
+    "keywords": {
+      "en": ["bluetooth", "wireless", "headphones", "earbuds", "speaker", "keyboard", "mouse", "trackpad", "pair", "pairing", "devices", "connect"],
+      "es": ["bluetooth", "inalámbrico", "auriculares", "altavoz", "teclado", "ratón", "emparejar", "vincular", "dispositivos", "conectar"]
+    }
+  },
+  {
     "id": "settings:network",
     "url": "oxyos-settings://network",
     "titles": { "en": "Network", "es": "Red" },
