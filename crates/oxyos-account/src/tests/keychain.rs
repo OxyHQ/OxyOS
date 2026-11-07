@@ -66,6 +66,8 @@ struct OxyState {
     enrollments: Vec<HeldEnrollment>,
     /// A roster served in place of the vault's (a fork, a rewrite, a shorter one).
     served_roster: Option<Vec<Entry>>,
+    /// Every page of items empty, yet saying more follow.
+    empty_pages: bool,
     requests: Vec<String>,
 }
 
@@ -310,6 +312,9 @@ impl Oxy {
                     .filter(|(_, item)| item.revision > since)
                     .collect();
                 changed.sort_by_key(|(_, item)| item.revision);
+                if state.empty_pages {
+                    return ok(json!({ "items": [], "revision": vault.revision, "more": true }));
+                }
                 // Pages of two, so a sync follows `more`.
                 let more = changed.len() > 2;
                 let page: Vec<Value> = changed
@@ -1062,6 +1067,10 @@ fn items_sync_by_revision_and_a_rollback_is_refused() {
     );
     assert_eq!(a.sync(), Ok(()));
     assert_eq!(a.list().len(), 3);
+    // A page that promises more and gives nothing is refused, never asked for again forever.
+    oxy.state.lock().unwrap().empty_pages = true;
+    assert_eq!(a.sync(), Err(Reason::Oxy));
+    oxy.state.lock().unwrap().empty_pages = false;
     // Every request carried the device's own token, never another's.
     assert!(oxy
         .requests()

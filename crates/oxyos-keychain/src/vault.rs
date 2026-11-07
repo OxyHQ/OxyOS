@@ -314,6 +314,10 @@ impl Vault {
         if page.revision < self.items.revision || since > page.revision {
             return Err(Error::Rollback);
         }
+        // More to come must move the cursor on, or a sync would ask for the same page forever.
+        if page.more && page.items.is_empty() {
+            return Err(Error::Answer("more items promised, none given"));
+        }
         let mut last = since;
         for item in &page.items {
             if item.revision <= last || item.revision > page.revision {
