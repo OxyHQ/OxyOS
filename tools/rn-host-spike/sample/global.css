@@ -3,7 +3,9 @@
    it every class-styled part of Bloom (menu rows, layout utilities) silently loses its style.
    `node_modules/@oxy.so/bloom` is the Bloom checkout (bundle.mjs links it). The shell's sources
    (apps/shell, rendered by ShellProbe.tsx) are scanned too: Tailwind generates only the classes
-   it finds, so a class only the shell uses would otherwise have no style. */
+   it finds, so a class only the shell uses would otherwise have no style. So is the Oxy SDK's
+   build (`@oxy.so/services`, as an Oxy app's base.css scans it): the login screen's setup shows
+   its sign-in, laid out by its classes (the split card with the QR from `md`). */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css";
@@ -12,3 +14,4 @@
 @source "./*.tsx";
 @source "../../../apps/shell/src/**/*.{ts,tsx}";
 @source "./node_modules/@oxy.so/bloom/src/**/*.{ts,tsx}";
+@source "./node_modules/@oxy.so/services/src/**/*.{ts,tsx}";
