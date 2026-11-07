@@ -8161,6 +8161,8 @@ mod menus;
 mod minimize_targets;
 mod notifications;
 mod screenshots;
+/// Search (docs/adr/0051-search.mdx).
+mod search;
 mod shortcuts;
 /// System sounds (docs/adr/0044-system-sounds.mdx).
 mod sounds;

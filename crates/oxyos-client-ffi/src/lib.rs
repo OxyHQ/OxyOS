@@ -271,6 +271,10 @@ pub const OXYOS_SHORTCUT_NOTIFICATIONS: u32 = 11;
 /// and App Exposé, as a Mac's Control-↑ and Control-↓ (protocol version 24, ADR 0045).
 pub const OXYOS_SHORTCUT_MISSION_CONTROL: u32 = 12;
 pub const OXYOS_SHORTCUT_APP_EXPOSE: u32 = 13;
+/// Super+Space: Spotlight, as a Mac's ⌘Space; and Super+Return: what Spotlight has chosen
+/// revealed where it is, as a Mac's ⌘Return (protocol version 30, docs/adr/0051-search.mdx).
+pub const OXYOS_SHORTCUT_SPOTLIGHT: u32 = 14;
+pub const OXYOS_SHORTCUT_REVEAL: u32 = 15;
 /// What a SYSTEM_SHORTCUT asks (its flag, protocol version 25, docs/adr/0046-interactive-gestures.mdx):
 /// a key's toggle (what is shown goes, what is not opens), or a touchpad's swipe opening Mission
 /// Control or App Exposé as the fingers begin to drive it, or closing it. Opening what is open, or
@@ -438,6 +442,10 @@ pub const OXYOS_EVENT_SYSTEM_TEXT: u32 = 160;
 pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
+/// Search (docs/adr/0051-search.mdx, protocol version 30): a chunk of the search index's answer to
+/// oxyos_client_search_request `code` (0: what the client asked to watch changed, unasked);
+/// detail, its index (0 begins it); flag 1 on the last; text, the chunk.
+pub const OXYOS_EVENT_SEARCH_TEXT: u32 = 164;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -1799,6 +1807,22 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::SearchText {
+            serial,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SEARCH_TEXT,
+                code: serial,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
         Event::SheetText {
             sheet,
             index,
@@ -2779,6 +2803,33 @@ pub unsafe extern "C" fn oxyos_client_system_request(
         return fail("a request is UTF-8");
     };
     status(client.system_request(serial, input, text))
+}
+
+/// Asks the session's search index one request of its vocabulary (docs/adr/0051-search.mdx):
+/// `text`, NUL-terminated UTF-8 JSON. Any client may ask; SEARCH_TEXT events naming `serial`
+/// answer. 0 on success; an error, sending nothing, to a compositor of a version before 30.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` a NUL-terminated string.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_search_request(
+    client: *mut OxyOSClient,
+    serial: u32,
+    text: *const c_char,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if text.is_null() {
+        return fail("null request");
+    }
+    // SAFETY: per the contract, a NUL-terminated string.
+    let Ok(text) = (unsafe { CStr::from_ptr(text) }).to_str() else {
+        return fail("a request is UTF-8");
+    };
+    status(client.search_request(serial, text))
 }
 
 /// The session's shell answers system sheet `sheet` (SHEET_TEXT): accepted or not, citing
