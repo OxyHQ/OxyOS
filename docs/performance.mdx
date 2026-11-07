@@ -311,7 +311,15 @@ back, and a place in the sidebar. Every step checks what React received, the sel
 focus the assistive technology holds and the popups, not only pixels. For each input, the latency
 from it to the first frame that changed (held to the scenario's budget, about four times what it
 takes on this machine unloaded) and the application's host's work until the step settled (each
-frame's `busy_ms`, summed) and the JavaScript in it. `perf-dropsea-home.json` is the same home with
+frame's `busy_ms`, summed) and the JavaScript in it. The steps that go to another place (Downloads
+opened, back to the home, Documents from the sidebar) are also held to what React renders
+(`renders.components_max`, above, *What a step re-renders*), which no load moves: on 7 November
+2026 the press back crossed its 450 ms budget on a loaded gate (459 and 478 ms) because Dropsea's
+sidebar drew all its rows, with their menus and drop targets, at every navigation (tags had added
+seven), 636 of the 3038 components it rendered, and each list row drew views for tags it did not
+have; with the sidebar's tree kept the same objects and empty tags drawing nothing
+(OxyHQ/Dropsea#51), and a tree row drawn only when the selection moves onto or off it (Bloom
+17.20.2), it renders 2503, the sidebar two rows. `perf-dropsea-home.json` is the same home with
 360,000 files under `node_modules/` and `Oxy/` (the ThinkPad's), the window zoomed to the work
 area at 1.25 (1536 × 930): the launch and the press back to the home held to a budget of their
 JavaScript (`js_work.js_ms_max`), half a minute left alone to a refresh in every
