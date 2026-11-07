@@ -466,7 +466,8 @@ modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so 
 on every run. `home.later` is what another program does to it while the run goes on, each when the
 application first shows a text: [{"when_shown": TEXT, "items": {...}, "xattrs": {...}}], items as
 above, made when a
-frame of the application's window shows TEXT (so a step after that one sees the window follow a
+frame of the application's window shows TEXT (of any of the shell's surfaces with `"in_shell": true`:
+a file written while Spotlight shows, docs/adr/0051-search.mdx) (so a step after that one sees the window follow a
 change it did not make), or `after_ms` after it first does (a change coming while the application
 sits idle). `home.xattrs` (and a `later`'s) sets extended attributes, as `setfattr` would (file tags,
 docs/adr/0049-file-tags.mdx): {PATH: {NAME: VALUE}}, a value text (UTF-8) or {"bplist": [TEXT, ...]}
@@ -1593,35 +1594,40 @@ def write_items(root, items, modified):
 
 def change_home_later(home_root, home, report_path):
     """Another program's changes to the home (`home.later`), each made once the application's
-    window first shows its text, from a thread reading the host's report as it is written."""
+    window first shows its text (or, with `in_shell`, once the shell shows it), from a thread
+    reading the hosts' reports as they are written."""
     later = list(home.get("later", []))
     if not later:
         return None
     modified = home.get("modified", 1767348000)
+    shell_path = report_path.with_name(report_path.name + ".shell")
 
     def watch():
-        seen = 0
-        shown = []
+        seen = {report_path: 0, shell_path: 0}
+        shown = {report_path: [], shell_path: []}
         due = None
         deadline = time.monotonic() + 180
         while later and time.monotonic() < deadline:
-            lines = report_path.read_text().splitlines() if report_path.exists() else []
-            for line in lines[seen:]:
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    continue
-                if entry.get("kind") != "frame" or entry.get("surface") != 1:
-                    continue
-                shown = entry.get("texts", [])
-                # A change made as its text shows, before the window draws anything after it.
-                while later and "after_ms" not in later[0] and any(later[0]["when_shown"] in text for text in shown):
-                    change = later.pop(0)
-                    write_items(home_root, change.get("items", {}), modified)
-                    write_xattrs(home_root, change.get("xattrs", {}))
-            seen = len(lines)
+            for path in (report_path, shell_path):
+                lines = path.read_text().splitlines() if path.exists() else []
+                for line in lines[seen[path]:]:
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    # The application's window, or any of the shell's surfaces.
+                    if entry.get("kind") != "frame" or (path == report_path and entry.get("surface") != 1):
+                        continue
+                    shown[path] = entry.get("texts", [])
+                    # A change made as its text shows, before the window draws anything after it.
+                    while later and "after_ms" not in later[0] and \
+                            any(later[0]["when_shown"] in text for text in shown[watched(later[0])]):
+                        change = later.pop(0)
+                        write_items(home_root, change.get("items", {}), modified)
+                        write_xattrs(home_root, change.get("xattrs", {}))
+                seen[path] = len(lines)
             # One made a while after its text showed, which comes while the window may draw nothing.
-            if later and due is None and any(later[0]["when_shown"] in text for text in shown):
+            if later and due is None and any(later[0]["when_shown"] in text for text in shown[watched(later[0])]):
                 due = time.monotonic() + later[0].get("after_ms", 0) / 1000
             if later and due is not None and time.monotonic() >= due:
                 change = later.pop(0)
@@ -1629,6 +1635,9 @@ def change_home_later(home_root, home, report_path):
                 write_xattrs(home_root, change.get("xattrs", {}))
                 due = None
             time.sleep(0.02)
+
+    def watched(change):
+        return shell_path if change.get("in_shell") else report_path
 
     thread = threading.Thread(target=watch, daemon=True)
     thread.start()
