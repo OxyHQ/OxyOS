@@ -6,7 +6,7 @@ order: 28
 
 # ADR 0019: Settings
 
-Status: **accepted** (chosen with the platform's author); steps 1 and 2 implemented. Decision 3's grant is amended by [ADR 0030](./0030-installing-applications), decision 7: system grants come from the image's policy, never from an entry's ownership alone. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0011](./0011-transitions) (reduce motion), [ADR 0012](./0012-solar-wallpaper), [ADR 0013](./0013-launching-applications) (launch records), [ADR 0014](./0014-screen-reader), [ADR 0015](./0015-application-model) and [ADR 0016](./0016-windows).
+Status: **accepted** (chosen with the platform's author); steps 1 and 2 implemented. The wallpaper's preference and page are amended by [ADR 0048](./0048-wallpapers) (7 November 2026). Decision 3's grant is amended by [ADR 0030](./0030-installing-applications), decision 7: system grants come from the image's policy, never from an entry's ownership alone. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0011](./0011-transitions) (reduce motion), [ADR 0012](./0012-solar-wallpaper), [ADR 0013](./0013-launching-applications) (launch records), [ADR 0014](./0014-screen-reader), [ADR 0015](./0015-application-model) and [ADR 0016](./0016-windows).
 
 ## Problem
 
@@ -33,7 +33,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - `reduce_motion` (every transition of [ADR 0011](./0011-transitions) is a crossfade: nothing grows, shrinks or slides);
      - `minimize_effect`, added on 4 November 2026 by [ADR 0043](./0043-the-genie) (the genie or a scale, chosen on a Settings › Dock page), is retired on 5 November: the genie is the only effect, and Settings has no Dock page. A file that still has it is read as any unknown key, and the next write leaves it out;
      - `reduce_transparency` (glass is drawn opaque);
-     - `wallpaper` (a folder under the wallpapers' directory);
+     - `wallpaper` (a folder under the wallpapers' directory; since [ADR 0048](./0048-wallpapers), the person's choice of wallpaper, a system wallpaper's, a colour, a photo, a folder or a shuffle, as the default every display shows, with `wallpaper_all_desktops` and each display's and desktop's own choice beside it, and told to Settings as the choice where its window is);
      - `lock_after` (minutes idle before the session locks; 0 never);
      - `screen_reader` (on at login);
      - `language` (`en`, `es`; empty, the system's), `region` (two ASCII capitals, as CLDR names a region; empty, the system's) and `hour_cycle` (`auto`, the region's; `h12`, `h23`), added by [ADR 0040](./0040-language-and-region), which retires `clock_24h` (a file that still has it is read as any unknown key, and the next write leaves it out);
