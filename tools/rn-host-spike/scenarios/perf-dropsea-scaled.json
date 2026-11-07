@@ -566,7 +566,7 @@
       "expect": {}
     },
     {
-      "name": "Escape closes the menu, the row keeps the selection",
+      "name": "Escape closes the menu, the row keeps the selection and the screen reader is back on it",
       "do": [
         "key",
         1
@@ -580,7 +580,8 @@
               "role": "ListItem",
               "name": "bedrock-server-1.26.44.3.zip",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
             }
           ]

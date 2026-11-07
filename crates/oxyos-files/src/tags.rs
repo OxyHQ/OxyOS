@@ -256,17 +256,24 @@ fn property_list(tags: &[Tag]) -> Result<Vec<u8>, Error> {
 }
 
 /// Changes the tags of the item at `path` (links followed): `remove` first, each name gone (case
-/// aside), then `add`, each name there once. A name the item has keeps its spelling and takes the
-/// colour given, if any; one just removed comes back where it was, spelt and coloured as added
-/// (so removing `work` and adding `Work` respells a tag in place); a new one goes last. Names are
+/// aside), then `add`, each name there once. A name the item has keeps its place and spelling and
+/// takes the colour given, if any. One just removed comes back where it was, spelt and coloured as
+/// added (removing `work` and adding `Work` respells a tag in place). A new name takes the place
+/// of the first name removed and not added back, in order (removing `Red` and adding `Crimson`
+/// renames a tag in place, as Finder renames one on every item); any more go last. Names are
 /// checked first ([`valid`]). Its tags now.
 pub fn change(path: &Path, add: &[Tag], remove: &[String]) -> Result<Vec<Tag>, Error> {
     let removed: Vec<String> = remove
         .iter()
         .map(|name| valid(name).map(key))
         .collect::<Result<_, _>>()?;
+    let mut added: Vec<Tag> = Vec::new();
     for tag in add {
-        valid(&tag.name)?;
+        let name = valid(&tag.name)?;
+        match added.iter_mut().find(|seen| key(&seen.name) == key(name)) {
+            Some(seen) => seen.color = tag.color.or(seen.color),
+            None => added.push(Tag::new(name, tag.color)),
+        }
     }
     // A volume that keeps no attributes has no tags, and says so when one is added.
     let held = held(path)?;
@@ -276,18 +283,29 @@ pub fn change(path: &Path, add: &[Tag], remove: &[String]) -> Result<Vec<Tag>, E
         .iter()
         .map(|tag| (tag.clone(), removed.contains(&key(&tag.name))))
         .collect();
-    for tag in add {
-        let name = valid(&tag.name)?;
+    // First the names the item has: kept, or back where they were.
+    let mut new = Vec::new();
+    for tag in added {
         match slots
             .iter_mut()
-            .find(|(held, _)| key(&held.name) == key(name))
+            .find(|(held, _)| key(&held.name) == key(&tag.name))
         {
             Some((held, gone)) if *gone => {
-                *held = Tag::new(name, tag.color.or(held.color));
+                *held = Tag::new(&tag.name, tag.color.or(held.color));
                 *gone = false;
             }
             Some((held, _)) => held.color = tag.color.or(held.color),
-            None => slots.push((Tag::new(name, tag.color), false)),
+            None => new.push(tag),
+        }
+    }
+    // Then the new ones: each in the place of a name removed and not added back, then last.
+    for tag in new {
+        match slots.iter_mut().find(|(_, gone)| *gone) {
+            Some((held, gone)) => {
+                *held = Tag::new(&tag.name, tag.color.or(held.color));
+                *gone = false;
+            }
+            None => slots.push((tag, false)),
         }
     }
     // Colours are kept where a Mac's attribute keeps them; freedesktop's keeps names alone.

@@ -224,7 +224,7 @@
    }
   },
   {
-   "name": "Tab: Red's actions button (its menu, closed), said once",
+   "name": "Tab: Red's actions button, Options for Red (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -234,18 +234,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Red",
+     "target": "Options for Red",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Red, collapsed, button",
+      "text": "Options for Red, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Red": 1,
+     "focus@Options for Red": 1,
      "blur@Red": 1
     }
    }
@@ -273,12 +273,12 @@
     "announcements": [],
     "react": {
      "focus@Orange": 1,
-     "blur@Red": 1
+     "blur@Options for Red": 1
     }
    }
   },
   {
-   "name": "Tab: Orange's actions button (its menu, closed), said once",
+   "name": "Tab: Orange's actions button, Options for Orange (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -288,18 +288,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Orange",
+     "target": "Options for Orange",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Orange, collapsed, button",
+      "text": "Options for Orange, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Orange": 1,
+     "focus@Options for Orange": 1,
      "blur@Orange": 1
     }
    }
@@ -327,12 +327,12 @@
     "announcements": [],
     "react": {
      "focus@Yellow": 1,
-     "blur@Orange": 1
+     "blur@Options for Orange": 1
     }
    }
   },
   {
-   "name": "Tab: Yellow's actions button (its menu, closed), said once",
+   "name": "Tab: Yellow's actions button, Options for Yellow (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -342,18 +342,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Yellow",
+     "target": "Options for Yellow",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Yellow, collapsed, button",
+      "text": "Options for Yellow, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Yellow": 1,
+     "focus@Options for Yellow": 1,
      "blur@Yellow": 1
     }
    }
@@ -381,12 +381,12 @@
     "announcements": [],
     "react": {
      "focus@Green": 1,
-     "blur@Yellow": 1
+     "blur@Options for Yellow": 1
     }
    }
   },
   {
-   "name": "Tab: Green's actions button (its menu, closed), said once",
+   "name": "Tab: Green's actions button, Options for Green (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -396,18 +396,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Green",
+     "target": "Options for Green",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Green, collapsed, button",
+      "text": "Options for Green, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Green": 1,
+     "focus@Options for Green": 1,
      "blur@Green": 1
     }
    }
@@ -435,12 +435,12 @@
     "announcements": [],
     "react": {
      "focus@Blue": 1,
-     "blur@Green": 1
+     "blur@Options for Green": 1
     }
    }
   },
   {
-   "name": "Tab: Blue's actions button (its menu, closed), said once",
+   "name": "Tab: Blue's actions button, Options for Blue (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -450,18 +450,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Blue",
+     "target": "Options for Blue",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Blue, collapsed, button",
+      "text": "Options for Blue, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Blue": 1,
+     "focus@Options for Blue": 1,
      "blur@Blue": 1
     }
    }
@@ -488,14 +488,14 @@
     ],
     "announcements": [],
     "react": {
-     "blur@Blue": 1,
+     "blur@Options for Blue": 1,
      "focus@Purple": 1,
      "scroll@sidebar-scroll": 1
     }
    }
   },
   {
-   "name": "Tab: Purple's actions button (its menu, closed), said once",
+   "name": "Tab: Purple's actions button, Options for Purple (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -505,18 +505,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Purple",
+     "target": "Options for Purple",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Purple, collapsed, button",
+      "text": "Options for Purple, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Purple": 1,
+     "focus@Options for Purple": 1,
      "blur@Purple": 1
     }
    }
@@ -543,14 +543,14 @@
     ],
     "announcements": [],
     "react": {
-     "blur@Purple": 1,
+     "blur@Options for Purple": 1,
      "focus@Grey": 1,
      "scroll@sidebar-scroll": 1
     }
    }
   },
   {
-   "name": "Tab: Grey's actions button (its menu, closed), said once",
+   "name": "Tab: Grey's actions button, Options for Grey (its menu, closed), said once",
    "do": [
     "key",
     [
@@ -560,18 +560,18 @@
    "allow_unchanged": true,
    "expect": {
     "keyboard_focus": {
-     "target": "Grey",
+     "target": "Options for Grey",
      "ring": true
     },
     "spoken": [
      {
-      "text": "Grey, collapsed, button",
+      "text": "Options for Grey, collapsed, button",
       "interrupting": true
      }
     ],
     "announcements": [],
     "react": {
-     "focus@Grey": 1,
+     "focus@Options for Grey": 1,
      "blur@Grey": 1
     }
    }
@@ -598,7 +598,7 @@
     ],
     "announcements": [],
     "react": {
-     "blur@Grey": 1,
+     "blur@Options for Grey": 1,
      "focus@All Tags…": 1,
      "scroll@sidebar-scroll": 1
     }
