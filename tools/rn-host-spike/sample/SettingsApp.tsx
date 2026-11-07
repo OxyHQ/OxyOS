@@ -14,11 +14,21 @@
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
+import { Directory, File, Paths } from 'expo-file-system';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { Settings } from '../../../apps/settings/src/Settings';
 import { sessionLocale } from '../../../apps/settings/src/locale';
+import { messagesLanguage } from '../../../apps/settings/src/messages';
+import {
+  addedText,
+  EMPTY_CATALOG,
+  parseAdded,
+  uriPath,
+  type AddedWallpaper,
+  type WallpaperCatalog,
+} from '../../../apps/settings/src/wallpaper';
 import { useSessionLocale } from './oxyos/locale';
 import {
   available,
@@ -57,6 +67,7 @@ import {
   type SettingsActions,
   type SettingsSnapshot,
   type SystemFacts,
+  type WallpaperActions,
 } from '../../../apps/settings/src/model';
 
 const native = TurboModuleRegistry.get<{
@@ -70,6 +81,11 @@ const native = TurboModuleRegistry.get<{
   setDisplayOrigin(output: number, x: number, y: number): number;
   setPrimaryDisplay(output: number): number;
   confirmDisplays(keep: boolean): number;
+  // Settings › Wallpaper (docs/adr/0048-wallpapers.mdx, decision 7): the system's catalog in a
+  // language, a cached thumbnail and a folder's images, each a promise.
+  getWallpapers?(language: string): WallpaperCatalog | null;
+  wallpaperThumbnail?(uri: string, width: number, height: number): Promise<string | null>;
+  wallpaperFolder?(path: string): Promise<string[]>;
 }>('OxyOSSettings');
 
 const FIXTURE: SettingsSnapshot = {
@@ -82,7 +98,8 @@ const FIXTURE: SettingsSnapshot = {
     uiSounds: true,
     trackpadNaturalScrolling: true,
     mouseNaturalScrolling: false,
-    wallpaper: 'solar-gradients',
+    wallpaper: '',
+    wallpaperAllDesktops: true,
     lockAfter: 5,
     screenReader: false,
     language: '',
@@ -94,7 +111,7 @@ const FIXTURE: SettingsSnapshot = {
     inputSources: [],
     inputSource: 'layout',
   },
-  wallpapers: [{ id: 'solar-gradients', name: 'Solar Gradients' }],
+  wallpapers: EMPTY_CATALOG,
   applications: [
     { id: 'so.oxy.allo', name: 'Allo' },
     { id: 'so.oxy.inbox', name: 'Inbox' },
@@ -211,7 +228,10 @@ function preferencesOf(values: Record<string, string>): Preferences {
     // (docs/adr/0042-scrolling.mdx, decision 6).
     trackpadNaturalScrolling: values[PREFERENCE_KEYS.trackpadNaturalScrolling] !== 'false',
     mouseNaturalScrolling: flag(PREFERENCE_KEYS.mouseNaturalScrolling),
-    wallpaper: values[PREFERENCE_KEYS.wallpaper] || null,
+    // The choice where Settings' window is (docs/adr/0048-wallpapers.mdx, decision 4).
+    wallpaper: values[PREFERENCE_KEYS.wallpaper] ?? '',
+    // On unless the session keeps it off.
+    wallpaperAllDesktops: values[PREFERENCE_KEYS.wallpaperAllDesktops] !== 'false',
     lockAfter: Number(values[PREFERENCE_KEYS.lockAfter] ?? 5),
     screenReader: flag(PREFERENCE_KEYS.screenReader),
     // The system's unless the session keeps the person's (crates/oxyos-preferences).
@@ -336,8 +356,8 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     session: true,
     snapshot: {
       preferences: preferencesOf(values),
-      // The wallpapers the session has: its own, for now.
-      wallpapers: FIXTURE.wallpapers,
+      // The system's catalog, which SettingsApp reads in the session's language.
+      wallpapers: EMPTY_CATALOG,
       // The session's applications, for Notifications' sound of each (docs/adr/0044-system-sounds.mdx).
       applications,
       system,
@@ -509,6 +529,91 @@ function useInputSources(snapshot: SettingsSnapshot, session: boolean) {
   return parseInputSources(told);
 }
 
+/** The fixture's catalog without a session: the repository's wallpapers would need the host's
+    module to be found, so a host outside a session shows the colours alone. */
+const FIXTURE_CATALOG: WallpaperCatalog = {
+  default: '',
+  categories: [],
+  colors: [
+    { color: '#1f5fd6', name: 'Blue' },
+    { color: '#7a3fc2', name: 'Purple' },
+    { color: '#2f2f33', name: 'Graphite' },
+  ],
+};
+
+/** The list of the person's added photos and folders, in Settings' own data (ADR 0028, decision 3):
+    none where the application has no folder of its own (a host the session did not start). */
+function addedFile(): File | null {
+  try {
+    return new File(Paths.document, 'wallpapers.json');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Settings › Wallpaper's platform (docs/adr/0048-wallpapers.mdx, decision 7): the system's catalog
+ * in the session's language, thumbnails and folders through the host's cache, the system's file
+ * chooser through expo-file-system's pickers, and the person's added photos and folders kept in
+ * Settings' own data.
+ */
+function useWallpaperModel(locale: string): {
+  catalog: WallpaperCatalog;
+  added: AddedWallpaper[];
+  actions: WallpaperActions;
+} {
+  const language = messagesLanguage(locale);
+  const catalog = React.useMemo(
+    () => (native?.getWallpapers ? (native.getWallpapers(language) ?? EMPTY_CATALOG) : FIXTURE_CATALOG),
+    [language],
+  );
+  const [added, setAddedState] = React.useState<AddedWallpaper[]>(() => {
+    const file = addedFile();
+    try {
+      return file?.exists ? parseAdded(file.textSync()) : [];
+    } catch {
+      return [];
+    }
+  });
+  const actions = React.useMemo<WallpaperActions>(() => {
+    const pickPhoto = async () => {
+      try {
+        const picked = await File.pickFileAsync({ mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'] });
+        const uri = Array.isArray(picked) ? picked[0]?.uri : picked?.uri;
+        return uri ? uriPath(uri) : null;
+      } catch {
+        // Cancelled, or refused by the session: nothing chosen.
+        return null;
+      }
+    };
+    const pickFolder = async () => {
+      try {
+        const picked = await Directory.pickDirectoryAsync();
+        return picked?.uri ? uriPath(picked.uri) : null;
+      } catch {
+        return null;
+      }
+    };
+    const setAdded = (list: AddedWallpaper[]) => {
+      setAddedState(list);
+      const file = addedFile();
+      try {
+        file?.write(addedText(list));
+      } catch (error) {
+        console.warn('[settings] the added wallpapers were not kept:', error);
+      }
+    };
+    return {
+      thumbnail: native?.wallpaperThumbnail ? (uri, w, h) => native.wallpaperThumbnail!(uri, w, h) : undefined,
+      folder: native?.wallpaperFolder ? (path) => native.wallpaperFolder!(path) : undefined,
+      pickPhoto,
+      pickFolder,
+      setAdded,
+    };
+  }, []);
+  return { catalog, added, actions };
+}
+
 type SessionHost = { snapshot(): unknown; subscribe(listener: () => void): () => void };
 const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as
   | SessionHost
@@ -549,7 +654,7 @@ export default function SettingsApp() {
   const install = useInstallModel();
   const networks = useNetworkModel();
   const inputSources = useInputSources(model.snapshot, model.session);
-  const snapshot = {
+  const snapshot: SettingsSnapshot = {
     ...model.snapshot,
     updates: install.updates,
     privacy: install.privacy,
@@ -557,7 +662,7 @@ export default function SettingsApp() {
     inputSources,
     account: useAccount(),
   };
-  const actions = {
+  const actions: SettingsActions = {
     ...model.actions,
     updates: install.updatesActions,
     privacy: install.privacyActions,
@@ -568,6 +673,10 @@ export default function SettingsApp() {
   const told = useSessionLocale();
   const locale =
     (model.session && told) || sessionLocale(model.snapshot.preferences, model.snapshot.system.locale);
+  const wallpapers = useWallpaperModel(locale);
+  snapshot.wallpapers = wallpapers.catalog;
+  snapshot.addedWallpapers = wallpapers.added;
+  actions.wallpaper = wallpapers.actions;
   return (
     <SafeAreaProvider>
       <BloomProvider platform={oxyosSurfaces} locale={locale}>

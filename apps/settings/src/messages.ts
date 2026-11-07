@@ -83,7 +83,73 @@ const en = {
       gray: "Grey",
     } as Record<string, string>,
   },
-  wallpaper: { current: "Wallpaper", system: "OxyOS", dynamic: "Follows the sun through the day." },
+  wallpaper: {
+    /** The page's top: the current wallpaper's preview, said with its name. */
+    preview: (name: string) => `Current wallpaper: ${name}`,
+    kinds: {
+      dynamic: "Dynamic wallpaper",
+      appearance: "Light and dark wallpaper",
+      still: "Wallpaper",
+      photo: "Photo",
+      folder: "Folder",
+      shuffle: "Shuffle",
+      color: "Colour",
+    },
+    /** A dynamic wallpaper's menu: Automatic first, then its variants. */
+    variant: "Dynamic wallpaper",
+    automatic: "Automatic",
+    automaticSun: "Automatic follows the sun through the day where the clock's time zone is.",
+    automaticAppearance: "Automatic follows the Light or Dark appearance.",
+    fit: "Fit",
+    fits: {
+      fill: "Fill Screen",
+      fit: "Fit to Screen",
+      stretch: "Stretch to Fill Screen",
+      center: "Centre Image",
+      tile: "Tile",
+    },
+    margin: "Colour around the picture",
+    interval: "Change picture",
+    every: (minutes: number | "login") =>
+      minutes === "login"
+        ? "When logging in"
+        : minutes === 60
+          ? "Every hour"
+          : minutes === 1440
+            ? "Every day"
+            : plural("en", minutes, { one: () => "Every minute", other: (c) => `Every ${c} minutes` }),
+    chooseColor: "Choose Colour…",
+    allDesktops: "Show on all desktops",
+    allDesktopsDescription: "When off, a wallpaper you choose is shown only on the current desktop.",
+    showAll: (count: number) => `Show All (${new Intl.NumberFormat("en").format(count)})`,
+    showLess: "Show Less",
+    /** A category's row, said with its name as the group the arrows choose in. */
+    row: (category: string) => category,
+    shuffle: (category: string) => `Shuffle ${category}`,
+    yourPhotos: "Your Photos",
+    addPhoto: "Add Photo…",
+    addFolder: "Add Folder…",
+    noPhotos: "Photos and folders you add are shown here.",
+    folder: (name: string) => `Folder: ${name}`,
+    remove: "Remove",
+    removeNamed: (name: string) => `Remove ${name} from Your Photos`,
+    colors: "Colours",
+    shuffleColors: "Shuffle Colours",
+    customColor: "Custom Colour…",
+    custom: (hex: string) => `Custom colour #${hex.toUpperCase()}`,
+    picker: {
+      title: "Custom Colour",
+      label: "Choose a colour",
+      hue: "Hue",
+      saturation: "Saturation",
+      brightness: "Brightness",
+      hex: "Hex colour",
+      hexHint: "Six digits, as #1F4FD8",
+      cancel: "Cancel",
+      done: "Choose",
+    },
+    unavailable: "This computer has no wallpapers of the system's to show.",
+  },
   notifications: {
     doNotDisturb: "Do Not Disturb",
     doNotDisturbDescription: "Notifications are kept in the Notification Center, without banners or sounds.",
@@ -415,7 +481,70 @@ const es: Messages = {
       gray: "Gris",
     } as Record<string, string>,
   },
-  wallpaper: { current: "Fondo", system: "OxyOS", dynamic: "Sigue al sol a lo largo del día." },
+  wallpaper: {
+    preview: (name: string) => `Fondo de pantalla actual: ${name}`,
+    kinds: {
+      dynamic: "Fondo dinámico",
+      appearance: "Fondo claro y oscuro",
+      still: "Fondo de pantalla",
+      photo: "Foto",
+      folder: "Carpeta",
+      shuffle: "Aleatorio",
+      color: "Color",
+    },
+    variant: "Fondo dinámico",
+    automatic: "Automático",
+    automaticSun: "Automático sigue al sol a lo largo del día, según la zona horaria del reloj.",
+    automaticAppearance: "Automático sigue la apariencia clara u oscura.",
+    fit: "Ajuste",
+    fits: {
+      fill: "Llenar pantalla",
+      fit: "Ajustar a la pantalla",
+      stretch: "Estirar para llenar la pantalla",
+      center: "Centrar imagen",
+      tile: "Mosaico",
+    },
+    margin: "Color alrededor de la imagen",
+    interval: "Cambiar imagen",
+    every: (minutes: number | "login") =>
+      minutes === "login"
+        ? "Al iniciar sesión"
+        : minutes === 60
+          ? "Cada hora"
+          : minutes === 1440
+            ? "Cada día"
+            : plural("es", minutes, { one: () => "Cada minuto", other: (c) => `Cada ${c} minutos` }),
+    chooseColor: "Elegir color…",
+    allDesktops: "Mostrar en todos los escritorios",
+    allDesktopsDescription: "Si está desactivado, el fondo que elijas solo se muestra en el escritorio actual.",
+    showAll: (count: number) => `Mostrar todo (${new Intl.NumberFormat("es").format(count)})`,
+    showLess: "Mostrar menos",
+    row: (category: string) => category,
+    shuffle: (category: string) => `${category} aleatorios`,
+    yourPhotos: "Tus fotos",
+    addPhoto: "Añadir foto…",
+    addFolder: "Añadir carpeta…",
+    noPhotos: "Aquí se muestran las fotos y carpetas que añadas.",
+    folder: (name: string) => `Carpeta: ${name}`,
+    remove: "Eliminar",
+    removeNamed: (name: string) => `Eliminar ${name} de Tus fotos`,
+    colors: "Colores",
+    shuffleColors: "Colores aleatorios",
+    customColor: "Color personalizado…",
+    custom: (hex: string) => `Color personalizado #${hex.toUpperCase()}`,
+    picker: {
+      title: "Color personalizado",
+      label: "Elige un color",
+      hue: "Tono",
+      saturation: "Saturación",
+      brightness: "Brillo",
+      hex: "Color hexadecimal",
+      hexHint: "Seis dígitos, como #1F4FD8",
+      cancel: "Cancelar",
+      done: "Elegir",
+    },
+    unavailable: "Este ordenador no tiene fondos del sistema que mostrar.",
+  },
   notifications: {
     doNotDisturb: "No molestar",
     doNotDisturbDescription: "Las notificaciones se guardan en el centro de notificaciones, sin avisos ni sonidos.",
