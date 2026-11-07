@@ -11,7 +11,8 @@
 //! pairing method says (numeric comparison, a PIN, a passkey typed or shown, or nothing), and a
 //! device's own requests (pairing, a service) are played by `Act` on its control interface
 //! (`so.oxy.OxyOS.FakeBlueZ` at `/so/oxy/OxyOS/FakeBlueZ`), whose `State` says what it holds; the
-//! same is written to `--state` after every change.
+//! same is written to `--state` after every change. It is first written once `org.bluez` is taken,
+//! which is only once every call to it is read: the file's appearing says it answers.
 //!
 //! The machine: `{"adapter": {"name", "address", "powered", "blocked"} | null, "devices": [{"address",
 //! "name", "icon", "uuids", "paired", "trusted", "connected", "battery", "nearby" (appears only
@@ -1122,8 +1123,10 @@ fn main() {
         .and_then(Json::as_array)
         .map(|devices| devices.iter().map(Device::of).collect())
         .unwrap_or_default();
+    // `org.bluez` is taken last: a call made to it as soon as it is owned (a client waiting for
+    // it, the session reading BlueZ) arrives once its messages are read. One that arrived before
+    // would be dropped unread, and its caller would wait for an answer forever.
     let bus = zbus::blocking::connection::Builder::address(address.as_str())
-        .and_then(|builder| builder.name("org.bluez"))
         .and_then(|builder| builder.build())
         .expect("the bus");
     let fake = Arc::new(Fake {
@@ -1135,7 +1138,6 @@ fn main() {
         }),
         state: state.into(),
     });
-    fake.save(&fake.machine.lock().unwrap());
     // Clients leaving the bus.
     {
         let fake = fake.clone();
@@ -1159,7 +1161,10 @@ fn main() {
             }
         });
     }
-    for message in zbus::blocking::MessageIterator::from(&bus).flatten() {
+    let messages = zbus::blocking::MessageIterator::from(&bus);
+    bus.request_name("org.bluez").expect("BlueZ's name");
+    fake.save(&fake.machine.lock().unwrap());
+    for message in messages.flatten() {
         if message.message_type() != zbus::message::Type::MethodCall {
             continue;
         }
