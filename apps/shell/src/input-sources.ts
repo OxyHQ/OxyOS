@@ -81,7 +81,7 @@ export function candidatesSaid(list: CandidateList, messages: ShellMessages): st
 
 /**
  * The source to say when the session tells a new state, or null: a switch of the source in use with
- * the list as it was (Super+Space, the top bar's menu), said by the new source's name as VoiceOver
+ * the list as it was (Super+Alt+Space, the top bar's menu), said by the new source's name as VoiceOver
  * says a Mac's. The first state told is no switch, and neither is a change of the list that moved the
  * source in use (the current one removed in Settings, which says the removal itself).
  */

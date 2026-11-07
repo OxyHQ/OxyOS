@@ -11,11 +11,14 @@
 //! full screen. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
-//! choice), Super pressed and released alone opens the launcher's search (ADR 0041, which
-//! moved it from Super+Space), and Super+↑ and Super+↓ open Mission Control and App Exposé (ADR
-//! 0044), as a touchpad's swipes up and down do (`swipes.rs`). Input sources are the program's (ADR 0041): Super+Space chooses
-//! the one used before (each further Space while Super is held, the one before that),
-//! Super+Alt+Space the next in the list, Control+Super+Space and the emoji key emoji. Screenshots are decision 10's
+//! choice), Super pressed and released alone opens the launcher's search (ADR 0041), Super+Space
+//! opens Spotlight, as a Mac's ⌘Space, and Super+Return reveals what Spotlight has chosen where it
+//! is, as its ⌘Return (docs/adr/0051-search.mdx), and Super+↑ and Super+↓ open Mission Control
+//! and App Exposé (ADR 0044), as a touchpad's swipes up and down do (`swipes.rs`). Input sources
+//! are the program's (ADR 0041, as ADR 0051 moved them): Super+Alt+Space chooses the one used
+//! before (each further Space while Super and Alt are held, the one before that),
+//! Super+Alt+Shift+Space the next in the list, Control+Super+Space and the emoji key emoji.
+//! Screenshots are decision 10's
 //! (`screenshots.rs`): Super+Shift+3 is the compositor's, Super+Shift+4 and 5 open the shell's
 //! interface, whose keys are the system's while it is open. While the session is locked none acts
 //! and their keys reach nobody. The screen reader's keys come first (ADR 0014); the keymap's own
@@ -58,6 +61,8 @@ const GRAVE: u32 = 41;
 const N: u32 = 49;
 const M: u32 = 50;
 const SPACE: u32 = 57;
+/// Return: what Spotlight has chosen revealed where it is (docs/adr/0051-search.mdx).
+const ENTER: u32 = 28;
 /// The emoji key some keyboards have (Linux's KEY_EMOJI_PICKER).
 const EMOJI_PICKER: u32 = 0x249;
 const F2: u32 = 60;
@@ -92,7 +97,8 @@ pub(super) struct SystemKeys {
     /// Super went down and nothing else happened since (no other key, button or scroll): its
     /// release opens the launcher's search.
     super_alone: bool,
-    /// Super+Space pressed since Super went down (ADR 0041): which input source back it chooses.
+    /// Super+Alt+Space pressed since Super and Alt were last pressed or released (ADR 0041): which
+    /// input source back it chooses.
     spaces: u32,
 }
 
@@ -100,10 +106,10 @@ pub(super) struct SystemKeys {
 /// input sources.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputSourceShortcut {
-    /// Super+Space: the input source used `step` switches before the one current when Super went
-    /// down (1, the one before it; 2, the one before that, and so on).
+    /// Super+Alt+Space: the input source used `step` switches before the one current when Super
+    /// and Alt went down (1, the one before it; 2, the one before that, and so on).
     Previous { step: u32 },
-    /// Super+Alt+Space: the next in the list.
+    /// Super+Alt+Shift+Space: the next in the list.
     Next,
     /// Control+Super+Space, or the emoji key: emoji, in the focused field.
     Emoji,
@@ -148,12 +154,16 @@ impl Scene {
                 self.system_keys.held.remove(&key);
             }
         }
+        // Super or Alt pressed or released: a hold of Super+Alt begins or ends, and Space goes back
+        // from the input source current then.
+        if is_super(key) || matches!(key, LEFT_ALT | RIGHT_ALT) {
+            self.system_keys.spaces = 0;
+        }
         if is_super(key) {
             let held = self.system_keys.holds([LEFT_SUPER, RIGHT_SUPER]);
             if pressed && held && self.system_keys.held.len() == 1 {
                 // Super down alone, nothing else held.
                 self.system_keys.super_alone = true;
-                self.system_keys.spaces = 0;
             } else if pressed {
                 self.system_keys.super_alone = false;
             }
@@ -162,7 +172,7 @@ impl Scene {
                 if let Some((client, output)) = self.system_keys.switcher.take() {
                     self.tell_shortcut(client, output, SystemShortcut::SwitcherDone);
                 }
-                // Super alone: the launcher's search, Spotlight's place (ADR 0041).
+                // Super alone: the launcher's search (ADR 0041).
                 if std::mem::take(&mut self.system_keys.super_alone)
                     && !self.locked
                     && !self.capturing()
@@ -221,7 +231,8 @@ impl Scene {
     /// Whether a press of `key` now would be the system's, as `system_key` decides, and if so
     /// whether it repeats while held (decision 8, docs/adr/0036-key-repeat.mdx): what moves does
     /// (the switcher's Tab, \`, ← and →; Super+\` through the active application's windows), what
-    /// acts never (closing, quitting, hiding, searching, a screenshot, the switcher's Q, H and Esc,
+    /// acts never (closing, quitting, hiding, searching, Spotlight and revealing what it has
+    /// chosen, a screenshot, the switcher's Q, H and Esc,
     /// any key while locked or while the screenshot interface is open).
     pub(super) fn system_repeats(&self, key: u32) -> Option<bool> {
         let keys = &self.system_keys;
@@ -271,18 +282,19 @@ impl Scene {
             self.tell_shortcut(client, output, shortcut);
             return;
         }
-        // Input sources (ADR 0041): never while the screenshot interface is open.
-        if key == SPACE && !shift && !self.capturing() {
-            let shortcut = match (ctrl, alt) {
-                (false, false) => {
+        // Input sources (ADR 0041, on Super+Alt since docs/adr/0051-search.mdx gave Super+Space
+        // to Spotlight): never while the screenshot interface is open.
+        if key == SPACE && (ctrl || alt) && !self.capturing() {
+            let shortcut = match (ctrl, alt, shift) {
+                (false, true, false) => {
                     self.system_keys.spaces += 1;
                     InputSourceShortcut::Previous {
                         step: self.system_keys.spaces,
                     }
                 }
-                (false, true) => InputSourceShortcut::Next,
-                (true, false) => InputSourceShortcut::Emoji,
-                (true, true) => return,
+                (false, true, true) => InputSourceShortcut::Next,
+                (true, false, false) => InputSourceShortcut::Emoji,
+                _ => return,
             };
             self.input_source_shortcuts.push(shortcut);
             return;
@@ -316,6 +328,25 @@ impl Scene {
                         SystemShortcut::SwitcherNext
                     };
                     self.tell_shortcut(client, output, first);
+                }
+                return;
+            }
+            // Spotlight, as a Mac's ⌘Space, and what it has chosen revealed where it is, as its
+            // ⌘Return (docs/adr/0051-search.mdx): the shell shows them; a menu open closes first
+            // as Spotlight opens, and stays as what it has chosen is revealed, which acts on what
+            // the shell shows. Nothing reaches the application, and neither repeats.
+            (SPACE | ENTER, false, false) => {
+                if key == SPACE {
+                    self.dismiss_grab(DismissReason::OutsidePress);
+                }
+                let output = self.shortcut_output();
+                if let Some(client) = self.shortcut_shell(output) {
+                    let shortcut = if key == SPACE {
+                        SystemShortcut::Spotlight
+                    } else {
+                        SystemShortcut::Reveal
+                    };
+                    self.tell_shortcut(client, output, shortcut);
                 }
                 return;
             }

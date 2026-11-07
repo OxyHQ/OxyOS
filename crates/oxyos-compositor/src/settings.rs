@@ -221,7 +221,7 @@ impl Settings {
         self.follow_wallpapers(compositor);
     }
 
-    /// Changes one preference for the session itself (the input source Super+Space chose, ADR
+    /// Changes one preference for the session itself (the input source Super+Alt+Space chose, ADR
     /// 0041), kept as any change is and told to the clients that follow preferences: whether it
     /// changed.
     pub fn set_preference(

@@ -4740,9 +4740,12 @@ fn shortcuts_and_an_unserved_keyboard_bypass_the_input_method() {
     h.present(key(SHELL, 1));
     h.activate(window);
     logged(&mut h);
+    // Super+Alt+Space, the input sources' (ADR 0041).
     h.scene.keyboard(SUPER, true, None);
+    h.scene.keyboard(56, true, None);
     h.scene.keyboard(57, true, Some(" "));
     h.scene.keyboard(57, false, None);
+    h.scene.keyboard(56, false, None);
     h.scene.keyboard(SUPER, false, None);
     let events = logged(&mut h);
     assert!(to(&events, IME).is_empty());
