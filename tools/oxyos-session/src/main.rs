@@ -61,7 +61,7 @@
 //! logind's `SetBrightness`) whatever has the keyboard, locked or not, and no application sees
 //! them; the shell shows each level and its Control Center sets them, turns Wi-Fi on and off
 //! (NetworkManager) and shows the battery (UPower), followed as they change, off the compositor's
-//! turn. Bluetooth (docs/adr/0050-bluetooth.mdx) is BlueZ's, through the session alone: on and
+//! turn. Bluetooth (docs/adr/0055-bluetooth.mdx) is BlueZ's, through the session alone: on and
 //! off, discovery while Settings' Bluetooth page holds it, connecting, pairing (the session is
 //! BlueZ's default pairing agent, its questions the shell's sheets), forgetting and renaming.
 //!
@@ -568,7 +568,7 @@ fn main() -> Result<()> {
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
     };
-    // Bluetooth (ADR 0050): the shell's and Settings' requests and the machine's pairing agent,
+    // Bluetooth (ADR 0055): the shell's and Settings' requests and the machine's pairing agent,
     // over the system's BlueZ, as the session's user. The login screen has none: a paired device
     // reconnects by itself there, and nothing is paired before a person signs in.
     let mut bluetooth = if greeter {

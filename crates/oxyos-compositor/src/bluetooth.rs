@@ -1,4 +1,4 @@
-//! Bluetooth for the program running the compositor (docs/adr/0050-bluetooth.mdx): the session's
+//! Bluetooth for the program running the compositor (docs/adr/0055-bluetooth.mdx): the session's
 //! side of the shell's and Settings' requests, over BlueZ, and the machine's pairing agent.
 //!
 //! The shell (its `shell` grant) and a client with `bluetooth` ask in the session's vocabulary

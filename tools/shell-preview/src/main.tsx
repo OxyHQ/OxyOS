@@ -136,7 +136,7 @@ function Preview() {
       ask({ kind: "wifi-password", ssid, security: network.security, incorrect: false });
     }
   };
-  // The played Bluetooth (docs/adr/0050-bluetooth.mdx): a paired device connects or disconnects in
+  // The played Bluetooth (docs/adr/0055-bluetooth.mdx): a paired device connects or disconnects in
   // a moment; the mouse is out of reach, and its connection fails in the session's sheet.
   const [bluetoothDevices, setBluetoothDevices] = useState<BluetoothState>(previewBluetooth);
   const changeDevice = (id: string, change: Partial<BluetoothState["devices"][number]>) =>

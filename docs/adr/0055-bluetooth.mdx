@@ -1,10 +1,10 @@
 ---
-title: "ADR 0050: Bluetooth"
+title: "ADR 0055: Bluetooth"
 description: How a person turns Bluetooth on and off, sees, connects, pairs, renames and forgets devices on OxyOS as on a Mac — Control Center's Bluetooth module and view, Settings › Bluetooth, the pairing codes as system sheets — through BlueZ, which the session alone speaks to and whose default pairing agent it is; how audio and input devices become the session's, and why it costs nothing while nothing happens.
-order: 59
+order: 64
 ---
 
-# ADR 0050: Bluetooth
+# ADR 0055: Bluetooth
 
 Status: **accepted; implemented** (the session's connection to BlueZ and its pairing agent, the shell's Control Center module, view and pairing sheets, Settings › Bluetooth, the played BlueZ and the scenarios over it). Amends [ADR 0025](./0025-hardware-keys-and-control-center), whose Control Center only said what Bluetooth was and left "Bluetooth on and off, pairing and devices" to this decision, and [ADR 0019](./0019-settings). Builds on [ADR 0030](./0030-installing-applications) (system grants of the image's policy, the session's vocabulary over `SystemRequest`, system sheets) and [ADR 0038](./0038-networks), whose shape it follows.
 

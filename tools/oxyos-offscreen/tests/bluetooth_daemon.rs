@@ -1,4 +1,4 @@
-//! The session's connection to BlueZ (`oxyos_bluetooth::run`, docs/adr/0050-bluetooth.mdx) against
+//! The session's connection to BlueZ (`oxyos_bluetooth::run`, docs/adr/0055-bluetooth.mdx) against
 //! the played BlueZ on a bus of the test's own: what it reads and follows, discovery held and
 //! ended, the pairing agent's every kind of question, connecting, disconnecting, forgetting,
 //! renaming, and what it leaves behind as it stops.

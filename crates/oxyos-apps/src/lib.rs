@@ -40,7 +40,7 @@ pub struct Grants {
     /// networks.mdx, decision 3).
     pub network: bool,
     /// `bluetooth`: it sees Bluetooth, discovers, pairs, connects, forgets and renames devices
-    /// (Settings; docs/adr/0050-bluetooth.mdx).
+    /// (Settings; docs/adr/0055-bluetooth.mdx).
     pub bluetooth: bool,
 }
 

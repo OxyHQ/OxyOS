@@ -295,7 +295,7 @@ pub enum Step {
     /// The played network daemon changes the machine (`--network-bus`, docs/adr/0038-networks.mdx):
     /// its control interface's `Act`, a cable plugged or an access point appearing.
     Network(String),
-    /// The played BlueZ changes the machine (`--bluetooth-bus`, docs/adr/0050-bluetooth.mdx): its
+    /// The played BlueZ changes the machine (`--bluetooth-bus`, docs/adr/0055-bluetooth.mdx): its
     /// control interface's `Act`, a device appearing, asking to pair, a code typed on it.
     Bluetooth(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
@@ -875,7 +875,7 @@ pub struct Launch {
     /// the played machine's network (`--controls`) follows it too, and each step's result says
     /// what the daemon holds (`network`).
     pub network_bus: Option<String>,
-    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth (docs/adr/0050-bluetooth.mdx) is the
+    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth (docs/adr/0055-bluetooth.mdx) is the
     /// BlueZ on this bus, a played one (`oxyos-fake-bluez`), never the system's; the played
     /// machine's Bluetooth (`--controls`) follows it too, and each step's result says what BlueZ
     /// holds (`bluetooth`).

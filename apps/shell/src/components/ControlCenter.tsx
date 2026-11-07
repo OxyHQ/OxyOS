@@ -30,7 +30,7 @@ import { BluetoothPanel } from "./BluetoothPanel";
 import { useShellMessages } from "../useShellMessages";
 
 /** What the Control Center shows: its modules, Wi-Fi's view (docs/adr/0038-networks.mdx) or
-    Bluetooth's (docs/adr/0050-bluetooth.mdx). */
+    Bluetooth's (docs/adr/0055-bluetooth.mdx). */
 export type ControlCenterPage = "modules" | "wifi" | "bluetooth";
 
 export const CONTROL_CENTER_WIDTH = 320;
@@ -209,7 +209,7 @@ function LevelCard({
  * notifications. Wi-Fi's module opens Wi-Fi's view in its place (docs/adr/0038-networks.mdx), as
  * the top bar's network item does, where the session told the networks and the machine has Wi-Fi.
  * Bluetooth's module turns Bluetooth on and off and opens Bluetooth's view in its place
- * (docs/adr/0050-bluetooth.mdx), where the session told Bluetooth and the machine has an adapter;
+ * (docs/adr/0055-bluetooth.mdx), where the session told Bluetooth and the machine has an adapter;
  * elsewhere it only says Bluetooth's state.
  */
 export const ControlCenter = memo(function ControlCenter({

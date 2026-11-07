@@ -147,7 +147,7 @@ struct Session {
     networks: Option<oxyos_compositor::networks::Networks>,
     networks_waker: Option<std::os::fd::RawFd>,
     network_control: Option<zbus::blocking::Connection>,
-    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth over a played BlueZ (ADR 0050), its waker
+    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth over a played BlueZ (ADR 0055), its waker
     /// among the compositor's, and a connection to the played BlueZ's control interface.
     bluetooth: Option<oxyos_compositor::bluetooth::Bluetooth>,
     bluetooth_waker: Option<std::os::fd::RawFd>,
@@ -497,7 +497,7 @@ impl Session {
         .unwrap_or_else(|| "null".into())
     }
 
-    /// The played BlueZ changes the machine: its control interface's `Act` (ADR 0050).
+    /// The played BlueZ changes the machine: its control interface's `Act` (ADR 0055).
     pub fn bluetooth_act(&mut self, what: &str) -> Result<()> {
         let bus = self
             .bluetooth_control
@@ -563,7 +563,7 @@ impl Session {
                 controls.network_is(&mut self.compositor.scene, network);
             }
         }
-        // Bluetooth (ADR 0050), before the store takes the requests left; Control Center's module
+        // Bluetooth (ADR 0055), before the store takes the requests left; Control Center's module
         // told from it.
         if let Some(bluetooth) = self.bluetooth.as_mut() {
             bluetooth.serve(&mut self.compositor.scene);

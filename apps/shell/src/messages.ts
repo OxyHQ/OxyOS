@@ -199,7 +199,7 @@ const en = (f: Formats) => ({
     searching: "Looking for networks…",
     joined: (ssid: string) => `Connected to ${ssid}`,
   },
-  /** The Control Center's Bluetooth view (bluetooth.ts, BluetoothPanel, docs/adr/0050-bluetooth.mdx). */
+  /** The Control Center's Bluetooth view (bluetooth.ts, BluetoothPanel, docs/adr/0055-bluetooth.mdx). */
   bluetooth: {
     back: "Back",
     devices: "Devices",
@@ -390,7 +390,7 @@ const en = (f: Formats) => ({
     wifiEnterprise: "Enterprise (802.1X) networks aren't supported yet.",
     wifiWep: "WEP networks aren't supported: they aren't secure.",
     wifiOtherUnsupported: "This network isn't supported yet.",
-    /** Bluetooth's pairing (docs/adr/0050-bluetooth.mdx): a code to compare, a device asking to
+    /** Bluetooth's pairing (docs/adr/0055-bluetooth.mdx): a code to compare, a device asking to
         pair or to use a service, a code to type on it or here, and a connection that failed. */
     bluetoothPair: "Pair",
     bluetoothConfirm: (name: string) => `Confirm that “${name}” shows this code.`,

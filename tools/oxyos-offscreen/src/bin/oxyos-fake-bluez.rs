@@ -1,4 +1,4 @@
-//! A played BlueZ (docs/adr/0050-bluetooth.mdx), for the development compositor's scenarios
+//! A played BlueZ (docs/adr/0055-bluetooth.mdx), for the development compositor's scenarios
 //! (`regress.py`'s `bluetooth`) and the tests of the session's Bluetooth: the part of BlueZ's D-Bus
 //! API the session uses, on a bus of the caller's own, for a machine a JSON file describes. Never
 //! installed; built with the development compositor, which its scenarios run beside.

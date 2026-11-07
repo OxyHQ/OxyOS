@@ -169,7 +169,7 @@ export const Shell = memo(function Shell({
     /** A Wi-Fi password sheet's answer (docs/adr/0038-networks.mdx): the password, to the
         session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerPassword?: (password: string) => void;
-    /** A Bluetooth pairing code's answer (docs/adr/0050-bluetooth.mdx): the passkey or PIN typed,
+    /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
         to the session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerCode?: (code: string) => void;
   };

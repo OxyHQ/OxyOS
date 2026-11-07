@@ -39,7 +39,7 @@ pub struct Controls {
     keyboard_before: u32,
     /// What follows the system's changes (a session's), stopped when the controls go.
     following: Option<Following>,
-    /// Bluetooth is told by the Bluetooth part (`bluetooth_is`, ADR 0050), which follows BlueZ.
+    /// Bluetooth is told by the Bluetooth part (`bluetooth_is`, ADR 0055), which follows BlueZ.
     bluetooth_followed: bool,
 }
 
@@ -146,7 +146,7 @@ impl Controls {
         self.outcome(scene, Outcome::Network(network));
     }
 
-    /// Bluetooth as the Bluetooth part has it (ADR 0050), which alone follows BlueZ in a session:
+    /// Bluetooth as the Bluetooth part has it (ADR 0055), which alone follows BlueZ in a session:
     /// told as if read here.
     pub fn bluetooth_is(&mut self, scene: &mut Scene, bluetooth: oxyos_controls::Bluetooth) {
         self.bluetooth_followed = true;

@@ -1,5 +1,5 @@
 //! Following BlueZ wakes for its signals that can change what is shown and the order to stop,
-//! never a clock (docs/adr/0050-bluetooth.mdx, docs/performance.mdx's idle budget): the session's
+//! never a clock (docs/adr/0055-bluetooth.mdx, docs/performance.mdx's idle budget): the session's
 //! connection to the played BlueZ, while BlueZ signals only what no session follows (a stream's
 //! volume as it plays), leaves the process's threads together waking at most once a second and
 //! using at most 0.1 % of a core, those signals never delivered; a device's signal strength

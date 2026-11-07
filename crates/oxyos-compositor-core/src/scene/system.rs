@@ -188,7 +188,7 @@ impl Scene {
             .collect()
     }
 
-    /// The clients Bluetooth's state is told to (ADR 0050): those holding `bluetooth` or `shell`.
+    /// The clients Bluetooth's state is told to (ADR 0055): those holding `bluetooth` or `shell`.
     pub fn bluetooth_watchers(&self) -> Vec<ClientId> {
         self.clients
             .iter()

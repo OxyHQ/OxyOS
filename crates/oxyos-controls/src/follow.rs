@@ -213,7 +213,7 @@ fn owner_rule(service: &'static str) -> zbus::Result<zbus::MatchRule<'static>> {
 }
 
 /// Follows the system bus (the module's doc), with NetworkManager's and BlueZ's signals where
-/// `own` (no other part of the session follows them; docs/adr/0050-bluetooth.mdx): each
+/// `own` (no other part of the session follows them; docs/adr/0055-bluetooth.mdx): each
 /// rule a match the bus daemon applies, so a signal that cannot change what is shown is never
 /// delivered, and of those delivered, a change of no shown property is nothing. Without the bus,
 /// returns the error; returns when the bus closes or `stop` is readable.

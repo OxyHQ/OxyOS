@@ -35,7 +35,7 @@ const ICONS: Record<Exclude<BluetoothKind, "trackpad">, typeof RiBluetoothLine> 
 };
 
 /**
- * What a Bluetooth device is, as a Mac shows it (docs/adr/0050-bluetooth.mdx): headphones, a
+ * What a Bluetooth device is, as a Mac shows it (docs/adr/0055-bluetooth.mdx): headphones, a
  * speaker, a keyboard, a mouse, a trackpad, a phone, a gamepad, a computer, and Bluetooth's own
  * glyph for any other. Bloom's icons, but the trackpad, which it has not.
  */

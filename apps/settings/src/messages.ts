@@ -355,7 +355,7 @@ const en = {
       notPermittedJoin: "Only an administrator can join this network.",
     },
   },
-  /** Bluetooth (docs/adr/0050-bluetooth.mdx), as a Mac's System Settings words it. */
+  /** Bluetooth (docs/adr/0055-bluetooth.mdx), as a Mac's System Settings words it. */
   bluetooth: {
     bluetooth: "Bluetooth",
     discoverable: (name: string) => `Now discoverable as “${name}”.`,

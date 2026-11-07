@@ -14,7 +14,7 @@
  * (`wifi-failed`) or that OxyOS cannot join such a network (`wifi-unsupported`). The password is
  * typed into the sheet's own secure field and goes to the session alone; nothing here keeps it.
  *
- * Pairing a Bluetooth device (docs/adr/0050-bluetooth.mdx), the session, the machine's pairing
+ * Pairing a Bluetooth device (docs/adr/0055-bluetooth.mdx), the session, the machine's pairing
  * agent, asks the person to compare a code (`bluetooth-confirm`), to let a device pair
  * (`bluetooth-authorize`) or use a service (`bluetooth-service`), shows a code to type on the
  * device (`bluetooth-display`, which only Cancel answers: the session takes it away once paired),
@@ -42,7 +42,7 @@ export type SheetText =
   | { kind: "wifi-password"; ssid: string; security: WifiSecurity; incorrect: boolean }
   | { kind: "wifi-failed"; ssid: string }
   | { kind: "wifi-unsupported"; ssid: string; security: WifiSecurity }
-  // Bluetooth (docs/adr/0050-bluetooth.mdx): `name` and `device` (its kind) say which device.
+  // Bluetooth (docs/adr/0055-bluetooth.mdx): `name` and `device` (its kind) say which device.
   | { kind: "bluetooth-confirm"; name: string; device: BluetoothKind; code: string }
   | { kind: "bluetooth-authorize"; name: string; device: BluetoothKind }
   | { kind: "bluetooth-service"; name: string; device: BluetoothKind; service: BluetoothService }

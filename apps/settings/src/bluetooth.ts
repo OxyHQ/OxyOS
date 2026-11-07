@@ -1,5 +1,5 @@
 /**
- * Bluetooth (docs/adr/0050-bluetooth.mdx): the state as the session tells it to Settings (the
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the state as the session tells it to Settings (the
  * `bluetooth` grant), and what Settings may ask. The session alone speaks to BlueZ and is the
  * machine's pairing agent: a code to confirm or type is asked in the shell's own system sheets,
  * and a connection that failed is said there too. Settings keeps no list of its own.
@@ -63,7 +63,7 @@ export type BluetoothAdapter = {
   discoverable: boolean;
 };
 
-/** Bluetooth's state (ADR 0050). */
+/** Bluetooth's state (ADR 0055). */
 export type BluetoothState = {
   /** Whether BlueZ answers. */
   available: boolean;

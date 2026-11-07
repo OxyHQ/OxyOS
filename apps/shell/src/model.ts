@@ -282,7 +282,7 @@ export type ShellControls = {
   joinNetwork?: (ssid: string) => void;
   /** The Wi-Fi view's "Ajustes de Wi-Fi…": Settings, at its Wi-Fi page where it can be. */
   openWifiSettings?: () => void;
-  /** Bluetooth as the session tells it (docs/adr/0050-bluetooth.mdx): the Bluetooth module's
+  /** Bluetooth as the session tells it (docs/adr/0055-bluetooth.mdx): the Bluetooth module's
       switch and the Control Center's Bluetooth view. Absent or null, the module only says what
       `bluetooth` says. */
   bluetoothDevices?: BluetoothState | null;

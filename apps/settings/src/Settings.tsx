@@ -1894,7 +1894,7 @@ export function Settings({
   const props = { snapshot, actions, strings, locale };
   const words = strings.pages;
   // Wi-Fi, Bluetooth and Network first, as a Mac lists them: Wi-Fi and Network only with the
-  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0050-bluetooth.mdx).
+  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx).
   const networked = snapshot.network !== undefined;
   const bluetooth = snapshot.bluetooth !== undefined;
   const connectionItems: SettingsNavGroup["items"] = [

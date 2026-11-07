@@ -31,7 +31,7 @@ fontconfig
 network-manager
 pipewire-audio
 upower
-# Bluetooth (docs/adr/0050-bluetooth.mdx): BlueZ, which the session speaks to and whose pairing
+# Bluetooth (docs/adr/0055-bluetooth.mdx): BlueZ, which the session speaks to and whose pairing
 # agent it is, and PipeWire's BlueZ plugin, which makes headphones and speakers audio devices
 # (pipewire-audio depends on it; named so the audit holds that it is installed).
 bluez

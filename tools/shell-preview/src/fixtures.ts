@@ -241,7 +241,7 @@ export const previewNetworks: NetworkState = {
   joining: null,
 };
 
-/** A played machine's Bluetooth (docs/adr/0050-bluetooth.mdx), so the Control Center's Bluetooth
+/** A played machine's Bluetooth (docs/adr/0055-bluetooth.mdx), so the Control Center's Bluetooth
     view can be tried in the browser: headphones and a trackpad connected, a keyboard and a mouse
     paired, and a speaker nearby, which the view does not list. */
 export const previewBluetooth: BluetoothState = {

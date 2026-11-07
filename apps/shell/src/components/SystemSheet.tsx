@@ -39,7 +39,7 @@ const CODE_SPACING = 8;
  * answer is the password, by its Join button (enabled once the password can be one) or Return,
  * and goes to the session alone. The password lives in the field's own state and nowhere else.
  *
- * Pairing a Bluetooth device (docs/adr/0050-bluetooth.mdx), as a Mac's: a code to compare, or to
+ * Pairing a Bluetooth device (docs/adr/0055-bluetooth.mdx), as a Mac's: a code to compare, or to
  * type on the device, is shown large, its digits spaced and said one by one; the code the device
  * shows, or its PIN, is typed in a field focused at once (a passkey's digits only), answered by
  * Pair (enabled once it can be one) or Return, and goes to the session alone. A code shown to type

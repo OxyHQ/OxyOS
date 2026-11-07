@@ -1,5 +1,5 @@
 /**
- * Bluetooth as the session says it is (docs/adr/0050-bluetooth.mdx): the state it tells the shell
+ * Bluetooth as the session says it is (docs/adr/0055-bluetooth.mdx): the state it tells the shell
  * (`{"bluetooth": State}`), read as it is, and what the Control Center's Bluetooth view makes of
  * it. Nothing here asks anything: the session alone speaks to BlueZ, and is the machine's pairing
  * agent, asking what a pairing needs in its own system sheets.

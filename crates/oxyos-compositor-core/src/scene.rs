@@ -83,7 +83,7 @@ pub struct Grants {
     /// Settings (ADR 0038): sees the networks and joins, forgets and turns Wi-Fi on and off
     /// (`SystemRequest`), as the shell does by its own grant.
     pub network: bool,
-    /// Settings (ADR 0050): sees Bluetooth and turns it on and off, discovers, connects (pairing
+    /// Settings (ADR 0055): sees Bluetooth and turns it on and off, discovers, connects (pairing
     /// first), disconnects, forgets and renames devices (`SystemRequest`), as the shell does by its
     /// own grant (all but discovering, forgetting and renaming).
     pub bluetooth: bool,
@@ -91,9 +91,9 @@ pub struct Grants {
 
 impl Grants {
     /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030, ADR 0038 and ADR
-    /// 0050): the store, updates, privacy, networks and Bluetooth, the shell (Control Center's Wi-Fi, the password
-    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
-    /// may ask is the program's to decide.
+    /// 0055): the store, updates, privacy, networks and Bluetooth, the shell (Control Center's
+    /// Wi-Fi and Bluetooth, the sheets' answers, the input sources) and Settings (the input
+    /// sources, ADR 0041). What each may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
         self.store
             || self.updates

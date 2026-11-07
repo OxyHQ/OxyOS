@@ -416,7 +416,7 @@ function SessionShell() {
   const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
-  // Bluetooth as the session tells it (ADR 0050): the Control Center's Bluetooth module and view.
+  // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
   const bluetoothDevices = useBluetoothState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
@@ -653,7 +653,7 @@ function SessionShell() {
         network.join(ssid);
       },
       openWifiSettings: () => act.menuCommand('system.settings'),
-      // Bluetooth (ADR 0050): the session turns it on and off, connects and disconnects, asking
+      // Bluetooth (ADR 0055): the session turns it on and off, connects and disconnects, asking
       // what a pairing needs and saying what failed in its own sheets. Bluetooth Settings opens
       // Settings at its Bluetooth page, a URL the shell opens as any other.
       bluetoothDevices,
@@ -745,7 +745,7 @@ function SessionShell() {
       answer: (accepted: boolean) => answer(first.sheet, accepted),
       // A Wi-Fi password sheet's answer (ADR 0038): to the session alone.
       answerPassword: (password: string) => answerPassword(first.sheet, password),
-      // A Bluetooth pairing code's answer (ADR 0050): to the session alone.
+      // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
       answerCode: (code: string) => answerCode(first.sheet, code),
     };
   }, [first, registry, answer, answerPassword, answerCode]);

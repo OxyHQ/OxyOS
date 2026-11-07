@@ -1,5 +1,5 @@
 /**
- * Settings › Bluetooth (docs/adr/0050-bluetooth.mdx), as a Mac's: the switch, and the name others
+ * Settings › Bluetooth (docs/adr/0055-bluetooth.mdx), as a Mac's: the switch, and the name others
  * see this computer as while the page is open; My Devices, each with its glyph, its state, its
  * battery when connected, a Connect or Disconnect button and its ⓘ sheet (its name, address, type
  * and battery; forgetting it, once confirmed); and Nearby Devices, each paired and connected by its

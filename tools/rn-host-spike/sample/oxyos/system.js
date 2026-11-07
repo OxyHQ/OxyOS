@@ -17,7 +17,7 @@ let lastState = null;
 const networkListeners = new Set();
 let lastNetwork = null;
 
-/** Bluetooth as the session last told it (docs/adr/0050-bluetooth.mdx), and who follows it. */
+/** Bluetooth as the session last told it (docs/adr/0055-bluetooth.mdx), and who follows it. */
 const bluetoothListeners = new Set();
 let lastBluetooth = null;
 
@@ -155,7 +155,7 @@ export function useNetworkState() {
 }
 
 /**
- * Bluetooth (docs/adr/0050-bluetooth.mdx): the shell (its `shell` grant) and Settings (the
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the shell (its `shell` grant) and Settings (the
  * `bluetooth` grant) ask the session, which alone speaks to BlueZ and is the machine's pairing
  * agent. The state is told as it changes; a connection is answered once it is done
  * (`{connected}`, `{paired}` or `{failed: {reason}}`), any code a pairing needs asked or shown in
@@ -280,7 +280,7 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ password: { sheet, password } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  // A Bluetooth pairing code's answer (docs/adr/0050-bluetooth.mdx): the PIN or passkey the person
+  // A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the PIN or passkey the person
   // typed, to the session alone, citing the press or key that submitted it, as a password is.
   const answerCode = React.useCallback((sheet, code) => {
     native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));

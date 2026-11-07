@@ -81,7 +81,7 @@ function DeviceRow({
 }
 
 /**
- * The Control Center's Bluetooth view (docs/adr/0050-bluetooth.mdx), as a Mac's: in place of the
+ * The Control Center's Bluetooth view (docs/adr/0055-bluetooth.mdx), as a Mac's: in place of the
  * modules, Bluetooth's switch; with Bluetooth on, the paired devices, each with its glyph (on the
  * accent's face while connected) and its charge, connected or disconnected as it is pressed;
  * "Bluetooth Settings…" at its foot, where devices are found and paired. It never discovers: the

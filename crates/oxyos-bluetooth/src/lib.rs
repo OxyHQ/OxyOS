@@ -1,4 +1,4 @@
-//! Bluetooth as a session sees and uses it (docs/adr/0050-bluetooth.mdx), through BlueZ, the
+//! Bluetooth as a session sees and uses it (docs/adr/0055-bluetooth.mdx), through BlueZ, the
 //! system's Bluetooth daemon, on the system bus as the session's user.
 //!
 //! [`run`] is the session's one connection to BlueZ, on a thread of the caller's: it follows

@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-# BlueZ over the system bus, in safe Rust (docs/adr/0050-bluetooth.mdx): its objects followed, its
+# BlueZ over the system bus, in safe Rust (docs/adr/0055-bluetooth.mdx): its objects followed, its
 # calls made and the session's pairing agent served, on one connection the caller's thread runs.
 zbus = "5"
 async-io = "2"

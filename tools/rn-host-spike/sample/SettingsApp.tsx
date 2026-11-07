@@ -4,7 +4,7 @@
  * session granted `settings` has), a change asked of the session, which validates, keeps and
  * applies it and tells every application; the displays as the session shows them and their changes
  * (docs/adr/0018-several-displays.mdx); the machine's facts; and the networks and Bluetooth as the
- * session tells them (docs/adr/0038-networks.mdx, docs/adr/0050-bluetooth.mdx). Without the grant
+ * session tells them (docs/adr/0038-networks.mdx, docs/adr/0055-bluetooth.mdx). Without the grant
  * (a host run outside a session, the browser preview) the model is a fixture kept in memory. Its
  * language is the session's locale (docs/adr/0040-language-and-region.mdx, decision 5), given to
  * `BloomProvider` and followed live;
@@ -221,7 +221,7 @@ const NETWORK_FIXTURE: NetworkState = {
   joining: null,
 };
 
-/** The reference ThinkPad's Bluetooth (ADR 0050): on, its paired AirPods and mouse connected, its
+/** The reference ThinkPad's Bluetooth (ADR 0055): on, its paired AirPods and mouse connected, its
     keyboard not; a speaker and a phone nearby, seen once the page discovers. */
 const BLUETOOTH_PAIRED: BluetoothDevice[] = [
   {
@@ -569,7 +569,7 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
 }
 
 /**
- * Bluetooth (docs/adr/0050-bluetooth.mdx): the state the session tells a client with its
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the state the session tells a client with its
  * `bluetooth` grant, followed, and its requests. The session tells nothing without the grant, so
  * the page is there only once it has told the state. Without a session the fixture plays the
  * machine: discovery finds its nearby devices after a moment, a connection pairs and connects

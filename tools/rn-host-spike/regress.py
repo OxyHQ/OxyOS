@@ -120,7 +120,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "permissions", "attempts", "scans", "ethernet"), each key given matching: a dict key by key, a
   list item by item and of the same length;
 - bluetooth: with the scenario's `bluetooth` (a BlueZ played by oxyos-fake-bluez on a bus of the
-  run's own, docs/adr/0050-bluetooth.mdx), what it holds once the step settled ("adapter" with its
+  run's own, docs/adr/0055-bluetooth.mdx), what it holds once the step settled ("adapter" with its
   "powered", "discovering", "discoverable", "discovery_clients"; "agent" with its "capability" and
   "default"; "devices" by address, each "present", "paired", "trusted", "connected", "alias",
   "battery"; "log", the calls made of it in order), each key given matching as `network`'s;
@@ -992,7 +992,7 @@ def director_args(step, out):
         # {"access_point": {...}}, {"remove_access_point": ssid}, {"hardware_enabled": false}.
         return args + ["--network", json.dumps(value)]
     if kind == "bluetooth":
-        # The played BlueZ changes the machine (ADR 0050): {"appear": {...}}, {"pair_request":
+        # The played BlueZ changes the machine (ADR 0055): {"appear": {...}}, {"pair_request":
         # address}, {"typed": address}, {"connect": address}, {"battery": {...}}, {"blocked": true}.
         return args + ["--bluetooth", json.dumps(value)]
     if kind == "clipboard":
@@ -3712,7 +3712,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             for problem in matches_within(expect["network"], held, "the network daemon's"):
                 fail(problem)
     if "bluetooth" in expect:
-        # What the played BlueZ holds once the step settled (ADR 0050): the session's calls, its
+        # What the played BlueZ holds once the step settled (ADR 0055): the session's calls, its
         # agent and discovery, not only what was drawn.
         held = result.get("bluetooth")
         if held is None:
@@ -4394,7 +4394,7 @@ def network_daemon(spec, out, offscreen):
 
 
 def bluetooth_daemon(spec, out, offscreen):
-    """A bus of the run's own and a played BlueZ on it (docs/adr/0050-bluetooth.mdx), the machine
+    """A bus of the run's own and a played BlueZ on it (docs/adr/0055-bluetooth.mdx), the machine
     `spec` describes (oxyos-fake-bluez's: the adapter, the devices paired and nearby, how each
     pairs and connects); its address and a function that stops both."""
     base = out / "bluetooth"
@@ -4617,7 +4617,7 @@ def main():
         command += ["--network-bus", network_address]
     stop_bluetooth = None
     if "bluetooth" in scenario:
-        # The system's BlueZ, played on a bus of the run's own (ADR 0050): the session's Bluetooth,
+        # The system's BlueZ, played on a bus of the run's own (ADR 0055): the session's Bluetooth,
         # its pairing agent and the played machine's Control Center module are its, never the
         # developer's machine's.
         bluetooth_address, stop_bluetooth = bluetooth_daemon(scenario["bluetooth"], out, options.offscreen)
