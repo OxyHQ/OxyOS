@@ -588,7 +588,7 @@ session's launches (`account.registered`; any other process is refused `notPermi
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
 application's window first shows TEXT). A token it mints names the application it is for and is no
-credential. Erasing the computer (docs/adr/0050-recovery-and-erasing.mdx), Settings' alone:
+credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
 password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says

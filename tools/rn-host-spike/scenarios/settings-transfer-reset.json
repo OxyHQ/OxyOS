@@ -1,5 +1,5 @@
 {
-  "about": "Settings › General › Transfer or Reset (docs/adr/0050-recovery-and-erasing.mdx; apps/settings), as a Mac's: Erase All Content and Settings… and its Erase Assistant, over a played accounts' service (Settings alone may ask it): what will be erased (each account, its files, apps and settings, whether it is signed out of this computer online; Wi-Fi and this computer's settings; OxyOS stays installed), then the administrator's password. A wrong one is said in the field and changes nothing; the right one erases: the service arms the erase and the computer restarts.",
+  "about": "Settings › General › Transfer or Reset (docs/adr/0054-recovery-and-erasing.mdx; apps/settings), as a Mac's: Erase All Content and Settings… and its Erase Assistant, over a played accounts' service (Settings alone may ask it): what will be erased (each account, its files, apps and settings, whether it is signed out of this computer online; Wi-Fi and this computer's settings; OxyOS stays installed), then the administrator's password. A wrong one is said in the field and changes nothing; the right one erases: the service arms the erase and the computer restarts.",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -26,7 +26,7 @@
   },
   "steps": [
     {
-      "name": "Transfer or Reset in General",
+      "name": "Settings opens",
       "do": [
         "wait",
         1500
@@ -34,15 +34,18 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Transfer or Reset"
+          "Appearance"
         ]
       }
     },
     {
       "name": "the page: what erasing does, and the erase, offered to the administrator",
       "do": [
-        "press_named",
-        "Transfer or Reset"
+        "a11y-action",
+        [
+          "activate",
+          "Transfer or Reset"
+        ]
       ],
       "expect": {
         "texts": [

@@ -21,7 +21,7 @@
 //! Then, on the machine, one setup at a time: the account's user (made, or the enrolled one
 //! found), its file in the store, the account made an administrator if no other enrolled account
 //! is one (the first account set up on a machine is its administrator, as a Mac's first account
-//! is: [ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)), and last the verifier. A failure
+//! is: [ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)), and last the verifier. A failure
 //! undoes what this setup did: a new user is removed with its home (and so leaves the
 //! administrators' group), an enrolled account's file is put back as it was. The
 //! verifier is the last step, so a user whose setup failed was never one a password opens. A
@@ -396,7 +396,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
 
     /// Makes the enrolled account with the lowest uid an administrator when accounts are enrolled
     /// and none is one: a machine set up before administrators existed gets one, as its first
-    /// setup would have made it (ADR 0050). Its user, if one was made.
+    /// setup would have made it (ADR 0054). Its user, if one was made.
     pub fn ensure_administrator(&self) -> Result<Option<UserName>, String> {
         let _machine = self.lock();
         if self.administrator_enrolled()? {

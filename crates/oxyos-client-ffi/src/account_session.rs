@@ -6,7 +6,7 @@
 //!   knows the asking process by its launch, never by what it says: the application asks for the
 //!   session's snapshot, follows it, and asks for a short token for itself. Settings may ask the
 //!   service to remove its own account from the machine, or to erase the machine
-//!   ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)): what erasing would do, then the
+//!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)): what erasing would do, then the
 //!   erase itself with the administrator's password.
 //! - **Setting an account up, for the login screen** (decision 4): the control socket's `platform`
 //!   (Oxy's API and OxyOS's public client id, which the SDK's sign-in runs with) and the `enroll`

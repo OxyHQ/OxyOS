@@ -91,7 +91,7 @@ impl Authenticator {
     }
 
     /// `user` under `service` from `/etc/pam.d`: a root service checking an account's own password
-    /// for it (`oxyos-accountd`'s administrator's, [ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)).
+    /// for it (`oxyos-accountd`'s administrator's, [ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)).
     pub fn for_user(service: &str, user: &str) -> Result<Self, Error> {
         let text =
             |value: &str| CString::new(value).map_err(|_| Error::Pam("a name with a NUL".into()));

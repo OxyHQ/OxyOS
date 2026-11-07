@@ -1863,7 +1863,7 @@ std::shared_ptr<TurboModule> createHostModule(
     //   account from this computer (the service refuses anyone else); `erasePreview()` (what
     //   erasing this computer would do) and `eraseAll(password)` (the erase, with the
     //   administrator's password: {erasing} or {refused: {reason, retryAfter?}}) erase it
-    //   (docs/adr/0050-recovery-and-erasing.mdx), Settings' alone too; each a promise of the
+    //   (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone too; each a promise of the
     //   service's answer, {failed} when it could not be asked. `lockSession()` locks the session
     //   for the SDK's sign-in, while the application's window is the active one.
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:

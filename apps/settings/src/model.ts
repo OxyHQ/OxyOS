@@ -224,7 +224,7 @@ export type SettingsActions = {
   sound?: SoundActions;
   account?: AccountActions;
   power?: PowerActions;
-  /** Erasing the computer (General › Transfer or Reset, docs/adr/0050-recovery-and-erasing.mdx):
+  /** Erasing the computer (General › Transfer or Reset, docs/adr/0054-recovery-and-erasing.mdx):
       none where the platform has no account session to ask (a development session started from a
       terminal), which offers no erase. */
   erase?: EraseActions;

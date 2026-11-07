@@ -29,7 +29,7 @@
 //!   can be reached, its verifier locked and credential forgotten at once; then its sessions
 //!   ended, its user and home removed, its file and picture forgotten.
 //!
-//! - **Erasing the machine** ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx), the
+//! - **Erasing the machine** ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx), the
 //!   [`erase`](crate::erase) module's): once the erase is armed the platform mints no token and
 //!   checks no password online ([`Platform::begin_erasing`]), and every account is signed out of
 //!   this device online as removing one does ([`Platform::sign_out_for_erase`]).
@@ -932,7 +932,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         self.with_live(user.as_str(), |live| live.online)
     }
 
-    /// The machine's erase is armed (ADR 0050): from now on no token is minted and no password is
+    /// The machine's erase is armed (ADR 0054): from now on no token is minted and no password is
     /// checked online; only [`Platform::sign_out_for_erase`] asks Oxy anything.
     pub fn begin_erasing(&self) {
         self.erasing.store(true, Ordering::SeqCst);

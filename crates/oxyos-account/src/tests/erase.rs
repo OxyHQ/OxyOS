@@ -1,4 +1,4 @@
-//! Erasing the machine (ADR 0050): who may, in what order, failing closed; what Settings is shown
+//! Erasing the machine (ADR 0054): who may, in what order, failing closed; what Settings is shown
 //! first; and `systemctl` itself, a script of the tests' own standing for it. Oxy, the users, the
 //! password check and the system's side are fakes; the store is real.
 

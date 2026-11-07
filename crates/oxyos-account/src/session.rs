@@ -50,7 +50,7 @@
 //!   applications, are OxyOS's; any other by its desktop entry id); null offline, signed out or
 //!   refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
 //!   of the peer's own account. So are `erasePreview` and `eraseAll`, erasing the machine
-//!   ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx), [`erase`](crate::erase)): an
+//!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx), [`erase`](crate::erase)): an
 //!   erase is refused `notAdministrator`, `wrongPassword`, `throttled` (with `retryAfter`, in
 //!   seconds), `unavailable` (no recovery) or `failed`, and a refusal changed nothing.
 //! - **Limits,** as the service's own socket: every peer waits at most [`IDLE`] for its next

@@ -5,7 +5,7 @@
 //   service keeps (its descriptor wakes the host's loop, as the network's does), and short tokens
 //   for the application, minted online, so asked on a thread of its own and answered on the
 //   JavaScript thread. Settings removes its own account the same way, and erases the computer
-//   (docs/adr/0050-recovery-and-erasing.mdx): what erasing would do, then the erase with the
+//   (docs/adr/0054-recovery-and-erasing.mdx): what erasing would do, then the erase with the
 //   administrator's password, forgotten here once sent.
 // - **The login screen's setup** (decision 4): the platform the SDK's sign-in runs with, and the
 //   `enroll` conversation, a second factor answered on the same connection.

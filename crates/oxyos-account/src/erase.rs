@@ -1,5 +1,5 @@
 //! Erasing the machine: Settings' *Erase All Content and Settings…*
-//! ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)), what `oxyos-accountd` does of it.
+//! ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)), what `oxyos-accountd` does of it.
 //! The recovery erases the disk at the next boot; this service only authorizes the erase, arms it,
 //! signs the accounts out of this device online and restarts the machine.
 //!

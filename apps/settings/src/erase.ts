@@ -1,5 +1,5 @@
 /**
- * Settings › General › Transfer or Reset (docs/adr/0050-recovery-and-erasing.mdx), as a Mac's: what
+ * Settings › General › Transfer or Reset (docs/adr/0054-recovery-and-erasing.mdx), as a Mac's: what
  * *Erase All Content and Settings…* would do and the erase itself, as the platform tells them (the
  * accounts' service, which alone decides who may erase and arms the erase; the recovery erases the
  * disk at the next boot). Settings decides none of it: it reads what it is told strictly, and says

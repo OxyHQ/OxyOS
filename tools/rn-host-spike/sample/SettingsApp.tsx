@@ -12,7 +12,7 @@
  * as the platform gives every application (oxyos/session-host.js, docs/adr/0020-oxy-account-login.mdx):
  * signing out is the session's (`signOut`, with the `settings` grant), removing the account the
  * accounts' service's, which only Settings may ask, as is erasing the computer (General › Transfer
- * or Reset, docs/adr/0050-recovery-and-erasing.mdx).
+ * or Reset, docs/adr/0054-recovery-and-erasing.mdx).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';

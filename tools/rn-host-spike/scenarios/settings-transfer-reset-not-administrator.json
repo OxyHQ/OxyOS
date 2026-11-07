@@ -1,5 +1,5 @@
 {
-  "about": "Settings › General › Transfer or Reset (docs/adr/0050-recovery-and-erasing.mdx) for an account that is not the computer's administrator, over a played accounts' service: Erase All Content and Settings… is shown but cannot be pressed, and the page says only an administrator can erase this computer. Nothing is asked of the service but what erasing would do.",
+  "about": "Settings › General › Transfer or Reset (docs/adr/0054-recovery-and-erasing.mdx) for an account that is not the computer's administrator, over a played accounts' service: Erase All Content and Settings… is shown but cannot be pressed, and the page says only an administrator can erase this computer. Nothing is asked of the service but what erasing would do.",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -27,7 +27,7 @@
   },
   "steps": [
     {
-      "name": "Transfer or Reset in General",
+      "name": "Settings opens",
       "do": [
         "wait",
         1500
@@ -35,15 +35,18 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Transfer or Reset"
+          "Appearance"
         ]
       }
     },
     {
       "name": "the page: the erase shown, not offered, and why",
       "do": [
-        "press_named",
-        "Transfer or Reset"
+        "a11y-action",
+        [
+          "activate",
+          "Transfer or Reset"
+        ]
       ],
       "expect": {
         "texts": [

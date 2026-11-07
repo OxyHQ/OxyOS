@@ -1,5 +1,5 @@
 /**
- * General › Transfer or Reset (docs/adr/0050-recovery-and-erasing.mdx), as a Mac's: *Erase All
+ * General › Transfer or Reset (docs/adr/0054-recovery-and-erasing.mdx), as a Mac's: *Erase All
  * Content and Settings…* and its Erase Assistant, one sheet that goes from what will be erased to
  * the administrator's password to the erase itself. The platform decides everything (who may, the
  * password, arming the erase, the restart); the page shows what it is told and says what came of
@@ -9,7 +9,6 @@ import * as React from "react";
 import { AccessibilityInfo, TextInput, View } from "react-native";
 import { Dialog, type DialogAction } from "@oxy.so/bloom/dialog";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
-import { Loading } from "@oxy.so/bloom/loading";
 import { TextField, TextFieldHint, TextFieldInput } from "@oxy.so/bloom/text-field";
 import { Text } from "@oxy.so/bloom/typography";
 import { initialsOf } from "./account";
@@ -108,15 +107,13 @@ export function TransferResetPage({ actions, strings }: Props) {
   const dialog = (() => {
     if (!step) return null;
     if (step.kind === "erasing") {
+      // Said, and left: the computer restarts now and its recovery erases the disk, so there is no
+      // progress here to show.
       return {
         title: words.erasingTitle,
         description: words.erasingDescription,
         actions: [] as DialogAction[],
-        content: (
-          <View style={{ alignItems: "center", paddingVertical: 12 }}>
-            <Loading testID="erase-assistant-erasing" />
-          </View>
-        ),
+        content: null,
       };
     }
     const { preview: shown } = step;

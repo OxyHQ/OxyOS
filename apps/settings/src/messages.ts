@@ -578,7 +578,7 @@ const en = {
     version: (version: string, size: string) => `Version ${version} · ${size}`,
     unavailable: "Updates are not available here.",
   },
-  /** General › Transfer or Reset (docs/adr/0050-recovery-and-erasing.mdx), as a Mac's, and its
+  /** General › Transfer or Reset (docs/adr/0054-recovery-and-erasing.mdx), as a Mac's, and its
       Erase Assistant. */
   transferReset: {
     description:

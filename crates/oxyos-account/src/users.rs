@@ -18,7 +18,7 @@
 //!   the verifier, so no password opens it until a setup sets one again.
 //! - **Ending its sessions:** `loginctl terminate-user`, logind's own way to end every session and
 //!   process of a user (what an administrator runs; root may, by polkit's rule for root).
-//! - **Administrators** ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)): the members of
+//! - **Administrators** ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)): the members of
 //!   [`ADMINISTRATORS`], Debian's `sudo` group, which polkit takes for the machine's administrators
 //!   there, so every later system-wide authorization agrees with OxyOS's. One is made with
 //!   `usermod --append --groups`; `userdel` takes a removed user out of the group with it.

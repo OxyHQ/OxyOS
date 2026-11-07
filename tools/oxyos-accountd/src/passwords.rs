@@ -1,5 +1,5 @@
 //! The administrator's password that authorizes erasing the machine
-//! ([ADR 0050](../../../docs/adr/0050-recovery-and-erasing.mdx)), checked as the lock checks one
+//! ([ADR 0054](../../../docs/adr/0054-recovery-and-erasing.mdx)), checked as the lock checks one
 //! ([ADR 0010](../../../docs/adr/0010-lock-screen.mdx)): by PAM, under this service's own name
 //! (`/etc/pam.d/oxyos-accountd`: the system's `common-auth` and `common-account`), against the
 //! account's verifier on this machine and never online, and throttled as the lock is

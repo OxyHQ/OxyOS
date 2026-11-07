@@ -2005,7 +2005,7 @@ int64_t oxyos_account_session_token(const char* reason, char* out, size_t capaci
 /* Removes the calling application's account from this computer (decision 5): Settings alone may.
  * Blocks while the service revokes, ends the account's sessions and forgets it. 0, or OXYOS_ERROR. */
 int oxyos_account_session_remove(void);
-/* Erasing this computer (docs/adr/0050-recovery-and-erasing.mdx): Settings alone may ask. What it
+/* Erasing this computer (docs/adr/0054-recovery-and-erasing.mdx): Settings alone may ask. What it
  * would do, for the calling application's account: JSON {"available" (it has a recovery),
  * "administrator" (the account is one), "online", "accounts": [{"name", "handle" (or null),
  * "signsOutOnline"}]}, the asking account first; OXYOS_ERROR when the service could not be asked or

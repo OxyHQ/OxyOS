@@ -9,7 +9,7 @@
 //! - The session socket (`oxyos-account`'s `session`): the session program registers what it
 //!   launches and checks the lock's passwords online; the applications it launched get the
 //!   platform's Oxy session (snapshots, tokens) and Settings removes the account, or erases the
-//!   machine ([ADR 0050](../../../docs/adr/0050-recovery-and-erasing.mdx), `oxyos-account`'s
+//!   machine ([ADR 0054](../../../docs/adr/0054-recovery-and-erasing.mdx), `oxyos-account`'s
 //!   `erase`): an administrator's own password, checked by PAM under `oxyos-accountd`
 //!   ([`passwords`]), `oxyos-erase.service` started to arm it, then the machine restarted.
 //!
