@@ -1,7 +1,7 @@
-//! The indexer (docs/adr/0051-search.mdx, decisions 3 and 4): the one thread that writes the
-//! index, at the scheduler's idle class, keeping it current with the person's files by inotify,
-//! as the tag index does (docs/adr/0049-file-tags.mdx), and with what the session and the
-//! applications give it.
+//! The crawler (docs/adr/0051-search.mdx, decisions 3 and 4): the thread that reads the person's
+//! files, at the scheduler's idle class, keeping the index current with them by inotify, as the tag
+//! index does (docs/adr/0049-file-tags.mdx). What it reads it hands to the writer
+//! ([`crate::writer`]), which changes the index.
 //!
 //! - **The first crawl** reconciles the index with the places (the home and the volumes mounted
 //!   for the person): every folder is watched before it is read; an item the index holds as it is
@@ -19,14 +19,13 @@
 //!   name ends with `.noindex` (a Mac's convention), a folder holding a `CACHEDIR.TAG` (the Cache
 //!   Directory Tagging Specification, which Cargo's, pip's and other caches write), and the folders
 //!   the person kept out in Settings › Spotlight.
-//! - **Commits:** whatever was written is committed once nothing is waiting, or every
-//!   [`COMMIT_EVERY`] while a crawl goes on, so results appear as it goes. After a commit with
-//!   nothing waiting the writer is closed, its threads ending and its memory given back.
+//! - **Settled:** once nothing waits, it tells the writer, which commits and closes.
 //! - **Idle:** with nothing to do, the thread waits on its descriptors with no deadline.
 
 use crate::category::Category;
 use crate::extract;
-use crate::index::{Index, Record, Source};
+use crate::index::{Record, Searcher, Source};
+use crate::writer::{Status, Write};
 use oxyos_files::{tag_index::EXCLUDED_FOLDERS, tags, uri, Scope};
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use rustix::fd::{AsFd, OwnedFd};
@@ -37,14 +36,14 @@ use std::io::{Read, Seek};
 use std::mem::MaybeUninit;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How long changes to a path settle before it is read.
 pub const SETTLE: Duration = Duration::from_millis(400);
-/// How often a long crawl commits what it wrote.
-pub const COMMIT_EVERY: Duration = Duration::from_secs(2);
+/// How many items a crawl reads between looks at its commands.
+const COMMANDS_EVERY: u32 = 256;
 
 /// What a watched folder's watch is told of.
 const FOLDER_EVENTS: WatchFlags = WatchFlags::ATTRIB
@@ -58,48 +57,19 @@ const FOLDER_EVENTS: WatchFlags = WatchFlags::ATTRIB
     .union(WatchFlags::ONLYDIR)
     .union(WatchFlags::DONT_FOLLOW);
 
-/// What the indexer is asked by the service.
+/// What the crawler is asked by the service.
 pub enum Command {
     /// The folders the person kept out (Settings › Spotlight), all of them.
     Excluded(Vec<PathBuf>),
-    /// Every item of `source` (an owner's, if given) replaced by `records`: the applications the
-    /// session lists, a package's declared items, an application's donated items when it asks to
-    /// replace them all.
-    Replace {
-        source: Source,
-        owner: Option<String>,
-        records: Vec<(Record, Option<String>)>,
-        done: Option<Box<dyn FnOnce() + Send>>,
-    },
-    /// Items added or replaced (an application's donations).
-    Put {
-        records: Vec<(Record, Option<String>)>,
-        done: Option<Box<dyn FnOnce() + Send>>,
-    },
-    /// Items removed by id.
-    Remove {
-        ids: Vec<String>,
-        done: Option<Box<dyn FnOnce() + Send>>,
-    },
 }
 
-/// What the indexer says of itself, read by the service.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Status {
-    /// The first crawl ended and nothing is waiting.
-    pub idle: bool,
-    /// The first crawl ended.
-    pub crawled: bool,
-    /// Some folders are not followed: the system's limit of watches was reached.
-    pub partial: bool,
-    /// Files read for their text since the start.
-    pub read: u64,
-}
-
-/// The indexer's thread's state.
+/// The crawler's thread's state.
 pub struct Indexer {
     scope: Scope,
-    index: Index,
+    /// The index as committed: what it holds of the files when the crawl begins.
+    searcher: Searcher,
+    /// Where what it reads goes.
+    writes: Sender<Write>,
     inotify: OwnedFd,
     folders: HashMap<PathBuf, i32>,
     wds: HashMap<i32, PathBuf>,
@@ -111,27 +81,26 @@ pub struct Indexer {
     known: Option<HashMap<String, (i64, u64)>>,
     /// Ids the first crawl saw.
     seen: HashSet<String>,
-    /// When the oldest change not committed was written.
-    first_uncommitted: Option<Instant>,
-    /// Told when work is committed (a commit, then `done`s).
-    waiting_done: Vec<Box<dyn FnOnce() + Send>>,
     status: Arc<Mutex<Status>>,
     told_partial: bool,
-    /// Said after each commit: the service reloads its reader and tells its watchers.
-    committed: Box<dyn Fn() + Send>,
+    /// Whether it told the writer it has nothing waiting.
+    settled: bool,
+    /// Items read since the commands were last looked at.
+    since_commands: u32,
 }
 
 impl Indexer {
     pub fn new(
         scope: Scope,
-        index: Index,
+        searcher: Searcher,
+        writes: Sender<Write>,
         excluded: Vec<PathBuf>,
         status: Arc<Mutex<Status>>,
-        committed: Box<dyn Fn() + Send>,
     ) -> std::io::Result<Indexer> {
         Ok(Indexer {
             scope,
-            index,
+            searcher,
+            writes,
             inotify: inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK)?,
             folders: HashMap::new(),
             wds: HashMap::new(),
@@ -140,11 +109,10 @@ impl Indexer {
             pending: BTreeMap::new(),
             known: None,
             seen: HashSet::new(),
-            first_uncommitted: None,
-            waiting_done: Vec::new(),
             status,
             told_partial: false,
-            committed,
+            settled: false,
+            since_commands: 0,
         })
     }
 
@@ -156,7 +124,7 @@ impl Indexer {
         if let Some(file) = mounts.as_mut() {
             let _ = file.read_to_end(&mut table);
         }
-        // Commands sent before the crawl (the applications, the exclusions) first.
+        // The exclusions sent before the crawl first.
         if !self.commands(&commands) {
             return;
         }
@@ -166,8 +134,10 @@ impl Indexer {
         loop {
             self.settle();
             let deadline = self.deadline();
-            if deadline.is_none() {
-                self.status.lock().expect("lock").idle = true;
+            if deadline.is_none() && !self.settled {
+                self.settled = true;
+                self.status.lock().expect("lock").crawler_idle = true;
+                let _ = self.writes.send(Write::Settled);
             }
             let timeout = deadline.map(|due| {
                 let left = due.saturating_duration_since(Instant::now());
@@ -193,7 +163,6 @@ impl Indexer {
                 let mut bytes = [0u8; 64];
                 let _ = rustix::io::read(&wake, &mut bytes);
                 if !self.commands(&commands) {
-                    let _ = self.commit(true);
                     return;
                 }
             }
@@ -206,20 +175,28 @@ impl Indexer {
                 self.sync_volumes(&commands);
             }
             if ready[0].contains(PollFlags::IN) {
-                self.status.lock().expect("lock").idle = false;
                 self.events(&mut buffer, &commands);
             }
         }
     }
 
-    /// When the thread must wake with nothing said: a pending path settling, or a commit due.
+    /// When the thread must wake with nothing said: a pending path settling.
     fn deadline(&self) -> Option<Instant> {
-        let settle = self.pending.values().min().copied();
-        let commit = self
-            .first_uncommitted
-            .filter(|_| !self.pending.is_empty())
-            .map(|first| first + COMMIT_EVERY);
-        settle.into_iter().chain(commit).min()
+        self.pending.values().min().copied()
+    }
+
+    /// It has work: the writer and the service are told, once.
+    fn busy(&mut self) {
+        if self.settled {
+            self.settled = false;
+            self.status.lock().expect("lock").crawler_idle = false;
+            let _ = self.writes.send(Write::Busy);
+        }
+    }
+
+    fn write(&mut self, write: Write) {
+        self.busy();
+        let _ = self.writes.send(write);
     }
 
     /// Takes the commands sent; false once the service is gone.
@@ -234,9 +211,9 @@ impl Indexer {
     }
 
     fn command(&mut self, command: Command) {
-        self.status.lock().expect("lock").idle = false;
         match command {
             Command::Excluded(excluded) => {
+                self.busy();
                 let added: Vec<PathBuf> = excluded
                     .iter()
                     .filter(|path| !self.excluded.contains(path))
@@ -258,41 +235,10 @@ impl Indexer {
                     }
                 }
             }
-            Command::Replace {
-                source,
-                owner,
-                records,
-                done,
-            } => {
-                let _ = self.index.remove_source(&source, owner.as_deref());
-                for (record, text) in &records {
-                    let _ = self.index.put(record, text.as_deref());
-                }
-                self.wrote(done);
-            }
-            Command::Put { records, done } => {
-                for (record, text) in &records {
-                    let _ = self.index.put(record, text.as_deref());
-                }
-                self.wrote(done);
-            }
-            Command::Remove { ids, done } => {
-                for id in &ids {
-                    let _ = self.index.remove(id);
-                }
-                self.wrote(done);
-            }
         }
     }
 
-    fn wrote(&mut self, done: Option<Box<dyn FnOnce() + Send>>) {
-        self.first_uncommitted.get_or_insert_with(Instant::now);
-        if let Some(done) = done {
-            self.waiting_done.push(done);
-        }
-    }
-
-    /// Reads every pending path that settled; commits when nothing waits or a commit is due.
+    /// Reads every pending path that settled.
     fn settle(&mut self) {
         let now = Instant::now();
         let due: Vec<PathBuf> = self
@@ -305,26 +251,6 @@ impl Indexer {
             self.pending.remove(&path);
             self.refresh(&path);
         }
-        let commit_due = self
-            .first_uncommitted
-            .is_some_and(|first| first.elapsed() >= COMMIT_EVERY);
-        if self.first_uncommitted.is_some() && (self.pending.is_empty() || commit_due) {
-            let _ = self.commit(self.pending.is_empty());
-        }
-    }
-
-    fn commit(&mut self, close: bool) -> tantivy::Result<()> {
-        let result = self.index.commit(close);
-        if close {
-            crate::sched::give_back_memory();
-        }
-        self.first_uncommitted = None;
-        // What waited on the commit is said before the service is woken to say it.
-        for done in std::mem::take(&mut self.waiting_done) {
-            done();
-        }
-        (self.committed)();
-        result
     }
 
     /// The places: the home and the volumes mounted for the person.
@@ -347,7 +273,9 @@ impl Indexer {
         self.wds.clear();
         self.folders.clear();
         self.told_partial = false;
-        self.known = self.index.files().ok();
+        self.busy();
+        let _ = self.searcher.reload();
+        self.known = self.searcher.files().ok();
         self.seen.clear();
         self.roots = self.places();
         for root in self.roots.clone() {
@@ -355,15 +283,13 @@ impl Indexer {
         }
         // What the index held that is no longer there.
         if let Some(known) = self.known.take() {
-            for id in known.keys() {
-                if !self.seen.contains(id) {
-                    let _ = self.index.remove(id);
-                    self.first_uncommitted.get_or_insert_with(Instant::now);
+            for id in known.into_keys() {
+                if !self.seen.contains(&id) {
+                    self.write(Write::Remove(id));
                 }
             }
         }
         self.seen = HashSet::new();
-        let _ = self.commit(self.pending.is_empty());
     }
 
     fn sync_volumes(&mut self, commands: &Receiver<Command>) {
@@ -467,11 +393,9 @@ impl Indexer {
                     }
                 }
                 if let Some(commands) = commands {
-                    if self
-                        .first_uncommitted
-                        .is_some_and(|first| first.elapsed() >= COMMIT_EVERY)
-                    {
-                        let _ = self.commit(false);
+                    self.since_commands += 1;
+                    if self.since_commands >= COMMANDS_EVERY {
+                        self.since_commands = 0;
                         if !self.commands(commands) {
                             return;
                         }
@@ -515,16 +439,14 @@ impl Indexer {
             }
             read
         };
-        if self.index.put(&record, text.as_deref()).is_ok() {
-            self.first_uncommitted.get_or_insert_with(Instant::now);
-        }
+        self.write(Write::Put(Box::new(record), text));
     }
 
     /// Removes `path` and, if it was a folder, everything in it and its watches.
     fn forget(&mut self, path: &Path, folder: bool) {
-        let _ = self.index.remove(&uri::of(path, false));
+        self.write(Write::Remove(uri::of(path, false)));
         if folder {
-            let _ = self.index.remove_inside(path);
+            self.write(Write::RemoveInside(path.to_path_buf()));
             let gone: Vec<PathBuf> = self
                 .folders
                 .keys()
@@ -539,7 +461,6 @@ impl Indexer {
             }
         }
         self.pending.retain(|pending, _| !pending.starts_with(path));
-        self.first_uncommitted.get_or_insert_with(Instant::now);
     }
 
     /// The item at `path`, settled: indexed as it is now, crawled if it is a folder not yet
@@ -583,6 +504,9 @@ impl Indexer {
                     .map(String::from);
                 said.push((event.wd(), event.events(), event.cookie(), name));
             }
+        }
+        if !said.is_empty() {
+            self.busy();
         }
         let due = Instant::now() + SETTLE;
         let mut moved_from: Vec<(u32, PathBuf)> = Vec::new();

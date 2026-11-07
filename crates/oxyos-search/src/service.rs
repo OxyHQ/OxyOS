@@ -36,15 +36,17 @@
 //! are Settings' (the `settings` grant).
 //!
 //! **Threads:** this one answers, at the normal priority, so a question is answered at once while
-//! the indexer works; the indexer ([`crate::indexer`]) runs at the scheduler's idle class and the
-//! disk's idle class, with the processes it starts (a PDF's reader). Neither wakes on a clock while
-//! nothing happens.
+//! the index is being built; the writer ([`crate::writer`]), at nice 10, changes the index, so
+//! what the session and the applications give it is written at once; the crawler
+//! ([`crate::indexer`]) reads the files at the scheduler's idle class and the disk's, with the
+//! processes it starts (a PDF's reader). None wakes on a clock while nothing happens.
 
 use crate::category::Category;
 use crate::extract;
 use crate::index::{Index, Question, Record, Searcher, Source, Usage, Viewer};
-use crate::indexer::{Command, Indexer, Status};
+use crate::indexer::{Command, Indexer};
 use crate::query::{self, Token};
+use crate::writer::{self, Status};
 use oxyos_files::{uri, Scope};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
@@ -393,9 +395,12 @@ pub struct Service {
     scope: Scope,
     paths: Paths,
     searcher: Searcher,
+    /// The crawler's commands (the folders kept out).
     commands: Sender<Command>,
-    /// Written to when a command is sent: the indexer's wake.
+    /// Written to when a command is sent: the crawler's wake.
     wake: UnixStream,
+    /// The writer's channel: what the session and the applications give the index.
+    writes: Sender<writer::Write>,
     status: Arc<Mutex<Status>>,
     preferences: Preferences,
     usage: HashMap<String, Usage>,
@@ -408,8 +413,9 @@ pub struct Service {
 }
 
 impl Service {
-    /// The service over `scope`, its index at `paths`; its indexer started on a thread of its own
-    /// at the idle class. `committed` is written a byte after each commit.
+    /// The service over `scope`, its index at `paths`: its writer started on a thread of its own at
+    /// nice 10, its crawler on another at the idle class. `committed` is written a byte after each
+    /// commit.
     pub fn start(scope: Scope, paths: Paths, committed: UnixStream) -> std::io::Result<Service> {
         let index = Index::open(&paths.cache).map_err(std::io::Error::other)?;
         let searcher = index.searcher_handle();
@@ -423,17 +429,31 @@ impl Service {
         let (wake, woken) = UnixStream::pair()?;
         woken.set_nonblocking(true)?;
         committed.set_nonblocking(true)?;
+        let (writes, written) = std::sync::mpsc::channel();
+        {
+            let status = status.clone();
+            std::thread::Builder::new()
+                .name("search-writer".into())
+                .spawn(move || {
+                    writer::run(
+                        index,
+                        written,
+                        status,
+                        Box::new(move || {
+                            let _ = (&committed).write(&[1]);
+                        }),
+                    );
+                })?;
+        }
         let indexer = Indexer::new(
             scope.clone(),
-            index,
+            searcher.clone(),
+            writes.clone(),
             preferences.excluded.clone(),
             status.clone(),
-            Box::new(move || {
-                let _ = (&committed).write(&[1]);
-            }),
         )?;
         std::thread::Builder::new()
-            .name("search-indexer".into())
+            .name("search-crawler".into())
             .spawn(move || {
                 crate::sched::idle_thread();
                 indexer.run(received, OwnedFd::from(woken));
@@ -444,6 +464,7 @@ impl Service {
             searcher,
             commands,
             wake,
+            writes,
             status,
             preferences,
             usage,
@@ -457,6 +478,34 @@ impl Service {
     fn send(&mut self, command: Command) {
         let _ = self.commands.send(command);
         let _ = (&self.wake).write(&[1]);
+    }
+
+    /// Replaces every item of `source` (an owner's) by `records`, committed at once; `done` once
+    /// the index holds them.
+    fn replace(
+        &mut self,
+        source: Source,
+        owner: Option<String>,
+        records: Vec<(Record, Option<String>)>,
+        done: Option<Box<dyn FnOnce() + Send>>,
+    ) {
+        let _ = self.writes.send(writer::Write::RemoveSource(source, owner));
+        self.put(records, done);
+    }
+
+    /// Puts `records`, committed at once; `done` once the index holds them.
+    fn put(
+        &mut self,
+        records: Vec<(Record, Option<String>)>,
+        done: Option<Box<dyn FnOnce() + Send>>,
+    ) {
+        for (record, text) in records {
+            let _ = self.writes.send(writer::Write::Put(Box::new(record), text));
+        }
+        let _ = self.writes.send(match done {
+            Some(done) => writer::Write::Done(done),
+            None => writer::Write::Commit,
+        });
     }
 
     /// The indexer committed: the reader takes it, and every watcher is told.
@@ -527,21 +576,10 @@ impl Service {
 
     fn applications(&mut self, listed: &[Listed]) {
         let (applications, declared) = listed_records(listed);
-        self.send(Command::Replace {
-            source: Source::Application,
-            owner: None,
-            records: applications
-                .into_iter()
-                .map(|record| (record, None))
-                .collect(),
-            done: None,
-        });
-        self.send(Command::Replace {
-            source: Source::Declared,
-            owner: None,
-            records: declared.into_iter().map(|record| (record, None)).collect(),
-            done: None,
-        });
+        let only =
+            |records: Vec<Record>| records.into_iter().map(|record| (record, None)).collect();
+        self.replace(Source::Application, None, only(applications), None);
+        self.replace(Source::Declared, None, only(declared), None);
     }
 
     /// An answer given once the indexer committed (its `done`).
@@ -625,10 +663,7 @@ impl Service {
                     ));
                 }
                 let done = self.once_committed(client, serial, json!({"done": {}}));
-                self.send(Command::Put {
-                    records,
-                    done: Some(done),
-                });
+                self.put(records, Some(done));
                 None
             }
             Ask::Remove { ids } => {
@@ -636,10 +671,12 @@ impl Service {
                     return Some(refused("notPermitted"));
                 };
                 let done = self.once_committed(client, serial, json!({"done": {}}));
-                self.send(Command::Remove {
-                    ids: ids.iter().map(|id| format!("{owner}:{id}")).collect(),
-                    done: Some(done),
-                });
+                for id in ids {
+                    let _ = self
+                        .writes
+                        .send(writer::Write::Remove(format!("{owner}:{id}")));
+                }
+                let _ = self.writes.send(writer::Write::Done(done));
                 None
             }
             Ask::RemoveAll {} => {
@@ -647,12 +684,7 @@ impl Service {
                     return Some(refused("notPermitted"));
                 };
                 let done = self.once_committed(client, serial, json!({"done": {}}));
-                self.send(Command::Replace {
-                    source: Source::Donated,
-                    owner: Some(owner),
-                    records: Vec::new(),
-                    done: Some(done),
-                });
+                self.replace(Source::Donated, Some(owner), Vec::new(), Some(done));
                 None
             }
             Ask::Preferences {} => {
@@ -706,7 +738,7 @@ impl Service {
             Ask::Status {} => {
                 let status = *self.status.lock().expect("lock");
                 Some(json!({"status": {
-                    "indexing": !status.idle,
+                    "indexing": !status.idle(),
                     "items": self.searcher.count(),
                     "partial": status.partial,
                     "bytes": self.searcher.disk_size(),
@@ -842,7 +874,7 @@ impl Service {
         json!({"results": {
             "items": items,
             "topHit": top_hit,
-            "indexing": !self.status.lock().expect("lock").idle,
+            "indexing": !self.status.lock().expect("lock").idle(),
         }})
     }
 }

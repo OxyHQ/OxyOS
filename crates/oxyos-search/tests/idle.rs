@@ -62,6 +62,7 @@ fn nothing_wakes_while_nothing_happens() {
         .unwrap();
     ours.set_read_timeout(Some(Duration::from_secs(30)))
         .unwrap();
+    let control = ours.try_clone().unwrap();
     let mut writer = ours.try_clone().unwrap();
     let mut reader = BufReader::new(ours);
     let mut ask = |serial: u32, ask: Value| -> Value {
@@ -101,11 +102,13 @@ fn nothing_wakes_while_nothing_happens() {
         "the service's threads woke {woke} times in 4 s idle: {:?}",
         threads()
     );
-    // The writer is closed while idle: its threads are gone, the service's two remain (answering,
-    // indexing) beside the test harness's two.
+    // The tantivy writer is closed while idle: its threads are gone, the service's three remain
+    // (answering, crawling, writing) beside the test harness's two.
     let named: Vec<String> = threads();
-    assert_eq!(named.len(), 4, "{named:?}");
-    assert!(named.contains(&"search-indexer".to_string()), "{named:?}");
-    drop(writer);
+    assert_eq!(named.len(), 5, "{named:?}");
+    assert!(named.contains(&"search-crawler".to_string()), "{named:?}");
+    assert!(named.contains(&"search-writer".to_string()), "{named:?}");
+    // The program closing its end ends the service.
+    control.shutdown(std::net::Shutdown::Both).unwrap();
     service.join().unwrap().unwrap();
 }

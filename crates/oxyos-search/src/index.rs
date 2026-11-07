@@ -505,42 +505,9 @@ impl Index {
         self.reader.reload()
     }
 
-    /// Every file and folder the index holds: its path's id, the time it changed and its size.
+    /// Every file and folder the index holds ([`Searcher::files`]).
     pub fn files(&self) -> tantivy::Result<HashMap<String, (i64, u64)>> {
-        let searcher = self.reader.searcher();
-        let mut files = HashMap::new();
-        let query = term_query(self.fields.source, Source::File.name());
-        let weight = query.weight(tantivy::query::EnableScoring::disabled_from_searcher(
-            &searcher,
-        ))?;
-        for segment in searcher.segment_readers() {
-            let fast = segment.fast_fields();
-            let ids = fast.str("id")?;
-            let changed = fast.i64("changed")?;
-            let sizes = fast.u64("size")?;
-            let Some(ids) = ids else {
-                continue;
-            };
-            let mut text = String::new();
-            let alive = segment.alive_bitset();
-            weight.for_each_no_score(segment, &mut |documents| {
-                for &document in documents {
-                    // Deleted, its segment not yet merged.
-                    if alive.is_some_and(|alive| !alive.is_alive(document)) {
-                        continue;
-                    }
-                    let Some(ordinal) = ids.term_ords(document).next() else {
-                        continue;
-                    };
-                    if ids.ord_to_str(ordinal, &mut text).unwrap_or(false) {
-                        let changed = changed.first(document).unwrap_or(0);
-                        let size = sizes.first(document).unwrap_or(0);
-                        files.insert(text.clone(), (changed, size));
-                    }
-                }
-            })?;
-        }
-        Ok(files)
+        self.searcher_handle().files()
     }
 
     /// The record of `id`, if the index holds it.
@@ -641,6 +608,44 @@ impl Searcher {
             .filter_map(|segment| segment.space_usage().ok())
             .map(|usage| usage.total().get_bytes())
             .sum()
+    }
+
+    /// Every file and folder the index holds: its path's id, the time it changed and its size.
+    pub fn files(&self) -> tantivy::Result<HashMap<String, (i64, u64)>> {
+        let searcher = self.reader.searcher();
+        let mut files = HashMap::new();
+        let query = term_query(self.fields.source, Source::File.name());
+        let weight = query.weight(tantivy::query::EnableScoring::disabled_from_searcher(
+            &searcher,
+        ))?;
+        for segment in searcher.segment_readers() {
+            let fast = segment.fast_fields();
+            let ids = fast.str("id")?;
+            let changed = fast.i64("changed")?;
+            let sizes = fast.u64("size")?;
+            let Some(ids) = ids else {
+                continue;
+            };
+            let mut text = String::new();
+            let alive = segment.alive_bitset();
+            weight.for_each_no_score(segment, &mut |documents| {
+                for &document in documents {
+                    // Deleted, its segment not yet merged.
+                    if alive.is_some_and(|alive| !alive.is_alive(document)) {
+                        continue;
+                    }
+                    let Some(ordinal) = ids.term_ords(document).next() else {
+                        continue;
+                    };
+                    if ids.ord_to_str(ordinal, &mut text).unwrap_or(false) {
+                        let changed = changed.first(document).unwrap_or(0);
+                        let size = sizes.first(document).unwrap_or(0);
+                        files.insert(text.clone(), (changed, size));
+                    }
+                }
+            })?;
+        }
+        Ok(files)
     }
 
     /// The record of `id`.
