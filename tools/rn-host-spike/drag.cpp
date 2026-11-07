@@ -28,7 +28,8 @@ OxyOSDropTargetViewProps::OxyOSDropTargetViewProps(const PropsParserContext& con
       acceptKinds(convertRawProp(context, rawProps, "acceptKinds", sourceProps.acceptKinds, std::string())),
       dropActions(convertRawProp(context, rawProps, "dropActions", sourceProps.dropActions, std::string())),
       disabled(convertRawProp(context, rawProps, "disabled", sourceProps.disabled, false)),
-      acceptFileTypes(convertRawProp(context, rawProps, "acceptFileTypes", sourceProps.acceptFileTypes, std::string())) {}
+      acceptFileTypes(convertRawProp(context, rawProps, "acceptFileTypes", sourceProps.acceptFileTypes, std::string())),
+      dropFolder(convertRawProp(context, rawProps, "dropFolder", sourceProps.dropFolder, std::string())) {}
 
 }  // namespace facebook::react
 
@@ -154,6 +155,32 @@ std::string dragFileTypes(const folly::dynamic& data) {
   return out;
 }
 
+std::string dragFileVolumes(const folly::dynamic& data) {
+  std::vector<std::string> volumes;
+  auto files = data.isObject() ? data.find("files") : data.items().end();
+  if (!data.isObject() || files == data.items().end() || !files->second.isArray()) return {};
+  for (const auto& file : files->second) {
+    if (!file.isString() || file.asString().rfind("file://", 0) != 0) continue;
+    const auto& uri = file.asString();
+    char volume[64];
+    int length = oxyos_files_volume(uri.data(), uri.size(), volume, sizeof volume);
+    if (length <= 0) continue;
+    std::string named(volume, static_cast<size_t>(length));
+    if (std::find(volumes.begin(), volumes.end(), named) == volumes.end() && volumes.size() < 16) {
+      volumes.push_back(named);
+    }
+  }
+  std::string out;
+  for (const auto& volume : volumes) out += volume + "\n";
+  return out;
+}
+
+std::optional<uint8_t> folderPreference(const std::vector<std::string>& volumes, const std::string& folderVolume) {
+  if (volumes.empty() || folderVolume.empty()) return std::nullopt;
+  bool same = std::all_of(volumes.begin(), volumes.end(), [&](const std::string& one) { return one == folderVolume; });
+  return same ? OXYOS_DRAG_MOVE : OXYOS_DRAG_COPY;
+}
+
 bool filesTaken(const std::vector<std::string>& fileTypes, const std::vector<std::string>& accepted) {
   if (fileTypes.empty()) return false;
   return std::all_of(fileTypes.begin(), fileTypes.end(), [&](const std::string& type) {
@@ -241,11 +268,25 @@ std::string DragDrop::fieldType() const {
   return {};
 }
 
-void DragDrop::update() {
-  if (!offer_ || offer_->types.size() < offer_->expected || offer_->fileTypes.size() < offer_->fileExpected) return;
+std::optional<std::string> DragDrop::folderVolume(const std::string& folder) {
+  auto known = folderVolumes_.find(folder);
+  if (known != folderVolumes_.end()) return known->second;
+  char volume[64];
+  int length = oxyos_files_folder_volume(folder.data(), folder.size(), volume, sizeof volume);
+  std::optional<std::string> found;
+  if (length > 0) found = std::string(volume, static_cast<size_t>(length));
+  folderVolumes_.emplace(folder, found);
+  return found;
+}
+
+void DragDrop::update(bool moved) {
+  if (!offer_ || offer_->types.size() < offer_->expected || offer_->fileTypes.size() < offer_->fileExpected ||
+      offer_->volumes.size() < offer_->volumesExpected) {
+    return;
+  }
   Tag found = -1;
   bool field = false;
-  std::string mime;
+  std::string mime, kindTaken;
   uint8_t actions = 0, preferred = 0;
   auto content = surfaces_(offer_->surface);
   if (content) {
@@ -276,6 +317,7 @@ void DragDrop::update() {
                                       [&](const std::string& t) { return lower(t) == type; });
           if (offered != offer_->types.end()) {
             mime = *offered;
+            kindTaken = kind;
             break;
           }
         }
@@ -292,6 +334,14 @@ void DragDrop::update() {
       actions |= bit;
     }
     if (actions == 0) actions = preferred = OXYOS_DRAG_COPY;
+    // Files into its folder: a move on the folder's volume, a copy onto another, as Finder does,
+    // when it allows both (Option and Command still force either: the compositor's).
+    bool both = (actions & OXYOS_DRAG_COPY) && (actions & OXYOS_DRAG_MOVE);
+    if (kindTaken == "files" && both && !props->dropFolder.empty()) {
+      if (auto volume = folderVolume(props->dropFolder)) {
+        if (auto finder = folderPreference(offer_->volumes, *volume)) preferred = *finder;
+      }
+    }
   }
   // The compositor is answered for the entering, and again whenever the answer changes.
   if (!offer_->answered || mime != offer_->mime || actions != offer_->actions || preferred != offer_->preferred) {
@@ -309,8 +359,35 @@ void DragDrop::update() {
   if (now != was) {
     if (was >= 0) dispatch(was, "dragLeave", folly::dynamic::object());
     if (now >= 0) dispatch(now, "dragEnter", event(now));
-  } else if (now >= 0) {
+  } else if (now >= 0 && moved) {
     dispatch(now, "dragOver", event(now));
+  }
+}
+
+void DragDrop::mounted() {
+  if (offer_) update(false);
+}
+
+void DragDrop::tellWindow(folly::dynamic event) {
+  Report::get().input("drag.window", offer_ ? offer_->surface : 0, event);
+  if (tellWindow_) tellWindow_(event);
+}
+
+void DragDrop::observed() {
+  if (presence_ == Presence::Over && !offer_) {
+    presence_ = Presence::Outside;
+    tellWindow(folly::dynamic::object("type", "exit")("dropped", false));
+  }
+}
+
+void DragDrop::ranJavaScript() {
+  if (presence_ != Presence::Delivered) return;
+  presence_ = Presence::Outside;
+  tellWindow(folly::dynamic::object("type", "exit")("dropped", true));
+  // A drag came over this client while that drop was delivered: it is the window's now.
+  if (offer_) {
+    presence_ = Presence::Over;
+    tellWindow(folly::dynamic::object("type", "enter"));
   }
 }
 
@@ -322,6 +399,8 @@ void DragDrop::leave() {
 
 void DragDrop::drop(const OxyOSEvent& event) {
   if (!offer_ || offer_->offer != event.code) return;
+  // Dropped on this client: the window's drag ends once the drop is delivered.
+  presence_ = Presence::Dropped;
   offer_->x = event.x / 256.0f;
   offer_->y = event.y / 256.0f;
   offer_->action = static_cast<uint8_t>(event.detail);
@@ -336,6 +415,7 @@ void DragDrop::drop(const OxyOSEvent& event) {
     if (fd < 0) {
       window_.finishDrop(offer_->offer);
       offer_.reset();
+      presence_ = Presence::Delivered;
       return;
     }
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
@@ -353,6 +433,7 @@ void DragDrop::drop(const OxyOSEvent& event) {
     // went meanwhile): nothing is received.
     window_.finishDrop(offer_->offer);
     leave();
+    presence_ = Presence::Delivered;
     return;
   }
   Receiving receiving{.offer = offer_->offer, .surface = offer_->surface, .view = view, .event = this->event(view)};
@@ -433,6 +514,7 @@ bool DragDrop::deliver() {
       window_.finishDrop(it->offer);
       it = receiving_.erase(it);
       finished = true;
+      if (presence_ == Presence::Dropped) presence_ = Presence::Delivered;
       continue;
     }
     folly::dynamic received = folly::dynamic::object();
@@ -449,6 +531,8 @@ bool DragDrop::deliver() {
     window_.finishDrop(it->offer);
     it = receiving_.erase(it);
     finished = true;
+    // Its onDrop runs with JavaScript's next events; the window's drag ends after (ranJavaScript).
+    if (presence_ == Presence::Dropped) presence_ = Presence::Delivered;
   }
   return finished;
 }
@@ -493,9 +577,17 @@ void DragDrop::observe(const OxyOSEvent& event) {
                      .sourceActions = static_cast<uint8_t>(event.detail),
                      .expected = event.width,
                      .fileExpected = event.height,
+                     .volumesExpected = event.flag,
                      .x = event.x / 256.0f,
                      .y = event.y / 256.0f,
                      .own = live_ != 0};
+      folderVolumes_.clear();
+      // The first of this client's surfaces the drag comes over: it is over the window now (a drop
+      // still being delivered tells its end first, ranJavaScript).
+      if (presence_ == Presence::Outside) {
+        presence_ = Presence::Over;
+        tellWindow(folly::dynamic::object("type", "enter"));
+      }
       update();
       return;
     case OXYOS_EVENT_DRAG_OFFER_TYPE:
@@ -512,6 +604,18 @@ void DragDrop::observe(const OxyOSEvent& event) {
         if (event.flag & 1) {
           offer_->fileTypes.push_back(std::move(offer_->fileTypeChunks));
           offer_->fileTypeChunks.clear();
+          update();
+        }
+      }
+      return;
+    // A chunk of a volume its files are on (version 28), complete with its last.
+    case OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME:
+      if (offer_ && offer_->offer == event.code && offer_->volumes.size() < offer_->volumesExpected) {
+        if (event.detail == 0) offer_->volumeChunks.clear();
+        offer_->volumeChunks += event.text;
+        if (event.flag & 1) {
+          offer_->volumes.push_back(std::move(offer_->volumeChunks));
+          offer_->volumeChunks.clear();
           update();
         }
       }
@@ -591,13 +695,13 @@ bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>&
                       }};
   }
   return start(dragContents(data), allowed, std::move(image), std::move(done), vanish, dragFileTypes(data),
-               std::move(cancelled));
+               std::move(cancelled), dragFileVolumes(data));
 }
 
 bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& contents, uint8_t allowed,
                      std::optional<DragImage> image, std::function<void(std::optional<std::string>)> done,
                      bool vanish, const std::string& fileTypes,
-                     std::function<void(const std::string&)> cancelled) {
+                     std::function<void(const std::string&)> cancelled, const std::string& volumes) {
   if (!available() || pressSerial_ == 0 || allowed == 0 || contents.empty() || contents.size() > 16) {
     if (cancelled) cancelled("refused");
     done(std::nullopt);
@@ -615,7 +719,7 @@ bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& con
     iconDraw_ = std::move(image->draw);
     iconDrawnFor_ = 0;
   }
-  uint32_t drag = window_.startDrag(pressSurface_, icon, pressSerial_, allowed, contents, vanish, fileTypes);
+  uint32_t drag = window_.startDrag(pressSurface_, icon, pressSerial_, allowed, contents, vanish, fileTypes, volumes);
   if (drag == 0) {
     endIcon();
     if (cancelled) cancelled("refused");
@@ -626,7 +730,7 @@ bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& con
   for (const auto& [mime, _] : contents) types.push_back(mime);
   Report::get().input("drag.start", pressSurface_,
                       folly::dynamic::object("drag", drag)("types", types)("actions", allowed)("vanish", vanish)(
-                          "fileTypes", fileTypes));
+                          "fileTypes", fileTypes)("volumes", volumes));
   drags_[drag] = std::move(done);
   if (cancelled) cancelled_[drag] = std::move(cancelled);
   live_ = drag;
