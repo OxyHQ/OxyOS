@@ -448,8 +448,12 @@ fn settings_alone_keeps_folders_and_categories_out() {
     // Applications hidden from the shell's Spotlight, not from the index nor from the launcher,
     // which asks for applications by name.
     assert!(service.query("dropsea").is_empty());
-    let launcher = service.ask(json!({"query": {"text": "dropsea", "categories": ["application"]}}));
-    assert_eq!(launcher["results"]["items"][0]["id"], "application:so.oxy.dropsea");
+    let launcher =
+        service.ask(json!({"query": {"text": "dropsea", "categories": ["application"]}}));
+    assert_eq!(
+        launcher["results"]["items"][0]["id"],
+        "application:so.oxy.dropsea"
+    );
     // A file made in the folder kept out stays out.
     write(&service.home.join("Private/more.txt"), "dear secret");
     std::thread::sleep(Duration::from_millis(800));
