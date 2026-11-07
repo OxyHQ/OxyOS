@@ -136,6 +136,32 @@ function useFolder(platform: WallpaperActions | undefined, path: string | null):
   return images;
 }
 
+/** The images of each of several folders, as the platform lists them, each once it answered. */
+function useFolders(platform: WallpaperActions | undefined, paths: readonly string[]): Record<string, string[]> {
+  const list = platform?.folder;
+  const key = paths.join("\n");
+  const [known, setKnown] = React.useState<Record<string, string[]>>(() =>
+    Object.fromEntries(paths.flatMap((path) => (folders.has(path) ? [[path, folders.get(path)!]] : []))),
+  );
+  React.useEffect(() => {
+    if (!list) return undefined;
+    let live = true;
+    for (const path of paths) {
+      list(path).then(
+        (found) => {
+          folders.set(path, found);
+          if (live) setKnown((current) => ({ ...current, [path]: found }));
+        },
+        () => {},
+      );
+    }
+    return () => {
+      live = false;
+    };
+  }, [key, list]);
+  return known;
+}
+
 /** A system wallpaper's picture as it looks now: its fixed variant's, the appearance's for one
     that follows it, else its preview. */
 function wallpaperPicture(wallpaper: SystemWallpaper, variant: string | null, dark: boolean): string {
@@ -415,7 +441,7 @@ function ColorPicker({
       ]}
       testID={testID}
     >
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: 12, paddingBottom: 12 }}>
         <View
           style={{ height: 56, borderRadius: RADIUS, backgroundColor: `#${hex}` }}
           accessibilityElementsHidden
@@ -473,6 +499,12 @@ function ColorPicker({
             autoCapitalize="characters"
             autoCorrect={false}
             maxLength={7}
+            // Return chooses the colour, as the dialog's default button; Escape is the dialog's Cancel.
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              const parsed = normalizeHex(text);
+              onChoose(parsed ?? hex);
+            }}
             testID={`${testID}-hex`}
           />
         </TextField>
@@ -517,14 +549,16 @@ function ColorWell({
 function AddedPicture({
   platform,
   item,
+  images,
   size,
 }: {
   platform: WallpaperActions | undefined;
   item: AddedWallpaper;
+  /** A folder's images, as listed. */
+  images: readonly string[] | undefined;
   size: { width: number; height: number };
 }) {
-  const images = useFolder(platform, item.kind === "folder" ? item.path : null);
-  const uri = item.kind === "photo" ? fileUri(item.path) : (images[0] ?? null);
+  const uri = item.kind === "photo" ? fileUri(item.path) : (images?.[0] ?? null);
   return (
     <Picture platform={platform} uri={uri} size={size}>
       {item.kind === "folder" ? (
@@ -533,15 +567,22 @@ function AddedPicture({
             position: "absolute",
             right: 4,
             bottom: 4,
-            width: 22,
-            height: 22,
-            borderRadius: 11,
-            backgroundColor: "rgba(0,0,0,0.45)",
+            height: 20,
+            paddingHorizontal: 6,
+            gap: 3,
+            borderRadius: 10,
+            flexDirection: "row",
+            backgroundColor: "rgba(0,0,0,0.5)",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <RiFolder3Line width={13} fill="#ffffff" />
+          <RiFolder3Line width={12} fill="#ffffff" />
+          {images ? (
+            <Text variant="caption-2-semibold" style={{ color: "#ffffff" }}>
+              {images.length}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </Picture>
@@ -597,6 +638,7 @@ function describe(
   choice: WallpaperChoice,
   catalog: WallpaperCatalog,
   words: Words,
+  folderImages: Record<string, string[]>,
 ): { name: string; kind: string } {
   switch (choice.kind) {
     case "color": {
@@ -606,7 +648,13 @@ function describe(
     case "photo":
       return { name: baseName(choice.path), kind: words.kinds.photo };
     case "folder":
-      return { name: baseName(choice.path), kind: words.kinds.folder };
+    {
+      const images = folderImages[choice.path];
+      return {
+        name: baseName(choice.path),
+        kind: images ? `${words.kinds.folder}, ${words.photos(images.length)}` : words.kinds.folder,
+      };
+    }
     case "shuffle": {
       const name =
         choice.category === COLORS_CATEGORY
@@ -668,7 +716,11 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
     choice.kind === "photo" || choice.kind === "folder"
       ? (snapshot.addedWallpapers ?? []).find((item) => item.kind === choice.kind && item.path === choice.path)
       : undefined;
-  const { name, kind } = describe(choice, catalog, words);
+  const folderImages = useFolders(
+    platform,
+    added.filter((item) => item.kind === "folder").map((item) => item.path),
+  );
+  const { name, kind } = describe(choice, catalog, words, folderImages);
   const system = choice.kind === "system" ? findWallpaper(catalog, choice.id) : undefined;
   const shuffleOf = (categoryId: string, pictures: readonly string[], colors: readonly string[], label: string): Tile => ({
     value: `shuffle:${categoryId}`,
@@ -884,8 +936,15 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
                     label={words.yourPhotos}
                     tiles={added.map((item) => ({
                       value: `${item.kind}:${item.path}`,
-                      label: item.kind === "folder" ? words.folder(baseName(item.path)) : baseName(item.path),
-                      picture: <AddedPicture platform={platform} item={item} size={TILE} />,
+                      label:
+                        item.kind === "folder"
+                          ? folderImages[item.path]
+                            ? `${words.folder(baseName(item.path))}, ${words.photos(folderImages[item.path]!.length)}`
+                            : words.folder(baseName(item.path))
+                          : baseName(item.path),
+                      picture: (
+                        <AddedPicture platform={platform} item={item} images={folderImages[item.path]} size={TILE} />
+                      ),
                       testID: `wallpaper-added-${item.kind}-${baseName(item.path)}`,
                     }))}
                     value={value}

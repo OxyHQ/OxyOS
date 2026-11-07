@@ -316,16 +316,17 @@
    }
   },
   {
-   "name": "Choose: white around the photo, kept",
+   "name": "Return in the hex field chooses, the dialog's default: white around the photo, kept",
    "do": [
-    "press_named",
-    "Elegir"
+    "key",
+    [
+     28
+    ]
    ],
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "touchStart@wallpaper-color-picker-done": 1,
-     "touchEnd@wallpaper-color-picker-done": 1,
+     "submitEditing@wallpaper-color-picker-hex": 1,
      "blur@wallpaper-color-picker-hex": 1,
      "endEditing@wallpaper-color-picker-hex": 1
     },

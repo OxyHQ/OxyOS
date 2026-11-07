@@ -82,6 +82,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
+  output_pixels_any, a list of such maps of which one holds at every point (one of a folder's
+  photos, whichever a shuffle picked);
 - smooth: a region of the output ("region": [x0, y0, x1, y1] in its pixels) showing a smooth
   gradient without banding: neighbouring pixels differ by at most "max_step" levels (2), and down
   its columns a level holds for at most "median_run_max" rows (3) as the median of its runs: a
@@ -3744,6 +3746,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "output_pixels" in expect:
         # Colours anywhere on the output, "x,y" in output pixels (the shell's surfaces included).
         check_pixels(name, {**expect, "pixels": expect["output_pixels"]}, screenshot, [0, 0], fail)
+    if "output_pixels_any" in expect:
+        # One of several pictures, whichever it is (a shuffle's pick, which hashes what the person
+        # chose: a photo folder's path in the run's own home): every point of one of them.
+        misses = []
+        for option in expect["output_pixels_any"]:
+            missed = []
+            check_pixels(name, {**expect, "pixels": option}, screenshot, [0, 0], missed.append)
+            if not missed:
+                break
+            misses.append("; ".join(missed))
+        else:
+            fail("the output shows none of the pictures expected: " + " | ".join(misses))
     if "output_pixels_match" in expect:
         check_pixels_match(name, {**expect, "pixels_match": expect["output_pixels_match"]}, screenshot, [0, 0], fail)
     if "smooth" in expect:

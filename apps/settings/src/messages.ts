@@ -131,6 +131,8 @@ const en = {
     addFolder: "Add Folder…",
     noPhotos: "Photos and folders you add are shown here.",
     folder: (name: string) => `Folder: ${name}`,
+    /** How many photos a folder shuffles. */
+    photos: (count: number) => plural("en", count, { one: (c) => `${c} photo`, other: (c) => `${c} photos` }),
     remove: "Remove",
     removeNamed: (name: string) => `Remove ${name} from Your Photos`,
     colors: "Colours",
@@ -526,6 +528,7 @@ const es: Messages = {
     addFolder: "Añadir carpeta…",
     noPhotos: "Aquí se muestran las fotos y carpetas que añadas.",
     folder: (name: string) => `Carpeta: ${name}`,
+    photos: (count: number) => plural("es", count, { one: (c) => `${c} foto`, other: (c) => `${c} fotos` }),
     remove: "Eliminar",
     removeNamed: (name: string) => `Eliminar ${name} de Tus fotos`,
     colors: "Colores",
