@@ -1,9 +1,9 @@
 {
   "name": "@oxyos/shell",
   "private": true,
-  "description": "OxyOS's shell (docs/adr/0009-session-shell.mdx). Its build takes Bloom from BLOOM_DIR, which must be a version this accepts: the top bar is Bloom's Menubar, its menus desktop menus in the platform's popups with submenus beside their rows, driven from the keyboard by its focusValue (15.80.0) and following the pointer across its titles with a menu open (15.83.0); the dock's names Bloom's tooltip in the platform's popup (15.84.0); the dock's Trash Bloom's DropZone (15.88.0); Control Center's levels Bloom's slider, adjustable by an assistive technology and the arrows a sixteenth at a time (keyboardStep, 16.2.0); the dock's icons dragged as applications, vanishing off the dock, and taking only files their application opens (DragData.other, vanish, onCancel, acceptFileTypes, 17.16.0); the desktop's files read and changed with expo-file-system and Bloom's adapter's places (docs/adr/0047-finder-drags-and-the-desktop.mdx).",
+  "description": "OxyOS's shell (docs/adr/0009-session-shell.mdx). Its build takes Bloom from BLOOM_DIR, which must be a version this accepts: the top bar is Bloom's Menubar, its menus desktop menus in the platform's popups with submenus beside their rows, driven from the keyboard by its focusValue (15.80.0) and following the pointer across its titles with a menu open (15.83.0); the dock's names Bloom's tooltip in the platform's popup (15.84.0); the dock's Trash Bloom's DropZone (15.88.0); Control Center's levels Bloom's slider, adjustable by an assistive technology and the arrows a sixteenth at a time (keyboardStep, 16.2.0); the dock's icons dragged as applications, vanishing off the dock, and taking only files their application opens (DragData.other, vanish, onCancel, acceptFileTypes, 17.16.0); the desktop's files read and changed with expo-file-system and Bloom's adapter's places, its drop target's folder (DropZone.folder, 17.19.0) choosing a move or a copy by volume (docs/adr/0047-finder-drags-and-the-desktop.mdx).",
   "dependencies": {
-    "@oxy.so/bloom": ">=17.16.0",
+    "@oxy.so/bloom": ">=17.19.0",
     "expo-file-system": "~58.0.12"
   }
 }

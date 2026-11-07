@@ -589,6 +589,7 @@ function DesktopFolder({
       testID="desktop"
       accept={FILES}
       actions={DROP_ACTIONS}
+      folder={target ? (byName.get(target)?.uri ?? uri) : uri}
       onDragEnter={dragOver}
       onDragOver={dragOver}
       onDragLeave={dragLeave}
