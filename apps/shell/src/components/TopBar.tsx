@@ -30,7 +30,8 @@ import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
 import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
-import { batteryLabel, batteryMenuLines, significantApps, wifiBars, wifiLabel, wifiOn } from "../controls";
+import { batteryLabel, batteryMenuLines, significantApps, wifiLabel, wifiOn } from "../controls";
+import { signalArcs } from "../network";
 import type { ShellBattery, ShellBatteryMenu, ShellEnergyApp, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
 import type { ShellKeyboard } from "../platform";
 import { barClock, clockSaid } from "../clock";
@@ -157,7 +158,7 @@ function WifiIcon({ network }: { network: ShellNetwork }) {
   const connected = network.wifi === "connected";
   return (
     <WifiArcs
-      arcs={connected ? wifiBars(network.signal) : 0}
+      arcs={connected ? signalArcs(network.signal) : 0}
       dot={connected || wifiOn(network)}
       color="#fff"
       faint="#ffffff59"
@@ -502,7 +503,7 @@ const NetworkItem = memo(function NetworkItem({
   return (
     <Button
       iconOnly
-      icon={ethernet ? EthernetIcon : wifiIcon(connected ? wifiBars(network.signal) : 0, connected || wifiOn(network))}
+      icon={ethernet ? EthernetIcon : wifiIcon(connected ? signalArcs(network.signal) : 0, connected || wifiOn(network))}
       iconSize={15}
       testID={testID}
       accessibilityLabel={label}
