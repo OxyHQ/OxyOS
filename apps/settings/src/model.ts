@@ -1,3 +1,4 @@
+import type { AccountActions, AccountSnapshot } from "./account";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
@@ -130,6 +131,9 @@ export type SettingsSnapshot = {
   /** The session's applications, by id and name (its registry): Notifications' sound for each
       (docs/adr/0044-system-sounds.mdx). */
   applications?: readonly { id: string; name: string }[];
+  /** The machine's Oxy session (docs/adr/0020-oxy-account-login.mdx), as the platform tells every
+      application: none outside a session, which shows no account item. */
+  account?: AccountSnapshot | null;
 };
 
 /** The keys a change names, as the session's preferences file does. */
@@ -174,6 +178,7 @@ export type SettingsActions = {
   updates?: UpdatesActions;
   privacy?: PrivacyActions;
   network?: NetworkActions;
+  account?: AccountActions;
 };
 
 /** The resolutions a display offers, the largest first, each once, with whether it is its own. */

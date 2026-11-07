@@ -1,0 +1,38 @@
+{
+  "about": "A process the session did not start (OXYOS_APP_UNRECORDED: its id only its claim, docs/adr/0013-launching-applications.mdx) gets no session host at all (docs/adr/0020-oxy-account-login.mdx, decision 6): the framework registers none, and the accounts' service is never asked.",
+  "module": "AccountProbe",
+  "window": [
+    640,
+    420
+  ],
+  "app": {
+    "id": "so.oxy.accountprobe",
+    "title": "Account probe",
+    "recorded": false
+  },
+  "account": {
+    "registered": [
+      "so.oxy.accountprobe"
+    ]
+  },
+  "steps": [
+    {
+      "name": "no host, nothing asked",
+      "do": [
+        "press_named",
+        "Ask for a token"
+      ],
+      "expect": {
+        "texts": [
+          "No session host",
+          "Token not asked"
+        ],
+        "absent": [
+          "Host oxyos, contract 1"
+        ],
+        "account_session": []
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

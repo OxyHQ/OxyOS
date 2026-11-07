@@ -871,7 +871,16 @@ int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t
 /* The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
  * whose entry declares its scheme, citing `input`, an input it received (docs/adr/0034-the-dock.mdx).
  * A LAUNCH_RESULT answers: code, `serial`; flag, whether it was opened. Refused to a compositor of a
- * version before 8. */
+ * version before 8. An application may ask it only for the platform's Settings at a page
+ * (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), and only of a compositor whose version
+ * (`oxyos_client_protocol_version`) is OXYOS_APPLICATION_OPENS_SETTINGS_VERSION or newer: an
+ * older one, and any other URL, closes the connection as unauthorized. */
+#define OXYOS_PLATFORM_SETTINGS_SCHEME "oxyos-settings"
+#define OXYOS_APPLICATION_OPENS_SETTINGS_VERSION 27
+/* An application locks the session (`oxyos_client_lock_session`) only while one of its windows is
+ * the active one, and only of a compositor of this version or newer: an older one closes the
+ * connection as unauthorized. A request while its window is not the active one is ignored. */
+#define OXYOS_APPLICATION_LOCKS_VERSION 27
 int oxyos_client_open_url(OxyOSClient* client, uint32_t serial, uint64_t input, const char* url,
                           size_t length);
 /* Settings (the `settings` grant, docs/adr/0019-settings.mdx) changes the preference `key` (not
@@ -1865,6 +1874,67 @@ int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, 
  * [{"user" (its Unix user's name), "name", "picture" (a file, or null)}]. Written as
  * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
 int64_t oxyos_accounts(char* out, size_t capacity);
+
+/* The machine's Oxy session for an application (docs/adr/0020-oxy-account-login.mdx, decision 6),
+ * from the accounts' service's session socket (OXYOS_ACCOUNTD_SESSION_SOCKET, else
+ * /run/oxyos/accountd/session), which knows the calling process by its launch, never by what it
+ * says: a process the session did not launch is refused (`notPermitted`). Its answers are read
+ * strictly and written rebuilt. A message is at most OXYOS_ACCOUNT_MESSAGE_MAX bytes. */
+#define OXYOS_ACCOUNT_MESSAGE_MAX 16384
+/* The session's snapshot, asked once, as JSON {"status" ("signed_in", "signed_out" or
+ * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?} or null),
+ * "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
+ * asked or refused (oxyos_last_error). */
+int64_t oxyos_account_session_snapshot(char* out, size_t capacity);
+/* A short token for the calling application, `reason` "boot", "preflight" or "response-401" (which
+ * mints afresh): JSON {"accessToken", "expiresAt"}, or `null` when there is none (offline, signed
+ * out). Blocks while the service mints online: never on the interface's thread. Secret: overwrite
+ * `out` once handed on, and give OXYOS_ACCOUNT_MESSAGE_MAX bytes (a token that does not fit is lost).
+ * OXYOS_ERROR when the service could not be asked or refused. */
+int64_t oxyos_account_session_token(const char* reason, char* out, size_t capacity);
+/* Removes the calling application's account from this computer (decision 5): Settings alone may.
+ * Blocks while the service revokes, ends the account's sessions and forgets it. 0, or OXYOS_ERROR. */
+int oxyos_account_session_remove(void);
+/* The session's snapshot as it changes: the service sends it at once and at every change. */
+typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
+/* NULL when the service could not be asked (oxyos_last_error). */
+OxyOSAccountSubscription* oxyos_account_session_subscribe(void);
+/* Readable when a snapshot arrived. */
+int oxyos_account_session_subscription_fd(const OxyOSAccountSubscription* subscription);
+/* The next snapshot that arrived, as oxyos_account_session_snapshot writes it, without waiting: its
+ * length (larger than `capacity`: nothing written, the next call gives it again), 0 when none
+ * arrived, OXYOS_ERROR once the subscription ended (free it, subscribe again later). */
+int64_t oxyos_account_session_subscription_next(OxyOSAccountSubscription* subscription, char* out,
+                                                size_t capacity);
+void oxyos_account_session_subscription_free(OxyOSAccountSubscription* subscription);
+
+/* Setting an account up, for the login screen (decision 4), on the accounts' service's control
+ * socket (OXYOS_ACCOUNTD_SOCKET), which only root and the login screen's user may use. The platform
+ * the SDK's sign-in runs with: JSON {"api", "clientId"}, neither secret; OXYOS_ERROR when the
+ * service could not be asked or refused (`notConfigured`: no client id). */
+int64_t oxyos_account_platform(char* out, size_t capacity);
+/* One setup's conversation: `enroll`, then second factors while the service asks for one. */
+typedef struct OxyOSAccountEnrollment OxyOSAccountEnrollment;
+/* NULL when the service cannot be reached (oxyos_last_error). */
+OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
+/* Sends the setup: the device credential the SDK's sign-in obtained, the account's id and its
+ * password (NUL-terminated UTF-8; the secrets are copied into buffers this library overwrites, the
+ * caller overwrites its own). Blocks while the service signs in online. The answer, JSON:
+ * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
+ * "retryAfterSeconds"}}; larger than `capacity`, oxyos_account_enrollment_answer gives it again.
+ * OXYOS_ERROR: the setup has ended. */
+int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
+                                        const char* device_secret, const char* account_id,
+                                        const char* password, char* out, size_t capacity);
+/* Answers the second factor the service asked for (`code`, secret): the answer as _enroll's; a wrong
+ * code {"refused": {"reason": "secondFactorInvalid"}}, after which another may be sent. */
+int64_t oxyos_account_enrollment_second_factor(OxyOSAccountEnrollment* enrollment, const char* code,
+                                               char* out, size_t capacity);
+/* The setup's last answer again. */
+int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment, char* out,
+                                        size_t capacity);
+/* Ends a setup: closing its connection abandons what the service had not finished. */
+void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
 
 /* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
  * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and

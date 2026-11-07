@@ -11,6 +11,9 @@
 //   Native resolves it.
 // - Every application's root wrapped in its text fields' context menu (text-menu.js,
 //   docs/adr/0037-text-editing.mdx), as AppRegistry wraps a root for its platform.
+// - The machine's Oxy session registered as the Oxy SDK's session host (session-host.js,
+//   docs/adr/0020-oxy-account-login.mdx, decision 6) in an application the session launched,
+//   before its bundle runs.
 import './expo-adapter';
 // expo-file-system's native module, once the adapter installed Expo's globals (ADR 0028), and
 // expo-document-picker's, on the system's file chooser (ADR 0029, decision 8).
@@ -20,6 +23,7 @@ import { AppRegistry, TurboModuleRegistry } from 'react-native';
 import AssetSourceResolver from 'react-native/Libraries/Image/AssetSourceResolver';
 import resolveAssetSource from 'react-native/Libraries/Image/resolveAssetSource';
 import { TextFieldMenus } from './text-menu';
+import { registerSessionHost } from './session-host';
 
 const { frameworkURL } = TurboModuleRegistry.getEnforcing('OxyOSRuntime').getConstants();
 // The directory the framework's assets are in, as React Native gives a bundle loaded from a file to
@@ -33,3 +37,5 @@ resolveAssetSource.addCustomSourceTransformer((resolver) =>
 );
 
 AppRegistry.setWrapperComponentProvider(() => TextFieldMenus);
+
+registerSessionHost();

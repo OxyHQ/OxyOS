@@ -23,6 +23,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::path::Path;
 
+pub mod account_session;
 pub mod accounts;
 pub mod application;
 pub mod apps;

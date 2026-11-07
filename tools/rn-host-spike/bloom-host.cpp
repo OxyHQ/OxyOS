@@ -440,10 +440,12 @@ void stage(const char* name) {
 
 }  // namespace
 
-// What the application's storage and the connectivity answered (application.h), to JavaScript.
+// What the application's storage, the connectivity and the Oxy session answered (application.h,
+// account-session.h), to JavaScript.
 bool deliverApplication(oxyos::HostServices& services) {
   bool busy = services.storage && services.storage->deliver();
   if (services.connectivity) busy |= services.connectivity->deliver();
+  if (services.accountSession) busy |= services.accountSession->deliver();
   return busy;
 }
 
@@ -452,6 +454,10 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
   std::vector<int> fds;
   if (services.storage) fds.push_back(services.storage->fd());
   if (services.connectivity && services.connectivity->fd() >= 0) fds.push_back(services.connectivity->fd());
+  if (services.accountSession) {
+    fds.push_back(services.accountSession->fd());
+    if (int subscription = services.accountSession->subscriptionFd(); subscription >= 0) fds.push_back(subscription);
+  }
   return fds;
 }
 
@@ -1244,6 +1250,33 @@ int main(int argc, char** argv) {
     uint32_t controlSerial = 0;
     // Launches and the URLs the shell opens are numbered together: each LAUNCH_RESULT names one.
     uint32_t launchSerial = 0;
+    // An application's requests to open the platform's Settings at a page, by their serial, each
+    // told what the session answered (docs/adr/0019-settings.mdx).
+    std::map<uint32_t, std::function<void(bool, const std::string&)>> settingsOpens;
+    if (!shellMode) {
+      services.openSettingsUrl = [&window, &lastPress, &launchSerial, &settingsOpens](
+                                     const std::string& url, std::function<void(bool, const std::string&)> done) {
+        if (!window) return done(false, "OxyOS opens Settings only from an application's window");
+        if (window->protocolVersion() < OXYOS_APPLICATION_OPENS_SETTINGS_VERSION) {
+          return done(false, "this session cannot open Settings for an application (protocol version " +
+                                 std::to_string(window->protocolVersion()) + ")");
+        }
+        if (lastPress == 0) return done(false, "OxyOS opens Settings only for something the person did");
+        ++launchSerial;
+        bool sent = window->openUrl(launchSerial, lastPress, url);
+        oxyos::Report::get().input("url.open", 0, folly::dynamic::object("url", url)("sent", sent));
+        if (!sent) return done(false, "the request to open Settings could not be sent");
+        settingsOpens[launchSerial] = std::move(done);
+      };
+      // The lock from an application (the Oxy SDK's sign in, docs/adr/0020-oxy-account-login.mdx):
+      // only while its window is the active one, which the compositor checks too.
+      services.lockSession = [&window]() {
+        if (!window || window->protocolVersion() < OXYOS_APPLICATION_LOCKS_VERSION || !window->active()) return false;
+        window->lockSession();
+        oxyos::Report::get().input("session.lock", 0, folly::dynamic::object("sent", true));
+        return true;
+      };
+    }
     if (shellMode) {
       services.shell = {
           .state = [&shellState] { return shellState.state(); },
@@ -2391,6 +2424,13 @@ int main(int argc, char** argv) {
         for (const auto& result : launchResults) {
           oxyos::Report::get().input("launch.result", 0,
                                      folly::dynamic::object("serial", result.code)("launched", result.flag != 0));
+          // An application's Settings opened at a page: its own answer.
+          if (auto asked = settingsOpens.find(result.code); asked != settingsOpens.end()) {
+            auto done = std::move(asked->second);
+            settingsOpens.erase(asked);
+            done(result.flag != 0, result.flag != 0 ? "" : "the session did not open Settings");
+            continue;
+          }
           instance->callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSShellLaunch",

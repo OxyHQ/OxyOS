@@ -4,7 +4,7 @@
  * OxyOS, natively and in the browser: only the model differs (docs/adr/0015-application-model.mdx).
  */
 import * as React from "react";
-import { AccessibilityInfo, PanResponder, View } from "react-native";
+import { AccessibilityInfo, Image, PanResponder, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
@@ -33,6 +33,7 @@ import {
   RiPaletteLine,
   RiRefreshLine,
   RiShieldLine,
+  RiUserLine,
   RiSubtractLine,
   RiTranslate2,
   RiVolumeUpLine,
@@ -117,6 +118,7 @@ import {
   type InputSourcesState,
 } from "./input-sources";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
+import { accountView, type AccountView } from "./account";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -1760,12 +1762,152 @@ function NetworkPage({ snapshot, strings, locale }: PageProps) {
   );
 }
 
+/** The account's picture, or its initials in a circle when it has none: decorative, its name is
+    beside it. Drawn as the sidebar's icon too, at the icon's size. */
+function AccountPicture({ view, size }: { view: AccountView & { kind: "signed_in" }; size: number }) {
+  const theme = useTheme();
+  return (
+    <View
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        overflow: "hidden",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: theme.colors.primary,
+      }}
+    >
+      {view.picture ? (
+        <Image source={{ uri: view.picture }} style={{ width: size, height: size }} />
+      ) : (
+        <Text style={{ color: theme.colors.primaryForeground, fontSize: size * 0.4, fontWeight: "600" }}>
+          {view.initials}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5), as a Mac's Apple Account page:
+ * the picture, the name and the handle; managing the account; signing out, which ends the session
+ * and returns to the login screen; and removing the account from this computer, which deletes its
+ * files here, each confirmed first. What came of it is the platform's: a refusal is said.
+ */
+function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountView }) {
+  const words = strings.account;
+  const account = actions.account;
+  const [confirming, setConfirming] = React.useState<"sign-out" | "remove" | null>(null);
+  const [failure, setFailure] = React.useState<string | null>(null);
+  const name = view.kind === "signed_in" ? view.name : words.group;
+  const run = async (ask: (() => Promise<{ done: true } | { failed: string }>) | undefined, failed: string) => {
+    setConfirming(null);
+    const outcome = ask ? await ask() : { failed: "unavailable" };
+    if ("failed" in outcome) setFailure(failed);
+  };
+  return (
+    <View style={PAGE}>
+      {view.kind === "signed_in" ? (
+        <View style={{ alignItems: "center", gap: 4 }} testID="oxy-account-card">
+          <AccountPicture view={view} size={72} />
+          <Text variant="title-3-semibold" style={{ marginTop: 8 }} testID="oxy-account-name">
+            {view.name}
+          </Text>
+          <Text variant="body-regular" style={{ opacity: 0.7 }} testID="oxy-account-handle">
+            {words.handle(view.handle)}
+          </Text>
+        </View>
+      ) : null}
+      {view.kind === "signed_in" && !view.online ? <Notice title={words.offline} testID="oxy-account-offline" /> : null}
+      {view.kind === "signed_out" ? <Notice title={words.signedOut} testID="oxy-account-signed-out" /> : null}
+      <GroupedSection>
+        {view.kind === "signed_in" && account?.manage ? (
+          <GroupedSectionItem
+            title={words.manage}
+            onPress={account.manage}
+            showChevron
+            accessibilityRole="button"
+            testID="oxy-account-manage"
+          />
+        ) : null}
+        <GroupedSectionItem
+          title={words.signOut}
+          onPress={() => setConfirming("sign-out")}
+          disabled={!account}
+          showChevron={false}
+          accessibilityRole="button"
+          testID="oxy-account-sign-out"
+        />
+      </GroupedSection>
+      <GroupedSection>
+        <GroupedSectionItem
+          title={words.remove}
+          onPress={() => setConfirming("remove")}
+          destructive
+          disabled={!account}
+          showChevron={false}
+          accessibilityRole="button"
+          testID="oxy-account-remove"
+        />
+      </GroupedSection>
+      <AlertDialog
+        open={confirming === "sign-out"}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        title={words.signOutTitle}
+        description={words.signOutDescription}
+        confirmLabel={words.signOutConfirm}
+        cancelLabel={words.cancel}
+        onConfirm={() => void run(account?.signOut, words.signOutFailed)}
+        testID="oxy-account-sign-out-confirm"
+      />
+      <AlertDialog
+        open={confirming === "remove"}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        title={words.removeTitle(name)}
+        description={words.removeDescription}
+        confirmLabel={words.removeConfirm}
+        cancelLabel={words.cancel}
+        destructive
+        defaultAction="cancel"
+        onConfirm={() => void run(account?.remove, words.removeFailed)}
+        testID="oxy-account-remove-confirm"
+      />
+      <AlertDialog
+        open={failure !== null}
+        onOpenChange={(open) => {
+          if (!open) setFailure(null);
+        }}
+        title={failure ?? ""}
+        confirmLabel={words.ok}
+        hideCancel
+        testID="oxy-account-failed"
+      />
+    </View>
+  );
+}
+
 /**
  * Settings, in the session's language (docs/adr/0040-language-and-region.mdx, decision 5): its
  * catalogue is chosen from the locale its root gives `BloomProvider`, so it switches in the same
  * render as Bloom's own words when the session tells a new one.
  */
-export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; actions: SettingsActions }) {
+export function Settings({
+  snapshot,
+  actions,
+  initialPage,
+}: {
+  snapshot: SettingsSnapshot;
+  actions: SettingsActions;
+  /** The page to open at (its launch URL's, `oxyos-settings://PAGE`), when it is one of its pages. */
+  initialPage?: string;
+}) {
   const told = useBloomLocale();
   const strings = messagesFor(resolveBloomLanguage(told));
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
@@ -1785,7 +1927,35 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
             ],
           },
         ];
+  // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
+  // where the platform has an account to show.
+  const account = accountView(snapshot.account);
+  const AccountIcon = React.useMemo(() => {
+    if (account?.kind !== "signed_in") return RiUserLine;
+    const shown = account;
+    return function AccountIcon({ width }: { width?: number | string }) {
+      return <AccountPicture view={shown} size={typeof width === "number" ? width : 20} />;
+    };
+    // The picture changes only with what it shows.
+  }, [account?.kind, account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : ""]);
+  const accountGroup: SettingsNavGroup[] = account
+    ? [
+        {
+          key: "account",
+          label: strings.account.group,
+          items: [
+            {
+              key: "oxy-account",
+              label: account.kind === "signed_in" ? account.name : strings.account.group,
+              icon: AccountIcon,
+              page: "oxy-account",
+            },
+          ],
+        },
+      ]
+    : [];
   const groups: SettingsNavGroup[] = [
+    ...accountGroup,
     ...connections,
     {
       key: "personal",
@@ -1817,6 +1987,14 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
     },
   ];
   const pages: Record<string, SettingsModalPage> = {
+    ...(account
+      ? {
+          "oxy-account": {
+            title: strings.account.group,
+            content: <OxyAccountPage {...props} view={account} />,
+          },
+        }
+      : {}),
     appearance: { title: words.appearance, content: <AppearancePage {...props} /> },
     wallpaper: { title: words.wallpaper, content: <WallpaperPage {...props} /> },
     notifications: { title: words.notifications, content: <NotificationsPage {...props} /> },
@@ -1839,11 +2017,14 @@ export function Settings({ snapshot, actions }: { snapshot: SettingsSnapshot; ac
           network: { title: words.network, content: <NetworkPage {...props} /> },
         }),
   };
+  // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
+  const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);
   return (
     <SettingsLayout
       groups={groups}
       pages={pages}
-      defaultPage="appearance"
+      defaultPage={opened ? initialPage : "appearance"}
+      initialView={opened ? "page" : "navigation"}
       labels={{ nav: strings.title }}
       testID="settings"
     />

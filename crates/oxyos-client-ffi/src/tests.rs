@@ -99,6 +99,27 @@ fn c_offsets(fields: &[Field]) -> (Vec<usize>, usize) {
 }
 
 #[test]
+fn the_header_names_the_platforms_settings_as_the_protocol_does() {
+    assert_eq!(
+        define("OXYOS_APPLICATION_OPENS_SETTINGS_VERSION"),
+        i64::from(oxyos_protocol::APPLICATION_OPENS_SETTINGS_VERSION)
+    );
+    assert_eq!(
+        define("OXYOS_APPLICATION_LOCKS_VERSION"),
+        i64::from(oxyos_protocol::APPLICATION_LOCKS_VERSION)
+    );
+    let scheme = HEADER
+        .lines()
+        .find(|line| line.starts_with("#define OXYOS_PLATFORM_SETTINGS_SCHEME "))
+        .and_then(|line| line.split_whitespace().nth(2))
+        .unwrap();
+    assert_eq!(
+        scheme,
+        format!("\"{}\"", oxyos_protocol::PLATFORM_SETTINGS_SCHEME)
+    );
+}
+
+#[test]
 fn the_header_matches_the_abi() {
     for (name, value) in [
         ("OXYOS_EVENT_CONFIGURE", OXYOS_EVENT_CONFIGURE as i64),

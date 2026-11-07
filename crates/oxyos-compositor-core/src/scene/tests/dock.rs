@@ -295,6 +295,65 @@ fn a_url_is_handed_to_the_program_with_whether_it_cited_an_input() {
 }
 
 #[test]
+fn an_application_opens_the_platforms_settings_and_no_other_url() {
+    let mut h = Harness::new();
+    let chunk = |text: &str| PreeditText::new(text).unwrap();
+    let open = |serial, input, index, last, text| Request::OpenUrl {
+        serial,
+        input,
+        index,
+        last,
+        text,
+    };
+    // In two chunks, the scheme in any case, citing no input the scene saw.
+    h.request(APP, open(3, 7, 0, false, chunk("OxyOS-Settings://oxy-")))
+        .unwrap();
+    h.request(APP, open(3, 7, 1, true, chunk("account")))
+        .unwrap();
+    let asked = h.scene.take_url_requests();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].url, "OxyOS-Settings://oxy-account");
+    assert_eq!(asked[0].serial, 3);
+    assert!(!asked[0].with_input);
+    // Any other scheme, or one that only begins as Settings' does, is the shell's alone.
+    for url in [
+        "dropsea://trash",
+        "oxyos-settingsx://about",
+        "oxyos-settings",
+        "https://oxy.so",
+    ] {
+        assert_eq!(
+            h.request(APP, open(4, 0, 0, true, chunk(url))),
+            Err(ErrorCode::Unauthorized),
+            "{url}"
+        );
+    }
+    // A chunk that does not follow a first one naming Settings is out of order.
+    assert_eq!(
+        h.request(APP, open(5, 0, 1, true, chunk("x://y"))),
+        Err(ErrorCode::InvalidOrder)
+    );
+    // One URL at a time: beginning another drops the one unfinished.
+    h.request(APP, open(6, 0, 0, false, chunk("oxyos-settings://")))
+        .unwrap();
+    h.request(APP, open(7, 0, 0, true, chunk("oxyos-settings://about")))
+        .unwrap();
+    assert_eq!(
+        h.request(APP, open(6, 0, 1, true, chunk("about"))),
+        Err(ErrorCode::InvalidOrder)
+    );
+    let asked = h.scene.take_url_requests();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].url, "oxyos-settings://about");
+    assert!(crate::scene::dock::opens_platform_settings(
+        "oxyos-settings:"
+    ));
+    assert!(!crate::scene::dock::opens_platform_settings(
+        "oxyos-settings"
+    ));
+}
+
+#[test]
 fn a_pointer_event_carries_the_modifiers_held_whoever_has_the_keyboard() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

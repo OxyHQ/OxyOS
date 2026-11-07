@@ -96,6 +96,15 @@ export const updates = {
   },
 };
 
+/**
+ * The person's session (docs/adr/0020-oxy-account-login.mdx, decision 5): Settings (its `settings`
+ * grant) signs out, citing the press or key that asked, and the session ends, back to the login
+ * screen; answered `{signingOut: {}}` first, or `{refused: {reason}}` (`notPermitted`, `needsInput`).
+ */
+export const session = {
+  signOut: () => ask({ signOut: {} }),
+};
+
 /** The account's decisions on its applications' capabilities: `privacy` grant. */
 export const privacy = {
   list: () => ask({ privacy: {} }),

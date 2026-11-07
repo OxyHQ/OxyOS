@@ -23,6 +23,28 @@ function plural(
 const en = {
   title: "Settings",
   groups: { connections: "Connections", personal: "Personal", general: "General" },
+  /** The Oxy account at the top of the sidebar (docs/adr/0020-oxy-account-login.mdx), as a Mac's
+      Apple Account: its group's heading, and its page. */
+  account: {
+    group: "Oxy Account",
+    handle: (handle: string) => `@${handle}`,
+    offline: "This computer is offline. Changes made to the account elsewhere apply once it's online again.",
+    signedOut: "This account was signed out from this computer elsewhere. Sign out, then sign in again at the login screen while online.",
+    manage: "Manage Account",
+    signOut: "Sign Out…",
+    signOutTitle: "Sign out of OxyOS?",
+    signOutDescription: "Your apps quit and the session ends. You can sign in again at the login screen, even offline.",
+    signOutConfirm: "Sign Out",
+    signOutFailed: "OxyOS couldn't sign out.",
+    remove: "Remove from This Computer…",
+    removeTitle: (name: string) => `Remove ${name} from this computer?`,
+    removeDescription:
+      "The account is signed out, and its files, settings and apps on this computer are deleted. Your Oxy account itself isn't deleted: you can add it to this computer again while online.",
+    removeConfirm: "Remove",
+    removeFailed: "The account couldn't be removed from this computer.",
+    cancel: "Cancel",
+    ok: "OK",
+  },
   pages: {
     appearance: "Appearance",
     wallpaper: "Wallpaper",
@@ -335,6 +357,26 @@ const en = {
 const es: Messages = {
   title: "Ajustes",
   groups: { connections: "Conexiones", personal: "Personal", general: "General" },
+  account: {
+    group: "Cuenta de Oxy",
+    handle: (handle: string) => `@${handle}`,
+    offline: "Este ordenador no tiene conexión. Los cambios hechos en la cuenta desde otro sitio se aplicarán cuando vuelva a tenerla.",
+    signedOut: "Se ha cerrado la sesión de esta cuenta en este ordenador desde otro sitio. Cierra la sesión y vuelve a iniciarla en la pantalla de inicio con conexión.",
+    manage: "Gestionar cuenta",
+    signOut: "Cerrar sesión…",
+    signOutTitle: "¿Cerrar sesión en OxyOS?",
+    signOutDescription: "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la pantalla de inicio, incluso sin conexión.",
+    signOutConfirm: "Cerrar sesión",
+    signOutFailed: "OxyOS no ha podido cerrar la sesión.",
+    remove: "Eliminar de este ordenador…",
+    removeTitle: (name: string) => `¿Eliminar a ${name} de este ordenador?`,
+    removeDescription:
+      "Se cierra la sesión de la cuenta y se borran sus archivos, ajustes y apps de este ordenador. Tu cuenta de Oxy no se elimina: puedes volver a añadirla a este ordenador con conexión.",
+    removeConfirm: "Eliminar",
+    removeFailed: "No se ha podido eliminar la cuenta de este ordenador.",
+    cancel: "Cancelar",
+    ok: "Aceptar",
+  },
   pages: {
     appearance: "Apariencia",
     wallpaper: "Fondo de pantalla",

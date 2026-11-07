@@ -1,0 +1,37 @@
+{
+  "about": "The Oxy SDK's request to sign in again (docs/adr/0020-oxy-account-login.mdx, decision 5; sample/oxyos/session-host.js) locks the session, as the application's window is the active one (docs/adr/0010-lock-screen.mdx); unlocking checks the password with Oxy online.",
+  "module": "AccountProbe",
+  "window": [
+    640,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "account": {
+    "registered": [
+      "so.oxy.allo",
+      "so.oxy.settings"
+    ]
+  },
+  "lock_password": "correct horse",
+  "steps": [
+    {
+      "name": "sign in again: the session locks",
+      "do": [
+        "press_named",
+        "Sign in again"
+      ],
+      "expect": {
+        "texts": [
+          "Requested sign_in"
+        ],
+        "shell": {
+          "locked": true
+        }
+      }
+    }
+  ]
+}

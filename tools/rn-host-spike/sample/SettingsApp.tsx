@@ -7,7 +7,10 @@
  * tells them (docs/adr/0038-networks.mdx). Without the grant (a host run outside a session, the
  * browser preview) the model is a fixture kept in memory. Its language is the session's locale
  * (docs/adr/0040-language-and-region.mdx, decision 5), given to `BloomProvider` and followed live;
- * the fixture's is the one its own preferences give.
+ * the fixture's is the one its own preferences give. Its Oxy account is the machine's Oxy session
+ * as the platform gives every application (oxyos/session-host.js, docs/adr/0020-oxy-account-login.mdx):
+ * signing out is the session's (`signOut`, with the `settings` grant), removing the account the
+ * accounts' service's, which only Settings may ask.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -19,6 +22,7 @@ import { sessionLocale } from '../../../apps/settings/src/locale';
 import { useSessionLocale } from './oxyos/locale';
 import {
   available,
+  session as systemSession,
   network as systemNetwork,
   privacy,
   updates as systemUpdates,
@@ -27,6 +31,12 @@ import {
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
+import {
+  accountSnapshotFrom,
+  type AccountActions,
+  type AccountOutcome,
+  type AccountSnapshot,
+} from '../../../apps/settings/src/account';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
 import {
   INPUT_METHODS,
@@ -499,6 +509,41 @@ function useInputSources(snapshot: SettingsSnapshot, session: boolean) {
   return parseInputSources(told);
 }
 
+type SessionHost = { snapshot(): unknown; subscribe(listener: () => void): () => void };
+const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as
+  | SessionHost
+  | undefined;
+const accountSession = TurboModuleRegistry.get<{ remove(): Promise<unknown> }>('OxyOSAccountSession');
+const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
+  if (done(answer)) return { done: true };
+  const reason = (answer as { refused?: { reason?: string }; failed?: { reason?: string } } | null);
+  return { failed: reason?.refused?.reason ?? reason?.failed?.reason ?? 'failed' };
+};
+const accountActions: AccountActions = {
+  signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
+  remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
+};
+
+/** The machine's Oxy session as the platform's session host tells it (none outside a session). */
+function useAccount(): AccountSnapshot | null {
+  const told = React.useSyncExternalStore(
+    (listener) => sessionHost?.subscribe(listener) ?? (() => {}),
+    () => sessionHost?.snapshot() ?? null,
+  );
+  return React.useMemo(() => accountSnapshotFrom(told), [told]);
+}
+
+/**
+ * The page the session started Settings to show (docs/adr/0019-settings.mdx): its launch URL's,
+ * `oxyos-settings://PAGE`, which the shell or an application opened (an application's request to
+ * manage the Oxy account, `oxyos-settings://oxy-account`); none for a plain launch.
+ */
+function launchPage(): string | undefined {
+  const url: unknown = TurboModuleRegistry.get<any>('OxyOSApplication')?.getConstants().launchURL;
+  const match = typeof url === 'string' ? /^oxyos-settings:\/\/([a-z0-9-]+)\/?$/i.exec(url) : null;
+  return match ? match[1]!.toLowerCase() : undefined;
+}
+
 export default function SettingsApp() {
   const model = useSettingsModel();
   const install = useInstallModel();
@@ -510,12 +555,14 @@ export default function SettingsApp() {
     privacy: install.privacy,
     network: networks.network,
     inputSources,
+    account: useAccount(),
   };
   const actions = {
     ...model.actions,
     updates: install.updatesActions,
     privacy: install.privacyActions,
     network: networks.actions,
+    account: sessionHost ? accountActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();
@@ -524,7 +571,7 @@ export default function SettingsApp() {
   return (
     <SafeAreaProvider>
       <BloomProvider platform={oxyosSurfaces} locale={locale}>
-        <Settings snapshot={snapshot} actions={actions} />
+        <Settings snapshot={snapshot} actions={actions} initialPage={launchPage()} />
       </BloomProvider>
     </SafeAreaProvider>
   );

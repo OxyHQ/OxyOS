@@ -163,9 +163,14 @@ struct Session {
     /// The screenshots the shell opened (docs/adr/0024-system-shortcuts.mdx, decision 10), each
     /// its file and the application started to open it, until a step reports them.
     pub screenshot_opens: Vec<(PathBuf, String)>,
-    /// The URLs the shell opened since a step last took them (docs/adr/0034-the-dock.mdx): each
-    /// URL and the application started for it.
+    /// The URLs the shell and applications opened since a step last took them
+    /// (docs/adr/0034-the-dock.mdx; an application's, the platform's Settings,
+    /// docs/adr/0019-settings.mdx): each URL and the application started for it.
     pub url_opens: Vec<(String, String)>,
+    /// Whether Settings signed out since a step last took it (docs/adr/0020-oxy-account-login.mdx,
+    /// `oxyos_compositor::sign_out`). The session ends there; the development compositor records it
+    /// and goes on, so the scenario checks it and what follows.
+    pub signed_out: bool,
     /// Files dropped on an application's icon in the dock opened with it (ADR 0034, OpenFiles):
     /// each file's path and the application, as the session opens them.
     pub file_opens: Vec<(PathBuf, String)>,
@@ -279,6 +284,7 @@ impl Session {
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
             url_opens: Vec::new(),
+            signed_out: false,
             file_opens: Vec::new(),
             sounds: oxyos_sound::Recorder::default(),
             trash: None,
@@ -481,6 +487,10 @@ impl Session {
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
+        // Settings' sign out (docs/adr/0020-oxy-account-login.mdx), recorded rather than ending
+        // the run, before the install service takes what is left.
+        let login = self.compositor.login;
+        self.signed_out |= oxyos_compositor::sign_out::serve(&mut self.compositor.scene, login);
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).

@@ -1,0 +1,57 @@
+{
+  "about": "An application opens the platform's Settings at a page (docs/adr/0019-settings.mdx), as a Mac's application opens x-apple.systempreferences: React Native's Linking opens oxyos-settings://about, which the application asks of the session from its window, citing the press; the session opens it in Settings, whose entry declares the scheme, and Linking resolves. Any other URL (https://example.com) is still refused, saying why, and nothing is opened. With the compositor refusing an application's OpenUrl, the Settings step closes the application's connection and fails.",
+  "module": "SettingsUrlProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "Open the web first: refused, saying why; nothing is opened",
+      "do": [
+        "press_named",
+        "Open the web"
+      ],
+      "expect": {
+        "texts_matching": [
+          "^refused: OxyOS has no application that opens https links yet"
+        ],
+        "urls_opened": []
+      }
+    },
+    {
+      "name": "Open Settings: the session opens oxyos-settings://about in Settings, at its About page, and Linking resolves",
+      "do": [
+        "press_named",
+        "Open Settings"
+      ],
+      "expect": {
+        "texts": [
+          "opened oxyos-settings://about"
+        ],
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://about",
+            "application": "so.oxy.settings"
+          }
+        ],
+        "at": {
+          "launched": [
+            {
+              "role": "Heading",
+              "name": "About"
+            },
+            {
+              "name": "Processor"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

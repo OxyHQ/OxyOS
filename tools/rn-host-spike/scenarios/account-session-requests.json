@@ -1,0 +1,53 @@
+{
+  "about": "The Oxy SDK's request to manage the account (docs/adr/0020-oxy-account-login.mdx, decision 5; sample/oxyos/session-host.js) opens Settings at its Oxy account page (oxyos-settings://oxy-account, docs/adr/0019-settings.mdx): Settings' account item selected and its page shown.",
+  "module": "AccountProbe",
+  "window": [
+    640,
+    420
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "account": {
+    "registered": [
+      "so.oxy.allo",
+      "so.oxy.settings"
+    ]
+  },
+  "steps": [
+    {
+      "name": "manage the account: Settings opens at its Oxy account page",
+      "do": [
+        "press_named",
+        "Manage account"
+      ],
+      "expect": {
+        "texts": [
+          "Requested manage_account"
+        ],
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://oxy-account",
+            "application": "so.oxy.settings"
+          }
+        ],
+        "at": {
+          "launched": [
+            {
+              "role": "Heading",
+              "name": "Oxy Account"
+            },
+            {
+              "name": "Sign Out…"
+            },
+            {
+              "name": "Remove from This Computer…"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

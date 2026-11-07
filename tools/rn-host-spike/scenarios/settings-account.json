@@ -1,0 +1,147 @@
+{
+  "about": "Settings' Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5; apps/settings): at the top of the sidebar, as a Mac's Apple Account, the machine's Oxy session as the platform tells Settings (its session host, over a played accounts' service): the account's picture (its initials, without one) and name; its page with the name, the handle, Sign Out… and Remove from This Computer…, each confirmed first. Cancelling asks nothing; removing, confirmed, asks the accounts' service (Settings alone may), which then ends the account's sessions.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "account": {
+    "registered": [
+      "so.oxy.settings"
+    ]
+  },
+  "steps": [
+    {
+      "name": "the account first in the sidebar, its name under the group's heading",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Oxy Account",
+          "Ada Lovelace",
+          "AL",
+          "Appearance"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Oxy Account"
+            },
+            {
+              "role": "ListItem",
+              "name": "Ada Lovelace",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the account's page: its name, its handle, signing out and removing",
+      "do": [
+        "press_named",
+        "Ada Lovelace"
+      ],
+      "expect": {
+        "texts": [
+          "@ada",
+          "Sign Out…",
+          "Remove from This Computer…"
+        ],
+        "absent": [
+          "Manage Account"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Ada Lovelace",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Sign Out…"
+            },
+            {
+              "role": "Button",
+              "name": "Remove from This Computer…"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Remove from This Computer… asks first",
+      "do": [
+        "press_named",
+        "Remove from This Computer…"
+      ],
+      "expect": {
+        "texts": [
+          "Remove Ada Lovelace from this computer?",
+          "Remove",
+          "Cancel"
+        ],
+        "account_session": []
+      }
+    },
+    {
+      "name": "cancelled: nothing asked",
+      "do": [
+        "press_named",
+        "Cancel"
+      ],
+      "expect": {
+        "absent": [
+          "Remove Ada Lovelace from this computer?"
+        ],
+        "account_session": []
+      }
+    },
+    {
+      "name": "removing, confirmed, asks the accounts' service",
+      "do": [
+        "press_named",
+        "Remove from This Computer…"
+      ],
+      "expect": {
+        "texts": [
+          "Remove Ada Lovelace from this computer?"
+        ]
+      }
+    },
+    {
+      "name": "removing, confirmed: the accounts' service is asked, once",
+      "do": [
+        "press_named",
+        "Remove"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "account_session": [
+          "so.oxy.settings remove: removed"
+        ],
+        "absent": [
+          "Remove Ada Lovelace from this computer?"
+        ]
+      }
+    }
+  ]
+}
