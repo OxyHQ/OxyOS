@@ -23,6 +23,7 @@
 #include "intl.h"
 #include "modal.h"
 #include "network.h"
+#include "websocket.h"
 #include "popup.h"
 #include "drag.h"
 #include "safe-area.h"
@@ -623,7 +624,13 @@ int main(int argc, char** argv) {
                                        folly::dynamic::array(event, std::move(payload)));
       },
       shellFiles ? package : application, bundleError ? std::string() : bundleFile.parent_path().string());
+  // WebSockets (websocket.h), their events emitted from the loop below as Android emits them, one
+  // map each; destroyed with the runtime, which closes the sockets still open (1001).
+  oxyos::WebSockets webSockets(networking, blobs, [&instance](const std::string& event, folly::dynamic body) {
+    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
+  });
   oxyos::HostServices services{blobs, networking};
+  services.webSockets = &webSockets;
   // The application it runs, as its launcher started it (application.h).
   services.application = application;
   services.emit = [&instance](const std::string& event, folly::dynamic body) {
@@ -2045,6 +2052,7 @@ int main(int argc, char** argv) {
           busy |= animating;
         }
         bool arrived = networking.deliver();
+        arrived |= webSockets.deliver();
         arrived |= files.deliver();
         arrived |= dragDrop.deliver();
         arrived |= deliverApplication(services);
@@ -3011,8 +3019,7 @@ int main(int argc, char** argv) {
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
           for (int fd : dragDrop.fds()) fds.push_back({fd, POLLIN, 0});
           // The file service's is -1 until an application asks it something: poll ignores it.
-          for (int fd : {networking.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
-          for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
+          for (int fd : {networking.fd(), webSockets.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
           for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
           if (int applications = shellMode ? shellState.applicationsFd() : -1; applications >= 0) {
             fds.push_back({applications, POLLIN, 0});
@@ -3072,6 +3079,7 @@ int main(int argc, char** argv) {
     // A transition moves on while the render settles; an animated picture never keeps it busy.
     images.tick(true);
     busy |= networking.deliver();
+    busy |= webSockets.deliver();
     busy |= deliverApplication(services);
     if (busy || timers->oneShotDueBefore(deadline)) {
       quietSince = Clock::now();

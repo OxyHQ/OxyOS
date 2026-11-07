@@ -549,7 +549,10 @@ compositor), which checks them with PAM from a configuration of the run's own (`
 accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's API is a refused port,
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
-code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks,
+code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks
+(true) or `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
+namespace over a WebSocket, which tells the screen at once ("socket"; its frames logged as `WS ...`
+requests with status 101),
 for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
@@ -597,7 +600,9 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import base64
 import collections
+import hashlib
 import json
 import math
 import re
@@ -1288,9 +1293,70 @@ def played_oxy(spec, log):
                     "name": {"first": spec.get("first", spec["username"]), "last": spec.get("last", ""),
                              "full": spec.get("name", spec["username"])}}
 
+        def log(self, what):
+            with lock, open(log, "a") as out:
+                out.write(json.dumps({"t": time.monotonic_ns(), "request": what, "status": 101}) + "\n")
+
+        def socket_io(self):
+            """Socket.IO (Engine.IO 4) over a WebSocket, as Oxy's API serves it to the SDK: its
+            `/auth-session` namespace, which a QR's screen joins with its secret token (logged as
+            `{token}`) to be told the instant a phone approves (`auth_update`, a signal the screen
+            answers by asking the status). With `qr.approve` "socket" the phone approves once the
+            screen joined: only the socket can tell it before the SDK's next status check, twelve
+            seconds on."""
+            websocket_accept(self)
+            self.log("WS /socket.io/")
+            # Frames are written from the approval's thread too.
+            writing = threading.Lock()
+            websocket_send(self.wfile, 0x1, '0{"sid":"played","upgrades":[],"pingInterval":25000,'
+                                            '"pingTimeout":20000,"maxPayload":1000000}')
+            while (frame := websocket_read(self.rfile)) is not None:
+                opcode, payload = frame
+                if opcode == 0x8:
+                    with writing:
+                        websocket_send(self.wfile, 0x8, payload)
+                    return
+                if opcode != 0x1:
+                    continue
+                packet = payload.decode()
+                if packet.startswith("40/auth-session"):
+                    self.log("WS /auth-session connect")
+                    with writing:
+                        websocket_send(self.wfile, 0x1, '40/auth-session,{"sid":"played-auth"}')
+                elif packet.startswith("42/auth-session,"):
+                    event = json.loads(packet[len("42/auth-session,"):])
+                    if event[:1] != ["join"] or len(event) < 2:
+                        continue
+                    self.log("WS /auth-session join {token}")
+                    if spec.get("qr", {}).get("approve") == "socket":
+                        threading.Thread(target=self.approve, args=(event[1], writing), daemon=True).start()
+
+        def approve(self, token, writing):
+            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, told
+            on the socket at once."""
+            time.sleep(spec.get("qr", {}).get("approve_after_ms", 0) / 1000)
+            with lock:
+                request = state["requests"].get(token)
+                approved = request is not None and request["status"] == "pending"
+                if approved:
+                    request["status"] = "authorized"
+            if not approved:
+                return
+            try:
+                with writing:
+                    websocket_send(self.wfile, 0x1, '42/auth-session,["auth_update",{"status":"authorized"}]')
+                self.log("WS /auth-session auth_update")
+            except OSError:
+                pass
+
         def do_GET(self):
             path = self.path.split("?")[0]
-            if path == "/users/me/sign-in-methods":
+            if path == "/socket.io/" and self.headers.get("Upgrade", "").lower() == "websocket":
+                try:
+                    self.socket_io()
+                except (OSError, ValueError, struct.error):
+                    pass
+            elif path == "/users/me/sign-in-methods":
                 self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
                                  "backupCodesRemaining": 0})
             elif path == "/users/me":
@@ -1307,7 +1373,7 @@ def played_oxy(spec, log):
                 # Commons and pressing Allow (Oxy's approval itself is Oxy's, never the machine's).
                 with lock:
                     request = state["requests"].get(path.rsplit("/", 1)[1])
-                    if request and spec.get("qr", {}).get("approve") and request["status"] == "pending":
+                    if request and spec.get("qr", {}).get("approve") is True and request["status"] == "pending":
                         request["status"] = "authorized"
                 if not request:
                     self.reply(404, {"error": "not_found", "message": "Session not found"})
@@ -1439,12 +1505,106 @@ def login_program(out, offscreen, login):
     return process, greeter, record, env, (refusing, sockets)
 
 
+# The server side of a WebSocket (RFC 6455) for the scenarios' local servers: just what the probes
+# need of it (an upgrade answered, frames read unmasked and written, a fragmented message joined),
+# not a client, and nothing an application runs. The client under test is the host's, tungstenite's.
+WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+def websocket_accept(handler, protocol=None):
+    """Answers `handler`'s upgrade request (101), choosing `protocol`; the connection is the socket's
+    from here."""
+    key = handler.headers.get("Sec-WebSocket-Key", "")
+    accept = base64.b64encode(hashlib.sha1((key + WEBSOCKET_GUID).encode()).digest()).decode()
+    lines = ["HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade",
+             f"Sec-WebSocket-Accept: {accept}"]
+    if protocol:
+        lines.append(f"Sec-WebSocket-Protocol: {protocol}")
+    handler.wfile.write(("\r\n".join(lines) + "\r\n\r\n").encode())
+    handler.wfile.flush()
+    handler.close_connection = True
+
+
+def websocket_read(rfile):
+    """The next message or control frame: (opcode, payload), a fragmented message joined; None once
+    the connection ends."""
+    message, kind = b"", None
+    while True:
+        head = rfile.read(2)
+        if len(head) < 2:
+            return None
+        fin, opcode, masked, length = head[0] & 0x80, head[0] & 0x0F, head[1] & 0x80, head[1] & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", rfile.read(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", rfile.read(8))[0]
+        mask = rfile.read(4) if masked else b"\0\0\0\0"
+        payload = bytes(b ^ mask[i % 4] for i, b in enumerate(rfile.read(length)))
+        if opcode >= 0x8:
+            return opcode, payload
+        kind = kind if opcode == 0 else opcode
+        message += payload
+        if fin:
+            return kind, message
+
+
+def websocket_send(wfile, opcode, payload=b""):
+    """One unmasked frame, as a server sends it."""
+    payload = payload.encode() if isinstance(payload, str) else payload
+    length = len(payload)
+    if length < 126:
+        head = struct.pack("!BB", 0x80 | opcode, length)
+    elif length < 1 << 16:
+        head = struct.pack("!BBH", 0x80 | opcode, 126, length)
+    else:
+        head = struct.pack("!BBQ", 0x80 | opcode, 127, length)
+    wfile.write(head + payload)
+    wfile.flush()
+
+
+def websocket_close(wfile, code, reason=""):
+    websocket_send(wfile, 0x8, struct.pack("!H", code) + reason.encode())
+
+
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes the probes of scenarios/network.json and file-system.json call
-    (sample/NetworkProbe.tsx, sample/FileSystemProbe.tsx)."""
+    """The routes the probes of scenarios/network.json, websocket.json and file-system.json call
+    (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx, sample/FileSystemProbe.tsx)."""
 
     def log_message(self, *args):
         pass
+
+    def websocket(self):
+        """A WebSocket's routes (sample/WebSocketProbe.tsx): /echo sends back each message and
+        answers a ping with a pong and the text "ping heard"; /header says the X-Probe header it was
+        opened with, then echoes; /count sends "0" to "49"; /close closes at once with 4001; /slow
+        answers its upgrade three seconds late. The first protocol offered is chosen."""
+        path = self.path.split("?")[0]
+        if path == "/slow":
+            time.sleep(3)
+        offered = [p.strip() for p in self.headers.get("Sec-WebSocket-Protocol", "").split(",") if p.strip()]
+        try:
+            websocket_accept(self, offered[0] if offered else None)
+            if path == "/header":
+                websocket_send(self.wfile, 0x1, self.headers.get("X-Probe", "none"))
+            elif path == "/count":
+                for n in range(50):
+                    websocket_send(self.wfile, 0x1, str(n))
+            elif path == "/close":
+                websocket_close(self.wfile, 4001, "the server says bye")
+            while (frame := websocket_read(self.rfile)) is not None:
+                opcode, payload = frame
+                if opcode in (0x1, 0x2):
+                    websocket_send(self.wfile, opcode, payload)
+                elif opcode == 0x9:
+                    websocket_send(self.wfile, 0xA, payload)
+                    websocket_send(self.wfile, 0x1, "ping heard")
+                elif opcode == 0x8:
+                    # The close answered with its own code and reason, then the connection ended,
+                    # as a server ends it.
+                    websocket_send(self.wfile, 0x8, payload)
+                    return
+        except (OSError, struct.error):
+            return
 
     def reply(self, status, body, content_type="text/plain", headers=()):
         data = body if isinstance(body, bytes) else body.encode()
@@ -1457,7 +1617,9 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/json":
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            self.websocket()
+        elif self.path == "/json":
             self.reply(200, '{"hello":"OxyOS","n":3}', "application/json", [("X-OxyOS", "yes")])
         elif self.path == "/text":
             self.reply(200, "plain text from the server")

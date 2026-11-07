@@ -37,6 +37,7 @@ pub mod paint;
 #[cfg(test)]
 mod tests;
 pub mod wallpapers;
+pub mod websocket;
 
 /// The type text is copied and pasted as.
 pub const CLIPBOARD_TEXT: &str = "text/plain;charset=utf-8";

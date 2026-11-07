@@ -552,6 +552,8 @@ Five seconds sampled, two after the first frame; median of three runs.
 | Allo (beside the shell) | 0.48 % | 59.6 | 0.00 % | 0 |
 | Settings | 0.85 % | 59.6 | 0.00 % | 0 |
 
+An application holding a WebSocket open (`WebSocket open`: `sample/WebSocketProbe.tsx`'s `held`, to `regress.py`'s local server, which sends nothing) is as idle, 7 November 2026: 0.00 % and 0 wakeups a second over the five seconds sampled, the socket's thread asleep in `poll` (`crates/oxyos-net`'s `websocket.rs`); the engine's own test (`an_open_idle_socket_wakes_nothing`) holds its thread to at most one wakeup over two idle seconds.
+
 ### Memory
 
 | process | resident (anonymous, file) | peak, before | peak |
