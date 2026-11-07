@@ -12,7 +12,7 @@
       "expect": {
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
-        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9", "0,930": "#a8b3ef", "1599,930": "#a8b3ee", "3,953": "#f7f9fc", "35,930": "#f7f9fc"}
+        "output_pixels": {"237,107": "#2b6ba6", "260,130": "#f1dde9", "0,930": "#28629d", "1599,930": "#402fa1", "3,953": "#f7f9fc", "35,930": "#f7f9fc"}
       },
       "allow_unchanged": true
     },
@@ -28,7 +28,7 @@
           "1599,35": "#f7ebf0",
           "0,929": "#f1dde9",
           "1599,929": "#f7ebf0",
-          "0,34": "#4271ec",
+          "0,34": "#286f9f",
           "0,930": "#f7f9fc",
           "1599,930": "#f7f9fc"
         },
@@ -42,7 +42,7 @@
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
         "transitions": {"seen": [{"kind": "window", "change": "zoomed", "ended": true, "eased": true}], "frames_min": 5},
-        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9", "0,35": "#487bff", "0,930": "#a8b3ef", "1599,930": "#a8b3ee", "3,953": "#f7f9fc", "35,930": "#f7f9fc"},
+        "output_pixels": {"237,107": "#2b6ba6", "260,130": "#f1dde9", "0,35": "#2c78ac", "0,930": "#28629d", "1599,930": "#402fa1", "3,953": "#f7f9fc", "35,930": "#f7f9fc"},
         "in_shell": {"committed": {"shell-dock": {"borderTopLeftRadius": [0, 28], "borderTopRightRadius": [0, 28]}}}
       }
     }

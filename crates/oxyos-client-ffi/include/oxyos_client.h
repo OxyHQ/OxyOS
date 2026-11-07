@@ -1965,20 +1965,6 @@ int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment
 /* Ends a setup: closing its connection abandons what the service had not finished. */
 void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
 
-/* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
- * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and
- * clockwise from north. */
-typedef struct OxyOSSolarAnchor {
-  uint32_t frame;
-  double elevation;
-  double azimuth;
-} OxyOSSolarAnchor;
-/* The frame of `anchors` showing the sun at `unix_seconds` where the system's time zone is, and when
- * (unix seconds) it next changes. 0 on success; 1 where the time zone has no place (UTC): there is no
- * sun, and the caller shows its own frame; OXYOS_ERROR for anchors that are none. */
-int oxyos_solar_frame(const OxyOSSolarAnchor* anchors, size_t count, int64_t unix_seconds, uint32_t* frame,
-                      int64_t* next_change);
-
 /* Wallpapers (docs/adr/0048-wallpapers.mdx). Each writes JSON into `out` (`capacity` bytes,
    NUL-terminated when it fits) and returns its length: larger than `capacity`, call again with
    more room; OXYOS_ERROR on failure (oxyos_last_error). */
