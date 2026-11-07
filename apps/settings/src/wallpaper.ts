@@ -368,8 +368,8 @@ export function colorsWithChosen(catalog: WallpaperCatalog, choice: WallpaperCho
   return colors;
 }
 
-/** How many tiles a row shows before *Show All* (its shuffle aside). */
-export const ROW_TILES = 5;
+/** How many tiles a row shows before *Show All*, its shuffle after them: one line of the page. */
+export const ROW_TILES = 4;
 
 /** A row's wallpapers as shown: the first `ROW_TILES`, and the chosen one if it is further on, or
     every one once shown all. */

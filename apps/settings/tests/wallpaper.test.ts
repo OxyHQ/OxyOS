@@ -168,8 +168,8 @@ test("the added photos and folders: the latest first, never twice, at most MAX_A
 
 test("a row shows its first tiles, the chosen one among them, or all", () => {
   const items = Array.from({ length: 9 }, (_, i) => i);
-  assert.deepEqual(shownTiles(items, false, (i) => i === 2), [0, 1, 2, 3, 4]);
-  assert.deepEqual(shownTiles(items, false, (i) => i === 7), [0, 1, 2, 3, 7]);
+  assert.deepEqual(shownTiles(items, false, (i) => i === 2), [0, 1, 2, 3]);
+  assert.deepEqual(shownTiles(items, false, (i) => i === 7), [0, 1, 2, 7]);
   assert.deepEqual(shownTiles(items, true, () => false), items);
   assert.equal(shownTiles(items, false, () => false).length, ROW_TILES);
 });

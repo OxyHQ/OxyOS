@@ -206,7 +206,8 @@ function Picture({
   );
 }
 
-/** A shuffle's picture: four of what it shuffles, and its glyph. */
+/** A shuffle's picture: up to four of what it shuffles, side by side as many as there are (two
+    halves, one beside two, or four quarters), and its glyph. */
 function Mosaic({
   platform,
   uris,
@@ -218,17 +219,37 @@ function Mosaic({
   colors: readonly string[];
   size: { width: number; height: number };
 }) {
-  const half = { width: size.width / 2, height: size.height / 2 };
+  const theme = useTheme();
   const cells: { uri?: string; color?: string }[] = (
     uris.length > 0 ? uris.map((uri) => ({ uri })) : colors.map((color) => ({ color }))
   ).slice(0, 4);
+  const { width, height } = size;
+  // Each cell's box, by how many there are.
+  const boxes: { left: number; top: number; width: number; height: number }[] =
+    cells.length <= 1
+      ? [{ left: 0, top: 0, width, height }]
+      : cells.length === 2
+        ? [
+            { left: 0, top: 0, width: width / 2, height },
+            { left: width / 2, top: 0, width: width / 2, height },
+          ]
+        : cells.length === 3
+          ? [
+              { left: 0, top: 0, width: width / 2, height },
+              { left: width / 2, top: 0, width: width / 2, height: height / 2 },
+              { left: width / 2, top: height / 2, width: width / 2, height: height / 2 },
+            ]
+          : [0, 1, 2, 3].map((i) => ({
+              left: (i % 2) * (width / 2),
+              top: Math.floor(i / 2) * (height / 2),
+              width: width / 2,
+              height: height / 2,
+            }));
   return (
-    <View style={{ width: size.width, height: size.height, borderRadius: RADIUS, overflow: "hidden" }}>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", width: size.width, height: size.height }}>
-        {cells.map((cell, i) => (
-          <MosaicCell key={i} platform={platform} cell={cell} size={half} />
-        ))}
-      </View>
+    <View style={{ width, height, borderRadius: RADIUS, overflow: "hidden", backgroundColor: theme.colors.borderLight }}>
+      {cells.map((cell, i) => (
+        <MosaicCell key={i} platform={platform} cell={cell} box={boxes[i]!} />
+      ))}
       <View
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
       >
@@ -237,12 +258,12 @@ function Mosaic({
             width: 28,
             height: 28,
             borderRadius: 14,
-            backgroundColor: "rgba(0,0,0,0.45)",
+            backgroundColor: "rgba(0,0,0,0.5)",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <RiShuffleLine width={16} height={16} color="#ffffff" />
+          <RiShuffleLine width={16} fill="#ffffff" />
         </View>
       </View>
     </View>
@@ -252,16 +273,16 @@ function Mosaic({
 function MosaicCell({
   platform,
   cell,
-  size,
+  box,
 }: {
   platform: WallpaperActions | undefined;
   cell: { uri?: string; color?: string };
-  size: { width: number; height: number };
+  box: { left: number; top: number; width: number; height: number };
 }) {
-  const shown = useThumbnail(platform, cell.uri ?? null, size.width, size.height);
+  const shown = useThumbnail(platform, cell.uri ?? null, box.width, box.height);
   return (
-    <View style={{ width: size.width, height: size.height, backgroundColor: cell.color ? `#${cell.color}` : undefined }}>
-      {shown ? <Image source={{ uri: shown }} resizeMode="cover" style={{ width: size.width, height: size.height }} /> : null}
+    <View style={{ position: "absolute", ...box, backgroundColor: cell.color ? `#${cell.color}` : undefined }}>
+      {shown ? <Image source={{ uri: shown }} resizeMode="cover" style={{ width: box.width, height: box.height }} /> : null}
     </View>
   );
 }
@@ -278,6 +299,34 @@ function Frame({ chosen, children }: { chosen: boolean; children: React.ReactNod
         borderColor: chosen ? theme.colors.primary : "transparent",
       }}
     >
+      {children}
+    </View>
+  );
+}
+
+/** A section's heading as Bloom's grouped sections draw theirs, with an action at its end (*Show
+    All*, as a Mac's Wallpaper settings place it). */
+function SectionHeading({ title, children }: { title: string; children?: React.ReactNode }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingLeft: 20,
+        paddingRight: 8,
+        minHeight: 28,
+        marginBottom: 2,
+      }}
+    >
+      <Text
+        variant="caption-2-semibold"
+        accessibilityRole="header"
+        style={{ color: theme.colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.6 }}
+      >
+        {title}
+      </Text>
       {children}
     </View>
   );
@@ -493,7 +542,7 @@ function AddedPicture({
             justifyContent: "center",
           }}
         >
-          <RiFolder3Line width={13} height={13} color="#ffffff" />
+          <RiFolder3Line width={13} fill="#ffffff" />
         </View>
       ) : null}
     </Picture>
@@ -791,12 +840,25 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
           shuffleOf(category.id, pictures, [], words.shuffle(category.name)),
         ];
         return (
-          <GroupedSection key={category.id} title={category.name}>
-            <GroupedSectionItem
-              title={category.name}
-              testID={`wallpaper-category-${category.id}`}
-              content={
-                <View style={{ gap: 8 }}>
+          <View key={category.id}>
+            <SectionHeading title={category.name}>
+              {category.wallpapers.length > shown.length || all ? (
+                <Button
+                  size="xs"
+                  appearance="plain"
+                  tone="neutral"
+                  onPress={() => toggleWhole(category.id)}
+                  testID={`wallpaper-show-all-${category.id}`}
+                >
+                  {all ? words.showLess : words.showAll(category.wallpapers.length)}
+                </Button>
+              ) : null}
+            </SectionHeading>
+            <GroupedSection>
+              <GroupedSectionItem
+                title={category.name}
+                testID={`wallpaper-category-${category.id}`}
+                content={
                   <TileRow
                     label={words.row(category.name)}
                     tiles={tiles}
@@ -804,23 +866,10 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
                     onChoose={choose}
                     testID={`wallpaper-row-${category.id}`}
                   />
-                  {category.wallpapers.length > shown.length || all ? (
-                    <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
-                      <Button
-                        size="sm"
-                        appearance="plain"
-                        tone="neutral"
-                        onPress={() => toggleWhole(category.id)}
-                        testID={`wallpaper-show-all-${category.id}`}
-                      >
-                        {all ? words.showLess : words.showAll(category.wallpapers.length)}
-                      </Button>
-                    </View>
-                  ) : null}
-                </View>
-              }
-            />
-          </GroupedSection>
+                }
+              />
+            </GroupedSection>
+          </View>
         );
       })}
 
