@@ -16,7 +16,7 @@
 use crate::stop::{identity, Stop};
 use oxyos_compositor_core::scene::SystemRequest;
 use oxyos_compositor_core::{ClientId, Scene};
-use oxyos_networks::{Changes, Failure, Plan, Secret, State};
+use oxyos_networks::{Changes, Failure, Follow, Plan, Secret, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -30,6 +30,7 @@ use std::time::Duration;
 /// What the session asks of the network's daemon: NetworkManager's ([`Bus`]), or a played one.
 pub trait Daemon {
     fn state(&self) -> io::Result<State>;
+    /// Scans, returning once the scan ended: the networks it found are then read whole.
     fn scan(&self) -> io::Result<()>;
     fn set_wifi(&self, enabled: bool) -> Result<(), Failure>;
     fn forget(&self, id: &str) -> Result<(), Failure>;
@@ -44,7 +45,7 @@ pub trait Reach: Send + Sync {
     /// Calls `changed` once, then after each change of the daemon's, until it returns false,
     /// `stop` is given (waited on with the daemon, never looked at on a clock), or the daemon
     /// cannot be followed.
-    fn watch(&self, stop: &Stop, changed: &mut dyn FnMut(&Changes) -> bool) -> io::Result<()>;
+    fn watch(&self, stop: &Stop, changed: &mut dyn FnMut(&Changes) -> Follow) -> io::Result<()>;
     /// What to wait for to be made, when it cannot be followed, before it is tried again: the
     /// bus's socket. `None`: nothing to wait for; it is not tried again.
     fn socket(&self) -> Option<PathBuf>;
@@ -84,7 +85,7 @@ impl Reach for Bus {
         )?))
     }
 
-    fn watch(&self, stop: &Stop, changed: &mut dyn FnMut(&Changes) -> bool) -> io::Result<()> {
+    fn watch(&self, stop: &Stop, changed: &mut dyn FnMut(&Changes) -> Follow) -> io::Result<()> {
         oxyos_networks::watch(
             self.address.as_deref(),
             Duration::from_millis(100),
@@ -132,6 +133,8 @@ enum Done {
         text: String,
     },
     State(Box<State>),
+    /// Access points' strengths signalled (the joined one's), by their objects' paths.
+    Strengths(Vec<(String, u8)>),
     /// A join needs the person's password: a sheet, and where its answer goes.
     AskPassword {
         client: ClientId,
@@ -311,6 +314,16 @@ impl Networks {
                     self.state = Some(*state);
                     self.tell(scene);
                 }
+                // The joined access point's strength: told only when what is shown of it changes
+                // (its arcs), else kept and told with the next change.
+                Done::Strengths(strengths) => {
+                    if let Some(state) = self.state.as_mut() {
+                        let before = state.clone();
+                        if state.with_strengths(&strengths) && !before.shows_as(state) {
+                            self.tell(scene);
+                        }
+                    }
+                }
                 Done::Joining(joining) => {
                     self.joining = joining;
                     self.asking = false;
@@ -428,7 +441,14 @@ impl Networks {
             },
             Ask::Scan {} => self.spawn(move |daemon, back| {
                 let text = match daemon.scan() {
-                    Ok(()) => json!({"scanned": {}}),
+                    Ok(()) => {
+                        // The networks it found, read whole as it ended: the watch follows no
+                        // scan's access points.
+                        if let Ok(state) = daemon.state() {
+                            back.send(Done::State(Box::new(state)));
+                        }
+                        json!({"scanned": {}})
+                    }
                     Err(error) => {
                         eprintln!("[networks] scanning: {error}");
                         failed(Failure::Failed)
@@ -562,25 +582,28 @@ fn watch(reach: &dyn Reach, back: &Back, stop: &Stop) {
             }
         }
         let tried = reach.socket().and_then(|socket| identity(&socket));
-        // The state last read: an access point's strength signalled is applied to it, with no
-        // call to the daemon (its scans say one every few seconds); anything else reads it whole.
-        let mut last: Option<State> = None;
+        // The access point joined as last read, whose strength the watch follows. Its strength
+        // signalled is applied to the state the turn holds (`Done::Strengths`), with no call to the
+        // daemon; anything else reads the state whole.
+        let mut point: Option<String> = None;
         let result = reach.watch(stop, &mut |changes| {
             if stop.given() {
-                return false;
+                return Follow::Stop;
             }
-            let applied = match (changes, last.as_mut()) {
-                (Changes::Strengths(strengths), Some(state)) => state.with_strengths(strengths),
-                _ => false,
-            };
-            if !applied {
-                // A connection for the read alone: one kept, its executor's thread waiting on the
-                // bus, would keep async-io's reactor thread waking after every message.
-                last = reach.connect().ok().and_then(|daemon| daemon.state().ok());
+            if let Changes::Strengths(strengths) = changes {
+                back.send(Done::Strengths(strengths.clone()));
+                return Follow::Point(point.clone());
             }
-            let state = last.clone().unwrap_or_else(State::unavailable);
+            // A connection for the read alone: one kept, its executor's thread waiting on the
+            // bus, would keep async-io's reactor thread waking after every message.
+            let state = reach
+                .connect()
+                .ok()
+                .and_then(|daemon| daemon.state().ok())
+                .unwrap_or_else(State::unavailable);
+            point = state.wifi.point.clone();
             back.send(Done::State(Box::new(state)));
-            true
+            Follow::Point(point.clone())
         });
         if stop.given() {
             return;

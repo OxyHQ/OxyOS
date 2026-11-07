@@ -24,6 +24,10 @@ const DEVICE: &str = "org.freedesktop.NetworkManager.Device";
 const WIRELESS: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const WIRED: &str = "org.freedesktop.NetworkManager.Device.Wired";
 const ACCESS_POINT: &str = "org.freedesktop.NetworkManager.AccessPoint";
+const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
+/// The longest a scan asked for is waited for (a card that never says it ended, a scan not
+/// allowed so soon after another): its access points are then read as they are.
+const SCAN_LIMIT: Duration = Duration::from_secs(10);
 const IP4: &str = "org.freedesktop.NetworkManager.IP4Config";
 const IP6: &str = "org.freedesktop.NetworkManager.IP6Config";
 const TYPE_ETHERNET: u32 = 1;
@@ -286,9 +290,10 @@ impl NetworkManager {
             if !matches!(wifi.state, WifiState::Off) {
                 let active: OwnedObjectPath =
                     self.property(&device.path, WIRELESS, "ActiveAccessPoint")?;
-                let current = if matches!(wifi.state, WifiState::Connected | WifiState::Connecting)
-                    && active.as_str() != "/"
-                {
+                let joined = matches!(wifi.state, WifiState::Connected | WifiState::Connecting)
+                    && active.as_str() != "/";
+                wifi.point = joined.then(|| active.to_string());
+                let current = if joined {
                     let bytes: Vec<u8> = self.property(&active, ACCESS_POINT, "Ssid")?;
                     Some(ssid_text(&bytes))
                 } else {
@@ -345,24 +350,57 @@ impl NetworkManager {
         })
     }
 
-    /// Asks the Wi-Fi device to look for networks; the daemon refuses scans too close together,
-    /// which is no error to anyone.
+    /// Asks the Wi-Fi device to look for networks and returns once the scan ended (the device's
+    /// `LastScan` changed), or after [`SCAN_LIMIT`]: its networks are then read whole by the caller,
+    /// as the watch follows no scan's access points. The daemon refuses scans too close together,
+    /// which is no error to anyone; the one running then is waited for.
     pub fn scan(&self) -> io::Result<()> {
         let devices = self.devices().map_err(failed)?;
         let Some(device) = Self::wifi_device(&devices) else {
             return Ok(());
         };
+        // Its end, listened for before it is asked so it is not missed: the device's `LastScan`.
+        let rule = daemon_rule(
+            Some(&device.path),
+            PROPERTIES,
+            "PropertiesChanged",
+            Some(WIRELESS),
+        )
+        .map_err(failed)?;
+        let mut device_changed = futures_lite::future::block_on(
+            zbus::MessageStream::for_match_rule(rule, self.bus.inner(), Some(16)),
+        )
+        .map_err(failed)?;
         let options: HashMap<&str, Value> = HashMap::new();
         match self
             .proxy(&device.path, WIRELESS)
             .and_then(|wireless| wireless.call::<_, _, ()>("RequestScan", &(options,)))
         {
-            Ok(()) => Ok(()),
+            // Not allowed: one is running, or one ended a moment ago; its end is waited for too.
+            Ok(()) => {}
             Err(zbus::Error::MethodError(name, _, _)) if name.as_str().ends_with(".NotAllowed") => {
-                Ok(())
             }
-            Err(error) => Err(failed(error)),
+            Err(error) => return Err(failed(error)),
         }
+        futures_lite::future::block_on(futures_lite::future::or(
+            async {
+                while let Some(message) = device_changed.next().await {
+                    let ended = message.ok().and_then(|message| {
+                        message
+                            .body()
+                            .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
+                            .ok()
+                    });
+                    if ended.is_some_and(|(_, changed, _)| changed.contains_key("LastScan")) {
+                        return;
+                    }
+                }
+            },
+            async {
+                async_io::Timer::after(SCAN_LIMIT).await;
+            },
+        ));
+        Ok(())
     }
 
     /// Turns Wi-Fi on or off, as `nmcli radio wifi` does.
@@ -786,12 +824,12 @@ impl Changes {
 }
 
 /// What a signal of the daemon's changed: an access point's strength alone (`Strengths`), nothing
-/// shown (when it was last seen alone: `None`), or anything else.
+/// shown (when it was last seen alone, or a scan's list of access points: `None`), or anything
+/// else.
 fn changes_of(message: &zbus::Message) -> Option<Changes> {
     let header = message.header();
     let properties = header.member().map(|member| member.as_str()) == Some("PropertiesChanged")
-        && header.interface().map(|interface| interface.as_str())
-            == Some("org.freedesktop.DBus.Properties");
+        && header.interface().map(|interface| interface.as_str()) == Some(PROPERTIES);
     let path = header.path().map(|path| path.to_string());
     let read = properties
         .then(|| {
@@ -804,12 +842,18 @@ fn changes_of(message: &zbus::Message) -> Option<Changes> {
     let (Some((interface, changed, invalidated)), Some(path)) = (read, path) else {
         return Some(Changes::Any);
     };
-    if interface != ACCESS_POINT
-        || !invalidated.is_empty()
-        || changed
-            .keys()
-            .any(|key| key != "Strength" && key != "LastSeen")
-    {
+    // Those properties alone (a signal naming none says nothing of what changed).
+    let only = |these: &[&str]| {
+        invalidated.is_empty()
+            && !changed.is_empty()
+            && changed.keys().all(|key| these.contains(&key.as_str()))
+    };
+    // A scan's access points and when it ended: what a scan asked for reads whole as it ends
+    // (`NetworkManager::scan`); the lists shown ask for one as they open and every ten seconds.
+    if interface == WIRELESS && only(&["AccessPoints", "LastScan"]) {
+        return None;
+    }
+    if interface != ACCESS_POINT || !only(&["Strength", "LastSeen"]) {
         return Some(Changes::Any);
     }
     match changed
@@ -822,24 +866,71 @@ fn changes_of(message: &zbus::Message) -> Option<Changes> {
     }
 }
 
+/// What the watch follows next, as its caller says after each change: the access point joined
+/// (its object's path; its strength is followed), or nothing more.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Follow {
+    Point(Option<String>),
+    Stop,
+}
+
+/// A match on the daemon's signals: of `interface`'s `member`, at `path` if given, and for
+/// `PropertiesChanged`, of the properties of `of` (its first argument).
+fn daemon_rule(
+    path: Option<&str>,
+    interface: &'static str,
+    member: &'static str,
+    of: Option<&'static str>,
+) -> zbus::Result<zbus::MatchRule<'static>> {
+    let mut builder = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(NM)?
+        .interface(interface)?
+        .member(member)?;
+    if let Some(path) = path {
+        builder = builder.path(path.to_string())?;
+    }
+    if let Some(of) = of {
+        builder = builder.arg(0, of)?;
+    }
+    Ok(builder.build())
+}
+
+/// The next message of any of `streams`, and which; `None` once one ends (the bus closed).
+async fn next_of(
+    streams: &mut [zbus::MessageStream],
+) -> Option<(usize, zbus::Result<zbus::Message>)> {
+    futures_lite::future::poll_fn(|cx| {
+        for (index, stream) in streams.iter_mut().enumerate() {
+            match stream.poll_next(cx) {
+                std::task::Poll::Ready(Some(message)) => {
+                    return std::task::Poll::Ready(Some((index, message)))
+                }
+                std::task::Poll::Ready(None) => return std::task::Poll::Ready(None),
+                std::task::Poll::Pending => {}
+            }
+        }
+        std::task::Poll::Pending
+    })
+    .await
+}
+
 /// Follows the daemon: calls `changed` once it is seen ([`Changes::Any`]), and again with what
-/// changed after each change it signals (a property of any of its objects, a device's state, its
-/// name's owner; an access point last seen again, which shows nothing, is not one), until
-/// `changed` returns false or `stop` is readable (the caller's order to end, waited on with the
-/// bus: the thread wakes only for a signal or the order). Changes that come together are one
-/// call, `settle` after the first. Without the bus, returns the error; returns when the bus
-/// closes.
+/// changed after each change it signals, until `changed` says to stop or `stop` is readable (the
+/// caller's order to end, waited on with the bus: the thread wakes only for a signal or the
+/// order). Only what can change what is shown is followed, each a match the bus daemon applies so
+/// no other signal is delivered: the daemon's own state and Wi-Fi's switches, its devices' states
+/// and properties (a cable, the access point joined; not a scan's list of access points, read
+/// whole as a scan asked for ends), the saved connections, its name's owner, and the strength of
+/// the access point joined, which `changed` names after each change. Changes that come together
+/// are one call, `settle` after the first; a strength alone is told at once. Without the bus,
+/// returns the error; returns when the bus closes.
 pub fn watch(
     address: Option<&str>,
     settle: Duration,
     stop: BorrowedFd<'_>,
-    mut changed: impl FnMut(&Changes) -> bool,
+    mut changed: impl FnMut(&Changes) -> Follow,
 ) -> io::Result<()> {
-    enum Next {
-        Signal(Option<Changes>),
-        Ended,
-        Stopped,
-    }
     let stop = async_io::Async::new(stop.try_clone_to_owned()?)?;
     // A connection of its own, its executor (what reads its socket) run on this thread as it
     // waits, with futures-lite's block_on: a thread waiting long in async-io's (as an internal
@@ -852,12 +943,16 @@ pub fn watch(
     // Declared before the streams on it, so dropped after them.
     let connection = Ticked::connect(builder)?;
     let bus = connection.bus();
-    let rule = zbus::MatchRule::builder()
-        .msg_type(zbus::message::Type::Signal)
-        .sender(NM)
-        .map_err(failed)?
-        .build();
-    // NetworkManager's own name owner changing (it started or stopped) too.
+    let rules = [
+        daemon_rule(Some(NM_PATH), PROPERTIES, "PropertiesChanged", Some(NM)),
+        daemon_rule(None, DEVICE, "StateChanged", None),
+        daemon_rule(None, PROPERTIES, "PropertiesChanged", Some(DEVICE)),
+        daemon_rule(None, PROPERTIES, "PropertiesChanged", Some(WIRELESS)),
+        daemon_rule(None, PROPERTIES, "PropertiesChanged", Some(WIRED)),
+        daemon_rule(Some(SETTINGS_PATH), SETTINGS, "NewConnection", None),
+        daemon_rule(Some(SETTINGS_PATH), SETTINGS, "ConnectionRemoved", None),
+    ];
+    // Its own name owner changing (it started or stopped) too.
     let owner = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender("org.freedesktop.DBus")
@@ -867,71 +962,106 @@ pub fn watch(
         .arg(0, NM)
         .map_err(failed)?
         .build();
-    let mut signals = connection
-        .wait(zbus::MessageStream::for_match_rule(rule, bus, Some(256)))
-        .map_err(failed)?;
-    let mut owners = connection
-        .wait(zbus::MessageStream::for_match_rule(owner, bus, Some(16)))
-        .map_err(failed)?;
-    if !changed(&Changes::Any) {
+    let mut streams = Vec::new();
+    for rule in rules {
+        let rule = rule.map_err(failed)?;
+        streams.push(
+            connection
+                .wait(zbus::MessageStream::for_match_rule(rule, bus, Some(64)))
+                .map_err(failed)?,
+        );
+    }
+    streams.push(
+        connection
+            .wait(zbus::MessageStream::for_match_rule(owner, bus, Some(16)))
+            .map_err(failed)?,
+    );
+    let fixed = streams.len();
+    // The access point joined: its strength, followed while it is the one joined.
+    let mut point: Option<String> = None;
+    let mut follow = |streams: &mut Vec<zbus::MessageStream>, now: Follow| -> io::Result<bool> {
+        let Follow::Point(now) = now else {
+            return Ok(false);
+        };
+        if now != point {
+            streams.truncate(fixed);
+            if let Some(path) = &now {
+                let rule = daemon_rule(
+                    Some(path),
+                    PROPERTIES,
+                    "PropertiesChanged",
+                    Some(ACCESS_POINT),
+                )
+                .map_err(failed)?;
+                streams.push(
+                    connection
+                        .wait(zbus::MessageStream::for_match_rule(rule, bus, Some(16)))
+                        .map_err(failed)?,
+                );
+            }
+            point = now;
+        }
+        Ok(true)
+    };
+    if !follow(&mut streams, changed(&Changes::Any))? {
         return Ok(());
     }
     loop {
         let next = connection.wait(futures_lite::future::or(
             async {
-                match signals.next().await {
-                    Some(Ok(message)) => Next::Signal(changes_of(&message)),
-                    Some(Err(_)) => Next::Signal(Some(Changes::Any)),
-                    None => Next::Ended,
+                match next_of(&mut streams).await {
+                    Some((_, Ok(message))) => Some(changes_of(&message)),
+                    Some((_, Err(_))) => Some(Some(Changes::Any)),
+                    None => None,
                 }
             },
-            futures_lite::future::or(
-                async {
-                    match owners.next().await {
-                        Some(_) => Next::Signal(Some(Changes::Any)),
-                        None => Next::Ended,
-                    }
-                },
-                async {
-                    let _ = stop.readable().await;
-                    Next::Stopped
-                },
-            ),
+            async {
+                let _ = stop.readable().await;
+                None
+            },
         ));
         let first = match next {
-            Next::Ended | Next::Stopped => return Ok(()),
+            // Stopped, or the bus closed.
+            None => return Ok(()),
             // Nothing shown changed: no wait, no call.
-            Next::Signal(None) => continue,
-            Next::Signal(Some(changes)) => changes,
+            Some(None) => continue,
+            Some(Some(changes)) => changes,
         };
-        // What follows at once is the same change.
-        let until = Instant::now() + settle;
-        let changes = connection.wait(async {
-            let mut changes = first;
-            loop {
-                let more = futures_lite::future::or(
-                    async {
-                        match signals.next().await {
-                            Some(Ok(message)) => Next::Signal(changes_of(&message)),
-                            Some(Err(_)) => Next::Signal(Some(Changes::Any)),
-                            None => Next::Ended,
+        // A strength alone is told at once; what follows anything else at once is the same change.
+        let changes = match first {
+            Changes::Strengths(_) => first,
+            Changes::Any => {
+                let until = Instant::now() + settle;
+                let (changes, ended) = connection.wait(async {
+                    let mut changes = Changes::Any;
+                    loop {
+                        let more = futures_lite::future::or(
+                            async { Some(next_of(&mut streams).await) },
+                            async {
+                                async_io::Timer::at(until).await;
+                                None
+                            },
+                        )
+                        .await;
+                        match more {
+                            Some(Some((_, Ok(message)))) => {
+                                changes = changes.and(changes_of(&message))
+                            }
+                            Some(Some((_, Err(_)))) => {}
+                            // The bus closed: told now, and the next wait ends the watch.
+                            Some(None) => return (changes, true),
+                            None => return (changes, false),
                         }
-                    },
-                    async {
-                        async_io::Timer::at(until).await;
-                        Next::Stopped
-                    },
-                )
-                .await;
-                match more {
-                    Next::Signal(more) => changes = changes.and(more),
-                    // The bus closed: told now, and the next wait ends the watch.
-                    Next::Ended => return Changes::Any,
-                    Next::Stopped => return changes,
+                    }
+                });
+                if ended {
+                    changed(&changes);
+                    return Ok(());
                 }
+                changes
             }
-        });
-        if !changed(&changes) {
+        };
+        if !follow(&mut streams, changed(&changes))? {
             return Ok(());
         }
     }

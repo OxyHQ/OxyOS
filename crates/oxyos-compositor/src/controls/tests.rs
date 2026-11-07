@@ -421,7 +421,7 @@ fn the_system_is_read_as_it_changes_never_on_a_clock() {
     };
     until(&mut machine, &|event| matches!(event, Event::Power { .. }));
     machine.fake.change("battery_percent = 70").unwrap();
-    commands.send(read(Change::Status)).unwrap();
+    commands.send(read(Change::Battery)).unwrap();
     until(&mut machine, &|event| {
         matches!(event, Event::Power { percent: 70, .. })
     });

@@ -6,7 +6,8 @@
 //! caller follows it again once it is back):
 //!
 //! - [`bus`]: the system bus's signals from UPower (the battery), BlueZ (Bluetooth) and, where
-//!   nothing else follows it, NetworkManager, and their names' owners (a service started or gone);
+//!   nothing else follows it, NetworkManager, and their names' owners (a service started or gone):
+//!   only those that can change what is shown, each told as what it changed;
 //! - [`backlights`]: the display's backlight and a keyboard's the firmware changes itself, by the
 //!   kernel's notification of their sysfs attributes (`actual_brightness`, which the backlight
 //!   class notifies whenever the brightness is set, by a key or by a program, and
@@ -28,16 +29,19 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-/// What changed: the status (the battery, the network, Bluetooth), or a level.
+/// What changed: the battery, the network, Bluetooth, or a level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Change {
-    Status,
+    Battery,
+    Network,
+    Bluetooth,
     Level(Control),
 }
 
 const UPOWER: &str = "org.freedesktop.UPower";
 const BLUEZ: &str = "org.bluez";
 const NM: &str = "org.freedesktop.NetworkManager";
+const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 /// Signals that come together are one change, told this long after the first.
 const SETTLE: Duration = Duration::from_millis(100);
 
@@ -45,8 +49,173 @@ fn failed(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
 }
 
-/// Follows the system bus (the module's doc), with NetworkManager's signals where `network`.
-/// Without the bus, returns the error; returns when the bus closes or `stop` is readable.
+/// What is followed on the bus, and what each says changed: only the signals that can change what
+/// the top bar and Control Center show, so the bus daemon delivers no other to the session.
+struct Rule {
+    sender: &'static str,
+    path: Option<&'static str>,
+    interface: &'static str,
+    member: &'static str,
+    /// For `PropertiesChanged`, the interface whose properties (its first argument).
+    of: Option<&'static str>,
+    /// For `PropertiesChanged`, the properties shown (a change of none of them is nothing).
+    shown: &'static [&'static str],
+    change: Change,
+}
+
+/// UPower's: its display device's charge, state and time left, and whether the machine is on
+/// battery; not its energy, rate or voltage, which change at every reading.
+const UPOWER_RULES: [Rule; 2] = [
+    Rule {
+        sender: UPOWER,
+        path: Some("/org/freedesktop/UPower/devices/DisplayDevice"),
+        interface: PROPERTIES,
+        member: "PropertiesChanged",
+        of: Some("org.freedesktop.UPower.Device"),
+        shown: &[
+            "IsPresent",
+            "Type",
+            "Percentage",
+            "State",
+            "TimeToEmpty",
+            "TimeToFull",
+        ],
+        change: Change::Battery,
+    },
+    Rule {
+        sender: UPOWER,
+        path: Some("/org/freedesktop/UPower"),
+        interface: PROPERTIES,
+        member: "PropertiesChanged",
+        of: Some(UPOWER),
+        shown: &["OnBattery"],
+        change: Change::Battery,
+    },
+];
+
+/// BlueZ's: an adapter on or off, a device connected or not, and adapters and devices that come
+/// and go; not a discovery's devices' signal strengths and data.
+const BLUEZ_RULES: [Rule; 4] = [
+    Rule {
+        sender: BLUEZ,
+        path: None,
+        interface: PROPERTIES,
+        member: "PropertiesChanged",
+        of: Some("org.bluez.Adapter1"),
+        shown: &["Powered", "PowerState"],
+        change: Change::Bluetooth,
+    },
+    Rule {
+        sender: BLUEZ,
+        path: None,
+        interface: PROPERTIES,
+        member: "PropertiesChanged",
+        of: Some("org.bluez.Device1"),
+        shown: &["Connected"],
+        change: Change::Bluetooth,
+    },
+    Rule {
+        sender: BLUEZ,
+        path: Some("/"),
+        interface: "org.freedesktop.DBus.ObjectManager",
+        member: "InterfacesAdded",
+        of: None,
+        shown: &[],
+        change: Change::Bluetooth,
+    },
+    Rule {
+        sender: BLUEZ,
+        path: Some("/"),
+        interface: "org.freedesktop.DBus.ObjectManager",
+        member: "InterfacesRemoved",
+        of: None,
+        shown: &[],
+        change: Change::Bluetooth,
+    },
+];
+
+/// NetworkManager's, where nothing else follows it (the login screen): its own state and Wi-Fi's
+/// switches, and its devices' states; not its access points or scans.
+const NM_RULES: [Rule; 2] = [
+    Rule {
+        sender: NM,
+        path: Some("/org/freedesktop/NetworkManager"),
+        interface: PROPERTIES,
+        member: "PropertiesChanged",
+        of: Some(NM),
+        shown: &[
+            "WirelessEnabled",
+            "WirelessHardwareEnabled",
+            "State",
+            "Devices",
+        ],
+        change: Change::Network,
+    },
+    Rule {
+        sender: NM,
+        path: None,
+        interface: "org.freedesktop.NetworkManager.Device",
+        member: "StateChanged",
+        of: None,
+        shown: &[],
+        change: Change::Network,
+    },
+];
+
+impl Rule {
+    fn matching(&self) -> zbus::Result<zbus::MatchRule<'static>> {
+        let mut builder = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender(self.sender)?
+            .interface(self.interface)?
+            .member(self.member)?;
+        if let Some(path) = self.path {
+            builder = builder.path(path)?;
+        }
+        if let Some(of) = self.of {
+            builder = builder.arg(0, of)?;
+        }
+        Ok(builder.build())
+    }
+
+    /// What `message` (one this rule matched) changed, if anything shown.
+    fn change_of(&self, message: &zbus::Message) -> Option<Change> {
+        if self.of.is_none() {
+            return Some(self.change);
+        }
+        type Changed = (
+            String,
+            HashMap<String, zbus::zvariant::OwnedValue>,
+            Vec<String>,
+        );
+        let Ok((_, changed, invalidated)) = message.body().deserialize::<Changed>() else {
+            return Some(self.change);
+        };
+        changed
+            .keys()
+            .chain(invalidated.iter())
+            .any(|name| self.shown.contains(&name.as_str()))
+            .then_some(self.change)
+    }
+}
+
+/// What a stream's message says changed, if anything shown.
+type Says = Box<dyn Fn(&zbus::Message) -> Option<Change>>;
+
+/// The owner of `service` changing: it started or stopped.
+fn owner_rule(service: &'static str) -> zbus::Result<zbus::MatchRule<'static>> {
+    Ok(zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender("org.freedesktop.DBus")?
+        .member("NameOwnerChanged")?
+        .arg(0, service)?
+        .build())
+}
+
+/// Follows the system bus (the module's doc), with NetworkManager's signals where `network`: each
+/// rule a match the bus daemon applies, so a signal that cannot change what is shown is never
+/// delivered, and of those delivered, a change of no shown property is nothing. Without the bus,
+/// returns the error; returns when the bus closes or `stop` is readable.
 pub fn bus(
     network: bool,
     stop: BorrowedFd<'_>,
@@ -57,80 +226,100 @@ pub fn bus(
     // (`oxyos_seat::system_bus`); its signals are waited for with futures-lite's block_on.
     let bus = oxyos_seat::system_bus()?;
     let inner = bus.inner();
-    let mut services = vec![UPOWER, BLUEZ];
+    let mut rules: Vec<&Rule> = UPOWER_RULES.iter().chain(BLUEZ_RULES.iter()).collect();
+    let mut owners = vec![(UPOWER, Change::Battery), (BLUEZ, Change::Bluetooth)];
     if network {
-        services.push(NM);
+        rules.extend(NM_RULES.iter());
+        owners.push((NM, Change::Network));
     }
+    // Each stream and what its messages say changed.
     let mut streams = Vec::new();
-    for service in &services {
-        let signals = zbus::MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .sender(*service)
-            .map_err(failed)?
-            .build();
-        let owner = zbus::MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .sender("org.freedesktop.DBus")
-            .map_err(failed)?
-            .member("NameOwnerChanged")
-            .map_err(failed)?
-            .arg(0, *service)
-            .map_err(failed)?
-            .build();
-        for rule in [signals, owner] {
-            streams.push(
-                futures_lite::future::block_on(zbus::MessageStream::for_match_rule(
-                    rule,
-                    inner,
-                    Some(64),
-                ))
-                .map_err(failed)?,
-            );
-        }
+    let mut says: Vec<Says> = Vec::new();
+    for rule in rules {
+        let matching = rule.matching().map_err(failed)?;
+        streams.push(
+            futures_lite::future::block_on(zbus::MessageStream::for_match_rule(
+                matching,
+                inner,
+                Some(64),
+            ))
+            .map_err(failed)?,
+        );
+        says.push(Box::new(move |message| rule.change_of(message)));
+    }
+    for (service, change) in owners {
+        let matching = owner_rule(service).map_err(failed)?;
+        streams.push(
+            futures_lite::future::block_on(zbus::MessageStream::for_match_rule(
+                matching,
+                inner,
+                Some(8),
+            ))
+            .map_err(failed)?,
+        );
+        says.push(Box::new(move |_| Some(change)));
     }
     loop {
         let signal = futures_lite::future::block_on(futures_lite::future::or(
-            async { next(&mut streams).await.map(|()| true) },
+            async { Some(next(&mut streams).await) },
             async {
                 let _ = stop.readable().await;
-                Some(false)
+                None
             },
         ));
-        if signal != Some(true) {
-            // Stopped, or the bus closed.
+        // Stopped, or the bus closed.
+        let Some(Some((index, message))) = signal else {
             return Ok(());
-        }
-        // What follows at once is the same change.
+        };
+        let Some(first) = says[index](&message) else {
+            continue;
+        };
+        // What follows at once is said once, each change once.
+        let mut said = vec![first];
         let until = Instant::now() + SETTLE;
         let ended = futures_lite::future::block_on(async {
             loop {
-                let more = futures_lite::future::or(
-                    async { Some(next(&mut streams).await.is_some()) },
-                    async {
+                let more =
+                    futures_lite::future::or(async { Some(next(&mut streams).await) }, async {
                         async_io::Timer::at(until).await;
                         None
-                    },
-                )
-                .await;
+                    })
+                    .await;
                 match more {
-                    Some(true) => {}
-                    Some(false) => return true,
+                    Some(Some((index, message))) => said.extend(says[index](&message)),
+                    Some(None) => return true,
                     None => return false,
                 }
             }
         });
-        if !changed(Change::Status) || ended {
+        said.dedup();
+        let mut seen: Vec<Change> = Vec::new();
+        for change in said {
+            if !seen.contains(&change) {
+                seen.push(change);
+                if !changed(change) {
+                    return Ok(());
+                }
+            }
+        }
+        if ended {
             return Ok(());
         }
     }
 }
 
-/// The next signal of any of `streams`; `None` once one ends (the bus closed).
-async fn next(streams: &mut [zbus::MessageStream]) -> Option<()> {
+/// The next signal of any of `streams`, and which; `None` once one ends (the bus closed).
+async fn next(streams: &mut [zbus::MessageStream]) -> Option<(usize, zbus::Message)> {
     futures_lite::future::poll_fn(|cx| {
-        for stream in streams.iter_mut() {
-            if let std::task::Poll::Ready(signal) = stream.poll_next(cx) {
-                return std::task::Poll::Ready(signal.map(|_| ()));
+        for (index, stream) in streams.iter_mut().enumerate() {
+            match stream.poll_next(cx) {
+                std::task::Poll::Ready(Some(Ok(message))) => {
+                    return std::task::Poll::Ready(Some((index, message)))
+                }
+                // A message that could not be read is skipped.
+                std::task::Poll::Ready(Some(Err(_))) => {}
+                std::task::Poll::Ready(None) => return std::task::Poll::Ready(None),
+                std::task::Poll::Pending => {}
             }
         }
         std::task::Poll::Pending

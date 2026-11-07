@@ -685,9 +685,33 @@ impl Wireless {
     }
 
     fn request_scan(&self, _options: HashMap<String, OwnedValue>) {
-        let mut m = self.model.lock().unwrap();
-        m.scans += 1;
-        m.save();
+        let scans = {
+            let mut m = self.model.lock().unwrap();
+            m.scans += 1;
+            m.save();
+            m.scans
+        };
+        // It ends a moment later, as NetworkManager says: its `LastScan`, alone.
+        std::thread::spawn(move || {
+            std::thread::sleep(STEP);
+            let invalidated: Vec<&str> = Vec::new();
+            let _ = bus().emit_signal(
+                None::<&str>,
+                WIFI_DEVICE,
+                "org.freedesktop.DBus.Properties",
+                "PropertiesChanged",
+                &(
+                    "org.freedesktop.NetworkManager.Device.Wireless",
+                    HashMap::from([("LastScan", Value::from(i64::from(scans) * 1000))]),
+                    &invalidated,
+                ),
+            );
+        });
+    }
+
+    #[zbus(property)]
+    fn last_scan(&self) -> i64 {
+        i64::from(self.model.lock().unwrap().scans) * 1000
     }
 }
 

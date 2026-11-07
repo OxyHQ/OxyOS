@@ -156,7 +156,7 @@ impl Reach for Played {
     fn watch(
         &self,
         stop: &crate::stop::Stop,
-        changed: &mut dyn FnMut(&oxyos_networks::Changes) -> bool,
+        changed: &mut dyn FnMut(&oxyos_networks::Changes) -> oxyos_networks::Follow,
     ) -> io::Result<()> {
         let mut seen = None;
         loop {
@@ -166,7 +166,7 @@ impl Reach for Played {
             let version = self.0.lock().unwrap().version;
             if seen != Some(version) {
                 seen = Some(version);
-                if !changed(&oxyos_networks::Changes::Any) {
+                if changed(&oxyos_networks::Changes::Any) == oxyos_networks::Follow::Stop {
                     return Ok(());
                 }
             }
@@ -615,4 +615,62 @@ fn the_top_bar_is_told_the_network_as_read_here() {
             network.wifi == oxyos_protocol::WifiState::Off && network.ssid.is_empty()
         })
     });
+}
+
+#[test]
+fn a_strength_is_told_only_when_its_arcs_change() {
+    let mut s = Session::new(Machine {
+        wifi: true,
+        joined: Some("Home".into()),
+        saved: vec![("Home".into(), Some(PASSWORD.into()))],
+        ..Machine::default()
+    });
+    s.until(|s| {
+        s.networks
+            .state()
+            .is_some_and(|state| state.wifi.current.is_some())
+    });
+    // The access points behind its networks, as NetworkManager's read gives them.
+    let state = s.networks.state.as_mut().unwrap();
+    state.wifi.points = state
+        .wifi
+        .networks
+        .iter()
+        .map(|network| {
+            (
+                format!("/ap/{}", network.ssid.to_lowercase()),
+                oxyos_networks::AccessPoint {
+                    ssid: network.ssid.clone(),
+                    signal: network.signal,
+                    security: network.security,
+                },
+            )
+        })
+        .collect();
+    let told = |s: &Session| s.told(SHELL).len();
+    let before = told(&s);
+    // 70 to 80: the same three arcs; nothing is told, the strength is kept.
+    s.networks
+        .back
+        .send(Done::Strengths(vec![("/ap/home".into(), 80)]));
+    s.turn();
+    assert_eq!(told(&s), before, "a strength within its arcs is told");
+    assert_eq!(
+        s.networks
+            .state()
+            .unwrap()
+            .wifi
+            .current
+            .as_ref()
+            .unwrap()
+            .signal,
+        80
+    );
+    // 80 to 50: two arcs; told, with it.
+    s.networks
+        .back
+        .send(Done::Strengths(vec![("/ap/home".into(), 50)]));
+    s.turn();
+    assert_eq!(told(&s), before + 1);
+    assert!(s.told(SHELL).last().unwrap().contains(r#""signal":50"#));
 }

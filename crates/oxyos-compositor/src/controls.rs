@@ -278,7 +278,9 @@ pub struct Following {
 /// The read a change asks for.
 fn read(change: Change) -> Command {
     match change {
-        Change::Status => Command::ReadStatus,
+        Change::Battery => Command::ReadBattery,
+        Change::Network => Command::ReadNetwork,
+        Change::Bluetooth => Command::ReadBluetooth,
         Change::Level(control) => Command::ReadLevel(control, None),
     }
 }

@@ -325,8 +325,15 @@ fn wifi_off_and_on() {
 fn scans_and_watching_the_daemon() {
     let daemon = daemon("watch", machine());
     let manager = daemon.manager();
+    // A scan returns once it ended (its `LastScan`), not at its limit.
+    let asked = Instant::now();
     manager.scan().unwrap();
-    until(|| daemon.held()["scans"] == 1);
+    assert!(
+        asked.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        asked.elapsed()
+    );
+    assert_eq!(daemon.held()["scans"], 1);
     let (told, seen) = std::sync::mpsc::channel();
     let address = daemon.address.clone();
     // Never told to stop: it ends with the test.
@@ -337,7 +344,17 @@ fn scans_and_watching_the_daemon() {
             Some(&address),
             Duration::from_millis(30),
             never.as_fd(),
-            |changes: &oxyos_networks::Changes| told.send(changes.clone()).is_ok(),
+            |changes: &oxyos_networks::Changes| {
+                // The access point joined, as a read says it: its strength is followed.
+                let point = NetworkManager::connect(Some(&address))
+                    .and_then(|manager| manager.state())
+                    .ok()
+                    .and_then(|state| state.wifi.point);
+                if told.send(changes.clone()).is_err() {
+                    return oxyos_networks::Follow::Stop;
+                }
+                oxyos_networks::Follow::Point(point)
+            },
         )
     });
     assert_eq!(
@@ -345,22 +362,28 @@ fn scans_and_watching_the_daemon() {
             .expect("told at start"),
         oxyos_networks::Changes::Any
     );
-    // An access point's strength is told as that alone, by its object; seen again by a scan, it
-    // is not told at all.
+    // The access point joined: its strength is told as that alone, by its object. Another's, and
+    // the joined one seen again by a scan, are not delivered at all: had they been, they would
+    // have been told before it, in the order they were signalled.
     let before = manager.state().unwrap();
-    daemon.act(json!({"seen": "Café Libre"}));
     daemon.act(json!({"strength": {"ssid": "Café Libre", "strength": 90}}));
+    daemon.act(json!({"seen": "LukeSkyRouter"}));
+    daemon.act(json!({"strength": {"ssid": "LukeSkyRouter", "strength": 50}}));
     let told = seen
         .recv_timeout(Duration::from_secs(5))
         .expect("told of the strength");
     let oxyos_networks::Changes::Strengths(strengths) = told else {
         panic!("{told:?} is not the strength alone");
     };
+    assert_eq!(strengths, [(before.wifi.point.clone().unwrap(), 50)]);
     let mut applied = before.clone();
     assert!(applied.with_strengths(&strengths));
     let read = manager.state().unwrap();
-    assert_eq!(applied, read, "applied as a read gives it");
-    assert_eq!(read.wifi.networks[0].ssid, "Café Libre");
+    assert_eq!(
+        applied.wifi.current, read.wifi.current,
+        "applied as a read gives it"
+    );
+    assert_eq!(read.wifi.current.unwrap().signal, 50);
     daemon.act(json!({"ethernet": "plugged"}));
     assert_eq!(
         seen.recv_timeout(Duration::from_secs(5))

@@ -14,10 +14,21 @@
 mod nm;
 mod secret;
 
-pub use nm::{watch, Changes, NetworkManager};
+pub use nm::{watch, Changes, Follow, NetworkManager};
 
 /// The system bus's address when the environment names none (the D-Bus specification's).
 pub const SYSTEM_BUS: &str = "unix:path=/var/run/dbus/system_bus_socket";
+
+/// How many of the Wi-Fi glyph's three arcs a signal (0 to 100) fills, as the shell's top bar and
+/// Settings draw it (`signalBars`): 0 for none, else 1 to 3.
+pub fn arcs(signal: u8) -> u8 {
+    match signal {
+        0 => 0,
+        67.. => 3,
+        34.. => 2,
+        _ => 1,
+    }
+}
 
 /// The socket a bus at `address` is reached through, where it is a path (`unix:path=…`; the
 /// first of several, `;`-separated): the system bus's for `None` (`DBUS_SYSTEM_BUS_ADDRESS`, else
@@ -52,6 +63,33 @@ impl State {
     /// No daemon: nothing to show.
     pub fn unavailable() -> Self {
         Self::default()
+    }
+
+    /// Whether `other` shows the same as this: every network's signal as many arcs of the Wi-Fi
+    /// glyph ([`arcs`]), which is all the top bar, Control Center and Settings show of it, and
+    /// everything else the same. A strength that moves within its arcs changes nothing shown; the
+    /// order it may move a network to among those of its arcs comes with the next scan, which the
+    /// lists shown ask for every ten seconds.
+    pub fn shows_as(&self, other: &State) -> bool {
+        let shown = |state: &State| {
+            let mut state = state.clone();
+            for network in state
+                .wifi
+                .networks
+                .iter_mut()
+                .chain(state.wifi.current.as_mut())
+            {
+                network.signal = arcs(network.signal);
+            }
+            state
+                .wifi
+                .networks
+                .sort_by(|a, b| b.signal.cmp(&a.signal).then_with(|| a.ssid.cmp(&b.ssid)));
+            // What is not told.
+            state.wifi.points.clear();
+            state
+        };
+        shown(self) == shown(other)
     }
 
     /// The state with access points' new strengths (by their objects' paths), as the daemon read
@@ -117,6 +155,9 @@ pub struct Wifi {
     /// change of their strength is applied as it is signalled ([`State::with_strengths`]). Not told.
     #[serde(skip)]
     pub points: Vec<(String, AccessPoint)>,
+    /// The access point joined, by its object's path: its strength is followed (`watch`). Not told.
+    #[serde(skip)]
+    pub point: Option<String>,
 }
 
 /// How a network is protected, from what its access point says.
