@@ -73,7 +73,25 @@ What has to be decided: where the recovery lives and how it is verified; how it 
 
 ### Results
 
-Filled in by the run below.
+On a developer's machine (WSL2, KVM), the image of commit `3f206ecad2a2` built by `tools/image/build.sh` (451 packages, a 789 MiB squashfs with a 6.3 MiB hash tree, a 944 MiB ISO) and audited (no violation; the known residue only), then `tools/image/acceptance --recovery`:
+
+- **UEFI: 52 of 52 checks** in 726 s. **Secure Boot** (OVMF with Microsoft's keys: shim, then Debian's systemd-boot, then Debian's kernel, the recovery's as well as OxyOS's, `SecureBoot` 1 in both): **52 of 52** in 505 s. The image's own boot tests still pass: UEFI 18 of 18, Secure Boot 18 of 18, BIOS 17 of 17.
+- **Install:** 97 s onto a 24 GiB virtual disk (332 s with another machine and a build sharing the host): the image checked against its root hash, the disk laid out, the recovery's copy checked, the system set up. The disk's layout, types and labels as decision 7 says; two keyslots (the developer's password and the recovery key), the install key gone; the live packages and GRUB purged; the firmware's entry for shim.
+- **The installed system:** Plymouth's passphrase field on the boot logo, a bullet a character typed on the keyboard; `running`, no failed unit; after the first complete boot the entry has its three tries again (`+3`) beside the recovery's.
+- **The recovery by a key:** Space held on the keyboard shows the menu (OxyOS, OxyOS Recovery and nothing else); the recovery boots its partition read-only through dm-verity (the root hash on its command line), into `oxyos-recovery.target`, no live user and no login, `running`, no failed unit; *Restart* goes back to OxyOS.
+- **The recovery by failed starts:** three starts cut off at the password prompt leave the entry `+0-3`; the fourth start is the recovery, which says OxyOS could not start; *Restart* gives the tries back (`+3`).
+- **Erase All Content and Settings:** `oxyos-erase.service` writes the request and condemns the entry; the next start is the recovery, which erases and installs again in 83 to 135 s; the first start after it asks for no password (the install key), is `running` with no failed unit, a first boot with a new machine id, no user, no home, no account; a new LUKS2 volume, which neither the old password nor the old recovery key opens and in whose first 64 MiB the old volume's UUID is nowhere; the recovery's entry and partition untouched; no request left; the new kernel's entry counted.
+- **Erase and Reinstall** from the recovery's menu: the same, from the menu, after the confirmation word.
+
+What building and running found, fixed here:
+- live-build's dm-verity stage runs `veritysetup` on the build's own system and, without it, writes an empty root hash and no hash tree, saying nothing: the build container installs it, and the build fails without a hash tree and root hash.
+- With `LB_UEFI_SECURE_BOOT="auto"` live-build installs shim and GRUB into the chroot for the medium and purges them after, shim included though the manifest has it, taking the installer with it; and purging GRUB there runs systemd-boot's trigger, which fails where there is no EFI system partition (`esp_path="$(bootctl --print-esp-path)"` under `set -e`). GRUB is now in the manifest (`enable`), and the installer purges it.
+- live-build's stock `1010-enable-cryptsetup` hook rewrote the `conf-hook` OxyOS sets: it is not linked any more.
+- `boot-complete.target` must be ordered after `multi-user.target`, or systemd-bless-boot marks a boot good three seconds in; and the entry's tries are given back from `systemd-bless-boot.service` (a target is ordered after what it wants, so wanting the unit from `multi-user.target` made a cycle that dropped it).
+- live-boot asks to remove the medium at every shutdown of the recovery, and live-config made its live user there: the recovery's entry says `noeject` and `live-config.nocomponents`.
+- OVMF's PS/2 driver gives systemd-boot no keys from QEMU: the tests' machine has a USB keyboard, as a laptop's firmware presents its own.
+
+Seen, not changed: systemd-boot's menu has no per-entry hotkey for Type 1 entries (decision 2); the passphrase field shows at most eleven bullets for a longer password (ADR 0017's theme).
 
 ## Not in this decision
 
