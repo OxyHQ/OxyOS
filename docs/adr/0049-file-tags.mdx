@@ -1,0 +1,117 @@
+---
+title: "ADR 0049: File tags"
+description: The person's tags on their files, as a Mac's Finder tags them, kept in the items' own extended attributes (freedesktop.org's user.xdg.tags written, a Mac's _kMDItemUserTags read and kept true), kept by every copy, move and the Trash; an index of the tagged items in the person's places, crawled once and kept current by inotify; Bloom's PlatformFileTags over the file service.
+order: 58
+---
+
+# ADR 0049: File tags
+
+Status: **accepted; implemented** in the platform. Dropsea's side (its sidebar's Tags, menus, columns and settings) is its own repository's, and Bloom's types are OxyHQ/Bloom's. Builds on [ADR 0028](./0028-file-access) (the file service, its scope and the Trash), whose "Not in this decision" left out an index, and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+
+## Problem
+
+Dropsea has no tags. On a Mac a person tags any file or folder (Red, Work, a name of their own) from Finder's context menu, Get Info or the toolbar, sees coloured dots beside its name, and finds every item carrying a tag from the Tags in Finder's sidebar, wherever it is. The tags travel with the file: copied, moved to another disk, put in the Trash and back, archived and unpacked on another Mac.
+
+Four things were missing on OxyOS:
+
+- **Where a tag lives.** The file service kept nothing about an item beyond what the file system says.
+- **Integrity.** The service's copies used `std::fs::copy`, which copies content and mode and drops extended attributes. A move between volumes is a copy followed by a delete, so it dropped them too.
+- **Finding tagged items.** Answering "every item tagged Work" by reading every item of the home for every question is seconds on a large home, every time the sidebar's tag is pressed.
+- **An API for applications.** Bloom's `PlatformFiles` had places and the Trash, and nothing for tags.
+
+## Options
+
+**Where tags live.**
+
+- (a) *A database of the platform's*, as GNOME's Tracker (LocalSearch) or KDE's Baloo keep their own. Copied to a USB stick, sent, archived or moved by another program while it is not watching, an item loses its tags, and the database must be kept in step with every rename.
+- (b) *Sidecar files* (Dolphin's old `.directory`): seen by every other program, and lost on a copy of the item alone.
+- (c) *The item's extended attributes*, as a Mac keeps them (`com.apple.metadata:_kMDItemUserTags`) and as freedesktop.org's convention keeps them on Linux (`user.xdg.tags`, written by KDE's Baloo and Dolphin). They go with the item through renames, moves and the Trash, through `cp -a`, `rsync -X` and `tar --xattrs`, and every program that reads the convention sees them.
+
+(c), as both desktops that have tags do.
+
+**Which attribute.** A Mac's is a binary property list (an array of `Name` or `Name\nN`, N its colour) that no Linux program reads. freedesktop.org's is the names joined by `,`, with no colours. OxyOS writes freedesktop.org's, so KDE's programs and anything else on the machine share the person's tags. A Mac's files keep their tags: OxyOS reads a Mac's attribute when an item has no freedesktop.org one, and rewrites it whenever it changes the tags of an item that carries it, so the item taken back to a Mac shows the person's edit.
+
+**Colours.** A Mac's attribute says each tag's colour; freedesktop.org's says none. A tag's colour is the person's choice for the tag, not the item's, so the colours and the order of the person's tags live with Dropsea's preferences (the person's `oxy.appData`, across their devices). An item tells a colour only where a Mac's attribute says one.
+
+**Finding tagged items.**
+
+- (a) *Crawl for each question:* seconds per press on a large home.
+- (b) *Baloo or LocalSearch:* daemons with databases, content extraction and toolkit dependencies far beyond the need, and neither is in the image.
+- (c) *An index of the file service's own:* one crawl of the person's places when an application first asks, kept current by inotify on every folder it crawled, holding only the tagged items. A question is answered from memory.
+
+(c). It lives in the service of the application that asked, the process that already watches its folders (ADR 0028). Two applications asking keep two indexes; a session-wide index shared by every application is left for later (below).
+
+## Decision
+
+1. **Storage** (`crates/oxyos-files/src/tags.rs`).
+   - **Written:** `user.xdg.tags`, the names in UTF-8 joined by `,`, nothing added. Removing the last tag removes the attribute.
+   - **Read:** `user.xdg.tags` when the item has it (it wins, even empty). Otherwise a Mac's `com.apple.metadata:_kMDItemUserTags` as Linux shows it: `user.` (netatalk, `rsync -X` and `tar --xattrs` from a Mac) or `osx.` (the hfsplus driver). Its array of `Name` or `Name\nN` gives the names, and N gives Finder's colour: 1 grey, 2 green, 3 purple, 4 blue, 5 yellow, 6 red, 7 orange, 0 none. Read by the `plist` crate, never a codec of OxyOS's own; a value that is not one says no tags. A name from either attribute is trimmed, and empty or repeated names are left out.
+   - **A Mac's attribute kept true:** an item that has it has it rewritten by any change, as a binary property list of the same tags (`Name\nN` with a colour, `Name` without) with the change's colours. Removing every tag removes both attributes. An item without a Mac's attribute never gains it, so its tags carry no colours.
+   - **Names** compare as their Unicode lowercase; the item's first spelling is kept. A name is 1 to 255 bytes once trimmed, with no `,`, newline or other control character (the two conventions' separators).
+   - **A change** removes, then adds: each removed name goes, case aside; each added name is there once. A name the item has keeps its place and spelling, and takes the colour given if there is one. A name just removed comes back where it was, spelt and coloured as added, so removing `work` and adding `Work` respells a tag in place. A new name goes last. Every name is checked before anything is written.
+   - **Links** are followed (Linux keeps no `user.` attribute on a symbolic link): a link's tags are what it leads to, which must be in the scope.
+   - **A volume that keeps no attributes** (FAT, most network shares) has no tags; a change there fails as `unsupported`. A read-only item cannot be tagged (Linux checks write access to set an attribute): `denied`.
+
+2. **Integrity** (`access.rs`'s `copy_tree`). A copy gives every file and folder, recursively, every `user.` attribute of the original, while the copy is still the person's to write; a read-only item's mode comes last. A move between volumes is that copy and then the delete, so it keeps them too. A destination that keeps no attributes keeps none, as `cp -a` leaves them. A rename and the Trash (a rename into its `files/`, a rename back) keep them by being renames.
+
+3. **The index** (`tag_index.rs`).
+   - **Started when first asked** (`tagged`, `tagNames`, `watchTags`), on a thread of its own, for the application's service.
+   - **The crawl:** the scope's places, the home and each volume mounted for the person, once. Each folder is watched before it is read. Each item takes one `llistxattr`, and an item's tags are read only when that names one of the three attributes.
+   - **Kept current, never crawled again for a question:**
+     - an item's attributes changed (`IN_ATTRIB`), whoever changed them: another program's `setfattr`, a Mac's disk;
+     - an item made, deleted, or moved in or out of the places;
+     - a move within the places, paired by inotify's cookie, renames what the index holds and keeps its watches (inotify follows a folder moved). The item is then read again where it is, and a folder crawled again, because events said before the move named it where it was: the service's own copy is made under a hidden name, given its attributes and then renamed into place, all before the index reads a single event;
+     - a folder moved in from outside is crawled;
+     - an item put in the Trash leaves the index, and put back comes back;
+     - volumes mounted and unmounted (the mount table, polled as ADR 0028's watches poll it);
+     - lost events (`IN_Q_OVERFLOW`) crawl everything again.
+   - **Not crawled**, as Baloo's folder filters leave them out: hidden folders (a name starting with `.`), every Trash, `node_modules`, `__pycache__`, `CVS`, `_darcs`, `CMakeFiles` and `lost+found`. Links are not followed: an item a link leads to is indexed where it is, if that is in the places. Hidden files are indexed.
+   - **What it holds:** the tagged items (path and tags) and its folders' watches. Nothing else is kept.
+   - **The watch limit:** when the system's limit of inotify watches is reached (`ENOSPC`, `fs.inotify.max_user_watches`), the folders past it are still crawled but not followed. The index logs the first such folder and says it is partial (`TagIndex::partial`).
+   - **Answers** come from memory: `tagged` (every item carrying a name, case aside) and `tagNames` (every name, spelt as the first item by path spells it, with how many items carry it). A question asked before the first crawl ended is answered when it ends, without holding the service's other requests behind it.
+
+4. **The service's operations** (`service.rs`):
+   - `tagsIn` (a folder): the tags of each item it holds, by its URI as `list` writes it; items with none, or whose link leads out of the scope, left out.
+   - `tagsOf` (`uris`): each item's tags, or null where it is not there or cannot be reached (the Trash's insides, outside the scope).
+   - `changeTags` (`uris`, `add: [{name, color}]`, `remove: [name]`): an outcome per item, `result` its URI. A name that cannot be a tag's refuses the whole request (`invalid`).
+   - `tagged` (`name`) and `tagNames`: requested, never called. Each item `tagged` gives is `{uri, name, isDirectory, size, lastModified, tags}`.
+   - `watchTags`: a coalesced watch told when what the index holds changes.
+   - `trashed`'s items carry their `tags`, read from the item in the Trash, since the scope keeps `tagsOf` out of the Trash.
+
+5. **Bloom's `PlatformFileTags`** (the adapter's `files.tags`, `sample/oxyos/platform-surface.js`): `inFolder`, `ofItems`, `change`, `tagged`, `names` and `watch` over those operations. Each item's outcome of `change` is said as the Trash's are: `not-found`, `exists`, `refused` and `denied` as they are, anything else `io`. Anything else the service refuses is thrown as its `FilesError` (a bad tag name: `invalid`).
+
+## Steps
+
+1. **Storage and integrity.** *Done.* Tests on real files the tests make (`src/tag_tests.rs`, skipped saying so where the temporary directory keeps no `user.` attributes) cover:
+   - freedesktop.org's attribute written, read leniently and removed with the last tag;
+   - names compared case aside, checked, and changed remove-first, a tag respelt in place;
+   - a Mac's property list read with its colours, rewritten with a change's, removed with the last tag, never added, a broken one replaced;
+   - links followed;
+   - a folder, a file beside a comment attribute and a read-only file copied, renamed, put in the Trash and back, and moved to a real second file system (`/dev/shm`), every attribute and mode kept.
+2. **The index.** *Done.* On real directories:
+   - the places' tagged items found with the exclusions and links left out, names counted;
+   - another program's tags, a rename, a folder moved, a folder moved in from outside, the Trash and back, a folder made hidden, an untag and a delete, each followed and its watch told;
+   - the service's own copy, move and rename, and a folder renamed right after a file in it was tagged, each item held at exactly its path;
+   - a volume mounted and unmounted;
+   - a question asked during the crawl answered when it ends.
+3. **The service and its C ABI.** *Done.* Through `oxyos_files_*`:
+   - the index started by a watch;
+   - a change with an item outside refused and a bad name refused;
+   - `tagsIn`, `tagsOf`, `tagged` and `tagNames`, the watch told;
+   - `trashed`'s tags.
+4. **The host's adapter and its scenario.** *Done.* `scenarios/file-tags.json` runs `sample/FileTagsProbe.tsx` through the real host on a home the scenario makes. `regress.py`'s `home.xattrs` sets attributes, a Mac's as a binary property list (`later`'s too, as another program's `setfattr`), and a step's `home.xattrs` checks them. It checks the attributes on the disk after every step:
+   - items tagged, read back, one outside refused, a bad name refused;
+   - a Mac's tags changed and its attribute rewritten, a tag respelt;
+   - expo-file-system's copy and move keeping tags;
+   - the index following a rename, the Trash and the way back;
+   - another program's tag heard through the watch and found.
+5. **Bloom's types** (`PlatformFiles.tags`, `PlatformTrashedItem.tags`): OxyHQ/Bloom.
+6. **Dropsea's tags**: OxyHQ/Dropsea.
+
+## Not in this decision
+
+- **One index for the session**, shared by every application's service (a Mac's Spotlight server). Each application that asks keeps its own index and watches.
+- **Searching names and contents** (Spotlight, Baloo's content index).
+- **GNOME's own metadata** (GVfs's `metadata::` keys, kept in its database, not on the item): not read.
+- **Tags on Oxy Files' cloud items:** Dropsea's backend keeps those.
+- **Raising the system's inotify limits:** the image's sysctl defaults stand; a home past them is indexed in part, saying so.

@@ -18,7 +18,8 @@
  * focused view (`OxyOSKeyboard`), so a menu's shortcut runs its item; a key Bloom takes goes no
  * further. Its `editing` is the window's first responder for the Edit menu's standard actions,
  * the focused text input (`OxyOSEditing`). Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
- * file manager needs beyond expo-file-system.
+ * file manager needs beyond expo-file-system, and `files.tags` the tags on the person's items
+ * (docs/adr/0049-file-tags.mdx).
  *
  * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
  * decision 8), `files.chooser` is what it was asked to show and how it answers; its window is the
@@ -357,6 +358,29 @@ function createFiles() {
     async emptyTrash() {
       await requestFiles('emptyTrash');
     },
+    // Bloom's `PlatformFileTags` (docs/adr/0049-file-tags.mdx): the items' own tags, in their
+    // extended attributes as freedesktop.org and a Mac keep them, and the index of every tagged
+    // item in the person's places.
+    tags: Object.freeze({
+      async inFolder(folderUri) {
+        return (await requestFiles('tagsIn', { uri: folderUri })).value;
+      },
+      async ofItems(uris) {
+        return (await requestFiles('tagsOf', { uris: [...uris] })).value;
+      },
+      async change(uris, { add = [], remove = [] }) {
+        const tags = add.map(({ name, color }) => ({ name, color: color ?? null }));
+        const args = { uris: [...uris], add: tags, remove: [...remove] };
+        return (await requestFiles('changeTags', args)).value.map(outcome);
+      },
+      async tagged(name) {
+        return (await requestFiles('tagged', { name })).value;
+      },
+      async names() {
+        return (await requestFiles('tagNames')).value;
+      },
+      watch: watching('watchTags'),
+    }),
     // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
     // session ends this process once it has the answer.
     chooser: chooserRequest
