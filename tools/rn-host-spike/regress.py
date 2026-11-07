@@ -588,9 +588,15 @@ session's launches (`account.registered`; any other process is refused `notPermi
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
 application's window first shows TEXT). A token it mints names the application it is for and is no
-credential. A step's `account_session` expectation is what it was asked in the step, exactly, in
-any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused; `token boot: token`,
-`token preflight: no token`, `subscribe: snapshot`, `remove: removed`).
+credential. Erasing the computer (docs/adr/0050-recovery-and-erasing.mdx), Settings' alone:
+`account.erase` is what `erasePreview` answers (over an available computer whose asking account is
+its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
+password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says
+so); a wrong one is refused `wrongPassword`, and from the `account.erase.throttle_after`th wrong one
+on, `throttled` with `retryAfter` 30. A step's `account_session` expectation is what it was asked in
+the step, exactly, in any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused;
+`token boot: token`, `token preflight: no token`, `subscribe: snapshot`, `remove: removed`,
+`erasePreview: preview`, `eraseAll: erasing` or the reason it was refused).
 
 Every scenario, every step, whatever it says (docs/adr/0016-windows.mdx, decision 11): the person's
 input reached exactly whom it should, once. The development compositor records every input event
@@ -1129,6 +1135,15 @@ def account_snapshot(spec):
                              "displayName": "Ada Lovelace"}}, **spec.get("snapshot", {}))
 
 
+def erase_preview(spec):
+    """What the played service says erasing would do (`account.erase`, the password left out)."""
+    told = {"available": True, "administrator": True, "online": True,
+            "accounts": [{"name": "Ada Lovelace", "handle": "ada", "signsOutOnline": True}]}
+    told.update({key: value for key, value in spec.get("erase", {}).items()
+                 if key not in ("password", "throttle_after")})
+    return told
+
+
 def played_token(application, reason):
     """A token the played service mints: no credential, only what it names (the application it is
     for, as a real one's `azp` does), so a probe can say whose it is without showing a token."""
@@ -1145,8 +1160,10 @@ def serve_account_session(path, spec, log):
     session's, not this stand-in's): the peer's process (SO_PEERCRED) is looked up by the id its
     launch gave it (OXYOS_APP_ID, never a process the session did not start, OXYOS_APP_UNRECORDED).
     Anyone else is refused `notPermitted`. `snapshot` and `subscribe` (pushed again at each change),
-    `token` (a played token naming the application, or none offline or signed out) and Settings'
-    `remove`. Each request is logged ({t, application, asked, answered})."""
+    `token` (a played token naming the application, or none offline or signed out), and Settings'
+    `remove`, `erasePreview` and `eraseAll` (the erase's password checked against
+    `account.erase.password`, never logged). Each request is logged ({t, application, asked,
+    answered})."""
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     listener.bind(str(path))
     listener.listen(16)
@@ -1155,6 +1172,7 @@ def serve_account_session(path, spec, log):
     ACCOUNT["snapshot"] = account_snapshot(spec)
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
+    wrong_passwords = [0]
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1226,6 +1244,32 @@ def serve_account_session(path, spec, log):
                         token = None
                         record(application, asked, "no token")
                     connection.send(json.dumps({"token": token}).encode())
+                elif message == {"erasePreview": {}} and application == "so.oxy.settings":
+                    record(application, asked, "preview")
+                    connection.send(json.dumps({"erasePreview": erase_preview(spec)}).encode())
+                elif (asked == "eraseAll" and application == "so.oxy.settings"
+                      and isinstance(message["eraseAll"], dict)):
+                    erase = spec.get("erase", {})
+                    preview = erase_preview(spec)
+                    throttle_after = erase.get("throttle_after")
+                    if not preview["available"]:
+                        answer = {"refused": {"reason": "unavailable"}}
+                    elif not preview["administrator"]:
+                        answer = {"refused": {"reason": "notAdministrator"}}
+                    elif throttle_after is not None and wrong_passwords[0] >= throttle_after:
+                        answer = {"refused": {"reason": "throttled", "retryAfter": 30}}
+                    elif message["eraseAll"].get("password") != erase.get("password"):
+                        wrong_passwords[0] += 1
+                        answer = {"refused": {"reason": "wrongPassword"}}
+                    else:
+                        accounts = preview["accounts"]
+                        answer = {"erasing": {
+                            "signedOut": [a["name"] for a in accounts if a["signsOutOnline"]],
+                            "notSignedOut": [a["name"] for a in accounts if not a["signsOutOnline"]]}}
+                    record(application, asked,
+                           "erasing" if "erasing" in answer else answer["refused"]["reason"])
+                    # The real service then restarts the computer; the run goes on.
+                    connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
                     # The real service then ends the account's sessions, this one with them.

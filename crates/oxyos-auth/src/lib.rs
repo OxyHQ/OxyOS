@@ -90,6 +90,18 @@ impl Authenticator {
         })
     }
 
+    /// `user` under `service` from `/etc/pam.d`: a root service checking an account's own password
+    /// for it (`oxyos-accountd`'s administrator's, [ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)).
+    pub fn for_user(service: &str, user: &str) -> Result<Self, Error> {
+        let text =
+            |value: &str| CString::new(value).map_err(|_| Error::Pam("a name with a NUL".into()));
+        Ok(Self {
+            service: text(service)?,
+            user: text(user)?,
+            confdir: None,
+        })
+    }
+
     /// `user` under `service` read from `confdir` instead of `/etc/pam.d`: for tests, with their
     /// own PAM configuration (Linux-PAM's `pam_start_confdir`).
     pub fn with_confdir(

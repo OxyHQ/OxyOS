@@ -36,6 +36,12 @@
 //!   → {"token": {"reason": "boot" | "preflight" | "response-401"}}
 //!                                        ← {"token": {"accessToken", "expiresAt"}} | {"token": null}
 //!   → {"remove": {}}                     ← "removed" | {"refused": {"reason"}}
+//!   → {"erasePreview": {}}               ← {"erasePreview": {"available", "administrator",
+//!                                            "online", "accounts": [{"name", "handle",
+//!                                            "signsOutOnline"}]}}
+//!   → {"eraseAll": {"password"}}         ← {"erasing": {"signedOut", "notSignedOut"}}, then the
+//!                                          machine restarts | {"refused": {"reason",
+//!                                          "retryAfter"?}}
 //!   ```
 //!
 //!   `Snapshot` is the SDK's `OxyHostSnapshot`: `{"status": "signed_in" | "signed_out" |
@@ -43,7 +49,10 @@
 //!   "online"}`. A token is the application's own (Settings and the shell, registered as system
 //!   applications, are OxyOS's; any other by its desktop entry id); null offline, signed out or
 //!   refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
-//!   of the peer's own account.
+//!   of the peer's own account. So are `erasePreview` and `eraseAll`, erasing the machine
+//!   ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx), [`erase`](crate::erase)): an
+//!   erase is refused `notAdministrator`, `wrongPassword`, `throttled` (with `retryAfter`, in
+//!   seconds), `unavailable` (no recovery) or `failed`, and a refusal changed nothing.
 //! - **Limits,** as the service's own socket: every peer waits at most [`IDLE`] for its next
 //!   message but a registrar or a subscriber, at most [`MAX_REGISTRARS`] registrars and
 //!   [`MAX_APPLICATION_CONNECTIONS`] application connections per user (so one user's applications
@@ -53,6 +62,7 @@
 //!   a message unread.
 
 use crate::api::OxyApi;
+use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
 use crate::pidfd::{self, Program};
 use crate::platform::{self, Checked, Local, Platform, Snapshot, Token, TokenReason};
@@ -109,6 +119,10 @@ pub enum Request {
         reason: TokenReason,
     },
     Remove {},
+    ErasePreview {},
+    EraseAll {
+        password: Secret,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,22 +132,60 @@ pub enum Reason {
     InvalidRequest,
     TooMany,
     Failed,
+    /// An erase asked by an account that is not one of the machine's administrators.
+    NotAdministrator,
+    /// An erase with a password that is not the administrator's.
+    WrongPassword,
+    /// An erase with too many wrong passwords: `retryAfter` says when another may be tried.
+    Throttled,
+    /// An erase of a machine without a recovery.
+    Unavailable,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Answer {
     Registered,
-    Refused { reason: Reason },
+    Refused {
+        reason: Reason,
+        /// Seconds until another attempt may be made (`throttled`).
+        #[serde(
+            default,
+            rename = "retryAfter",
+            skip_serializing_if = "Option::is_none"
+        )]
+        retry_after: Option<u64>,
+    },
     Checked(Checked),
     Snapshot(Snapshot),
     Token(Option<Token>),
     Removed,
+    ErasePreview(ErasePreview),
+    Erasing(Erasing),
 }
 
 impl Answer {
     pub fn refused(reason: Reason) -> Self {
-        Answer::Refused { reason }
+        Answer::Refused {
+            reason,
+            retry_after: None,
+        }
+    }
+}
+
+impl From<Refusal> for Answer {
+    fn from(refusal: Refusal) -> Self {
+        let (reason, retry_after) = match refusal {
+            Refusal::NotAdministrator => (Reason::NotAdministrator, None),
+            Refusal::WrongPassword => (Reason::WrongPassword, None),
+            Refusal::Throttled { retry_after } => (Reason::Throttled, Some(retry_after)),
+            Refusal::Unavailable => (Reason::Unavailable, None),
+            Refusal::Failed => (Reason::Failed, None),
+        };
+        Answer::Refused {
+            reason,
+            retry_after,
+        }
     }
 }
 
@@ -210,6 +262,7 @@ pub enum Kind {
 /// The session socket's side of the service.
 pub struct Sessions<A, U> {
     platform: Arc<Platform<A, U>>,
+    eraser: Eraser,
     registrars: Registrars,
     registrations: Mutex<Vec<Arc<Registration>>>,
     /// Registrar connections open, by uid.
@@ -252,17 +305,33 @@ fn drain(fd: &OwnedFd) {
 /// What a connection's peer did, for the service's log: never a secret.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Event {
-    Registered { id: String, pid: i32 },
-    RegistrationRefused { id: String, reason: Reason },
+    Registered {
+        id: String,
+        pid: i32,
+    },
+    RegistrationRefused {
+        id: String,
+        reason: Reason,
+    },
     Checked(Checked),
     Removed,
+    /// Settings asked what erasing would do.
+    ErasePreviewed,
+    /// The erase is armed: the machine restarts. How many accounts were signed out online, and
+    /// how many not.
+    Erasing {
+        signed_out: usize,
+        not_signed_out: usize,
+    },
+    EraseRefused(Reason),
     Refused(Reason),
 }
 
 impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessions<A, U> {
-    pub fn new(platform: Arc<Platform<A, U>>, registrars: Registrars) -> Self {
+    pub fn new(platform: Arc<Platform<A, U>>, registrars: Registrars, eraser: Eraser) -> Self {
         Self {
             platform,
+            eraser,
             registrars,
             registrations: Mutex::new(Vec::new()),
             open_registrars: Mutex::new(Vec::new()),
@@ -566,26 +635,47 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     Answer::Token(self.platform.token(uid, &attestation, reason))
                 }
                 Some(Request::Subscribe) => return self.subscribe(connection, registration),
-                Some(Request::Remove {}) => {
-                    if !(registration.system
-                        && registration.desktop_entry_id == platform::OWN_APPLICATIONS[0])
-                    {
-                        Answer::refused(Reason::NotPermitted)
-                    } else {
-                        match self.platform.remove(uid) {
-                            Ok(enrollment) => {
-                                log(&Event::Removed);
-                                let sent = connection.send(&Answer::Removed);
-                                self.platform.finish_removal(&enrollment);
-                                return sent;
+                Some(Request::Remove {} | Request::ErasePreview {} | Request::EraseAll { .. })
+                    if !is_settings(registration) =>
+                {
+                    Answer::refused(Reason::NotPermitted)
+                }
+                Some(Request::ErasePreview {}) => {
+                    log(&Event::ErasePreviewed);
+                    Answer::ErasePreview(self.eraser.preview(&self.platform, uid))
+                }
+                Some(Request::EraseAll { password }) => {
+                    match self.eraser.erase_all(&self.platform, uid, password) {
+                        Ok(erasing) => {
+                            log(&Event::Erasing {
+                                signed_out: erasing.signed_out.len(),
+                                not_signed_out: erasing.not_signed_out.len(),
+                            });
+                            let sent = connection.send(&Answer::Erasing(erasing));
+                            self.eraser.restart();
+                            return sent;
+                        }
+                        Err(refusal) => {
+                            let answer = Answer::from(refusal);
+                            if let Answer::Refused { reason, .. } = &answer {
+                                log(&Event::EraseRefused(*reason));
                             }
-                            Err(error) => {
-                                eprintln!("oxyos-accountd: uid {uid}: not removed: {error:?}");
-                                Answer::refused(Reason::Failed)
-                            }
+                            answer
                         }
                     }
                 }
+                Some(Request::Remove {}) => match self.platform.remove(uid) {
+                    Ok(enrollment) => {
+                        log(&Event::Removed);
+                        let sent = connection.send(&Answer::Removed);
+                        self.platform.finish_removal(&enrollment);
+                        return sent;
+                    }
+                    Err(error) => {
+                        eprintln!("oxyos-accountd: uid {uid}: not removed: {error:?}");
+                        Answer::refused(Reason::Failed)
+                    }
+                },
                 Some(Request::Register { .. } | Request::Check { .. }) => {
                     Answer::refused(Reason::NotPermitted)
                 }
@@ -669,6 +759,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
     }
 }
 
+/// Whether a registration is Settings', registered as a system application: the one that may
+/// remove its account and erase the machine.
+fn is_settings(registration: &Registration) -> bool {
+    registration.system && registration.desktop_entry_id == platform::OWN_APPLICATIONS[0]
+}
+
 /// A desktop entry id as Oxy's registry takes one: `so.oxy.dropsea`.
 pub fn valid_entry_id(id: &str) -> bool {
     let mut parts = id.split('.');
@@ -724,7 +820,7 @@ impl Registrar {
         )?;
         match self.connection.receive::<Answer>()? {
             Some(Some(Answer::Registered)) => Ok(Ok(())),
-            Some(Some(Answer::Refused { reason })) => Ok(Err(reason)),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
             Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
             None => Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -764,7 +860,7 @@ pub fn check(socket: &Path, password: Secret, local: Local) -> io::Result<Checke
         crate::ipc::CHECK_WAIT,
     )? {
         Answer::Checked(checked) => Ok(checked),
-        Answer::Refused { reason } => Err(io::Error::new(
+        Answer::Refused { reason, .. } => Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("refused: {reason:?}"),
         )),

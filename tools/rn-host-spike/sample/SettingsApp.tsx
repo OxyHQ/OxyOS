@@ -11,7 +11,8 @@
  * the fixture's is the one its own preferences give. Its Oxy account is the machine's Oxy session
  * as the platform gives every application (oxyos/session-host.js, docs/adr/0020-oxy-account-login.mdx):
  * signing out is the session's (`signOut`, with the `settings` grant), removing the account the
- * accounts' service's, which only Settings may ask.
+ * accounts' service's, which only Settings may ask, as is erasing the computer (General › Transfer
+ * or Reset, docs/adr/0050-recovery-and-erasing.mdx).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -55,6 +56,7 @@ import {
   type AccountOutcome,
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
+import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
@@ -970,7 +972,11 @@ type SessionHost = { snapshot(): unknown; subscribe(listener: () => void): () =>
 const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as
   | SessionHost
   | undefined;
-const accountSession = TurboModuleRegistry.get<{ remove(): Promise<unknown> }>('OxyOSAccountSession');
+const accountSession = TurboModuleRegistry.get<{
+  remove(): Promise<unknown>;
+  erasePreview(): Promise<unknown>;
+  eraseAll(password: string): Promise<unknown>;
+}>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
   const reason = (answer as { refused?: { reason?: string }; failed?: { reason?: string } } | null);
@@ -980,6 +986,16 @@ const accountActions: AccountActions = {
   signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
   remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
 };
+
+/** Erasing the computer, the accounts' service's (Settings alone may ask): what it would do, read
+    strictly, and the erase with the administrator's password, handed to the host, which sends it
+    to the service and forgets it. */
+const eraseActions: EraseActions | undefined = accountSession
+  ? {
+      preview: async () => erasePreviewFrom(await accountSession.erasePreview()),
+      eraseAll: async (password) => eraseOutcomeFrom(await accountSession.eraseAll(password)),
+    }
+  : undefined;
 
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
@@ -1030,6 +1046,7 @@ export default function SettingsApp() {
     sound: sound.actions,
     power: power.actions,
     account: sessionHost ? accountActions : undefined,
+    erase: sessionHost ? eraseActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

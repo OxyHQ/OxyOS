@@ -18,9 +18,14 @@
 //!   the verifier, so no password opens it until a setup sets one again.
 //! - **Ending its sessions:** `loginctl terminate-user`, logind's own way to end every session and
 //!   process of a user (what an administrator runs; root may, by polkit's rule for root).
+//! - **Administrators** ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)): the members of
+//!   [`ADMINISTRATORS`], Debian's `sudo` group, which polkit takes for the machine's administrators
+//!   there, so every later system-wide authorization agrees with OxyOS's. One is made with
+//!   `usermod --append --groups`; `userdel` takes a removed user out of the group with it.
 //!
-//! Users are read from `/etc/passwd` (passwd(5)), where `useradd` writes them. A name another
-//! account database holds is refused by `useradd` itself ("already exists").
+//! Users are read from `/etc/passwd` (passwd(5)), where `useradd` writes them, and groups from
+//! `/etc/group` (group(5)). A name another account database holds is refused by `useradd` itself
+//! ("already exists").
 //!
 //! [`SystemUsers::with_prefix`] runs the same tools on another root's files (`--prefix`), which
 //! they do without privileges: the tests make real users, verifiers and homes that way.
@@ -74,7 +79,15 @@ pub trait Users {
     fn lock(&self, name: &UserName) -> Result<(), UsersError>;
     /// Every session and process of the user ended (logind's).
     fn end_sessions(&self, name: &UserName) -> Result<(), UsersError>;
+    /// Whether the user is one of the machine's administrators: a member of [`ADMINISTRATORS`].
+    fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError>;
+    /// The user made one of the machine's administrators.
+    fn make_administrator(&self, name: &UserName) -> Result<(), UsersError>;
 }
+
+/// The group whose members administer the machine: Debian's `sudo`, polkit's administrators there
+/// (`/usr/share/polkit-1/rules.d/40-debian-sudo.rules`).
+pub const ADMINISTRATORS: &str = "sudo";
 
 /// The longest password the verifier takes: Linux-PAM's longest answer (`PAM_MAX_RESP_SIZE`),
 /// which is also the most the lock screen sends ([ADR 0010](../../docs/adr/0010-lock-screen.mdx)).
@@ -127,10 +140,15 @@ impl SystemUsers {
     }
 
     fn passwd(&self) -> PathBuf {
+        self.etc("passwd")
+    }
+
+    fn etc(&self, file: &str) -> PathBuf {
         self.prefix
             .as_deref()
             .unwrap_or(Path::new("/"))
-            .join("etc/passwd")
+            .join("etc")
+            .join(file)
     }
 
     fn command(&self, tool: &Path) -> Command {
@@ -184,6 +202,32 @@ pub fn passwd_entry(passwd: &Path, name: &str) -> Result<Option<UnixUser>, Users
             _ => Err(UsersError::Failed(format!(
                 "{}: {name}'s entry is malformed",
                 passwd.display()
+            ))),
+        };
+    }
+    Ok(None)
+}
+
+/// The members of `group` in a group(5) file, its fourth field; none if it has no such group.
+pub fn group_members(group_file: &Path, group: &str) -> Result<Option<Vec<String>>, UsersError> {
+    let text = std::fs::read_to_string(group_file)
+        .map_err(|error| UsersError::Failed(format!("{}: {error}", group_file.display())))?;
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.first() != Some(&group) {
+            continue;
+        }
+        return match fields.get(3) {
+            Some(members) if fields.len() == 4 => Ok(Some(
+                members
+                    .split(',')
+                    .filter(|member| !member.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+            )),
+            _ => Err(UsersError::Failed(format!(
+                "{}: {group}'s entry is malformed",
+                group_file.display()
             ))),
         };
     }
@@ -301,6 +345,25 @@ impl Users for SystemUsers {
             Ok(())
         } else {
             Err(failed("loginctl", &output))
+        }
+    }
+
+    fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError> {
+        Ok(group_members(&self.etc("group"), ADMINISTRATORS)?
+            .is_some_and(|members| members.iter().any(|member| member == name.as_str())))
+    }
+
+    fn make_administrator(&self, name: &UserName) -> Result<(), UsersError> {
+        let output = run(
+            "usermod",
+            self.command(&self.usermod)
+                .args(["--append", "--groups", ADMINISTRATORS, "--"])
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => Ok(()),
+            Some(6) => Err(UsersError::Missing),
+            _ => Err(failed("usermod", &output)),
         }
     }
 }

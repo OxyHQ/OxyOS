@@ -40,7 +40,7 @@ impl Machine {
     }
 
     /// The same machine, its Oxy another (offline, say).
-    fn with_api(&self, api: FakeApi) -> Machine {
+    pub(crate) fn with_api(&self, api: FakeApi) -> Machine {
         let store = Store::open(&self.dir.path().join("accounts")).unwrap();
         let users = FakeUsers::default();
         for name in self.users().names() {
@@ -49,6 +49,7 @@ impl Machine {
                 users.users.lock().unwrap().get_mut(&name).unwrap().1 = Some(verifier);
             }
         }
+        *users.administrators.lock().unwrap() = self.users().administrators.lock().unwrap().clone();
         Machine {
             platform: Arc::new(Platform::new(
                 Setup::new(api, users, store).with_platform(platform_client()),

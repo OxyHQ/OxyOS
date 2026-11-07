@@ -1,0 +1,173 @@
+{
+  "about": "Settings › General › Transfer or Reset (docs/adr/0050-recovery-and-erasing.mdx; apps/settings), as a Mac's: Erase All Content and Settings… and its Erase Assistant, over a played accounts' service (Settings alone may ask it): what will be erased (each account, its files, apps and settings, whether it is signed out of this computer online; Wi-Fi and this computer's settings; OxyOS stays installed), then the administrator's password. A wrong one is said in the field and changes nothing; the right one erases: the service arms the erase and the computer restarts.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "account": {
+    "registered": [
+      "so.oxy.settings"
+    ],
+    "erase": {
+      "password": "correct horse battery staple"
+    }
+  },
+  "steps": [
+    {
+      "name": "Transfer or Reset in General",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Transfer or Reset"
+        ]
+      }
+    },
+    {
+      "name": "the page: what erasing does, and the erase, offered to the administrator",
+      "do": [
+        "press_named",
+        "Transfer or Reset"
+      ],
+      "expect": {
+        "texts": [
+          "Erase every account on this computer, with its files, apps and settings, and start over as new. OxyOS stays installed.",
+          "Erase All Content and Settings…"
+        ],
+        "absent": [
+          "Only an administrator can erase this computer."
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Erase All Content and Settings…",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the Erase Assistant: what will be erased",
+      "do": [
+        "press_named",
+        "Erase All Content and Settings…"
+      ],
+      "expect": {
+        "texts": [
+          "Erase All Content and Settings",
+          "This erases:",
+          "Ada Lovelace",
+          "AL",
+          "And its files, apps and settings on this computer",
+          "Signed out of this computer",
+          "Wi-Fi networks and this computer's settings",
+          "OxyOS stays installed; the computer restarts into setup, as new.",
+          "Continue",
+          "Cancel"
+        ],
+        "account_session": [
+          "so.oxy.settings erasePreview: preview"
+        ]
+      }
+    },
+    {
+      "name": "Continue: the administrator's password",
+      "do": [
+        "press_named",
+        "Continue"
+      ],
+      "expect": {
+        "texts": [
+          "Enter the password for Ada Lovelace to erase this computer.",
+          "Erase"
+        ],
+        "absent": [
+          "This erases:"
+        ],
+        "account_session": []
+      }
+    },
+    {
+      "name": "a wrong password typed",
+      "do": [
+        "type",
+        "not it"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "account_session": []
+      }
+    },
+    {
+      "name": "Return: refused, said in the field, nothing erased",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Incorrect password.",
+          "Enter the password for Ada Lovelace to erase this computer."
+        ],
+        "absent": [
+          "Erasing…"
+        ],
+        "account_session": [
+          "so.oxy.settings eraseAll: wrongPassword"
+        ]
+      }
+    },
+    {
+      "name": "the right password typed",
+      "do": [
+        "type",
+        "correct horse battery staple"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "absent": [
+          "Incorrect password."
+        ],
+        "account_session": []
+      }
+    },
+    {
+      "name": "Erase: the computer is erased and restarts",
+      "do": [
+        "press_named",
+        "Erase"
+      ],
+      "expect": {
+        "texts": [
+          "Erasing…",
+          "This computer restarts and erases its disk."
+        ],
+        "absent": [
+          "Enter the password for Ada Lovelace to erase this computer."
+        ],
+        "account_session": [
+          "so.oxy.settings eraseAll: erasing"
+        ]
+      }
+    }
+  ]
+}

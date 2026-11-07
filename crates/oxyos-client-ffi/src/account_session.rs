@@ -5,7 +5,9 @@
 //!   `/run/oxyos/accountd/session` (`OXYOS_ACCOUNTD_SESSION_SOCKET` for scenarios). The service
 //!   knows the asking process by its launch, never by what it says: the application asks for the
 //!   session's snapshot, follows it, and asks for a short token for itself. Settings may ask the
-//!   service to remove its own account from the machine.
+//!   service to remove its own account from the machine, or to erase the machine
+//!   ([ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)): what erasing would do, then the
+//!   erase itself with the administrator's password.
 //! - **Setting an account up, for the login screen** (decision 4): the control socket's `platform`
 //!   (Oxy's API and OxyOS's public client id, which the SDK's sign-in runs with) and the `enroll`
 //!   conversation, a second factor answered on the same connection.
@@ -18,6 +20,7 @@
 //! and never printed: not in an error, not in `oxyos_last_error`.
 
 use super::fail;
+use oxyos_account::erase::{ErasePreview, Erasing};
 use oxyos_account::ipc::{self, Connection};
 pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
 use oxyos_account::session;
@@ -35,6 +38,12 @@ const SNAPSHOT_WAIT: Duration = Duration::from_secs(5);
 const TOKEN_WAIT: Duration = Duration::from_secs(60);
 /// How long removing an account may take: a revocation online, the sessions ended, the user gone.
 const REMOVE_WAIT: Duration = Duration::from_secs(120);
+/// How long what erasing would do may take: the service asks systemd whether its unit is there.
+const ERASE_PREVIEW_WAIT: Duration = Duration::from_secs(10);
+/// How long an erase may take: the password checked (PAM's delay after a wrong one), the erase
+/// armed by its unit, every account signed out online at once, each within the service's HTTP
+/// bounds (two calls of at most 30 s).
+const ERASE_WAIT: Duration = Duration::from_secs(180);
 /// How long `platform` may take.
 const PLATFORM_WAIT: Duration = Duration::from_secs(5);
 /// How long a setup's turn may take: a sign-in online and the user made.
@@ -121,7 +130,7 @@ fn ask(
         .send(request)
         .map_err(|error| failed(socket, error))?;
     match connection.receive::<session::Answer>() {
-        Ok(Some(Some(session::Answer::Refused { reason }))) => {
+        Ok(Some(Some(session::Answer::Refused { reason, .. }))) => {
             Err(SessionError::Refused(reason_name(&reason)))
         }
         Ok(Some(Some(answer))) => Ok(answer),
@@ -157,6 +166,70 @@ pub fn remove_at(socket: &Path) -> Result<(), SessionError> {
     match ask(socket, &session::Request::Remove {}, REMOVE_WAIT)? {
         session::Answer::Removed => Ok(()),
         _ => Err(failed(socket, "not an answer to remove")),
+    }
+}
+
+/// Whether what erasing would do holds together: every account named, the asking one first.
+fn coherent_preview(preview: &ErasePreview) -> bool {
+    !preview.accounts.is_empty()
+        && preview.accounts.iter().all(|account| {
+            !account.name.trim().is_empty()
+                && account
+                    .handle
+                    .as_ref()
+                    .is_none_or(|handle| !handle.is_empty())
+                && (preview.online || !account.signs_out_online)
+        })
+}
+
+/// What erasing the machine would do, for the asking application's account (Settings alone may
+/// ask).
+pub fn erase_preview_at(socket: &Path) -> Result<ErasePreview, SessionError> {
+    match ask(
+        socket,
+        &session::Request::ErasePreview {},
+        ERASE_PREVIEW_WAIT,
+    )? {
+        session::Answer::ErasePreview(preview) if coherent_preview(&preview) => Ok(preview),
+        _ => Err(failed(socket, "not what erasing would do")),
+    }
+}
+
+/// What an erase came to: armed, the machine restarting, or refused (nothing changed).
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EraseAnswer {
+    Erasing(Erasing),
+    Refused {
+        reason: String,
+        #[serde(rename = "retryAfter", skip_serializing_if = "Option::is_none")]
+        retry_after: Option<u64>,
+    },
+}
+
+/// Erases the machine with the administrator's `password` (Settings alone may ask). A refusal is
+/// an answer, with its reason and when another password may be tried, not an error: the error is
+/// a service that could not be asked or answered something else.
+pub fn erase_all_at(socket: &Path, password: Secret) -> Result<EraseAnswer, SessionError> {
+    let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
+    connection
+        .set_timeout(ERASE_WAIT)
+        .map_err(|error| failed(socket, error))?;
+    connection
+        .send(&session::Request::EraseAll { password })
+        .map_err(|error| failed(socket, error))?;
+    match connection.receive::<session::Answer>() {
+        Ok(Some(Some(session::Answer::Erasing(erasing)))) => Ok(EraseAnswer::Erasing(erasing)),
+        Ok(Some(Some(session::Answer::Refused {
+            reason,
+            retry_after,
+        }))) => Ok(EraseAnswer::Refused {
+            reason: reason_name(&reason),
+            retry_after: retry_after.filter(|_| reason == session::Reason::Throttled),
+        }),
+        Ok(Some(_)) => Err(failed(socket, "not an answer to an erase")),
+        Ok(None) => Err(failed(socket, "it closed the connection")),
+        Err(error) => Err(failed(socket, error)),
     }
 }
 
@@ -201,7 +274,7 @@ impl Subscription {
                     .map(Some)
                     .map_err(|error| failed(&self.socket, error))
             }
-            Ok(Some(Some(session::Answer::Refused { reason }))) => {
+            Ok(Some(Some(session::Answer::Refused { reason, .. }))) => {
                 Err(SessionError::Refused(reason_name(&reason)))
             }
             Ok(Some(_)) => Err(failed(&self.socket, "not a snapshot")),
@@ -475,6 +548,68 @@ pub extern "C" fn oxyos_account_session_remove() -> c_int {
     match remove_at(&session_socket()) {
         Ok(()) => 0,
         Err(error) => fail(error),
+    }
+}
+
+/// What erasing this computer would do, for the calling application's account (Settings alone
+/// may ask: the service refuses anyone else), as JSON {"available", "administrator", "online",
+/// "accounts": [{"name", "handle" (or null), "signsOutOnline"}]}, the asking account first; read
+/// strictly and written rebuilt. Its length (larger than `capacity`: call again with more room), or
+/// OXYOS_ERROR (`oxyos_last_error`).
+///
+/// # Safety
+/// `out` points to `capacity` writable bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_erase_preview(
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    match erase_preview_at(&session_socket()).and_then(|preview| {
+        serde_json::to_string(&preview).map_err(|error| SessionError::Failed(error.to_string()))
+    }) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
+/// Erases this computer with the administrator's `password` (NUL-terminated UTF-8, secret: copied
+/// into a buffer this library overwrites; the caller overwrites its own). Settings alone may ask.
+/// Blocks while the service checks the password, arms the erase and signs the accounts out
+/// online: call it off the interface's thread. The answer as JSON: {"erasing": {"signedOut",
+/// "notSignedOut"}} (the machine restarts and is erased), or {"refused": {"reason"
+/// ("notPermitted", "notAdministrator", "wrongPassword", "throttled", "unavailable", "failed"),
+/// "retryAfter"? (seconds, when throttled)}}, nothing changed. Its length (larger than
+/// `capacity`: nothing written, and the answer is lost: give OXYOS_ACCOUNT_MESSAGE_MAX bytes), or
+/// OXYOS_ERROR (`oxyos_last_error`: the service could not be asked or answered something else).
+///
+/// # Safety
+/// `password` is a NUL-terminated string valid for the call; `out` points to `capacity` writable
+/// bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_erase_all(
+    password: *const c_char,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let Some(password) = (unsafe { secret_arg(password) }) else {
+        return i64::from(fail("an erase needs the administrator's password"));
+    };
+    match erase_all_at(&session_socket(), password).and_then(|answer| {
+        serde_json::to_string(&answer).map_err(|error| SessionError::Failed(error.to_string()))
+    }) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
+        Err(error) => session_fail(error),
     }
 }
 

@@ -289,6 +289,134 @@ fn a_verifier_that_cannot_be_set_undoes_the_user_and_its_file() {
     assert!(machine.setup.users().steps().contains(&UserStep::Remove));
 }
 
+/// Another account enrolled on the machine, written as a setup writes it, its user `uid`'s.
+fn enrolled_other(machine: &Machine<FakeUsers>, id: &str, uid: u32) -> UserName {
+    let account = AccountId::parse(id).unwrap();
+    let user = account.user_name();
+    machine.setup.users().add(user.as_str(), uid);
+    machine
+        .setup
+        .store()
+        .put(&crate::store::Enrollment {
+            account: account.clone(),
+            user: user.clone(),
+            uid,
+            profile: Profile {
+                id: account.as_str().into(),
+                username: None,
+                display_name: None,
+                avatar: None,
+            },
+            credential: None,
+            password_changed: false,
+        })
+        .unwrap();
+    user
+}
+
+#[test]
+fn the_first_account_set_up_on_a_machine_is_its_administrator() {
+    let machine = machine(FakeApi::default());
+    let ada = enrolled(machine.setup.enroll(request(PASSWORD)));
+    assert!(machine.setup.users().is_admin(ada.user.as_str()));
+    // Made one before its verifier, which is set last.
+    let steps = machine.setup.users().steps();
+    let made = steps
+        .iter()
+        .position(|step| *step == UserStep::MakeAdministrator)
+        .unwrap();
+    assert!(made < steps.len() - 1);
+    // Set up again, it stays one, made only once.
+    let mut again = request(PASSWORD);
+    again.credential.device_secret = Secret::new(OTHER_DEVICE_SECRET);
+    enrolled(machine.setup.enroll(again));
+    assert!(machine.setup.users().is_admin(ada.user.as_str()));
+    assert_eq!(
+        machine
+            .setup
+            .users()
+            .steps()
+            .iter()
+            .filter(|step| **step == UserStep::MakeAdministrator)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn an_account_set_up_where_another_administers_the_machine_is_not_one() {
+    let machine = machine(FakeApi::default());
+    let other = enrolled_other(&machine, OTHER_ACCOUNT, 1500);
+    machine
+        .setup
+        .users()
+        .administrators
+        .lock()
+        .unwrap()
+        .insert(other.as_str().into());
+    let enrolled = enrolled(machine.setup.enroll(request(PASSWORD)));
+    assert!(!machine.setup.users().is_admin(enrolled.user.as_str()));
+    assert!(!machine
+        .setup
+        .users()
+        .steps()
+        .contains(&UserStep::MakeAdministrator));
+}
+
+#[test]
+fn a_first_account_that_cannot_be_made_the_administrator_is_not_set_up() {
+    let users = FakeUsers::default();
+    users.fail(UserStep::MakeAdministrator);
+    let machine = machine_with(FakeApi::default(), users);
+    assert!(matches!(
+        machine.setup.enroll(request(PASSWORD)),
+        Err(SetupError::Failed(_))
+    ));
+    nothing_left(&machine);
+    // Its platform credential was ended online, as any failed setup's is.
+    assert!(machine.api().calls().contains(&Call::SignOut));
+}
+
+#[test]
+fn a_machine_without_an_administrator_makes_its_first_account_one() {
+    let machine = machine(FakeApi::default());
+    // No account: nothing to do.
+    assert_eq!(machine.setup.ensure_administrator(), Ok(None));
+    let later = enrolled_other(&machine, OTHER_ACCOUNT, 1700);
+    let first = enrolled_other(&machine, ACCOUNT, 1600);
+    assert_eq!(
+        machine.setup.ensure_administrator(),
+        Ok(Some(first.clone()))
+    );
+    assert!(machine.setup.users().is_admin(first.as_str()));
+    assert!(!machine.setup.users().is_admin(later.as_str()));
+    // Once one is, nothing more.
+    assert_eq!(machine.setup.ensure_administrator(), Ok(None));
+    let users = machine.setup.users();
+    users.administrators.lock().unwrap().clear();
+    users.fail(UserStep::MakeAdministrator);
+    assert!(machine.setup.ensure_administrator().is_err());
+}
+
+#[test]
+fn with_the_systems_tools_the_first_account_joins_the_administrators_group() {
+    if !super::passwd_tools() {
+        return;
+    }
+    let root = Root::new("setup-real-administrator");
+    let machine = machine_with(FakeApi::default(), SystemUsers::with_prefix(root.path()));
+    let enrolled = enrolled(machine.setup.enroll(request(PASSWORD)));
+    assert!(root
+        .read("group")
+        .lines()
+        .any(|line| line == format!("sudo:x:27:{}", enrolled.user)));
+    assert!(machine
+        .setup
+        .users()
+        .is_administrator(&enrolled.user)
+        .unwrap());
+}
+
 #[test]
 fn a_file_that_cannot_be_written_undoes_the_user() {
     let machine = machine(FakeApi::default());

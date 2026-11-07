@@ -1,6 +1,7 @@
 import type { AccountActions, AccountSnapshot } from "./account";
 import type { BluetoothActions, BluetoothState } from "./bluetooth";
 import type { LowPowerMode, PowerActions, PowerState } from "./battery";
+import type { EraseActions } from "./erase";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { SoundActions, SoundState } from "./sound";
@@ -223,6 +224,10 @@ export type SettingsActions = {
   sound?: SoundActions;
   account?: AccountActions;
   power?: PowerActions;
+  /** Erasing the computer (General › Transfer or Reset, docs/adr/0050-recovery-and-erasing.mdx):
+      none where the platform has no account session to ask (a development session started from a
+      terminal), which offers no erase. */
+  erase?: EraseActions;
 };
 
 /**

@@ -2005,6 +2005,20 @@ int64_t oxyos_account_session_token(const char* reason, char* out, size_t capaci
 /* Removes the calling application's account from this computer (decision 5): Settings alone may.
  * Blocks while the service revokes, ends the account's sessions and forgets it. 0, or OXYOS_ERROR. */
 int oxyos_account_session_remove(void);
+/* Erasing this computer (docs/adr/0050-recovery-and-erasing.mdx): Settings alone may ask. What it
+ * would do, for the calling application's account: JSON {"available" (it has a recovery),
+ * "administrator" (the account is one), "online", "accounts": [{"name", "handle" (or null),
+ * "signsOutOnline"}]}, the asking account first; OXYOS_ERROR when the service could not be asked or
+ * refused. */
+int64_t oxyos_account_session_erase_preview(char* out, size_t capacity);
+/* Erases this computer with the administrator's `password` (secret: copied into a buffer this
+ * library overwrites; overwrite your own). Blocks while the service checks it, arms the erase and
+ * signs the accounts out online: never on the interface's thread. The answer, JSON:
+ * {"erasing": {"signedOut", "notSignedOut"}} (the machine restarts and its recovery erases it), or
+ * {"refused": {"reason" ("notPermitted", "notAdministrator", "wrongPassword", "throttled",
+ * "unavailable", "failed"), "retryAfter"? (seconds, throttled)}}, nothing changed. Give
+ * OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_erase_all(const char* password, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */

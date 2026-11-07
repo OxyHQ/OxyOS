@@ -4,7 +4,9 @@
 // - **An application's** (decision 6): the session's snapshot, followed on one connection the
 //   service keeps (its descriptor wakes the host's loop, as the network's does), and short tokens
 //   for the application, minted online, so asked on a thread of its own and answered on the
-//   JavaScript thread. Settings removes its own account the same way.
+//   JavaScript thread. Settings removes its own account the same way, and erases the computer
+//   (docs/adr/0050-recovery-and-erasing.mdx): what erasing would do, then the erase with the
+//   administrator's password, forgotten here once sent.
 // - **The login screen's setup** (decision 4): the platform the SDK's sign-in runs with, and the
 //   `enroll` conversation, a second factor answered on the same connection.
 //
@@ -55,6 +57,8 @@ class AccountSession {
   // On the service's thread, answered on the JavaScript thread (`deliver`), in order.
   void token(std::string reason, Done done);
   void remove(Done done);
+  void erasePreview(Done done);
+  void eraseAll(std::string password, Done done);
   // The login screen's setup. The device credential the SDK's sign-in handed over is held here,
   // not in JavaScript, until the person gives the account's password once more (a credential held
   // before replaces it); `enroll` sends both, and every secret is forgotten once sent.

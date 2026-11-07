@@ -19,8 +19,11 @@
 //! Without OxyOS's client id configured, nothing is asked of Oxy: [`SetupError::NotConfigured`].
 //!
 //! Then, on the machine, one setup at a time: the account's user (made, or the enrolled one
-//! found), its file in the store, and last the verifier. A failure undoes what this setup did: a
-//! new user is removed with its home, an enrolled account's file is put back as it was. The
+//! found), its file in the store, the account made an administrator if no other enrolled account
+//! is one (the first account set up on a machine is its administrator, as a Mac's first account
+//! is: [ADR 0050](../../docs/adr/0050-recovery-and-erasing.mdx)), and last the verifier. A failure
+//! undoes what this setup did: a new user is removed with its home (and so leaves the
+//! administrators' group), an enrolled account's file is put back as it was. The
 //! verifier is the last step, so a user whose setup failed was never one a password opens. A
 //! platform credential a failed setup was issued is ended online, as is the one an account set up
 //! again replaces (each is a device of its own): best effort, said if it fails.
@@ -322,17 +325,28 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
     /// Ends `credential`'s device session online (R4): its own token minted, then signed out.
     /// Best effort: the device would otherwise stay signed in at Oxy with no machine holding it.
     pub fn end_online(&self, credential: &DeviceCredential, account: &AccountId) {
+        if let Err(error) = self.sign_out_online(credential, account) {
+            eprintln!(
+                "oxyos-accountd: a device of {account} could not be signed out at Oxy: {error}"
+            );
+        }
+    }
+
+    /// Signs `credential`'s device session out at Oxy (R4): its own token minted, then
+    /// `POST /session/device/signout {all: true}`. A session already gone is signed out.
+    pub fn sign_out_online(
+        &self,
+        credential: &DeviceCredential,
+        account: &AccountId,
+    ) -> Result<(), ApiError> {
         let ended = self
             .api
             .mint_token(credential, account)
             .and_then(|token| self.api.sign_out_device(&token));
         match ended {
-            Ok(()) => {}
             // Already gone: nothing to end.
-            Err(ApiError::InvalidDeviceSecret | ApiError::AccountNotOnDevice) => {}
-            Err(error) => eprintln!(
-                "oxyos-accountd: a device of {account} could not be signed out at Oxy: {error}"
-            ),
+            Ok(()) | Err(ApiError::InvalidDeviceSecret | ApiError::AccountNotOnDevice) => Ok(()),
+            Err(error) => Err(error),
         }
     }
 
@@ -346,6 +360,59 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         self.machine
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Whether an enrolled account is one of the machine's administrators. Called under the
+    /// machine's lock.
+    fn administrator_enrolled(&self) -> Result<bool, String> {
+        for enrollment in self
+            .store
+            .enrollments()
+            .map_err(|error| error.to_string())?
+        {
+            if self
+                .users
+                .is_administrator(&enrollment.user)
+                .map_err(|error| error.to_string())?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Makes `user`, whose file was just written, an administrator when no enrolled account is
+    /// one. Called under the machine's lock, before the verifier is set.
+    fn administer(&self, user: &UserName) -> Result<(), String> {
+        if self.administrator_enrolled()? {
+            return Ok(());
+        }
+        self.users
+            .make_administrator(user)
+            .map_err(|error| format!("{user} cannot be made an administrator: {error}"))?;
+        eprintln!("oxyos-accountd: {user} is this machine's administrator");
+        Ok(())
+    }
+
+    /// Makes the enrolled account with the lowest uid an administrator when accounts are enrolled
+    /// and none is one: a machine set up before administrators existed gets one, as its first
+    /// setup would have made it (ADR 0050). Its user, if one was made.
+    pub fn ensure_administrator(&self) -> Result<Option<UserName>, String> {
+        let _machine = self.lock();
+        if self.administrator_enrolled()? {
+            return Ok(None);
+        }
+        let enrolled = self
+            .store
+            .enrollments()
+            .map_err(|error| error.to_string())?;
+        let Some(first) = enrolled.iter().min_by_key(|enrollment| enrollment.uid) else {
+            return Ok(None);
+        };
+        self.users
+            .make_administrator(&first.user)
+            .map_err(|error| format!("{} cannot be made an administrator: {error}", first.user))?;
+        Ok(Some(first.user.clone()))
     }
 
     fn local(&self, account: &AccountId) -> Result<Local, SetupError> {
@@ -430,6 +497,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                     .store
                     .put(&enrollment(made.uid))
                     .map_err(|error| error.to_string())
+                    .and_then(|()| self.administer(&user))
                     .and_then(|()| {
                         self.users
                             .set_verifier(&user, password)
@@ -448,8 +516,12 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 self.store
                     .put(&enrollment(uid))
                     .map_err(|error| SetupError::Failed(error.to_string()))?;
-                if let Err(error) = self.users.set_verifier(&user, password) {
-                    let error = error.to_string();
+                let done = self.administer(&user).and_then(|()| {
+                    self.users
+                        .set_verifier(&user, password)
+                        .map_err(|error| error.to_string())
+                });
+                if let Err(error) = done {
                     return Err(match self.store.put(&previous) {
                         Ok(()) => SetupError::Failed(error),
                         Err(rollback) => SetupError::RollbackFailed {

@@ -302,6 +302,16 @@ impl Store {
         Ok(users)
     }
 
+    /// Every enrolled account whose file can be read, by its user. A file that cannot be read is
+    /// no account, and is left out, as [`Store::list`] leaves it out.
+    pub fn enrollments(&self) -> io::Result<Vec<Enrollment>> {
+        Ok(self
+            .users()?
+            .iter()
+            .filter_map(|user| self.get_user(user).ok().flatten())
+            .collect())
+    }
+
     /// Writes the account's file whole, replacing the one it had.
     pub fn put(&self, enrollment: &Enrollment) -> io::Result<()> {
         let stored = Written {

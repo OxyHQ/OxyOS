@@ -206,6 +206,82 @@ fn removing_is_answered_or_refused() {
 }
 
 #[test]
+fn what_erasing_would_do_is_the_services_rebuilt_and_strict() {
+    let (socket, dir) = socket_path("session");
+    let preview = json!({"erasePreview": {"available": true, "administrator": true, "online": true,
+        "accounts": [{"name": "Ada Lovelace", "handle": "ada", "signsOutOnline": true},
+                     {"name": "oxy-x", "handle": null, "signsOutOnline": false}]}});
+    let shapes = [
+        preview.clone(),
+        // Not one: no account, an unnamed one, one signed out online while offline, a field more.
+        json!({"erasePreview": {"available": true, "administrator": true, "online": true, "accounts": []}}),
+        json!({"erasePreview": {"available": true, "administrator": true, "online": true,
+            "accounts": [{"name": " ", "handle": null, "signsOutOnline": false}]}}),
+        json!({"erasePreview": {"available": true, "administrator": true, "online": false,
+            "accounts": [{"name": "Ada", "handle": null, "signsOutOnline": true}]}}),
+        json!({"erasePreview": {"available": true, "administrator": true, "online": true, "extra": 1,
+            "accounts": [{"name": "Ada", "handle": null, "signsOutOnline": true}]}}),
+        json!({"refused": {"reason": "notPermitted"}}),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |message| {
+        assert_eq!(message, &json!({"erasePreview": {}}));
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let rebuilt = serde_json::to_value(erase_preview_at(&socket).unwrap()).unwrap();
+    assert_eq!(rebuilt, preview["erasePreview"]);
+    for _ in 0..4 {
+        assert!(matches!(
+            erase_preview_at(&socket),
+            Err(SessionError::Failed(_))
+        ));
+    }
+    assert_eq!(
+        erase_preview_at(&socket),
+        Err(SessionError::Refused("notPermitted".into()))
+    );
+    served.join().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn an_erase_is_answered_or_refused_with_its_reason_and_wait() {
+    let (socket, dir) = socket_path("session");
+    let shapes = [
+        json!({"erasing": {"signedOut": ["Ada Lovelace"], "notSignedOut": ["Grace Hopper"]}}),
+        json!({"refused": {"reason": "wrongPassword"}}),
+        json!({"refused": {"reason": "throttled", "retryAfter": 60}}),
+        json!({"refused": {"reason": "notPermitted"}}),
+        json!("removed"),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |message| {
+        assert_eq!(message, &json!({"eraseAll": {"password": "correct horse"}}));
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let erase = || {
+        erase_all_at(&socket, Secret::new("correct horse"))
+            .map(|answer| serde_json::to_value(answer).unwrap())
+    };
+    assert_eq!(
+        erase(),
+        Ok(json!({"erasing": {"signedOut": ["Ada Lovelace"], "notSignedOut": ["Grace Hopper"]}}))
+    );
+    assert_eq!(erase(), Ok(json!({"refused": {"reason": "wrongPassword"}})));
+    assert_eq!(
+        erase(),
+        Ok(json!({"refused": {"reason": "throttled", "retryAfter": 60}}))
+    );
+    assert_eq!(erase(), Ok(json!({"refused": {"reason": "notPermitted"}})));
+    let failed = erase().unwrap_err();
+    assert!(!failed.to_string().contains("correct horse"));
+    served.join().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn the_platform_is_the_services() {
     let (socket, dir) = socket_path("accountd");
     let answers = std::sync::Mutex::new(
