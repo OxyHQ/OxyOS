@@ -322,7 +322,6 @@ function SectionHeading({ title, children }: { title: string; children?: React.R
     >
       <Text
         variant="caption-2-semibold"
-        accessibilityRole="header"
         style={{ color: theme.colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.6 }}
       >
         {title}
@@ -791,7 +790,7 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
         ) : null}
         {choice.kind === "color" ? (
           <GroupedSectionItem
-            title={words.colors}
+            title={words.kinds.color}
             testID="wallpaper-color-row"
             rightElement={
               <ColorWell
