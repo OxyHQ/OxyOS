@@ -187,6 +187,45 @@ export type SettingsActions = {
   privacy?: PrivacyActions;
   network?: NetworkActions;
   account?: AccountActions;
+  /** Settings › Spotlight's platform (docs/adr/0051-search.mdx). */
+  search?: SettingsSearch;
+  /** The system's folder chooser (docs/adr/0028-file-access.mdx): the folder chosen, as a
+      `file://` URI, or null when cancelled. Without it, nothing asks for a folder. */
+  chooseFolder?: () => Promise<string | null>;
+};
+
+/** What a search result is (docs/adr/0051-search.mdx), as the shell's `SearchCategory`. */
+export type SearchCategory =
+  | "application"
+  | "settings"
+  | "folder"
+  | "document"
+  | "pdf"
+  | "text"
+  | "source"
+  | "presentation"
+  | "spreadsheet"
+  | "image"
+  | "movie"
+  | "music"
+  | "archive"
+  | "contact"
+  | "event"
+  | "mail"
+  | "message"
+  | "other";
+/** Spotlight's preferences: the kinds its results show, and the folders kept out of the index
+    (`file://` URIs). */
+export type SearchPreferences = { categories: Record<SearchCategory, boolean>; excluded: string[] };
+/** The index as the search service tells it: being built, how many items it holds, and whether it
+    holds only part of what it would. */
+export type SearchStatus = { indexing: boolean; items: number; partial: boolean };
+/** What Settings › Spotlight asks of the search service (docs/adr/0051-search.mdx). Each change
+    answers with the preferences the service kept. */
+export type SettingsSearch = {
+  preferences(): Promise<SearchPreferences>;
+  setPreferences(change: Partial<SearchPreferences>): Promise<SearchPreferences>;
+  status(): Promise<SearchStatus>;
 };
 
 /**
