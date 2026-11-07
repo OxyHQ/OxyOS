@@ -167,6 +167,6 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
 ## Not in this decision
 
 - The session's polkit authentication agent (the dialog an administrator's change asks for), and changing the system's settings through it.
-- Sound, networks, Bluetooth, users and the Oxy account: each comes with the decision that adds what it sets. Notifications' preferences are [ADR 0026](./0026-notifications)'s, the displays' [ADR 0018](./0018-several-displays)'s (decision 10): the session keeps them in this file, by each display's identity, but they are no preference Settings sets with `SetPreference`.
+- Sound, networks, Bluetooth, users and the Oxy account: each comes with the decision that adds what it sets (Wi-Fi and Network: [ADR 0038](./0038-networks); Bluetooth: [ADR 0050](./0050-bluetooth)). Notifications' preferences are [ADR 0026](./0026-notifications)'s, the displays' [ADR 0018](./0018-several-displays)'s (decision 10): the session keeps them in this file, by each display's identity, but they are no preference Settings sets with `SetPreference`.
 - Preferences of applications (each keeps its own); syncing preferences with the Oxy account.
 - Sandboxing applications from one another (#35, #36): without it, any program running as the user can write the preferences file or trace Settings.

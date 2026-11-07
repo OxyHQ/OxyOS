@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readSheet, sheetArrived, sheetGone, sheetView, size, validWifiPassword, type AvailableUpdate, type Plan } from "../src/sheet.ts";
+import {
+  bluetoothCodeTyped,
+  readSheet,
+  sheetArrived,
+  sheetGone,
+  sheetView,
+  size,
+  spokenCode,
+  validBluetoothCode,
+  validWifiPassword,
+  type AvailableUpdate,
+  type Plan,
+} from "../src/sheet.ts";
 import { shellMessages } from "../src/messages.ts";
 
 const ES = shellMessages("es-ES");
@@ -157,4 +169,97 @@ test("a Wi-Fi password is 8 to 63 bytes, or 64 hexadecimal digits", () => {
   assert.equal(validWifiPassword("ñ".repeat(31)), true);
   assert.equal(validWifiPassword("ñ".repeat(32)), false);
   assert.equal(validWifiPassword("ññññ"), true);
+});
+
+test("a numeric comparison shows the code large, with Cancel and Pair", () => {
+  const sheet = readSheet('{"kind":"bluetooth-confirm","name":"iPhone","device":"phone","code":"123456"}');
+  assert.ok(sheet);
+  const en = sheetView(sheet, EN);
+  assert.equal(en.title, "Confirm that “iPhone” shows this code.");
+  assert.equal(en.code, "123456");
+  assert.equal(en.accept, "Pair");
+  assert.equal(en.refuse, "Cancel");
+  assert.equal(en.codeField, undefined);
+  const es = sheetView(sheet, ES);
+  assert.equal(es.title, "Confirma que “iPhone” muestra este código.");
+  assert.equal(es.accept, "Enlazar");
+  assert.equal(es.refuse, "Cancelar");
+});
+
+test("a device pairing with nothing to compare, and one asking for a service", () => {
+  const authorize = sheetView({ kind: "bluetooth-authorize", name: "Pixel", device: "phone" }, EN);
+  assert.equal(authorize.title, "“Pixel” wants to pair with this computer.");
+  assert.equal(authorize.accept, "Pair");
+  assert.equal(authorize.refuse, "Cancel");
+  assert.equal(authorize.code, undefined);
+  const service = sheetView({ kind: "bluetooth-service", name: "AirPods", device: "headphones", service: "audio" }, EN);
+  assert.equal(service.title, "Allow “AirPods” to play and record audio?");
+  assert.equal(service.accept, "Allow");
+  assert.equal(service.refuse, "Don't Allow");
+  const es = sheetView({ kind: "bluetooth-service", name: "Pixel", device: "phone", service: "files" }, ES);
+  assert.equal(es.title, "¿Permitir que “Pixel” envíe y reciba archivos?");
+  assert.equal(es.accept, "Permitir");
+  assert.equal(es.refuse, "No permitir");
+  // A service OxyOS does not name is "connect to this computer".
+  const other = sheetView({ kind: "bluetooth-service", name: "X", device: "other", service: "midi" as "other" }, EN);
+  assert.equal(other.title, "Allow “X” to connect to this computer?");
+});
+
+test("a code to type on the device is shown large, and only Cancel answers it", () => {
+  const view = sheetView({ kind: "bluetooth-display", name: "Magic Keyboard", device: "keyboard", code: "048213" }, EN);
+  assert.equal(view.title, "Type this code on “Magic Keyboard”, then press Return.");
+  assert.equal(view.code, "048213");
+  assert.equal(view.accept, "");
+  assert.equal(view.refuse, "Cancel");
+  assert.equal(
+    sheetView({ kind: "bluetooth-display", name: "Magic Keyboard", device: "keyboard", code: "0000" }, ES).title,
+    "Escribe este código en “Magic Keyboard” y pulsa Retorno.",
+  );
+});
+
+test("a code to type here has its field: the passkey the device shows, or a PIN with a hint", () => {
+  const passkey = sheetView({ kind: "bluetooth-code", name: "Galaxy", device: "phone", code: "passkey" }, EN);
+  assert.equal(passkey.title, "Enter the code shown on “Galaxy”.");
+  assert.equal(passkey.body, "");
+  assert.deepEqual(passkey.codeField, { label: "Code", kind: "passkey" });
+  assert.equal(passkey.accept, "Pair");
+  assert.equal(passkey.refuse, "Cancel");
+  assert.equal(passkey.password, undefined);
+  const pin = sheetView({ kind: "bluetooth-code", name: "Teclado antiguo", device: "keyboard", code: "pin" }, ES);
+  assert.equal(pin.title, "Introduce el PIN de “Teclado antiguo”.");
+  assert.equal(pin.body, "Si no lo sabes, prueba con 0000 o 1234.");
+  assert.deepEqual(pin.codeField, { label: "PIN", kind: "pin" });
+});
+
+test("a connection that failed says why, with one button", () => {
+  const rejected = sheetView({ kind: "bluetooth-failed", name: "AirPods", device: "headphones", reason: "rejected" }, EN);
+  assert.equal(rejected.title, "Couldn't connect to “AirPods”.");
+  assert.equal(rejected.body, "The code didn't match, or the device refused the connection.");
+  assert.equal(rejected.accept, "OK");
+  assert.equal(rejected.refuse, "");
+  const timeout = sheetView({ kind: "bluetooth-failed", name: "AirPods", device: "headphones", reason: "timeout" }, EN);
+  assert.equal(timeout.body, "Make sure it's turned on, nearby and in pairing mode.");
+  const failed = sheetView({ kind: "bluetooth-failed", name: "AirPods", device: "headphones", reason: "failed" }, ES);
+  assert.equal(failed.title, "No se ha podido conectar a “AirPods”.");
+  assert.equal(failed.body, "Asegúrate de que está encendido y cerca.");
+  assert.equal(failed.accept, "Aceptar");
+});
+
+test("a passkey is one to six digits; a PIN one to 16 bytes", () => {
+  assert.equal(validBluetoothCode("", "passkey"), false);
+  assert.equal(validBluetoothCode("123456", "passkey"), true);
+  assert.equal(validBluetoothCode("42", "passkey"), true);
+  assert.equal(validBluetoothCode("1234567", "passkey"), false);
+  assert.equal(validBluetoothCode("12a456", "passkey"), false);
+  assert.equal(validBluetoothCode("", "pin"), false);
+  assert.equal(validBluetoothCode("0000", "pin"), true);
+  assert.equal(validBluetoothCode("a".repeat(16), "pin"), true);
+  assert.equal(validBluetoothCode("a".repeat(17), "pin"), false);
+  assert.equal(validBluetoothCode("ñ".repeat(9), "pin"), false);
+  // The field keeps a passkey's digits, six at most, and a PIN's first 16 bytes.
+  assert.equal(bluetoothCodeTyped("12-34 5678", "passkey"), "123456");
+  assert.equal(bluetoothCodeTyped("a".repeat(20), "pin"), "a".repeat(16));
+  assert.equal(bluetoothCodeTyped("ñ".repeat(9), "pin"), "ñ".repeat(8));
+  // Said digit by digit.
+  assert.equal(spokenCode("048213"), "0 4 8 2 1 3");
 });

@@ -1,4 +1,5 @@
 import type { AccountActions, AccountSnapshot } from "./account";
+import type { BluetoothActions, BluetoothState } from "./bluetooth";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
@@ -130,6 +131,9 @@ export type SettingsSnapshot = {
   /** Wi-Fi and networks (docs/adr/0038-networks.mdx), as the session tells them: none without the
       platform's `network` grant; null when granted but not told. */
   network?: NetworkState | null;
+  /** Bluetooth (docs/adr/0050-bluetooth.mdx), as the session tells it: none without the platform's
+      `bluetooth` grant (the page and its sidebar item are not there). */
+  bluetooth?: BluetoothState;
   /** The input sources (docs/adr/0041-input-methods.mdx, decision 6) as the session tells them;
       null until it has. */
   inputSources?: InputSourcesState | null;
@@ -186,6 +190,7 @@ export type SettingsActions = {
   updates?: UpdatesActions;
   privacy?: PrivacyActions;
   network?: NetworkActions;
+  bluetooth?: BluetoothActions;
   account?: AccountActions;
 };
 

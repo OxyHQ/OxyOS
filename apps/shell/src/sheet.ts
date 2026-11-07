@@ -13,10 +13,18 @@
  * password (`wifi-password`, again with `incorrect` after a wrong one), says it could not join
  * (`wifi-failed`) or that OxyOS cannot join such a network (`wifi-unsupported`). The password is
  * typed into the sheet's own secure field and goes to the session alone; nothing here keeps it.
+ *
+ * Pairing a Bluetooth device (docs/adr/0050-bluetooth.mdx), the session, the machine's pairing
+ * agent, asks the person to compare a code (`bluetooth-confirm`), to let a device pair
+ * (`bluetooth-authorize`) or use a service (`bluetooth-service`), shows a code to type on the
+ * device (`bluetooth-display`, which only Cancel answers: the session takes it away once paired),
+ * asks for the code the device shows or its PIN (`bluetooth-code`) and says a connection failed
+ * (`bluetooth-failed`). The code typed goes to the session alone, as a password does.
  */
 
 import type { Language, ShellMessages } from "./messages";
 import type { WifiSecurity } from "./network";
+import type { BluetoothKind } from "./bluetooth";
 
 export type { Language } from "./messages";
 
@@ -33,7 +41,20 @@ export type SheetText =
   // OxyOS cannot join.
   | { kind: "wifi-password"; ssid: string; security: WifiSecurity; incorrect: boolean }
   | { kind: "wifi-failed"; ssid: string }
-  | { kind: "wifi-unsupported"; ssid: string; security: WifiSecurity };
+  | { kind: "wifi-unsupported"; ssid: string; security: WifiSecurity }
+  // Bluetooth (docs/adr/0050-bluetooth.mdx): `name` and `device` (its kind) say which device.
+  | { kind: "bluetooth-confirm"; name: string; device: BluetoothKind; code: string }
+  | { kind: "bluetooth-authorize"; name: string; device: BluetoothKind }
+  | { kind: "bluetooth-service"; name: string; device: BluetoothKind; service: BluetoothService }
+  | { kind: "bluetooth-display"; name: string; device: BluetoothKind; code: string }
+  | { kind: "bluetooth-code"; name: string; device: BluetoothKind; code: BluetoothCodeKind }
+  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string };
+
+/** What a paired device that is not trusted asks to use. */
+export type BluetoothService = "audio" | "input" | "phone" | "files" | "network" | "other";
+/** The code a pairing asks for: a legacy PIN (1 to 16 characters), or the passkey the other device
+    shows (digits, at most 6). */
+export type BluetoothCodeKind = "pin" | "passkey";
 
 export type Plan = {
   id: string;
@@ -63,6 +84,8 @@ export type SheetView = {
   body: string;
   /** Each capability: its name and what the application says it is for. */
   lines: { label: string; detail?: string }[];
+  /** Empty for a sheet only Cancel answers (a code shown to type on a device): its one button,
+      `refuse`, in the answer's place. */
   accept: string;
   /** Empty for a sheet that only tells: it has its one button, `accept`. */
   refuse: string;
@@ -73,6 +96,11 @@ export type SheetView = {
   password?: { label: string; show: string; hide: string };
   /** What went wrong the last time, said prominently (a password that was not correct). */
   error?: string;
+  /** A code shown large, to compare or to type on a device. */
+  code?: string;
+  /** A field for a pairing code, whose text is the answer (`accept` enabled once it is a valid
+      one, Return submitting it): its label, and what it takes. */
+  codeField?: { label: string; kind: BluetoothCodeKind };
 };
 
 /** A capability's name, in the catalogue's language; its own name for one OxyOS does not know. */
@@ -115,6 +143,31 @@ export function validWifiPassword(password: string): boolean {
   if (/^[0-9a-fA-F]{64}$/.test(password)) return true;
   const length = utf8Length(password);
   return length >= 8 && length <= 63;
+}
+
+/** Whether a pairing code can be one: a passkey is digits, at most six; a PIN 1 to 16 characters,
+    counted in UTF-8 bytes as BlueZ takes it. The sheet's Pair button waits for one. */
+export function validBluetoothCode(code: string, kind: BluetoothCodeKind): boolean {
+  if (kind === "passkey") return /^[0-9]{1,6}$/.test(code);
+  const length = utf8Length(code);
+  return length >= 1 && length <= 16;
+}
+
+/** What a pairing code's field keeps of what was typed: a passkey's digits, at most six; a PIN, at
+    most 16 bytes. */
+export function bluetoothCodeTyped(text: string, kind: BluetoothCodeKind): string {
+  if (kind === "passkey") return text.replace(/[^0-9]/g, "").slice(0, 6);
+  let kept = "";
+  for (const char of text) {
+    if (utf8Length(kept + char) > 16) break;
+    kept += char;
+  }
+  return kept;
+}
+
+/** A code as a screen reader says it, digit by digit: "1 2 3 4 5 6". */
+export function spokenCode(code: string): string {
+  return [...code].join(" ");
 }
 
 /** The sheet the session sent, read; null for one the shell does not know (it is refused). */
@@ -232,6 +285,70 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
             : sheet.security === "enterprise"
               ? w.wifiEnterprise
               : w.wifiOtherUnsupported,
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+      };
+    case "bluetooth-confirm":
+      return {
+        title: w.bluetoothConfirm(sheet.name),
+        body: "",
+        lines: [],
+        accept: w.bluetoothPair,
+        refuse: w.cancel,
+        destructive: false,
+        code: sheet.code,
+      };
+    case "bluetooth-authorize":
+      return {
+        title: w.bluetoothAuthorize(sheet.name),
+        body: "",
+        lines: [],
+        accept: w.bluetoothPair,
+        refuse: w.cancel,
+        destructive: false,
+      };
+    case "bluetooth-service":
+      return {
+        title: w.bluetoothService(sheet.name, w.bluetoothServices[sheet.service] ?? w.bluetoothServices.other),
+        body: "",
+        lines: [],
+        accept: w.allow,
+        refuse: w.dontAllow,
+        destructive: false,
+      };
+    case "bluetooth-display":
+      return {
+        title: w.bluetoothDisplay(sheet.name),
+        body: "",
+        lines: [],
+        accept: "",
+        refuse: w.cancel,
+        destructive: false,
+        code: sheet.code,
+      };
+    case "bluetooth-code": {
+      const pin = sheet.code === "pin";
+      return {
+        title: pin ? w.bluetoothPin(sheet.name) : w.bluetoothPasskey(sheet.name),
+        body: pin ? w.bluetoothPinHint : "",
+        lines: [],
+        accept: w.bluetoothPair,
+        refuse: w.cancel,
+        destructive: false,
+        codeField: { label: pin ? w.bluetoothPinField : w.bluetoothCodeField, kind: pin ? "pin" : "passkey" },
+      };
+    }
+    case "bluetooth-failed":
+      return {
+        title: w.bluetoothFailed(sheet.name),
+        body:
+          sheet.reason === "rejected"
+            ? w.bluetoothRejected
+            : sheet.reason === "timeout"
+              ? w.bluetoothTimeout
+              : w.bluetoothOtherFailure,
         lines: [],
         accept: w.ok,
         refuse: "",

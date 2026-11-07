@@ -5,8 +5,8 @@
 //! `changed` with what changed until it returns false, and returns when its source goes (the
 //! caller follows it again once it is back):
 //!
-//! - [`bus`]: the system bus's signals from UPower (the battery), BlueZ (Bluetooth) and, where
-//!   nothing else follows it, NetworkManager, and their names' owners (a service started or gone):
+//! - [`bus`]: the system bus's signals from UPower (the battery) and, where nothing else follows
+//!   them (the login screen), BlueZ (Bluetooth) and NetworkManager, and their names' owners (a service started or gone):
 //!   only those that can change what is shown, each told as what it changed;
 //! - [`backlights`]: the display's backlight and a keyboard's the firmware changes itself, by the
 //!   kernel's notification of their sysfs attributes (`actual_brightness`, which the backlight
@@ -212,12 +212,13 @@ fn owner_rule(service: &'static str) -> zbus::Result<zbus::MatchRule<'static>> {
         .build())
 }
 
-/// Follows the system bus (the module's doc), with NetworkManager's signals where `network`: each
+/// Follows the system bus (the module's doc), with NetworkManager's and BlueZ's signals where
+/// `own` (no other part of the session follows them; docs/adr/0050-bluetooth.mdx): each
 /// rule a match the bus daemon applies, so a signal that cannot change what is shown is never
 /// delivered, and of those delivered, a change of no shown property is nothing. Without the bus,
 /// returns the error; returns when the bus closes or `stop` is readable.
 pub fn bus(
-    network: bool,
+    own: bool,
     stop: BorrowedFd<'_>,
     mut changed: impl FnMut(Change) -> bool,
 ) -> io::Result<()> {
@@ -226,10 +227,11 @@ pub fn bus(
     // (`oxyos_seat::system_bus`); its signals are waited for with futures-lite's block_on.
     let bus = oxyos_seat::system_bus()?;
     let inner = bus.inner();
-    let mut rules: Vec<&Rule> = UPOWER_RULES.iter().chain(BLUEZ_RULES.iter()).collect();
-    let mut owners = vec![(UPOWER, Change::Battery), (BLUEZ, Change::Bluetooth)];
-    if network {
-        rules.extend(NM_RULES.iter());
+    let mut rules: Vec<&Rule> = UPOWER_RULES.iter().collect();
+    let mut owners = vec![(UPOWER, Change::Battery)];
+    if own {
+        rules.extend(BLUEZ_RULES.iter().chain(NM_RULES.iter()));
+        owners.push((BLUEZ, Change::Bluetooth));
         owners.push((NM, Change::Network));
     }
     // Each stream and what its messages say changed.

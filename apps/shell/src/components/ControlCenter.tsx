@@ -24,20 +24,23 @@ import {
 } from "../controls";
 import type { ShellControl, ShellControls } from "../model";
 import { hasWifiView } from "../network";
+import { bluetoothSummary, bluetoothSwitchable, hasBluetoothView } from "../bluetooth";
 import { WifiPanel } from "./WifiPanel";
+import { BluetoothPanel } from "./BluetoothPanel";
 import { useShellMessages } from "../useShellMessages";
 
-/** What the Control Center shows: its modules, or Wi-Fi's view (docs/adr/0038-networks.mdx). */
-export type ControlCenterPage = "modules" | "wifi";
+/** What the Control Center shows: its modules, Wi-Fi's view (docs/adr/0038-networks.mdx) or
+    Bluetooth's (docs/adr/0050-bluetooth.mdx). */
+export type ControlCenterPage = "modules" | "wifi" | "bluetooth";
 
 export const CONTROL_CENTER_WIDTH = 320;
 /** One of Bloom's icons. */
 type Icon = typeof RiWifiLine;
 
 /** A round button with a title and what it is, as a Mac's Control Center modules: on, it is
-    the accent's. `onPress` absent, it only says (Bluetooth, which the session only looks at).
-    `more`: its title and a chevron open its view (Wi-Fi's networks), a button of its own, whose
-    value is the status shown. Each module is said once, as VoiceOver says a Mac's: its switch by
+    the accent's. `onPress` absent, it only says (Bluetooth, where the session told only its
+    state). `more`: its title and a chevron open its view (Wi-Fi's networks, Bluetooth's
+    devices), a button of its own, whose value is the status shown. Each module is said once, as VoiceOver says a Mac's: its switch by
     its title, its state and `value` (what the status says beyond on or off: the network joined),
     and its status text, which says no more than that, is not read again after it. */
 function Module({
@@ -205,6 +208,9 @@ function LevelCard({
  * (docs/adr/0026-notifications.mdx) is a module of its own below them, where the session has
  * notifications. Wi-Fi's module opens Wi-Fi's view in its place (docs/adr/0038-networks.mdx), as
  * the top bar's network item does, where the session told the networks and the machine has Wi-Fi.
+ * Bluetooth's module turns Bluetooth on and off and opens Bluetooth's view in its place
+ * (docs/adr/0050-bluetooth.mdx), where the session told Bluetooth and the machine has an adapter;
+ * elsewhere it only says Bluetooth's state.
  */
 export const ControlCenter = memo(function ControlCenter({
   controls,
@@ -219,7 +225,7 @@ export const ControlCenter = memo(function ControlCenter({
   dark: boolean;
   close: () => void;
   openSettings: () => void;
-  /** What it shows, and how it moves between its modules and Wi-Fi's view. */
+  /** What it shows, and how it moves between its modules and Wi-Fi's and Bluetooth's views. */
   page?: ControlCenterPage;
   showPage?: (page: ControlCenterPage) => void;
   /** Do Not Disturb as the session says it is, and its switch (a change of the preference). */
@@ -232,7 +238,12 @@ export const ControlCenter = memo(function ControlCenter({
   const messages = useShellMessages();
   const words = messages.controlCenter;
   const wifi = wifiLabel(controls.network, messages);
-  const bluetooth = bluetoothLabel(controls.bluetooth, messages);
+  // Bluetooth's state as the session said it to the Control Center, else from Bluetooth's own.
+  const devices = controls.bluetoothDevices;
+  const toldBluetooth = controls.bluetooth ?? bluetoothSummary(devices);
+  const bluetooth = bluetoothLabel(toldBluetooth, messages);
+  const bluetoothOn = toldBluetooth?.state === "on";
+  const bluetoothView = hasBluetoothView(devices) && !!showPage;
   const battery = batteryLabel(controls.power, messages);
   const networks = controls.networks;
   const wifiView = hasWifiView(networks) && !!showPage;
@@ -263,6 +274,8 @@ export const ControlCenter = memo(function ControlCenter({
       >
         {wifiView && page === "wifi" ? (
           <WifiPanel state={networks} controls={controls} back={() => showPage?.("modules")} close={close} />
+        ) : bluetoothView && page === "bluetooth" ? (
+          <BluetoothPanel state={devices} controls={controls} back={() => showPage?.("modules")} close={close} />
         ) : (
           <>
             <Box style={{ ...card, gap: 4 }}>
@@ -286,7 +299,17 @@ export const ControlCenter = memo(function ControlCenter({
                   icon={RiBluetoothLine}
                   title="Bluetooth"
                   status={bluetooth}
-                  on={controls.bluetooth?.state === "on"}
+                  on={bluetoothOn}
+                  // A switch where the session told Bluetooth and it can move (not blocked by the
+                  // machine's switch); its devices said by "Bluetooth Devices".
+                  onPress={
+                    bluetoothView && bluetoothSwitchable(devices) && controls.setBluetooth
+                      ? () => controls.setBluetooth?.(!bluetoothOn)
+                      : undefined
+                  }
+                  more={
+                    bluetoothView ? { label: words.bluetoothDevices, open: () => showPage?.("bluetooth") } : undefined
+                  }
                 />
               )}
               <Module

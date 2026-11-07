@@ -1824,6 +1824,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-bluetooth"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "async-io",
+ "futures-lite",
+ "serde",
+ "serde_json",
+ "zbus",
+]
+
+[[package]]
 name = "oxyos-boot-logo"
 version = "0.1.0"
 dependencies = [
@@ -1876,9 +1888,11 @@ dependencies = [
 name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "drm",
  "jiff",
  "oxyos-auth",
+ "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor-core",
  "oxyos-controls",
@@ -2139,10 +2153,12 @@ dependencies = [
 name = "oxyos-offscreen"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-io",
  "evdev",
  "oxyos-apps",
  "oxyos-auth",
+ "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor",
  "oxyos-compositor-core",
@@ -2159,6 +2175,7 @@ dependencies = [
  "oxyos-sound",
  "oxyos-vt",
  "rustix",
+ "serde",
  "serde_json",
  "zbus",
 ]

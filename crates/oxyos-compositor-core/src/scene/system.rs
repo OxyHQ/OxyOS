@@ -188,6 +188,15 @@ impl Scene {
             .collect()
     }
 
+    /// The clients Bluetooth's state is told to (ADR 0050): those holding `bluetooth` or `shell`.
+    pub fn bluetooth_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.bluetooth || grants.shell)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// Tells `client` the answer to its request `serial` (0: the update state, unasked), if it
     /// still holds a grant that asks.
     pub fn system_text(&mut self, client: ClientId, serial: u32, text: &str) {

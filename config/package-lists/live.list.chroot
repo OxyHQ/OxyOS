@@ -31,7 +31,11 @@ fontconfig
 network-manager
 pipewire-audio
 upower
+# Bluetooth (docs/adr/0050-bluetooth.mdx): BlueZ, which the session speaks to and whose pairing
+# agent it is, and PipeWire's BlueZ plugin, which makes headphones and speakers audio devices
+# (pipewire-audio depends on it; named so the audit holds that it is installed).
 bluez
+libspa-0.2-bluetooth
 # The clock, from the network's time servers (SNTP): systemd's own client, enabled by its package.
 # Settings shows whether the clock is synchronized from it (docs/adr/0019-settings.mdx); a
 # machine that lost its time otherwise fails TLS, and with it the Oxy account's sign-in.

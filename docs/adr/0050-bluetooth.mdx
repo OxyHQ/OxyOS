@@ -1,0 +1,113 @@
+---
+title: "ADR 0050: Bluetooth"
+description: How a person turns Bluetooth on and off, sees, connects, pairs, renames and forgets devices on OxyOS as on a Mac — Control Center's Bluetooth module and view, Settings › Bluetooth, the pairing codes as system sheets — through BlueZ, which the session alone speaks to and whose default pairing agent it is; how audio and input devices become the session's, and why it costs nothing while nothing happens.
+order: 59
+---
+
+# ADR 0050: Bluetooth
+
+Status: **accepted; implemented** (the session's connection to BlueZ and its pairing agent, the shell's Control Center module, view and pairing sheets, Settings › Bluetooth, the played BlueZ and the scenarios over it). Amends [ADR 0025](./0025-hardware-keys-and-control-center), whose Control Center only said what Bluetooth was and left "Bluetooth on and off, pairing and devices" to this decision, and [ADR 0019](./0019-settings). Builds on [ADR 0030](./0030-installing-applications) (system grants of the image's policy, the session's vocabulary over `SystemRequest`, system sheets) and [ADR 0038](./0038-networks), whose shape it follows.
+
+## Problem
+
+An OxyOS session could not use Bluetooth: Control Center's module said "On" or "1 device" and nothing more, and nothing paired a device, connected one, or showed what was nearby. A Mac does it from three places:
+
+- **Control Center's Bluetooth module**: its switch, and its detail view: the paired devices, each connected or connected with a press, its battery shown, and **Bluetooth Settings…**.
+- **System Settings › Bluetooth**: the switch, "Now discoverable as …" while the pane is open, **My Devices** (each with its state, its battery, Connect or Disconnect, and ⓘ: its name, renamed in place, and **Forget This Device…**), and **Nearby Devices**, found while the pane is open and only then.
+- **Pairing**, in system alerts: a code to compare ("Confirm the code shown on iPhone"), one to type on a keyboard, a legacy PIN, a device asking to pair, or a service to allow.
+
+## What the machines have
+
+- **The image** installs BlueZ (`bluez`) and PipeWire with WirePlumber (`pipewire-audio`, which depends on PipeWire's BlueZ plugin, `libspa-0.2-bluetooth`); the manifest now names the plugin itself, so the audit holds that it is installed. Debian's `bluez` starts `bluetoothd` from systemd (`bluetooth.service`) and its D-Bus policy lets any local client call `org.bluez`; BlueZ uses no polkit. Its firmware is `bluez-firmware` and the Wi-Fi cards' (Intel's AX211 in the ThinkPad carries its Bluetooth).
+- **The reference ThinkPad** (Debian trixie) runs BlueZ 5.82 with a powered adapter (`hci0`), and its session's WirePlumber 0.5.8 loads the BlueZ monitor on the active seat.
+
+## Decision
+
+1. **BlueZ is the Bluetooth daemon; the session speaks D-Bus to it** (`zbus`, as NetworkManager, UPower and logind are spoken to). Nothing else is added: no `bluetoothctl`, no GNOME or KDE agent or applet. BlueZ's D-Bus API (`org.bluez`, its object manager, `Adapter1`, `Device1`, `Battery1`, `AgentManager1`, `Agent1`) is the stable, documented interface every Linux desktop uses.
+
+2. **The session alone speaks to BlueZ, on one connection** (`crates/oxyos-bluetooth`, `oxyos_bluetooth::run`, on a thread of the session's, `oxyos_compositor::bluetooth`). One connection because three things BlueZ ties to the connection that asked for them must live as long as the session and end with it:
+   - **The pairing agent** is registered on it (`RegisterAgent` with the `KeyboardDisplay` capability, then `RequestDefaultAgent`): BlueZ asks it every pairing's question, the session's own and those of a device that asks to pair. A session that ends (or crashes) leaves no agent registered.
+   - **Discovery** is that connection's: BlueZ ends a discovery when the client that started it leaves the bus, so a session that ends leaves nothing discovering.
+   - **Its calls** (`Pair`, `Connect`, `Disconnect`, `RemoveDevice`, the `Powered`, `Trusted`, `Alias` and `Discoverable` properties) run as tasks of that connection, so a pairing waits for the person's answer while the agent's question is served on the same connection.
+   The connection's executor is run by the session's thread as it waits (futures-lite's `block_on`, as `oxyos_seat::system_bus` and the networks' watch do), never a thread of zbus's own.
+
+3. **Events, not polling** (docs/performance.mdx, *Idle*). BlueZ is read whole once (`GetManagedObjects`), then followed by its signals alone, each a match the bus daemon applies so no other is delivered: its object manager's `InterfacesAdded` and `InterfacesRemoved`, `PropertiesChanged` of `Adapter1`, `Device1` and `Battery1`, and its name's owner (BlueZ started or gone, followed again at once). A stream's volume, a GATT characteristic's value, a media player's track are never delivered. Of those delivered, a change of nothing shown (a device's signal strength while discovering, its advertisement data) tells nothing: the state (`State`) is made again from what is kept and told only when it differs. While discovering, the discovery filter asks BlueZ not to signal an advertisement seen again (`DuplicateData` false). No timer anywhere: the thread wakes for a signal, a command, a call ending or the order to stop. In a session the hardware controls no longer follow BlueZ themselves (they do at the login screen, which has no Bluetooth part): the Bluetooth part tells them its status (`Controls::bluetooth_is`), and what the controls' worker reads of Bluetooth as Control Center opens is not a second word.
+
+4. **Who may ask: the shell, and a new system grant `bluetooth`.** The image's policy gives `bluetooth` to Settings (ADR 0030, decision 7); the shell has its part by its `shell` grant (Control Center, the pairing sheets). They ask in the session's vocabulary over `SystemRequest` (request 160), one JSON object read strictly, answered by `SystemText` naming its serial; anything that changes the machine must cite an input the asker received; while locked only the state is answered (`locked`). Bluetooth's state is told unasked, as it changes, to every client holding `bluetooth` or `shell` (`SystemText` with serial 0, `{"bluetooth": State}`). No protocol message is added; Control Center's module keeps ADR 0025's `Bluetooth` event (113) for its status line.
+
+   | Request | Grant | Input | Answer |
+   | --- | --- | --- | --- |
+   | `{"bluetooth":{}}` | `bluetooth` or `shell` | no | `{"bluetooth": State}` |
+   | `{"bluetoothPower":{"on":bool}}` | `bluetooth` or `shell` | yes | `{"powered":{"on"}}` or `{"failed":{"reason"}}` |
+   | `{"bluetoothDiscover":{"on":bool}}` | `bluetooth` | no | `{"discovering":{"on"}}` |
+   | `{"bluetoothConnect":{"id"}}` | `bluetooth` or `shell` | yes | `{"connected":{"id"}}`, `{"paired":{"id"}}` (paired, nothing to connect: a phone) or `{"failed":{"reason"}}` once done |
+   | `{"bluetoothDisconnect":{"id"}}` | `bluetooth` or `shell` | yes | `{"disconnected":{"id"}}` or failed |
+   | `{"bluetoothForget":{"id"}}` | `bluetooth` | yes | `{"forgotten":{"id"}}` or failed |
+   | `{"bluetoothRename":{"id","name"}}` | `bluetooth` | yes | `{"renamed":{"id","name"}}` or failed; an empty name gives the device its own back |
+   | `{"bluetoothCode":{"sheet":n,"code"}}` | `shell` | yes | none: the pairing it belongs to answers |
+
+   `State` is `{available, adapter, devices}`: `available` (BlueZ answers); `adapter` (the first BlueZ has, or null without Bluetooth hardware: `name` (what others see), `address`, `powered`, `blocked` (rfkill: BlueZ's `PowerState` `off-blocked`), `discovering`, `discoverable`); `devices`, by name then address, every paired one and the others with a name of their own (an unnamed advertiser is never shown): `id` (its address, what every request names), `address`, `name` (its alias, else its own name), `kind` (`headphones`, `speaker`, `keyboard`, `mouse`, `trackpad`, `phone`, `gamepad`, `computer`, `other`, from BlueZ's icon, itself from the class of device or the LE appearance; a pointing digitizer, a Magic Trackpad, is BlueZ's `input-tablet`), `paired`, `connected`, `busy` (`connecting`, `disconnecting` or null: the session's call under way), `battery` (0–100 from `Battery1`, or null), `audio` and `input` (from its services or kind). A failure's `reason` is `notFound`, `unavailable` (no BlueZ, no adapter, or off), `blocked`, `cancelled` (the person cancelled a pairing's question), `rejected` (the other device refused, or the codes did not match), `timeout`, `busy` or `failed`.
+
+5. **Connecting pairs first, as a Mac's Connect does.** A device not paired is paired (`Pair`, the agent asking what the pairing needs), then trusted (`Trusted`, so it reconnects by itself, as a Mac's paired keyboard does at the login screen too), then connected; one with nothing to connect (`NotAvailable`, `br-connection-profile-unavailable`: a phone, a computer) is paired, and that is the answer. A connection that fails, but for the person's own cancel, is said by the session in a `bluetooth-failed` sheet ("Couldn't connect to …", why by its reason); Settings and Control Center show nothing of their own for it. Forgetting is BlueZ's `RemoveDevice` (unpaired, its keys gone); renaming is the device's `Alias`.
+
+6. **The pairing agent's questions are system sheets** (ADR 0030's `SheetText`, sent to the shell alone, drawn over everything but the lock screen, answered only by the shell's own press or key). Every agent method is handled:
+
+   | BlueZ asks | Sheet | The person's answer |
+   | --- | --- | --- |
+   | `RequestConfirmation(passkey)` (numeric comparison) | `bluetooth-confirm`: the six digits, "Confirm that “…” shows this code" | Pair or Cancel |
+   | `DisplayPasskey(passkey)` / `DisplayPinCode(pin)` (a keyboard types it) | `bluetooth-display`: the code, "Type this code on “…”, then press Return" | Cancel alone; the sheet goes when the pairing ends |
+   | `RequestPasskey` (the other device shows six digits) | `bluetooth-code`, `passkey`: a field, digits only, at most six | Pair (the code) or Cancel |
+   | `RequestPinCode` (a legacy device) | `bluetooth-code`, `pin`: a field, 1 to 16 characters | Pair (the code) or Cancel |
+   | `RequestAuthorization` (a device pairing with this one, nothing to compare) | `bluetooth-authorize` | Pair or Cancel |
+   | `AuthorizeService(uuid)` (a paired device not trusted) | `bluetooth-service`: what it is for (`audio`, `input`, `phone`, `files`, `network`, `other`) | Allow or Don't Allow |
+   | `Cancel` (BlueZ gave up, the other device cancelled) | the sheet withdrawn | — |
+   | `Release` | — | — |
+
+   Just Works initiated here asks nothing (BlueZ pairs without the agent). A code typed goes to the session alone (`bluetoothCode`, from the shell, citing the input that submitted it, for a code sheet it shows, checked as BlueZ takes it), then to BlueZ; it is never told to any client, written or logged. Refused, the agent answers `org.bluez.Error.Rejected`, and the pairing's failure is the person's cancel, not said again. A code shown and cancelled cancels the pairing (`CancelPairing`). While locked, no question is asked: BlueZ is answered no at once (a device trying to pair with a locked machine is refused). A pairing's sheets are asked for the client that asked to connect: when it goes, they are withdrawn and answered no.
+
+7. **Discovery only while Settings' Bluetooth page is open.** The page asks `bluetoothDiscover` on as it is shown and off as it goes; the session holds discovery while any client holds it, it is unlocked and the adapter is on, and ends it as the last lets it go, its client leaves, the session locks or Bluetooth goes off (and takes it up again on unlock or power). While it discovers, the adapter is discoverable ("Now discoverable as “…”", as a Mac is while its Bluetooth settings are open), asked again if BlueZ's discoverable timeout ends it while still held, and made not discoverable as discovery ends. Neither Control Center nor anything else discovers. Devices found and not paired go with the discovery (BlueZ's temporary devices).
+
+8. **Audio and input devices are the system's, by clean interfaces.**
+   - **Audio**: BlueZ connects the device's audio profiles, and PipeWire's BlueZ plugin (`libspa-0.2-bluetooth`, loaded by WirePlumber's BlueZ monitor on the active seat) makes it a sink (and a source for a headset), named by the device and carrying its address (`api.bluez5.address`). The session does nothing more: the audio output selector lists PipeWire's sinks, a Bluetooth one among them, and may show a device's icon by the address and `kind` the Bluetooth state tells (`audio` says which devices are such). The volume keys act on the default sink (ADR 0025), so a pair of headphones made the default is what they change.
+   - **Input**: BlueZ's input plugin makes a connected keyboard, mouse, trackpad or game controller a kernel input device (`uhid`), which udev tags for seat0, and the session's libinput (udev, seat0, hotplugged; ADR 0006) opens through logind as any device plugged in. Nothing is Bluetooth-specific there.
+   - **Battery**: a device's battery is BlueZ's `Battery1` (LE's Battery Service, and HID's reports). A headset's battery over HFP reaches BlueZ through PipeWire's battery provider only with `bluetoothd`'s experimental interfaces, which the image does not turn on: such a headset shows none.
+
+9. **Control Center's Bluetooth module**, as a Mac's: its round button turns Bluetooth on and off; its title opens the Bluetooth view: its switch, the paired devices (connected ones on the accent's face, the battery of a connected device that reports one, a spinner while busy), a press connecting or disconnecting, and **Bluetooth Settings…**, which opens Settings at its page (`oxyos-settings://bluetooth`). Without the session's Bluetooth state (an older session) the module stays as ADR 0025 had it. The top bar has no Bluetooth item: a Mac shows it only when asked, and Control Center has it.
+
+10. **Settings › Bluetooth**, under Connections between Wi-Fi and Network, present only with the grant: the switch; "Now discoverable as …" while on; **My Devices** (each with its kind's glyph, its state, its battery when connected, Connect or Disconnect, ⓘ); **Nearby Devices** (a spinner while discovering, each with Connect, "Searching…" while none); ⓘ's sheet (its name, renamed on Return or Done; its address, kind and battery; Connect or Disconnect; **Forget This Device…**, confirmed: "Forget “…”? You'll need to pair it again to use it."). Blocked by rfkill, it says Bluetooth is turned off by a hardware switch or airplane mode; without BlueZ, that Bluetooth isn't available; without hardware, that none was found.
+
+## What was built
+
+- **`crates/oxyos-bluetooth`**: `run` (the connection, its rules, the agent served and registered, discovery held, calls as tasks, the state told as it changes), `model::Objects` (BlueZ's objects kept from its signals, the `State` made from them), the agent (`org.bluez.Agent1`), the kinds, services, failures and codes.
+- **The session** (`oxyos_compositor::bluetooth`): the vocabulary, discovery's holders, the agent's questions as sheets, codes, failure notes, the state told to `bluetooth` and `shell`, the controls' status; `oxyos-session` serves it on the system bus (not at the login screen); the controls follow BlueZ themselves only at the login screen (`Controls::follow`'s `own`).
+- **The grant**: `bluetooth` in the image policy's vocabulary (`oxyos-apps`) and the scene's `Grants` (`bluetooth_watchers`).
+- **`oxyos-fake-bluez`** (a binary of the development compositor's package, built with it and never installed): BlueZ's API as the session uses it, for a machine a JSON file describes: the adapter, devices paired and nearby, each one's pairing method (comparison, PIN, passkey typed or shown, refusal) and connection (connects, fails, nothing to connect), discovery its client's and ended as that client leaves, the agent asked as BlueZ asks it; a control interface (`so.oxy.OxyOS.FakeBlueZ`: `Act`, `State`) plays what the devices do (appearing, asking to pair or for a service, a code typed on them, batteries, signal strengths, rfkill). The development compositor's `--bluetooth-bus` serves the session over it, a step `--bluetooth` acts on it, and each step's result carries its state (`bluetooth`); `regress.py`'s scenario key `bluetooth` starts it on a bus of the run's own.
+- **The shell** (`apps/shell`): `bluetooth.ts`, `BluetoothPanel`, `BluetoothGlyph`, the module's switch and view in `ControlCenter`, the six sheets in `sheet.ts` and `SystemSheet` (the code shown large, the code field); `ShellProbe` wires them to `OxyOSSystem` (`bluetooth`, `useBluetoothState`, `answerCode`). The browser preview plays a machine with devices.
+- **Settings** (`apps/settings`): `bluetooth.ts`, `BluetoothPage`; `SettingsApp` wires it to the session, or to a fixture without one.
+
+## Tests
+
+- **`oxyos-bluetooth`** (unit): kinds from BlueZ's icons and services, audio and input, services named, the state made from objects and changed by signals (a signal strength changing nothing shown, a battery, an alias, rfkill, an adapter gone), the state's JSON, names cut, codes checked, BlueZ's errors mapped, a question unanswered refused.
+- **Against the played BlueZ on a private bus** (`tools/oxyos-offscreen/tests/bluetooth_daemon.rs`): read whole and the agent the default with `KeyboardDisplay`, gone as the session stops; discovery held while wanted, filtered, unnamed devices left out, ended as let go and with the session, nothing left discoverable; off ends discovery and on takes it up, rfkill said and refused; every pairing (a comparison refused then confirmed, a phone paired with nothing to connect, a wrong legacy PIN then the right one, just works, a passkey shown ending as it is typed); a code shown cancelled cancelling its pairing, BlueZ cancelling a question; a device asking to pair and for a service; connecting, a battery reported, disconnecting, renaming and back, forgetting, a device not there, one that does not answer. **Idle** (`bluetooth_idle.rs`, a binary of its own): while BlueZ signals what no session follows (a stream's volume as it plays), the process wakes at most once a second and uses at most 0.1 % of a core; a device's signal strength tells nothing; a battery is told; stopping takes under a second. `crates/oxyos-compositor/tests/idle.rs` holds the Bluetooth part with the session's others to the same budget with no bus yet.
+- **The session's side** (`bluetooth/tests.rs`, over a BlueZ played in memory): the vocabulary read strictly; the state told to the shell and `bluetooth` alone, the shell unable to discover, forget or rename; changes refused without an input and while locked; discovery held by Settings, off when let go, locked or gone, each change once; a comparison asked in the shell's sheet alone, refused and the connection cancelled with nothing said; a failure said in a sheet; a code refused from Settings, without an input, for another sheet and when BlueZ would not take it, then reaching BlueZ alone; a code shown ended by its pairing, and cancelled by the person cancelling the pairing; a device asking while locked refused unasked, a service asked after; outcomes answering their askers, a state told once.
+- **Scenarios** over the played BlueZ, each at 1 and at 1.25 and run by the deploy gate: `bluetooth-control-center` and `bluetooth-settings`, described with what each step checks of BlueZ in their `about`.
+
+## What to verify on the ThinkPad
+
+With this branch's session, runtime and bundles deployed, the policy giving Settings `bluetooth`, in a session on the seat:
+
+1. The session's log (`~/oxyos-validation/probar.log`) has no `[bluetooth]` line (the agent registered and made the default; BlueZ read). `bluetoothctl show` says `Powered: yes`, `Discovering: no`. (`bluetoothctl` registers an agent of its own while it runs: quit it before pairing, or the pairing's questions go to it.)
+2. **Control Center**: Bluetooth's button off: `bluetoothctl show` says `Powered: no`; on again. Its view lists the paired devices; a press connects or disconnects one, as `bluetoothctl info` says.
+3. **Settings › Bluetooth** open: `bluetoothctl show` says `Discovering: yes` and `Discoverable: yes`; another page (or Settings closed): both `no` within a second.
+4. **Pairing** each kind of device the owner has: a phone (the six digits in the shell's sheet match the phone's; Pair), a keyboard (the code shown, typed on it with Return: the sheet goes, it types in Allo at once), headphones (just works: nothing asked). A wrong code or Cancel leaves nothing paired (`bluetoothctl devices Paired`).
+5. **Audio**: headphones connected appear among PipeWire's sinks (`wpctl status`, `bluez_output.…`), the output selector shows them, music plays through them once chosen, the volume keys change their level.
+6. **Input**: a Bluetooth mouse or keyboard works as it connects (`OXYOS_INPUT_TRACE=1` logs its events), and again after it sleeps and wakes.
+7. **Battery**: a device with the Battery Service shows its level in Control Center and Settings, as `bluetoothctl info` says (`Battery Percentage`).
+8. **Idle**: with Settings closed and nothing connecting, `perf.py session` shows no wakeups of the session's `bluetooth` thread; with Bluetooth headphones playing music, none either.
+9. **Locked** (Ctrl+Super+Q): a phone trying to pair is refused, nothing shown; unlocked, it can.
+
+## Not in this decision
+
+- Sending and receiving files (OBEX), tethering (PAN), a phone's contacts or messages, MIDI, LE Audio broadcast (Auracast), and an HFP headset's battery (BlueZ's experimental battery provider).
+- Choosing the audio output (the audio output selector's, over PipeWire), a device's own settings (a mouse's, a keyboard's: Settings' Mouse and Keyboard pages apply to every device), and Handoff-like features.
+- A menu bar Bluetooth item, and Bluetooth at the login screen or in Setup (a paired, trusted device reconnects by itself there; pairing waits for a person signed in).

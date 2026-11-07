@@ -147,6 +147,11 @@ struct Session {
     networks: Option<oxyos_compositor::networks::Networks>,
     networks_waker: Option<std::os::fd::RawFd>,
     network_control: Option<zbus::blocking::Connection>,
+    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth over a played BlueZ (ADR 0050), its waker
+    /// among the compositor's, and a connection to the played BlueZ's control interface.
+    bluetooth: Option<oxyos_compositor::bluetooth::Bluetooth>,
+    bluetooth_waker: Option<std::os::fd::RawFd>,
+    bluetooth_control: Option<zbus::blocking::Connection>,
     /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
@@ -284,6 +289,9 @@ impl Session {
             input_methods: None,
             input_methods_waker: None,
             network_control: None,
+            bluetooth: None,
+            bluetooth_waker: None,
+            bluetooth_control: None,
             input_sources: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
@@ -489,6 +497,40 @@ impl Session {
         .unwrap_or_else(|| "null".into())
     }
 
+    /// The played BlueZ changes the machine: its control interface's `Act` (ADR 0050).
+    pub fn bluetooth_act(&mut self, what: &str) -> Result<()> {
+        let bus = self
+            .bluetooth_control
+            .as_ref()
+            .ok_or("a bluetooth step needs --bluetooth-bus")?;
+        bus.call_method(
+            Some("org.bluez"),
+            "/so/oxy/OxyOS/FakeBlueZ",
+            Some("so.oxy.OxyOS.FakeBlueZ"),
+            "Act",
+            &(what,),
+        )?;
+        Ok(())
+    }
+
+    /// What the played BlueZ holds (its adapter, agent and devices, the calls made of it), for a
+    /// step's result; `null` without one.
+    pub fn bluetooth_state(&self) -> String {
+        let Some(bus) = self.bluetooth_control.as_ref() else {
+            return "null".into();
+        };
+        bus.call_method(
+            Some("org.bluez"),
+            "/so/oxy/OxyOS/FakeBlueZ",
+            Some("so.oxy.OxyOS.FakeBlueZ"),
+            "State",
+            &(),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<String>().ok())
+        .unwrap_or_else(|| "null".into())
+    }
+
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
@@ -519,6 +561,18 @@ impl Session {
                 self.compositor.controls.as_mut(),
             ) {
                 controls.network_is(&mut self.compositor.scene, network);
+            }
+        }
+        // Bluetooth (ADR 0050), before the store takes the requests left; Control Center's module
+        // told from it.
+        if let Some(bluetooth) = self.bluetooth.as_mut() {
+            bluetooth.serve(&mut self.compositor.scene);
+            if let (true, Some(status), Some(controls)) = (
+                bluetooth.take_changed(),
+                bluetooth.status(),
+                self.compositor.controls.as_mut(),
+            ) {
+                controls.bluetooth_is(&mut self.compositor.scene, status);
             }
         }
         let Some(installs) = self.installs.as_mut() else {
@@ -627,6 +681,7 @@ impl Session {
                     updates: granted.updates || fixture.updates,
                     privacy: granted.privacy || fixture.privacy,
                     network: granted.network || fixture.network,
+                    bluetooth: granted.bluetooth || fixture.bluetooth,
                     ..Grants::default()
                 },
                 application: id,
@@ -829,6 +884,16 @@ impl Session {
             controls.close_network_bus();
         }
         if let Some(waker) = self.networks_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // Bluetooth's side, its thread waited for (the agent unregistered), its waker and its
+        // connection given back.
+        self.bluetooth = None;
+        if let Some(bus) = self.bluetooth_control.take() {
+            let _ = bus.close();
+        }
+        if let Some(waker) = self.bluetooth_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
