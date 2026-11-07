@@ -39,7 +39,9 @@ jobs:
       # oxyos-networks' tests run a played NetworkManager on a bus of their own (dbus-daemon).
       # oxyos-sound plays the system's sounds through PipeWire's own Rust bindings, generated from its
       # headers with libclang (docs/adr/0044-system-sounds.mdx).
-      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev
+      # oxyos-audio's tests follow and change a PipeWire daemon of their own, with PipeWire's own
+      # tools (pipewire-bin: pipewire, pw-cli, pw-metadata; docs/adr/0056-sound-devices.mdx).
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
       - run: cargo fmt --all --check
       - run: cargo test --workspace --locked
         env:

@@ -18,6 +18,7 @@ import {
 import {
   RiAccessibilityLine,
   RiAddLine,
+  RiBluetoothLine,
   RiCalendarLine,
   RiCheckLine,
   RiComputerLine,
@@ -52,6 +53,7 @@ import { useWindowKeys } from "@oxy.so/bloom/kbd";
 import { SettingsLayout, SettingsSelect } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
 import { RadioGroup } from "@oxy.so/bloom/radio";
+import { Slider } from "@oxy.so/bloom/slider";
 import { Switch } from "@oxy.so/bloom/switch";
 import { APP_COLOR_PRESETS, useTheme } from "@oxy.so/bloom/theme";
 import { Text } from "@oxy.so/bloom/typography";
@@ -117,8 +119,22 @@ import {
   type InputSourceId,
   type InputSourcesState,
 } from "./input-sources";
+import {
+  balanceLean,
+  deviceName,
+  litSegments,
+  METER_SEGMENTS,
+  percentOf,
+  typeLabel,
+  VOLUME_KEY_STEP,
+  type SoundActions,
+  type SoundDevice,
+  type SoundDirection,
+  type SoundSide,
+} from "./sound";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import { WallpaperPage } from "./WallpaperPage";
+import { BluetoothPage } from "./BluetoothPage";
 import { accountView, type AccountView } from "./account";
 import {
   formatSize as formatBytes,
@@ -280,11 +296,27 @@ function NotificationsPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
-/** Sound (docs/adr/0044-system-sounds.mdx): Play user interface sound effects, as a Mac's Sound
-    settings have it, on unless the person turns it off. */
+/** Sound (docs/adr/0044-system-sounds.mdx, docs/adr/0056-sound-devices.mdx, decision 9), as a
+    Mac's Sound settings: Play user interface sound effects, on unless the person turns it off;
+    then Output & Input, two tabs, each its devices and its volume. Without the sound (the session
+    has told none, or it cannot reach PipeWire) the page says so in their place. */
 function SoundPage({ snapshot, actions, strings }: PageProps) {
   const words = strings.sound;
-  return (
+  const state = snapshot.sound;
+  const act = actions.sound;
+  const [tab, setTab] = React.useState<SoundDirection>("output");
+  const reached = Boolean(state && act && state.available);
+  // The input's level is metered while the Input tab shows, and stopped when it is left or the page
+  // goes, so nothing listens to the input otherwise (ADR 0056, decision 7).
+  const metering = reached && tab === "input";
+  const meter = React.useRef(act?.meter);
+  meter.current = act?.meter;
+  React.useEffect(() => {
+    if (!metering) return undefined;
+    meter.current?.(true);
+    return () => meter.current?.(false);
+  }, [metering]);
+  const effects = (
     <GroupedSection footer={words.uiSoundsDescription}>
       <ToggleItem
         title={words.uiSounds}
@@ -293,6 +325,323 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
         testID="ui-sounds"
       />
     </GroupedSection>
+  );
+  if (!state || !act || !reached) {
+    return (
+      <View style={PAGE}>
+        {effects}
+        <Notice title={words.unavailable} testID="sound-unavailable" />
+      </View>
+    );
+  }
+  const side = state[tab];
+  return (
+    <View style={PAGE}>
+      {effects}
+      <GroupedSection title={words.outputInput}>
+        <GroupedSectionItem
+          title={words.outputInput}
+          testID="sound-tabs-row"
+          content={
+            <View style={{ alignItems: "center" }}>
+              <SegmentedControl<SoundDirection>
+                label={words.outputInput}
+                type="tabs"
+                value={tab}
+                onValueChange={setTab}
+                testID="sound-tabs"
+              >
+                {(["output", "input"] as const).map((direction) => (
+                  <SegmentedControlItem key={direction} value={direction} testID={`sound-tab-${direction}`}>
+                    <SegmentedControlItemText>{words[direction]}</SegmentedControlItemText>
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+            </View>
+          }
+        />
+        <DeviceList direction={tab} devices={side.devices} act={act} words={words} />
+      </GroupedSection>
+      {tab === "output" ? (
+        <SoundOutput side={side} act={act} words={words} />
+      ) : (
+        <SoundInput side={side} level={snapshot.soundInputLevel ?? 0} act={act} words={words} />
+      )}
+    </View>
+  );
+}
+
+type SoundWordsOf = Messages["sound"];
+
+/** A device's row in its list: the check of the chosen one, its name, its type at the end (a Mac's
+    Type column). */
+const DEVICE_OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
+
+/** A side's devices, as a Mac's table of them: each its name and its type, the chosen one checked.
+    Bloom's `ChoiceList`, as Input Sources' (ADR 0039: one Tab stop, the arrows moving through it,
+    Space or Return choosing; each row said once with its place, the chosen one selected), each
+    named by the device and its type ("DELL U2720Q, HDMI/DisplayPort"). Choosing the one chosen
+    asks nothing. */
+function DeviceList({
+  direction,
+  devices,
+  act,
+  words,
+}: {
+  direction: SoundDirection;
+  devices: readonly SoundDevice[];
+  act: SoundActions;
+  words: SoundWordsOf;
+}) {
+  const theme = useTheme();
+  if (devices.length === 0) {
+    return <GroupedSectionItem title={words.none[direction]} testID={`sound-${direction}-none`} />;
+  }
+  const chosen = devices.find((device) => device.selected)?.id ?? "";
+  return (
+    <GroupedSectionItem
+      title={words[direction]}
+      testID={`sound-${direction}-devices`}
+      content={
+        <ChoiceList<string>
+          label={words.devices[direction]}
+          value={chosen}
+          onValueChange={(id) => {
+            if (id !== chosen) act.select(direction, id);
+          }}
+          orientation="vertical"
+          style={{ gap: 2 }}
+          optionStyle={DEVICE_OPTION}
+          options={devices.map((device) => ({
+            value: device.id,
+            label: words.device(deviceName(device, direction, words), typeLabel(device.transport, words)),
+            testID: `sound-${direction}-${device.id}`,
+          }))}
+          renderContent={(option) => {
+            const device = devices.find((d) => d.id === option.value);
+            if (!device) return null;
+            return (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 32 }}>
+                <View style={{ width: 20, alignItems: "center" }}>
+                  {device.selected ? <RiCheckLine size="sm" fill={theme.colors.primary} /> : null}
+                </View>
+                <Text variant="body-regular" numberOfLines={1} style={{ flex: 1 }}>
+                  {deviceName(device, direction, words)}
+                </Text>
+                <Text variant="body-2-regular" numberOfLines={1} style={{ color: theme.colors.textSecondary }}>
+                  {typeLabel(device.transport, words)}
+                </Text>
+              </View>
+            );
+          }}
+          testID={`sound-${direction}-list`}
+        />
+      }
+    />
+  );
+}
+
+/** A side's volume, as the shell's slider: the level in percent ("50 %"), the keys a sixteenth. */
+function VolumeSlider({
+  direction,
+  volume,
+  label,
+  act,
+  words,
+  testID,
+}: {
+  direction: SoundDirection;
+  volume: number;
+  label: string;
+  act: SoundActions;
+  words: SoundWordsOf;
+  testID: string;
+}) {
+  return (
+    <View style={{ width: 220 }}>
+      <Slider
+        value={percentOf(volume)}
+        min={0}
+        max={100}
+        step={100 / 64}
+        keyboardStep={100 * VOLUME_KEY_STEP}
+        showTooltip={false}
+        formatValue={(value) => words.percent(Math.round(value))}
+        accessibilityLabel={label}
+        onValueChange={(value) => act.setVolume(direction, value / 100)}
+        testID={testID}
+      />
+    </View>
+  );
+}
+
+/** A row whose control is a slider or a meter: its title drawn and not read again, since the control is named
+    by it (as Control Center's sliders, ADR 0025), so the row is one element, the slider. */
+function SliderRow({ title, testID, children }: { title: string; testID: string; children: React.ReactNode }) {
+  const theme = useTheme();
+  return (
+    <GroupedSectionItem
+      title={title}
+      testID={testID}
+      content={
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Text
+            variant="body-regular"
+            numberOfLines={1}
+            style={{ flex: 1, color: theme.colors.text }}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {title}
+          </Text>
+          {children}
+        </View>
+      }
+    />
+  );
+}
+
+/** A slider's ends, drawn: the slider's value says them, so the reader skips them. */
+function SliderEnd({ text }: { text: string }) {
+  const theme = useTheme();
+  return (
+    <Text
+      variant="caption-1-regular"
+      style={{ color: theme.colors.textSecondary }}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {text}
+    </Text>
+  );
+}
+
+/** Output's volume with its mute, and the balance from left to right where the
+    device has a left and a right. */
+function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions; words: SoundWordsOf }) {
+  const theme = useTheme();
+  const balance = side.balance;
+  const balanceText = (value: number) => {
+    const lean = balanceLean(value);
+    return lean.side === "center" ? words.center : words.leaning(lean.side, words.percent(lean.percent));
+  };
+  if (side.volume === null && balance === null) return null;
+  return (
+    <GroupedSection>
+      {side.volume !== null ? (
+        <SliderRow title={words.outputVolume} testID="sound-output-volume-row">
+          <VolumeSlider
+            direction="output"
+            volume={side.volume}
+            label={words.outputVolume}
+            act={act}
+            words={words}
+            testID="sound-output-volume"
+          />
+        </SliderRow>
+      ) : null}
+      {side.volume !== null ? (
+        <GroupedSectionItem
+          title={words.mute}
+          testID="sound-mute-row"
+          rightElement={
+            <Switch
+              checked={side.muted}
+              onCheckedChange={(muted) => act.setMuted("output", muted)}
+              accessibilityLabel={words.mute}
+              testID="sound-mute"
+            />
+          }
+        />
+      ) : null}
+      {balance !== null ? (
+        <SliderRow title={words.balance} testID="sound-balance-row">
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <SliderEnd text={words.left} />
+              <View style={{ width: 160 }}>
+                <Slider
+                  // A balance leans from the centre: no side of it is filled, as a Mac's.
+                  minimumTrackTintColor={theme.colors.border}
+                  value={Math.min(1, Math.max(-1, balance)) * 100}
+                  min={-100}
+                  max={100}
+                  step={100 / 64}
+                  keyboardStep={200 / 16}
+                  showTooltip={false}
+                  formatValue={(value) => balanceText(value / 100)}
+                  accessibilityLabel={words.balance}
+                  onValueChange={(value) => act.setBalance(value / 100)}
+                  testID="sound-balance"
+                />
+              </View>
+              <SliderEnd text={words.right} />
+            </View>
+        </SliderRow>
+      ) : null}
+    </GroupedSection>
+  );
+}
+
+/** Input's volume, and the level as the session meters it while the tab is shown. */
+function SoundInput({
+  side,
+  level,
+  act,
+  words,
+}: {
+  side: SoundSide;
+  level: number;
+  act: SoundActions;
+  words: SoundWordsOf;
+}) {
+  return (
+    <GroupedSection>
+      {side.volume !== null ? (
+        <SliderRow title={words.inputVolume} testID="sound-input-volume-row">
+          <VolumeSlider
+            direction="input"
+            volume={side.volume}
+            label={words.inputVolume}
+            act={act}
+            words={words}
+            testID="sound-input-volume"
+          />
+        </SliderRow>
+      ) : null}
+      <SliderRow title={words.inputLevel} testID="sound-input-level-row">
+        <InputLevel level={level} words={words} />
+      </SliderRow>
+    </GroupedSection>
+  );
+}
+
+/** The input level, as a Mac's: a row of small rounded segments, those the level reaches lit in
+    the accent. One element, a progress bar named by what it measures, its value in percent. */
+function InputLevel({ level, words }: { level: number; words: SoundWordsOf }) {
+  const theme = useTheme();
+  const lit = litSegments(level);
+  const percent = percentOf(level);
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={words.inputLevel}
+      accessibilityValue={{ min: 0, max: 100, now: percent, text: words.percent(percent) }}
+      testID="sound-input-level"
+      style={{ width: 220, flexDirection: "row", gap: 3 }}
+    >
+      {Array.from({ length: METER_SEGMENTS }, (_, index) => (
+        <View
+          key={index}
+          style={{
+            flex: 1,
+            height: 8,
+            borderRadius: 2,
+            backgroundColor: index < lit ? theme.colors.primary : theme.colors.border,
+          }}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -1891,20 +2240,19 @@ export function Settings({
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
   const props = { snapshot, actions, strings, locale };
   const words = strings.pages;
-  // Wi-Fi and Network first, as a Mac lists them, only with the platform's `network` grant.
+  // Wi-Fi, Bluetooth and Network first, as a Mac lists them: Wi-Fi and Network only with the
+  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx).
+  const networked = snapshot.network !== undefined;
+  const bluetooth = snapshot.bluetooth !== undefined;
+  const connectionItems: SettingsNavGroup["items"] = [
+    ...(networked ? [{ key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" }] : []),
+    ...(bluetooth ? [{ key: "bluetooth", label: words.bluetooth, icon: RiBluetoothLine, page: "bluetooth" }] : []),
+    ...(networked ? [{ key: "network", label: words.network, icon: RiGlobalLine, page: "network" }] : []),
+  ];
   const connections: SettingsNavGroup[] =
-    snapshot.network === undefined
+    connectionItems.length === 0
       ? []
-      : [
-          {
-            key: "connections",
-            label: strings.groups.connections,
-            items: [
-              { key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" },
-              { key: "network", label: words.network, icon: RiGlobalLine, page: "network" },
-            ],
-          },
-        ];
+      : [{ key: "connections", label: strings.groups.connections, items: connectionItems }];
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
@@ -1994,6 +2342,7 @@ export function Settings({
           wifi: { title: words.wifi, content: <WifiPage {...props} /> },
           network: { title: words.network, content: <NetworkPage {...props} /> },
         }),
+    ...(bluetooth ? { bluetooth: { title: words.bluetooth, content: <BluetoothPage {...props} /> } } : {}),
   };
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

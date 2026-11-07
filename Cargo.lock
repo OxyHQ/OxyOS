@@ -2143,12 +2143,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-audio"
+version = "0.1.0"
+dependencies = [
+ "pipewire",
+ "rustix",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oxyos-auth"
 version = "0.1.0"
 dependencies = [
  "libc",
  "rustix",
  "zeroize",
+]
+
+[[package]]
+name = "oxyos-bluetooth"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "async-io",
+ "futures-lite",
+ "serde",
+ "serde_json",
+ "zbus",
 ]
 
 [[package]]
@@ -2205,9 +2227,12 @@ dependencies = [
 name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "drm",
  "jiff",
+ "oxyos-audio",
  "oxyos-auth",
+ "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor-core",
  "oxyos-controls",
@@ -2248,10 +2273,11 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "futures-lite",
+ "oxyos-audio",
  "oxyos-protocol",
  "oxyos-seat",
- "pipewire",
  "rustix",
+ "serde_json",
  "zbus",
 ]
 
@@ -2500,10 +2526,13 @@ dependencies = [
 name = "oxyos-offscreen"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-io",
  "evdev",
  "oxyos-apps",
+ "oxyos-audio",
  "oxyos-auth",
+ "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor",
  "oxyos-compositor-core",
@@ -2520,6 +2549,7 @@ dependencies = [
  "oxyos-sound",
  "oxyos-vt",
  "rustix",
+ "serde",
  "serde_json",
  "zbus",
 ]

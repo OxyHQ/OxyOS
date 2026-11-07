@@ -1,6 +1,8 @@
 import type { CandidateList, InputSourcesState } from "./input-sources";
 import type { ImageSourcePropType } from "react-native";
 import type { NetworkState } from "./network";
+import type { BluetoothState } from "./bluetooth";
+import type { SoundState } from "./sound";
 
 /** Data supplied by the OxyOS application registry and compositor, never invented by the UI. */
 /** The wallpaper (docs/adr/0048-wallpapers.mdx). */
@@ -281,6 +283,25 @@ export type ShellControls = {
   joinNetwork?: (ssid: string) => void;
   /** The Wi-Fi view's "Ajustes de Wi-Fi…": Settings, at its Wi-Fi page where it can be. */
   openWifiSettings?: () => void;
+  /** The sound's outputs and inputs as the session tells them (docs/adr/0056-sound-devices.mdx):
+      the Control Center's Sound view. Absent or null, the Sound card only sets the volume. */
+  sound?: SoundState | null;
+  /** An output chosen: the session makes it the one played to. */
+  selectOutput?: (id: string) => void;
+  /** The Sound view's "Ajustes de sonido…": Settings, at its Sound page where it can be. */
+  openSoundSettings?: () => void;
+  /** Bluetooth as the session tells it (docs/adr/0055-bluetooth.mdx): the Bluetooth module's
+      switch and the Control Center's Bluetooth view. Absent or null, the module only says what
+      `bluetooth` says. */
+  bluetoothDevices?: BluetoothState | null;
+  /** Bluetooth's switch: the session turns the adapter on or off. */
+  setBluetooth?: (on: boolean) => void;
+  /** A paired device pressed in the Bluetooth view: the session connects it (asking what a
+      pairing needs, and saying what failed, in its system sheets) or disconnects it. */
+  connectBluetooth?: (id: string) => void;
+  disconnectBluetooth?: (id: string) => void;
+  /** The Bluetooth view's "Bluetooth Settings…": Settings, at its Bluetooth page. */
+  openBluetoothSettings?: () => void;
 };
 
 /** A screenshot the session saved (docs/adr/0024-system-shortcuts.mdx, decision 10): the session's

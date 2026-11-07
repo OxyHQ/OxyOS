@@ -932,6 +932,15 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   NetworkManager's background scans in it; `watch_idle.rs` holds another access point's strength
   and the joined one seen again by a scan to nothing delivered (it fails at 27 a second when every
   signal is).
+- **Bluetooth follows BlueZ the same way** (7 November 2026, [ADR 0055](./adr/0055-bluetooth)):
+  one connection, its executor run by the session's `bluetooth` thread as it waits, delivered only
+  BlueZ's objects added and removed, its adapters', devices' and batteries' properties and its
+  name's owner; a stream's volume as music plays, a GATT value or a media player's track are never
+  delivered, and a device's signal strength while discovering tells the turn nothing. Discovery
+  runs only while Settings' Bluetooth page holds it, with BlueZ asked not to signal an
+  advertisement seen again. In a session the hardware controls no longer follow BlueZ themselves.
+  `tools/oxyos-offscreen/tests/bluetooth_idle.rs` holds it to the idle budget over a played BlueZ
+  signalling what is not followed, and `crates/oxyos-compositor/tests/idle.rs` with no bus yet.
 - **A border drawn with rounded corners visited every pixel of its box** to find the ring: 19 ms
   of a two-panel Inbox's 25 ms frame. Rows now skip the ring's hole and fill what a rounded
   rectangle covers whole at once (pixel for pixel the same).

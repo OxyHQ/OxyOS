@@ -172,6 +172,8 @@ const en = (f: Formats) => ({
   /** The Control Center's modules. */
   controlCenter: {
     wifiNetworks: "Wi-Fi Networks",
+    bluetoothDevices: "Bluetooth Devices",
+    outputDevices: "Output Devices",
     darkMode: "Dark Mode",
     display: "Display",
     keyboard: "Keyboard",
@@ -197,6 +199,34 @@ const en = (f: Formats) => ({
     off: "Wi-Fi is off",
     searching: "Looking for networks…",
     joined: (ssid: string) => `Connected to ${ssid}`,
+  },
+  /** The Control Center's Sound view (sound.ts, SoundPanel). */
+  sound: {
+    back: "Back to Control Center",
+    output: "Output",
+    settings: "Sound Settings…",
+    builtInSpeakers: "Built-in Speakers",
+    externalHeadphones: "External Headphones",
+    lineOut: "Line Out",
+  },
+  /** The Control Center's Bluetooth view (bluetooth.ts, BluetoothPanel, docs/adr/0055-bluetooth.mdx). */
+  bluetooth: {
+    back: "Back",
+    devices: "Devices",
+    settings: "Bluetooth Settings…",
+    connected: "Connected",
+    notConnected: "Not Connected",
+    /** A device's state while the session connects or disconnects it, said with its name. */
+    connecting: "Connecting",
+    disconnecting: "Disconnecting",
+    /** The same, shown. */
+    connectingShown: "Connecting…",
+    disconnectingShown: "Disconnecting…",
+    battery: (percent: string) => `Battery ${percent}`,
+    none: "No Devices",
+    off: "Bluetooth is off.",
+    blocked: "Bluetooth is turned off by a hardware switch or airplane mode.",
+    unavailable: "Bluetooth isn't available.",
   },
   /** The dock and its menus (dock.ts). */
   dock: {
@@ -370,6 +400,33 @@ const en = (f: Formats) => ({
     wifiEnterprise: "Enterprise (802.1X) networks aren't supported yet.",
     wifiWep: "WEP networks aren't supported: they aren't secure.",
     wifiOtherUnsupported: "This network isn't supported yet.",
+    /** Bluetooth's pairing (docs/adr/0055-bluetooth.mdx): a code to compare, a device asking to
+        pair or to use a service, a code to type on it or here, and a connection that failed. */
+    bluetoothPair: "Pair",
+    bluetoothConfirm: (name: string) => `Confirm that “${name}” shows this code.`,
+    bluetoothAuthorize: (name: string) => `“${name}” wants to pair with this computer.`,
+    bluetoothService: (name: string, what: string) => `Allow “${name}” to ${what}?`,
+    /** What a device asks to do, completing "Allow “X” to …?". */
+    bluetoothServices: {
+      audio: "play and record audio",
+      input: "be used as an input device",
+      phone: "connect for phone calls",
+      files: "send and receive files",
+      network: "share a network connection",
+      other: "connect to this computer",
+    } as Record<string, string>,
+    bluetoothDisplay: (name: string) => `Type this code on “${name}”, then press Return.`,
+    bluetoothPasskey: (name: string) => `Enter the code shown on “${name}”.`,
+    bluetoothPin: (name: string) => `Enter the PIN for “${name}”.`,
+    bluetoothPinHint: "If you don't know it, try 0000 or 1234.",
+    bluetoothCodeField: "Code",
+    bluetoothPinField: "PIN",
+    bluetoothFailed: (name: string) => `Couldn't connect to “${name}”.`,
+    bluetoothRejected: "The code didn't match, or the device refused the connection.",
+    bluetoothTimeout: "Make sure it's turned on, nearby and in pairing mode.",
+    bluetoothOtherFailure: "Make sure it's turned on and nearby.",
+    /** A code said digit by digit: "Code: 1 2 3 4 5 6". */
+    bluetoothCodeSaid: (digits: string) => `Code: ${digits}`,
     /** A size's units, from bytes up. */
     units: ["bytes", "KB", "MB", "GB"] as readonly string[],
     /** Each capability's name, and what an application asking for it would do. */
@@ -485,6 +542,8 @@ const es = (f: Formats): Catalogue => ({
   },
   controlCenter: {
     wifiNetworks: "Redes Wi-Fi",
+    bluetoothDevices: "Dispositivos Bluetooth",
+    outputDevices: "Dispositivos de salida",
     darkMode: "Modo oscuro",
     display: "Pantalla",
     keyboard: "Teclado",
@@ -509,6 +568,30 @@ const es = (f: Formats): Catalogue => ({
     off: "Wi-Fi desactivada",
     searching: "Buscando redes…",
     joined: (ssid) => `Conectado a ${ssid}`,
+  },
+  sound: {
+    back: "Volver al centro de control",
+    output: "Salida",
+    settings: "Ajustes de sonido…",
+    builtInSpeakers: "Altavoces integrados",
+    externalHeadphones: "Auriculares externos",
+    lineOut: "Salida de línea",
+  },
+  bluetooth: {
+    back: "Atrás",
+    devices: "Dispositivos",
+    settings: "Ajustes de Bluetooth…",
+    connected: "Conectado",
+    notConnected: "No conectado",
+    connecting: "Conectando",
+    disconnecting: "Desconectando",
+    connectingShown: "Conectando…",
+    disconnectingShown: "Desconectando…",
+    battery: (percent) => `Batería ${percent}`,
+    none: "No hay dispositivos",
+    off: "Bluetooth está desactivado.",
+    blocked: "Bluetooth está desactivado por un interruptor del equipo o por el modo avión.",
+    unavailable: "Bluetooth no está disponible.",
   },
   dock: {
     menuHint: "Para abrir su menú, pulsa Flecha arriba",
@@ -669,6 +752,29 @@ const es = (f: Formats): Catalogue => ({
     wifiEnterprise: "Las redes empresariales (802.1X) aún no son compatibles.",
     wifiWep: "Las redes WEP no son compatibles: no son seguras.",
     wifiOtherUnsupported: "Esta red aún no es compatible.",
+    bluetoothPair: "Enlazar",
+    bluetoothConfirm: (name) => `Confirma que “${name}” muestra este código.`,
+    bluetoothAuthorize: (name) => `“${name}” quiere enlazarse con este ordenador.`,
+    bluetoothService: (name, what) => `¿Permitir que “${name}” ${what}?`,
+    bluetoothServices: {
+      audio: "reproduzca y grabe audio",
+      input: "se use como dispositivo de entrada",
+      phone: "se conecte para hacer llamadas",
+      files: "envíe y reciba archivos",
+      network: "comparta una conexión de red",
+      other: "se conecte a este ordenador",
+    },
+    bluetoothDisplay: (name) => `Escribe este código en “${name}” y pulsa Retorno.`,
+    bluetoothPasskey: (name) => `Introduce el código que muestra “${name}”.`,
+    bluetoothPin: (name) => `Introduce el PIN de “${name}”.`,
+    bluetoothPinHint: "Si no lo sabes, prueba con 0000 o 1234.",
+    bluetoothCodeField: "Código",
+    bluetoothPinField: "PIN",
+    bluetoothFailed: (name) => `No se ha podido conectar a “${name}”.`,
+    bluetoothRejected: "El código no coincidía o el dispositivo ha rechazado la conexión.",
+    bluetoothTimeout: "Asegúrate de que está encendido, cerca y en modo de enlace.",
+    bluetoothOtherFailure: "Asegúrate de que está encendido y cerca.",
+    bluetoothCodeSaid: (digits) => `Código: ${digits}`,
     units: ["bytes", "kB", "MB", "GB"],
     capabilities: {
       network: ["Internet", "conectarse a Internet"],

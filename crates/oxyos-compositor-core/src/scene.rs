@@ -83,15 +83,25 @@ pub struct Grants {
     /// Settings (ADR 0038): sees the networks and joins, forgets and turns Wi-Fi on and off
     /// (`SystemRequest`), as the shell does by its own grant.
     pub network: bool,
+    /// Settings (ADR 0055): sees Bluetooth and turns it on and off, discovers, connects (pairing
+    /// first), disconnects, forgets and renames devices (`SystemRequest`), as the shell does by its
+    /// own grant (all but discovering, forgetting and renaming).
+    pub bluetooth: bool,
 }
 
 impl Grants {
-    /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
-    /// the store, updates, privacy and networks, the shell (Control Center's Wi-Fi, the password
-    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
-    /// may ask is the program's to decide.
+    /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030, ADR 0038 and ADR
+    /// 0055): the store, updates, privacy, networks and Bluetooth, the shell (Control Center's
+    /// Wi-Fi and Bluetooth, the sheets' answers, the input sources) and Settings (the input
+    /// sources, ADR 0041). What each may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
-        self.store || self.updates || self.privacy || self.network || self.shell || self.settings
+        self.store
+            || self.updates
+            || self.privacy
+            || self.network
+            || self.bluetooth
+            || self.shell
+            || self.settings
     }
 }
 
@@ -1112,6 +1122,7 @@ impl Scene {
             updates: granted.updates && !held.updates,
             privacy: granted.privacy && !held.privacy,
             network: granted.network && !held.network,
+            bluetooth: granted.bluetooth && !held.bluetooth,
         };
         self.check_grants(new)?;
         let grants = self.clients.get_mut(&client).expect("connected");
@@ -1126,6 +1137,7 @@ impl Scene {
         grants.updates |= new.updates;
         grants.privacy |= new.privacy;
         grants.network |= new.network;
+        grants.bluetooth |= new.bluetooth;
         if new.accessibility {
             // Whether the session is locked, before the trees it may read (the lock screen's
             // alone while it is): told as it is, never said as a change.
@@ -1247,6 +1259,7 @@ impl Scene {
         grants.updates &= !revoked.updates;
         grants.privacy &= !revoked.privacy;
         grants.network &= !revoked.network;
+        grants.bluetooth &= !revoked.bluetooth;
         if !grants.asks_system() {
             self.forget_system_requests(client);
         }

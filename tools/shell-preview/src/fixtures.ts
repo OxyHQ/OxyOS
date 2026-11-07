@@ -6,6 +6,8 @@ import type {
   ShellMenu,
 } from "../../../apps/shell/src/model";
 import type { NetworkState } from "../../../apps/shell/src/network";
+import type { BluetoothState } from "../../../apps/shell/src/bluetooth";
+import type { SoundState } from "../../../apps/shell/src/sound";
 import type { Language, ShellMessages } from "../../../apps/shell/src/messages";
 import astro from "../assets/apps/astro.png";
 import inbox from "../assets/apps/inbox.png";
@@ -238,4 +240,129 @@ export const previewNetworks: NetworkState = {
   },
   ethernet: { device: true, state: "unplugged", speed: 0, details: null },
   joining: null,
+};
+
+/** A played machine's sound (docs/adr/0056-sound-devices.mdx), so the Control Center's Sound view
+    can be tried in the browser: the built-in speakers chosen, a display over HDMI, and AirPods. */
+export const previewSound: SoundState = {
+  available: true,
+  output: {
+    devices: [
+      {
+        id: "alsa_output.pci-0000_00_1f.3.analog-stereo",
+        name: "Built-in Audio Analog Stereo",
+        kind: "speakers",
+        transport: "builtIn",
+        selected: true,
+      },
+      {
+        id: "alsa_output.pci-0000_00_1f.3.hdmi-stereo",
+        name: "DELL U2720Q",
+        kind: "hdmi",
+        transport: "hdmi",
+        selected: false,
+      },
+      {
+        id: "bluez_output.AC_90_85_12_34_56.1",
+        name: "AirPods Pro",
+        kind: "headphones",
+        transport: "bluetooth",
+        selected: false,
+      },
+    ],
+    volume: 0.5,
+    muted: false,
+    balance: 0,
+  },
+  input: {
+    devices: [
+      {
+        id: "alsa_input.pci-0000_00_1f.3.analog-stereo",
+        name: "Built-in Audio Analog Stereo",
+        kind: "microphone",
+        transport: "builtIn",
+        selected: true,
+      },
+    ],
+    volume: 0.7,
+    muted: false,
+    balance: null,
+  },
+};
+
+/** A played machine's Bluetooth (docs/adr/0055-bluetooth.mdx), so the Control Center's Bluetooth
+    view can be tried in the browser: headphones and a trackpad connected, a keyboard and a mouse
+    paired, and a speaker nearby, which the view does not list. */
+export const previewBluetooth: BluetoothState = {
+  available: true,
+  adapter: {
+    name: "OxyOS",
+    address: "3C:A9:F4:12:34:57",
+    powered: true,
+    blocked: false,
+    discovering: false,
+    discoverable: false,
+  },
+  devices: [
+    {
+      id: "4C:87:5D:10:20:30",
+      address: "4C:87:5D:10:20:30",
+      name: "Headphones Pro",
+      kind: "headphones",
+      paired: true,
+      connected: true,
+      busy: null,
+      battery: 82,
+      audio: true,
+      input: false,
+    },
+    {
+      id: "F0:B3:EC:11:22:33",
+      address: "F0:B3:EC:11:22:33",
+      name: "Speaker",
+      kind: "speaker",
+      paired: false,
+      connected: false,
+      busy: null,
+      battery: null,
+      audio: true,
+      input: false,
+    },
+    {
+      id: "D4:61:9D:44:55:66",
+      address: "D4:61:9D:44:55:66",
+      name: "Trackpad",
+      kind: "trackpad",
+      paired: true,
+      connected: true,
+      busy: null,
+      battery: 9,
+      audio: false,
+      input: true,
+    },
+    {
+      id: "D4:61:9D:77:88:99",
+      address: "D4:61:9D:77:88:99",
+      name: "Wireless Keyboard",
+      kind: "keyboard",
+      paired: true,
+      connected: false,
+      busy: null,
+      battery: 64,
+      audio: false,
+      input: true,
+    },
+    {
+      id: "D4:61:9D:AA:BB:CC",
+      address: "D4:61:9D:AA:BB:CC",
+      name: "Wireless Mouse",
+      kind: "mouse",
+      paired: true,
+      connected: false,
+      busy: null,
+      battery: null,
+      audio: false,
+      input: true,
+    },
+  ],
 };
