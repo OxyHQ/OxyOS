@@ -120,7 +120,7 @@ fn bus_config(socket: &Path) -> String {
 }
 
 /// fcitx5's global configuration: it never switches input methods itself (the session does,
-/// Super+Space), no trigger keys; the candidate keys of ADR 0041's decision 5; each field its own
+/// Super+Alt+Space), no trigger keys; the candidate keys of ADR 0041's decision 5; each field its own
 /// state; nine candidates to a page, chosen with 1 to 9.
 const GLOBAL_CONFIG: &str = "\
 [Hotkey]

@@ -577,6 +577,20 @@ fn main() -> Result<()> {
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
     };
+    // Search (docs/adr/0051-search.mdx): the user's index, this program's child (`--search-service`,
+    // its standard input a socket only this program holds), started with the session after its
+    // shell and told the applications the shell's launcher lists. The login screen has none.
+    let mut search = if greeter {
+        None
+    } else {
+        let mut command = Command::new(std::env::current_exe()?);
+        command.arg("--search-service");
+        let mut search = oxyos_compositor::search::Search::new(command, true)?;
+        search.set_locale(&settings.locale());
+        search.list_applications(oxyos_apps::Listing::read(None));
+        compositor.wakers.push(search.wake_fd()?);
+        Some(search)
+    };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
     let mut input_methods = if greeter {
@@ -966,6 +980,12 @@ fn main() -> Result<()> {
                 },
             })
         });
+        // Search's asks, once every client that asked is named by its launch record: who asked is
+        // told the index with each.
+        if let Some(search) = search.as_mut() {
+            search.set_locale(&settings.locale());
+            search.serve(&mut compositor.scene);
+        }
         if let Some(status) = application
             .as_mut()
             .map(|application| application.try_wait())
@@ -1026,6 +1046,10 @@ fn main() -> Result<()> {
         if let Some(deadline) = displays.trial_deadline() {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
+        // An ask waiting for the search service to be started again.
+        if let Some(deadline) = search.as_ref().and_then(|search| search.deadline()) {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
         if let Some(since) = signed_in {
             wait = wait.min(SIGNED_IN_SPLASH.saturating_sub(since.elapsed()));
         }
@@ -1050,6 +1074,8 @@ fn main() -> Result<()> {
         end(application)?;
     }
     launcher.end(Duration::from_secs(2));
+    // The search service ends as its standard input closes.
+    drop(search);
     for shell in shells.values_mut() {
         end(shell)?;
     }

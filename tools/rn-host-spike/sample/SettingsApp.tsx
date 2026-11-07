@@ -682,6 +682,9 @@ export default function SettingsApp() {
     network: networks.actions,
     account: sessionHost ? accountActions : undefined,
     chooseFolder,
+    // Settings › Spotlight (docs/adr/0051-search.mdx): the session's search index, which takes its
+    // preferences from Settings alone.
+    search: oxyosSurfaces.search,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

@@ -700,16 +700,19 @@ fn the_input_method_never_sees_super_or_its_chords() {
     let (mut h, _) = served("");
     dock(&mut h);
     logged(&mut h);
+    const ALT: u32 = 56;
     h.scene.keyboard(SUPER, true, None);
+    h.scene.keyboard(ALT, true, None);
     h.scene.keyboard(SPACE, true, Some(" "));
     h.scene.keyboard(SPACE, false, None);
+    h.scene.keyboard(ALT, false, None);
     h.scene.keyboard(KEY_A, true, Some("a"));
     h.scene.keyboard(KEY_A, false, None);
     h.scene.keyboard(SUPER, false, None);
     let events = logged(&mut h);
     assert_eq!(input_to(&events, IME), []);
     assert_eq!(input_to(&events, APP), []);
-    // Super+Space is the program's input-source shortcut (ADR 0041), never the engine's key.
+    // Super+Alt+Space is the program's input-source shortcut (ADR 0041), never the engine's key.
     assert!(shortcuts_to(&events, SHELL).is_empty());
     assert_eq!(
         h.scene.take_input_source_shortcuts(),
@@ -1251,4 +1254,76 @@ fn super_n_opens_the_notification_center_with_the_keyboard() {
     let events = logged(&mut h);
     assert!(shortcuts_to(&events, SHELL).is_empty());
     assert_eq!(input_to(&events, APP), []);
+}
+
+#[test]
+fn super_space_opens_spotlight_and_super_return_reveals_once_and_reach_nobody() {
+    const ENTER: u32 = 28;
+    let mut h = Harness::new();
+    dock(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let at = h.rect(window);
+    let menu_at = (at.x + 100, at.y + 100);
+    let popup = h.open_menu(
+        window,
+        2,
+        menu_at,
+        menu(Rect::new(90, 90, 20, 20), 200, 200),
+    );
+    logged(&mut h);
+    // Super+Space, as a Mac's ⌘Space (docs/adr/0051-search.mdx): a menu open in the window
+    // closes, the shell is told Spotlight once, and the application hears nothing of the keys.
+    chord(&mut h, &[SPACE]);
+    let events = logged(&mut h);
+    assert!(to(&events, APP).contains(&Event::PopupDone {
+        surface: popup.id,
+        reason: DismissReason::OutsidePress,
+    }));
+    assert_eq!(input_to(&events, APP), []);
+    assert_eq!(
+        shortcuts_to(&events, SHELL),
+        [(SystemShortcut::Spotlight, 1)]
+    );
+    // Neither repeats while held.
+    h.scene.keyboard(SUPER, true, None);
+    assert_eq!(h.scene.system_repeats(SPACE), Some(false));
+    assert_eq!(h.scene.system_repeats(ENTER), Some(false));
+    h.scene.keyboard(SUPER, false, None);
+    logged(&mut h);
+    // Super+Return reveals what Spotlight has chosen; what the shell shows stays, so a menu open
+    // stays open.
+    let popup = h.open_menu(
+        window,
+        3,
+        menu_at,
+        menu(Rect::new(90, 90, 20, 20), 200, 200),
+    );
+    logged(&mut h);
+    chord(&mut h, &[ENTER]);
+    let events = logged(&mut h);
+    assert!(!to(&events, APP).contains(&Event::PopupDone {
+        surface: popup.id,
+        reason: DismissReason::OutsidePress,
+    }));
+    assert_eq!(input_to(&events, APP), []);
+    assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::Reveal, 1)]);
+    // With Shift neither is a shortcut, and the keys reach nobody; Super alone is still the
+    // launcher's search.
+    chord(&mut h, &[SHIFT, SPACE]);
+    chord(&mut h, &[SHIFT, ENTER]);
+    let events = logged(&mut h);
+    assert!(shortcuts_to(&events, SHELL).is_empty());
+    assert_eq!(input_to(&events, APP), []);
+    keys(&mut h, &[SUPER]);
+    assert_eq!(
+        shortcuts_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::Search, 1)]
+    );
+    // While locked, neither acts.
+    h.scene.lock();
+    logged(&mut h);
+    chord(&mut h, &[SPACE]);
+    chord(&mut h, &[ENTER]);
+    assert!(shortcuts_to(&logged(&mut h), SHELL).is_empty());
 }

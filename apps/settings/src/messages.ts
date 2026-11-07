@@ -230,7 +230,7 @@ const en = {
     confirmAdd: "Add",
     added: (name: string) => `Added ${name}`,
     removed: (name: string) => `Removed ${name}`,
-    switchHint: "Super+Space switches to the input source used before.",
+    switchHint: "Super+Alt+Space switches to the input source used before.",
     notInstalled: "Input methods for Chinese, Japanese and Korean aren't installed on this computer.",
     /** The input methods, as macOS names its own. */
     methods: { pinyin: "Pinyin – Simplified", japanese: "Japanese – Romaji", korean: "2-Set Korean" } as Record<
@@ -675,7 +675,7 @@ const es: Messages = {
     confirmAdd: "Añadir",
     added: (name: string) => `Se ha añadido ${name}`,
     removed: (name: string) => `Se ha eliminado ${name}`,
-    switchHint: "Super+Espacio cambia a la fuente de entrada usada antes.",
+    switchHint: "Super+Alt+Espacio cambia a la fuente de entrada usada antes.",
     notInstalled: "Los métodos de entrada para chino, japonés y coreano no están instalados en este ordenador.",
     methods: { pinyin: "Pinyin – Simplificado", japanese: "Japonés – Romaji", korean: "Coreano de 2 conjuntos" },
     layoutNames: {

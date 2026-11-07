@@ -19,7 +19,8 @@
  * further. Its `editing` is the window's first responder for the Edit menu's standard actions,
  * the focused text input (`OxyOSEditing`). Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
  * file manager needs beyond expo-file-system, and `files.tags` the tags on the person's items
- * (docs/adr/0049-file-tags.mdx).
+ * (docs/adr/0049-file-tags.mdx). Its `search` is the session's search index
+ * (docs/adr/0051-search.mdx), Bloom's `PlatformSearch`, in every window, the shell's included.
  *
  * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
  * decision 8), `files.chooser` is what it was asked to show and how it answers; its window is the
@@ -31,6 +32,7 @@ import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-n
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { answerChooser, chooserRequest } from './file-chooser';
 import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
+import { createSearch, searchAvailable } from './search';
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -399,6 +401,10 @@ function createFiles() {
 
 const files = filesAvailable ? createFiles() : undefined;
 
+// Bloom's `PlatformSearch` (docs/adr/0051-search.mdx): the session's search index, which every
+// window reaches (protocol version 30), the shell's and Settings' included.
+const search = searchAvailable ? createSearch() : undefined;
+
 // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): the drop target the host
 // answers the compositor for from its props (drag.h), and the application's own drags from the
 // press it holds. The protocol's version 10 has it; an older compositor none, and Bloom's DropZone
@@ -592,6 +598,7 @@ export const oxyosSurfaces = {
   editing,
   appearance,
   files,
+  search,
   sounds,
   ...(drag ? { DropTarget, drag } : {}),
 };

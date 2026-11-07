@@ -84,7 +84,7 @@ test("the list says its highlighted candidate with its place and the count", () 
 
 test("a switch of the source in use is said; the first state and a list change are not", () => {
   const pinyin = state({ current: "pinyin" });
-  // Super+Space, or the top bar's menu: the list as it was.
+  // Super+Alt+Space, or the top bar's menu: the list as it was.
   assert.equal(switchedSource(pinyin, state({ current: "japanese" })), "japanese");
   assert.equal(switchedSource(pinyin, state({ current: "layout" })), "layout");
   // The first state told, and a state told again unchanged.
