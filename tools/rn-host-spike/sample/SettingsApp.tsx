@@ -35,9 +35,12 @@ import {
   session as systemSession,
   network as systemNetwork,
   privacy,
+  sound as systemSound,
   updates as systemUpdates,
+  useInputLevel,
   useInputSourcesState,
   useNetworkState,
+  useSoundState,
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
@@ -48,6 +51,7 @@ import {
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
+import type { SoundActions, SoundDirection, SoundSide, SoundState } from '../../../apps/settings/src/sound';
 import {
   INPUT_METHODS,
   inputSourcesOf,
@@ -516,6 +520,75 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
   return told ? { network: told, actions: session } : { network: undefined, actions: undefined };
 }
 
+/** A machine's sound without a session: the built-in speakers chosen and a display's beside them,
+    the built-in microphone chosen. */
+const SOUND_FIXTURE: SoundState = {
+  available: true,
+  output: {
+    devices: [
+      { id: 'speakers', name: 'Speakers', kind: 'speakers', transport: 'builtIn', selected: true },
+      { id: 'dell', name: 'DELL U2720Q', kind: 'hdmi', transport: 'hdmi', selected: false },
+    ],
+    volume: 0.5,
+    muted: false,
+    balance: 0,
+  },
+  input: {
+    devices: [{ id: 'microphone', name: 'Microphone', kind: 'microphone', transport: 'builtIn', selected: true }],
+    volume: 0.75,
+    muted: false,
+    balance: null,
+  },
+};
+
+/**
+ * Sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): in a session, the state it tells
+ * Settings (its `settings` grant), followed, and its requests, the input's level metered while the
+ * Input tab asks for it; none until the session has told it. Without a session, the fixture,
+ * changed where it is (its level stays at nothing).
+ */
+function useSoundModel(): { sound: SoundState | null; level: number; actions: SoundActions | undefined } {
+  const told: SoundState | null = useSoundState();
+  const [metering, setMetering] = React.useState(false);
+  const level: number = useInputLevel(metering);
+  const [fixture, setFixture] = React.useState(SOUND_FIXTURE);
+  const session = React.useMemo<SoundActions>(
+    () => ({
+      select: (direction, id) => {
+        systemSound.select(direction, id);
+      },
+      setVolume: (direction, volume) => {
+        systemSound.setVolume(direction, volume);
+      },
+      setMuted: (direction, muted) => {
+        systemSound.setMuted(direction, muted);
+      },
+      setBalance: (balance) => {
+        systemSound.setBalance(balance);
+      },
+      meter: setMetering,
+    }),
+    [],
+  );
+  const local = React.useMemo<SoundActions>(() => {
+    const change = (direction: SoundDirection, side: (side: SoundSide) => SoundSide) =>
+      setFixture((state) => ({ ...state, [direction]: side(state[direction]) }));
+    return {
+      select: (direction, id) =>
+        change(direction, (side) => ({
+          ...side,
+          devices: side.devices.map((device) => ({ ...device, selected: device.id === id })),
+        })),
+      setVolume: (direction, volume) => change(direction, (side) => ({ ...side, volume })),
+      setMuted: (direction, muted) => change(direction, (side) => ({ ...side, muted })),
+      setBalance: (balance) => change('output', (side) => ({ ...side, balance })),
+      meter: () => {},
+    };
+  }, []);
+  if (!available) return { sound: fixture, level: 0, actions: local };
+  return { sound: told, level, actions: told ? session : undefined };
+}
+
 /**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): in a session, as it tells them
  * (none until it has); without one, the fixture's preferences with every input method installed.
@@ -655,12 +728,15 @@ export default function SettingsApp() {
   const model = useSettingsModel();
   const install = useInstallModel();
   const networks = useNetworkModel();
+  const sound = useSoundModel();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
     ...model.snapshot,
     updates: install.updates,
     privacy: install.privacy,
     network: networks.network,
+    sound: sound.sound,
+    soundInputLevel: sound.level,
     inputSources,
     account: useAccount(),
   };
@@ -669,6 +745,7 @@ export default function SettingsApp() {
     updates: install.updatesActions,
     privacy: install.privacyActions,
     network: networks.actions,
+    sound: sound.actions,
     account: sessionHost ? accountActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.

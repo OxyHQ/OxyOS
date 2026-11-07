@@ -21,6 +21,17 @@ let lastNetwork = null;
 const inputSourcesListeners = new Set();
 let lastInputSources = null;
 
+/** The sound's outputs and inputs as the session last told them (docs/adr/0051-sound-devices.mdx),
+    who follows them, and who follows the input's level. */
+const soundListeners = new Set();
+let lastSound = null;
+const inputLevelListeners = new Set();
+
+function toldSound(state) {
+  lastSound = state;
+  for (const listener of soundListeners) listener(state);
+}
+
 function toldInputSources(state) {
   lastInputSources = state;
   for (const listener of inputSourcesListeners) listener(state);
@@ -43,6 +54,10 @@ if (native) {
       if (answer && answer.updateState) told(answer.updateState);
       if (answer && answer.network) toldNetwork(answer.network);
       if (answer && answer.inputSources) toldInputSources(answer.inputSources);
+      if (answer && answer.sound) toldSound(answer.sound);
+      if (answer && typeof answer.inputLevel === 'number') {
+        for (const listener of inputLevelListeners) listener(answer.inputLevel);
+      }
       return;
     }
     const asked = waiting.get(serial);
@@ -55,6 +70,7 @@ if (native) {
     if (answer && answer.updateState) told(answer.updateState);
     if (answer && answer.network) toldNetwork(answer.network);
     if (answer && answer.inputSources) toldInputSources(answer.inputSources);
+    if (answer && answer.sound) toldSound(answer.sound);
     asked.resolve(answer);
   });
 }
@@ -170,6 +186,57 @@ export function useInputSourcesState() {
     return unsubscribe;
   }, []);
   return state;
+}
+
+/**
+ * The sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): the shell (its `shell` grant)
+ * and Settings (its `settings` grant) ask the session, which alone speaks to PipeWire. Asked once,
+ * the state is told again as it changes (`{sound: {available, output, input}}`, each side its
+ * `devices` with `id`, `name`, `kind`, `transport` and `selected`, and the chosen one's `volume`,
+ * `muted` and `balance`). What changes the machine cites the press or key that asked; while locked
+ * it is refused. The input's level is told only while a view meters it (`meter(true)`), and
+ * nothing listens to the input once none does.
+ */
+export const sound = {
+  state: () => ask({ sound: {} }),
+  select: (direction, id) => ask({ soundDevice: { direction, id } }),
+  setVolume: (direction, volume) => ask({ soundVolume: { direction, volume } }),
+  setMuted: (direction, muted) => ask({ soundMuted: { direction, muted } }),
+  setBalance: (balance) => ask({ soundBalance: { balance } }),
+  meter: (on) => ask({ soundMeter: { on } }),
+  current: () => lastSound,
+  subscribe(listener) {
+    soundListeners.add(listener);
+    return () => soundListeners.delete(listener);
+  },
+};
+
+/** The sound as the session tells it, for a view: asked once, then followed. */
+export function useSoundState() {
+  const [state, setState] = React.useState(lastSound);
+  React.useEffect(() => {
+    const unsubscribe = sound.subscribe(setState);
+    sound.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/** The chosen input's level (0 to 1) while `on`: metered from when it is on until it is off or
+    the view goes, so nothing listens to the input meanwhile. */
+export function useInputLevel(on) {
+  const [level, setLevel] = React.useState(0);
+  React.useEffect(() => {
+    if (!on || !native) return undefined;
+    inputLevelListeners.add(setLevel);
+    sound.meter(true);
+    return () => {
+      inputLevelListeners.delete(setLevel);
+      setLevel(0);
+      if (inputLevelListeners.size === 0) sound.meter(false);
+    };
+  }, [on]);
+  return level;
 }
 
 /** The update state as it changes, for a page: asked once, then followed. */

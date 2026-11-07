@@ -1,6 +1,7 @@
 import type { CandidateList, InputSourcesState } from "./input-sources";
 import type { ImageSourcePropType } from "react-native";
 import type { NetworkState } from "./network";
+import type { SoundState } from "./sound";
 
 /** Data supplied by the OxyOS application registry and compositor, never invented by the UI. */
 /** The wallpaper (docs/adr/0048-wallpapers.mdx). */
@@ -281,6 +282,13 @@ export type ShellControls = {
   joinNetwork?: (ssid: string) => void;
   /** The Wi-Fi view's "Ajustes de Wi-Fi…": Settings, at its Wi-Fi page where it can be. */
   openWifiSettings?: () => void;
+  /** The sound's outputs and inputs as the session tells them (docs/adr/0051-sound-devices.mdx):
+      the Control Center's Sound view. Absent or null, the Sound card only sets the volume. */
+  sound?: SoundState | null;
+  /** An output chosen: the session makes it the one played to. */
+  selectOutput?: (id: string) => void;
+  /** The Sound view's "Ajustes de sonido…": Settings, at its Sound page where it can be. */
+  openSoundSettings?: () => void;
 };
 
 /** A screenshot the session saved (docs/adr/0024-system-shortcuts.mdx, decision 10): the session's

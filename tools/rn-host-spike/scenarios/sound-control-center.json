@@ -1,0 +1,421 @@
+{
+  "about": "Choosing the sound's output from Control Center as on a Mac (docs/adr/0051-sound-devices.mdx), over a played machine (the development compositor's --sound: the built-in speakers chosen at half, a DELL U2720Q display on HDMI at three quarters, the built-in microphone; WirePlumber's choice and its remembered stack played). Allo (sample/EditingProbe.tsx) has its field focused. The sound card's arrow, valued by the output chosen, opens the Sound view: the slider, Salida, each output a radio button (the speakers named by what they are, the display by its EDID's name). Choosing the display makes it WirePlumber's configured default and shows its own volume, Control Center staying open; AirPods connected take over and show their volume; disconnected, the sound goes back to the display; Volume Up acts on the display. Every step checks what the played machine then has, and Allo receives nothing but its own presses and keys.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "controls": {
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "sound": {
+    "outputs": [
+      {
+        "id": "alsa_output.speaker",
+        "name": "Speaker",
+        "kind": "speakers",
+        "transport": "builtIn",
+        "volume": 0.5
+      },
+      {
+        "id": "alsa_output.hdmi1",
+        "name": "DELL U2720Q",
+        "kind": "hdmi",
+        "transport": "hdmi",
+        "volume": 0.75
+      }
+    ],
+    "inputs": [
+      {
+        "id": "alsa_input.dmic",
+        "name": "Digital Microphone",
+        "kind": "microphone",
+        "transport": "builtIn",
+        "volume": 0.8,
+        "balance": null,
+        "level": 0.25
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard; the played machine's speakers are chosen",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "sound": {
+          "default_output": "alsa_output.speaker",
+          "calls": []
+        }
+      }
+    },
+    {
+      "name": "The top bar's button opens Control Center: the sound's card has its arrow, Dispositivos de salida, valued by the output chosen",
+      "do": [
+        "press_output",
+        [
+          1146,
+          14
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Dialog",
+              "name": "Centro de control"
+            },
+            {
+              "role": "Slider",
+              "name": "Sonido",
+              "value": "50 %"
+            },
+            {
+              "role": "Button",
+              "name": "Dispositivos de salida",
+              "value": "Altavoces integrados"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The arrow opens the Sound view in Control Center's place: the slider, Salida, each output a radio button, the speakers checked (named by what they are), the display by its own name",
+      "do": [
+        "press_named",
+        "Dispositivos de salida"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Heading",
+              "name": "Sonido"
+            },
+            {
+              "role": "Slider",
+              "name": "Sonido",
+              "value": "50 %"
+            },
+            {
+              "role": "Heading",
+              "name": "Salida"
+            },
+            {
+              "role": "Radio",
+              "name": "Altavoces integrados",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Radio",
+              "name": "DELL U2720Q",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Ajustes de sonido…"
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "alsa_output.speaker",
+          "calls": []
+        }
+      }
+    },
+    {
+      "name": "The display chosen: WirePlumber's configured default, its own volume shown, Control Center still open, Allo told nothing",
+      "do": [
+        "press_named",
+        "DELL U2720Q"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Slider",
+              "name": "Sonido",
+              "value": "75 %"
+            },
+            {
+              "role": "Radio",
+              "name": "Altavoces integrados",
+              "state": []
+            },
+            {
+              "role": "Radio",
+              "name": "DELL U2720Q",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "alsa_output.hdmi1",
+          "configured_outputs": [
+            "alsa_output.hdmi1"
+          ],
+          "calls": [
+            "default output alsa_output.hdmi1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "AirPods connected take over, as on a Mac: listed by their name, chosen, their volume shown",
+      "do": [
+        "sound",
+        {
+          "plug": {
+            "direction": "output",
+            "device": {
+              "id": "bluez_output.airpods",
+              "name": "AirPods Pro",
+              "kind": "headphones",
+              "transport": "bluetooth",
+              "volume": 0.4
+            }
+          }
+        }
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Slider",
+              "name": "Sonido",
+              "value": "40 %"
+            },
+            {
+              "role": "Radio",
+              "name": "Altavoces integrados",
+              "state": []
+            },
+            {
+              "role": "Radio",
+              "name": "DELL U2720Q",
+              "state": []
+            },
+            {
+              "role": "Radio",
+              "name": "AirPods Pro",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "bluez_output.airpods",
+          "configured_outputs": [
+            "bluez_output.airpods",
+            "alsa_output.hdmi1"
+          ],
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "default output bluez_output.airpods"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Disconnected: back to the display chosen before, as WirePlumber remembers",
+      "do": [
+        "sound",
+        {
+          "unplug": {
+            "id": "bluez_output.airpods"
+          }
+        }
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Slider",
+              "name": "Sonido",
+              "value": "75 %"
+            },
+            {
+              "role": "Radio",
+              "name": "Altavoces integrados",
+              "state": []
+            },
+            {
+              "role": "Radio",
+              "name": "DELL U2720Q",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "alsa_output.hdmi1",
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "default output bluez_output.airpods"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Volume Up acts on the display chosen: the next sixteenth, its slider follows; Allo receives nothing",
+      "do": [
+        "key",
+        [
+          115
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Slider",
+              "name": "Sonido",
+              "value": "81 %"
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "alsa_output.hdmi1",
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.5
+            },
+            {
+              "id": "alsa_output.hdmi1",
+              "volume": 0.8125
+            }
+          ],
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "default output bluez_output.airpods",
+            "volume output 0.8125"
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press outside closes Control Center; Allo has the keyboard again",
+      "do": [
+        "press_output",
+        [
+          200,
+          600
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Dialog",
+              "name": "Centro de control"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The control: keys typed are Allo's",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line"
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "typed",
+      "do": [
+        "keyboard",
+        "ok"
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "keyPress@line": 2,
+          "change@line": 2,
+          "selectionChange@line": 2
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2,
+            "text_input": 2
+          }
+        },
+        "texts": [
+          "Line: \"ok\" [2,2]"
+        ]
+      }
+    }
+  ]
+}

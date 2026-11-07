@@ -6,6 +6,7 @@ import type {
   ShellMenu,
 } from "../../../apps/shell/src/model";
 import type { NetworkState } from "../../../apps/shell/src/network";
+import type { SoundState } from "../../../apps/shell/src/sound";
 import type { Language, ShellMessages } from "../../../apps/shell/src/messages";
 import astro from "../assets/apps/astro.png";
 import inbox from "../assets/apps/inbox.png";
@@ -238,4 +239,52 @@ export const previewNetworks: NetworkState = {
   },
   ethernet: { device: true, state: "unplugged", speed: 0, details: null },
   joining: null,
+};
+
+/** A played machine's sound (docs/adr/0051-sound-devices.mdx), so the Control Center's Sound view
+    can be tried in the browser: the built-in speakers chosen, a display over HDMI, and AirPods. */
+export const previewSound: SoundState = {
+  available: true,
+  output: {
+    devices: [
+      {
+        id: "alsa_output.pci-0000_00_1f.3.analog-stereo",
+        name: "Built-in Audio Analog Stereo",
+        kind: "speakers",
+        transport: "builtIn",
+        selected: true,
+      },
+      {
+        id: "alsa_output.pci-0000_00_1f.3.hdmi-stereo",
+        name: "DELL U2720Q",
+        kind: "hdmi",
+        transport: "hdmi",
+        selected: false,
+      },
+      {
+        id: "bluez_output.AC_90_85_12_34_56.1",
+        name: "AirPods Pro",
+        kind: "headphones",
+        transport: "bluetooth",
+        selected: false,
+      },
+    ],
+    volume: 0.5,
+    muted: false,
+    balance: 0,
+  },
+  input: {
+    devices: [
+      {
+        id: "alsa_input.pci-0000_00_1f.3.analog-stereo",
+        name: "Built-in Audio Analog Stereo",
+        kind: "microphone",
+        transport: "builtIn",
+        selected: true,
+      },
+    ],
+    volume: 0.7,
+    muted: false,
+    balance: null,
+  },
 };

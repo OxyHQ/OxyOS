@@ -119,6 +119,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   (its State: "wifi_enabled", "active", "connections" with each one's "ssid", "psk" and
   "permissions", "attempts", "scans", "ethernet"), each key given matching: a dict key by key, a
   list item by item and of the same length;
+- sound: with the scenario's `sound` (a machine's outputs and inputs played by the development
+  compositor, docs/adr/0051-sound-devices.mdx: `outputs`, `inputs`, `configured_outputs`...),
+  what it is once the step settled ("default_output", "default_input", "configured_outputs",
+  "metering", each device's "volume", "balance" and "muted", and "calls", every change the
+  session made, in order), each key given matching: a dict key by key, a list item by item and of
+  the same length;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -983,6 +989,10 @@ def director_args(step, out):
         # The person chooses a command in the session's bar (ADR 0021), by its path:
         # "View > Show Full URL".
         return args + ["--menu", value]
+    if kind == "sound":
+        # The played sound changes as the world would (ADR 0051): {"plug": {"direction", "device"}},
+        # {"unplug": {"id"}}, {"change": {"id", "kind", "name", "volume", "muted", "level"}}.
+        return args + ["--sound-act", json.dumps(value)]
     if kind == "network":
         # The played network daemon changes the machine (ADR 0038): {"ethernet": "plugged"},
         # {"access_point": {...}}, {"remove_access_point": ssid}, {"hardware_enabled": false}.
@@ -3750,6 +3760,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             held = json.loads(held) if isinstance(held, str) else held
             for problem in matches_within(expect["network"], held, "the network daemon's"):
                 fail(problem)
+    if "sound" in expect:
+        # The played sound once the step settled (ADR 0051): what the session chose and set.
+        held = result.get("sound")
+        if held is None:
+            fail("no played sound (the scenario needs `sound`)")
+        else:
+            for problem in matches_within(expect["sound"], held, "the sound's"):
+                fail(problem)
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
@@ -4606,6 +4624,12 @@ def main():
         controls.write_text("".join(f"{key} = {str(value).lower() if isinstance(value, bool) else value}\n"
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
+    if "sound" in scenario:
+        # The machine's outputs and inputs (ADR 0051), played in the development compositor as the
+        # scenario describes them.
+        sound = out / "sound.json"
+        sound.write_text(json.dumps(scenario["sound"]))
+        command += ["--sound", str(sound)]
     if scenario.get("installed"):
         command += ["--installed-fixture", str(installed_fixture(out / "installed", scenario["installed"],
                                                                   machine, options.offscreen))]

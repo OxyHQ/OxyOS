@@ -1,38 +1,31 @@
 import React, { memo, useEffect } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
-import { Slider } from "@oxy.so/bloom/slider";
 import { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
 import { RiBluetoothLine } from "@oxy.so/bloom/icons/RiBluetoothLine";
 import { RiMoonLine } from "@oxy.so/bloom/icons/RiMoonLine";
 import { RiSunLine } from "@oxy.so/bloom/icons/RiSunLine";
 import { RiVolumeUpLine } from "@oxy.so/bloom/icons/RiVolumeUpLine";
-import { RiVolumeMuteLine } from "@oxy.so/bloom/icons/RiVolumeMuteLine";
 import { RiKeyboardLine } from "@oxy.so/bloom/icons/RiKeyboardLine";
 import { RiBatteryLine } from "@oxy.so/bloom/icons/RiBatteryLine";
 import { RiNotificationOffFill } from "@oxy.so/bloom/icons/RiNotificationOffFill";
 import { RiArrowRightSLine } from "@oxy.so/bloom/icons/RiArrowRightSLine";
 import { Box, PressArea } from "../primitives";
 import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
-import {
-  batteryLabel,
-  bluetoothLabel,
-  percent,
-  silent,
-  wifiLabel,
-  wifiOn,
-} from "../controls";
+import { batteryLabel, bluetoothLabel, wifiLabel, wifiOn } from "../controls";
 import type { ShellControl, ShellControls } from "../model";
 import { hasWifiView } from "../network";
+import { hasSoundView, selectedOutput, soundDeviceName } from "../sound";
 import { WifiPanel } from "./WifiPanel";
+import { SoundPanel } from "./SoundPanel";
+import { LevelSlider, type Icon } from "./LevelSlider";
 import { useShellMessages } from "../useShellMessages";
 
-/** What the Control Center shows: its modules, or Wi-Fi's view (docs/adr/0038-networks.mdx). */
-export type ControlCenterPage = "modules" | "wifi";
+/** What the Control Center shows: its modules, Wi-Fi's view (docs/adr/0038-networks.mdx) or
+    Sound's (docs/adr/0051-sound-devices.mdx). */
+export type ControlCenterPage = "modules" | "wifi" | "sound";
 
 export const CONTROL_CENTER_WIDTH = 320;
-/** One of Bloom's icons. */
-type Icon = typeof RiWifiLine;
 
 /** A round button with a title and what it is, as a Mac's Control Center modules: on, it is
     the accent's. `onPress` absent, it only says (Bluetooth, which the session only looks at).
@@ -126,13 +119,16 @@ function Module({
   );
 }
 
-/** A level's slider in a card, its name above it. */
+/** A level's slider in a card, its name above it. `more`: a chevron after the slider opens its
+    view (the Sound card's outputs), a button of its own whose value is what it chose (the output
+    played to), as a Mac's Sound module. */
 function LevelCard({
   control,
   title,
   icon,
   controls,
   mute,
+  more,
 }: {
   control: ShellControl;
   title: string;
@@ -140,12 +136,9 @@ function LevelCard({
   controls: ShellControls;
   /** A volume: its icon mutes it and unmutes it. */
   mute?: boolean;
+  more?: { label: string; value?: string; open: () => void };
 }) {
-  const messages = useShellMessages();
-  const level = controls.levels[control];
-  if (!level?.available) return null;
-  const Glyph = icon;
-  const quiet = mute && silent(level);
+  if (!controls.levels[control]?.available) return null;
   return (
     <Box style={card}>
       {/* The slider is named by it: the title is not read again as text. */}
@@ -156,43 +149,21 @@ function LevelCard({
       >
         {title}
       </Text>
-      <Box className="flex-row items-center" style={{ gap: 8 }}>
-        {mute ? (
-          <Button
-            testID={`control-${control}-mute`}
-            iconOnly
-            icon={quiet ? RiVolumeMuteLine : Glyph}
-            iconSize={16}
-            accessibilityLabel={level.muted ? messages.controlCenter.unmute : messages.controlCenter.mute}
-            appearance="plain"
-            className="border-0 p-0"
+      <LevelSlider control={control} title={title} icon={icon} controls={controls} mute={mute}>
+        {more && (
+          <PressArea
+            testID={`control-${control}-more`}
+            className="items-center justify-center"
             style={{ width: 24, height: 24 }}
-            colors={{ background: "transparent", foreground: INK }}
-            onPress={() => controls.setMuted?.(control, !level.muted)}
-          />
-        ) : (
-          <Glyph width={16} height={16} fill={INK} />
+            accessibilityRole="button"
+            accessibilityLabel={more.label}
+            accessibilityValue={more.value ? { text: more.value } : undefined}
+            onPress={more.open}
+          >
+            <RiArrowRightSLine width={16} height={16} fill={QUIET} />
+          </PressArea>
         )}
-        {/* One element for the assistive technology, Bloom's slider: the level as its value
-            ("50 %"), a sixteenth up or down (as the keys) as its increment and decrement, which
-            the arrows step with the keyboard on it. A drag lands on the keys' finest step, a
-            quarter of a sixteenth. */}
-        <Box className="flex-1">
-          <Slider
-            testID={`control-${control}`}
-            value={level.muted ? 0 : level.level * 100}
-            min={0}
-            max={100}
-            step={100 / 64}
-            keyboardStep={100 / 16}
-            showTooltip={false}
-            formatValue={(value) => messages.common.percent(percent(value / 100))}
-            accessibilityLabel={title}
-            minimumTrackTintColor={ACCENT}
-            onValueChange={(value) => controls.setLevel?.(control, value / 100)}
-          />
-        </Box>
-      </Box>
+      </LevelSlider>
     </Box>
   );
 }
@@ -204,7 +175,9 @@ function LevelCard({
  * the machine has not, is left out. A press outside it closes it. Do Not Disturb
  * (docs/adr/0026-notifications.mdx) is a module of its own below them, where the session has
  * notifications. Wi-Fi's module opens Wi-Fi's view in its place (docs/adr/0038-networks.mdx), as
- * the top bar's network item does, where the session told the networks and the machine has Wi-Fi.
+ * the top bar's network item does, where the session told the networks and the machine has Wi-Fi;
+ * the Sound card's chevron opens Sound's view, its outputs to choose from
+ * (docs/adr/0051-sound-devices.mdx), where the session told the sound and it has an output.
  */
 export const ControlCenter = memo(function ControlCenter({
   controls,
@@ -219,7 +192,7 @@ export const ControlCenter = memo(function ControlCenter({
   dark: boolean;
   close: () => void;
   openSettings: () => void;
-  /** What it shows, and how it moves between its modules and Wi-Fi's view. */
+  /** What it shows, and how it moves between its modules and Wi-Fi's or Sound's view. */
   page?: ControlCenterPage;
   showPage?: (page: ControlCenterPage) => void;
   /** Do Not Disturb as the session says it is, and its switch (a change of the preference). */
@@ -236,6 +209,9 @@ export const ControlCenter = memo(function ControlCenter({
   const battery = batteryLabel(controls.power, messages);
   const networks = controls.networks;
   const wifiView = hasWifiView(networks) && !!showPage;
+  const sound = controls.sound;
+  const soundView = hasSoundView(sound) && !!showPage;
+  const output = selectedOutput(sound);
   return (
     <Box className="absolute inset-0">
       <PressArea
@@ -263,6 +239,8 @@ export const ControlCenter = memo(function ControlCenter({
       >
         {wifiView && page === "wifi" ? (
           <WifiPanel state={networks} controls={controls} back={() => showPage?.("modules")} close={close} />
+        ) : soundView && page === "sound" ? (
+          <SoundPanel state={sound} controls={controls} back={() => showPage?.("modules")} close={close} />
         ) : (
           <>
             <Box style={{ ...card, gap: 4 }}>
@@ -300,7 +278,22 @@ export const ControlCenter = memo(function ControlCenter({
             </Box>
             <LevelCard control="display" title={words.display} icon={RiSunLine} controls={controls} />
             <LevelCard control="keyboard" title={words.keyboard} icon={RiKeyboardLine} controls={controls} />
-            <LevelCard control="output" title={words.sound} icon={RiVolumeUpLine} controls={controls} mute />
+            <LevelCard
+              control="output"
+              title={words.sound}
+              icon={RiVolumeUpLine}
+              controls={controls}
+              mute
+              more={
+                soundView
+                  ? {
+                      label: words.outputDevices,
+                      value: output && soundDeviceName(output, messages),
+                      open: () => showPage?.("sound"),
+                    }
+                  : undefined
+              }
+            />
             {battery !== undefined && (
               <Box
                 style={card}

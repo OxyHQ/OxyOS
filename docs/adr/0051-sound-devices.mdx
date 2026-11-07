@@ -1,0 +1,96 @@
+---
+title: "ADR 0051: Sound output and input devices"
+description: How a person chooses what OxyOS plays through and listens to, as on a Mac — Control Center's Sound view, Settings' Sound page with its Output and Input tabs (each device with its type, the chosen one checked, the output's balance, the input's volume and level meter) — through PipeWire's own API, the default chosen through WirePlumber's default-nodes metadata as wpctl chooses it; headphones plugged in or connected taking over; and the volumes moved off wpctl so a device's balance is kept.
+order: 60
+---
+
+# ADR 0051: Sound output and input devices
+
+Status: **accepted; implemented** (the session's PipeWire client, the vocabulary, the shell's Control Center view, Settings' Sound page, scenarios over a played machine); what only the ThinkPad can show is in [What to verify on the ThinkPad](#what-to-verify-on-the-thinkpad). Amends [ADR 0025](./0025-hardware-keys-and-control-center), which left "choosing the output device" out and set the volumes through `wpctl` (decision 1, its first bullet, is superseded by decision 4 here), and [ADR 0019](./0019-settings) (Settings' Sound page). Builds on [ADR 0044](./0044-system-sounds) (PipeWire, the session's one audio stack, already linked through its Rust bindings), [ADR 0038](./0038-networks) (the session's vocabulary over `SystemRequest`, a list chosen from Control Center and Settings) and the session's idleness ([docs/performance.mdx](../performance), *Idle*: nothing wakes on a clock).
+
+## Problem
+
+An OxyOS session played through whatever WirePlumber chose and nothing let the person choose another: no list of outputs or inputs, no way to send the sound to a display's speakers or to headphones, no balance, no input level. A Mac does it from:
+
+- **Control Center's Sound module**: its arrow opens the outputs (the built-in speakers, headphones, a display through HDMI or DisplayPort, AirPods and other Bluetooth devices, USB), the chosen one checked; choosing one moves what plays to it at once; **Sound Settings…** opens Settings.
+- **System Settings › Sound**, below the sound effects: **Output & Input**, two tabs. *Output*: the devices with their *Type* (Built-in, HDMI, USB, Bluetooth…), the chosen one selected, the output volume and mute, and the balance. *Input*: the devices, the input volume and the input level, a row of segments that light as it hears.
+- **What it does by itself**: headphones plugged into the jack, or AirPods connected, take over the output; unplugged, the sound goes back to where it was; a device chosen once is chosen again when it comes back.
+
+## What the machines have
+
+- **The image**: `pipewire-audio` (PipeWire, WirePlumber 0.5 and their ALSA and Bluetooth plugins), as ADR 0025 and ADR 0044 found it. No PulseAudio, no `pactl`, no other session manager.
+- **WirePlumber 0.5** (read in its source, 0.5.8, the reference ThinkPad's): it keeps the default nodes from `default.configured.audio.sink` and `.source` in the `default` metadata (`find-selected-default-node`), writes the effective one to `default.audio.sink` and `.source` (`apply-default-node`), and remembers every node chosen before, most recent first, in its state file (`state-default-nodes`: a node chosen once is preferred over any it was not, so it is chosen again when it comes back, and when the chosen one goes the one before it is). Streams that follow the default (no target of their own, `linking.follow-default-target`, true by default) are moved to a new default as it changes (`linking/rescan`, `prepare-link`). A device's port is chosen by availability and priority (`device/select-routes`): headphones plugged into the jack become the route of the same sink, and a display's port has no route available until a display is connected. Its `wpctl set-default` sets `default.configured.audio.sink` to `{"name": node}` and nothing else.
+- **Volumes**: a node's volume is its channels' (`Props` `channelVolumes`, linear); `wpctl` and GNOME show their cube root (WirePlumber's cubic scale). A node of a device (`device.id`, `card.profile.device`) is set through the device's `Route` with its `props` and `save`, so WirePlumber keeps it for that port (headphones keep a volume apart from the speakers); WirePlumber's mixer and `pipewire-pulse` both do so. **`wpctl set-volume` sets every channel to one volume**: it flattens a balance.
+- **The reference ThinkPad** (P14s Gen 3, SOF with UCM; not looked at for this decision, its session in use): one card whose "Speaker + Headphones" sink plays through *Speaker* or *Headphones* as the jack says, three HDMI/DisplayPort sinks (a route available only with a display), a *Digital Microphone* source and a *Headset Microphone* source (available only with a headset in the jack).
+
+## Decision
+
+1. **The session alone speaks to PipeWire, through its own API** (`crates/oxyos-audio`, PipeWire's Rust bindings, already linked for ADR 0044). One connection, on a thread of its own with PipeWire's loop, follows the graph as PipeWire tells it: the `Audio/Sink` and `Audio/Source` nodes (their properties and `Props`), the `Audio/Device` devices (their properties and current `Route`s) and the `default` metadata. It never looks at it on a clock: a session doing nothing wakes for nothing. No `wpctl`, no `pactl`, no `pw-dump` is run. PipeWire going away makes the sound unavailable; it is followed again once its socket is made anew (the controls' way, ADR 0025).
+
+2. **The default node is set through WirePlumber's default-nodes metadata**, as `wpctl set-default` sets it: `default.configured.audio.sink` (or `.source`) to `{"name": node}`, `Spa:String:JSON`, on the `default` metadata. WirePlumber applies it, remembers it per device (decision 6) and moves every stream that follows the default to it: OxyOS's own sounds (ADR 0044) and every application's. The session never writes `default.audio.sink` (WirePlumber's effective choice, which it reads) and never moves a stream itself. A device is a node, identified by its `node.name`, the name WirePlumber remembers.
+
+3. **What a person sees of a node.** A node whose route has nothing plugged into it (a display's port with no display, the jack's microphone with no headset) is not listed. Each listed device has:
+   - a **kind** (speakers, headphones, headset, HDMI, line, microphone, other): its route's `port.type`, else its route's name, else its device's `device.form-factor`;
+   - a **transport**, a Mac's *Type*: Bluetooth (`device.api` `bluez5`), USB (`device.bus`), HDMI (a display's route), built-in (any other device), virtual (a node with no device: a program's);
+   - a **name**: a display's own (its EDID's, the route's `device.product.name`), a Bluetooth or USB device's (`device.description`), else the route's or the node's description. The shell and Settings name the machine's own devices by their kind, in the person's language ("Altavoces integrados", "Auriculares externos", "Micrófono integrado"), as a Mac names them;
+   - whether it is the **chosen** one (WirePlumber's `default.audio.sink` or `.source`).
+   Devices are listed built-in first, then displays, USB, Bluetooth and virtual ones, each by name. The chosen one's **volume** (the loudest channel's, on the cubic scale), **mute** and, for an output with a left and a right, **balance** (the right's average against the left's, as PulseAudio and GNOME read it) are told with the list.
+
+4. **Volumes are set through the session's client, never `wpctl`** (supersedes ADR 0025, decision 1, *Volume*). A volume, a mute or a balance goes where WirePlumber's mixer and `pipewire-pulse` put it: the device's route, saved, or a node's own `Props` (*What the machines have*). A volume keeps the balance: each channel is set to the volume, the side the balance leans from lowered by it; a balance brought down to nothing comes back with the volume (the client remembers each output's while the session runs). The hardware keys, the bezel and Control Center's slider are unchanged (ADR 0025): `oxyos_controls::Session` sets and reads the chosen device's volume through the client, which says it at once and then as PipeWire has it.
+
+5. **Who may ask: the shell, and Settings.** The shell (its `shell` grant) and Settings (its `settings` grant, as for the input sources, ADR 0041) ask in the session's vocabulary over `SystemRequest`, one JSON object read strictly, answered by `SystemText` naming its serial; no protocol message is added. What changes anything must cite an input the asker received and is refused while the session is locked.
+
+   | Request | Input | Answer |
+   | --- | --- | --- |
+   | `{"sound":{}}` | no | `{"sound": State}`; then told `{"sound": State}` (serial 0) as it changes |
+   | `{"soundDevice":{"direction":"output"\|"input","id":"…"}}` | yes | `{"sound": State}`, or `{"failed":{"reason":"notFound"}}` |
+   | `{"soundVolume":{"direction":…,"volume":0–1}}` | yes | `{"sound": State}` |
+   | `{"soundMuted":{"direction":…,"muted":bool}}` | yes | `{"sound": State}` |
+   | `{"soundBalance":{"balance":-1–1}}` | yes | `{"sound": State}` |
+   | `{"soundMeter":{"on":bool}}` | no | `{"soundMeter":{"on":bool}}`; then told `{"inputLevel": 0–1}` (serial 0) while on |
+
+   `State` is `{available, output, input}`, each side `{devices, volume, muted, balance}`, each device `{id, name, kind, transport, selected}`. A refusal is `{"refused":{"reason"}}`: `notPermitted`, `needsInput`, `invalidRequest` (a volume outside 0–1, a balance outside -1–1, anything not read strictly) or `locked`. A volume and a mute go through the hardware controls, as the Control Center's do, so the keys, the bezel and the slider follow a change made in Settings; the controls are told every volume the client says.
+
+6. **Headphones take over, as on a Mac.** WirePlumber already moves the sound to headphones plugged into the jack (the same sink's route) and remembers what was chosen. The session adds what a Mac does that WirePlumber does not: a device newly there on the same connection to PipeWire takes over — an output that is headphones or a headset, or that is USB or Bluetooth (AirPods, a USB headset, a USB DAC); an input that is a headset's microphone, or USB, never Bluetooth (choosing a Bluetooth microphone turns the headset's sound into a call's, HFP); a display's sound never takes over, as on a Mac. The machine's own jack counts: the same sink whose route becomes headphones takes over a display chosen before. Taking over is choosing (decision 2), so WirePlumber remembers it: unplugged, the sound goes back to what was chosen before; plugged in again, to the headphones. What PipeWire has as the session starts, or after it restarted, takes nothing over.
+
+7. **The input's level is metered only while a view shows it.** Settings' Input tab asks for it (`soundMeter`); the session then runs one capture stream that follows the default input (no target of its own: WirePlumber links it and moves it with the default), mono, about 23 reads a second (a quantum of 2048 at 48 kHz), each buffer's peak told as its loudness over the last 60 dB in 32 steps, and only when a step changes. When no client asks any more (it asked off, or it is gone), the stream is disconnected: nothing listens to the microphone otherwise.
+
+8. **The shell: Control Center's Sound view.** The sound's card gains an arrow, *Output Devices*, whose value is the chosen output, which opens the view in Control Center's place, as Wi-Fi's does (ADR 0038): its slider, then **Output** and each output with its icon, the chosen one checked; choosing one chooses it and Control Center stays open; **Sound Settings…** opens Settings. Each device is one element for the assistive technology, a radio button named by the device, checked when chosen. OxyOS has no Sound item in its menu bar, so none is added.
+
+9. **Settings' Sound page**: *Play user interface sound effects* (ADR 0044) first, then **Output & Input**: a segmented control with **Output** and **Input**. Output: the devices, each named with its type and checked when chosen; the output volume with its mute; the balance from left to right. Input: the devices; the input volume; the input level in sixteen segments, metered while the tab shows. Without the sound (no PipeWire), the page says so in place of the section.
+
+## What was built
+
+- **`crates/oxyos-audio`**: `Audio` (what the session asks), `PipeWire` (the client: `follow`, the graph, the metadata, the volumes through routes or `Props`, the meter's stream), `graph` (PipeWire's graph as plain data, the `State` a person sees, where a change goes), `Played` (a machine played for tests and the development compositor: its devices, WirePlumber's choice with its remembered stack, what the session did, changed by a step), `takeover`, the volume and balance arithmetic and the meter's scale.
+- **`crates/oxyos-controls`**: `wpctl` and its follower are gone; `Session::new(audio)` reads and sets the volumes through the client (`audio_level`, `set_audio_level`), and `Fake::with_sound` plays them from a played sound.
+- **The session** (`oxyos_compositor::sound_devices`): the vocabulary, the followers and the metered, takeover, the controls told every volume (`Controls::audio_is`) and asked for Settings' (`Controls::ask`). `oxyos-session` follows PipeWire for it, on the login screen too (its volume keys); the development compositor plays a machine (`--sound FILE`), changes it in a step (`--sound-act`) and says it in each step's result (`sound`); `regress.py` takes a scenario's `sound`, its steps and its expectations.
+- **The shell** (`apps/shell`): `sound.ts`, the Control Center's Sound view; `ShellProbe` wires it to `OxyOSSystem` (`sample/oxyos/system.js`: `sound`, `useSoundState`, `useInputLevel`).
+- **Settings** (`apps/settings`): `sound.ts`, the Sound page's Output and Input tabs; `SettingsApp` wires them.
+
+## Tests
+
+- **`oxyos-audio`** (unit): the reference ThinkPad's graph (a display's name from its EDID, the port with no display and the jack's microphone with no headset not listed, the speakers chosen); headphones in the jack becoming the sink's route, its microphone taking over, and headphones taking over a display; Bluetooth and USB taking over, a display not, a restart and the session's start nothing; a Bluetooth microphone never; where a change goes (a route, a node's `Props`, nothing without a default); the volume and balance arithmetic (stereo, mono, 5.1, through PipeWire's linear volumes and back); the meter's scale; the wire format (`Props` and `Route` written and read back); the played machine choosing as WirePlumber does (each device its volume, the remembered stack); metering only while asked; the state's JSON.
+- **`oxyos-audio` against a real PipeWire** (`tests/daemon.rs`, a daemon of the test's own with null sinks, PipeWire's tools playing WirePlumber's part): the graph read whole; a volume as each channel's linear volume; a balance, kept by a volume, brought back from nothing; mute; an input's volume; read anew by a second connection; Bluetooth headphones connected, named and taking over; chosen as `wpctl set-default` chooses (`default.configured.audio.sink` in the metadata); disconnected; a capture stream only while metering; stopping, and PipeWire going away. A null sink never says its `Props` changed (an ALSA or Bluetooth node does), so what was set is read where it is.
+- **Idle** (`oxyos-audio`'s `tests/idle.rs`): following a quiet PipeWire, the process's threads together wake at most once a second and use at most 0.1 % of a core, nothing is told, a device plugged in is, and stopping is at once; `oxyos-compositor`'s `tests/idle.rs` holds the session's parts, the sound's among them, to the same with no PipeWire there.
+- **The session's side** (`sound_devices/tests.rs`, over a played machine): told to the shell and Settings and no one else, read strictly; a device chosen without an input refused, an unknown one failed, a chosen one WirePlumber's, every follower told once, the shell's slider at the new device's volume; Settings' volume through the controls (the shell's level follows), its mute and balance, out of range refused; nothing while locked; the input metered while asked, never after its asker goes; headphones connected taking over, a display not, back to the speakers once disconnected.
+- **Scenarios** over a played machine, each at 1 and at 1.25 and in the ThinkPad's deploy gate: see `tools/rn-host-spike/scenarios/sound-*.json`, each step with exact `react` and `delivered` and what the played machine then has (`sound`).
+
+## What to verify on the ThinkPad
+
+With this branch deployed as the previous ADRs' were, in a session on a seat:
+
+1. **The list.** Control Center › Sound's arrow: *Altavoces integrados* checked; with a display on HDMI, its name (`DELL…`, the EDID's) below it; with nothing on HDMI, no HDMI entry. `wpctl status` shows the same default (the `*`).
+2. **Choosing.** Play something (`pw-play` of any WAV, a video in a browser), then choose the HDMI display: the sound moves to the display at once, `wpctl status` marks it default, and `pw-metadata -n default 0 default.configured.audio.sink` says `{"name":"alsa_output…HDMI…"}`. Back to the speakers: the sound follows.
+3. **The jack.** Plug headphones in: the list's first entry becomes *Auriculares externos*, checked, the sound in the headphones; with the HDMI display chosen before, the headphones take over. Unplug: back to the speakers (or the display chosen before). The headset's microphone (a TRRS headset) appears in Settings › Sound › Input as *Micrófono externo*, chosen.
+4. **Volumes per device.** Speakers at 50 %, headphones at 20 %: plugging and unplugging, each comes back at its own (WirePlumber's route state). Volume keys act on the chosen device and the bezel shows its level.
+5. **Balance.** Settings › Sound › Output › Balance fully left: `pw-dump` of the sink's route shows the right channel at 0; Volume Up keeps it (the right stays 0), unlike `wpctl set-volume`.
+6. **Input level.** Settings › Sound › Input: speak, the meter lights; leave the tab: `pw-cli ls Node | grep oxyos-input-level` finds nothing, and the microphone's privacy LED, if any, goes out.
+7. **Bluetooth.** Connect headphones (`bluetoothctl connect`): they take over, listed by their name under *Bluetooth*; disconnect: back to what was chosen before.
+8. **Idle.** `perf.py --check session` with nothing happening: the `oxyos-audio` thread does not wake.
+
+## Not in this decision
+
+- Alert sounds and their volume, *Play sound effects through* and *Play feedback when volume is changed* (a Mac's Sound Effects section beyond ADR 0044's switch).
+- Choosing a device's profile or port by hand (a Bluetooth headset's codec, a card's profile), AirPlay, aggregate and multi-output devices, an input's balance, per-application output.
+- A menu bar Sound item (OxyOS's menu bar has none).
+- Pairing Bluetooth devices (Control Center's Bluetooth module still only says what it is).
