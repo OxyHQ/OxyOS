@@ -549,7 +549,8 @@ compositor), which checks them with PAM from a configuration of the run's own (`
 accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's API is a refused port,
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
-code, for the one account it plays, committing the device credential `oxy.device`; every request
+code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks,
+for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
@@ -1247,7 +1248,7 @@ def played_oxy(spec, log):
     and logged so. Returns its base URL and the server."""
     import secrets as _secrets
 
-    state = {"has_password": spec.get("has_password", True)}
+    state = {"has_password": spec.get("has_password", True), "requests": {}}
     lock = threading.Lock()
 
     class Oxy(BaseHTTPRequestHandler):
@@ -1264,7 +1265,9 @@ def played_oxy(spec, log):
             self.end_headers()
             self.wfile.write(data)
             with lock, open(log, "a") as out:
-                out.write(json.dumps({"t": time.monotonic_ns(), "request": f"{self.command} {self.path.split('?')[0]}",
+                # A device sign-in's secret token is in its status path: logged as `{token}`.
+                logged = re.sub(r"^/auth/session/status/.*", "/auth/session/status/{token}", self.path.split("?")[0])
+                out.write(json.dumps({"t": time.monotonic_ns(), "request": f"{self.command} {logged}",
                                       "status": status}) + "\n")
 
         def body(self):
@@ -1298,6 +1301,21 @@ def played_oxy(spec, log):
                 self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS"}})
             elif path in ("/", "/health"):
                 self.reply(200, {"ok": True})
+            elif path.startswith("/auth/session/status/"):
+                # The screen asking whether its QR was approved. With `qr.approve` a phone approved
+                # it by the time the screen first asks: the stand-in for a person scanning it with
+                # Commons and pressing Allow (Oxy's approval itself is Oxy's, never the machine's).
+                with lock:
+                    request = state["requests"].get(path.rsplit("/", 1)[1])
+                    if request and spec.get("qr", {}).get("approve") and request["status"] == "pending":
+                        request["status"] = "authorized"
+                if not request:
+                    self.reply(404, {"error": "not_found", "message": "Session not found"})
+                elif request["status"] == "authorized":
+                    self.reply(200, {"authorized": True, "status": "authorized", "sessionId": "played-session",
+                                     "purpose": "device_sign_in"})
+                else:
+                    self.reply(200, {"authorized": False, "status": request["status"], "purpose": "device_sign_in"})
             else:
                 self.reply(404, {"error": "not_found", "message": "not played"})
 
@@ -1314,6 +1332,36 @@ def played_oxy(spec, log):
                     self.reply(200, self.session())
                 else:
                     self.reply(400, {"error": "invalid_code", "code": "INVALID_CODE", "message": "Invalid code"})
+            elif path == "/auth/session/create":
+                # The sign-in's QR (`qr`): a request a phone approves, its secret token the screen's.
+                token, code = body.get("sessionToken"), _secrets.token_hex(8)
+                if not token or body.get("clientId") != "oxy_pk_played":
+                    self.reply(400, {"error": "invalid_request", "message": "Invalid request"})
+                else:
+                    with lock:
+                        state["requests"][token] = {"code": code, "status": "pending"}
+                    self.reply(200, {"authorizeCode": code, "qrPayload": f"oxycommons://approve?code={code}",
+                                     "approvalUrl": f"https://auth.oxy.so/device?user_code={code}",
+                                     "expiresAt": body.get("expiresAt"), "status": "pending"})
+            elif path.startswith("/auth/session/deny/"):
+                # A request the screen withdrew (the QR left the screen while still approvable).
+                code = path.rsplit("/", 1)[1]
+                with lock:
+                    for request in state["requests"].values():
+                        if request["code"] == code and request["status"] == "pending":
+                            request["status"] = "cancelled"
+                self.reply(200, {"success": True})
+            elif path == "/auth/session/claim":
+                # The approved request exchanged once for the session, and the device credential.
+                with lock:
+                    request = state["requests"].get(body.get("sessionToken"))
+                    ok = request is not None and request["status"] == "authorized"
+                    if ok:
+                        request["status"] = "consumed"
+                if ok:
+                    self.reply(200, dict(self.session(), user=self.user()))
+                else:
+                    self.reply(400, {"error": "invalid_request", "message": "Invalid or expired session"})
             elif path == "/users/me/reauth/email":
                 self.reply(200, {"verificationId": "played-reauth", "expiresAt": int(time.time() * 1000) + 600000})
             elif path == "/auth/signin/password":

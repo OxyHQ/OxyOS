@@ -1,16 +1,20 @@
 /**
  * The login screen's setup sign-in (docs/adr/0020-oxy-account-login.mdx, decision 4): the Oxy SDK's
- * own sign-in, `OxyProvider` from `@oxy.so/services` with OxyOS's client id and Oxy's API as the
- * accounts' service names them, and the SDK's seam for a platform's setup client, `authStateStore`
- * (oxy ADR 0058, B3): a store that keeps nothing and hands the credential a sign-in commits to the
- * Bloom host at once (`OxyOSAccountSession.holdCredential`), which holds it until the person gives
- * the account's password once more. An account without a password sets one through the SDK's own
- * flow (`OxyPasswordPanel`) before that; a person without an account creates one with the SDK's
- * own (`OxySignUpPanel`). Nothing here is a sign-in of OxyOS's own.
+ * own account chooser, the one every Oxy app's account dialog shows (`OxyAuthChooser` from
+ * `@oxy.so/services`), bare on the login screen's card (`OxySurfaceFrame`, which the chooser sizes
+ * as it sizes the dialog: its split card, with the Commons QR a phone scans, from `md`), inside
+ * `OxyProvider` with OxyOS's client id and Oxy's API as the accounts' service names them, and the
+ * SDK's seam for a platform's setup client, `authStateStore` (oxy ADR 0058, B3): a store that keeps
+ * nothing and hands the credential a sign-in commits to the Bloom host at once
+ * (`OxyOSAccountSession.holdCredential`), which holds it until the person gives the account's
+ * password once more. Every way in is the SDK's: the email's code or link, the password, the
+ * authenticator, the QR approved on a phone, or a new account. An account without a password sets
+ * one through the SDK's own flow (`OxyPasswordPanel`) before that. Nothing here is a sign-in of
+ * OxyOS's own.
  */
 import * as React from 'react';
 import { TurboModuleRegistry, View } from 'react-native';
-import { OxyPasswordPanel, OxyProvider, OxySignInPanel, OxySignUpPanel, useOxy } from '@oxy.so/services';
+import { OxyAuthChooser, OxyPasswordPanel, OxyProvider, OxySurfaceFrame, useOxy } from '@oxy.so/services';
 import type { SetupSignInProps } from '../../../apps/login/src/LoginScreen';
 
 const native = TurboModuleRegistry.get<{
@@ -59,21 +63,38 @@ function AfterSignIn({ accountId, onSignedIn }: { accountId: string; onSignedIn:
   return <OxyPasswordPanel onDone={() => setHasPassword(true)} />;
 }
 
-export function SetupSignIn({ platform, onSignedIn }: SetupSignInProps) {
+/**
+ * The chooser until a sign-in signed the account in, whichever way it came (the chooser's own
+ * steps, or the QR the provider's controller completes): the account the host was handed the
+ * credential of, now the provider's. Then the password step.
+ */
+function Setup({
+  accountId,
+  onSignedIn,
+  onFrameWidth,
+}: {
+  accountId: string | null;
+  onSignedIn: SetupSignInProps['onSignedIn'];
+  onFrameWidth: SetupSignInProps['onFrameWidth'];
+}) {
+  const { user } = useOxy() as { user?: { id?: string } | null };
+  if (accountId && user?.id === accountId) {
+    return <AfterSignIn accountId={accountId} onSignedIn={onSignedIn} />;
+  }
+  return (
+    <OxySurfaceFrame onMaxWidthChange={onFrameWidth}>
+      <OxyAuthChooser />
+    </OxySurfaceFrame>
+  );
+}
+
+export function SetupSignIn({ platform, onSignedIn, onFrameWidth }: SetupSignInProps) {
   const [accountId, setAccountId] = React.useState<string | null>(null);
-  const [signedIn, setSignedIn] = React.useState(false);
-  const [signingUp, setSigningUp] = React.useState(false);
   const store = React.useMemo(() => handingOverStore(setAccountId), []);
   return (
-    <View testID="login-setup-sign-in" style={{ width: '100%', maxWidth: 448 }}>
+    <View testID="login-setup-sign-in" style={{ width: '100%' }}>
       <OxyProvider baseURL={platform.api} clientId={platform.clientId} authStateStore={store}>
-        {signedIn && accountId ? (
-          <AfterSignIn accountId={accountId} onSignedIn={onSignedIn} />
-        ) : signingUp ? (
-          <OxySignUpPanel onSignedIn={() => setSignedIn(true)} onSignIn={() => setSigningUp(false)} />
-        ) : (
-          <OxySignInPanel onSignedIn={() => setSignedIn(true)} onCreateAccount={() => setSigningUp(true)} />
-        )}
+        <Setup accountId={accountId} onSignedIn={onSignedIn} onFrameWidth={onFrameWidth} />
       </OxyProvider>
     </View>
   );
