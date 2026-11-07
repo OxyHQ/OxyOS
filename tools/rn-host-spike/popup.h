@@ -69,6 +69,10 @@ OxyOSPositioner positioner(const facebook::react::OxyOSPopupViewProps& props, fa
 // pixel grid short of a whole logical pixel: 222.4 at 1.25 is 278 pixels, as 222 is; 223 is 279.
 uint32_t popupLength(float logical, float scale);
 
+// Whether `view` is in a popup view's content: drawn on a popup of its own, by the tree alone,
+// whether or not that popup was opened yet or the compositor has given it the keyboard.
+bool inPopupView(const ViewTree& tree, facebook::react::Tag view);
+
 class PopupHost {
  public:
   // The surface a view is drawn in, and where that surface's origin is in root coordinates: a
@@ -105,6 +109,9 @@ class PopupHost {
   // only the views an open popup tracks (its `trackingTag`'s), so a menu bar's titles take it and
   // nothing else under the menu does. With no menu open (a tooltip takes no grab), every view.
   bool tracks(uint32_t surface, facebook::react::Tag view) const;
+  // An open menu (a popup with a grab, not dismissed) whose published tree has no accessibility
+  // focus yet, or 0: a menu just opened, for a scenario's "popup-focus-first" order.
+  uint32_t awaitingFocus() const;
 
  private:
   struct Popup {
