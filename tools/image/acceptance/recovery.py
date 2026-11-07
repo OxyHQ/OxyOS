@@ -105,15 +105,31 @@ class Scenario:
             time.sleep(0.1)
         raise Failure(f"no password prompt within {timeout} s")
 
-    def unlock(self, password=PASSWORD):
-        prompt = self.wait_for_prompt(self.args.timeout)
-        self.save(prompt, "passphrase-field")
-        self.m.type(password)
-        time.sleep(0.5)
-        typed = self.screen()
-        self.save(typed, "passphrase-typed")
-        self.m.keys("ret")
-        return prompt, typed
+    def unlock(self, password=PASSWORD, attempts=3):
+        """Types the disk's password at Plymouth's field. A key the machine misses (QEMU under
+        load) leaves a wrong password and an empty field again: typed again, up to `attempts`."""
+        for attempt in range(attempts):
+            prompt = self.wait_for_prompt(self.args.timeout)
+            self.save(prompt, "passphrase-field")
+            time.sleep(0.5)
+            for character in password:
+                self.m.type(character)
+                time.sleep(0.05)
+            time.sleep(0.5)
+            typed = self.screen()
+            self.save(typed, "passphrase-typed")
+            self.m.keys("ret")
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                frame = self.screen()
+                if frame.rgb == prompt.rgb:
+                    break  # the field is empty again: refused
+                if not self.is_prompt(frame):
+                    return prompt, typed
+                time.sleep(0.2)
+            else:
+                return prompt, typed
+        raise Failure(f"the disk's password was refused {attempts} times")
 
     def shell(self, after):
         """systemd's debug shell on ttyS1 of the start after `after` (an offset in its log)."""
@@ -121,7 +137,8 @@ class Scenario:
         while time.monotonic() < deadline:
             self.m.debug.sendall(b"\r")
             time.sleep(1)
-            if re.search(r"[#$] ", self.m.debug_text()[after:]):
+            # A shell's prompt, last on the port (not a "# " in a message going by).
+            if re.search(r"[#$] ?$", self.m.debug_text()[after:].rstrip("\r\n")):
                 break
             if self.m.exited():
                 raise Failure("QEMU exited before the debug shell")
