@@ -562,12 +562,7 @@ bool AccessibilityBridge::act(const OxyOSEvent& event) {
   auto view = tree_.views().find(tag);
   if (view == tree_.views().end()) return false;
   const auto& shadow = view->second.view;
-  std::string within;
-  auto path = ancestry(tree_, tag);
-  for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
-    auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
-    if (props && !props->testId.empty()) within = props->testId;
-  }
+  std::string within = nearestTestId(tree_, tag);
   // React Native's accessibility action by name (`onAccessibilityAction`), as Android's delegate
   // sends topAccessibilityAction.
   auto named = [&](const std::string& name) {

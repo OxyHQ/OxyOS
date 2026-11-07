@@ -1300,7 +1300,10 @@ void TextEditing::scrolled(const ShadowView& view, Point scroll, const TextInput
                     "layoutMeasurement", folly::dynamic::object("width", size.width)("height", size.height))(
                     "contentInset", folly::dynamic::object("top", 0)("left", 0)("bottom", 0)("right", 0))(
                     "zoomScale", 1));
-  Report::get().deliver("scroll", 0, view, folly::dynamic::object("x", scroll.x)("y", scroll.y));
+  if (Report::get().enabled()) {
+    Report::get().deliver("scroll", 0, view,
+                          folly::dynamic::object("x", scroll.x)("y", scroll.y)("within", nearestTestId(tree_, view.tag)));
+  }
   Report::get().textScroll(view, scroll.x, scroll.y);
 }
 

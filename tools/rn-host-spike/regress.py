@@ -14,9 +14,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   as the host last moved it: null for none, else {"target": testID, "ring": whether its ring shows,
   "color": the colour it was last drawn in, "#rrggbb", the session's accent's};
 - react: the exact events delivered to React during the step, as "event@name" -> count, where
-  name is the target's testID or the nearest ancestor's (`within`). Any delivered event the step
-  does not list fails it, which catches duplicated and leaked events; a count may be [least, most]
-  for events one a frame (a glide's scroll events), and [0, most] for events that may not come;
+  name is the target's testID or the nearest ancestor's (`within`); a scroll view without a
+  testID (a sheet's, a sidebar's) is its component in that ancestor, "ScrollView in settings-rail",
+  never its tag, which every view mounted before it moves; two scroll views under one name in a
+  step fail it (as in scroll_offset, scroll_moved and glide). Any delivered event the step does not list fails it, which catches
+  duplicated and leaked events; a count may be [least, most] for events one a frame (a glide's
+  scroll events), and [0, most] for events that may not come;
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
@@ -2280,7 +2283,7 @@ def check_stretch(wanted, report, start, end, fail):
 def offset_before(report, view, start):
     """Where a scroll view was before a step began: its last scroll's offset, else 0."""
     ys = [line["y"] for line in report if line["kind"] == "deliver" and line["event"] == "scroll"
-          and line["t"] < start and (line.get("within") or line["target"]) == view]
+          and line["t"] < start and scroll_view_name(line) == view]
     return ys[-1] if ys else 0
 
 
@@ -2288,7 +2291,7 @@ def check_glide(wanted, report, start, end, fail):
     """The step's `glide`: a scroll view flung by a touchpad's fingers, as Android flings it."""
     view = wanted["view"]
     lines = [line for line in report if start <= line["t"] <= end
-             and (line.get("within") or line.get("target")) == view]
+             and scroll_view_name(line) == view]
     flings = [line for line in lines if line["kind"] == "fling"]
     if len(flings) != 1:
         fail(f"{view} was flung {len(flings)} times, expected once")
@@ -2389,6 +2392,49 @@ def check_smooth(name, wanted, screenshot, fail):
     if median > wanted.get("median_run_max", 3):
         fail(f"down the columns of {wanted['region']} a level holds for {median} rows (median): bands, "
              f"expected at most {wanted.get('median_run_max', 3)} (a gradient dithered as it is written)")
+
+
+SCROLL_EVENTS = ("scroll", "scrollBeginDrag", "scrollEndDrag", "momentumScrollBegin", "momentumScrollEnd")
+SCROLL_CHECKS = ("react", "scroll_offset", "scroll_moved", "glide")
+
+
+def scroll_view_name(line):
+    """A scroll view's name in a step's expectations: its testID (or accessibility label), else
+    its component in the nearest view with a testID (`within`), "ScrollView in settings-rail";
+    never its tag, which every view mounted before it moves. A line without `within` (a fling's, a
+    stretch's) names a scroll view by its target."""
+    tagged = re.fullmatch(r"(\w+)#[0-9]+", str(line.get("target")))
+    if tagged and line.get("within"):
+        return f"{tagged[1]} in {line['within']}"
+    return line.get("target")
+
+
+def react_events(report, start, end):
+    """The events delivered to React in a step, as "event@name" -> count (`react`): a view named by
+    its testID, else the nearest ancestor's (`within`), as the host reports them; a scroll view by
+    `scroll_view_name`."""
+    got = {}
+    for line in report:
+        # Hover follows every pointer motion: the W3C events it makes are checked by what the
+        # application shows of them.
+        if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
+            name = scroll_view_name(line) if line["event"] in SCROLL_EVENTS else line.get("within") or line["target"]
+            key = f"{line['event']}@{name}"
+            got[key] = got.get(key, 0) + 1
+    return got
+
+
+def check_scroll_names(report, start, end, fail):
+    """Two scroll views scrolling under one name in a step (two unnamed ones in one container)
+    fail it, rather than add up as one."""
+    scrollers = {}
+    for line in report:
+        if line["kind"] == "deliver" and start <= line["t"] <= end and line["event"] in SCROLL_EVENTS:
+            scrollers.setdefault(scroll_view_name(line), set()).add(line["target"])
+    for name, targets in scrollers.items():
+        if len(targets) > 1:
+            fail(f"{len(targets)} scroll views scrolled as {name} ({', '.join(sorted(targets))}): "
+                 f"a testID of their own tells them apart")
 
 
 def gesture_events(report, start, end):
@@ -3055,15 +3101,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"keyboard focus is {got}, expected {wanted}")
     if "focus_surface" in expect and result.get("focus") != expect["focus_surface"]:
         fail(f"compositor focus is on surface {result.get('focus')}, expected {expect['focus_surface']}")
+    if any(key in expect for key in SCROLL_CHECKS):
+        check_scroll_names(report, start, end, fail)
     if "react" in expect:
-        got = {}
-        for line in report:
-            # Hover follows every pointer motion: the W3C events it makes are checked by what the
-            # application shows of them.
-            if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
-                label = line.get("within") or line["target"]
-                key = f"{line['event']}@{label}"
-                got[key] = got.get(key, 0) + 1
+        got = react_events(report, start, end)
         wanted = expect["react"]
         within = lambda count, want: count == want if isinstance(want, int) else want[0] <= count <= want[1]
         # An event a range lets be absent ([0, most]) may not have come at all.
@@ -3637,7 +3678,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         offsets = {}
         for line in report:
             if line["kind"] == "deliver" and line["event"] == "scroll" and start <= line["t"] <= end:
-                offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
+                offsets[scroll_view_name(line)] = [line["x"], line["y"]]
         # Exactly, but for a float's precision (an offset on a 1.25 display's pixels, 4.8, is reported
         # as the float nearest it).
         wanted = expect["scroll_offset"]
@@ -3658,7 +3699,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # Each scroll view's offsets in this step, only ever the way given, and further than it began.
         for view, way in expect["scroll_moved"].items():
             ys = [line["y"] for line in report if line["kind"] == "deliver" and line["event"] == "scroll"
-                  and start <= line["t"] <= end and (line.get("within") or line["target"]) == view]
+                  and start <= line["t"] <= end and scroll_view_name(line) == view]
             sign = 1 if way == "down" else -1
             before = offset_before(report, view, start)
             steps = [b - a for a, b in zip([before] + ys, ys)]

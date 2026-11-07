@@ -1716,6 +1716,15 @@ RenderStats drawTextDragImage(const ShadowView& view, const std::string& value, 
 
 std::vector<Tag> ancestry(const ViewTree& tree, Tag tag) { return tree.path(tag); }
 
+std::string nearestTestId(const ViewTree& tree, Tag tag) {
+  auto path = tree.path(tag);
+  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+    auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
+    if (props && !props->testId.empty()) return props->testId;
+  }
+  return "";
+}
+
 std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
   auto path = tree.path(tag);
   if (path.empty()) return std::nullopt;

@@ -97,5 +97,61 @@ class HostsReceivedWhatWasRouted(unittest.TestCase):
                           "on surface 1 (1 routed)"])
 
 
+
+def deliver(t, event, target, within=""):
+    """A delivery to React as the host reports it: its target's name and, for a scroll or a touch,
+    the nearest testID (`within`)."""
+    return {"kind": "deliver", "t": t, "event": event, "target": target, "within": within}
+
+
+def scroll_names(report):
+    failures = []
+    regress.check_scroll_names(report, 0, 100, failures.append)
+    return failures
+
+
+class ViewsAreNamedNotTagged(unittest.TestCase):
+    # settings-input-sources.json's step 8: the Add sheet's scroll view has no testID, nor has the
+    # modal it is in; the page that declares the modal has.
+    SHEET = [deliver(10, "scroll", "ScrollView#704", "settings-page"),
+             deliver(20, "scroll", "ScrollView#704", "settings-page"),
+             deliver(30, "focus", "input-source-add-pinyin", "input-source-add-pinyin")]
+
+    def test_an_unnamed_scroll_view_is_its_component_in_its_container(self):
+        self.assertEqual(regress.react_events(self.SHEET, 0, 100),
+                         {"scroll@ScrollView in settings-page": 2, "focus@input-source-add-pinyin": 1})
+        self.assertEqual(scroll_names(self.SHEET), [])
+
+    def test_it_is_not_its_named_container(self):
+        # The page's own scroll view, named settings-page, is another view.
+        report = self.SHEET + [deliver(40, "scroll", "settings-page", "settings-page")]
+        self.assertEqual(regress.react_events(report, 0, 100)["scroll@settings-page"], 1)
+        self.assertEqual(scroll_names(report), [])
+
+    def test_its_name_does_not_follow_its_tag(self):
+        # A sidebar row mounted before it moves every later tag by the views it adds.
+        moved = [dict(line, target=line["target"].replace("#704", "#716")) for line in self.SHEET]
+        self.assertEqual(regress.react_events(moved, 0, 100), regress.react_events(self.SHEET, 0, 100))
+
+    def test_two_scroll_views_under_one_name_fail(self):
+        report = self.SHEET + [deliver(40, "scroll", "ScrollView#710", "settings-page")]
+        self.assertEqual(scroll_names(report),
+                         ["2 scroll views scrolled as ScrollView in settings-page (ScrollView#704, "
+                          "ScrollView#710): a testID of their own tells them apart"])
+
+    def test_one_name_may_stand_for_a_controls_texts(self):
+        # A touch's target is often its text: one control, whichever of its views was touched.
+        report = [deliver(10, "touchStart", "Text#40", "input-sources-add"),
+                  deliver(20, "touchEnd", "RCTView#38", "input-sources-add")]
+        self.assertEqual(scroll_names(report), [])
+        self.assertEqual(regress.react_events(report, 0, 100),
+                         {"touchStart@input-sources-add": 1, "touchEnd@input-sources-add": 1})
+
+    def test_a_named_scroll_view_or_a_line_without_within_is_its_target(self):
+        report = [deliver(10, "scroll", "list", "list"), deliver(20, "scroll", "ScrollView#3")]
+        del report[1]["within"]
+        self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
+
+
 if __name__ == "__main__":
     unittest.main()
