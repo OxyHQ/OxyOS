@@ -7,7 +7,6 @@ import {
   percent,
   segments,
   silent,
-  wifiBars,
   wifiLabel,
   wifiOn,
 } from "../src/controls.ts";
@@ -58,7 +57,6 @@ test("Wi-Fi and Bluetooth in words", () => {
   assert.ok(wifiOn({ ...network, wifi: "disconnected" }));
   assert.ok(!wifiOn({ ...network, wifi: "off" }));
   assert.ok(!wifiOn(undefined));
-  assert.deepEqual([wifiBars(10), wifiBars(50), wifiBars(73)], [1, 2, 3]);
   assert.equal(bluetoothLabel({ state: "on", connected: 0 }, ES), "Activado");
   assert.equal(bluetoothLabel({ state: "on", connected: 2 }, ES), "2 dispositivos");
   assert.equal(bluetoothLabel({ state: "off", connected: 0 }, ES), "Desactivado");

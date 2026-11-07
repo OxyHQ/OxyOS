@@ -63,9 +63,12 @@ test("the known networks nearby come first, the joined one before them, then the
   );
 });
 
-test("a signal fills none to three arcs", () => {
+test("a signal fills none to three arcs, as the session counts them", () => {
   assert.equal(signalArcs(0), 0);
-  assert.equal(signalArcs(9), 0);
+  // A network barely heard is one arc, as the session counts it (oxyos_networks::arcs): it tells a
+  // strength only when its arcs change, so the shell drawing it as none would leave it so.
+  assert.equal(signalArcs(1), 1);
+  assert.equal(signalArcs(9), 1);
   assert.equal(signalArcs(10), 1);
   assert.equal(signalArcs(33), 1);
   assert.equal(signalArcs(34), 2);
