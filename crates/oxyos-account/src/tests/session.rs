@@ -3,6 +3,7 @@
 //! its own (a short Python program speaking the socket), registered by pidfd as the session
 //! registers what it launches. Oxy and the users are fakes.
 
+use super::erase::{eraser, FakePasswords, FakeSystem};
 use super::platform::{machine_as, Machine};
 use super::*;
 use crate::pidfd;
@@ -29,14 +30,16 @@ struct Socket {
     path: PathBuf,
     sessions: Arc<Sessions<FakeApi, FakeUsers>>,
     machine: Machine,
+    system: Arc<FakeSystem>,
 }
 
 /// A service whose session socket serves every connection on a thread of its own, Ada enrolled
-/// as this test's user.
+/// as this test's user (and so the machine's administrator).
 fn service(api: FakeApi) -> Socket {
     let machine = machine_as(api, PASSWORD, Some(me()));
     let path = machine.dir.path().join("session");
     let listener = crate::ipc::Listener::bind(&path).unwrap();
+    let system = Arc::new(FakeSystem::default());
     let sessions = Arc::new(Sessions::new(
         machine.platform.clone(),
         Registrars {
@@ -44,6 +47,7 @@ fn service(api: FakeApi) -> Socket {
             parent: parent_program(),
             owner: me(),
         },
+        eraser(&system, &Arc::new(FakePasswords::default())),
     ));
     let serving = sessions.clone();
     std::thread::spawn(move || loop {
@@ -58,6 +62,7 @@ fn service(api: FakeApi) -> Socket {
         path,
         sessions,
         machine,
+        system,
     }
 }
 
@@ -435,6 +440,72 @@ fn only_settings_registered_as_a_system_application_removes_the_account() {
 }
 
 #[test]
+fn only_settings_registered_as_a_system_application_erases_the_machine() {
+    let socket = service(FakeApi::default());
+    let registrar = Registrar::connect(&socket.path).unwrap();
+    for (id, system) in [("so.oxy.dropsea", true), ("so.oxy.settings", false)] {
+        let mut app = Application::start(
+            &socket,
+            serde_json::json!([
+                {"send": {"erasePreview": {}}},
+                {"send": {"eraseAll": {"password": PASSWORD}}},
+            ]),
+        );
+        registrar
+            .register(id, system, app.pidfd().as_fd())
+            .unwrap()
+            .unwrap();
+        app.go();
+        assert_eq!(app.line(), not_permitted());
+        assert_eq!(app.line(), not_permitted());
+        app.end();
+    }
+    assert!(socket.system.asked().is_empty());
+    let mut settings = Application::start(
+        &socket,
+        serde_json::json!([
+            {"send": {"erasePreview": {}}},
+            {"send": {"eraseAll": {"password": "not it"}}},
+            // Told to go on once the refusal was seen to have armed nothing.
+            "wait",
+            {"send": {"eraseAll": {"password": PASSWORD}}},
+        ]),
+    );
+    registrar
+        .register("so.oxy.settings", true, settings.pidfd().as_fd())
+        .unwrap()
+        .unwrap();
+    settings.go();
+    assert_eq!(
+        settings.line(),
+        serde_json::json!({"erasePreview": {
+            "available": true,
+            "administrator": true,
+            "online": false,
+            "accounts": [{"name": "Ada Lovelace", "handle": USERNAME, "signsOutOnline": false}],
+        }})
+    );
+    assert_eq!(
+        settings.line(),
+        serde_json::json!({"refused": {"reason": "wrongPassword"}})
+    );
+    assert!(!socket.system.asked().contains(&"arm"));
+    settings.go();
+    assert_eq!(
+        settings.line(),
+        serde_json::json!({"erasing": {"signedOut": ["Ada Lovelace"], "notSignedOut": []}})
+    );
+    settings.end();
+    // Answered, then the machine restarts.
+    wait_for("the restart", || socket.system.asked().contains(&"restart"));
+    assert_eq!(
+        socket.system.asked(),
+        ["installed?", "installed?", "arm", "restart"]
+    );
+    assert!(socket.machine.api().calls().contains(&Call::SignOut));
+}
+
+#[test]
 fn the_registrar_checks_its_own_accounts_password() {
     let socket = service(FakeApi::default());
     assert_eq!(
@@ -461,6 +532,10 @@ fn a_program_that_is_not_the_session_program_registers_nothing() {
             parent: parent_program(),
             owner: 0,
         },
+        eraser(
+            &Arc::new(FakeSystem::default()),
+            &Arc::new(FakePasswords::default()),
+        ),
     ));
     let serving = sessions.clone();
     std::thread::spawn(move || {
@@ -500,6 +575,10 @@ fn the_session_program_not_started_by_the_login_program_registers_nothing() {
             parent: PathBuf::from("/bin/sh"),
             owner: me(),
         },
+        eraser(
+            &Arc::new(FakeSystem::default()),
+            &Arc::new(FakePasswords::default()),
+        ),
     ));
     let serving = sessions.clone();
     std::thread::spawn(move || {
@@ -606,6 +685,8 @@ fn the_wire_format_is_the_documented_one() {
         (r#""snapshot""#, "Snapshot"),
         (r#""subscribe""#, "Subscribe"),
         (r#"{"remove":{}}"#, "Remove"),
+        (r#"{"erasePreview":{}}"#, "ErasePreview"),
+        (r#"{"eraseAll":{"password":"p"}}"#, "EraseAll"),
         (r#"{"token":{"reason":"response-401"}}"#, "Response401"),
         (r#"{"check":{"password":"p","local":"accepted"}}"#, "Check"),
     ] {
@@ -630,10 +711,43 @@ fn the_wire_format_is_the_documented_one() {
         serde_json::to_string(&Answer::Token(None)).unwrap(),
         r#"{"token":null}"#
     );
+    assert!(!format!(
+        "{:?}",
+        serde_json::from_str::<Request>(r#"{"eraseAll":{"password":"hunter2"}}"#).unwrap()
+    )
+    .contains("hunter2"));
     assert_eq!(
         serde_json::to_string(&Answer::refused(Reason::NotPermitted)).unwrap(),
         r#"{"refused":{"reason":"notPermitted"}}"#
     );
+    for (refusal, text) in [
+        (
+            crate::erase::Refusal::NotAdministrator,
+            r#"{"refused":{"reason":"notAdministrator"}}"#,
+        ),
+        (
+            crate::erase::Refusal::WrongPassword,
+            r#"{"refused":{"reason":"wrongPassword"}}"#,
+        ),
+        (
+            crate::erase::Refusal::Throttled { retry_after: 30 },
+            r#"{"refused":{"reason":"throttled","retryAfter":30}}"#,
+        ),
+        (
+            crate::erase::Refusal::Unavailable,
+            r#"{"refused":{"reason":"unavailable"}}"#,
+        ),
+        (
+            crate::erase::Refusal::Failed,
+            r#"{"refused":{"reason":"failed"}}"#,
+        ),
+    ] {
+        assert_eq!(serde_json::to_string(&Answer::from(refusal)).unwrap(), text);
+        assert_eq!(
+            serde_json::from_str::<Answer>(text).unwrap(),
+            Answer::from(refusal)
+        );
+    }
     assert_eq!(
         serde_json::to_string(&Answer::Token(Some(crate::platform::Token {
             access_token: Secret::new("t"),

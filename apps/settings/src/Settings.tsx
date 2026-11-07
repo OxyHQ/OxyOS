@@ -4,7 +4,7 @@
  * OxyOS, natively and in the browser: only the model differs (docs/adr/0015-application-model.mdx).
  */
 import * as React from "react";
-import { AccessibilityInfo, Image, PanResponder, View } from "react-native";
+import { AccessibilityInfo, PanResponder, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
@@ -34,6 +34,7 @@ import {
   RiNotification3Line,
   RiPaletteLine,
   RiRefreshLine,
+  RiResetLeftLine,
   RiShieldLine,
   RiUserLine,
   RiSubtractLine,
@@ -138,6 +139,8 @@ import { WallpaperPage } from "./WallpaperPage";
 import { BluetoothPage } from "./BluetoothPage";
 import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
+import { AccountPicture } from "./AccountPicture";
+import { TransferResetPage } from "./TransferResetPage";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -2091,35 +2094,6 @@ function NetworkPage({ snapshot, strings, locale }: PageProps) {
   );
 }
 
-/** The account's picture, or its initials in a circle when it has none: decorative, its name is
-    beside it. Drawn as the sidebar's icon too, at the icon's size. */
-function AccountPicture({ view, size }: { view: AccountView & { kind: "signed_in" }; size: number }) {
-  const theme = useTheme();
-  return (
-    <View
-      importantForAccessibility="no-hide-descendants"
-      accessibilityElementsHidden
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        overflow: "hidden",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: theme.colors.primary,
-      }}
-    >
-      {view.picture ? (
-        <Image source={{ uri: view.picture }} style={{ width: size, height: size }} />
-      ) : (
-        <Text style={{ color: theme.colors.primaryForeground, fontSize: size * 0.4, fontWeight: "600" }}>
-          {view.initials}
-        </Text>
-      )}
-    </View>
-  );
-}
-
 /**
  * The Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5), as a Mac's Apple Account page:
  * the picture, the name and the handle; managing the account; signing out, which ends the session
@@ -2141,7 +2115,7 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
     <View style={PAGE}>
       {view.kind === "signed_in" ? (
         <View style={{ alignItems: "center", gap: 4 }} testID="oxy-account-card">
-          <AccountPicture view={view} size={72} />
+          <AccountPicture picture={view.picture} initials={view.initials} size={72} />
           <Text variant="title-3-semibold" style={{ marginTop: 8 }} testID="oxy-account-name">
             {view.name}
           </Text>
@@ -2268,7 +2242,13 @@ export function Settings({
     if (account?.kind !== "signed_in") return RiUserLine;
     const shown = account;
     return function AccountIcon({ width }: { width?: number | string }) {
-      return <AccountPicture view={shown} size={typeof width === "number" ? width : 20} />;
+      return (
+        <AccountPicture
+          picture={shown.picture}
+          initials={shown.initials}
+          size={typeof width === "number" ? width : 20}
+        />
+      );
     };
     // The picture changes only with what it shows.
   }, [account?.kind, account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : ""]);
@@ -2315,6 +2295,8 @@ export function Settings({
         { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
         { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
         { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
+        // After Software Update, as a Mac's General lists Transfer or Reset.
+        { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
         { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
         { key: "about", label: words.about, icon: RiInformationLine, page: "about" },
       ],
@@ -2343,6 +2325,7 @@ export function Settings({
     "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },
     about: { title: words.about, content: <AboutPage {...props} /> },
     "software-update": { title: words.softwareUpdate, content: <SoftwareUpdatePage {...props} /> },
+    "transfer-reset": { title: words.transferReset, content: <TransferResetPage {...props} /> },
     privacy: { title: words.privacy, content: <PrivacyPage {...props} /> },
     ...(snapshot.network === undefined
       ? {}

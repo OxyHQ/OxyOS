@@ -1860,8 +1860,12 @@ std::shared_ptr<TurboModule> createHostModule(
     //   `subscribe()` then `OxyOSAccountSessionChanged` at each change (null once it ended), and
     //   `getAccessToken(reason)`, a promise of {accessToken, expiresAt} or null. The service knows
     //   the application by its launch: the host claims nothing. Settings' `remove()` removes its
-    //   account from this computer (the service refuses anyone else); `lockSession()` locks the
-    //   session for the SDK's sign-in, while the application's window is the active one.
+    //   account from this computer (the service refuses anyone else); `erasePreview()` (what
+    //   erasing this computer would do) and `eraseAll(password)` (the erase, with the
+    //   administrator's password: {erasing} or {refused: {reason, retryAfter?}}) erase it
+    //   (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone too; each a promise of the
+    //   service's answer, {failed} when it could not be asked. `lockSession()` locks the session
+    //   for the SDK's sign-in, while the application's window is the active one.
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
     //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
     //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
@@ -1927,6 +1931,25 @@ std::shared_ptr<TurboModule> createHostModule(
                                                 "failed", folly::dynamic::object("reason", "unavailable"))));
       return promise(rt, [session, settle](std::shared_ptr<jsi::Value> resolve) {
         session().remove(settle(resolve, "removal", false));
+      });
+    });
+    module->method("erasePreview", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value*,
+                                                                         size_t) {
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      return promise(rt, [session, settle](std::shared_ptr<jsi::Value> resolve) {
+        session().erasePreview(settle(resolve, "erase preview", false));
+      });
+    });
+    // The password goes to the service and is forgotten here; nothing of it is logged.
+    module->method("eraseAll", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
+                                                                     size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.eraseAll: the password");
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      std::string password = args[0].asString(rt).utf8(rt);
+      return promise(rt, [session, settle, password = std::move(password)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().eraseAll(std::move(password), settle(resolve, "erase", false));
       });
     });
     // The SDK's `request('sign_in')`: the session locks, and unlocking checks the password with

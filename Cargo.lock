@@ -2120,6 +2120,7 @@ name = "oxyos-accountd"
 version = "0.1.0"
 dependencies = [
  "oxyos-account",
+ "oxyos-auth",
  "rustix",
 ]
 
