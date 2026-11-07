@@ -179,3 +179,10 @@ fn a_bus_is_waited_for_by_its_socket() {
     );
     assert_eq!(bus_socket(Some("unix:abstract=/tmp/dbus-x")), None);
 }
+
+#[test]
+fn a_signal_is_shown_as_the_wifi_glyphs_arcs() {
+    // As the shell's top bar and Settings draw it (`signalBars`).
+    let shown: Vec<u8> = [0, 1, 33, 34, 66, 67, 100].map(arcs).to_vec();
+    assert_eq!(shown, [0, 1, 1, 2, 2, 3, 3]);
+}

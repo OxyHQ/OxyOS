@@ -200,6 +200,12 @@ pub enum Command {
     ReadLevel(Control, Option<u32>),
     /// The battery, the network and Bluetooth looked at.
     ReadStatus,
+    /// The battery alone (UPower said it changed).
+    ReadBattery,
+    /// The network alone (NetworkManager said it changed).
+    ReadNetwork,
+    /// Bluetooth alone (BlueZ said it changed).
+    ReadBluetooth,
     /// The four levels looked at.
     ReadLevels,
 }
@@ -261,22 +267,29 @@ pub fn run(system: &mut dyn System, command: Command) -> Vec<Outcome> {
             outcomes.extend(CONTROLS.iter().map(|control| level(system, *control, None)));
             outcomes
         }
-        Command::ReadStatus => {
-            let battery = system.battery().unwrap_or_else(|error| {
-                eprintln!("[controls] the battery: {error}");
-                Battery::ABSENT
-            });
-            let bluetooth = system.bluetooth().unwrap_or_else(|error| {
-                eprintln!("[controls] Bluetooth: {error}");
-                Bluetooth::UNAVAILABLE
-            });
-            vec![
-                Outcome::Battery(battery),
-                Outcome::Network(network(system)),
-                Outcome::Bluetooth(bluetooth),
-            ]
-        }
+        Command::ReadStatus => vec![
+            Outcome::Battery(battery(system)),
+            Outcome::Network(network(system)),
+            Outcome::Bluetooth(bluetooth(system)),
+        ],
+        Command::ReadBattery => vec![Outcome::Battery(battery(system))],
+        Command::ReadNetwork => vec![Outcome::Network(network(system))],
+        Command::ReadBluetooth => vec![Outcome::Bluetooth(bluetooth(system))],
     }
+}
+
+fn battery(system: &mut dyn System) -> Battery {
+    system.battery().unwrap_or_else(|error| {
+        eprintln!("[controls] the battery: {error}");
+        Battery::ABSENT
+    })
+}
+
+fn bluetooth(system: &mut dyn System) -> Bluetooth {
+    system.bluetooth().unwrap_or_else(|error| {
+        eprintln!("[controls] Bluetooth: {error}");
+        Bluetooth::UNAVAILABLE
+    })
 }
 
 fn network(system: &mut dyn System) -> Network {

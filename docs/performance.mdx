@@ -911,6 +911,25 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   access point's strength NetworkManager signalled (`tests/idle.rs`, run by hand); with no source,
   `tests/idle.rs` holds them to at most one a second and 0.1 % of a core, and to following a service
   once its socket is made and stopping at once.
+- **The session, deployed, still woke 8.6 times a second** (`perf.py session`, 7 November 2026:
+  async-io 4.1, `networks-watch` 2.4, `oxyos-bus` 0.9, `oxyos-controls` 0.8): it was delivered
+  every signal NetworkManager, UPower and BlueZ send, and NetworkManager's background scans (an
+  `AccessPointAdded` for each access point, its device's list and `LastScan`) and UPower's
+  readings (energy, rate, voltage every reading) each read the network whole or the battery,
+  network and Bluetooth again. Now each follower asks the bus daemon for what can change what is
+  shown, and it delivers nothing else: NetworkManager's own state and Wi-Fi's switches, its
+  devices' states and properties, the saved connections and the strength of the access point
+  joined alone (`watch`'s rules, the joined point followed as it changes, `Follow`); UPower's
+  charge, state and time left and whether the machine is on battery; BlueZ's adapters on or off and
+  devices connected. A device's scan list and its end are delivered with what else changes on it
+  and are nothing; a scan asked for (the Wi-Fi lists ask as they open and every ten seconds) waits
+  for its end and reads the networks whole then. A strength is told only when the arcs it fills
+  change (`arcs`, `State::shows_as`, as `signalBars` draws them), the strength kept until the next
+  change. The controls read only what changed (`ReadBattery`, `ReadNetwork`, `ReadBluetooth`). On
+  the ThinkPad the session's parts on its own bus woke 0.95 times a second over 20 s with one of
+  NetworkManager's background scans in it; `watch_idle.rs` holds another access point's strength
+  and the joined one seen again by a scan to nothing delivered (it fails at 27 a second when every
+  signal is).
 - **A border drawn with rounded corners visited every pixel of its box** to find the ring: 19 ms
   of a two-panel Inbox's 25 ms frame. Rows now skip the ring's hole and fill what a rounded
   rectangle covers whole at once (pixel for pixel the same).
