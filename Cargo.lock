@@ -2074,6 +2074,7 @@ version = "0.1.0"
 dependencies = [
  "drm",
  "jiff",
+ "oxyos-audio",
  "oxyos-auth",
  "oxyos-client",
  "oxyos-compositor-core",
@@ -2115,10 +2116,11 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "futures-lite",
+ "oxyos-audio",
  "oxyos-protocol",
  "oxyos-seat",
- "pipewire",
  "rustix",
+ "serde_json",
  "zbus",
 ]
 
@@ -2364,6 +2366,7 @@ dependencies = [
  "async-io",
  "evdev",
  "oxyos-apps",
+ "oxyos-audio",
  "oxyos-auth",
  "oxyos-client",
  "oxyos-compositor",

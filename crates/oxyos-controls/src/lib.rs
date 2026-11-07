@@ -3,8 +3,8 @@
 //! the top bar shows of the battery, the network and Bluetooth. The session (the authority) acts
 //! on the system through [`System`]; a session's is [`Session`], which speaks to what the system
 //! already runs:
-//! - the volume of PipeWire's default output and input, through WirePlumber's own command,
-//!   `wpctl` ([`audio`]);
+//! - the volume of PipeWire's default output and input, through the session's own PipeWire
+//!   client (`oxyos_audio`, docs/adr/0051-sound-devices.mdx), which keeps each device's balance;
 //! - the built-in display's and the keyboard's backlights, found in sysfs and set through
 //!   logind's `SetBrightness` on the session ([`backlight`]);
 //! - the battery, from UPower ([`power`]);
@@ -26,7 +26,6 @@ use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-pub mod audio;
 pub mod backlight;
 pub mod bluetooth;
 mod bus;
@@ -40,6 +39,61 @@ mod tests;
 
 pub use fake::Fake;
 pub use session::Session;
+
+/// How far a volume read back may be from the one set: PipeWire keeps it as a float on its linear
+/// scale, and it is read on the cubic one.
+pub const VOLUME_RESOLUTION: u32 = FULL_LEVEL / 4096;
+
+/// The control a direction's volume is.
+pub fn volume_control(direction: oxyos_audio::Direction) -> Control {
+    match direction {
+        oxyos_audio::Direction::Output => Control::OutputVolume,
+        oxyos_audio::Direction::Input => Control::InputVolume,
+    }
+}
+
+/// The direction a volume control is; `None` for a backlight.
+pub fn volume_direction(control: Control) -> Option<oxyos_audio::Direction> {
+    match control {
+        Control::OutputVolume => Some(oxyos_audio::Direction::Output),
+        Control::InputVolume => Some(oxyos_audio::Direction::Input),
+        _ => None,
+    }
+}
+
+/// A volume control's level in the sound's state: its chosen device's volume and mute; `None`
+/// without one (no PipeWire, no device).
+pub fn audio_level(state: &oxyos_audio::State, control: Control) -> Option<Level> {
+    let side = state.side(volume_direction(control)?);
+    let volume = side.volume.filter(|_| state.available)?;
+    Some(Level {
+        resolution: VOLUME_RESOLUTION,
+        ..Level::new(
+            (volume.clamp(0.0, 1.0) * f64::from(FULL_LEVEL)).round() as u32,
+            side.muted,
+        )
+    })
+}
+
+/// Sets a volume control as a volume key does: its volume, and unmuted.
+pub fn set_audio_level(
+    audio: &dyn oxyos_audio::Audio,
+    control: Control,
+    value: u32,
+) -> io::Result<()> {
+    let direction = volume_direction(control).ok_or_else(|| io::Error::other("not a volume"))?;
+    if audio_level(&audio.state(), control).is_none() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "no such device"));
+    }
+    audio.set_volume(
+        direction,
+        f64::from(value.min(FULL_LEVEL)) / f64::from(FULL_LEVEL),
+    );
+    if audio.state().side(direction).muted {
+        audio.set_muted(direction, false);
+    }
+    Ok(())
+}
 
 /// The steps a key moves a level in, as a Mac's: sixteen.
 pub const STEPS: u32 = 16;
@@ -64,8 +118,9 @@ pub struct Level {
     /// The steps with Shift and Alt: four times as many, as many as the device has at most.
     pub fine_steps: u32,
     /// How far the system's own level may be from `value`, as read: 0 for a level read exactly
-    /// (a backlight's), more for one the system reports rounded (`wpctl` prints a volume to two
-    /// decimals). A key steps from the level the system may really have.
+    /// (a backlight's), more for one the system keeps less exactly (a volume, a float on
+    /// PipeWire's linear scale, read back on the cubic one). A key steps from the level the system
+    /// may really have.
     pub resolution: u32,
 }
 

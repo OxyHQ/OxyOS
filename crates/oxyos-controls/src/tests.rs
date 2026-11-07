@@ -1,21 +1,12 @@
 use super::*;
-use crate::audio::{parse_volume, volume_text, Wpctl};
 use crate::backlight::{level_of, raw_of, Setter};
+use oxyos_audio::Audio;
 use oxyos_protocol::{BatteryState, BluetoothState, WifiState};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const STEP: u32 = FULL_LEVEL / STEPS;
-
-/// A volume as read from `wpctl`, which prints two decimals: within half a hundredth.
-fn read_volume(value: u32, muted: bool) -> Level {
-    Level {
-        resolution: FULL_LEVEL.div_ceil(200),
-        ..Level::new(value, muted)
-    }
-}
 
 /// A directory of the test's own, removed first if a previous run left it.
 fn scratch(name: &str) -> PathBuf {
@@ -23,27 +14,6 @@ fn scratch(name: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-/// A script standing in for `wpctl`: it appends its arguments to `log` and runs `body`.
-fn script(dir: &Path, body: &str) -> PathBuf {
-    let path = dir.join("wpctl");
-    let log = dir.join("log");
-    std::fs::write(
-        &path,
-        format!("#!/bin/sh\necho \"$@\" >> '{}'\n{body}\n", log.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    path
-}
-
-fn logged(dir: &Path) -> Vec<String> {
-    std::fs::read_to_string(dir.join("log"))
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_string)
-        .collect()
 }
 
 #[test]
@@ -73,60 +43,57 @@ fn keys_move_in_sixteen_steps_to_the_next_level_beyond() {
     assert_eq!(steps_of(FULL_LEVEL, STEPS), 16);
 }
 
-#[test]
-fn wpctl_says_the_volume_and_its_mute() {
-    assert_eq!(parse_volume("Volume: 0.41\n"), Some((26_870, false)));
-    assert_eq!(
-        parse_volume("Volume: 1.00 [MUTED]\n"),
-        Some((FULL_LEVEL, true))
-    );
-    // Above 100% (another program boosted it): all of it.
-    assert_eq!(parse_volume("Volume: 1.50"), Some((FULL_LEVEL, false)));
-    assert_eq!(parse_volume("Volume: 0.50 [LOUD]"), None);
-    assert_eq!(parse_volume("Error"), None);
-    assert_eq!(parse_volume("Volume: -1"), None);
-    assert_eq!(volume_text(FULL_LEVEL / 2), "0.5000");
-    assert_eq!(volume_text(FULL_LEVEL + 5), "1.0000");
+/// A played sound (docs/adr/0051-sound-devices.mdx): speakers at half, a microphone at all.
+fn played_sound() -> Arc<oxyos_audio::Played> {
+    Arc::new(
+        oxyos_audio::Played::parse(
+            r#"{"outputs": [{"id": "speakers", "name": "Speakers", "kind": "speakers", "transport": "builtIn", "volume": 0.5}],
+                "inputs": [{"id": "mic", "name": "Microphone", "kind": "microphone", "transport": "builtIn", "balance": null}]}"#,
+        )
+        .unwrap(),
+    )
 }
 
 #[test]
-fn wpctl_is_run_for_the_default_devices_with_a_deadline() {
-    let dir = scratch("wpctl");
-    let wpctl = Wpctl::new(script(&dir, "echo 'Volume: 0.25 [MUTED]'"));
+fn the_volumes_are_the_chosen_devices_as_the_sound_says_them() {
+    let sound = played_sound();
+    let state = sound.state();
     assert_eq!(
-        wpctl.level(Control::OutputVolume).unwrap(),
-        Some(read_volume(FULL_LEVEL / 4, true))
+        audio_level(&state, Control::OutputVolume),
+        Some(Level {
+            resolution: VOLUME_RESOLUTION,
+            ..Level::new(FULL_LEVEL / 2, false)
+        })
     );
-    wpctl
-        .set_level(Control::InputVolume, FULL_LEVEL / 2)
-        .unwrap();
-    wpctl.set_muted(Control::OutputVolume, true).unwrap();
     assert_eq!(
-        logged(&dir),
-        [
-            "get-volume @DEFAULT_AUDIO_SINK@",
-            "set-volume @DEFAULT_AUDIO_SOURCE@ 0.5000",
-            "set-mute @DEFAULT_AUDIO_SOURCE@ 0",
-            "set-mute @DEFAULT_AUDIO_SINK@ 1",
-        ]
+        audio_level(&state, Control::InputVolume).map(|level| level.value),
+        Some(FULL_LEVEL)
     );
-    // No default device (wpctl fails): none, not an error.
-    let dir = scratch("wpctl-none");
-    let wpctl = Wpctl::new(script(&dir, "exit 1"));
-    assert_eq!(wpctl.level(Control::OutputVolume).unwrap(), None);
-    assert!(wpctl.set_level(Control::OutputVolume, 0).is_err());
-    // A backlight is no volume.
-    assert_eq!(wpctl.level(Control::DisplayBrightness).unwrap(), None);
-    // No wpctl at all: none either.
-    let missing = Wpctl::new(dir.join("missing"));
-    assert_eq!(missing.level(Control::InputVolume).unwrap(), None);
-    // A PipeWire that does not answer: an error at the deadline, never a wait beyond it.
-    let dir = scratch("wpctl-stuck");
-    let wpctl = Wpctl::new(script(&dir, "sleep 10"));
-    let started = Instant::now();
-    let error = wpctl.level(Control::OutputVolume).unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(audio_level(&state, Control::DisplayBrightness), None);
+    // No PipeWire: no volume.
+    assert_eq!(
+        audio_level(&oxyos_audio::State::unavailable(), Control::OutputVolume),
+        None
+    );
+    // A key's level sets the volume and unmutes it; a backlight is no volume.
+    sound.set_muted(oxyos_audio::Direction::Output, true);
+    set_audio_level(sound.as_ref(), Control::OutputVolume, FULL_LEVEL / 4).unwrap();
+    assert_eq!(
+        sound.machine()["calls"],
+        serde_json::json!([
+            "muted output true",
+            "volume output 0.25",
+            "muted output false"
+        ])
+    );
+    assert!(set_audio_level(sound.as_ref(), Control::DisplayBrightness, 0).is_err());
+    // Nothing to set without a device.
+    let silent = oxyos_audio::Played::parse("{}").unwrap();
+    assert!(set_audio_level(&silent, Control::OutputVolume, 0).is_err());
+    assert_eq!(
+        volume_control(oxyos_audio::Direction::Input),
+        Control::InputVolume
+    );
 }
 
 /// A backlight device in a described sysfs.
@@ -229,7 +196,7 @@ fn the_display_backlight_is_the_firmwares_first_and_the_keyboards_is_an_led() {
 }
 
 #[test]
-fn a_session_acts_through_wpctl_sysfs_and_its_setter() {
+fn a_session_acts_through_its_sound_sysfs_and_its_setter() {
     let dir = scratch("session");
     let sysfs = dir.join("sys");
     device(
@@ -244,8 +211,9 @@ fn a_session_acts_through_wpctl_sysfs_and_its_setter() {
     );
     let setter = Recorded::default();
     let made = setter.clone();
+    let sound = played_sound();
     let mut session = Session::with(
-        Wpctl::new(script(&dir, "echo 'Volume: 0.50'")),
+        sound.clone(),
         sysfs,
         Box::new(move || Ok(Box::new(made.clone()) as Box<dyn Setter>)),
     );
@@ -259,7 +227,11 @@ fn a_session_acts_through_wpctl_sysfs_and_its_setter() {
     );
     assert_eq!(
         session.level(Control::OutputVolume).unwrap(),
-        Some(read_volume(FULL_LEVEL / 2, false))
+        audio_level(&sound.state(), Control::OutputVolume)
+    );
+    assert_eq!(
+        session.level(Control::OutputVolume).unwrap().unwrap().value,
+        FULL_LEVEL / 2
     );
     // No keyboard backlight on this machine.
     assert_eq!(session.level(Control::KeyboardBrightness).unwrap(), None);
@@ -275,10 +247,14 @@ fn a_session_acts_through_wpctl_sysfs_and_its_setter() {
         .set_level(Control::KeyboardBrightness, FULL_LEVEL)
         .is_err());
     session.set_muted(Control::InputVolume, true).unwrap();
+    session
+        .set_level(Control::OutputVolume, FULL_LEVEL)
+        .unwrap();
     assert_eq!(
-        logged(&dir).last().map(String::as_str),
-        Some("set-mute @DEFAULT_AUDIO_SOURCE@ 1")
+        sound.machine()["calls"],
+        serde_json::json!(["muted input true", "volume output 1"])
     );
+    assert!(session.level(Control::InputVolume).unwrap().unwrap().muted);
 }
 
 #[test]
@@ -580,16 +556,14 @@ fn a_level_set_again_before_the_system_follows_is_set_once() {
 }
 
 #[test]
-fn a_level_read_rounded_still_steps_away_from_where_it_is() {
-    // The session set 7/16 (0.4375); `wpctl` reads it back as 0.44.
-    let (read, _) = crate::audio::parse_volume("Volume: 0.44").unwrap();
-    let resolution = FULL_LEVEL.div_ceil(200);
-    let down = stepped(read, STEPS, false, resolution);
-    assert_eq!(down, 6 * STEP, "one step down, never the same step");
-    // Read exactly, the same value steps up to the next step as before.
-    assert_eq!(stepped(read, STEPS, true, resolution), 8 * STEP);
-    // At a step read rounded down (0.375 as 0.38 is above; 0.3125 as 0.31 is below).
-    let (read, _) = crate::audio::parse_volume("Volume: 0.31").unwrap();
-    assert_eq!(stepped(read, STEPS, true, resolution), 6 * STEP);
-    assert_eq!(stepped(read, STEPS, false, resolution), 4 * STEP);
+fn a_volume_read_a_hair_off_its_step_still_steps_away_from_it() {
+    // The session set 7/16; PipeWire keeps it as a float on its linear scale, and it is read back
+    // on the cubic one a hair below.
+    let read = 7 * STEP - 3;
+    assert_eq!(stepped(read, STEPS, false, VOLUME_RESOLUTION), 6 * STEP);
+    assert_eq!(stepped(read, STEPS, true, VOLUME_RESOLUTION), 8 * STEP);
+    // And a hair above.
+    let read = 7 * STEP + 3;
+    assert_eq!(stepped(read, STEPS, false, VOLUME_RESOLUTION), 6 * STEP);
+    assert_eq!(stepped(read, STEPS, true, VOLUME_RESOLUTION), 8 * STEP);
 }

@@ -16,9 +16,12 @@ async-io = "2"
 futures-lite = "2"
 # Waiting on sysfs attributes' notifications and the order to stop (follow.rs).
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event"] }
-# PipeWire's default devices and volumes, followed as they change (follow.rs); the session's one
-# audio stack (oxyos-sound plays through it).
-pipewire = { version = "0.10", features = ["v0_3_49"] }
+# The volumes of PipeWire's chosen output and input, through the session's own client
+# (docs/adr/0051-sound-devices.mdx).
+oxyos-audio = { path = "../oxyos-audio" }
+
+[dev-dependencies]
+serde_json = "1"
 
 [lints]
 workspace = true

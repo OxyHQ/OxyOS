@@ -316,10 +316,18 @@ fn main() -> Result<()> {
     compositor.slow_turns = true;
     // Applied before any client connects, so each is told them with its Welcome.
     settings.apply(&mut compositor, settings::now());
+    // The sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): PipeWire followed on a
+    // thread of its own, the client the controls set volumes through; on the login screen too,
+    // whose volume keys act.
+    let (mut sound, pipewire) = oxyos_compositor::sound_devices::SoundDevices::pipewire()?;
+    if let Some(wake) = sound.wake_fd() {
+        compositor.wakers.push(wake?);
+    }
     // The machine's volumes, backlights, battery and network, on a thread of their own: every
     // call may wait on another process (ADR 0025). Each is read again as it changes, never on a
-    // clock; the network by the networks' part below, which the login screen has not.
-    match oxyos_controls::Worker::spawn(Box::new(oxyos_controls::Session::new())) {
+    // clock; the network by the networks' part below, which the login screen has not, and the
+    // volumes by the sound's.
+    match oxyos_controls::Worker::spawn(Box::new(oxyos_controls::Session::new(pipewire))) {
         Ok(worker) => {
             let mut controls = oxyos_compositor::controls::Controls::new(worker);
             if let Err(error) = controls.follow(greeter, PathBuf::from("/sys")) {
@@ -676,6 +684,9 @@ fn main() -> Result<()> {
         if let Some(methods) = input_methods.as_mut() {
             methods.serve(&mut compositor, &mut settings, settings::now());
         }
+        // The sound's outputs and inputs (ADR 0051), before the store, which takes the requests
+        // left.
+        sound.serve(&mut compositor.scene, compositor.controls.as_mut());
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
             networks.serve(&mut compositor.scene);

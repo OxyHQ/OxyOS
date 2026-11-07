@@ -135,6 +135,16 @@ impl Audio for PipeWire {
     }
 
     fn set_default(&self, direction: Direction, id: &str) {
+        // Said chosen at once, as WirePlumber will make it.
+        {
+            let mut state = self.shared.state.lock().expect("the sound's state");
+            let side = state.side_mut(direction);
+            if side.devices.iter().any(|device| device.id == id) {
+                for device in &mut side.devices {
+                    device.selected = device.id == id;
+                }
+            }
+        }
         self.shared
             .send(Command::Default(direction, id.to_string()));
     }
