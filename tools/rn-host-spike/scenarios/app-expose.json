@@ -219,7 +219,7 @@
       }
     },
     {
-      "name": "Super+M minimizes Allo into the dock, the companion taking the keyboard",
+      "name": "Super+M minimizes Allo into the dock, the companion taking the keyboard and the pointer, Allo told the pointer left it",
       "do": [
         "key",
         [
@@ -233,7 +233,8 @@
         },
         "delivered": {
           "1": {
-            "focus.out": 1
+            "focus.out": 1,
+            "leave": 1
           },
           "companion": {
             "enter": 1,

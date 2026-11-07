@@ -368,9 +368,11 @@ void PopupHost::key(const OxyOSEvent& event) {
     if (popup.surface != event.surface || popup.dismissed) continue;
     auto it = tree_.views().find(tag);
     if (it == tree_.views().end()) return;
-    auto send = [&](const std::string& key) {
+    // `at`: where in the committed text the key's character is, the report's alone (a text's two
+    // equal characters are two keys, not one delivered twice).
+    auto send = [&](const std::string& key, size_t at = 0) {
       it->second.view.eventEmitter->dispatchEvent("key", folly::dynamic::object("key", key));
-      Report::get().deliver("key", popup.surface, it->second.view, folly::dynamic::object("key", key));
+      Report::get().deliver("key", popup.surface, it->second.view, folly::dynamic::object("key", key)("at", at));
     };
     if (event.kind == OXYOS_EVENT_KEY && event.flag) {
       if (const char* name = keyName(event.code)) send(name);
@@ -381,7 +383,7 @@ void PopupHost::key(const OxyOSEvent& event) {
         size_t length = 1;
         auto byte = static_cast<unsigned char>(text[i]);
         if (byte >= 0xf0) length = 4; else if (byte >= 0xe0) length = 3; else if (byte >= 0xc0) length = 2;
-        send(text.substr(i, length));
+        send(text.substr(i, length), i);
         i += length;
       }
     }

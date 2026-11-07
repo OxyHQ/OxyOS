@@ -1767,6 +1767,78 @@ fn losing_the_captured_surface_never_turns_the_release_into_a_click() {
     let _ = other;
 }
 
+/// A surface its client still has that stops taking input is told so, as Wayland compositors
+/// send a surface still alive its leave: the pointer over a window minimized, or a menu the
+/// compositor dismissed, leaves it, and a press held on it is cancelled, so the client neither
+/// goes on drawing its hover nor holds a press that never ends (ADR 0016, decision 11). One its
+/// client destroyed is told nothing.
+#[test]
+fn a_surface_that_stops_taking_input_is_left_and_its_press_cancelled() {
+    let pointer = |h: &mut Harness| -> Vec<(u32, PointerKind)> {
+        h.pump();
+        h.events_for(APP)
+            .into_iter()
+            .filter_map(|e| match e {
+                Event::Pointer { surface, kind, .. } if kind != PointerKind::Motion => {
+                    Some((surface, kind))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    // Minimized from the keyboard with the pointer over it, and with a press held.
+    for held in [false, true] {
+        let mut h = Harness::new();
+        let window = h.toplevel(APP, 1, 400, 300);
+        let w = h.rect(window);
+        h.scene.pointer_motion(w.x + 20, w.y + 20);
+        if held {
+            h.press(w.x + 20, w.y + 20);
+        }
+        h.clear_log();
+        h.scene.minimize(window);
+        let told = pointer(&mut h);
+        let wanted: &[(u32, PointerKind)] = if held {
+            &[(1, PointerKind::Cancel), (1, PointerKind::Leave)]
+        } else {
+            &[(1, PointerKind::Leave)]
+        };
+        assert_eq!(told, wanted);
+        assert_eq!(h.scene.pointer_focus(), None);
+        // Its release reaches nobody.
+        h.clear_log();
+        h.scene.pointer_button(BUTTON, false);
+        assert!(pointer(&mut h).is_empty());
+    }
+    // A menu the compositor dismisses (an outside key, the parent hidden) with the pointer over it.
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 40, 20), 200, 150),
+    );
+    let p = h.rect(popup);
+    h.scene.pointer_motion(p.x + 10, p.y + 10);
+    h.pump();
+    assert_eq!(h.scene.pointer_focus(), Some(popup));
+    h.clear_log();
+    h.scene.minimize(window);
+    let told = pointer(&mut h);
+    assert_eq!(told.first(), Some(&(2, PointerKind::Leave)));
+    assert_eq!(h.dismissed(popup), Some(DismissReason::ParentHidden));
+    // A surface its client destroys hears nothing more.
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 20, w.y + 20);
+    h.clear_log();
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    assert!(pointer(&mut h).is_empty());
+}
+
 #[test]
 fn modal_dialogs_block_their_window_and_take_focus() {
     let mut h = Harness::new();

@@ -2439,6 +2439,7 @@ int main(int argc, char** argv) {
         // A command of the window's menus chosen in the shell's bar (ADR 0021): to the adapter,
         // which runs the one Bloom declared at that index of that commit.
         for (const auto& choice : menuChoices) {
+          oxyos::Report::Handling handling(choice);
           folly::dynamic payload = folly::dynamic::object("serial", choice.code)("index", choice.detail);
           oxyos::Report::get().input("menu.activated", choice.surface, payload);
           oxyos::Report::get().deliver("menuActivated", choice.surface, "menu-bar", payload);

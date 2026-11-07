@@ -3086,6 +3086,7 @@ impl Scene {
         if shown {
             self.appeared(key, appearances::Change::Gone);
         }
+        self.withdraw_input(key);
         self.emit(
             key.client,
             Event::PopupDone {
@@ -3140,7 +3141,69 @@ impl Scene {
         }
     }
 
-    /// Clears input state that refers to `key` without delivering events to it.
+    /// A surface its client still has stops taking input (a popup dismissed, a window minimized,
+    /// hidden or on a workspace no longer shown): what it held ends as its client is told, a
+    /// press, a touch, a pinch or resting fingers cancelled and the pointer leaving it, as Wayland
+    /// compositors send a surface still alive its leave. Without it the client goes on thinking
+    /// the pointer over it and a press held: a hover that stays drawn on a window minimized from
+    /// the keyboard, and a press that never ends (docs/adr/0016-windows.mdx, decision 11).
+    pub(super) fn withdraw_input(&mut self, key: SurfaceKey) {
+        if !self.nodes.contains_key(&key) {
+            return;
+        }
+        if self.capture == Some(key) {
+            let serial = self.next_serial();
+            self.pointer_event(key, serial, PointerKind::Cancel, 0);
+        }
+        let touches: Vec<u32> = self
+            .touches
+            .iter()
+            .filter(|(_, target)| **target == Some(key))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in touches {
+            let serial = self.next_serial();
+            self.touch_event(key, serial, TouchKind::Cancel, id, 0, 0);
+        }
+        if self.pinch == Some(key) {
+            let serial = self.next_serial();
+            let (x, y) = self.local(key, self.pointer.0, self.pointer.1);
+            self.emit(
+                key.client,
+                Event::Pinch {
+                    surface: key.id,
+                    serial,
+                    phase: GesturePhase::Cancel,
+                    x,
+                    y,
+                    scale_65536: 1 << 16,
+                    rotation_256: 0,
+                    time_ns: self.input_time_ns,
+                },
+            );
+        }
+        if self.hold == Some(key) {
+            let serial = self.next_serial();
+            self.emit(
+                key.client,
+                Event::Hold {
+                    surface: key.id,
+                    serial,
+                    phase: GesturePhase::Cancel,
+                    fingers: 0,
+                    time_ns: self.input_time_ns,
+                },
+            );
+        }
+        if self.pointer_focus == Some(key) {
+            let serial = self.next_serial();
+            self.pointer_event(key, serial, PointerKind::Leave, 0);
+        }
+        self.detach_input(key);
+    }
+
+    /// Clears input state that refers to `key` without delivering events to it: a surface its
+    /// client destroyed, or one `withdraw_input` has told.
     fn detach_input(&mut self, key: SurfaceKey) {
         if self.hold == Some(key) {
             self.hold = None;
@@ -3701,7 +3764,7 @@ impl Scene {
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
         self.dismiss_group_popups(key, DismissReason::ParentHidden);
-        self.detach_input(key);
+        self.withdraw_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
             // Minimized, its application's next window takes the keyboard, as a Mac's does;
             // hidden with its application, every window of it goes, so the next one is another's.
@@ -4910,6 +4973,17 @@ impl Scene {
 
     pub fn focus(&self) -> Option<SurfaceKey> {
         self.focus
+    }
+
+    /// The surface the pointer is over as its client was told (its last Enter, no Leave since).
+    pub fn pointer_focus(&self) -> Option<SurfaceKey> {
+        self.pointer_focus
+    }
+
+    /// Whether `key` is shown: mapped, not dismissed, its window neither minimized nor hidden. The
+    /// keyboard's input reaches the focused surface only while it is (`surface_key`).
+    pub fn shown(&self, key: SurfaceKey) -> bool {
+        self.visible(key)
     }
 
     pub fn grab_chain(&self) -> &[SurfaceKey] {
