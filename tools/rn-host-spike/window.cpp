@@ -528,8 +528,6 @@ uint32_t Window::startDrag(uint32_t surface, uint32_t icon, uint64_t serial, uin
   return static_cast<uint32_t>(drag);
 }
 
-void Window::cancelDrag(uint32_t drag) { oxyos_client_cancel_drag(client_, drag); }
-
 void Window::acceptDrag(uint32_t offer, uint64_t serial, const std::string& mime, uint8_t actions, uint8_t preferred) {
   oxyos_client_accept_drag(client_, offer, serial, mime.empty() ? nullptr : mime.data(), mime.size(), actions,
                            preferred);

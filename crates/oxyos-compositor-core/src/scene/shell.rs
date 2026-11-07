@@ -101,11 +101,6 @@ impl Scene {
         self.shell_windows.wallpapers = wallpapers;
     }
 
-    /// What each output was last said to show.
-    pub fn output_wallpapers(&self) -> &BTreeMap<OutputId, String> {
-        &self.shell_windows.wallpapers
-    }
-
     pub(super) fn forget_shell_client(&mut self, client: ClientId) {
         self.shell_windows.told.remove(&client);
         self.shell_windows.applications.remove(&client);

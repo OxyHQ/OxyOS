@@ -391,19 +391,6 @@ impl Scene {
             .collect()
     }
 
-    /// Whether an input method is connected (the session's frontend connects only while an input
-    /// method is the current input source).
-    pub fn has_input_method(&self) -> bool {
-        self.input_method.is_some()
-    }
-
-    /// Whether the input method serves a field now.
-    pub fn input_method_serving(&self) -> bool {
-        self.input_method
-            .as_ref()
-            .is_some_and(|im| im.active.is_some())
-    }
-
     /// The shell's press on a candidate it draws, or on a chevron: passed to the input method.
     pub(super) fn candidates_request(
         &mut self,

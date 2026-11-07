@@ -251,11 +251,6 @@ impl Displays {
             .collect()
     }
 
-    /// Whether a mode is on trial, and the output it is shown on.
-    pub fn on_trial(&self) -> Option<OutputId> {
-        self.trial.as_ref().map(|trial| trial.output)
-    }
-
     /// Reads the connectors and follows them (at the start, on a hotplug, coming back from
     /// another session): outputs whose display went are removed (their windows go to the
     /// primary), new displays are shown as `preferences` keep them, and the arrangement is the
