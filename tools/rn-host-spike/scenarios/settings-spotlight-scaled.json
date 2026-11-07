@@ -1,136 +1,136 @@
 {
-  "about": "At 1.25, as settings-spotlight.json at 1: Settings › Spotlight (docs/adr/0051-search.mdx, decision 9) on the real search service, in Spanish: the page from the sidebar, a switch for each kind of result as a Mac lists them, the index's state; a kind turned off kept by the service in the person's configuration at once, and on again.",
-  "module": "OxyOSSettings",
-  "locale": "es_ES.UTF-8",
-  "window": [
-    900,
-    640
-  ],
-  "shell": "OxyOSShell",
-  "app": {
-    "id": "so.oxy.settings",
-    "title": "Settings"
-  },
-  "grants": {
-    "so.oxy.settings": [
-      "settings"
+ "about": "At 1.25, as settings-spotlight.json at 1: Settings \u203a Spotlight (docs/adr/0051-search.mdx, decision 9) on the real search service, in Spanish: the page from the sidebar, a switch for each kind of result as a Mac lists them, the index's state; a kind turned off kept by the service in the person's configuration at once, and on again.",
+ "module": "OxyOSSettings",
+ "locale": "es_ES.UTF-8",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings"
+  ]
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Documents/diario.txt": "querido diario"
+  }
+ },
+ "steps": [
+  {
+   "name": "Spotlight, from the sidebar: its results' switches, every kind on",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Spotlight"
     ]
-  },
-  "home": {
-    "items": {
-      "Documents/": "",
-      "Documents/diario.txt": "querido diario"
+   ],
+   "expect": {
+    "texts": [
+     "Resultados de b\u00fasqueda",
+     "Aplicaciones",
+     "Documentos PDF",
+     "Ajustes del Sistema"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Aplicaciones",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Switch",
+       "name": "Documentos PDF",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
     }
+   }
   },
-  "steps": [
-    {
-      "name": "Spotlight, from the sidebar: its results' switches, every kind on",
-      "do": [
-        "a11y-action",
-        [
-          "activate",
-          "Spotlight"
-        ]
-      ],
-      "expect": {
-        "texts": [
-          "Resultados de búsqueda",
-          "Aplicaciones",
-          "Documentos PDF",
-          "Ajustes del Sistema"
-        ],
-        "at": {
-          "window": [
-            {
-              "role": "Switch",
-              "name": "Aplicaciones",
-              "state": [
-                "checked"
-              ]
-            },
-            {
-              "role": "Switch",
-              "name": "Documentos PDF",
-              "state": [
-                "checked"
-              ]
-            }
-          ]
-        }
+  {
+   "name": "Applications' switch pressed off: kept by the search service at once",
+   "do": [
+    "press_output",
+    [
+     1021,
+     235
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Aplicaciones",
+       "state": []
       }
-    },
-    {
-      "name": "Applications' switch pressed off: kept by the search service at once",
-      "do": [
-        "press_output",
-        [
-          1021,
-          235
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "at": {
-          "window": [
-            {
-              "role": "Switch",
-              "name": "Aplicaciones",
-              "state": []
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "the service's configuration says so",
-      "do": [
-        "wait",
-        800
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "home": {
-          ".config/oxyos/search.json": "{\n  \"excluded\": [],\n  \"hidden\": [\n    \"application\"\n  ]\n}"
-        }
-      }
-    },
-    {
-      "name": "pressed on again",
-      "do": [
-        "press_output",
-        [
-          1021,
-          235
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "at": {
-          "window": [
-            {
-              "role": "Switch",
-              "name": "Aplicaciones",
-              "state": [
-                "checked"
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "the configuration again",
-      "do": [
-        "wait",
-        800
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "home": {
-          ".config/oxyos/search.json": "{\n  \"excluded\": [],\n  \"hidden\": []\n}"
-        }
-      }
+     ]
     }
-  ],
-  "outputs": "1600x1000@1.25"
+   }
+  },
+  {
+   "name": "the service's configuration says so",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "home": {
+     ".config/oxyos/search.json": "{\n  \"excluded\": [],\n  \"hidden\": [\n    \"application\"\n  ]\n}"
+    }
+   }
+  },
+  {
+   "name": "pressed on again",
+   "do": [
+    "press_output",
+    [
+     1021,
+     235
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Aplicaciones",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the configuration again",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "home": {
+     ".config/oxyos/search.json": "{\n  \"excluded\": [],\n  \"hidden\": []\n}"
+    }
+   }
+  }
+ ],
+ "outputs": "1600x1000@1.25"
 }

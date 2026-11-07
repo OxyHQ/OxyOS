@@ -1,404 +1,404 @@
 {
-  "about": "Spotlight (docs/adr/0051-search.mdx) through the real search service, on a home the scenario makes, with Allo (sample/EditingProbe.tsx) open, in Spanish: Super+Space opens the panel and its field takes the keyboard, Allo told it lost it and receiving nothing after; what is typed searches the person's files by name as it is typed (the service started at the first question, its first crawl's results arriving through its watch), the top hit first, a hidden folder's file never shown; a word of a file's text finds it; the arrows move the selection, which the screen reader is told; Escape clears the text and closes with none, Allo given the keyboard back; a file written while the panel is open appears in it; the applications are found by their names in the session's language and Settings' pages by their declared words, and Return opens the top hit: a page of Settings, Settings launched at it.",
-  "locale": "es_ES.UTF-8",
-  "module": "EditingProbe",
-  "window": [
-    600,
-    360
-  ],
-  "shell": "OxyOSShell",
-  "app": {
-    "id": "so.oxy.allo",
-    "title": "Allo"
+ "about": "Spotlight (docs/adr/0051-search.mdx) through the real search service, on a home the scenario makes, with Allo (sample/EditingProbe.tsx) open, in Spanish: Super+Space opens the panel and its field takes the keyboard, Allo told it lost it and receiving nothing after; what is typed searches the person's files by name as it is typed (the service started at the first question, its first crawl's results arriving through its watch), the top hit first, a hidden folder's file never shown; a word of a file's text finds it; the arrows move the selection, which the screen reader is told; Escape clears the text and closes with none, Allo given the keyboard back; a file written while the panel is open appears in it; the applications are found by their names in the session's language and Settings' pages by their declared words, and Return opens the top hit: a page of Settings, Settings launched at it.",
+ "locale": "es_ES.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Documents/informe trimestral.txt": "Las ventas del tercer trimestre crecieron en C\u00f3rdoba.",
+   "Documents/notas de viaje.md": "# Viaje a Sevilla\nbillete de tren y hotel",
+   "Documents/Proyectos/": "",
+   "Documents/Proyectos/presupuesto del faro.txt": "pintura y cristales",
+   ".oculto/": "",
+   ".oculto/informe secreto.txt": "informe"
   },
-  "home": {
+  "later": [
+   {
+    "when_shown": "presupuesto del faro.txt",
+    "in_shell": true,
     "items": {
-      "Documents/": "",
-      "Documents/informe trimestral.txt": "Las ventas del tercer trimestre crecieron en Córdoba.",
-      "Documents/notas de viaje.md": "# Viaje a Sevilla\nbillete de tren y hotel",
-      "Documents/Proyectos/": "",
-      "Documents/Proyectos/presupuesto del faro.txt": "pintura y cristales",
-      ".oculto/": "",
-      ".oculto/informe secreto.txt": "informe"
-    },
-    "later": [
-      {
-        "when_shown": "presupuesto del faro.txt",
-        "in_shell": true,
-        "items": {
-          "Documents/acuarela.txt": "pintura y agua"
-        }
-      }
-    ]
-  },
-  "steps": [
-    {
-      "name": "Super+Space opens Spotlight, its field taking the keyboard: Allo is told it lost it",
-      "do": [
-        "key",
-        [
-          125,
-          57
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {
-          "1": {
-            "focus.out": 1
-          }
-        },
-        "in_shell": {
-          "react": {
-            "focus@spotlight-search": 1,
-            "selectionChange@spotlight-search": 1
-          }
-        },
-        "at": {
-          "shell": [
-            {
-              "role": "Search",
-              "name": "Búsqueda en Spotlight"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "what is typed searches the files by their names' beginnings; the service, started by the first question, answers as its first crawl commits",
-      "do": [
-        "keyboard",
-        "informe"
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "the report is found, the top hit and selected; the hidden folder's file never",
-      "do": [
-        "wait_named",
-        [
-          "informe trimestral.txt, Texto sin formato, Documents",
-          20000
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "in_shell": {
-          "texts": [
-            "Mejor resultado",
-            "informe trimestral.txt"
-          ],
-          "absent": [
-            "informe secreto.txt"
-          ]
-        },
-        "at": {
-          "shell": [
-            {
-              "role": "Button",
-              "name": "informe trimestral.txt, Texto sin formato, Documents",
-              "state": [
-                "selected"
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Escape clears the text, Spotlight still open with the keyboard",
-      "do": [
-        "key",
-        [
-          1
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "in_shell": {
-          "absent": [
-            "informe trimestral.txt"
-          ]
-        }
-      }
-    },
-    {
-      "name": "a word of a file's text finds it, a match in the text alone no top hit",
-      "do": [
-        "keyboard",
-        "pintura"
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "the lighthouse budget, by its text",
-      "do": [
-        "wait_named",
-        [
-          "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
-          10000
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "in_shell": {
-          "texts": [
-            "presupuesto del faro.txt"
-          ],
-          "absent": [
-            "Mejor resultado"
-          ]
-        }
-      }
-    },
-    {
-      "name": "a file written while the panel shows (another program's, once the panel showed the budget) appears in it, by its name",
-      "do": [
-        "wait_named",
-        [
-          "acuarela.txt, Texto sin formato, Documents",
-          10000
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "↓ moves the selection to the next result, the screen reader's focus with it",
-      "do": [
-        "key",
-        [
-          108
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "at": {
-          "shell": [
-            {
-              "role": "Button",
-              "name": "acuarela.txt, Texto sin formato, Documents",
-              "state": [
-                "selected",
-                "focused"
-              ]
-            },
-            {
-              "role": "Button",
-              "name": "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
-              "state": []
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Escape clears the text; Escape again closes Spotlight and Allo has the keyboard again",
-      "do": [
-        "key",
-        [
-          1
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "closed",
-      "do": [
-        "key",
-        [
-          1
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {
-          "1": {
-            "focus.in": 1
-          }
-        },
-        "in_shell": {
-          "absent": [
-            "Búsqueda en Spotlight"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Super+Space again: Spotlight opens empty, its field taking the keyboard from Allo",
-      "do": [
-        "key",
-        [
-          125,
-          57
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {
-          "1": {
-            "focus.out": 1
-          }
-        }
-      }
-    },
-    {
-      "name": "the applications by their names in the session's language: ajus",
-      "do": [
-        "keyboard",
-        "ajus"
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "Settings, Ajustes, the top hit and selected",
-      "do": [
-        "wait_named",
-        [
-          "Ajustes, Aplicación",
-          10000
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "in_shell": {
-          "texts": [
-            "Mejor resultado"
-          ]
-        },
-        "at": {
-          "shell": [
-            {
-              "role": "Button",
-              "name": "Ajustes, Aplicación",
-              "state": [
-                "selected"
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Escape clears the text",
-      "do": [
-        "key",
-        [
-          1
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "Settings' pages by the words their package declares: modo oscuro finds Appearance",
-      "do": [
-        "keyboard",
-        "modo oscuro"
-      ],
-      "expect": {
-        "react": {},
-        "delivered": {}
-      }
-    },
-    {
-      "name": "Apariencia, a page of Settings, the top hit and selected",
-      "do": [
-        "wait_named",
-        [
-          "Apariencia, Ajustes del Sistema",
-          10000
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "react": {},
-        "delivered": {},
-        "at": {
-          "shell": [
-            {
-              "role": "Button",
-              "name": "Apariencia, Ajustes del Sistema",
-              "state": [
-                "selected"
-              ]
-            }
-          ]
-        },
-        "in_shell": {
-          "texts": [
-            "Mejor resultado"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Return opens it: Spotlight closes, and Settings is launched at its Appearance page",
-      "do": [
-        "key",
-        [
-          28
-        ]
-      ],
-      "expect": {
-        "react": {},
-        "in_shell": {
-          "absent": [
-            "Mejor resultado"
-          ],
-          "urls_opened": [
-            {
-              "url": "oxyos-settings://appearance",
-              "application": "so.oxy.settings"
-            }
-          ]
-        },
-        "urls_opened": [
-          {
-            "url": "oxyos-settings://appearance",
-            "application": "so.oxy.settings"
-          }
-        ]
-      }
-    },
-    {
-      "name": "Settings shows Appearance's choices",
-      "do": [
-        "wait_named",
-        [
-          "Automática",
-          15000
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "react": {}
-      }
+     "Documents/acuarela.txt": "pintura y agua"
     }
+   }
   ]
+ },
+ "steps": [
+  {
+   "name": "Super+Space opens Spotlight, its field taking the keyboard: Allo is told it lost it",
+   "do": [
+    "key",
+    [
+     125,
+     57
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "in_shell": {
+     "react": {
+      "focus@spotlight-search": 1,
+      "selectionChange@spotlight-search": 1
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Search",
+       "name": "B\u00fasqueda en Spotlight"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "what is typed searches the files by their names' beginnings; the service, started by the first question, answers as its first crawl commits",
+   "do": [
+    "keyboard",
+    "informe"
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "the report is found, the top hit and selected; the hidden folder's file never",
+   "do": [
+    "wait_named",
+    [
+     "informe trimestral.txt, Texto sin formato, Documents",
+     20000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "texts": [
+      "Mejor resultado",
+      "informe trimestral.txt"
+     ],
+     "absent": [
+      "informe secreto.txt"
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "informe trimestral.txt, Texto sin formato, Documents",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape clears the text, Spotlight still open with the keyboard",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "absent": [
+      "informe trimestral.txt"
+     ]
+    }
+   }
+  },
+  {
+   "name": "a word of a file's text finds it, a match in the text alone no top hit",
+   "do": [
+    "keyboard",
+    "pintura"
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "the lighthouse budget, by its text",
+   "do": [
+    "wait_named",
+    [
+     "presupuesto del faro.txt, Texto sin formato, Documents \u203a Proyectos",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "texts": [
+      "presupuesto del faro.txt"
+     ],
+     "absent": [
+      "Mejor resultado"
+     ]
+    }
+   }
+  },
+  {
+   "name": "a file written while the panel shows (another program's, once the panel showed the budget) appears in it, by its name",
+   "do": [
+    "wait_named",
+    [
+     "acuarela.txt, Texto sin formato, Documents",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "\u2193 moves the selection to the next result, the screen reader's focus with it",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "acuarela.txt, Texto sin formato, Documents",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "presupuesto del faro.txt, Texto sin formato, Documents \u203a Proyectos",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape clears the text; Escape again closes Spotlight and Allo has the keyboard again",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "closed",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     }
+    },
+    "in_shell": {
+     "absent": [
+      "B\u00fasqueda en Spotlight"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Super+Space again: Spotlight opens empty, its field taking the keyboard from Allo",
+   "do": [
+    "key",
+    [
+     125,
+     57
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "the applications by their names in the session's language: ajus",
+   "do": [
+    "keyboard",
+    "ajus"
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Settings, Ajustes, the top hit and selected",
+   "do": [
+    "wait_named",
+    [
+     "Ajustes, Aplicaci\u00f3n",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "texts": [
+      "Mejor resultado"
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Ajustes, Aplicaci\u00f3n",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape clears the text",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Settings' pages by the words their package declares: modo oscuro finds Appearance",
+   "do": [
+    "keyboard",
+    "modo oscuro"
+   ],
+   "expect": {
+    "react": {},
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Apariencia, a page of Settings, the top hit and selected",
+   "do": [
+    "wait_named",
+    [
+     "Apariencia, Ajustes del Sistema",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "delivered": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Apariencia, Ajustes del Sistema",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "texts": [
+      "Mejor resultado"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Return opens it: Spotlight closes, and Settings is launched at its Appearance page",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "expect": {
+    "react": {},
+    "in_shell": {
+     "absent": [
+      "Mejor resultado"
+     ],
+     "urls_opened": [
+      {
+       "url": "oxyos-settings://appearance",
+       "application": "so.oxy.settings"
+      }
+     ]
+    },
+    "urls_opened": [
+     {
+      "url": "oxyos-settings://appearance",
+      "application": "so.oxy.settings"
+     }
+    ]
+   }
+  },
+  {
+   "name": "Settings shows Appearance's choices",
+   "do": [
+    "wait_named",
+    [
+     "Autom\u00e1tica",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {}
+   }
+  }
+ ]
 }
