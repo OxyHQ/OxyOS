@@ -223,6 +223,15 @@ impl Store {
         write(&self.directory, KEYBAG, &secret::json(&keybag)?)
     }
 
+    /// Forgets the vault on this machine and keeps the keybag: the member's keys, the keyring,
+    /// the roster and the items (the member was removed, or the person turns the keychain off).
+    pub fn forget_vault(&self) -> Result<()> {
+        for record in Record::ALL {
+            remove(&self.directory, record.name())?;
+        }
+        Ok(())
+    }
+
     /// Forgets the keychain on this machine (it leaves the vault): every file, the keybag last.
     pub fn erase(&self) -> Result<()> {
         for record in Record::ALL {
@@ -237,6 +246,19 @@ fn record_aad(record: Record) -> Vec<u8> {
 }
 
 impl Unlocked {
+    /// Forgets the vault and keeps the keybag ([`Store::forget_vault`]).
+    pub fn forget_vault(&self) -> Result<()> {
+        for record in Record::ALL {
+            remove(&self.directory, record.name())?;
+        }
+        Ok(())
+    }
+
+    /// Locks the keybag key in memory ([`crate::memory`]).
+    pub fn pin(&mut self) -> Result<()> {
+        self.key.pin()
+    }
+
     fn get(&self, record: Record) -> Result<Option<Zeroizing<Vec<u8>>>> {
         let Some(bytes) = read(&self.directory, record.name())? else {
             return Ok(None);
@@ -313,6 +335,24 @@ impl Unlocked {
             return Err(Error::Malformed("roster (not at the head kept)"));
         }
         Ok(Some(roster))
+    }
+
+    /// The roster kept and its entries, verified again from the genesis up to the head kept.
+    pub fn stored_roster(&self) -> Result<Option<(crate::roster::VerifiedRoster, Vec<Entry>)>> {
+        let Some(plaintext) = self.get(Record::Roster)? else {
+            return Ok(None);
+        };
+        let stored: StoredRoster =
+            serde_json::from_slice(&plaintext).map_err(|_| Error::Malformed("roster"))?;
+        let roster = crate::roster::VerifiedRoster::verify(
+            &stored.vault_id,
+            &stored.entries,
+            Some(&stored.head),
+        )?;
+        if roster.head() != stored.head {
+            return Err(Error::Malformed("roster (not at the head kept)"));
+        }
+        Ok(Some((roster, stored.entries)))
     }
 
     /// Keeps a verified roster's entries and head.

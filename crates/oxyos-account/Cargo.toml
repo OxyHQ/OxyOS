@@ -8,10 +8,16 @@ publish.workspace = true
 [features]
 # The service's HTTP client to Oxy's API (`api::HttpApi`). The session program and the client
 # library speak only the service's sockets, and leave it out.
-default = ["http"]
+default = ["http", "keychain"]
 http = ["dep:ureq", "dep:url"]
+# The accounts' keychains (ADR 0050): the service's alone. The session program, the login program
+# and the client library speak the sockets' messages, which need none of it, and leave it out.
+keychain = ["http", "dep:oxyos-keychain", "dep:subtle"]
 
 [dependencies]
+oxyos-keychain = { path = "../oxyos-keychain", optional = true }
+# Comparing the password the machine learned with the one Settings gives, in constant time.
+subtle = { version = "2", optional = true }
 # HTTP to Oxy's API with TLS in Rust (rustls, verified against the system's certificates), as
 # `oxyos-net` uses it; no cookies, no redirects.
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"], optional = true }

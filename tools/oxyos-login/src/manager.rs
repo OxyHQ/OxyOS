@@ -161,6 +161,14 @@ impl Manager {
         &self.state
     }
 
+    /// The account whose password was accepted, while its session is being handed the seat.
+    pub fn handing_over(&self) -> Option<&str> {
+        match &self.state {
+            State::HandingOver { account, .. } => Some(account),
+            _ => None,
+        }
+    }
+
     fn throttle(&mut self, account: &str, enrolled: bool) -> &mut Throttle {
         if enrolled {
             self.throttles.entry(account.to_owned()).or_default()
