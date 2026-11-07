@@ -530,7 +530,16 @@ passwords to the login program on its development path (`oxyos-login --dev`, bes
 compositor), which checks them with PAM from a configuration of the run's own (`pam_exec` accepts
 `login.password` alone) and records the session it would start instead of starting it. The
 accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's API is a refused port,
-so the machine is offline. `login.record`: what the login program must have recorded once the run
+so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
+sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
+code, for the one account it plays, committing the device credential `oxy.device`; every request
+logged by its method and path alone, one not played answered 404), and the accounts' service names
+it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
+be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
+lists `enroll.account` once enrolled. A step's `accounts_asked` is what the setup asked the service
+in it ("ASKED: ANSWERED", exactly, in order) and `oxy_requests` requests Oxy's API answered in it
+("METHOD PATH STATUS", each at least once). No credential of anyone's is in a scenario: every one
+is the run's own. `login.record`: what the login program must have recorded once the run
 ended, each line beginning so, in order (none: nobody signed in). A step's `shell.signed_in` says
 whether the login screen was told someone signed in.
 
@@ -1210,6 +1219,116 @@ def account_later(changes, report_path):
     threading.Thread(target=watch, daemon=True).start()
 
 
+def played_oxy(spec, log):
+    """Oxy's API as the login screen's setup reaches it (`login.oxy`): the SDK's own sign-in and the
+    calls around it, answered in the API's shapes for the one account the scenario plays
+    (`identifier`, `password`, `id`, `username`, `has_password`) and the device credential its
+    sign-in commits (`device`: {deviceId, deviceSecret}, the run's own, no credential of anyone's).
+    Every request is logged by its method and path, never its body; one not played is answered 404
+    and logged so. Returns its base URL and the server."""
+    import secrets as _secrets
+
+    state = {"has_password": spec.get("has_password", True)}
+    lock = threading.Lock()
+
+    class Oxy(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass
+
+        def reply(self, status, body):
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            with lock, open(log, "a") as out:
+                out.write(json.dumps({"t": time.monotonic_ns(), "request": f"{self.command} {self.path.split('?')[0]}",
+                                      "status": status}) + "\n")
+
+        def body(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                return json.loads(self.rfile.read(length) or b"{}")
+            except ValueError:
+                return {}
+
+        def session(self):
+            return {"sessionId": "played-session", "deviceId": spec["device"]["deviceId"],
+                    "deviceSecret": spec["device"]["deviceSecret"],
+                    "expiresAt": "2026-11-13T12:00:00.000Z", "accessToken": "played." + _secrets.token_hex(8),
+                    "user": {"id": spec["id"], "username": spec["username"]}}
+
+        def user(self):
+            return {"id": spec["id"], "username": spec["username"],
+                    "name": {"first": spec.get("first", spec["username"]), "last": spec.get("last", ""),
+                             "full": spec.get("name", spec["username"])}}
+
+        def do_GET(self):
+            path = self.path.split("?")[0]
+            if path == "/users/me/sign-in-methods":
+                self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
+                                 "backupCodesRemaining": 0})
+            elif path == "/users/me":
+                self.reply(200, self.user())
+            elif path == "/accounts":
+                self.reply(200, {"accounts": []})
+            elif path == "/auth/oauth/client/oxy_pk_played":
+                self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS"}})
+            elif path in ("/", "/health"):
+                self.reply(200, {"ok": True})
+            else:
+                self.reply(404, {"error": "not_found", "message": "not played"})
+
+        def do_POST(self):
+            path = self.path.split("?")[0]
+            body = self.body()
+            if path == "/auth/signin/email/start":
+                self.reply(200, {"requestId": "played-request", "requestSecret": "p" * 43,
+                                 "expiresAt": int(time.time() * 1000) + 600000})
+            elif path == "/auth/signin/email/collect":
+                self.reply(200, {"status": "pending", "expiresAt": int(time.time() * 1000) + 600000})
+            elif path == "/auth/signin/email/confirm":
+                if body.get("code") == spec["code"]:
+                    self.reply(200, self.session())
+                else:
+                    self.reply(400, {"error": "invalid_code", "code": "INVALID_CODE", "message": "Invalid code"})
+            elif path == "/users/me/reauth/email":
+                self.reply(200, {"verificationId": "played-reauth", "expiresAt": int(time.time() * 1000) + 600000})
+            elif path == "/auth/signin/password":
+                if body.get("identifier") == spec["identifier"] and body.get("password") == spec.get("password") \
+                        and state["has_password"]:
+                    self.reply(200, self.session())
+                else:
+                    self.reply(401, {"error": "invalid_credentials", "code": "INVALID_CREDENTIALS",
+                                     "message": "Invalid credentials"})
+            else:
+                self.reply(404, {"error": "not_found", "message": "not played"})
+
+        def do_PUT(self):
+            path = self.path.split("?")[0]
+            body = self.body()
+            if path == "/users/me/password":
+                # The SDK's own flow of adding a password, confirmed with a code sent by email.
+                if json.dumps(body.get("reauth", {})).find(spec["code"]) >= 0 and body.get("newPassword"):
+                    state["has_password"] = True
+                    self.reply(200, {"success": True})
+                else:
+                    self.reply(400, {"error": "invalid_code", "code": "INVALID_CODE", "message": "Invalid code"})
+            else:
+                self.reply(404, {"error": "not_found", "message": "not played"})
+
+        do_DELETE = do_PUT
+
+    ThreadingHTTPServer.request_queue_size = 64
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Oxy)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}", server
+
+
 def login_program(out, offscreen, login):
     """The login program on its development path, its PAM configuration, the accounts' stand-in
     and a refused port for Oxy's API: (process, greeter socket, record, environment)."""
@@ -1226,7 +1345,15 @@ def login_program(out, offscreen, login):
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-login-"))
     accountd, greeter, record = sockets / "accountd", sockets / "greeter", out / "login-record"
     record.unlink(missing_ok=True)
-    serve_accounts(accountd, login.get("accounts", []))
+    # Online, Oxy's API is played (`login.oxy`) and the accounts' service names it, with a client id.
+    for log in ("oxy-api.jsonl", "login-accounts.jsonl"):
+        (out / log).unlink(missing_ok=True)
+    ACCOUNT["setup_log"] = out / "login-accounts.jsonl"
+    ACCOUNT["oxy_log"] = out / "oxy-api.jsonl"
+    oxy = played_oxy(login["oxy"], out / "oxy-api.jsonl") if "oxy" in login else None
+    if oxy:
+        login = dict(login, platform={"api": oxy[0], "clientId": "oxy_pk_played"})
+    serve_accounts(accountd, login.get("accounts", []), login, out / "login-accounts.jsonl")
     program = pathlib.Path(offscreen).resolve().parent / "oxyos-login"
     process = subprocess.Popen(
         [str(program), "--dev", "--pam-confdir", str(pam), "--record", str(record),
@@ -1241,7 +1368,7 @@ def login_program(out, offscreen, login):
     refusing = socket.socket()
     refusing.bind(("127.0.0.1", 0))
     env = {"OXYOS_ACCOUNTD_SOCKET": str(accountd),
-           "OXYOS_OXY_API": f"http://127.0.0.1:{refusing.getsockname()[1]}/"}
+           "OXYOS_OXY_API": oxy[0] if oxy else f"http://127.0.0.1:{refusing.getsockname()[1]}/"}
     return process, greeter, record, env, (refusing, sockets)
 
 
@@ -2763,6 +2890,24 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
         if components > wanted.get("components_max", float("inf")):
             fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
+    if "accounts_asked" in expect:
+        # What the login screen's setup asked the played accounts' service in the step (`login`):
+        # "ASKED: ANSWERED" ("platform: platform", "enroll: secondFactorRequired",
+        # "secondFactor: enrolled", "enroll: refused"), exactly, in order.
+        log = ACCOUNT.get("setup_log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        got = [f"{line['asked']}: {line['answered']}" for line in lines if start <= line["t"] <= end]
+        if got != expect["accounts_asked"]:
+            fail(f"the accounts' service was asked {got}, expected exactly {expect['accounts_asked']}")
+    if "oxy_requests" in expect:
+        # Requests the played Oxy API answered in the step (`login.oxy`), "METHOD PATH STATUS":
+        # each listed was made at least once.
+        log = ACCOUNT.get("oxy_log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        got = {f"{line['request']} {line['status']}" for line in lines if start <= line["t"] <= end}
+        missing = [wanted for wanted in expect["oxy_requests"] if wanted not in got]
+        if missing:
+            fail(f"Oxy's API was not asked {missing} (it was asked {sorted(got)})")
     if "account_session" in expect:
         # What the played accounts' service was asked in the step (`account`): "APPLICATION ASKED:
         # ANSWERED", exactly, in any order (an application none, "-").

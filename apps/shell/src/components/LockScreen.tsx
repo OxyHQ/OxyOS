@@ -22,6 +22,7 @@ export function LockBackdrop({
   wallpaper,
   now,
   Masked,
+  clock = true,
   children,
 }: {
   testID: string;
@@ -29,6 +30,9 @@ export function LockBackdrop({
   now: Date;
   /** The platform's masked view, for the clock's material (LockClock). */
   Masked?: ComponentType<MaskedProps>;
+  /** The date and the time over it; without them (the login screen's setup) the content takes
+      the screen from near its top. */
+  clock?: boolean;
   children: React.ReactNode;
 }) {
   const wallpaperTarget = useRef<ComponentRef<typeof View>>(null);
@@ -42,12 +46,20 @@ export function LockBackdrop({
         className="absolute inset-0"
         style={{ backgroundColor: "rgba(0,0,0,0.28)" }}
       />
-      <Box className="items-center" style={{ marginTop: "9%" }}>
-        <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
-      </Box>
-      <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: "11%" }}>
-        {children}
-      </Box>
+      {clock ? (
+        <>
+          <Box className="items-center" style={{ marginTop: "9%" }}>
+            <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
+          </Box>
+          <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: "11%" }}>
+            {children}
+          </Box>
+        </>
+      ) : (
+        <Box className="absolute items-center" style={{ left: 0, right: 0, top: "8%" }}>
+          {children}
+        </Box>
+      )}
     </Box>
   );
 }

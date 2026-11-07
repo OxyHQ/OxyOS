@@ -4,7 +4,6 @@ import {
   accountsFrom,
   chosenAccount,
   opensOnSetup,
-  setupAfterCheck,
 } from "../src/model.ts";
 
 test("the accounts' service's list becomes the screen's accounts", () => {
@@ -35,9 +34,7 @@ test("the password is for the account chosen, else the first", () => {
   assert.equal(chosenAccount(null, "oxy-a"), null);
 });
 
-test("setup is online only, and opens at the first boot", () => {
-  assert.equal(setupAfterCheck(false), "offline");
-  assert.equal(setupAfterCheck(true), "unavailable");
+test("setup opens at the first boot", () => {
   assert.equal(opensOnSetup([]), true);
   assert.equal(opensOnSetup([{ user: "oxy-a", name: "Ada" }]), false);
   // Accounts that cannot be read are no first boot: nothing is offered until they can.

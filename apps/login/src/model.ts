@@ -41,18 +41,6 @@ export function chosenAccount(accounts: Accounts, chosen: string | null): LoginA
   return accounts.find((account) => account.user === chosen) ?? accounts[0]!;
 }
 
-/**
- * Adding an account (ADR 0020, decision 4): setup is online only. `checking` the network,
- * `offline` (it says it needs the network and does nothing else), or `online`: the SDK's own
- * sign-in comes next, which this step of the login screen does not have yet (`unavailable`).
- */
-export type Setup = "closed" | "checking" | "offline" | "unavailable";
-
-/** Where setup goes once the network was looked at. */
-export function setupAfterCheck(online: boolean): Setup {
-  return online ? "unavailable" : "offline";
-}
-
 /** The login screen opens on setup when no account is enrolled: the first boot. */
 export function opensOnSetup(accounts: Accounts): boolean {
   return accounts !== null && accounts.length === 0;

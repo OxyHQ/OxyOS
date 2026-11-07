@@ -1,0 +1,250 @@
+{
+  "about": "Adding a second Oxy account from the login screen's \"Añadir cuenta\", in Spanish, from the keyboard with the screen reader on (docs/adr/0020-oxy-account-login.mdx, decision 4; docs/adr/0039-keyboard-access.mdx; docs/adr/0014-screen-reader.mdx), against a played Oxy API and accounts' service: the SDK's own sign-in with the code sent by email (the account has a password), then the account's password once more, its field said as it takes the focus; a wrong one said; the right one sets the account up, which is listed beside the other and chosen. At 1.25 (1600 × 1000).",
+  "locale": "es_ES.UTF-8",
+  "shell": "OxyOSLogin",
+  "outputs": "1600x1000@1.25",
+  "reader": {},
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Bea Ramos"
+      }
+    ],
+    "record": [],
+    "oxy": {
+      "identifier": "ada",
+      "code": "246810",
+      "id": "0123456789abcdef01234569",
+      "username": "ada",
+      "name": "Ada Lovelace",
+      "has_password": true,
+      "device": {
+        "deviceId": "played-device-2",
+        "deviceSecret": "played-device-secret-2"
+      }
+    },
+    "enroll": {
+      "device": {
+        "deviceId": "played-device-2",
+        "deviceSecret": "played-device-secret-2"
+      },
+      "password": "played password 2",
+      "account": {
+        "accountId": "0123456789abcdef01234569",
+        "user": "oxy-cccccccccccccccccccc",
+        "uid": 1003,
+        "name": "Ada Lovelace"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "the login screen with one account",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Añadir cuenta: setup, online",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Añadir cuenta"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "platform: platform"
+        ]
+      }
+    },
+    {
+      "name": "the SDK's own sign-in, in Spanish",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Añadir una cuenta de Oxy",
+            "Iniciar sesión",
+            "Email o nombre de usuario"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Tab: Descargar Commons",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [
+          {
+            "text": "Descargar Commons, botón",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tab: the email or username field",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [
+          {
+            "text": "Email o nombre de usuario, campo de texto",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "its username",
+      "do": [
+        "type",
+        "ada"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Return: Continuar",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "look",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "the code",
+      "do": [
+        "type",
+        "246810"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "the account's password once more, its field said",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Introduce la contraseña de Ada Lovelace",
+            "OxyOS inicia sesión con la contraseña de tu cuenta de Oxy, incluso sin conexión. Introdúcela una vez más."
+          ]
+        }
+      }
+    },
+    {
+      "name": "a wrong password: refused by the accounts' service, said once",
+      "do": [
+        "keyboard",
+        "mal\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "enroll: refused"
+        ],
+        "spoken": [
+          {
+            "text": "Contraseña incorrecta",
+            "interrupting": true
+          }
+        ],
+        "in_shell": {
+          "never": [
+            "mal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the right one: the account set up, said as it is listed and chosen",
+      "do": [
+        "keyboard",
+        "played password 2\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "enroll: enrolled"
+        ],
+        "spoken": [
+          {
+            "text": "Se ha añadido Ada Lovelace a este ordenador",
+            "interrupting": true
+          }
+        ],
+        "never": [
+          "played password 2"
+        ],
+        "in_shell": {
+          "never": [
+            "played password 2"
+          ]
+        }
+      }
+    },
+    {
+      "name": "both accounts listed, the new one chosen",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Bea Ramos",
+            "Ada Lovelace",
+            "Añadir cuenta"
+          ],
+          "absent": [
+            "Añadir una cuenta de Oxy",
+            "Introduce la contraseña de Ada Lovelace"
+          ]
+        }
+      }
+    }
+  ]
+}
