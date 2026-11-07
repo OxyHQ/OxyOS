@@ -7,7 +7,22 @@ use crate::disks::{self, Unsuitable};
 use crate::entries::{self, Entries, Entry, Tries};
 use crate::host::{Command, Failed, Host, Output};
 use crate::install::{self, Developer, Options, Paths, Step};
-use crate::layout::{self, Image, RECOVERY_TYPE, ROOT_TYPE_X86_64};
+use crate::layout::{self, Image, RECOVERY_TYPE};
+
+/// The root's type on the machine the tests run on (x86-64 or AArch64), which an install there
+/// writes and the layout looks for.
+fn root_type() -> &'static str {
+    layout::root_type()
+}
+
+/// Another architecture's root type.
+fn other_root_type() -> &'static str {
+    if root_type() == layout::ROOT_TYPE_X86_64 {
+        layout::ROOT_TYPE_ARM64
+    } else {
+        layout::ROOT_TYPE_X86_64
+    }
+}
 use crate::network;
 use crate::request::{self, EraseRequest, Found, State, Verdict};
 use std::fs;
@@ -109,6 +124,7 @@ const RECOVERY_KEY: &str =
 fn lsblk(laid_out: bool, encrypted: bool, root_partuuid: &str) -> String {
     let children = if laid_out {
         let root_fs = if encrypted { "crypto_LUKS" } else { "ext4" };
+        let root = root_type();
         format!(
             r#""children": [
               {{"name": "vda1", "path": "/dev/vda1", "type": "part", "size": 1073741824, "rm": false, "ro": false, "tran": null, "model": null, "ptuuid": "{DISK_UUID}",
@@ -116,7 +132,7 @@ fn lsblk(laid_out: bool, encrypted: bool, root_partuuid: &str) -> String {
               {{"name": "vda2", "path": "/dev/vda2", "type": "part", "size": 3221225472, "rm": false, "ro": false, "tran": null, "model": null, "ptuuid": "{DISK_UUID}",
                "parttype": "{RECOVERY_TYPE}", "partuuid": "5f36a183-8d45-427c-8f11-4d0e1bd183a6", "partlabel": "OxyOS Recovery", "fstype": "ext4", "uuid": "067ef982-9c1b-4a71-ad0e-590a5250c6bd", "mountpoints": [null]}},
               {{"name": "vda3", "path": "/dev/vda3", "type": "part", "size": 12883832832, "rm": false, "ro": false, "tran": null, "model": null, "ptuuid": "{DISK_UUID}",
-               "parttype": "{ROOT_TYPE_X86_64}", "partuuid": "{root_partuuid}", "partlabel": "OxyOS", "fstype": "{root_fs}", "uuid": "9222c73f-1d6c-4556-be7a-d109c63ee37e", "mountpoints": [null]}}
+               "parttype": "{root}", "partuuid": "{root_partuuid}", "partlabel": "OxyOS", "fstype": "{root_fs}", "uuid": "9222c73f-1d6c-4556-be7a-d109c63ee37e", "mountpoints": [null]}}
             ]"#
         )
     } else {
@@ -133,7 +149,7 @@ fn lsblk(laid_out: bool, encrypted: bool, root_partuuid: &str) -> String {
 
 fn x86_layout(encrypted: bool) -> disks::Layout {
     disks::parse(&lsblk(true, encrypted, ROOT_UUID)).unwrap()[0]
-        .layout_for(ROOT_TYPE_X86_64)
+        .layout_for(root_type())
         .unwrap()
 }
 
@@ -239,13 +255,13 @@ fn lsblk_is_read_into_whole_disks_and_their_partitions() {
         "\"0\" flags read as false"
     );
     assert_eq!(disk.partitions.len(), 3);
-    let layout = disk.layout_for(ROOT_TYPE_X86_64).unwrap();
+    let layout = disk.layout_for(root_type()).unwrap();
     assert_eq!(layout.esp.path, "/dev/vda1");
     assert_eq!(layout.recovery.path, "/dev/vda2");
     assert_eq!(layout.root.path, "/dev/vda3");
     assert!(layout.root.encrypted());
     assert!(
-        disk.layout_for(layout::ROOT_TYPE_ARM64).is_none(),
+        disk.layout_for(other_root_type()).is_none(),
         "another architecture's root is not this one's"
     );
     assert!(disk
@@ -296,7 +312,7 @@ fn a_disk_with_two_roots_has_no_layout_rather_than_a_guess() {
     let mut second = disk.partitions[2].clone();
     second.path = "/dev/vda4".into();
     disk.partitions.push(second);
-    assert!(disk.layout_for(ROOT_TYPE_X86_64).is_none());
+    assert!(disk.layout_for(root_type()).is_none());
 }
 
 #[test]
@@ -309,11 +325,7 @@ fn a_mount_through_an_opened_volume_is_found_on_its_partition() {
     let disks = disks::parse(&json).unwrap();
     let disk = disks::disk_with_mount(&disks, "/").unwrap();
     assert_eq!(disk.path, "/dev/vda");
-    assert!(disk
-        .layout_for(ROOT_TYPE_X86_64)
-        .unwrap()
-        .root
-        .mounted_at("/"));
+    assert!(disk.layout_for(root_type()).unwrap().root.mounted_at("/"));
 }
 
 // Boot counting.
@@ -488,7 +500,7 @@ fn an_armed_request_is_carried_out_only_on_its_disk_and_root() {
     assert_eq!(request.applies_to(&layout), Verdict::Proceed);
     let reinstalled = disks::parse(&lsblk(true, true, "aaaaaaaa-0000-0000-0000-000000000000"))
         .unwrap()[0]
-        .layout_for(ROOT_TYPE_X86_64)
+        .layout_for(root_type())
         .unwrap();
     assert_eq!(request.applies_to(&reinstalled), Verdict::OtherRoot);
     let mut elsewhere = layout.clone();
