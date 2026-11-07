@@ -80,7 +80,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 16",
+      "text": "Apariencia, seleccionado, 1 de 17",
       "interrupting": true
      }
     ],
@@ -120,7 +120,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 16",
+      "text": "Fondo de pantalla, seleccionado, 2 de 17",
       "interrupting": true
      }
     ],
@@ -163,7 +163,7 @@
     },
     "spoken": [
      {
-      "text": "Notificaciones, seleccionado, 3 de 16",
+      "text": "Notificaciones, seleccionado, 3 de 17",
       "interrupting": true
      }
     ],
@@ -206,7 +206,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 16",
+      "text": "Fondo de pantalla, seleccionado, 2 de 17",
       "interrupting": true
      }
     ],
@@ -287,7 +287,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 16",
+      "text": "Fondo de pantalla, seleccionado, 2 de 17",
       "interrupting": true
      }
     ],
@@ -295,7 +295,7 @@
    }
   },
   {
-   "name": "End: the last row, About, across into the General group; the sidebar scrolls it into view (sixteen rows, twelve in sight)",
+   "name": "End: the last row, About, across into the General group; the sidebar scrolls it into view (seventeen rows, twelve in sight)",
    "do": [
     "key",
     [
@@ -308,7 +308,7 @@
      "shortcut@menu-bar": 1,
      "blur@settings-nav-wallpaper": 1,
      "focus@settings-nav-about": 1,
-     "scroll@ScrollView#224": 1
+     "scroll@ScrollView#236": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-about",
@@ -328,7 +328,7 @@
     },
     "spoken": [
      {
-      "text": "Información, seleccionado, 16 de 16",
+      "text": "Información, seleccionado, 17 de 17",
       "interrupting": true
      }
     ],
@@ -389,7 +389,7 @@
     },
     "spoken": [
      {
-      "text": "Privacidad, seleccionado, 15 de 16",
+      "text": "Privacidad, seleccionado, 16 de 17",
       "interrupting": true
      }
     ],
@@ -410,7 +410,7 @@
      "shortcut@menu-bar": 1,
      "blur@settings-nav-privacy": 1,
      "focus@settings-nav-appearance": 1,
-     "scroll@ScrollView#224": 1
+     "scroll@ScrollView#236": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-appearance",
@@ -430,7 +430,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 16",
+      "text": "Apariencia, seleccionado, 1 de 17",
       "interrupting": true
      }
     ],

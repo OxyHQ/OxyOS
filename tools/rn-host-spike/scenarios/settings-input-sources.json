@@ -66,7 +66,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 16",
+      "text": "Apariencia, seleccionado, 1 de 17",
       "interrupting": true
      }
     ],
@@ -101,7 +101,7 @@
     },
     "spoken": [
      {
-      "text": "Teclado, seleccionado, 9 de 16",
+      "text": "Teclado, seleccionado, 9 de 17",
       "interrupting": true
      }
     ],
@@ -356,7 +356,7 @@
      "click@input-sources-add": 1,
      "blur@input-sources-add": 1,
      "focus@input-source-add-pinyin": 1,
-     "scroll@ScrollView#716": 2,
+     "scroll@ScrollView#728": 2,
      "show@settings-page": 1
     },
     "keyboard_focus": {
