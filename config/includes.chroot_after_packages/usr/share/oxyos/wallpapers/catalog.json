@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "default": "oxyos",
+  "categories": [
+    {
+      "id": "dynamic",
+      "name": {
+        "en": "Dynamic Wallpapers",
+        "es": "Fondos dinámicos"
+      }
+    },
+    {
+      "id": "gradients",
+      "name": {
+        "en": "Gradients",
+        "es": "Degradados"
+      }
+    }
+  ],
+  "colors": [
+    {
+      "color": "#1f5fd6",
+      "name": {
+        "en": "Blue",
+        "es": "Azul"
+      }
+    },
+    {
+      "color": "#3b3fb6",
+      "name": {
+        "en": "Indigo",
+        "es": "Índigo"
+      }
+    },
+    {
+      "color": "#7a3fc2",
+      "name": {
+        "en": "Purple",
+        "es": "Morado"
+      }
+    },
+    {
+      "color": "#c2367a",
+      "name": {
+        "en": "Pink",
+        "es": "Rosa"
+      }
+    },
+    {
+      "color": "#c8333a",
+      "name": {
+        "en": "Red",
+        "es": "Rojo"
+      }
+    },
+    {
+      "color": "#e0702a",
+      "name": {
+        "en": "Orange",
+        "es": "Naranja"
+      }
+    },
+    {
+      "color": "#e8b62e",
+      "name": {
+        "en": "Yellow",
+        "es": "Amarillo"
+      }
+    },
+    {
+      "color": "#2f9a5a",
+      "name": {
+        "en": "Green",
+        "es": "Verde"
+      }
+    },
+    {
+      "color": "#178a8a",
+      "name": {
+        "en": "Teal",
+        "es": "Verde azulado"
+      }
+    },
+    {
+      "color": "#4a4f57",
+      "name": {
+        "en": "Graphite",
+        "es": "Grafito"
+      }
+    },
+    {
+      "color": "#b9bec6",
+      "name": {
+        "en": "Silver",
+        "es": "Plata"
+      }
+    },
+    {
+      "color": "#000000",
+      "name": {
+        "en": "Black",
+        "es": "Negro"
+      }
+    }
+  ]
+}

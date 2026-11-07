@@ -917,6 +917,8 @@ fn main() -> Result<()> {
             switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;
         }
         // The changes Settings asked for, and the sun an automatic appearance follows.
+        // Each display's wallpaper is kept by its identity (docs/adr/0048-wallpapers.mdx).
+        settings.set_display_identities(displays.identities());
         for key in settings.serve(&mut compositor, settings::now()) {
             eprintln!("[session] {key} changed");
             if let Some(methods) = input_methods.as_mut() {

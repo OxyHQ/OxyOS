@@ -572,13 +572,19 @@ impl Client {
 
     /// Settings (its `settings` grant, ADR 0019) changes the preference `key` to `value`, as
     /// `key=value` in chunks; a `PreferenceResult` with `serial` answers. A key is not empty and
-    /// has no `=`; the whole is at most MAX_PREFERENCE_BYTES.
+    /// has no `=`; the whole is at most MAX_PREFERENCE_BYTES, and 128 bytes to a compositor older
+    /// than version 29 (docs/adr/0048-wallpapers.mdx: a wallpaper's path), which took no more.
     pub fn set_preference(&self, serial: u32, key: &str, value: &str) -> io::Result<()> {
         let text = format!("{key}={value}");
-        if key.is_empty() || key.contains('=') || text.len() > MAX_PREFERENCE_BYTES {
+        let most = if self.version >= 29 {
+            MAX_PREFERENCE_BYTES
+        } else {
+            128
+        };
+        if key.is_empty() || key.contains('=') || text.len() > most {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "a preference is a key with no `=` and its value, at most 128 bytes",
+                format!("a preference is a key with no `=` and its value, at most {most} bytes"),
             ));
         }
         let chunks = TextChunk::split(&text);

@@ -671,6 +671,12 @@ fn events() -> Vec<Event> {
             output: 2,
             covered: true,
         },
+        Event::OutputWallpaper {
+            output: 2,
+            index: 1,
+            last: true,
+            text: PreeditText::new("/a.jpg").unwrap(),
+        },
         Event::LockState { locked: true },
         Event::CapsLock {
             surface: 5,
@@ -1829,6 +1835,22 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
     let mut v22 = Vec::new();
     assert!(write_event_for(&mut v22, &covered, 22).unwrap());
     assert_eq!(read_event_for(&mut Cursor::new(&v22), 22).unwrap(), covered);
+    // Each output's wallpaper (docs/adr/0048-wallpapers.mdx) is version 29's: an older shell is
+    // never told it, and shows its own.
+    let wallpaper = Event::OutputWallpaper {
+        output: 1,
+        index: 0,
+        last: true,
+        text: PreeditText::new("horizon").unwrap(),
+    };
+    assert_eq!(event_since(&wallpaper), 29);
+    assert!(!write_event_for(&mut nothing, &wallpaper, 28).unwrap());
+    let mut v29 = Vec::new();
+    assert!(write_event_for(&mut v29, &wallpaper, 29).unwrap());
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v29), 29).unwrap(),
+        wallpaper
+    );
     // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
     let scroll = Event::Scroll {
         surface: 1,

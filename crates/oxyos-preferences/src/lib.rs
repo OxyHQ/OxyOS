@@ -23,6 +23,8 @@ pub mod displays;
 pub mod locale;
 /// The user's folders (xdg-user-dirs).
 pub mod user_dirs;
+/// The person's wallpapers (docs/adr/0048-wallpapers.mdx).
+pub mod wallpaper;
 pub use displays::{Arrangement, DisplayMode, DisplaySettings};
 pub use locale::{environment_locale, session_locale, HourCycle, LANGUAGES};
 
@@ -90,8 +92,10 @@ pub struct Preferences {
     /// *Natural scrolling* on every other pointing device (a mouse's wheel, a trackpoint): off, a
     /// wheel's notch turned toward the person scrolls down, as every mouse has.
     pub mouse_natural_scrolling: bool,
-    /// The wallpaper: a folder under the wallpapers' directory; none is the session's own.
-    pub wallpaper: Option<String>,
+    /// The wallpapers (docs/adr/0048-wallpapers.mdx): the default (`wallpaper`), whether a
+    /// display's shows on all its desktops (`wallpaper_all_desktops`), and each display's and
+    /// desktop's own (`wallpaper.DISPLAY`, `wallpaper.DISPLAY.N`), which only the session changes.
+    pub wallpapers: wallpaper::Wallpapers,
     /// Minutes idle before the session locks; 0, never.
     pub lock_after: u32,
     /// The screen reader is on when the session starts (ADR 0014).
@@ -138,7 +142,7 @@ impl Default for Preferences {
             ui_sounds: true,
             trackpad_natural_scrolling: true,
             mouse_natural_scrolling: false,
-            wallpaper: None,
+            wallpapers: wallpaper::Wallpapers::default(),
             lock_after: 5,
             screen_reader: false,
             language: None,
@@ -241,6 +245,7 @@ pub const KEYS: &[&str] = &[
     "trackpad_natural_scrolling",
     "mouse_natural_scrolling",
     "wallpaper",
+    "wallpaper_all_desktops",
     "lock_after",
     "screen_reader",
     "language",
@@ -293,13 +298,10 @@ impl Preferences {
             "ui_sounds" => self.ui_sounds = boolean(value)?,
             "trackpad_natural_scrolling" => self.trackpad_natural_scrolling = boolean(value)?,
             "mouse_natural_scrolling" => self.mouse_natural_scrolling = boolean(value)?,
-            "wallpaper" => {
-                self.wallpaper = if value.is_empty() {
-                    None
-                } else {
-                    Some(name(value, MAX_VALUE_BYTES)?)
-                }
-            }
+            // The default; a choice where Settings is goes through the session
+            // (`wallpaper::Wallpapers::choose`).
+            "wallpaper" => self.wallpapers.default = wallpaper::Choice::parse(value)?,
+            "wallpaper_all_desktops" => self.wallpapers.all_desktops = boolean(value)?,
             "lock_after" => {
                 // At most a day: a longer wait is never.
                 self.lock_after = value
@@ -361,7 +363,8 @@ impl Preferences {
             "ui_sounds" => self.ui_sounds.to_string(),
             "trackpad_natural_scrolling" => self.trackpad_natural_scrolling.to_string(),
             "mouse_natural_scrolling" => self.mouse_natural_scrolling.to_string(),
-            "wallpaper" => self.wallpaper.clone().unwrap_or_default(),
+            "wallpaper" => self.wallpapers.default.text(),
+            "wallpaper_all_desktops" => self.wallpapers.all_desktops.to_string(),
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),
             "language" => self.language.clone().unwrap_or_default(),
@@ -460,6 +463,8 @@ impl Preferences {
                 let (key, value) = (key.trim(), value.trim());
                 if key.starts_with("display.") || key.starts_with("arrangement.") {
                     preferences.read_display_line(key, value);
+                } else if let Some(rest) = key.strip_prefix("wallpaper.") {
+                    preferences.wallpapers.read_line(rest, value);
                 } else if key == "dock" {
                     if let Ok(ids) = list_from_file(value) {
                         preferences.dock = Some(ids);
@@ -494,6 +499,7 @@ impl Preferences {
         for (key, arrangement) in &self.arrangements {
             text.push_str(&format!("arrangement.{key} = {}\n", arrangement.text()));
         }
+        text.push_str(&self.wallpapers.lines());
         if let Some(dock) = &self.dock {
             text.push_str(&format!("dock = {}\n", dock.join(",")));
         }

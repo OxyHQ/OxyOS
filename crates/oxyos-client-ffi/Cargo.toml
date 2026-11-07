@@ -15,6 +15,9 @@ oxyos-image = { path = "../oxyos-image" }
 oxyos-gestures = { path = "../oxyos-gestures" }
 oxyos-intl = { path = "../oxyos-intl" }
 oxyos-solar = { path = "../oxyos-solar" }
+# The person's wallpapers: what a display shows, the catalog, thumbnails (docs/adr/0048-wallpapers.mdx).
+oxyos-preferences = { path = "../oxyos-preferences" }
+oxyos-wallpaper = { path = "../oxyos-wallpaper" }
 oxyos-apps = { path = "../oxyos-apps" }
 oxyos-files = { path = "../oxyos-files" }
 oxyos-app-storage = { path = "../oxyos-app-storage" }
