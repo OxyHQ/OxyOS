@@ -265,9 +265,15 @@ impl Search {
     }
 
     /// The session's locale (a BCP 47 tag, `es-ES`): the service is told its languages, and the
-    /// applications named in them, when it changes.
+    /// applications named in them, when they change (a locale changing only its hour cycle changes
+    /// nothing here). Cheap to call each turn.
     pub fn set_locale(&mut self, locale: &str) {
-        if self.locale.as_deref() == Some(locale) {
+        let languages = oxyos_apps::languages_of_tag(locale);
+        if self
+            .locale
+            .as_deref()
+            .is_some_and(|told| oxyos_apps::languages_of_tag(told) == languages)
+        {
             return;
         }
         self.locale = Some(locale.to_owned());
