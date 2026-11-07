@@ -455,12 +455,19 @@ fn every_online_sign_in_rotates_the_platform_credential() {
         assert!(live.contains(&platform_secret(n)));
         assert!(!live.contains(&platform_secret(n - 1)));
     }
-    // Written whole: nothing half-written beside the file.
+    // Written whole: nothing half-written beside the file (and the machine's administrator made,
+    // a fact of its own).
+    let mut files: Vec<String> = std::fs::read_dir(machine.platform.setup().store().directory())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
     assert_eq!(
-        std::fs::read_dir(machine.platform.setup().store().directory())
-            .unwrap()
-            .count(),
-        1
+        files,
+        [
+            crate::store::ADMINISTRATOR_MADE.to_owned(),
+            format!("{}.json", user())
+        ]
     );
     // The old session's tokens are not handed out again.
     let after = machine

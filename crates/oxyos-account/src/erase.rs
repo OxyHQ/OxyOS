@@ -50,7 +50,9 @@ pub struct ErasePreview {
     pub administrator: bool,
     /// Oxy was reached by the asking account's last call (its snapshot's `online`).
     pub online: bool,
-    /// Every enrolled account, the asking one first, then by name.
+    /// Every enrolled account, the asking one first, then by name. For an account that is not an
+    /// administrator, which cannot erase, only its own: the others' names and handles are not
+    /// another account's to read.
     pub accounts: Vec<ErasedAccount>,
 }
 
@@ -217,8 +219,8 @@ fn name_of(enrollment: &Enrollment) -> String {
 pub struct Eraser {
     system: Box<dyn System + Send + Sync>,
     passwords: Box<dyn Passwords + Send + Sync>,
-    /// One erase at a time; true once one is armed.
-    armed: Mutex<bool>,
+    /// One erase at a time.
+    under_way: Mutex<()>,
 }
 
 impl Eraser {
@@ -229,7 +231,7 @@ impl Eraser {
         Self {
             system,
             passwords,
-            armed: Mutex::new(false),
+            under_way: Mutex::new(()),
         }
     }
 
@@ -254,9 +256,10 @@ impl Eraser {
         let online = asking
             .as_ref()
             .is_some_and(|enrollment| platform.online(&enrollment.user));
-        let enrolled = match platform.setup().store().enrollments() {
-            Ok(enrolled) => enrolled,
-            Err(error) => {
+        let enrolled = match (administrator, platform.setup().store().enrollments()) {
+            (true, Ok(enrolled)) => enrolled,
+            (false, _) => asking.into_iter().collect(),
+            (true, Err(error)) => {
                 eprintln!("oxyos-accountd: the enrolled accounts cannot be read: {error}");
                 Vec::new()
             }
@@ -290,8 +293,8 @@ impl Eraser {
         A: OxyApi + Send + Sync + 'static,
         U: Users + Send + Sync + 'static,
     {
-        let mut armed = self.armed.lock().unwrap_or_else(|p| p.into_inner());
-        if *armed {
+        let _one = self.under_way.lock().unwrap_or_else(|p| p.into_inner());
+        if platform.erasing() {
             eprintln!("oxyos-accountd: uid {uid}: the erase is armed already");
             return Err(Refusal::Failed);
         }
@@ -345,7 +348,6 @@ impl Eraser {
             eprintln!("oxyos-accountd: the erase could not be armed: {error}; nothing changed");
             return Err(Refusal::Failed);
         }
-        *armed = true;
         platform.begin_erasing();
         eprintln!(
             "oxyos-accountd: {} erased this machine: the recovery erases it at the next boot",

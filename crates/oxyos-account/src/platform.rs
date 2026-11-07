@@ -42,7 +42,7 @@
 use crate::api::{ApiError, Attestation, DeviceCredential, OxyApi, Profile, SignInStep};
 use crate::secret::Secret;
 use crate::setup::Setup;
-use crate::store::{Enrollment, State};
+use crate::store::{Enrollment, State, ERASE_ARMED};
 use crate::users::{verifier_password, Users, UsersError};
 use crate::{AccountId, UserName};
 use rustix::fd::OwnedFd;
@@ -283,13 +283,16 @@ pub fn attestation(desktop_entry_id: &str, system: bool) -> Attestation {
 
 impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platform<A, U> {
     pub fn new(setup: Setup<A, U>) -> Self {
+        // An erase armed before the service started again still holds: the machine is erased at
+        // its next boot, and nothing more is asked of Oxy until then.
+        let erasing = setup.store().fact(ERASE_ARMED);
         Self {
             setup,
             live: Mutex::new(HashMap::new()),
             revision: AtomicU64::new(now_millis()),
             watchers: Mutex::new(Vec::new()),
             background: Arc::new((Mutex::new(0), Condvar::new())),
-            erasing: AtomicBool::new(false),
+            erasing: AtomicBool::new(erasing),
         }
     }
 
@@ -933,9 +936,16 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
     }
 
     /// The machine's erase is armed (ADR 0054): from now on no token is minted and no password is
-    /// checked online; only [`Platform::sign_out_for_erase`] asks Oxy anything.
+    /// checked online; only [`Platform::sign_out_for_erase`] asks Oxy anything. Recorded in the
+    /// store, so the service started again before the machine restarts keeps to it.
     pub fn begin_erasing(&self) {
         self.erasing.store(true, Ordering::SeqCst);
+        if let Err(error) = self.setup.store().record_fact(ERASE_ARMED) {
+            eprintln!(
+                "oxyos-accountd: that the erase is armed cannot be recorded: {error}; this \
+                 service keeps to it until it stops"
+            );
+        }
     }
 
     pub fn erasing(&self) -> bool {

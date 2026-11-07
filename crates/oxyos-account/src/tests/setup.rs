@@ -390,12 +390,40 @@ fn a_machine_without_an_administrator_makes_its_first_account_one() {
     );
     assert!(machine.setup.users().is_admin(first.as_str()));
     assert!(!machine.setup.users().is_admin(later.as_str()));
-    // Once one is, nothing more.
+    // Once made, never again: an administrator removed makes no other account one.
     assert_eq!(machine.setup.ensure_administrator(), Ok(None));
-    let users = machine.setup.users();
-    users.administrators.lock().unwrap().clear();
-    users.fail(UserStep::MakeAdministrator);
+    machine.setup.users().administrators.lock().unwrap().clear();
+    assert_eq!(machine.setup.ensure_administrator(), Ok(None));
+    assert!(!machine.setup.users().is_admin(later.as_str()));
+}
+
+#[test]
+fn a_machine_whose_administrator_cannot_be_made_tries_again_at_its_next_start() {
+    let machine = machine(FakeApi::default());
+    let first = enrolled_other(&machine, ACCOUNT, 1600);
+    machine.setup.users().fail(UserStep::MakeAdministrator);
     assert!(machine.setup.ensure_administrator().is_err());
+    machine.setup.users().failing.lock().unwrap().clear();
+    assert_eq!(machine.setup.ensure_administrator(), Ok(Some(first)));
+}
+
+#[test]
+fn a_machine_that_had_its_administrator_makes_no_new_one_at_a_setup() {
+    let machine = machine(FakeApi::default());
+    let other = enrolled_other(&machine, OTHER_ACCOUNT, 1500);
+    machine
+        .setup
+        .users()
+        .administrators
+        .lock()
+        .unwrap()
+        .insert(other.as_str().into());
+    // The machine's administrator is seen, and recorded.
+    assert_eq!(machine.setup.ensure_administrator(), Ok(None));
+    // Then removed (not this service's concern here): the next account set up is no administrator.
+    machine.setup.users().administrators.lock().unwrap().clear();
+    let enrolled = enrolled(machine.setup.enroll(request(PASSWORD)));
+    assert!(!machine.setup.users().is_admin(enrolled.user.as_str()));
 }
 
 #[test]

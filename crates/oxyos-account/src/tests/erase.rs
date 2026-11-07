@@ -272,10 +272,14 @@ fn the_preview_lists_every_account_the_asking_one_first_then_by_name() {
             account("Grace Hopper", Some("grace"), true),
         ]
     );
-    // Grace asking: herself first, and not an administrator.
+    // Grace asking: not an administrator, and only her own account is named to her.
     let preview = erase.preview(GRACE);
     assert!(!preview.administrator);
-    assert_eq!(preview.accounts[0].name, "Grace Hopper");
+    // Her own last call, not Ada's, says whether she is online: she made none.
+    assert_eq!(
+        preview.accounts,
+        [account("Grace Hopper", Some("grace"), false)]
+    );
     // Asking is no erase.
     assert_eq!(
         erase.system.asked(),
@@ -482,6 +486,31 @@ fn once_armed_nothing_more_is_asked_of_oxy_and_no_second_erase_runs() {
     assert_eq!(erase.machine.api().calls().len(), calls);
     assert_eq!(erase.erase(ADA, PASSWORD), Err(Refusal::Failed));
     assert_eq!(erase.system.asked(), ["installed?", "arm"]);
+}
+
+#[test]
+fn an_erase_armed_holds_when_the_service_starts_again_before_the_restart() {
+    let erase = Erase::new(
+        FakeApi::default(),
+        FakeSystem::default(),
+        FakePasswords::default(),
+    );
+    assert!(erase.erase(ADA, PASSWORD).is_ok());
+    // The service started again over the same accounts (it crashed, say): still armed.
+    let again = Erase::on(
+        erase.machine.with_api(FakeApi::default()),
+        FakeSystem::default(),
+        FakePasswords::default(),
+    );
+    assert!(again.machine.platform.erasing());
+    assert!(again
+        .machine
+        .platform
+        .token(ADA, &Attestation::OwnPlatform, TokenReason::Boot)
+        .is_none());
+    assert!(again.machine.api().calls().is_empty());
+    assert_eq!(again.erase(ADA, PASSWORD), Err(Refusal::Failed));
+    assert!(again.system.asked().is_empty());
 }
 
 #[test]

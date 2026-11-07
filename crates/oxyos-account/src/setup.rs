@@ -19,9 +19,9 @@
 //! Without OxyOS's client id configured, nothing is asked of Oxy: [`SetupError::NotConfigured`].
 //!
 //! Then, on the machine, one setup at a time: the account's user (made, or the enrolled one
-//! found), its file in the store, the account made an administrator if no other enrolled account
-//! is one (the first account set up on a machine is its administrator, as a Mac's first account
-//! is: [ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)), and last the verifier. A failure
+//! found), its file in the store, the account made the machine's administrator if it is the first
+//! (as a Mac's first account is, and once: [ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx),
+//! the store's `ADMINISTRATOR_MADE`), and last the verifier. A failure
 //! undoes what this setup did: a new user is removed with its home (and so leaves the
 //! administrators' group), an enrolled account's file is put back as it was. The
 //! verifier is the last step, so a user whose setup failed was never one a password opens. A
@@ -36,7 +36,7 @@ use crate::api::{
 };
 use crate::id::{AccountId, InvalidAccountId, UserName};
 use crate::secret::Secret;
-use crate::store::{Enrollment, Store};
+use crate::store::{Enrollment, Store, ADMINISTRATOR_MADE};
 use crate::users::{verifier_password, Users, UsersError};
 use std::fmt;
 use std::sync::Mutex;
@@ -381,25 +381,53 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         Ok(false)
     }
 
-    /// Makes `user`, whose file was just written, an administrator when no enrolled account is
-    /// one. Called under the machine's lock, before the verifier is set.
-    fn administer(&self, user: &UserName) -> Result<(), String> {
+    /// Makes `user`, whose file was just written, the machine's first administrator, if it has
+    /// had none: whether it did. A machine whose administrator exists has one made already (it is
+    /// recorded); one whose administrator was made and then removed gets none from a setup. Called
+    /// under the machine's lock, before the verifier is set.
+    fn administer(&self, user: &UserName) -> Result<bool, String> {
+        if self.store.fact(ADMINISTRATOR_MADE) {
+            return Ok(false);
+        }
         if self.administrator_enrolled()? {
-            return Ok(());
+            self.store
+                .record_fact(ADMINISTRATOR_MADE)
+                .map_err(|error| error.to_string())?;
+            return Ok(false);
         }
         self.users
             .make_administrator(user)
             .map_err(|error| format!("{user} cannot be made an administrator: {error}"))?;
-        eprintln!("oxyos-accountd: {user} is this machine's administrator");
-        Ok(())
+        Ok(true)
     }
 
-    /// Makes the enrolled account with the lowest uid an administrator when accounts are enrolled
-    /// and none is one: a machine set up before administrators existed gets one, as its first
-    /// setup would have made it (ADR 0054). Its user, if one was made.
+    /// Records that `user`, whose setup just ended well, was made the machine's first
+    /// administrator. If it cannot be, the next start records it (an administrator is enrolled).
+    fn administered(&self, user: &UserName) {
+        eprintln!("oxyos-accountd: {user} is this machine's administrator");
+        if let Err(error) = self.store.record_fact(ADMINISTRATOR_MADE) {
+            eprintln!(
+                "oxyos-accountd: that the machine has its administrator cannot be recorded: {error}"
+            );
+        }
+    }
+
+    /// Makes the enrolled account with the lowest uid the machine's administrator, once: on a
+    /// machine set up before administrators existed (accounts enrolled, none an administrator,
+    /// none ever made one). Never again after that, so removing an administrator never makes
+    /// another account one by itself (ADR 0054). Its user, if one was made.
     pub fn ensure_administrator(&self) -> Result<Option<UserName>, String> {
         let _machine = self.lock();
+        if self.store.fact(ADMINISTRATOR_MADE) {
+            return Ok(None);
+        }
+        let record = || {
+            self.store
+                .record_fact(ADMINISTRATOR_MADE)
+                .map_err(|error| error.to_string())
+        };
         if self.administrator_enrolled()? {
+            record()?;
             return Ok(None);
         }
         let enrolled = self
@@ -412,6 +440,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         self.users
             .make_administrator(&first.user)
             .map_err(|error| format!("{} cannot be made an administrator: {error}", first.user))?;
+        record()?;
         Ok(Some(first.user.clone()))
     }
 
@@ -498,16 +527,21 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                     .put(&enrollment(made.uid))
                     .map_err(|error| error.to_string())
                     .and_then(|()| self.administer(&user))
-                    .and_then(|()| {
+                    .and_then(|administrator| {
                         self.users
                             .set_verifier(&user, password)
                             .map_err(|error| error.to_string())
+                            .map(|()| administrator)
                     });
-                if let Err(error) = done {
-                    return Err(match undo() {
-                        Ok(()) => SetupError::Failed(error),
-                        Err(rollback) => SetupError::RollbackFailed { error, rollback },
-                    });
+                match done {
+                    Ok(true) => self.administered(&user),
+                    Ok(false) => {}
+                    Err(error) => {
+                        return Err(match undo() {
+                            Ok(()) => SetupError::Failed(error),
+                            Err(rollback) => SetupError::RollbackFailed { error, rollback },
+                        })
+                    }
                 }
                 made.uid
             }
@@ -516,11 +550,15 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 self.store
                     .put(&enrollment(uid))
                     .map_err(|error| SetupError::Failed(error.to_string()))?;
-                let done = self.administer(&user).and_then(|()| {
+                let done = self.administer(&user).and_then(|administrator| {
                     self.users
                         .set_verifier(&user, password)
                         .map_err(|error| error.to_string())
+                        .map(|()| administrator)
                 });
+                if let Ok(true) = done {
+                    self.administered(&user);
+                }
                 if let Err(error) = done {
                     return Err(match self.store.put(&previous) {
                         Ok(()) => SetupError::Failed(error),
