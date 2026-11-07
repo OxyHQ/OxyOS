@@ -473,50 +473,57 @@ function SpotlightPanel({
   const arrowed = useRef(false);
 
   // Each change of the text asks again; an answer to an earlier question is dropped. The index
-  // changing while there is text asks again too, keeping the selection where it was.
+  // changing while there is text asks again too. With each answer, the selection: Top Hit for a new
+  // text, the same row for the same text (the index changed under it).
   const asked = useRef(0);
+  const answered = useRef<string | null>(null);
+  const latestApplications = useRef(applications);
+  latestApplications.current = applications;
   const wanted = text.trim();
   useEffect(() => {
+    const accept = (next: Answer) => {
+      const same = next.text === answered.current;
+      answered.current = next.text;
+      setAnswer(next);
+      setSelected((before) => selectedAfter(sectionsOf(next.results), before, same));
+    };
     if (!wanted) {
       asked.current += 1;
+      answered.current = null;
       setAnswer(null);
+      setSelected(null);
       return undefined;
     }
     const ask = () => {
       const mine = ++asked.current;
       if (!search) {
-        setAnswer({ text: wanted, results: localResults(applications, wanted) });
+        accept({ text: wanted, results: localResults(latestApplications.current, wanted) });
         return;
       }
       search
         .query({ text: wanted, limit: QUERY_LIMIT, language: messages.language })
         .then(
           (results) => {
-            if (mine === asked.current) setAnswer({ text: wanted, results });
+            if (mine === asked.current) accept({ text: wanted, results });
           },
           (error: unknown) => {
             console.warn("Spotlight's search failed", { error });
-            if (mine === asked.current) setAnswer({ text: wanted, results: { items: [], topHit: null, indexing: false } });
+            if (mine === asked.current) accept({ text: wanted, results: { items: [], topHit: null, indexing: false } });
           },
         );
     };
     ask();
     return search ? search.watch(ask) : undefined;
-  }, [wanted, search, applications, messages.language]);
+  }, [wanted, search, messages.language]);
 
   const sections = useMemo(() => (answer ? sectionsOf(answer.results) : []), [answer]);
   const shownRows = useMemo(() => rowsOf(sections), [sections]);
   const places = useMemo(() => rowPlaces(sections), [sections]);
-  // The selection: Top Hit as the text changes; the same row while the index changes under it.
-  const lastText = useRef<string | null>(null);
-  useEffect(() => {
-    const same = answer !== null && answer.text === lastText.current;
-    lastText.current = answer?.text ?? null;
-    setSelected((before) => selectedAfter(sections, before, same));
-  }, [sections]);
   const selectedItem = shownRows.find((item) => item.id === selected) ?? null;
 
-  const showResults = wanted.length > 0 && shownRows.length > 0 && answer?.text === wanted;
+  // The results stay while the next text's are asked for, so typing never collapses the panel;
+  // it closes to its field alone when there is no text, or nothing was found.
+  const showResults = wanted.length > 0 && shownRows.length > 0;
   const height = FIELD_HEIGHT + (showResults ? layout.resultsHeight : 0);
 
   // Opening and revealing (docs/adr/0051-search.mdx).
