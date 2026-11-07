@@ -1,0 +1,19 @@
+# Erase All Content and Settings (docs/adr/0054-recovery-and-erasing.mdx, decision 4): leaves the
+# erase request on the EFI system partition and makes every following start the recovery's, which
+# carries it out. Started only by the account service, once an administrator confirmed it in
+# Settings with their password; starting a system unit needs root (polkit's default), which no
+# application has. It fails, having changed nothing, where there is no recovery.
+[Unit]
+Description=Arm erasing all content and settings at the next start
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0054-recovery-and-erasing.mdx
+RequiresMountsFor=/efi
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/oxyos-recovery arm-erase
+ProtectSystem=strict
+ReadWritePaths=/efi
+ProtectHome=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

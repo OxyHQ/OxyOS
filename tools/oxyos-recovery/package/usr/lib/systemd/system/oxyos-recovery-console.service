@@ -1,0 +1,22 @@
+# The recovery on the system console (/dev/console: the screen, or the serial port the firmware or
+# the kernel names), until its Bloom client is in the image (docs/adr/0054-recovery-and-erasing.mdx,
+# decision 6). Root: it erases, installs and checks the disk.
+[Unit]
+Description=OxyOS Recovery on the console
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0054-recovery-and-erasing.mdx
+After=basic.target plymouth-quit-wait.service NetworkManager.service systemd-udev-settle.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/plymouth quit
+ExecStart=/usr/sbin/oxyos-recovery console
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/console
+TTYReset=yes
+TTYVHangup=yes
+Environment=TERM=linux LANG=C.UTF-8
+Restart=always
+RestartSec=1

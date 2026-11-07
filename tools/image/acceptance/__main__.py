@@ -1,7 +1,7 @@
 """Boot acceptance tests for an OxyOS image, in QEMU.
 
     python3 tools/image/acceptance IMAGE.iso [--firmware uefi|secureboot|bios] [--arch amd64|arm64]
-                                             [--out DIR]
+                                             [--out DIR] [--recovery]
 
 The image's architecture comes from its name (oxyos-base-…-arm64.iso) unless --arch says it:
 amd64 boots in qemu-system-x86_64 (q35, OVMF or SeaBIOS), arm64 in qemu-system-aarch64 (virt,
@@ -23,6 +23,10 @@ Two boots of the image as built, through its own firmware path and bootloader:
    system or user unit failed, the services the base needs are active, Plymouth is gone, and
    systemd's own boot time.
 
+With `--recovery` (UEFI and Secure Boot), instead: an install onto a virtual disk, the installed
+system, the recovery reached by a key held at the boot menu and by failed starts, Erase All Content
+and Settings, and Erase and Reinstall from the recovery (recovery.py, ADR 0054).
+
 Screens (PNG, small), the serial log and results.json are written under --out. The exit status
 is non-zero when a check fails.
 """
@@ -34,6 +38,7 @@ import sys
 import time
 
 import frames
+import recovery
 from machine import FIRMWARE, SERIAL_CONSOLE, Failure, Machine, default_accel
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -303,6 +308,8 @@ def main():
                         help="seconds for each wait (default 240 with KVM, 1500 emulated, 3000 emulated arm64)")
     parser.add_argument("--interval", type=float, default=0.02, help="seconds between screen reads")
     parser.add_argument("--only", choices=["boot-logo", "system"])
+    parser.add_argument("--recovery", action="store_true",
+                        help="install onto a virtual disk, then the recovery and erasing (ADR 0054)")
     parser.add_argument("--out", type=pathlib.Path)
     args = parser.parse_args()
     args.image = args.image.resolve()
@@ -311,6 +318,8 @@ def main():
         args.arch = next((a for a in FIRMWARE if args.image.stem.endswith("-" + a)), "amd64")
     if args.firmware not in FIRMWARE[args.arch]:
         parser.error(f"{args.arch} boots only through {' or '.join(FIRMWARE[args.arch])}")
+    if args.recovery and args.firmware == "bios":
+        parser.error("an install is UEFI's (docs/adr/0023-installing-oxyos.mdx, decision 4): --recovery needs uefi or secureboot")
     if args.display is None:
         args.display = "virtio" if args.arch == "arm64" else "std"
     elif args.arch == "arm64" and args.display != "virtio":
@@ -318,14 +327,19 @@ def main():
     if args.timeout is None:
         accel = args.accel or default_accel(args.arch)
         args.timeout = 240 if accel == "kvm" else 3000 if args.arch == "arm64" else 1500
-    out = args.out or args.image.parent.parent / "acceptance" / args.image.stem / args.firmware
+    out = args.out or (args.image.parent.parent / "acceptance" / args.image.stem
+                       / (f"recovery-{args.firmware}" if args.recovery else args.firmware))
     run = Run(out.resolve())
     started = time.time()
     try:
-        if args.only in (None, "boot-logo"):
-            boot_logo(args, run)
-        if args.only in (None, "system"):
-            system(args, run)
+        if args.recovery:
+            recovery.recovery(args, run, {"Screen": Screen, "wait_for_menu": wait_for_menu, "edit_entry": edit_entry,
+                                          "test_arguments": test_arguments, "theme": THEME})
+        else:
+            if args.only in (None, "boot-logo"):
+                boot_logo(args, run)
+            if args.only in (None, "system"):
+                system(args, run)
     except Failure as error:
         run.check("the run completes", False, str(error))
     failed = [c for c in run.checks if not c["passed"]]

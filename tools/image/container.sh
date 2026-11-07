@@ -7,8 +7,8 @@
 #   container.sh extract I  extract the dpkg database and the file list of image I (under /work)
 #                           into /work/audit/<image name>/ for scripts/check-image-contents.py
 #   container.sh clean      remove the build tree (root-owned), keeping the package cache
-#   container.sh packages   build OxyOS's patched Debian packages (tools/image/packages/) into
-#                           /work/packages/<arch>
+#   container.sh packages   build OxyOS's patched Debian packages (tools/image/packages/) and its
+#                           own programs (tools/image/programs/) into /work/packages/<arch>
 #
 # Environment: OXYOS_ARCHITECTURE (amd64 or arm64: the image's, which must be this container's
 # own), HOST_UID, HOST_GID (owner of what is left in /work/out and /work/audit),
@@ -121,6 +121,64 @@ packages() {
         rm -rf "$tree"
         say "$SOURCE $VERSION: $BINARIES in packages/$ARCHITECTURE"
     done
+    programs
+}
+
+# The version of OxyOS's own packages: the OS's version and the commit's time, so a later commit's
+# packages are newer and the same commit's are the same.
+program_version() {
+    . /src/config/oxyos.conf
+    printf '%s.%s' "${OS_VERSION}" "${SOURCE_DATE_EPOCH:-0}"
+}
+
+# OxyOS's own programs (tools/image/programs/<name>/program): each built from the Cargo workspace
+# with the toolchain rust-toolchain.toml pins (rustup's, kept under /work/packages/rust) and
+# Cargo.lock (--locked), and packaged with its files as /work/packages/<arch>/<package>_<version>_<arch>.deb.
+# Debian's Rust is older than the workspace's toolchain; the crates are checked against Cargo.lock's
+# checksums as they are fetched.
+programs() {
+    out=/work/packages/$ARCHITECTURE
+    rust=/work/packages/rust
+    install_tools rustup ca-certificates build-essential pkg-config
+    toolchain=$(sed -n 's/^channel = "\(.*\)"$/\1/p' /src/rust-toolchain.toml)
+    [ -n "$toolchain" ] || die "no channel in rust-toolchain.toml"
+    export RUSTUP_HOME="$rust/rustup" CARGO_HOME="$rust/cargo"
+    rustup toolchain install "$toolchain" --profile minimal >/dev/null 2>&1 ||
+        die "rustup could not install Rust $toolchain"
+    version=$(program_version)
+    for program in /src/tools/image/programs/*/program; do
+        [ -f "$program" ] || continue
+        # shellcheck disable=SC1090 # the program's own pin
+        . "$program"
+        say "building $PACKAGE $version from $CRATE"
+        log=/work/packages/$PACKAGE-$ARCHITECTURE.log
+        if ! (cd /src && rustup run "$toolchain" cargo build --release --locked -p "$CRATE" \
+            --target-dir "$rust/target-$ARCHITECTURE") >"$log" 2>&1; then
+            tail -n 40 "$log" >&2
+            die "$CRATE failed to build"
+        fi
+        tree=/work/packages/build/$ARCHITECTURE/$PACKAGE
+        rm -rf "$tree" && mkdir -p "$tree/DEBIAN"
+        for binary in $BINARIES; do
+            name=${binary%%:*}
+            install -D -m 0755 "$rust/target-$ARCHITECTURE/release/$name" "$tree/${binary#*:}"
+        done
+        cp -a "/src/$FILES/." "$tree/"
+        mkdir -p "$tree/usr/share/doc/$PACKAGE"
+        printf '%s\n' "$PACKAGE: OxyOS's own program, built from https://github.com/OxyHQ/OxyOS at ${OXYOS_COMMIT:-unknown}." \
+            "License: see the repository." >"$tree/usr/share/doc/$PACKAGE/copyright"
+        size=$(du -sk --exclude=DEBIAN "$tree" | cut -f1)
+        {
+            printf 'Package: %s\nVersion: %s\nArchitecture: %s\n' "$PACKAGE" "$version" "$ARCHITECTURE"
+            printf 'Maintainer: OxyHQ <hello@oxy.so>\nSection: admin\nPriority: optional\n'
+            printf 'Installed-Size: %s\nDepends: %s\nDescription: %s\n' "$size" "$DEPENDS" "$DESCRIPTION"
+        } >"$tree/DEBIAN/control"
+        find "$tree" -exec touch -h -d "@${SOURCE_DATE_EPOCH:-0}" {} +
+        rm -f "$out/${PACKAGE}"_*.deb
+        dpkg-deb --root-owner-group --build "$tree" "$out/${PACKAGE}_${version}_${ARCHITECTURE}.deb" >/dev/null
+        rm -rf "$tree"
+        say "$PACKAGE $version in packages/$ARCHITECTURE"
+    done
 }
 
 build() {
@@ -133,8 +191,10 @@ build() {
     # config/<file>.<architecture> overrides by it.
     export LB_ARCHITECTURE="$ARCHITECTURE"
     # The pinned live-build: another version may build a different image from the same config.
+    # cryptsetup-bin: live-build's binary_dm-verity runs veritysetup on the build's own system, and
+    # without it writes an empty root hash and no hash tree, saying nothing.
     install_tools "live-build=${LIVE_BUILD_VERSION}" apt-utils cpio file wget xz-utils bzip2 rsync \
-        ca-certificates || die "live-build ${LIVE_BUILD_VERSION} is not installable; update LIVE_BUILD_VERSION in tools/image/container.sh deliberately"
+        ca-certificates cryptsetup-bin || die "live-build ${LIVE_BUILD_VERSION} is not installable; update LIVE_BUILD_VERSION in tools/image/container.sh deliberately"
 
     mkdir -p "$BUILD" /work/out
     cd "$BUILD"
@@ -161,6 +221,17 @@ build() {
             cp "$deb" config/packages.chroot/
         done
     done
+    # OxyOS's own programs (programs(), run by packages first).
+    version=$(program_version)
+    for program in /src/tools/image/programs/*/program; do
+        [ -f "$program" ] || continue
+        # shellcheck disable=SC1090 # the program's own pin
+        . "$program"
+        deb=/work/packages/$ARCHITECTURE/${PACKAGE}_${version}_${ARCHITECTURE}.deb
+        [ -f "$deb" ] || die "no $(basename "$deb"): tools/image/build.sh packages builds it"
+        mkdir -p config/packages.chroot
+        cp "$deb" config/packages.chroot/
+    done
     # lb build runs lb config when .build/config is missing, which would rewrite config/ with
     # live-build's defaults: the configuration is complete as committed.
     mkdir -p .build
@@ -176,6 +247,12 @@ build() {
     fi
     finished=$(date +%s)
 
+    # The image's dm-verity hash tree and root hash (LB_DM_VERITY): the installer and the recovery
+    # refuse an image without them.
+    if [ "$(sed -n 's/^LB_DM_VERITY="\(.*\)"$/\1/p' config/binary)" = true ]; then
+        [ -s binary/live/filesystem.squashfs.verity ] && grep -qE '^[0-9a-f]{64}$' binary/live/filesystem.squashfs.roothash ||
+            die "the image has no dm-verity hash tree or root hash"
+    fi
     . config/oxyos.conf
     iso=$(ls ./*.hybrid.iso 2>/dev/null | head -n 1)
     [ -n "$iso" ] || die "lb build produced no .hybrid.iso"

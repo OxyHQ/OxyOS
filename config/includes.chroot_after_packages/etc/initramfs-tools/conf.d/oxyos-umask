@@ -1,0 +1,3 @@
+# The initramfs may carry the install key (/etc/cryptsetup-initramfs/conf-hook): readable by root
+# alone, as cryptsetup's documentation asks (docs/adr/0023-installing-oxyos.mdx, decision 3).
+UMASK=0077
