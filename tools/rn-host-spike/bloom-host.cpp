@@ -1480,7 +1480,7 @@ int main(int argc, char** argv) {
     // Installing applications (docs/adr/0030-installing-applications.mdx): what this launch may use,
     // the session's answers, the shell's sheets and capability results, assembled from chunks;
     // requests cite the latest press, as the session requires of what changes anything.
-    auto launchCapabilities = oxyos::LaunchCapabilities::fromEnvironment();
+    auto& launchCapabilities = oxyos::LaunchCapabilities::current();
     oxyos::ChunkTexts systemTexts, sheetTexts;
     // A saved screenshot's path, assembled from its chunks (docs/adr/0024-system-shortcuts.mdx).
     oxyos::ChunkTexts screenshotPaths;

@@ -40,6 +40,10 @@ class ChunkTexts {
   std::map<uint32_t, std::pair<std::string, uint32_t>> texts_;
 };
 
+// What an application without the network is told when it reaches for it: a request, a socket, a
+// download (oxyos-files' NOT_GRANTED_THE_NETWORK says the same).
+inline constexpr const char* kNotGrantedTheNetwork = "this application was not granted the network";
+
 // What this launch may use (decision 8), as the session told it at launch (`OXYOS_APP_ORIGIN`,
 // `OXYOS_APP_CAPABILITIES`): an installed version only what its account granted, and what it is
 // granted at first use while it runs; a system or development application is not narrowed. A
@@ -49,19 +53,12 @@ class ChunkTexts {
 // checks every request against the grant itself.
 class LaunchCapabilities {
  public:
-  static LaunchCapabilities fromEnvironment() {
-    LaunchCapabilities launch;
-    const char* origin = std::getenv("OXYOS_APP_ORIGIN");
-    launch.origin_ = origin ? origin : "development";
-    auto names = [](const char* list, std::set<std::string>& into) {
-      if (!list) return;
-      std::stringstream names(list);
-      for (std::string name; std::getline(names, name, ',');) {
-        if (!name.empty()) into.insert(name);
-      }
-    };
-    names(std::getenv("OXYOS_APP_CAPABILITIES"), launch.granted_);
-    names(std::getenv("OXYOS_APP_GRANTS"), launch.grants_);
+  // This process's launch: read from its environment once, and what it is granted at first use
+  // added to it as the session answers (bloom-host.cpp). Every part of the host that gives an
+  // application something a capability guards asks it here, when the application asks, so a
+  // capability is decided in one place.
+  static LaunchCapabilities& current() {
+    static LaunchCapabilities launch = fromEnvironment();
     return launch;
   }
 
@@ -79,6 +76,22 @@ class LaunchCapabilities {
   }
 
  private:
+  static LaunchCapabilities fromEnvironment() {
+    LaunchCapabilities launch;
+    const char* origin = std::getenv("OXYOS_APP_ORIGIN");
+    launch.origin_ = origin ? origin : "development";
+    auto names = [](const char* list, std::set<std::string>& into) {
+      if (!list) return;
+      std::stringstream names(list);
+      for (std::string name; std::getline(names, name, ',');) {
+        if (!name.empty()) into.insert(name);
+      }
+    };
+    names(std::getenv("OXYOS_APP_CAPABILITIES"), launch.granted_);
+    names(std::getenv("OXYOS_APP_GRANTS"), launch.grants_);
+    return launch;
+  }
+
   std::string origin_;
   std::set<std::string> granted_;
   std::set<std::string> grants_;

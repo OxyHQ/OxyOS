@@ -26,9 +26,8 @@ void WebSockets::connect(int64_t id, const std::string& url, const std::vector<s
                          const std::vector<std::pair<std::string, std::string>>& headers) {
   // An installed version reaches the Internet only if its account granted `network`, as its
   // requests do (network.cpp): refused as a socket that failed, never a crash.
-  static const bool allowed = LaunchCapabilities::fromEnvironment().allows("network");
-  if (!allowed) {
-    refused_.emplace_back(id, "this application was not granted the network");
+  if (!LaunchCapabilities::current().allows("network")) {
+    refused_.emplace_back(id, kNotGrantedTheNetwork);
     return;
   }
   std::vector<OxyOSWebSocketProtocol> asked;

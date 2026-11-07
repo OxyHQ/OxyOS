@@ -7,7 +7,7 @@
 
 use super::fail;
 use oxyos_files::service::Reply;
-use oxyos_files::{Scope, Service};
+use oxyos_files::{NetworkAccess, Scope, Service};
 use rustix::fd::{AsFd, AsRawFd};
 use std::ffi::{c_char, c_int};
 use std::path::Path;
@@ -75,6 +75,11 @@ unsafe fn slice<'a>(bytes: *const u8, length: usize) -> &'a [u8] {
     unsafe { std::slice::from_raw_parts(bytes, length) }
 }
 
+/// `oxyos_files_new_with`'s flag: the application may not reach the network (an installed version
+/// whose account did not grant `network`, docs/adr/0030-installing-applications.mdx, decision 8),
+/// so its downloads and uploads fail as the network's would, before anything is asked.
+pub const OXYOS_FILES_NO_NETWORK: u32 = 1;
+
 /// The service for the user running the process (`Scope::for_user`), for the application
 /// `app_id` (`app_id_length` bytes), the id the session gave an application it started (NULL for
 /// none or a claimed id: no folders of its own; its folders are `oxyos_apps::data_directory` and
@@ -91,6 +96,28 @@ pub unsafe extern "C" fn oxyos_files_new(
     bundle: *const c_char,
     bundle_length: usize,
 ) -> *mut OxyOSFiles {
+    // SAFETY: forwarded caller contract.
+    unsafe { oxyos_files_new_with(app_id, app_id_length, bundle, bundle_length, 0) }
+}
+
+/// `oxyos_files_new`, with `flags` (`OXYOS_FILES_NO_NETWORK`); other bits are ignored.
+///
+/// # Safety
+/// `app_id` and `bundle` are NULL or point to their lengths' readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_new_with(
+    app_id: *const c_char,
+    app_id_length: usize,
+    bundle: *const c_char,
+    bundle_length: usize,
+    flags: u32,
+) -> *mut OxyOSFiles {
+    let network = if flags & OXYOS_FILES_NO_NETWORK != 0 {
+        NetworkAccess::Refused
+    } else {
+        NetworkAccess::Granted
+    };
     // SAFETY: forwarded caller contract.
     let given = unsafe { (utf8(app_id, app_id_length), utf8(bundle, bundle_length)) };
     let (app_id, bundle) = match given {
@@ -117,7 +144,7 @@ pub unsafe extern "C" fn oxyos_files_new(
         Some(bundle) => scope.with_bundle(Path::new(bundle)),
         None => Ok(scope),
     });
-    match scope.and_then(Service::new) {
+    match scope.and_then(|scope| Service::new(scope, network)) {
         Ok(service) => Box::into_raw(Box::new(OxyOSFiles { service })),
         Err(error) => {
             fail(error);
