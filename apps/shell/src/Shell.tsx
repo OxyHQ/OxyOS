@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, StyleSheet, useColorScheme, type ImageSourcePropType } from "react-native";
+import { AccessibilityInfo, StyleSheet, useColorScheme } from "react-native";
 import { BloomScope } from "@oxy.so/bloom/appearance";
 import { Box } from "./primitives";
 import type {
@@ -13,6 +13,7 @@ import type {
   ShellNotifications,
   ShellScreenshots,
   ShellSnapshot,
+  ShellWallpaper,
 } from "./model";
 import { Wallpaper } from "./components/Wallpaper";
 import { Desktop, type DesktopCommand, type DesktopState } from "./components/Desktop";
@@ -129,7 +130,8 @@ export const Shell = memo(function Shell({
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
-  wallpaper: ImageSourcePropType;
+  /** What the wallpaper shows (docs/adr/0048-wallpapers.mdx). */
+  wallpaper: ShellWallpaper;
   now: Date;
   command?: ShellCommand;
   /** The latest commands, each with a rising `id`: every one not handled yet is, in order (the
@@ -765,7 +767,7 @@ export const Shell = memo(function Shell({
     <BloomScope size="md">
       <Box testID="oxy-shell" className="flex-1 overflow-hidden bg-[#294ab4]">
         <Box className="absolute inset-0">
-          <Wallpaper source={wallpaper} />
+          <Wallpaper wallpaper={wallpaper} />
         </Box>
         {/* The desktop's files (docs/adr/0047-finder-drags-and-the-desktop.mdx): beneath every
             window, between the top bar and the dock, on the display with the dock. */}

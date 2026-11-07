@@ -1,0 +1,33 @@
+OxyOS's system wallpapers (/usr/share/oxyos/wallpapers, docs/adr/0048-wallpapers.mdx)
+
+Every wallpaper here was made for OxyOS on 7 November 2026 from nothing but a script of the
+repository's, scripts/make-wallpapers.py: SVG documents of linear and radial gradients, ellipses
+and smooth paths whose colours and shapes are the script's own numbers (its few random choices
+seeded, so every run writes the same bytes). No photograph, drawing or other work was used, and
+none imitates another vendor's wallpaper. The gradients' hues are those of Bloom's accent colours
+(@oxy.so/bloom's APP_COLOR_PRESETS), which are OxyHQ's.
+
+Copyright: the OxyOS project, as the repository's, under its licence.
+Made:      python3 scripts/make-wallpapers.py
+           26 SVG files, catalog.json and each wallpaper's wallpaper.json; the SHA-256 of the
+           sorted list of every file's SHA-256 is
+           7aa20c055c6ee4d9b8d39b367cce836e94722186c77dec14ec2f1af1c429a7ef.
+
+catalog.json
+  The categories (Dynamic Wallpapers, Gradients), the default wallpaper (oxyos) and twelve
+  solid colours.
+
+oxyos/light.svg, oxyos/dark.svg (OxyOS: the default, following the appearance)
+  Two silk ribbons crossing a field of OxyOS's blue, lit from the upper right.
+
+horizon/{night,dawn,sunrise,morning,day,afternoon,sunset,dusk}.svg (Horizon: following the sun)
+  A sky over three ridges at eight moments of the day, each tagged with the sun's elevation and
+  azimuth it shows (docs/adr/0012-solar-wallpaper.mdx); the night's and dusk's and dawn's stars
+  are 140 seeded points.
+
+{ocean,iris,orchid,coral,ember,meadow,lagoon,graphite}/{light,dark}.svg (Gradients, following
+the appearance)
+  The OxyOS wallpaper's silk in each of Bloom's accent hues (graphite: nearly without hue).
+
+No other wallpaper is shipped. Photographs and aerial videos come only from the owner, or under a
+licence recorded here with them.

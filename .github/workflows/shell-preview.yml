@@ -3,9 +3,9 @@ name: Shell preview
 on:
   push:
     branches: [main]
-    paths: ['apps/**', 'tools/shell-preview/**', 'assets/wallpapers/**', '.github/workflows/shell-preview.yml']
+    paths: ['apps/**', 'tools/shell-preview/**', 'config/includes.chroot_after_packages/usr/share/oxyos/wallpapers/**', '.github/workflows/shell-preview.yml']
   pull_request:
-    paths: ['apps/**', 'tools/shell-preview/**', 'assets/wallpapers/**', '.github/workflows/shell-preview.yml']
+    paths: ['apps/**', 'tools/shell-preview/**', 'config/includes.chroot_after_packages/usr/share/oxyos/wallpapers/**', '.github/workflows/shell-preview.yml']
   workflow_dispatch:
 
 permissions:

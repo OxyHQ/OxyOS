@@ -34,9 +34,9 @@ pub mod images;
 pub mod intl;
 pub mod net;
 pub mod paint;
-pub mod solar;
 #[cfg(test)]
 mod tests;
+pub mod wallpapers;
 
 /// The type text is copied and pasted as.
 pub const CLIPBOARD_TEXT: &str = "text/plain;charset=utf-8";
@@ -83,6 +83,11 @@ pub const OXYOS_EVENT_WINDOW_SIZE: u32 = 80;
 /// an output covers it (code: the output; flag: 1 covered, 0 not), after its OUTPUT when it is
 /// first told and whenever it changes.
 pub const OXYOS_EVENT_OUTPUT_COVERED: u32 = 81;
+/// The wallpaper chosen for what an output shows (docs/adr/0048-wallpapers.mdx, version 29): code
+/// the output, detail the chunk's index, flag [`OXYOS_WALLPAPER_LAST`] on its last chunk, text the
+/// chunk of the choice's text.
+pub const OXYOS_EVENT_OUTPUT_WALLPAPER: u32 = 82;
+pub const OXYOS_WALLPAPER_LAST: u8 = 1;
 /// To an application: the shell asks it to close a window.
 pub const OXYOS_EVENT_CLOSE_REQUESTED: u32 = 42;
 /// A touchpad pinch over one of the client's surfaces.
@@ -1701,6 +1706,22 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_OUTPUT_COVERED,
                 code: output,
                 flag: u8::from(covered),
+                ..out
+            }
+        }
+        Event::OutputWallpaper {
+            output,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_OUTPUT_WALLPAPER,
+                code: output,
+                detail: u32::from(index),
+                flag: if last { OXYOS_WALLPAPER_LAST } else { 0 },
                 ..out
             }
         }

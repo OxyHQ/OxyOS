@@ -1,0 +1,29 @@
+{
+  "name": {
+    "en": "Lagoon",
+    "es": "Laguna"
+  },
+  "category": "gradients",
+  "automatic": "appearance",
+  "preview": "light",
+  "variants": [
+    {
+      "id": "light",
+      "name": {
+        "en": "Light",
+        "es": "Claro"
+      },
+      "file": "light.svg",
+      "appearance": "light"
+    },
+    {
+      "id": "dark",
+      "name": {
+        "en": "Dark",
+        "es": "Oscuro"
+      },
+      "file": "dark.svg",
+      "appearance": "dark"
+    }
+  ]
+}

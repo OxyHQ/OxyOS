@@ -1,0 +1,107 @@
+{
+  "name": {
+    "en": "Horizon",
+    "es": "Horizonte"
+  },
+  "category": "dynamic",
+  "automatic": "sun",
+  "preview": "day",
+  "variants": [
+    {
+      "id": "night",
+      "name": {
+        "en": "Night",
+        "es": "Noche"
+      },
+      "file": "night.svg",
+      "sun": {
+        "elevation": -30.0,
+        "azimuth": 0.0
+      }
+    },
+    {
+      "id": "dawn",
+      "name": {
+        "en": "Dawn",
+        "es": "Alba"
+      },
+      "file": "dawn.svg",
+      "sun": {
+        "elevation": -12.0,
+        "azimuth": 90.0
+      }
+    },
+    {
+      "id": "sunrise",
+      "name": {
+        "en": "Sunrise",
+        "es": "Amanecer"
+      },
+      "file": "sunrise.svg",
+      "sun": {
+        "elevation": 0.0,
+        "azimuth": 90.0
+      }
+    },
+    {
+      "id": "morning",
+      "name": {
+        "en": "Morning",
+        "es": "Mañana"
+      },
+      "file": "morning.svg",
+      "sun": {
+        "elevation": 15.0,
+        "azimuth": 90.0
+      }
+    },
+    {
+      "id": "day",
+      "name": {
+        "en": "Day",
+        "es": "Día"
+      },
+      "file": "day.svg",
+      "sun": {
+        "elevation": 60.0,
+        "azimuth": 180.0
+      }
+    },
+    {
+      "id": "afternoon",
+      "name": {
+        "en": "Afternoon",
+        "es": "Tarde"
+      },
+      "file": "afternoon.svg",
+      "sun": {
+        "elevation": 15.0,
+        "azimuth": 270.0
+      }
+    },
+    {
+      "id": "sunset",
+      "name": {
+        "en": "Sunset",
+        "es": "Puesta de sol"
+      },
+      "file": "sunset.svg",
+      "sun": {
+        "elevation": 0.0,
+        "azimuth": 270.0
+      }
+    },
+    {
+      "id": "dusk",
+      "name": {
+        "en": "Dusk",
+        "es": "Anochecer"
+      },
+      "file": "dusk.svg",
+      "sun": {
+        "elevation": -12.0,
+        "azimuth": 270.0
+      }
+    }
+  ]
+}

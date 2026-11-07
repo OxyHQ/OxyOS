@@ -1,6 +1,7 @@
 /** Development-only catalog and surface fixture. Never imported by apps/shell or the OS session. */
 import type {
   ShellApplication,
+  ShellWallpaper,
   ShellSnapshot,
   ShellMenu,
 } from "../../../apps/shell/src/model";
@@ -29,8 +30,10 @@ import mentionThumbnail from "../assets/surfaces/mention.png";
 import aliaThumbnail from "../assets/surfaces/alia.png";
 import splitThumbnail from "../assets/surfaces/astro-split.webp";
 import workThumbnail from "../assets/surfaces/astro-work.webp";
-import wallpaper from "../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg";
-export const previewWallpaper = { uri: wallpaper };
+import wallpaper from "../../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers/oxyos/light.svg";
+/** The catalog's default, light (docs/adr/0048-wallpapers.mdx): the preview has no session to tell
+    it another. */
+export const previewWallpaper: ShellWallpaper = { key: "oxyos/light", source: { uri: wallpaper }, fit: "fill", color: "#000000" };
 const raster = (
   id: string,
   name: string,

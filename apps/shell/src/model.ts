@@ -3,6 +3,9 @@ import type { ImageSourcePropType } from "react-native";
 import type { NetworkState } from "./network";
 
 /** Data supplied by the OxyOS application registry and compositor, never invented by the UI. */
+/** The wallpaper (docs/adr/0048-wallpapers.mdx). */
+export type { ShellWallpaper, WallpaperFit } from "./wallpaper";
+
 export type ShellApplication = {
   id: string;
   name: string;

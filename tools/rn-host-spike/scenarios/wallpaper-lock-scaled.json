@@ -1,0 +1,73 @@
+{
+  "about": "The lock screen shows the display's wallpaper (ADR 0048, decision 6), dimmed as ADR 0010's backdrop is: a colour chosen (#1f5fd6) is #16449a beneath the lock screen's 28 % black, wherever the clock and the field are not. At 1.25.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "lock_password": "oxyos.correcta",
+  "preferences": {
+    "appearance": "light",
+    "wallpaper": "color:1f5fd6"
+  },
+  "steps": [
+    {
+      "name": "the desktop shows the colour chosen",
+      "do": [
+        "press_output",
+        [
+          1100,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1375,500": "#1f5fd6"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "the Oxy menu opens",
+      "do": [
+        "press_output",
+        [
+          16,
+          14
+        ]
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Bloquear pantalla: the lock screen shows the same wallpaper, dimmed",
+      "do": [
+        "press_output",
+        [
+          82,
+          142
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "output_pixels": {
+          "50,50": "#16449a",
+          "1550,50": "#16449a",
+          "50,950": "#16449a",
+          "1550,950": "#16449a"
+        },
+        "react": {},
+        "preferences_file": {
+          "wallpaper": "color:1f5fd6"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

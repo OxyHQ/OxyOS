@@ -89,8 +89,9 @@ impl Worker {
 }
 
 /// What the login screen and sessions are given of the login program's own environment (the
-/// unit's `Environment=`): the solar wallpaper's folder and the screen reader.
-const PASSED_ON: [&str; 2] = ["OXYOS_WALLPAPER", "OXYOS_READER"];
+/// unit's `Environment=`): another catalog of wallpapers than the image's (a development one,
+/// docs/adr/0048-wallpapers.mdx) and the screen reader.
+const PASSED_ON: [&str; 2] = ["OXYOS_WALLPAPERS", "OXYOS_READER"];
 
 /// `--flag value` pairs and the program after `--`.
 fn worker_args(
@@ -161,8 +162,8 @@ fn person_args(
 
 /// The login screen's worker: a greeter session of the login program's user, the session program
 /// in its login screen mode with the login screen as its shell, given the screen reader and the
-/// wallpaper the unit names (`passed`, the login program's environment): Super+F5 starts the
-/// reader there before anyone signs in (ADR 0014, decision 6).
+/// wallpapers' catalog the unit names, if another (`passed`, the login program's environment):
+/// Super+F5 starts the reader there before anyone signs in (ADR 0014, decision 6).
 fn greeter_args(config: &Config, passed: &dyn Fn(&str) -> Option<String>) -> Vec<OsString> {
     let shell = format!(
         "{},{},OxyOSLogin",

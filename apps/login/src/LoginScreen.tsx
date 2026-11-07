@@ -5,7 +5,6 @@ import {
   ScrollView,
   TextInput,
   useWindowDimensions,
-  type ImageSourcePropType,
 } from "react-native";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
 import { Text } from "@oxy.so/bloom/typography";
@@ -13,7 +12,7 @@ import { Box } from "../../shell/src/primitives";
 import { LockBackdrop } from "../../shell/src/components/LockScreen";
 import { UserPicture } from "../../shell/src/components/UserPicture";
 import { PasswordField, textShadow } from "../../shell/src/components/PasswordField";
-import type { ShellLock } from "../../shell/src/model";
+import type { ShellLock, ShellWallpaper } from "../../shell/src/model";
 import type { MaskedProps } from "../../shell/src/platform";
 import { chosenAccount, opensOnSetup, type Accounts, type LoginAccount } from "./model";
 import {
@@ -375,7 +374,7 @@ export function LoginScreen({
 }: {
   accounts: Accounts;
   actions: LoginActions;
-  wallpaper: ImageSourcePropType;
+  wallpaper: ShellWallpaper;
   now: Date;
   Masked?: ComponentType<MaskedProps>;
 }) {

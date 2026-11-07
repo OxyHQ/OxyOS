@@ -1,6 +1,7 @@
 /**
- * React Native's Image on OxyOS (images.h), for scenarios/images.json: a wallpaper frame (a
- * 5120 × 2880 JPEG with a Display P3 profile) covering its box, an app icon contained in a
+ * React Native's Image on OxyOS (images.h), for scenarios/images.json: the repository's test JPEG
+ * (assets/test-images, scripts/make-test-images.py: 5120 × 2880 with a Display P3 profile) covering
+ * its box, an app icon contained in a
  * rounded one and the same icon tinted, and two sources that cannot be shown (a `data:` URI of a
  * PNG cut after its signature, and a missing file), each with what its load events said; and Image.getSize on the wallpaper. Remote
  * images are scenarios/remote-images.json's (RemoteImageProbe).
@@ -8,7 +9,7 @@
 import * as React from 'react';
 import { Image, Text, View } from 'react-native';
 
-const wallpaper = require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg');
+const wallpaper = require('../../../assets/test-images/p3-5120x2880.jpg');
 const allo = require('../../shell-preview/assets/apps/allo.png');
 
 type Load = {

@@ -1,9 +1,10 @@
 import React, { memo, useRef, type ComponentRef, type ComponentType } from "react";
-import { StyleSheet, View, type ImageSourcePropType } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { BlurTargetView } from "expo-blur";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../primitives";
 import { Wallpaper } from "./Wallpaper";
+import type { ShellWallpaper } from "../wallpaper";
 import { LockClock } from "./LockClock";
 import { UserPicture } from "./UserPicture";
 import { PasswordField, textShadow } from "./PasswordField";
@@ -26,7 +27,7 @@ export function LockBackdrop({
   children,
 }: {
   testID: string;
-  wallpaper: ImageSourcePropType;
+  wallpaper: ShellWallpaper;
   now: Date;
   /** The platform's masked view, for the clock's material (LockClock). */
   Masked?: ComponentType<MaskedProps>;
@@ -40,7 +41,7 @@ export function LockBackdrop({
     <Box testID={testID} className="flex-1 overflow-hidden bg-black">
       {/* The wallpaper, which the clock's glyphs show blurred (expo-blur's target). */}
       <BlurTargetView ref={wallpaperTarget} style={StyleSheet.absoluteFill}>
-        <Wallpaper source={wallpaper} decorative />
+        <Wallpaper wallpaper={wallpaper} decorative />
       </BlurTargetView>
       <Box
         className="absolute inset-0"
@@ -79,7 +80,7 @@ export const LockScreen = memo(function LockScreen({
   announce,
 }: {
   lock: ShellLock;
-  wallpaper: ImageSourcePropType;
+  wallpaper: ShellWallpaper;
   now: Date;
   /** The platform's masked view, for the clock's material (LockClock). */
   Masked?: ComponentType<MaskedProps>;

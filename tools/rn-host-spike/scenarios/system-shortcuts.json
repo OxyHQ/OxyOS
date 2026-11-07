@@ -99,7 +99,7 @@
         "react": {},
         "delivered": {"1": {"focus.in": 1}, "launched": {"focus.out": 1}},
         "focus_surface": 1,
-        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "738,716": "#64717a"},
+        "output_pixels": {"900,480": "#ffffff", "950,300": "#8388c4", "738,716": "#64717a"},
         "transitions": {"count": 1, "seen": [{"kind": "window", "change": "gone", "ended": true}]}
       }
     },
@@ -122,7 +122,7 @@
         "react": {},
         "delivered": {"1": {"focus.in": 1}, "launched": {"close.requested": 1}},
         "focus_surface": 1,
-        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "738,716": "#f7f9fc", "796,716": "#64717a"}
+        "output_pixels": {"900,480": "#ffffff", "950,300": "#8388c4", "738,716": "#f7f9fc", "796,716": "#64717a"}
       }
     },
     {

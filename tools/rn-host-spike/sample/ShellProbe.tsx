@@ -16,6 +16,7 @@ import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
+import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
   ShellInputMethod,
@@ -189,9 +190,6 @@ const probeControls: NonNullable<React.ComponentProps<typeof Shell>['controls']>
   network: { wifi: 'connected', signal: 100, ssid: 'OxyOS', wired: false },
 };
 
-// The fixture's wallpaper, where the system chose none.
-const FIXTURE_WALLPAPER = require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg');
-
 /**
  * OxyOS's platform as the shell has it: never the `menu-bar` capability. The shell's top bar is
  * the session's menu bar (docs/adr/0021-menu-bar.mdx): its Bloom Menubar draws itself, and never
@@ -217,6 +215,9 @@ function ShellProviders({ children }: { children: React.ReactNode }) {
     </SafeAreaProvider>
   );
 }
+
+/** The shell state's `wallpaper` (oxyos/wallpaper.js). */
+type ShellStateWallpaper = { key: string; uri: string | null; fit: string; color: string; slow: boolean };
 
 /** The shell, its regions where `platform` draws them, showing `shown` at `now`. */
 function ProbeShell({
@@ -247,8 +248,9 @@ function ProbeShell({
   act?: ShellActions;
   now?: Date;
   lock?: ShellLock;
-  /** The wallpaper the system chose (the solar wallpaper's frame now); the fixture's without. */
-  wallpaper?: string;
+  /** What the wallpaper shows, as the host turned the session's choice into it
+      (docs/adr/0048-wallpapers.mdx); the catalog's default without. */
+  wallpaper?: ShellStateWallpaper | null;
   /** The system shortcuts the shell shows (ADR 0024), as the compositor sent them. */
   commands?: React.ComponentProps<typeof Shell>['commands'];
   /** The session's notifications (ADR 0026); banners only on the display with the dock. */
@@ -256,9 +258,9 @@ function ProbeShell({
   /** Input methods (ADR 0041): the candidate window and the top bar's input sources. */
   inputMethod?: ShellInputMethod;
 }) {
-  // The same source while the frame is the same: the wallpaper and what blurs it render again only
-  // when the sun moves on to another.
-  const source = React.useMemo(() => (wallpaper ? { uri: wallpaper } : FIXTURE_WALLPAPER), [wallpaper]);
+  // The same wallpaper while it draws the same: the wallpaper and what blurs it render again only
+  // when it changes.
+  const source = useShellWallpaper(wallpaper);
   const fixture = useFixture();
   return (
     <Shell
@@ -728,7 +730,7 @@ function SessionShell() {
       act={act}
       now={now}
       lock={lock}
-      wallpaper={state.wallpaper ?? undefined}
+      wallpaper={state.wallpaper}
       dock={dock}
       commands={shell.shortcuts}
       controls={controls}

@@ -63,7 +63,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// docs/adr/0046-interactive-gestures.mdx); version 26, a drag vanishing where it is dropped on
 /// nothing, its files' media types, and the shell's files opened with an application (ADR 0035
 /// and ADR 0034), both ways, a target's events sent unasked; version 28, the volumes a drag's
-/// files are on (ADR 0047), both ways, a target's events sent unasked.
+/// files are on (ADR 0047), both ways, a target's events sent unasked; version 29, each output's
+/// wallpaper (`OutputWallpaper`, docs/adr/0048-wallpapers.mdx), told to the shell.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -80,6 +81,7 @@ const EVENTS_ADDED: Added = &[
     (22, 81..=81),
     (26, 252..=252),
     (28, 253..=253),
+    (29, 82..=82),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

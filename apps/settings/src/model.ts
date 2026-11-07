@@ -2,7 +2,7 @@ import type { AccountActions, AccountSnapshot } from "./account";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
-import type { ImageSourcePropType } from "react-native";
+import type { AddedWallpaper, WallpaperCatalog } from "./wallpaper";
 
 /**
  * What the Settings application shows (docs/adr/0019-settings.mdx): the user's preferences, which
@@ -33,8 +33,11 @@ export type Preferences = {
   trackpadNaturalScrolling: boolean;
   /** Natural scrolling on a mouse's wheel and every other pointing device: off, as every mouse has. */
   mouseNaturalScrolling: boolean;
-  /** The wallpaper's folder; null is the session's own. */
-  wallpaper: string | null;
+  /** The wallpaper where Settings' window is, as the session tells it (docs/adr/0048-wallpapers.mdx,
+      decision 4): a choice's text (`src/wallpaper.ts`), empty for the catalog's default. */
+  wallpaper: string;
+  /** *Show on all desktops*: off, a choice is the current desktop's alone. */
+  wallpaperAllDesktops: boolean;
   /** Minutes idle before the session locks; 0 never. */
   lockAfter: number;
   screenReader: boolean;
@@ -54,8 +57,6 @@ export type Preferences = {
   /** The current input source: `layout`, or one of `inputSources`. */
   inputSource: string;
 };
-
-export type Wallpaper = { id: string; name: string; preview?: ImageSourcePropType };
 
 /** The system's settings and facts (systemd's timedated, localed and hostnamed; os-release). */
 export type SystemFacts = {
@@ -114,7 +115,11 @@ export type DisplaysSnapshot = {
 
 export type SettingsSnapshot = {
   preferences: Preferences;
-  wallpapers: readonly Wallpaper[];
+  /** The system's wallpapers (docs/adr/0048-wallpapers.mdx, decision 1), names in the session's
+      language. */
+  wallpapers: WallpaperCatalog;
+  /** The photos and folders the person added, the latest first, as Settings keeps them. */
+  addedWallpapers?: readonly AddedWallpaper[];
   system: SystemFacts;
   displays: DisplaysSnapshot;
   /** Software Update (docs/adr/0030-installing-applications.mdx, decision 16): none without the
@@ -147,6 +152,7 @@ export const PREFERENCE_KEYS = {
   trackpadNaturalScrolling: "trackpad_natural_scrolling",
   mouseNaturalScrolling: "mouse_natural_scrolling",
   wallpaper: "wallpaper",
+  wallpaperAllDesktops: "wallpaper_all_desktops",
   lockAfter: "lock_after",
   screenReader: "screen_reader",
   language: "language",
@@ -175,10 +181,30 @@ export type SettingsActions = {
   setPrimaryDisplay: (output: number) => void;
   /** Keep the mode on trial, or go back to what the display showed. */
   confirmDisplays: (keep: boolean) => void;
+  /** Settings › Wallpaper's platform: thumbnails, folders and the file chooser. */
+  wallpaper?: WallpaperActions;
   updates?: UpdatesActions;
   privacy?: PrivacyActions;
   network?: NetworkActions;
   account?: AccountActions;
+};
+
+/**
+ * What Settings › Wallpaper asks of the platform (docs/adr/0048-wallpapers.mdx, decision 7). Where
+ * a platform lacks one, the page goes without it: no thumbnail cache draws the photo itself, no
+ * chooser shows no *Add Photo…*.
+ */
+export type WallpaperActions = {
+  /** A thumbnail of the image at `uri`, `width` × `height` pixels, from the platform's cache: its
+      `file://` URI, or null when the image cannot be read. */
+  thumbnail?: (uri: string, width: number, height: number) => Promise<string | null>;
+  /** A folder's images, as a shuffle takes them (`file://` URIs). */
+  folder?: (path: string) => Promise<string[]>;
+  /** The system's file chooser: a photo's or a folder's path, or null when cancelled. */
+  pickPhoto?: () => Promise<string | null>;
+  pickFolder?: () => Promise<string | null>;
+  /** Keeps the person's added photos and folders. */
+  setAdded?: (added: AddedWallpaper[]) => void;
 };
 
 /** The resolutions a display offers, the largest first, each once, with whether it is its own. */

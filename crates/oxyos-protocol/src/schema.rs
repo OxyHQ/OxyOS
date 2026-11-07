@@ -664,6 +664,12 @@ messages! {
         // minimized nor hidden with its application. The dock's top corners are square while one
         // does, as the window's own are.
         81 => OutputCovered { output: u32, covered: bool },
+        // To the session's shell (docs/adr/0048-wallpapers.mdx, version 29): the wallpaper the
+        // person chose for what `output` shows now (its active desktop's, else its display's,
+        // else the default), `oxyos_preferences::wallpaper::Choice`'s text in chunks as
+        // Preference's, for every output when the shell connects and whenever one changes. Each
+        // shell draws its own output's.
+        82 => OutputWallpaper { output: u32, index: u8, last: bool, text: PreeditText },
         // To the session's shell of `output` (its `shortcuts` grant, ADR 0024): a system shortcut
         // the compositor took from the keyboard, for the shell to show: the application switcher's
         // and the search's. `serial` is a user input of the shell's, as a key press's is.

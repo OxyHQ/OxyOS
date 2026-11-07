@@ -82,6 +82,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
+  output_pixels_any, a list of such maps of which one holds at every point (one of a folder's
+  photos, whichever a shuffle picked);
 - smooth: a region of the output ("region": [x0, y0, x1, y1] in its pixels) showing a smooth
   gradient without banding: neighbouring pixels differ by at most "max_step" levels (2), and down
   its columns a level holds for at most "median_run_max" rows (3) as the median of its runs: a
@@ -420,8 +422,14 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
-A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
-that moment where that time zone is (ADR 0012).
+Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
+config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
+docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
+`wallpaper_all_desktops`, and the session's own lines, `wallpaper.DISPLAY` and
+`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). A
+scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
+follows (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on) and the time zone whose sun a
+`sun` wallpaper's Automatic follows (ADR 0012).
 
 A scenario with `reader` ({}) runs the session's screen reader (`oxyos-reader`, beside the
 offscreen compositor unless `--reader` names it), which speaks the session's language (the
@@ -439,7 +447,8 @@ with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written
 what the session last told the application of how to draw (dark, reduceMotion,
 reduceTransparency, accent) by the time the step settled, each key given; a step's
 `preferences_file` expectation checks the file holds each KEY = VALUE given as that step left it,
-the `final` one once the run ended.
+the `final` one once the run ended. In it and in `app_data`'s, "{home}" is the run's home (`home`):
+a path the person chose there (a wallpaper's photo, docs/adr/0048-wallpapers.mdx).
 
 A scenario with `input_sources` ({"available": [METHOD]}) has the development compositor tell
 Settings and the shell the input sources as the session does (docs/adr/0041-input-methods.mdx,
@@ -1501,6 +1510,18 @@ def png_bytes(width, height, colour, right=None):
 
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def with_home(value, preferences):
+    """An expected value with "{home}" in its texts the run's home (`home`, made afresh in the run's
+    directory beside its preferences): a path the person chose there, which no two runs share."""
+    if isinstance(value, str):
+        return value.replace("{home}", str((preferences.parent / "home").resolve())) if preferences else value
+    if isinstance(value, list):
+        return [with_home(item, preferences) for item in value]
+    if isinstance(value, dict):
+        return {key: with_home(item, preferences) for key, item in value.items()}
+    return value
 
 
 def make_home(out, home):
@@ -3771,6 +3792,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 key, value = line.split("=", 1)
                 kept[key.strip()] = value.strip()
         for key, value in expect["preferences_file"].items():
+            value = with_home(value, preferences)
             if kept.get(key) != value:
                 fail(f"preferences file: {key} = {kept.get(key)!r}, expected {value!r}")
     for app, files in expect.get("app_data", {}).items():
@@ -3780,6 +3802,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             data_home = run / "home" / ".local/share" if (run / "home").is_dir() else run / "xdg-data"
             path = data_home / "oxyos" / "apps" / app / name
             kept = json.loads(path.read_text()) if path.exists() else None
+            content = with_home(content, preferences)
             if kept != content:
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
@@ -3814,6 +3837,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "output_pixels" in expect:
         # Colours anywhere on the output, "x,y" in output pixels (the shell's surfaces included).
         check_pixels(name, {**expect, "pixels": expect["output_pixels"]}, screenshot, [0, 0], fail)
+    if "output_pixels_any" in expect:
+        # One of several pictures, whichever it is (a shuffle's pick, which hashes what the person
+        # chose: a photo folder's path in the run's own home): every point of one of them.
+        misses = []
+        for option in expect["output_pixels_any"]:
+            missed = []
+            check_pixels(name, {**expect, "pixels": option}, screenshot, [0, 0], missed.append)
+            if not missed:
+                break
+            misses.append("; ".join(missed))
+        else:
+            fail("the output shows none of the pictures expected: " + " | ".join(misses))
     if "output_pixels_match" in expect:
         check_pixels_match(name, {**expect, "pixels_match": expect["output_pixels_match"]}, screenshot, [0, 0], fail)
     if "smooth" in expect:
@@ -4507,7 +4542,11 @@ def main():
     # a step's frames settle.
     given = {"appearance": "light", "caret_blink": "false", **scenario.get("preferences", {}),
              **scenario.get("settings", {}).get("preferences", {})}
-    preferences.write_text("".join(f"{key} = {value}\n" for key, value in given.items()))
+    # "{repo}" in a value is the repository's root: a wallpaper of a file of its own (ADR 0048's
+    # `photo:FIT:RRGGBB:PATH` takes an absolute path).
+    repo = str(pathlib.Path(__file__).resolve().parents[2])
+    preferences.write_text("".join(f"{key} = {str(value).replace('{repo}', repo)}\n"
+                                   for key, value in given.items()))
     command += ["--preferences", str(preferences)]
     if "settings" in scenario:
         command += ["--grant-settings", scenario["settings"]["app"]]
@@ -4674,13 +4713,16 @@ def main():
         env["OXYOS_HOST_RENDERER"] = options.renderer
     if options.check_render:
         env["OXYOS_HOST_RENDER_CHECK"] = "1"
+    # The system's wallpapers, as the image installs them (docs/adr/0048-wallpapers.mdx), never the
+    # developer's machine's.
+    env["OXYOS_WALLPAPERS"] = str(pathlib.Path(__file__).resolve().parents[2] /
+                                  "config/includes.chroot_after_packages/usr/share/oxyos/wallpapers")
+    env.pop("OXYOS_WALLPAPER_NOW", None)
     if scenario.get("wallpaper"):
-        # The solar wallpaper (ADR 0012) at a moment and a time zone the scenario fixes: the
-        # wallpaper's folder (from the repository's root), "TZ" and "now" (unix seconds).
+        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), fixed.
         wallpaper = scenario["wallpaper"]
-        env["OXYOS_WALLPAPER"] = str(pathlib.Path(__file__).resolve().parents[2] / wallpaper["folder"])
         env["TZ"] = wallpaper["tz"]
-        env["OXYOS_SOLAR_NOW"] = str(wallpaper["now"])
+        env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
     if "store" in scenario:

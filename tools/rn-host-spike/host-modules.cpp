@@ -12,6 +12,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -442,6 +446,59 @@ jsi::Value settledLater(std::shared_ptr<CallInvoker> invoker, jsi::Runtime& rt, 
       });
   return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
 }
+
+// A C ABI call answering JSON (`int64_t f(char* out, size_t capacity)`, the length it needs or -1):
+// the text, read once into a buffer that fits it (a second call only when the first was too small),
+// or none with `oxyos_last_error()`'s reason in `error`.
+template <typename Call>
+std::optional<std::string> abiJson(Call call, std::string& error) {
+  std::string json(4096, '\0');
+  int64_t length = call(json.data(), json.size());
+  if (length >= 0 && static_cast<size_t>(length) >= json.size()) {
+    json.assign(static_cast<size_t>(length) + 1, '\0');
+    length = call(json.data(), json.size());
+  }
+  if (length < 0) {
+    error = oxyos_last_error();
+    return std::nullopt;
+  }
+  json.resize(std::min(static_cast<size_t>(length), json.size()));
+  return json;
+}
+
+// Settings › Wallpaper's slow work (docs/adr/0048-wallpapers.mdx, decision 7): a photo's thumbnail
+// decoded and kept, a folder listed. One thread of its own, in the order asked, never the
+// JavaScript thread's: a page of photos opens drawn, their pictures arriving as each is made.
+class WallpaperWork {
+ public:
+  static void run(std::function<void()> job) {
+    static WallpaperWork* work = new WallpaperWork();  // The process's, never torn down.
+    {
+      std::lock_guard<std::mutex> lock(work->mutex_);
+      work->jobs_.push_back(std::move(job));
+    }
+    work->ready_.notify_one();
+  }
+
+ private:
+  WallpaperWork() {
+    std::thread([this] {
+      for (;;) {
+        std::function<void()> job;
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          ready_.wait(lock, [this] { return !jobs_.empty(); });
+          job = std::move(jobs_.front());
+          jobs_.pop_front();
+        }
+        job();
+      }
+    }).detach();
+  }
+  std::mutex mutex_;
+  std::condition_variable ready_;
+  std::deque<std::function<void()>> jobs_;
+};
 
 // An ImageRef's native side (expo-image's loadAsync): its picture's id and size; when JavaScript
 // collects the object holding it, or it is released, the picture is let go (on the loop's thread,
@@ -1081,6 +1138,86 @@ std::shared_ptr<TurboModule> createHostModule(
         return jsi::Value(static_cast<double>(services.settings.display(change, numbers)));
       });
     }
+    // Settings › Wallpaper (docs/adr/0048-wallpapers.mdx, decision 7): the system's catalog
+    // (`/usr/share/oxyos/wallpapers`, read-only, the image's) with its names in `language`; a
+    // thumbnail of an image from the cache, made on the wallpapers' own thread; a folder's images.
+    // None of them is a preference: any client may read what the person can.
+    module->method("getWallpapers", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      std::string language = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "en";
+      std::string error;
+      auto json = abiJson(
+          [&](char* out, size_t capacity) { return oxyos_wallpaper_catalog(language.c_str(), out, capacity); }, error);
+      if (!json) {
+        std::cerr << "[host] the wallpapers: " << error << "\n";
+        return jsi::Value::null();
+      }
+      try {
+        return jsi::valueFromDynamic(rt, folly::parseJson(*json));
+      } catch (const std::exception& failure) {
+        std::cerr << "[host] the wallpapers: " << failure.what() << "\n";
+        return jsi::Value::null();
+      }
+    });
+    auto later = [invoker](jsi::Runtime& rt, Settle start) { return settledLater(invoker, rt, std::move(start)); };
+    // A photo's thumbnail and a folder's images read the person's files outside the files API
+    // (docs/adr/0028-file-access.mdx): only Settings, whom the session granted `settings` (it alone is
+    // told the preferences), may ask. Any other client is answered nothing, and nothing is read.
+    auto granted = [&services] { return services.settings.values && !services.settings.values().isNull(); };
+    module->method("wallpaperThumbnail", [later, granted](jsi::Runtime& rt, const jsi::Value* args,
+                                                          size_t count) -> jsi::Value {
+      if (count < 3 || !args[0].isString() || !args[1].isNumber() || !args[2].isNumber()) {
+        throw jsi::JSError(rt, "OxyOSSettings.wallpaperThumbnail: a URI, a width and a height");
+      }
+      std::string uri = args[0].asString(rt).utf8(rt);
+      auto side = [](double pixels) { return static_cast<uint32_t>(std::clamp(pixels, 1.0, 1024.0)); };
+      uint32_t width = side(args[1].asNumber()), height = side(args[2].asNumber());
+      if (!granted()) return later(rt, [](auto resolve, auto) { resolve(nullptr); });
+      return later(rt, [uri, width, height](auto resolve, auto) {
+        WallpaperWork::run([uri, width, height, resolve] {
+          std::string error;
+          auto json = abiJson(
+              [&](char* out, size_t capacity) {
+                return oxyos_wallpaper_thumbnail(uri.c_str(), width, height, out, capacity);
+              },
+              error);
+          // An image that cannot be read has no thumbnail: its tile shows its frame alone.
+          folly::dynamic made = nullptr;
+          if (json) {
+            try {
+              made = folly::parseJson(*json).getDefault("uri", nullptr);
+            } catch (const std::exception& failure) {
+              error = failure.what();
+            }
+          }
+          if (made.isNull()) std::cerr << "[host] a wallpaper's thumbnail (" << uri << "): " << error << "\n";
+          resolve(made);
+        });
+      });
+    });
+    module->method("wallpaperFolder", [later, granted](jsi::Runtime& rt, const jsi::Value* args,
+                                                       size_t count) -> jsi::Value {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSettings.wallpaperFolder: a path");
+      std::string path = args[0].asString(rt).utf8(rt);
+      if (!granted()) return later(rt, [](auto resolve, auto) { resolve(folly::dynamic::array()); });
+      return later(rt, [path](auto resolve, auto) {
+        WallpaperWork::run([path, resolve] {
+          std::string error;
+          auto json = abiJson(
+              [&](char* out, size_t capacity) { return oxyos_wallpaper_folder(path.c_str(), out, capacity); }, error);
+          folly::dynamic images = folly::dynamic::array();
+          if (json) {
+            try {
+              auto listed = folly::parseJson(*json).getDefault("images", folly::dynamic::array());
+              if (listed.isArray()) images = listed;
+            } catch (const std::exception& failure) {
+              error = failure.what();
+            }
+          }
+          if (!json) std::cerr << "[host] a wallpaper folder (" << path << "): " << error << "\n";
+          resolve(images);
+        });
+      });
+    });
     module->listeners();
   } else if (name == "OxyOSMenuBar") {
     // The application window's menus (sample/oxyos/platform-surface.js, docs/adr/0021-menu-bar.mdx):

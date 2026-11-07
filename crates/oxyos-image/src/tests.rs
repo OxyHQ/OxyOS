@@ -14,11 +14,12 @@ fn png(width: u32, height: u32, color: png::ColorType, data: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// A wallpaper frame of the repository: a 5120 × 2880 JPEG with a Display P3 profile.
+/// The repository's test JPEG (scripts/make-test-images.py): 5120 × 2880, with a Display P3
+/// profile.
 fn wallpaper() -> Vec<u8> {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../assets/wallpapers/solar-gradients/frames/frame-08.jpg"
+        "/../../assets/test-images/p3-5120x2880.jpg"
     );
     std::fs::read(path).unwrap()
 }

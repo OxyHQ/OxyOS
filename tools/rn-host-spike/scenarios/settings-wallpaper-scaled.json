@@ -1,0 +1,685 @@
+{
+ "about": "Settings › Wallpaper (docs/adr/0048-wallpapers.mdx, decision 7) with the session's shell, in Spanish, at 1.25 (2400 × 1500, 1920 × 1200 logical): the page shows the current wallpaper and the system's catalog (the repository's, as the image installs it), each category a radio group. A wallpaper chosen with the pointer and with the keyboard (Tab lands once on the row's chosen one; the arrows choose the next, the keyboard following the choice once the session applied it), a dynamic wallpaper's variant from its menu, a solid colour and a colour of the person's own from the colour picker, and Show on all desktops turned off: each step checks what the session keeps in the preferences file, what the shell's desktop shows (its pixels, beside Settings' window), what the assistive technology holds, where the keyboard is, and exactly what React received. The wallpaper's moment is fixed (14:00 in Madrid on the June solstice), so Horizon's Automatic is its day.",
+ "locale": "es_ES.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  1000,
+  1040
+ ],
+ "outputs": "2400x1500@1.25",
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "wallpaper": {
+  "tz": "Europe/Madrid",
+  "now": 1782043200
+ },
+ "steps": [
+  {
+   "name": "Settings opens beside the shell; the desktop shows the system's default wallpaper, OxyOS, light as the session is",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "output_pixels": {
+     "188,750": "#306fb6",
+     "2188,375": "#7379cf",
+     "2188,1250": "#3e3aa9"
+    }
+   }
+  },
+  {
+   "name": "Wallpaper, from the sidebar: the current wallpaper at the top (OxyOS, its picture and kind), Show on all desktops on, and the categories, each a radio group with OxyOS chosen in Dynamic Wallpapers and Show All beside Gradients' heading",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Fondo de pantalla"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "click@settings-nav-wallpaper": 1
+    },
+    "texts": [
+     "OxyOS",
+     "Mostrar en todos los escritorios",
+     "Automático sigue la apariencia clara u oscura.",
+     "Mostrar todo (8)",
+     "Añadir foto…",
+     "Añadir carpeta…"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Image",
+       "name": "Fondo de pantalla actual: OxyOS, Fondo claro y oscuro"
+      },
+      {
+       "role": "Button",
+       "name": "Fondo dinámico"
+      },
+      {
+       "role": "Switch",
+       "name": "Mostrar en todos los escritorios",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Group",
+       "name": "Fondos dinámicos"
+      },
+      {
+       "role": "Radio",
+       "name": "Horizonte",
+       "state": []
+      },
+      {
+       "role": "Radio",
+       "name": "OxyOS",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Fondos dinámicos aleatorios",
+       "state": []
+      },
+      {
+       "role": "Group",
+       "name": "Degradados"
+      },
+      {
+       "role": "Radio",
+       "name": "Degradados aleatorios",
+       "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Mostrar todo (8)"
+      },
+      {
+       "role": "Group",
+       "name": "Colores"
+      },
+      {
+       "role": "Radio",
+       "name": "Colores aleatorios",
+       "state": []
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#306fb6",
+     "2188,375": "#7379cf",
+     "2188,1250": "#3e3aa9"
+    }
+   }
+  },
+  {
+   "name": "Horizon pressed: the session keeps it, the shell's desktop crossfades to it (its day, the moment fixed at 14:00 in Madrid on the June solstice) and the top shows it, a dynamic wallpaper with its menu at Automatic",
+   "do": [
+    "press_named",
+    "Horizonte"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-horizon": 1,
+     "touchEnd@wallpaper-horizon": 1
+    },
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "press": 1,
+      "release": 1
+     }
+    },
+    "preferences_file": {
+     "wallpaper": "horizon",
+     "wallpaper_all_desktops": "true"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Image",
+       "name": "Fondo de pantalla actual: Horizonte, Fondo dinámico"
+      },
+      {
+       "role": "Radio",
+       "name": "Horizonte",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "OxyOS",
+       "state": []
+      }
+     ]
+    },
+    "texts": [
+     "Automático sigue al sol a lo largo del día, según la zona horaria del reloj."
+    ],
+    "output_pixels": {
+     "188,750": "#5798ee",
+     "2188,375": "#5e97e8",
+     "2188,1250": "#2a4a8c"
+    }
+   }
+  },
+  {
+   "name": "Tab: the sidebar's row, Wallpaper",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "focus@settings-nav-wallpaper": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-nav-wallpaper",
+     "ring": true,
+     "color": "#9422ae"
+    }
+   }
+  },
+  {
+   "name": "Tab: the dynamic wallpaper's menu",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@settings-nav-wallpaper": 1,
+     "focus@Fondo dinámico": 1
+    },
+    "keyboard_focus": {
+     "target": "Fondo dinámico",
+     "ring": true,
+     "color": "#9422ae"
+    }
+   }
+  },
+  {
+   "name": "Tab: Show on all desktops",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@Fondo dinámico": 1,
+     "focus@wallpaper-all-desktops-switch": 1
+    },
+    "keyboard_focus": {
+     "target": "wallpaper-all-desktops-switch",
+     "ring": true,
+     "color": "#9422ae"
+    }
+   }
+  },
+  {
+   "name": "Tab: Dynamic Wallpapers: one stop, on the chosen Horizon",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@wallpaper-all-desktops-switch": 1,
+     "focus@wallpaper-horizon": 1
+    },
+    "keyboard_focus": {
+     "target": "wallpaper-horizon",
+     "ring": true,
+     "color": "#9422ae"
+    }
+   }
+  },
+  {
+   "name": "→ chooses the next, OxyOS: the session keeps it, the desktop follows, the keyboard follows the choice",
+   "do": [
+    "key",
+    [
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@wallpaper-horizon": 1,
+     "focus@wallpaper-oxyos": 1
+    },
+    "keyboard_focus": {
+     "target": "wallpaper-oxyos",
+     "ring": true,
+     "color": "#9422ae"
+    },
+    "preferences_file": {
+     "wallpaper": "oxyos"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "OxyOS",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "Horizonte",
+       "state": []
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#306fb6",
+     "2188,375": "#7379cf",
+     "2188,1250": "#3e3aa9"
+    }
+   }
+  },
+  {
+   "name": "← back to Horizon",
+   "do": [
+    "key",
+    [
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@wallpaper-oxyos": 1,
+     "focus@wallpaper-horizon": 1
+    },
+    "keyboard_focus": {
+     "target": "wallpaper-horizon",
+     "ring": true,
+     "color": "#9422ae"
+    },
+    "preferences_file": {
+     "wallpaper": "horizon"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Horizonte",
+       "state": [
+        "checked",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#5798ee",
+     "2188,375": "#5e97e8",
+     "2188,1250": "#2a4a8c"
+    }
+   }
+  },
+  {
+   "name": "its menu opened: Automatic, then each of its variants",
+   "do": [
+    "press",
+    [
+     893,
+     230
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@wallpaper-horizon": 1,
+     "touchStart@wallpaper-variant": 1,
+     "touchEnd@wallpaper-variant": 1,
+     "show@wallpaper-variant-row": 1
+    },
+    "texts": [
+     "Automático",
+     "Noche",
+     "Alba",
+     "Amanecer",
+     "Mañana",
+     "Día",
+     "Tarde",
+     "Puesta de sol",
+     "Anochecer"
+    ],
+    "at": {
+     "window": [
+      {
+       "name": "Automático"
+      },
+      {
+       "name": "Noche"
+      },
+      {
+       "name": "Anochecer"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Night chosen: Horizon at night on the desktop whatever the sun, the menu saying so",
+   "do": [
+    "press_named",
+    "Noche"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-variant-row": 1,
+     "touchEnd@wallpaper-variant-row": 1
+    },
+    "preferences_file": {
+     "wallpaper": "horizon/night"
+    },
+    "output_pixels": {
+     "188,750": "#0a1332",
+     "2188,375": "#080d26",
+     "2188,1250": "#060a19"
+    }
+   }
+  },
+  {
+   "name": "down to the colours",
+   "do": [
+    "scroll_named",
+    [
+     "Degradados",
+     300
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "scroll@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Green pressed: a solid colour, the whole desktop that green",
+   "do": [
+    "press_named",
+    "Verde"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-color-2f9a5a": 1,
+     "touchEnd@wallpaper-color-2f9a5a": 1,
+     "scroll@settings-page": 1
+    },
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    },
+    "preferences_file": {
+     "wallpaper": "color:2f9a5a"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Verde",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Image",
+       "name": "Fondo de pantalla actual: Verde, Color"
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#2f9a5a",
+     "2188,375": "#2f9a5a",
+     "2188,1250": "#2f9a5a"
+    }
+   }
+  },
+  {
+   "name": "Custom Colour…: the colour picker, at green",
+   "do": [
+    "press_named",
+    "Color personalizado…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-custom-color": 1,
+     "touchEnd@wallpaper-custom-color": 1,
+     "show@settings-page": 1
+    },
+    "texts": [
+     "Color personalizado",
+     "Tono",
+     "Saturación",
+     "Brillo",
+     "Elegir",
+     "Cancelar"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Slider",
+       "name": "Tono"
+      },
+      {
+       "role": "Slider",
+       "name": "Saturación"
+      },
+      {
+       "role": "Slider",
+       "name": "Brillo"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "its hex field",
+   "do": [
+    "press_named",
+    "Color hexadecimal"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-color-picker-hex": 1,
+     "touchEnd@wallpaper-color-picker-hex": 1,
+     "focus@wallpaper-color-picker-hex": 1,
+     "selectionChange@wallpaper-color-picker-hex": 1
+    }
+   }
+  },
+  {
+   "name": "all of it selected",
+   "do": [
+    "key",
+    [
+     29,
+     30
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "selectionChange@wallpaper-color-picker-hex": 1
+    }
+   }
+  },
+  {
+   "name": "#123456 typed",
+   "do": [
+    "type",
+    "#123456"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "change@wallpaper-color-picker-hex": 1,
+     "selectionChange@wallpaper-color-picker-hex": 1
+    }
+   }
+  },
+  {
+   "name": "Choose: the session keeps that colour and the desktop shows it; the colours gain it, chosen",
+   "do": [
+    "press_named",
+    "Elegir"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-color-picker-done": 1,
+     "touchEnd@wallpaper-color-picker-done": 1,
+     "blur@wallpaper-color-picker-hex": 1,
+     "endEditing@wallpaper-color-picker-hex": 1
+    },
+    "preferences_file": {
+     "wallpaper": "color:123456"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Color personalizado #123456",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#123456",
+     "2188,375": "#123456",
+     "2188,1250": "#123456"
+    }
+   }
+  },
+  {
+   "name": "back up to the top",
+   "do": [
+    "scroll_named",
+    [
+     "Fondos dinámicos",
+     -300
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "scroll@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Show on all desktops off: kept, and a choice is now the current desktop's alone",
+   "do": [
+    "press",
+    [
+     930,
+     318
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-all-desktops-switch": 1,
+     "touchEnd@wallpaper-all-desktops-switch": 1
+    },
+    "preferences_file": {
+     "wallpaper_all_desktops": "false",
+     "wallpaper": "color:123456"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Mostrar en todos los escritorios",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Coral pressed with it off: the first desktop's own on this display, the default kept",
+   "do": [
+    "press_named",
+    "Coral"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-coral": 1,
+     "touchEnd@wallpaper-coral": 1
+    },
+    "preferences_file": {
+     "wallpaper": "color:123456",
+     "wallpaper_all_desktops": "false",
+     "wallpaper.output-1.1": "coral"
+    },
+    "output_pixels": {
+     "188,750": "#b4318e",
+     "2188,375": "#ce6b86",
+     "2188,1250": "#a73149"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Coral",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

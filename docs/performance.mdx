@@ -883,7 +883,7 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   frame callback was asked for (the UI runtime's `requestAnimationFrame` is watched), or the host
   did something that may give it work (`worklets-host.h`). The loop's 1 s safety wake is gone:
   it sleeps until a descriptor or a deadline (a timer, a paste's timeout, the wallpaper's next
-  frame) wakes it. `perf.py --check` guards it (at most one wakeup a second).
+  change by the clock) wakes it. `perf.py --check` guards it (at most one wakeup a second).
 - **The session polled every quarter second** for its children: SIGCHLD now wakes it, and it
   waits until what is due on a clock (the sun, a shell restarted, a display's trial mode).
 - **The session woke 92 times a second doing nothing** (the ThinkPad, 6 November 2026,

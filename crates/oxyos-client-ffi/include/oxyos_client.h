@@ -45,6 +45,11 @@ typedef struct OxyOSClient OxyOSClient;
 /* Whether a zoomed or full-screen window covers an output (docs/adr/0034-the-dock.mdx, version
    22): code the output, flag 1 while one does. */
 #define OXYOS_EVENT_OUTPUT_COVERED 81
+/* The wallpaper chosen for what an output shows (docs/adr/0048-wallpapers.mdx, version 29): code
+   the output, detail the chunk's index, flag OXYOS_WALLPAPER_LAST on its last chunk, text the
+   chunk of the choice's text (one empty chunk for the catalog's default). */
+#define OXYOS_EVENT_OUTPUT_WALLPAPER 82
+#define OXYOS_WALLPAPER_LAST 1
 #define OXYOS_EVENT_SYSTEM_SHORTCUT 100
 #define OXYOS_EVENT_WINDOW_USE 101
 /* Notifications (docs/adr/0026-notifications.mdx). */
@@ -1960,19 +1965,29 @@ int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment
 /* Ends a setup: closing its connection abandons what the service had not finished. */
 void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
 
-/* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
- * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and
- * clockwise from north. */
-typedef struct OxyOSSolarAnchor {
-  uint32_t frame;
-  double elevation;
-  double azimuth;
-} OxyOSSolarAnchor;
-/* The frame of `anchors` showing the sun at `unix_seconds` where the system's time zone is, and when
- * (unix seconds) it next changes. 0 on success; 1 where the time zone has no place (UTC): there is no
- * sun, and the caller shows its own frame; OXYOS_ERROR for anchors that are none. */
-int oxyos_solar_frame(const OxyOSSolarAnchor* anchors, size_t count, int64_t unix_seconds, uint32_t* frame,
-                      int64_t* next_change);
+/* Wallpapers (docs/adr/0048-wallpapers.mdx). Each writes JSON into `out` (`capacity` bytes,
+   NUL-terminated when it fits) and returns its length: larger than `capacity`, call again with
+   more room; OXYOS_ERROR on failure (oxyos_last_error). */
+
+/* What a display shows for `choice` (a choice's text) on `output` at `now`, the session having
+   started at `login` (unix seconds), in the appearance `dark`, from the system's catalog
+   (OXYOS_WALLPAPERS, else /usr/share/oxyos/wallpapers), the sun where the system's time zone is:
+   {"key", "uri" (file:// or null), "fit" (fill|fit|stretch|center|tile), "color" ("#rrggbb", drawn
+   behind), "next" (unix seconds it next changes by the clock, or null)}. A choice that is not one,
+   or names nothing there, shows the catalog's default. */
+int64_t oxyos_wallpaper_show(const char* choice, uint32_t output, int64_t now, int64_t login, bool dark,
+                             char* out, size_t capacity);
+/* The catalog for Settings, its names in `language` ("en", "es"; else English): {"default",
+   "categories": [{"id", "name", "wallpapers": [{"id", "name", "automatic" (none|appearance|sun),
+   "preview", "variants": [{"id", "name", "preview"}]}]}], "colors": [{"color", "name"}]}. */
+int64_t oxyos_wallpaper_catalog(const char* language, char* out, size_t capacity);
+/* A thumbnail of the image at `uri` (file:// or a path), `width` x `height` pixels (1 to 1024) as
+   cover draws it, cached as a PNG in $XDG_CACHE_HOME/oxyos/wallpapers/thumbnails: {"uri"}; an
+   SVG's own URI. */
+int64_t oxyos_wallpaper_thumbnail(const char* uri, uint32_t width, uint32_t height, char* out,
+                                  size_t capacity);
+/* A folder's images (file:// or a path), by name, at most 1000: {"images": ["file://..."]}. */
+int64_t oxyos_wallpaper_folder(const char* path, char* out, size_t capacity);
 
 /* Intl (crates/oxyos-intl, on ICU4X). Locales are BCP 47 tags; options are ECMA-402 options as
  * "name=value" pairs joined by ';' (only those the application gave; booleans as true/false).

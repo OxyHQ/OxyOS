@@ -1,0 +1,89 @@
+{
+  "about": "A change of what the wallpaper shows mid-session fades in (ADR 0048, decision 6): the catalog's default, OxyOS, follows the appearance; Dark Mode chosen in the Control Center makes the session's appearance dark, and the shell's host shows OxyOS's dark variant, faded in over the light one. The window and the dock are untouched; the desktop's pixels are the dark variant's once it settled. At 1.25.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "preferences": {
+    "appearance": "light"
+  },
+  "steps": [
+    {
+      "name": "the desktop shows OxyOS, light",
+      "do": [
+        "press_output",
+        [
+          1100,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1375,500": "#8891da",
+          "250,750": "#2b67b3",
+          "800,125": "#4672c9",
+          "1550,312": "#8888d4"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "the top bar's button opens the Control Center",
+      "do": [
+        "press_output",
+        [
+          1146,
+          14
+        ]
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Dark Mode: the session's appearance is dark, and the wallpaper's dark variant fades in",
+      "do": [
+        "press_output",
+        [
+          990,
+          76
+        ]
+      ],
+      "expect": {
+        "output_pixels": {
+          "1375,500": "#262c8a",
+          "250,750": "#0b1a32",
+          "800,125": "#131e4a"
+        },
+        "preferences_file": {
+          "appearance": "dark"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "a press outside closes the Control Center: the desktop stays dark",
+      "do": [
+        "press_output",
+        [
+          200,
+          600
+        ]
+      ],
+      "expect": {
+        "output_pixels": {
+          "1375,500": "#262c8a",
+          "250,750": "#0b1a32",
+          "800,125": "#131e4a",
+          "1550,312": "#2c2181"
+        },
+        "react": {}
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}
