@@ -1,0 +1,25 @@
+{
+  "about": "React Native's WebSocket on OxyOS (websocket.h, crates/oxyos-net's websocket.rs, sample/WebSocketProbe.tsx) against a local server regress.py runs (\"http\", whose routes answer WebSocket upgrades): text with characters beyond ASCII, binary as an ArrayBuffer and as a Blob both ways (BlobModule's handler and sendOverSocket), the protocol the server chose of those offered, a header sent with the handshake, a ping frame heard by the server, fifty messages in order, the close handshake started by the application (its code and reason answered back, the socket CLOSED) and by the server (4001 and its reason), a socket closed before its handshake was answered (an error, then a close of 1006, as on the web), a refused connection failing as on Android, and a URL that is no WebSocket's thrown by the constructor. One socket stays open (`held`), as perf.py's idle regression keeps it.",
+  "module": "WebSocketProbe",
+  "window": [800, 520],
+  "http": {"port": 18646},
+  "steps": [],
+  "final": {
+    "texts": [
+      "ws text: ok hola ñandú",
+      "ws binary: ok 4 0 1 254 255",
+      "ws blob: ok 17 a blob, both ways",
+      "ws protocol: ok chat",
+      "ws header: ok oxyos",
+      "ws ping: ok ping heard",
+      "ws order: ok 50 in order",
+      "ws close: ok close 4000 done here 3",
+      "ws server close: ok close 4001 the server says bye",
+      "ws close opening: failed: error, close 1006",
+      "ws refused: failed: error, close 1006",
+      "ws not a url: failed: thrown",
+      "ws held: ok open"
+    ],
+    "absent": ["pending", "running"]
+  }
+}

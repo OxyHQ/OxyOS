@@ -35,6 +35,8 @@ zeroize = "1"
 ring = "0.17"
 
 [dev-dependencies]
+# A WebSocket server for the C ABI's test.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 png = "0.18"
 oxyos-ipc = { path = "../oxyos-ipc" }
 oxyos-dmabuf = { path = "../oxyos-dmabuf" }

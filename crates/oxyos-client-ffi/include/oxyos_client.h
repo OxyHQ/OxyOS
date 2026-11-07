@@ -1475,6 +1475,82 @@ int oxyos_net_clear_cookies(OxyOSNet* net);
 /* Takes one answer without blocking: OXYOS_NET_ANSWER with *out filled, or OXYOS_NET_EMPTY. */
 int oxyos_net_answer(OxyOSNet* net, OxyOSNetAnswer* out);
 
+/* WebSockets (crates/oxyos-net's websocket.rs): the engine behind React Native's WebSocketModule.
+ * The protocol is tungstenite's, TLS rustls' verified against the system's certificates, through the
+ * environment's proxy as the network's requests go; each socket runs on a thread of its own that
+ * sleeps until its connection, the caller or the machine's addresses wake it. Opening one sends the
+ * network's cookies for its origin, the caller's headers, an Origin of its own unless the caller
+ * gave one and the protocols in one Sec-WebSocket-Protocol; offline (no default route) it fails at
+ * once, but to this machine. Strings are a pointer and a length, never NUL-terminated. Used by one
+ * thread at a time. */
+typedef struct OxyOSWebSockets OxyOSWebSockets;
+
+/* Event kinds (OxyOSWebSocketEvent.kind): a socket opens, then messages, then it is closed or it
+ * fails, the last of its events. */
+#define OXYOS_WEBSOCKET_OPEN 1
+#define OXYOS_WEBSOCKET_TEXT 2
+#define OXYOS_WEBSOCKET_BINARY 3
+#define OXYOS_WEBSOCKET_CLOSED 4
+#define OXYOS_WEBSOCKET_FAILED 5
+
+/* Results of oxyos_websockets_event. */
+#define OXYOS_WEBSOCKET_EVENT 1
+#define OXYOS_WEBSOCKET_EMPTY 0
+
+typedef struct OxyOSWebSocketProtocol {
+  const char* name;
+  size_t name_length;
+} OxyOSWebSocketProtocol;
+
+/* url is ws:, wss:, or http: and https: for them. */
+typedef struct OxyOSWebSocketRequest {
+  int64_t id;
+  const char* url;
+  size_t url_length;
+  const OxyOSWebSocketProtocol* protocols;
+  size_t protocol_count;
+  const OxyOSNetHeader* headers;
+  size_t header_count;
+} OxyOSWebSocketRequest;
+
+/* OPEN: data is the protocol the server chose (empty if none). TEXT: the text, UTF-8. BINARY: the
+ * bytes. CLOSED: code and data the reason of the peer's close frame (1005 if it had none; 0 for a
+ * socket used while not open). FAILED: data is why. Valid until the next oxyos_websockets_event or
+ * oxyos_websockets_free. */
+typedef struct OxyOSWebSocketEvent {
+  uint32_t kind;
+  uint32_t code;
+  int64_t id;
+  const uint8_t* data;
+  size_t length;
+} OxyOSWebSocketEvent;
+
+/* The application's WebSockets, sending `net`'s cookies, or NULL. */
+OxyOSWebSockets* oxyos_websockets_new(OxyOSNet* net);
+/* Closes every open socket with 1001 (going away), waiting a second at most for the close frames to
+ * be sent, and frees them; nothing more is heard. NULL is ignored. */
+void oxyos_websockets_free(OxyOSWebSockets* sockets);
+/* Readable while events are queued (for poll/epoll). */
+int oxyos_websockets_fd(OxyOSWebSockets* sockets);
+/* Starts opening a socket: it opens or fails through events. OXYOS_ERROR for a malformed URL or
+ * header or an id in use, and no event follows. */
+int oxyos_websockets_connect(OxyOSWebSockets* sockets, const OxyOSWebSocketRequest* request);
+/* Sends text (binary 0, UTF-8, else OXYOS_ERROR) or bytes. A socket not open ends instead: FAILED,
+ * then CLOSED with code 0. */
+int oxyos_websockets_send(OxyOSWebSockets* sockets, int64_t id, const uint8_t* data, size_t length,
+                          uint8_t binary);
+/* Sends a ping frame, as oxyos_websockets_send. */
+int oxyos_websockets_ping(OxyOSWebSockets* sockets, int64_t id);
+/* Starts the close handshake: CLOSED follows once both close frames are exchanged (FAILED if the
+ * peer does not answer within 60 s). An opening socket FAILS at once; a closed or closing one is left
+ * alone. OXYOS_ERROR, changing nothing, for a code no close frame may carry (outside 1000 to 4999,
+ * 1004 to 1006, 1015 to 2999) or a reason over 123 bytes. */
+int oxyos_websockets_close(OxyOSWebSockets* sockets, int64_t id, uint32_t code, const char* reason,
+                           size_t reason_length);
+/* Takes one event without blocking: OXYOS_WEBSOCKET_EVENT with *out filled, or
+ * OXYOS_WEBSOCKET_EMPTY. */
+int oxyos_websockets_event(OxyOSWebSockets* sockets, OxyOSWebSocketEvent* out);
+
 /* Images (crates/oxyos-image): PNG, JPEG, WebP and GIF (animated ones frame by frame when asked, else
  * their first frame), data: URIs, BlurHashes and ThumbHashes, decoded into
  * sRGB (from an embedded ICC profile), premultiplied RGBA, reduced to the size they are drawn at,
