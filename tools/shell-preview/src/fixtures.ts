@@ -241,7 +241,7 @@ export const previewNetworks: NetworkState = {
   joining: null,
 };
 
-/** A played machine's sound (docs/adr/0051-sound-devices.mdx), so the Control Center's Sound view
+/** A played machine's sound (docs/adr/0056-sound-devices.mdx), so the Control Center's Sound view
     can be tried in the browser: the built-in speakers chosen, a display over HDMI, and AirPods. */
 export const previewSound: SoundState = {
   available: true,

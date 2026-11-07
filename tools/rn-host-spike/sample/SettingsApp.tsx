@@ -542,7 +542,7 @@ const SOUND_FIXTURE: SoundState = {
 };
 
 /**
- * Sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): in a session, the state it tells
+ * Sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): in a session, the state it tells
  * Settings (its `settings` grant), followed, and its requests, the input's level metered while the
  * Input tab asks for it; none until the session has told it. Without a session, the fixture,
  * changed where it is (its level stays at nothing).

@@ -147,7 +147,7 @@ struct Session {
     networks: Option<oxyos_compositor::networks::Networks>,
     networks_waker: Option<std::os::fd::RawFd>,
     network_control: Option<zbus::blocking::Connection>,
-    /// `--sound FILE`: the session's sound's part (docs/adr/0051-sound-devices.mdx) over a played
+    /// `--sound FILE`: the session's sound's part (docs/adr/0056-sound-devices.mdx) over a played
     /// machine, which a step changes and whose state each step's result says.
     sound: Option<oxyos_compositor::sound_devices::SoundDevices>,
     played_sound: Option<std::sync::Arc<oxyos_audio::Played>>,
@@ -514,7 +514,7 @@ impl Session {
             let now = oxyos_compositor::settings::now();
             methods.serve(&mut self.compositor, &mut self.settings, now);
         }
-        // The sound's outputs and inputs (ADR 0051), before the store takes the requests left.
+        // The sound's outputs and inputs (ADR 0056), before the store takes the requests left.
         if let Some(sound) = self.sound.as_mut() {
             sound.serve(
                 &mut self.compositor.scene,

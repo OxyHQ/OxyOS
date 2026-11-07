@@ -120,7 +120,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "permissions", "attempts", "scans", "ethernet"), each key given matching: a dict key by key, a
   list item by item and of the same length;
 - sound: with the scenario's `sound` (a machine's outputs and inputs played by the development
-  compositor, docs/adr/0051-sound-devices.mdx: `outputs`, `inputs`, `configured_outputs`...),
+  compositor, docs/adr/0056-sound-devices.mdx: `outputs`, `inputs`, `configured_outputs`...),
   what it is once the step settled ("default_output", "default_input", "configured_outputs",
   "metering", each device's "volume", "balance" and "muted", and "calls", every change the
   session made, in order), each key given matching: a dict key by key, a list item by item and of
@@ -990,7 +990,7 @@ def director_args(step, out):
         # "View > Show Full URL".
         return args + ["--menu", value]
     if kind == "sound":
-        # The played sound changes as the world would (ADR 0051): {"plug": {"direction", "device"}},
+        # The played sound changes as the world would (ADR 0056): {"plug": {"direction", "device"}},
         # {"unplug": {"id"}}, {"change": {"id", "kind", "name", "volume", "muted", "level"}}.
         return args + ["--sound-act", json.dumps(value)]
     if kind == "network":
@@ -3761,7 +3761,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             for problem in matches_within(expect["network"], held, "the network daemon's"):
                 fail(problem)
     if "sound" in expect:
-        # The played sound once the step settled (ADR 0051): what the session chose and set.
+        # The played sound once the step settled (ADR 0056): what the session chose and set.
         held = result.get("sound")
         if held is None:
             fail("no played sound (the scenario needs `sound`)")
@@ -4625,7 +4625,7 @@ def main():
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
     if "sound" in scenario:
-        # The machine's outputs and inputs (ADR 0051), played in the development compositor as the
+        # The machine's outputs and inputs (ADR 0056), played in the development compositor as the
         # scenario describes them.
         sound = out / "sound.json"
         sound.write_text(json.dumps(scenario["sound"]))

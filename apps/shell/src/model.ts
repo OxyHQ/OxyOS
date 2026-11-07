@@ -282,7 +282,7 @@ export type ShellControls = {
   joinNetwork?: (ssid: string) => void;
   /** The Wi-Fi view's "Ajustes de Wi-Fi…": Settings, at its Wi-Fi page where it can be. */
   openWifiSettings?: () => void;
-  /** The sound's outputs and inputs as the session tells them (docs/adr/0051-sound-devices.mdx):
+  /** The sound's outputs and inputs as the session tells them (docs/adr/0056-sound-devices.mdx):
       the Control Center's Sound view. Absent or null, the Sound card only sets the volume. */
   sound?: SoundState | null;
   /** An output chosen: the session makes it the one played to. */

@@ -43,7 +43,7 @@ fn keys_move_in_sixteen_steps_to_the_next_level_beyond() {
     assert_eq!(steps_of(FULL_LEVEL, STEPS), 16);
 }
 
-/// A played sound (docs/adr/0051-sound-devices.mdx): speakers at half, a microphone at all.
+/// A played sound (docs/adr/0056-sound-devices.mdx): speakers at half, a microphone at all.
 fn played_sound() -> Arc<oxyos_audio::Played> {
     Arc::new(
         oxyos_audio::Played::parse(

@@ -78,7 +78,7 @@ function DeviceRow({ device, choose }: { device: SoundDevice; choose: (id: strin
 }
 
 /**
- * The Control Center's Sound view (docs/adr/0051-sound-devices.mdx), as a Mac's: in place of the
+ * The Control Center's Sound view (docs/adr/0056-sound-devices.mdx), as a Mac's: in place of the
  * modules, the output's volume, then the outputs in the session's order, the one played to
  * checked; "Ajustes de sonido…" at its foot. Choosing an output asks the session to play to it.
  */

@@ -131,7 +131,7 @@ export type SettingsSnapshot = {
   /** Wi-Fi and networks (docs/adr/0038-networks.mdx), as the session tells them: none without the
       platform's `network` grant; null when granted but not told. */
   network?: NetworkState | null;
-  /** The sound's outputs and inputs (docs/adr/0051-sound-devices.mdx), as the session tells them:
+  /** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx), as the session tells them:
       null until it has. */
   sound?: SoundState | null;
   /** The chosen input's level (0 to 1), told only while Sound's Input tab meters it. */

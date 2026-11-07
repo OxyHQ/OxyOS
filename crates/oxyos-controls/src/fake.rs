@@ -48,7 +48,7 @@ pub struct Fake {
     /// network requests change.
     /// Clones share it, so it is closed once for all of them.
     network_bus: Arc<Mutex<Option<zbus::blocking::Connection>>>,
-    /// The volumes from a played sound instead (`oxyos_audio::Played`, docs/adr/0051-sound-
+    /// The volumes from a played sound instead (`oxyos_audio::Played`, docs/adr/0056-sound-
     /// devices.mdx): each device its own, as the one chosen changes.
     sound: Sound,
 }

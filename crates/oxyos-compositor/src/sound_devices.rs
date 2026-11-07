@@ -1,5 +1,5 @@
 //! The sound's outputs and inputs for the program running the compositor
-//! (docs/adr/0051-sound-devices.mdx): the session's side of the shell's Control Center and
+//! (docs/adr/0056-sound-devices.mdx): the session's side of the shell's Control Center and
 //! Settings' Sound page, over the session's sound ([`oxyos_audio::Audio`]: PipeWire, or a played
 //! machine).
 //!

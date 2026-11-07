@@ -4,7 +4,7 @@
 //! on the system through [`System`]; a session's is [`Session`], which speaks to what the system
 //! already runs:
 //! - the volume of PipeWire's default output and input, through the session's own PipeWire
-//!   client (`oxyos_audio`, docs/adr/0051-sound-devices.mdx), which keeps each device's balance;
+//!   client (`oxyos_audio`, docs/adr/0056-sound-devices.mdx), which keeps each device's balance;
 //! - the built-in display's and the keyboard's backlights, found in sysfs and set through
 //!   logind's `SetBrightness` on the session ([`backlight`]);
 //! - the battery, from UPower ([`power`]);

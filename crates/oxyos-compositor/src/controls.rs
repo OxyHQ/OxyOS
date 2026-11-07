@@ -150,7 +150,7 @@ impl Controls {
         self.request(scene, request);
     }
 
-    /// The volumes as the session's sound says them (docs/adr/0051-sound-devices.mdx), which
+    /// The volumes as the session's sound says them (docs/adr/0056-sound-devices.mdx), which
     /// follows PipeWire: told as if read here, each only when it changed.
     pub fn audio_is(&mut self, scene: &mut Scene, state: &oxyos_audio::State) {
         for control in [Control::OutputVolume, Control::InputVolume] {

@@ -1,5 +1,5 @@
 /**
- * The sound's outputs and inputs as the session says they are (docs/adr/0051-sound-devices.mdx):
+ * The sound's outputs and inputs as the session says they are (docs/adr/0056-sound-devices.mdx):
  * the state it tells the shell (`{"sound": State}`), read as it is, and what the Control Center's
  * Sound view makes of it. Nothing here asks anything: the session alone speaks to PipeWire.
  */

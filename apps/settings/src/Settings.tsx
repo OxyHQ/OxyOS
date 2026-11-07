@@ -294,7 +294,7 @@ function NotificationsPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
-/** Sound (docs/adr/0044-system-sounds.mdx, docs/adr/0051-sound-devices.mdx, decision 9), as a
+/** Sound (docs/adr/0044-system-sounds.mdx, docs/adr/0056-sound-devices.mdx, decision 9), as a
     Mac's Sound settings: Play user interface sound effects, on unless the person turns it off;
     then Output & Input, two tabs, each its devices and its volume. Without the sound (the session
     has told none, or it cannot reach PipeWire) the page says so in their place. */
@@ -305,7 +305,7 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
   const [tab, setTab] = React.useState<SoundDirection>("output");
   const reached = Boolean(state && act && state.available);
   // The input's level is metered while the Input tab shows, and stopped when it is left or the page
-  // goes, so nothing listens to the input otherwise (ADR 0051, decision 7).
+  // goes, so nothing listens to the input otherwise (ADR 0056, decision 7).
   const metering = reached && tab === "input";
   const meter = React.useRef(act?.meter);
   meter.current = act?.meter;

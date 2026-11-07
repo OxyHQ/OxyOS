@@ -416,7 +416,7 @@ function SessionShell() {
   const { sheets, answer, answerPassword } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
-  // The sound's outputs as the session tells them (ADR 0051): the Control Center's Sound view.
+  // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
   const sound = useSoundState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
@@ -653,7 +653,7 @@ function SessionShell() {
         network.join(ssid);
       },
       openWifiSettings: () => act.menuCommand('system.settings'),
-      // The outputs (ADR 0051): the session plays to the one chosen. Sound Settings opens
+      // The outputs (ADR 0056): the session plays to the one chosen. Sound Settings opens
       // Settings as Wi-Fi Settings does.
       sound,
       selectOutput: (id) => {

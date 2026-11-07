@@ -167,7 +167,7 @@ const en = {
   sound: {
     uiSounds: "Play user interface sound effects",
     uiSoundsDescription: "The sounds of the Trash and of things you do. Notifications have their own, in Notifications.",
-    /** Output & Input (docs/adr/0051-sound-devices.mdx, decision 9), as a Mac's Sound settings. */
+    /** Output & Input (docs/adr/0056-sound-devices.mdx, decision 9), as a Mac's Sound settings. */
     outputInput: "Output & Input",
     output: "Output",
     input: "Input",

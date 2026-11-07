@@ -1,10 +1,10 @@
 ---
-title: "ADR 0051: Sound output and input devices"
+title: "ADR 0056: Sound output and input devices"
 description: How a person chooses what OxyOS plays through and listens to, as on a Mac — Control Center's Sound view, Settings' Sound page with its Output and Input tabs (each device with its type, the chosen one checked, the output's balance, the input's volume and level meter) — through PipeWire's own API, the default chosen through WirePlumber's default-nodes metadata as wpctl chooses it; headphones plugged in or connected taking over; and the volumes moved off wpctl so a device's balance is kept.
-order: 60
+order: 65
 ---
 
-# ADR 0051: Sound output and input devices
+# ADR 0056: Sound output and input devices
 
 Status: **accepted; implemented** (the session's PipeWire client, the vocabulary, the shell's Control Center view, Settings' Sound page, scenarios over a played machine); what only the ThinkPad can show is in [What to verify on the ThinkPad](#what-to-verify-on-the-thinkpad). Amends [ADR 0025](./0025-hardware-keys-and-control-center), which left "choosing the output device" out and set the volumes through `wpctl` (decision 1, its first bullet, is superseded by decision 4 here), and [ADR 0019](./0019-settings) (Settings' Sound page). Builds on [ADR 0044](./0044-system-sounds) (PipeWire, the session's one audio stack, already linked through its Rust bindings), [ADR 0038](./0038-networks) (the session's vocabulary over `SystemRequest`, a list chosen from Control Center and Settings) and the session's idleness ([docs/performance.mdx](../performance), *Idle*: nothing wakes on a clock).
 

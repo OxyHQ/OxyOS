@@ -295,7 +295,7 @@ pub enum Step {
     /// The played network daemon changes the machine (`--network-bus`, docs/adr/0038-networks.mdx):
     /// its control interface's `Act`, a cable plugged or an access point appearing.
     Network(String),
-    /// The played sound changes (`--sound`, docs/adr/0051-sound-devices.mdx): headphones plugged
+    /// The played sound changes (`--sound`, docs/adr/0056-sound-devices.mdx): headphones plugged
     /// in, a display unplugged, another program's volume (`oxyos_audio::Played::act`).
     Sound(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
@@ -875,7 +875,7 @@ pub struct Launch {
     /// the played machine's network (`--controls`) follows it too, and each step's result says
     /// what the daemon holds (`network`).
     pub network_bus: Option<String>,
-    /// `--sound FILE`: the session's sound (docs/adr/0051-sound-devices.mdx) is a machine played
+    /// `--sound FILE`: the session's sound (docs/adr/0056-sound-devices.mdx) is a machine played
     /// as FILE describes it (`oxyos_audio::Played`), acted on in the turn; the played machine's
     /// volumes (`--controls`) are its chosen devices', and each step's result says what it is
     /// then (`sound`).
@@ -4919,7 +4919,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             .map(std::os::fd::AsRawFd::as_raw_fd);
         session.input_methods = Some(methods);
     }
-    // The sound played (ADR 0051), acted on in the turn itself, as the controls' machine.
+    // The sound played (ADR 0056), acted on in the turn itself, as the controls' machine.
     if let Some(file) = &launch.sound {
         let played = std::sync::Arc::new(oxyos_audio::Played::parse(&fs::read_to_string(file)?)?);
         session.sound = Some(oxyos_compositor::sound_devices::SoundDevices::new(

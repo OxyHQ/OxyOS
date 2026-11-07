@@ -96,7 +96,7 @@ function Preview() {
   // moment; a protected one asks its password in the sheet (one starting "mal" is wrong); one
   // OxyOS cannot join says so. As the session does, never the shell.
   const [networks, setNetworks] = useState<NetworkState>(previewNetworks);
-  // The played sound (docs/adr/0051-sound-devices.mdx): an output chosen is played to at once.
+  // The played sound (docs/adr/0056-sound-devices.mdx): an output chosen is played to at once.
   const [sound, setSound] = useState<SoundState>(previewSound);
   const [sheet, setSheet] = useState<{ id: number; text: SheetText } | null>(null);
   const sheets = useRef(0);

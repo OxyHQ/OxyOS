@@ -316,7 +316,7 @@ fn main() -> Result<()> {
     compositor.slow_turns = true;
     // Applied before any client connects, so each is told them with its Welcome.
     settings.apply(&mut compositor, settings::now());
-    // The sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): PipeWire followed on a
+    // The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): PipeWire followed on a
     // thread of its own, the client the controls set volumes through; on the login screen too,
     // whose volume keys act.
     let (mut sound, pipewire) = oxyos_compositor::sound_devices::SoundDevices::pipewire()?;
@@ -684,7 +684,7 @@ fn main() -> Result<()> {
         if let Some(methods) = input_methods.as_mut() {
             methods.serve(&mut compositor, &mut settings, settings::now());
         }
-        // The sound's outputs and inputs (ADR 0051), before the store, which takes the requests
+        // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
         // Before the store, which takes the requests left.

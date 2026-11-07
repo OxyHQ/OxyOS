@@ -22,7 +22,7 @@ import { LevelSlider, type Icon } from "./LevelSlider";
 import { useShellMessages } from "../useShellMessages";
 
 /** What the Control Center shows: its modules, Wi-Fi's view (docs/adr/0038-networks.mdx) or
-    Sound's (docs/adr/0051-sound-devices.mdx). */
+    Sound's (docs/adr/0056-sound-devices.mdx). */
 export type ControlCenterPage = "modules" | "wifi" | "sound";
 
 export const CONTROL_CENTER_WIDTH = 320;
@@ -177,7 +177,7 @@ function LevelCard({
  * notifications. Wi-Fi's module opens Wi-Fi's view in its place (docs/adr/0038-networks.mdx), as
  * the top bar's network item does, where the session told the networks and the machine has Wi-Fi;
  * the Sound card's chevron opens Sound's view, its outputs to choose from
- * (docs/adr/0051-sound-devices.mdx), where the session told the sound and it has an output.
+ * (docs/adr/0056-sound-devices.mdx), where the session told the sound and it has an output.
  */
 export const ControlCenter = memo(function ControlCenter({
   controls,

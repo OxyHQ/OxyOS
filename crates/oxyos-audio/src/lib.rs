@@ -1,4 +1,4 @@
-//! The sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): what a person chooses to hear
+//! The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): what a person chooses to hear
 //! through and speak into, as a Mac's Control Center and Sound settings show them, and the
 //! volume, mute and balance of the one chosen. PipeWire is the session's one audio stack: its
 //! devices are its `Audio/Sink` and `Audio/Source` nodes, each named by its device and by the

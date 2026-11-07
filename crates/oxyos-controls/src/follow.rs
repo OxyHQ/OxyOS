@@ -14,7 +14,7 @@
 //!   `brightness_hw_changed`);
 //!
 //! The volumes are told by the session's sound as it follows PipeWire (`oxyos_audio`, docs/adr/
-//! 0051-sound-devices.mdx), not here.
+//! 0056-sound-devices.mdx), not here.
 
 use crate::backlight;
 use crate::Control;

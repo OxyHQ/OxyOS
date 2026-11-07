@@ -1,5 +1,5 @@
 /**
- * Sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): the state as the session tells it
+ * Sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): the state as the session tells it
  * to Settings (its `settings` grant), and what Settings may ask. The session alone speaks to
  * PipeWire; Settings keeps no list of its own.
  */
@@ -33,7 +33,7 @@ export type SoundActions = {
   setVolume: (direction: SoundDirection, volume: number) => void;
   setMuted: (direction: SoundDirection, muted: boolean) => void;
   setBalance: (balance: number) => void;
-  /** The input's level is told only while on (ADR 0051, decision 7): the Input tab, while shown. */
+  /** The input's level is told only while on (ADR 0056, decision 7): the Input tab, while shown. */
   meter: (on: boolean) => void;
 };
 

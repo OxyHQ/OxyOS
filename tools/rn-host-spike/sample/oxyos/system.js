@@ -21,7 +21,7 @@ let lastNetwork = null;
 const inputSourcesListeners = new Set();
 let lastInputSources = null;
 
-/** The sound's outputs and inputs as the session last told them (docs/adr/0051-sound-devices.mdx),
+/** The sound's outputs and inputs as the session last told them (docs/adr/0056-sound-devices.mdx),
     who follows them, and who follows the input's level. */
 const soundListeners = new Set();
 let lastSound = null;
@@ -189,7 +189,7 @@ export function useInputSourcesState() {
 }
 
 /**
- * The sound's outputs and inputs (docs/adr/0051-sound-devices.mdx): the shell (its `shell` grant)
+ * The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): the shell (its `shell` grant)
  * and Settings (its `settings` grant) ask the session, which alone speaks to PipeWire. Asked once,
  * the state is told again as it changes (`{sound: {available, output, input}}`, each side its
  * `devices` with `id`, `name`, `kind`, `transport` and `selected`, and the chosen one's `volume`,
