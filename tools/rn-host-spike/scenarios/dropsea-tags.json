@@ -1,0 +1,701 @@
+{
+  "about": "Finder's tags in Dropsea (OxyHQ/Dropsea's docs/adr/0001-tags.md) on OxyOS through the real host, on a home of the run's own whose files carry tags in their extended attributes (docs/adr/0049-file-tags.mdx): notes.txt Red and Documents/report.txt Red and Blue in user.xdg.tags, Pictures/beach.png a Mac's tags (Green and Holiday, a binary property list in com.apple.metadata:_kMDItemUserTags). The dots by the names in the icons and the list (their pixels), the list's Tags column once it is wide enough, the sidebar's Tags (the seven colours, named in English when first written) and a press on one showing exactly the items carrying it from several folders (the platform's index), tagging from the keyboard (Ctrl+Alt+1 and 2 toggle the first favourites, Ctrl+Alt+0 clears: the attribute on the disk exactly \"Red\", gone, \"Orange\", gone), and the context menu's row of colour dots from the keyboard (↓ to the row, → to Orange, Return: on the disk), the screen reader saying each item's tags after its name and columns and getting back to the item when the menu closes. At 1 (1280 × 720).",
+  "locale": "en_US.UTF-8",
+  "module": "Dropsea",
+  "window": [
+    1024,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/report.txt": "r",
+      "Documents/plan.txt": "p",
+      "Downloads/": "",
+      "Pictures/": "",
+      "Pictures/beach.png": {
+        "png": [
+          8,
+          8,
+          "#3a7bd5"
+        ]
+      },
+      "notes.txt": "hello",
+      "todo.txt": "t"
+    },
+    "xattrs": {
+      "notes.txt": {
+        "user.xdg.tags": "Red"
+      },
+      "Documents/report.txt": {
+        "user.xdg.tags": "Red,Blue"
+      },
+      "Pictures/beach.png": {
+        "user.com.apple.metadata:_kMDItemUserTags": {
+          "bplist": [
+            "Green\n2",
+            "Holiday"
+          ]
+        }
+      }
+    }
+  },
+  "reader": {},
+  "steps": [
+    {
+      "name": "The home as icons: notes.txt's red dot by its name, its tag said with it; the sidebar's Tags, Finder's seven colours",
+      "do": [
+        "wait",
+        3000
+      ],
+      "expect": {
+        "texts": [
+          "Documents",
+          "Downloads",
+          "notes.txt",
+          "Pictures",
+          "todo.txt",
+          "5 items",
+          "Tags",
+          "Red",
+          "Orange",
+          "Yellow",
+          "Green"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "value": "Tag Red",
+              "position": [
+                3,
+                5
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "position": [
+                5,
+                5
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Red"
+            },
+            {
+              "role": "Button",
+              "name": "Orange"
+            },
+            {
+              "role": "Button",
+              "name": "Yellow"
+            },
+            {
+              "role": "Button",
+              "name": "Green"
+            },
+            {
+              "role": "Button",
+              "name": "Blue"
+            },
+            {
+              "role": "Button",
+              "name": "Purple"
+            },
+            {
+              "role": "Button",
+              "name": "Grey"
+            },
+            {
+              "role": "Button",
+              "name": "All Tags…"
+            }
+          ]
+        },
+        "pixels": {
+          "474,155": "#ff3b30",
+          "466,155": "#fff7f9"
+        },
+        "home": {
+          "xattrs": {
+            "notes.txt": {
+              "user.xdg.tags": "Red"
+            },
+            "todo.txt": {
+              "user.xdg.tags": false
+            },
+            "Pictures/beach.png": {
+              "user.com.apple.metadata:_kMDItemUserTags": {
+                "bplist": [
+                  "Green\n2",
+                  "Holiday"
+                ]
+              },
+              "user.xdg.tags": false
+            }
+          }
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "A press on the sidebar's Red: exactly the two items carrying it, from the home and from Documents, report.txt's red dot over its blue one",
+      "do": [
+        "press",
+        [
+          61,
+          524
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "notes.txt",
+          "report.txt",
+          "2 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Red"
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "value": "Tag Red",
+              "position": [
+                1,
+                2
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "report.txt",
+              "value": "Tags Red, Blue",
+              "position": [
+                2,
+                2
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt"
+            },
+            {
+              "role": "ListItem",
+              "name": "plan.txt"
+            },
+            {
+              "role": "ListItem",
+              "name": "beach.png"
+            }
+          ]
+        },
+        "pixels": {
+          "359,155": "#ff3b30",
+          "365,155": "#007aff"
+        },
+        "spoken": [
+          {
+            "text": "2 items",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Green: the Mac's file, its tags read from its own attribute, Green's dot and none for Holiday, which has no colour",
+      "do": [
+        "press",
+        [
+          61,
+          620
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "beach.png",
+          "1 item"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Green"
+            },
+            {
+              "role": "ListItem",
+              "name": "beach.png",
+              "value": "Tags Green, Holiday",
+              "position": [
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        "pixels": {
+          "248,155": "#34c759"
+        },
+        "spoken": [
+          {
+            "text": "1 item",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Home again",
+      "do": [
+        "press",
+        [
+          66,
+          144
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "5 items"
+        ],
+        "spoken": [
+          {
+            "text": "5 items",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "As List (Ctrl+2): notes.txt's dot by its name, its tag said after its columns",
+      "do": [
+        "key",
+        [
+          29,
+          3
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "value": "Jan 2, 2026, 12:00 PM, 5 bytes, Plain text, Tag Red",
+              "position": [
+                3,
+                5
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "value": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text",
+              "position": [
+                5,
+                5
+              ]
+            }
+          ]
+        },
+        "pixels": {
+          "327,150": "#ff3b30"
+        },
+        "spoken": []
+      }
+    },
+    {
+      "name": "Hide Sidebar: the list wide enough for its Tags column, notes.txt's tag in it",
+      "do": [
+        "press",
+        [
+          263,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Name",
+          "Date Modified",
+          "Size",
+          "Kind",
+          "Tags",
+          "Red"
+        ],
+        "pixels": {
+          "870,150": "#ff3b30"
+        }
+      }
+    },
+    {
+      "name": "A press selects todo.txt, said with its columns",
+      "do": [
+        "press",
+        [
+          150,
+          206
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "value": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text",
+              "state": [
+                "selected",
+                "focused"
+              ],
+              "position": [
+                5,
+                5
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "1 of 5 selected",
+            "interrupting": false
+          },
+          {
+            "text": "todo.txt, Jan 2, 2026, 12:00 PM, 1 byte, Plain text, selected, 5 of 5",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Ctrl+Alt+1 gives it the first favourite tag: \"Red\" on the disk, said",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          2
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "value": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text, Tag Red",
+              "state": [
+                "selected",
+                "focused"
+              ],
+              "position": [
+                5,
+                5
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text, Tag Red",
+            "interrupting": true
+          }
+        ],
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Red"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+1 again takes it away: the attribute removed",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          2
+        ]
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text",
+            "interrupting": true
+          }
+        ],
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+2: Orange",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          3
+        ]
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text, Tag Orange",
+            "interrupting": true
+          }
+        ],
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Orange"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+0 removes every tag",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          11
+        ]
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text",
+            "interrupting": true
+          }
+        ],
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A secondary press opens todo.txt's menu at the press: its row of colour dots, Finder's seven",
+      "do": [
+        "press_secondary",
+        [
+          150,
+          206
+        ]
+      ],
+      "expect": {
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "todo.txt"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Open",
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Red"
+            },
+            {
+              "role": "CheckBox",
+              "name": "Orange"
+            },
+            {
+              "role": "CheckBox",
+              "name": "Grey"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Tags…"
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "todo.txt, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Open, menu item",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "↓: Open, the first row, active",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": []
+      }
+    },
+    {
+      "name": "↓: Quick Look",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Quick Look, menu item",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "↓: Get Info",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Get Info, menu item",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "↓: Rename",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Rename, menu item",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "↓: the row of colour dots, at its first, Red",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Red, unchecked, checkbox",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "→: Orange",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "at": {
+          "popup": [
+            {
+              "role": "CheckBox",
+              "name": "Orange",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Orange, unchecked, checkbox",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Return presses it: Orange on the disk, the menu closed, the reader back on todo.txt with its tag",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "value": "Jan 2, 2026, 12:00 PM, 1 byte, Plain text, Tag Orange",
+              "state": [
+                "selected",
+                "focused"
+              ],
+              "position": [
+                5,
+                5
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "popup": [
+            {}
+          ]
+        },
+        "spoken": [
+          {
+            "text": "todo.txt, Jan 2, 2026, 12:00 PM, 1 byte, Plain text, Tag Orange, selected, 5 of 5",
+            "interrupting": true
+          }
+        ],
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Orange"
+            },
+            "notes.txt": {
+              "user.xdg.tags": "Red"
+            },
+            "Documents/report.txt": {
+              "user.xdg.tags": "Red,Blue"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

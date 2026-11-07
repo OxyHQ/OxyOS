@@ -482,7 +482,7 @@
    }
   },
   {
-   "name": "Escape closes the menu, src.zip still selected",
+   "name": "Escape closes the menu, src.zip still selected and the screen reader back on it",
    "do": [
     "key",
     1
@@ -495,7 +495,8 @@
        "role": "ListItem",
        "name": "src.zip",
        "state": [
-        "selected"
+        "selected",
+        "focused"
        ]
       }
      ]
