@@ -1,5 +1,5 @@
 {
-  "about": "Finder's tags in Dropsea (OxyHQ/Dropsea's docs/adr/0001-tags.md) kept by what a file manager does to files, on OxyOS through the real host and a home of the run's own (docs/adr/0049-file-tags.mdx), each step checking the extended attributes on the disk: Get Info's Tags field (Ctrl+I) takes a typed name, a copy (an Option-drag onto a folder) and a move (a drag onto another) keep every tag, Move to Trash (Ctrl+Backspace) keeps them in the Trash's files and Put Back (the Trash's context menu, from the keyboard) brings them back, and Settings (Ctrl+,) › Tags renames Red to Crimson on every file that has it, in its place. At 1 (1280 × 720).",
+  "about": "Finder's tags in Dropsea (OxyHQ/Dropsea's docs/adr/0001-tags.md) kept by what a file manager does to files, on OxyOS through the real host and a home of the run's own (docs/adr/0049-file-tags.mdx), each step checking the extended attributes on the disk: a file dropped on a sidebar tag takes it, Get Info's Tags field (Ctrl+I) takes a typed name, a copy (an Option-drag onto a folder) and a move (a drag onto another) keep every tag, Move to Trash (Ctrl+Backspace) keeps them in the Trash's files and Put Back (the Trash's context menu, from the keyboard) brings them back, and Settings (Ctrl+,) › Tags renames Red to Crimson on every file that has it, in its place. At 1 (1280 × 720).",
   "locale": "en_US.UTF-8",
   "module": "Dropsea",
   "window": [
@@ -62,7 +62,51 @@
       "allow_unchanged": true
     },
     {
-      "name": "A press selects notes.txt, said with its tag",
+      "name": "todo.txt dragged onto the sidebar's Yellow: it takes the tag, and stays where it is (OxyHQ/Dropsea#48)",
+      "do": [
+        "drag_paced",
+        [
+          856,
+          125,
+          197,
+          608,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "todo.txt": "t",
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Blue,Yellow"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+3 takes Yellow, the third favourite, off todo.txt again: Blue alone on the disk",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          4
+        ]
+      ],
+      "expect": {
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Blue"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A press selects notes.txt in place of todo.txt (the count unchanged, so not said again), said with its tag",
       "do": [
         "press",
         [
@@ -72,10 +116,6 @@
       ],
       "expect": {
         "spoken": [
-          {
-            "text": "1 of 5 selected",
-            "interrupting": false
-          },
           {
             "text": "notes.txt, Tag Red, selected, 3 of 5",
             "interrupting": true

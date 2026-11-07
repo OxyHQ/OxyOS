@@ -63,7 +63,51 @@
       "allow_unchanged": true
     },
     {
-      "name": "A press selects notes.txt, said with its tag",
+      "name": "todo.txt dragged onto the sidebar's Yellow: it takes the tag, and stays where it is (OxyHQ/Dropsea#48)",
+      "do": [
+        "drag_paced",
+        [
+          857,
+          168,
+          198,
+          650,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "todo.txt": "t",
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Blue,Yellow"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+3 takes Yellow, the third favourite, off todo.txt again: Blue alone on the disk",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          4
+        ]
+      ],
+      "expect": {
+        "home": {
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Blue"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A press selects notes.txt in place of todo.txt (the count unchanged, so not said again), said with its tag",
       "do": [
         "press",
         [
@@ -73,10 +117,6 @@
       ],
       "expect": {
         "spoken": [
-          {
-            "text": "1 of 5 selected",
-            "interrupting": false
-          },
           {
             "text": "notes.txt, Tag Red, selected, 3 of 5",
             "interrupting": true
