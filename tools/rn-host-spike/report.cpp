@@ -297,11 +297,6 @@ void Report::imageLayers(const ShadowView& view, const folly::dynamic& layers) {
   write(folly::dynamic::object("kind", "image_layers")("target", name(view))("layers", layers));
 }
 
-void Report::worklet(const std::string& url, bool compiledAhead) {
-  if (!file_) return;
-  write(folly::dynamic::object("kind", "worklet")("url", url)("ahead", compiledAhead));
-}
-
 void Report::refresh(uint32_t mhz) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "refresh")("mhz", mhz));

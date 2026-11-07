@@ -198,9 +198,6 @@ class Report {
   // What the image loader did with a remote image (images.h): "fetch", a request started (or
   // answered from a cache), "cancelled", one no view waits for any more.
   void image(const char* event, const std::string& uri);
-  // A worklet made on worklets' UI runtime the first time it runs there (worklets-host.h): compiled
-  // ahead with the runtime's framework, or compiled from its source text then.
-  void worklet(const std::string& url, bool compiledAhead);
   // What an expo-image view draws now (images.h), each time it changes: its layers bottom to top,
   // each one's alpha, whether it is a placeholder and the frame shown, with the time.
   void imageLayers(const facebook::react::ShadowView& view, const folly::dynamic& layers);

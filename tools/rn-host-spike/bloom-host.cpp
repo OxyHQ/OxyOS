@@ -387,9 +387,6 @@ struct RuntimeFacts {
   int api = 0;
   std::string framework;
   std::string frameworkURL;
-  // Its framework's worklets compiled ahead (sample/worklets.mjs), "" for a framework built before
-  // them: worklets' UI runtime makes each from it (worklets-host.h).
-  std::string worklets;
   // The keyboard's focus ring's colour for each of Bloom's accents, light and dark (0xRRGGBB): its
   // `ring` token, as the framework's build took it from Bloom (`framework/focus-rings.json`). Empty
   // for a framework built before it had them.
@@ -413,7 +410,6 @@ RuntimeFacts runtimeFacts() {
   facts.framework = directory + "/framework/framework.hbc";
   // The framework's URL is its source's, which its assets are beside; only its bytecode ships.
   facts.frameworkURL = "file://" + directory + "/framework/framework.js";
-  if (std::ifstream(directory + "/framework/worklets.hbc").good()) facts.worklets = directory + "/framework/worklets.hbc";
   if (!std::ifstream(facts.framework).good()) {
     throw std::runtime_error("runtime " + std::to_string(facts.abi) + " has no framework: " + facts.framework);
   }
@@ -652,7 +648,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   services.runtime = {runtimeOf.abi, runtimeOf.api, runtimeOf.frameworkURL};
-  oxyos::WorkletsHost worklets(refresh, runtimeOf.worklets);
+  oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;
   // Reduce motion as the session last told it (its first events, before the window's configure),
   // read when JavaScript installs Reanimated, as Android's NativeProxy reads its animator scale.

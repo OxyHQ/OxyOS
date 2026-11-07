@@ -438,13 +438,10 @@ pub struct Listener {
 
 impl Listener {
     /// Listens at `path`, replacing a socket an earlier run left there (never another file). Its
-    /// mode lets any process connect: the peer's credentials decide what it may do. The socket
-    /// is made listening under a name of its own beside `path` and renamed into place, so `path`
-    /// is never a socket that refuses: a client that connects as the name appears (the login
-    /// program, the login screen) would otherwise be refused between the bind and the listen.
+    /// mode lets any process connect: the peer's credentials decide what it may do.
     pub fn bind(path: &Path) -> io::Result<Self> {
         match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => {}
+            Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path)?,
             Ok(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
@@ -454,35 +451,15 @@ impl Listener {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
-        let name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "a socket needs a name"))?;
-        let making = path.with_file_name(format!(
-            ".{}.{}",
-            name.to_string_lossy(),
-            std::process::id()
-        ));
-        // A run of this process's that ended between its bind and its rename left it.
-        if std::fs::symlink_metadata(&making).is_ok_and(|metadata| metadata.file_type().is_socket())
-        {
-            std::fs::remove_file(&making)?;
-        }
         let fd = rustix::net::socket_with(
             AddressFamily::UNIX,
             SocketType::SEQPACKET,
             SocketFlags::CLOEXEC,
             None,
         )?;
-        let made = (|| -> io::Result<()> {
-            rustix::net::bind(&fd, &SocketAddrUnix::new(&making)?)?;
-            std::fs::set_permissions(&making, std::fs::Permissions::from_mode(0o666))?;
-            rustix::net::listen(&fd, 16)?;
-            std::fs::rename(&making, path)
-        })();
-        if let Err(error) = made {
-            let _ = std::fs::remove_file(&making);
-            return Err(error);
-        }
+        rustix::net::bind(&fd, &SocketAddrUnix::new(path)?)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o666))?;
+        rustix::net::listen(&fd, 16)?;
         Ok(Self { fd })
     }
 

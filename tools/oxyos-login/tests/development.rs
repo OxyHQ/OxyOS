@@ -129,8 +129,6 @@ fn login_program(dir: &Path, oxy: Oxy) -> (Child, Greeter, PathBuf) {
     accounts(&accountd, dir.join("verifier"), oxy);
     let socket = dir.join("greeter");
     let record = dir.join("record");
-    // Watched before the program starts: the name appears once, when its socket listens.
-    let appearing = Appearing::watch(dir);
     let login = Command::new(env!("CARGO_BIN_EXE_oxyos-login"))
         .arg("--dev")
         .arg("--pam-confdir")
@@ -143,44 +141,8 @@ fn login_program(dir: &Path, oxy: Oxy) -> (Child, Greeter, PathBuf) {
         .arg(&accountd)
         .spawn()
         .unwrap();
-    appearing.wait(&socket);
+    wait_for("the login screen's socket", || socket.exists());
     (login, Greeter::connect(&socket).unwrap(), record)
-}
-
-/// A directory watched for a name to appear in it: the login program's socket is renamed into
-/// place once it listens (`greeter::Listener::bind`), so its name appearing is its readiness, and
-/// a connection from then on is never refused.
-struct Appearing(rustix::fd::OwnedFd);
-
-impl Appearing {
-    fn watch(dir: &Path) -> Self {
-        use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
-        let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
-        inotify::add_watch(&watch, dir, WatchFlags::CREATE | WatchFlags::MOVED_TO).unwrap();
-        Self(watch)
-    }
-
-    /// Until `path` is there; the deadline only reports a socket that never came.
-    fn wait(self, path: &Path) {
-        use rustix::event::{poll, PollFd, PollFlags, Timespec};
-        use rustix::fs::inotify;
-        let name = path.file_name().unwrap().as_encoded_bytes();
-        let deadline = Instant::now() + Duration::from_secs(20);
-        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
-        loop {
-            let mut reader = inotify::Reader::new(&self.0, &mut buffer);
-            while let Ok(event) = reader.next() {
-                if event.file_name().map(|name| name.to_bytes()) == Some(name) {
-                    return;
-                }
-            }
-            let left = deadline.saturating_duration_since(Instant::now());
-            assert!(!left.is_zero(), "waited too long for {}", path.display());
-            let timeout = Timespec::try_from(left).unwrap();
-            let mut fds = [PollFd::new(&self.0, PollFlags::IN)];
-            let _ = poll(&mut fds, Some(&timeout));
-        }
-    }
 }
 
 fn temporary(name: &str) -> Dir {

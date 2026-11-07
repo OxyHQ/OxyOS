@@ -278,15 +278,11 @@ pub struct Listener {
 impl Listener {
     /// Listens at `path` (a socket an earlier run left there is replaced, never another file),
     /// which only `uid`'s processes may connect to: the socket is `uid`'s, mode 0600, as well as
-    /// checked by peer credentials at each connection. The socket is made, given to `uid` and
-    /// set listening under a name of its own beside `path`, then renamed into place, so `path`
-    /// is never a socket that refuses: a greeter that connects as the name appears (the
-    /// development compositor, a test) would otherwise be refused between the bind and the
-    /// listen, with nothing to say when the socket starts listening.
+    /// checked by peer credentials at each connection.
     pub fn bind(path: &Path, uid: u32) -> io::Result<Self> {
-        use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+        use std::os::unix::fs::FileTypeExt;
         match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => {}
+            Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path)?,
             Ok(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
@@ -296,38 +292,19 @@ impl Listener {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
-        let name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "a socket needs a name"))?;
-        let making = path.with_file_name(format!(
-            ".{}.{}",
-            name.to_string_lossy(),
-            std::process::id()
-        ));
-        // A run of this process's that ended between its bind and its rename left it.
-        if std::fs::symlink_metadata(&making).is_ok_and(|metadata| metadata.file_type().is_socket())
-        {
-            std::fs::remove_file(&making)?;
-        }
         let fd = seqpacket()?;
-        let made = (|| -> io::Result<()> {
-            rustix::net::bind(&fd, &SocketAddrUnix::new(&making)?)?;
-            std::fs::set_permissions(&making, std::fs::Permissions::from_mode(0o600))?;
-            if rustix::process::geteuid().as_raw() != uid {
-                rustix::fs::chown(
-                    &making,
-                    Some(rustix::fs::Uid::from_raw(uid)),
-                    None::<rustix::fs::Gid>,
-                )?;
-            }
-            rustix::net::listen(&fd, 4)?;
-            rustix::io::ioctl_fionbio(&fd, true)?;
-            std::fs::rename(&making, path)
-        })();
-        if let Err(error) = made {
-            let _ = std::fs::remove_file(&making);
-            return Err(error);
+        rustix::net::bind(&fd, &SocketAddrUnix::new(path)?)?;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        if rustix::process::geteuid().as_raw() != uid {
+            rustix::fs::chown(
+                path,
+                Some(rustix::fs::Uid::from_raw(uid)),
+                None::<rustix::fs::Gid>,
+            )?;
         }
+        rustix::net::listen(&fd, 4)?;
+        rustix::io::ioctl_fionbio(&fd, true)?;
         Ok(Self { fd })
     }
 

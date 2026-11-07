@@ -11,86 +11,66 @@ const native = TurboModuleRegistry.get('OxyOSSystem');
 
 /** Requests waiting for their answer, by serial; progress goes to `onProgress`. */
 const waiting = new Map();
-const stateListeners = new Set();
-let lastState = null;
-/** The network as the session last told it (docs/adr/0038-networks.mdx), and who follows it. */
-const networkListeners = new Set();
-let lastNetwork = null;
 
-/** Bluetooth as the session last told it (docs/adr/0055-bluetooth.mdx), and who follows it. */
-const bluetoothListeners = new Set();
-let lastBluetooth = null;
-
-/** The battery and Low Power Mode as the session last told them (docs/adr/0057-battery-and-
-    energy.mdx), and who follows them. */
-const powerListeners = new Set();
-let lastPower = null;
-
-function toldPower(state) {
-  lastPower = state;
-  for (const listener of powerListeners) listener(state);
+/**
+ * State the session tells as it changes (docs/adr/0058-the-platform-api.mdx, decision 3: followed
+ * state): the last told (`current()`, null before the first) and who follows it (`subscribe`,
+ * which returns the unsubscribe), the shape React's `useSyncExternalStore` takes.
+ */
+function followed() {
+  let last = null;
+  const listeners = new Set();
+  return {
+    current: () => last,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    tell(state) {
+      last = state;
+      for (const listener of listeners) listener(state);
+    },
+  };
 }
 
-/** The input sources as the session last told them (docs/adr/0041-input-methods.mdx), and who
-    follows them. */
-const inputSourcesListeners = new Set();
-let lastInputSources = null;
-
-/** The sound's outputs and inputs as the session last told them (docs/adr/0056-sound-devices.mdx),
-    who follows them, and who follows the input's level. */
-const soundListeners = new Set();
-let lastSound = null;
-
+/** The account's update state (decision 16). */
+const updateState = followed();
+/** The network (docs/adr/0038-networks.mdx). */
+const networkState = followed();
+/** Bluetooth (docs/adr/0055-bluetooth.mdx). */
+const bluetoothState = followed();
+/** The battery and Low Power Mode (docs/adr/0057-battery-and-energy.mdx). */
+const powerState = followed();
+/** The input sources (docs/adr/0041-input-methods.mdx). */
+const inputSourcesState = followed();
+/** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx). */
+const soundState = followed();
 /** AutoFill's list the session last told the shell to draw (docs/adr/0050-keychain-autofill-and-passkeys.mdx),
-    null when none, and who follows it. */
-const autofillListeners = new Set();
-let lastAutofill = null;
-
-function toldAutofill(list) {
-  lastAutofill = list ?? null;
-  for (const listener of autofillListeners) listener(lastAutofill);
-}
+    null for none. */
+const autofillState = followed();
+/** Who follows the input's level, which is told only while one does. */
 const inputLevelListeners = new Set();
 
-function toldSound(state) {
-  lastSound = state;
-  for (const listener of soundListeners) listener(state);
-}
-
-function toldInputSources(state) {
-  lastInputSources = state;
-  for (const listener of inputSourcesListeners) listener(state);
-}
-
-function toldBluetooth(state) {
-  lastBluetooth = state;
-  for (const listener of bluetoothListeners) listener(state);
-}
-
-function toldNetwork(state) {
-  lastNetwork = state;
-  for (const listener of networkListeners) listener(state);
-}
-
-function told(state) {
-  lastState = state;
-  for (const listener of stateListeners) listener(state);
+/** What an answer, asked for or told unasked, says of the state the session follows. */
+function tellAll(answer) {
+  if (!answer) return;
+  if (answer.updateState) updateState.tell(answer.updateState);
+  if (answer.network) networkState.tell(answer.network);
+  if (answer.bluetooth) bluetoothState.tell(answer.bluetooth);
+  if (answer.inputSources) inputSourcesState.tell(answer.inputSources);
+  if (answer.sound) soundState.tell(answer.sound);
+  if (answer.power) powerState.tell(answer.power);
 }
 
 if (native) {
   DeviceEventEmitter.addListener('OxyOSSystemAnswer', ({ serial, answer }) => {
-    // The account's update state, unasked, as it changes.
+    // The state the session follows, unasked, as it changes.
     if (serial === 0) {
-      if (answer && answer.updateState) told(answer.updateState);
-      if (answer && answer.network) toldNetwork(answer.network);
-      if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
-      if (answer && answer.inputSources) toldInputSources(answer.inputSources);
-      if (answer && answer.sound) toldSound(answer.sound);
-      if (answer && 'autofill' in answer) toldAutofill(answer.autofill);
+      tellAll(answer);
+      if (answer && 'autofill' in answer) autofillState.tell(answer.autofill ?? null);
       if (answer && typeof answer.inputLevel === 'number') {
         for (const listener of inputLevelListeners) listener(answer.inputLevel);
       }
-      if (answer && answer.power) toldPower(answer.power);
       return;
     }
     const asked = waiting.get(serial);
@@ -100,14 +80,18 @@ if (native) {
       return;
     }
     waiting.delete(serial);
-    if (answer && answer.updateState) told(answer.updateState);
-    if (answer && answer.network) toldNetwork(answer.network);
-    if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
-    if (answer && answer.inputSources) toldInputSources(answer.inputSources);
-    if (answer && answer.sound) toldSound(answer.sound);
-    if (answer && answer.power) toldPower(answer.power);
+    tellAll(answer);
     asked.resolve(answer);
   });
+}
+
+/** The state `source` follows, for a view: asked once (`ask`) as the view mounts, then followed. */
+function useFollowed(source, ask) {
+  const state = React.useSyncExternalStore(source.subscribe, source.current);
+  React.useEffect(() => {
+    ask();
+  }, []);
+  return state;
 }
 
 /** Whether the session can be asked here (the host has the module). */
@@ -140,11 +124,8 @@ export const updates = {
   check: () => ask({ check: {} }),
   update: (ids) => ask({ update: { ids } }),
   updateAll: () => ask({ updateAll: {} }),
-  current: () => lastState,
-  subscribe(listener) {
-    stateListeners.add(listener);
-    return () => stateListeners.delete(listener);
-  },
+  current: updateState.current,
+  subscribe: updateState.subscribe,
 };
 
 /**
@@ -175,22 +156,13 @@ export const network = {
   join: (ssid) => ask({ join: { ssid } }),
   forget: (id) => ask({ forget: { id } }),
   setWifi: (enabled) => ask({ wifi: { enabled } }),
-  current: () => lastNetwork,
-  subscribe(listener) {
-    networkListeners.add(listener);
-    return () => networkListeners.delete(listener);
-  },
+  current: networkState.current,
+  subscribe: networkState.subscribe,
 };
 
 /** The network as it changes, for a view: asked once, then followed. */
 export function useNetworkState() {
-  const [state, setState] = React.useState(lastNetwork);
-  React.useEffect(() => {
-    const unsubscribe = network.subscribe(setState);
-    network.state();
-    return unsubscribe;
-  }, []);
-  return state;
+  return useFollowed(network, network.state);
 }
 
 /**
@@ -209,22 +181,13 @@ export const bluetooth = {
   disconnect: (id) => ask({ bluetoothDisconnect: { id } }),
   forget: (id) => ask({ bluetoothForget: { id } }),
   rename: (id, name) => ask({ bluetoothRename: { id, name } }),
-  current: () => lastBluetooth,
-  subscribe(listener) {
-    bluetoothListeners.add(listener);
-    return () => bluetoothListeners.delete(listener);
-  },
+  current: bluetoothState.current,
+  subscribe: bluetoothState.subscribe,
 };
 
 /** Bluetooth as it changes, for a view: asked once, then followed. */
 export function useBluetoothState() {
-  const [state, setState] = React.useState(lastBluetooth);
-  React.useEffect(() => {
-    const unsubscribe = bluetooth.subscribe(setState);
-    bluetooth.state();
-    return unsubscribe;
-  }, []);
-  return state;
+  return useFollowed(bluetooth, bluetooth.state);
 }
 
 /**
@@ -241,22 +204,13 @@ export const power = {
   history: () => ask({ powerHistory: {} }),
   energy: () => ask({ energy: {} }),
   setChargeLimit: (enabled) => ask({ chargeLimit: { enabled } }),
-  current: () => lastPower,
-  subscribe(listener) {
-    powerListeners.add(listener);
-    return () => powerListeners.delete(listener);
-  },
+  current: powerState.current,
+  subscribe: powerState.subscribe,
 };
 
 /** The battery and Low Power Mode as they change, for a view: asked once, then followed. */
 export function usePowerState() {
-  const [state, setState] = React.useState(lastPower);
-  React.useEffect(() => {
-    const unsubscribe = power.subscribe(setState);
-    power.state();
-    return unsubscribe;
-  }, []);
-  return state;
+  return useFollowed(power, power.state);
 }
 
 /**
@@ -271,22 +225,13 @@ export const inputSources = {
   state: () => ask({ inputSources: {} }),
   select: (id) => ask({ selectInputSource: { id } }),
   showEmoji: () => ask({ showEmoji: {} }),
-  current: () => lastInputSources,
-  subscribe(listener) {
-    inputSourcesListeners.add(listener);
-    return () => inputSourcesListeners.delete(listener);
-  },
+  current: inputSourcesState.current,
+  subscribe: inputSourcesState.subscribe,
 };
 
 /** The input sources as the session tells them, for a view: asked once, then followed. */
 export function useInputSourcesState() {
-  const [state, setState] = React.useState(lastInputSources);
-  React.useEffect(() => {
-    const unsubscribe = inputSources.subscribe(setState);
-    inputSources.state();
-    return unsubscribe;
-  }, []);
-  return state;
+  return useFollowed(inputSources, inputSources.state);
 }
 
 /**
@@ -298,21 +243,13 @@ export function useInputSourcesState() {
  */
 export const autofill = {
   choose: (index) => ask({ chooseAutofill: { index } }),
-  current: () => lastAutofill,
-  subscribe(listener) {
-    autofillListeners.add(listener);
-    return () => autofillListeners.delete(listener);
-  },
+  current: autofillState.current,
+  subscribe: autofillState.subscribe,
 };
 
-/** AutoFill's list as the session tells it, for a view. */
+/** AutoFill's list as the session tells it, for a view (told unasked, never asked for). */
 export function useAutofillState() {
-  const [state, setState] = React.useState(lastAutofill);
-  React.useEffect(() => {
-    setState(lastAutofill);
-    return autofill.subscribe(setState);
-  }, []);
-  return state;
+  return React.useSyncExternalStore(autofill.subscribe, autofill.current);
 }
 
 /**
@@ -331,22 +268,13 @@ export const sound = {
   setMuted: (direction, muted) => ask({ soundMuted: { direction, muted } }),
   setBalance: (balance) => ask({ soundBalance: { balance } }),
   meter: (on) => ask({ soundMeter: { on } }),
-  current: () => lastSound,
-  subscribe(listener) {
-    soundListeners.add(listener);
-    return () => soundListeners.delete(listener);
-  },
+  current: soundState.current,
+  subscribe: soundState.subscribe,
 };
 
 /** The sound as the session tells it, for a view: asked once, then followed. */
 export function useSoundState() {
-  const [state, setState] = React.useState(lastSound);
-  React.useEffect(() => {
-    const unsubscribe = sound.subscribe(setState);
-    sound.state();
-    return unsubscribe;
-  }, []);
-  return state;
+  return useFollowed(sound, sound.state);
 }
 
 /** Follows the chosen input's level (0 to 1): metered from the first follower until the last
@@ -364,13 +292,7 @@ export function followInputLevel(listener) {
 
 /** The update state as it changes, for a page: asked once, then followed. */
 export function useUpdateState() {
-  const [state, setState] = React.useState(lastState);
-  React.useEffect(() => {
-    const unsubscribe = updates.subscribe(setState);
-    updates.state();
-    return unsubscribe;
-  }, []);
-  return state;
+  return useFollowed(updates, updates.state);
 }
 
 /** What this launch may use: `{origin, capabilities, narrowed}` (an installed version is narrowed
