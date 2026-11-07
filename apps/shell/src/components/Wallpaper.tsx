@@ -47,7 +47,9 @@ export const Wallpaper = memo(function Wallpaper({
 });
 
 /** One picture: shown at once if it is the first, else faded in once it is drawn (a colour at once,
-    a picture once it loaded or failed to, which leaves its colour). */
+    a picture once it loaded or failed to, which leaves its colour). Only a picture coming in listens
+    for its load: one shown at once (the desktop's first, Launchpad's and the lock screen's backdrop)
+    asks React Native for no load events, as the wallpaper never did. */
 const Layer = memo(function Layer({ layer, onShown }: { layer: WallpaperLayer; onShown: (id: number) => void }) {
   const { id, wallpaper } = layer;
   const opacity = useRef(new Animated.Value(layer.shown ? 1 : 0)).current;
@@ -70,8 +72,8 @@ const Layer = memo(function Layer({ layer, onShown }: { layer: WallpaperLayer; o
         <Image
           source={wallpaper.source}
           resizeMode={resizeModeOf(wallpaper.fit)}
-          onLoad={reveal}
-          onError={reveal}
+          onLoad={layer.shown ? undefined : reveal}
+          onError={layer.shown ? undefined : reveal}
           style={{ width: "100%", height: "100%" }}
         />
       ) : null}
