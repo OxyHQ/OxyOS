@@ -36,6 +36,7 @@ import {
   session as systemSession,
   bluetooth as systemBluetooth,
   network as systemNetwork,
+  power as systemPower,
   privacy,
   sound as systemSound,
   updates as systemUpdates,
@@ -44,6 +45,7 @@ import {
   useBluetoothState,
   useNetworkState,
   useSoundState,
+  usePowerState,
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
@@ -62,12 +64,24 @@ import type {
 } from '../../../apps/settings/src/bluetooth';
 import type { SoundActions, SoundDirection, SoundSide, SoundState } from '../../../apps/settings/src/sound';
 import {
+  chargeLimitFailureOf,
+  energyOf,
+  historyOf,
+  type AppEnergy,
+  type HistoryChart,
+  type LowPowerMode,
+  type PowerActions,
+  type PowerHistory,
+  type PowerState,
+} from '../../../apps/settings/src/battery';
+import {
   INPUT_METHODS,
   inputSourcesOf,
   parseInputSources,
   parseInputSourcesPreference,
 } from '../../../apps/settings/src/input-sources';
 import {
+  ENERGY_DEFAULTS,
   PREFERENCE_KEYS,
   preferenceText,
   TRIAL_SECONDS,
@@ -123,6 +137,7 @@ const FIXTURE: SettingsSnapshot = {
     notificationSoundsOff: [],
     inputSources: [],
     inputSource: 'layout',
+    ...ENERGY_DEFAULTS,
   },
   wallpapers: EMPTY_CATALOG,
   applications: [
@@ -302,7 +317,22 @@ function preferencesOf(values: Record<string, string>): Preferences {
     // None added, the layout current, unless the session keeps others (docs/adr/0041-input-methods.mdx).
     inputSources: parseInputSourcesPreference(values[PREFERENCE_KEYS.inputSources]),
     inputSource: values[PREFERENCE_KEYS.inputSource] || 'layout',
+    // Battery and energy (docs/adr/0057-battery-and-energy.mdx): the session's defaults unless it
+    // keeps others (crates/oxyos-preferences).
+    batteryPercentage: flag(PREFERENCE_KEYS.batteryPercentage),
+    lowPowerMode: (values[PREFERENCE_KEYS.lowPowerMode] as LowPowerMode) || ENERGY_DEFAULTS.lowPowerMode,
+    displayOffBattery: minutesOf(values[PREFERENCE_KEYS.displayOffBattery], ENERGY_DEFAULTS.displayOffBattery),
+    displayOffAdapter: minutesOf(values[PREFERENCE_KEYS.displayOffAdapter], ENERGY_DEFAULTS.displayOffAdapter),
+    sleepBattery: minutesOf(values[PREFERENCE_KEYS.sleepBattery], ENERGY_DEFAULTS.sleepBattery),
+    sleepAdapter: minutesOf(values[PREFERENCE_KEYS.sleepAdapter], ENERGY_DEFAULTS.sleepAdapter),
+    dimOnBattery: values[PREFERENCE_KEYS.dimOnBattery] !== 'false',
   };
+}
+
+/** A timer's minutes as the session's file keeps them, or its default. */
+function minutesOf(text: string | undefined, fallback: number): number {
+  const minutes = Number(text);
+  return text !== undefined && text !== '' && Number.isInteger(minutes) && minutes >= 0 ? minutes : fallback;
 }
 
 /** The session's model when this is Settings in a session, else the fixture's. */
@@ -641,6 +671,79 @@ function useSoundModel(): { sound: SoundState | null; level: number; actions: So
   return { sound: told, level, actions: told ? session : undefined };
 }
 
+/** The reference ThinkPad's battery (docs/adr/0057-battery-and-energy.mdx): 64 %, discharging with
+    3 h 20 min left, 87 % of its design after 412 cycles, its charge limit of 75–80 % off. */
+const POWER_FIXTURE: PowerState = {
+  battery: { percent: 64, state: 'discharging', onAc: false, minutes: 200, low: false },
+  health: { maxCapacity: 87, cycles: 412, worn: false },
+  chargeLimit: { enabled: false, end: 80, start: 75 },
+  lowPower: { mode: 'never', on: false, profiles: true, held: false },
+  showPercentage: false,
+  criticalAction: 'HybridSleep',
+};
+
+/** A day of the fixture's machine: unplugged in the morning, charged at lunch, used all afternoon. */
+function fixtureChart(end: number, bin: number, bins: number): HistoryChart {
+  const levels: (number | null)[] = [];
+  const charging: boolean[] = [];
+  const screen: number[] = [];
+  for (let index = 0; index < bins; index++) {
+    const start = end - (bins - index) * bin;
+    const hour = new Date(start * 1000).getHours();
+    const awake = hour >= 8 && hour < 23;
+    const charges = hour >= 13 && hour < 15;
+    const level = !awake ? null : charges ? 40 + (hour - 13) * 30 : hour < 13 ? 100 - (hour - 8) * 12 : 100 - (hour - 15) * 5;
+    levels.push(level === null ? null : Math.max(5, Math.min(100, Math.round(level))));
+    charging.push(charges);
+    screen.push(awake ? Math.round(bin * (hour % 3 === 0 ? 0.5 : 0.85)) : 0);
+  }
+  return { end, bin, levels, charging, screen };
+}
+
+const ENERGY_FIXTURE: AppEnergy[] = [
+  { id: 'so.oxy.allo', name: 'Allo', cpu: 1265, gpu: 312, recent: 0.34, significant: true, running: true },
+  { id: 'so.oxy.inbox', name: 'Inbox', cpu: 412, gpu: 96, recent: 0.02, significant: false, running: true },
+  { id: 'so.oxy.settings', name: 'Settings', cpu: 38, gpu: 11, recent: 0.01, significant: false, running: true },
+];
+
+/**
+ * Battery and energy (docs/adr/0057-battery-and-energy.mdx): in a session, the state the session
+ * tells Settings with its `settings` grant (none until it has: the page waits for it), the history
+ * and each app's energy asked as the page shows them, the charge limit asked of the session. Without
+ * a session, the reference ThinkPad's.
+ */
+function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
+  const told: PowerState | null = usePowerState();
+  const [fixture, setFixture] = React.useState(POWER_FIXTURE);
+  const session = React.useMemo<PowerActions>(
+    () => ({
+      history: async () => historyOf(await systemPower.history()),
+      energy: async () => energyOf(await systemPower.energy()),
+      setChargeLimit: async (enabled) => chargeLimitFailureOf(await systemPower.setChargeLimit(enabled)),
+    }),
+    [],
+  );
+  const local = React.useMemo<PowerActions>(
+    () => ({
+      history: async (): Promise<PowerHistory> => {
+        const now = Math.floor(Date.now() / 1000);
+        return {
+          day: fixtureChart(Math.ceil(now / 900) * 900, 900, 96),
+          days: fixtureChart(Math.ceil(now / 3600) * 3600, 3600, 240),
+        };
+      },
+      energy: async () => ENERGY_FIXTURE,
+      setChargeLimit: async (enabled) => {
+        setFixture((state) => (state.chargeLimit ? { ...state, chargeLimit: { ...state.chargeLimit, enabled } } : state));
+        return null;
+      },
+    }),
+    [],
+  );
+  if (!available) return { power: fixture, actions: local };
+  return { power: told, actions: session };
+}
+
 /**
  * Bluetooth (docs/adr/0055-bluetooth.mdx): the state the session tells a client with its
  * `bluetooth` grant, followed, and its requests. The session tells nothing without the grant, so
@@ -904,6 +1007,7 @@ export default function SettingsApp() {
   const networks = useNetworkModel();
   const bluetooth = useBluetoothModel();
   const sound = useSoundModel();
+  const power = usePowerModel();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
     ...model.snapshot,
@@ -913,6 +1017,7 @@ export default function SettingsApp() {
     bluetooth: bluetooth.bluetooth,
     sound: sound.sound,
     soundInputLevel: sound.level,
+    power: power.power,
     inputSources,
     account: useAccount(),
   };
@@ -923,6 +1028,7 @@ export default function SettingsApp() {
     network: networks.actions,
     bluetooth: bluetooth.actions,
     sound: sound.actions,
+    power: power.actions,
     account: sessionHost ? accountActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.

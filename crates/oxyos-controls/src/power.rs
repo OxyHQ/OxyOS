@@ -5,7 +5,7 @@
 //! show, and the top bar shows none.
 
 use crate::bus::{absent, failed, proxy};
-use crate::Battery;
+use crate::{Battery, Warning};
 use oxyos_protocol::BatteryState;
 use std::io;
 use zbus::blocking::Connection;
@@ -29,6 +29,8 @@ pub struct Reading {
     /// Seconds.
     pub time_to_empty: i64,
     pub time_to_full: i64,
+    /// UPower's `WarningLevel`: 1 none, 2 discharging (a UPS's), 3 low, 4 critical, 5 action.
+    pub warning: u32,
 }
 
 /// The battery a reading is.
@@ -59,6 +61,12 @@ pub fn battery(reading: Reading) -> Battery {
         percent: reading.percentage.clamp(0.0, 100.0).round() as u8,
         on_ac,
         minutes: u32::try_from(seconds.max(0) / 60).unwrap_or(u32::MAX),
+        warning: match reading.warning {
+            3 => Warning::Low,
+            4 => Warning::Critical,
+            5 => Warning::Action,
+            _ => Warning::None,
+        },
     }
 }
 
@@ -86,5 +94,7 @@ pub fn read(bus: &Connection) -> io::Result<Battery> {
         on_battery: upower.get_property("OnBattery").map_err(failed)?,
         time_to_empty: device.get_property("TimeToEmpty").map_err(failed)?,
         time_to_full: device.get_property("TimeToFull").map_err(failed)?,
+        // Older UPowers without it say nothing of it.
+        warning: device.get_property("WarningLevel").unwrap_or(1),
     }))
 }

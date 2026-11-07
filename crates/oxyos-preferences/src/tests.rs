@@ -500,3 +500,53 @@ fn natural_scrolling_is_on_for_a_trackpad_and_off_for_a_mouse_by_default() {
         Preferences::parse("trackpad_natural_scrolling = no\nmouse_natural_scrolling = yes\n");
     assert!(bad.trackpad_natural_scrolling && !bad.mouse_natural_scrolling);
 }
+
+#[test]
+fn energy_is_a_macs_by_default_and_each_timer_at_most_three_hours() {
+    let defaults = Preferences::default();
+    assert!(!defaults.battery_percentage);
+    let energy = defaults.energy;
+    // The display off after 2 minutes on battery and 10 on the adapter; the machine asleep after
+    // 10 on battery and never on the adapter; dimmer on battery; Low Power Mode never.
+    assert_eq!(
+        (energy.display_off(false), energy.display_off(true)),
+        (2, 10)
+    );
+    assert_eq!((energy.sleep(false), energy.sleep(true)), (10, 0));
+    assert!(energy.dim_on_battery);
+    assert_eq!(energy.low_power_mode, LowPowerMode::Never);
+
+    let mut preferences = Preferences::default();
+    for (key, value) in [
+        ("battery_percentage", "true"),
+        ("low_power_mode", "battery"),
+        ("display_off_battery", "5"),
+        ("display_off_adapter", "0"),
+        ("sleep_battery", "180"),
+        ("sleep_adapter", "60"),
+        ("dim_on_battery", "false"),
+    ] {
+        preferences.set(key, value).unwrap();
+        assert_eq!(preferences.get(key).as_deref(), Some(value), "{key}");
+    }
+    for (key, value) in [
+        ("low_power_mode", "sometimes"),
+        ("display_off_battery", "181"),
+        ("sleep_adapter", "-1"),
+        ("dim_on_battery", "1"),
+    ] {
+        let before = preferences.clone();
+        assert_eq!(preferences.set(key, value), Err(Refused::BadValue), "{key}");
+        assert_eq!(preferences, before);
+    }
+    assert_eq!(Preferences::parse(&preferences.to_text()), preferences);
+}
+
+#[test]
+fn low_power_mode_follows_the_power_source() {
+    use LowPowerMode::*;
+    assert_eq!(
+        [Never, Always, OnBattery, OnAdapter].map(|mode| (mode.on(false), mode.on(true))),
+        [(false, false), (true, true), (true, false), (false, true)]
+    );
+}

@@ -1,0 +1,262 @@
+{
+  "about": "The display's and the machine's sleep as a Mac's (docs/adr/0057-battery-and-energy.mdx, decision 6), with the session's shell and Allo, over UPower, power-profiles-daemon and logind played on the run's own bus, the ThinkPad on battery with the defaults: the display off after two minutes, the machine asleep after ten, the lock after five. The development compositor counts an `idle` step's seconds as passed with no input. At 1 min 50 s the display dims to a quarter of its brightness; at two minutes the displays turn off; a press brings them back and the brightness as it was, the press Allo's; then the lock at five minutes, the machine asked to sleep through logind at ten, once. Plugged in, the display goes back to the brightness it had before the battery dimmed it slightly (three quarters), and the adapter's timers apply: ten minutes lock and turn nothing off before ten, the machine never sleeping.",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "lock_password": "oxyos.correct",
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "power": {
+    "battery": {
+      "percent": 64.0,
+      "state": "discharging",
+      "time_to_empty": 12000,
+      "energy_full": 49.6,
+      "energy_full_design": 57.0,
+      "cycles": 412
+    },
+    "on_ac": false
+  },
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard: the person's input, from which the timers run",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "displays_off": false,
+        "controls": {
+          "display_brightness": 0.75
+        }
+      }
+    },
+    {
+      "name": "One minute 40 seconds with no input: nothing yet",
+      "do": [
+        "idle",
+        100
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": false,
+        "controls": {
+          "display_brightness": 0.75
+        }
+      }
+    },
+    {
+      "name": "Ten seconds more, at 1 min 50 s, the display dims to a quarter of its brightness, ten seconds before it turns off",
+      "do": [
+        "idle",
+        10
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": false,
+        "controls": {
+          "display_brightness": 0.1875
+        }
+      }
+    },
+    {
+      "name": "At two minutes the displays turn off; nothing asks the machine to sleep yet",
+      "do": [
+        "idle",
+        10
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": true,
+        "power": {
+          "suspends": 0
+        }
+      }
+    },
+    {
+      "name": "A press brings the displays back, the brightness as it was; the press is Allo's",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "displays_off": false,
+        "controls": {
+          "display_brightness": 0.75
+        },
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Five minutes with no input: the session locks, the displays off since two",
+      "do": [
+        "idle",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": true,
+        "shell": {
+          "locked": true
+        },
+        "power": {
+          "suspends": 0
+        }
+      }
+    },
+    {
+      "name": "Ten minutes: the machine is asked to sleep through logind, once",
+      "do": [
+        "idle",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": true,
+        "power": {
+          "suspends": 1,
+          "calls": [
+            "Suspend false"
+          ]
+        }
+      }
+    },
+    {
+      "name": "An hour more: never asked again",
+      "do": [
+        "idle",
+        3600
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "power": {
+          "suspends": 1
+        }
+      }
+    },
+    {
+      "name": "Shift pressed on the sleeping lock screen: the displays on, the session still locked",
+      "do": [
+        "key",
+        [
+          42
+        ]
+      ],
+      "expect": {
+        "displays_off": false,
+        "shell": {
+          "locked": true
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "The password unlocks",
+      "do": [
+        "keyboard",
+        "oxyos.correct\n"
+      ],
+      "expect": {
+        "shell": {
+          "locked": false
+        },
+        "react": {},
+        "never": [
+          "oxyos.correct"
+        ],
+        "in_shell": {
+          "never": [
+            "oxyos.correct"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Plugged in: the display back to the brightness the battery dimmed slightly (three quarters of it: all of it now)",
+      "do": [
+        "power",
+        {
+          "on_ac": true,
+          "state": "charging",
+          "time_to_full": 2700
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "controls": {
+          "display_brightness": 1.0
+        }
+      }
+    },
+    {
+      "name": "Nine minutes on the adapter: the display stays on (the adapter's ten minutes); the lock at five locks",
+      "do": [
+        "idle",
+        540
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": false
+      }
+    },
+    {
+      "name": "Ten: the display off; the machine never sleeps on the adapter",
+      "do": [
+        "idle",
+        3600
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "displays_off": true,
+        "power": {
+          "suspends": 1
+        }
+      }
+    }
+  ]
+}

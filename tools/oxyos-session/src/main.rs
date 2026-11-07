@@ -586,6 +586,18 @@ fn main() -> Result<()> {
         compositor.wakers.push(bluetooth.wake_fd()?);
         Some(bluetooth)
     };
+    // Battery and energy (docs/adr/0057-battery-and-energy.mdx): the battery's menu and Settings,
+    // Low Power Mode through power-profiles-daemon, the charge limit through UPower, the display's
+    // and the machine's sleep through logind, the history and each application's energy. The
+    // login screen has none of it.
+    let mut power = if greeter {
+        None
+    } else {
+        let power =
+            oxyos_compositor::power::Power::new(None, oxyos_power::history::session_path())?;
+        compositor.wakers.push(power.wake_fd()?);
+        Some(power)
+    };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
     let mut input_methods = if greeter {
@@ -699,6 +711,18 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
+        // Battery and energy (ADR 0057), before the store, which takes the requests left.
+        if let Some(power) = power.as_mut() {
+            let running: Vec<oxyos_power::energy::Running> = launcher
+                .running()
+                .map(|(pid, launched)| oxyos_power::energy::Running {
+                    pid,
+                    id: launched.id.clone(),
+                    name: launched.name.clone(),
+                })
+                .collect();
+            power.serve(&mut compositor, settings.preferences(), &running);
+        }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
             networks.serve(&mut compositor.scene);
@@ -1073,6 +1097,11 @@ fn main() -> Result<()> {
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
+    // Recorded as ended; power-saver let go as it goes.
+    if let Some(power) = power.as_mut() {
+        power.end();
+    }
+    drop(power);
     launcher.end(Duration::from_secs(2));
     for shell in shells.values_mut() {
         end(shell)?;

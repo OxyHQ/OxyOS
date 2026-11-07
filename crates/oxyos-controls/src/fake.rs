@@ -3,7 +3,7 @@
 //! change the session makes is kept there, written back to its file when it has one, so a
 //! scenario checks what the session did to the system.
 
-use crate::{Battery, Bluetooth, Control, Level, Network, System, FULL_LEVEL, STEPS};
+use crate::{Battery, Bluetooth, Control, Level, Network, System, Warning, FULL_LEVEL, STEPS};
 use oxyos_protocol::{BatteryState, BluetoothState, WifiState};
 use std::io;
 use std::path::PathBuf;
@@ -51,6 +51,8 @@ pub struct Fake {
     /// The volumes from a played sound instead (`oxyos_audio::Played`, docs/adr/0056-sound-
     /// devices.mdx): each device its own, as the one chosen changes.
     sound: Sound,
+    /// The bus its battery is read from (a played UPower's, docs/adr/0057-battery-and-energy.mdx).
+    power_bus: Arc<Mutex<Option<zbus::blocking::Connection>>>,
 }
 
 /// The played sound the volumes are, if any.
@@ -114,6 +116,25 @@ fn battery_state(text: &str) -> Result<BatteryState, String> {
         "not_charging" => BatteryState::NotCharging,
         _ => return Err(format!("not a battery state: {text:?}")),
     })
+}
+
+fn warning(text: &str) -> Result<Warning, String> {
+    Ok(match text {
+        "none" => Warning::None,
+        "low" => Warning::Low,
+        "critical" => Warning::Critical,
+        "action" => Warning::Action,
+        _ => return Err(format!("not a warning level: {text:?}")),
+    })
+}
+
+fn warning_name(warning: Warning) -> &'static str {
+    match warning {
+        Warning::None => "none",
+        Warning::Low => "low",
+        Warning::Critical => "critical",
+        Warning::Action => "action",
+    }
 }
 
 fn battery_name(state: BatteryState) -> &'static str {
@@ -183,6 +204,24 @@ impl Fake {
         Ok(self)
     }
 
+    /// Its battery read from the UPower on the bus at `address`, as a session's is on the system
+    /// bus (docs/adr/0057-battery-and-energy.mdx).
+    pub fn with_power_bus(self, address: &str) -> io::Result<Self> {
+        let bus = zbus::blocking::connection::Builder::address(address)
+            .map_err(crate::bus::failed)?
+            .build()
+            .map_err(crate::bus::failed)?;
+        *self.power_bus.lock().expect("the fake's bus") = Some(bus);
+        Ok(self)
+    }
+
+    /// Its connections closed (the development compositor finishing).
+    pub fn close_power_bus(&self) {
+        if let Some(bus) = self.power_bus.lock().expect("the fake's bus").take() {
+            let _ = bus.close();
+        }
+    }
+
     /// Its connection to the network's bus closed (the development compositor finishing): the
     /// network is then the one last read.
     pub fn close_network_bus(&self) {
@@ -233,6 +272,7 @@ impl Fake {
                 "battery_percent" => state.battery.percent = number(value).map_err(at)?,
                 "battery_minutes" => state.battery.minutes = number(value).map_err(at)?,
                 "on_ac" => state.battery.on_ac = flag(value).map_err(at)?,
+                "battery_warning" => state.battery.warning = warning(value).map_err(at)?,
                 "wifi" => state.network.wifi = wifi_state(value).map_err(at)?,
                 "wifi_signal" => state.network.signal = number(value).map_err(at)?,
                 "ssid" => state.network.ssid = value.to_string(),
@@ -247,6 +287,7 @@ impl Fake {
             file: None,
             network_bus: Arc::default(),
             sound: Sound::default(),
+            power_bus: Arc::default(),
         })
     }
 
@@ -287,6 +328,10 @@ impl Fake {
         lines.push(format!("battery_percent = {}", battery.percent));
         lines.push(format!("battery_minutes = {}", battery.minutes));
         lines.push(format!("on_ac = {}", battery.on_ac));
+        lines.push(format!(
+            "battery_warning = {}",
+            warning_name(battery.warning)
+        ));
         let network = &state.network;
         lines.push(format!("wifi = {}", wifi_name(network.wifi)));
         lines.push(format!("wifi_signal = {}", network.signal));
@@ -420,6 +465,12 @@ impl System for Fake {
     }
 
     fn battery(&mut self) -> io::Result<Battery> {
+        let bus = self.power_bus.lock().expect("the fake's bus").clone();
+        if let Some(bus) = &bus {
+            let battery = crate::power::read(bus)?;
+            self.state.lock().expect("the fake's state").battery = battery;
+            return Ok(battery);
+        }
         Ok(self.state.lock().expect("the fake's state").battery)
     }
 

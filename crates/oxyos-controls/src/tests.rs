@@ -268,6 +268,7 @@ fn upower_says_the_battery() {
         on_battery: true,
         time_to_empty: 7_260,
         time_to_full: 0,
+        warning: 1,
     };
     assert_eq!(
         battery(reading),
@@ -275,8 +276,19 @@ fn upower_says_the_battery() {
             state: BatteryState::Discharging,
             percent: 79,
             on_ac: false,
-            minutes: 121
+            minutes: 121,
+            warning: Warning::None,
         }
+    );
+    // UPower's levels: low, critical, and the one it acts at.
+    assert_eq!(
+        [3, 4, 5, 2].map(|warning| battery(Reading { warning, ..reading }).warning),
+        [
+            Warning::Low,
+            Warning::Critical,
+            Warning::Action,
+            Warning::None
+        ]
     );
     // The ThinkPad's: charging on AC, its time to full.
     let charging = battery(Reading {
@@ -418,7 +430,8 @@ fn a_fake_machine_is_what_it_is_told_and_keeps_what_is_done_to_it() {
             state: BatteryState::Charging,
             percent: 78,
             on_ac: true,
-            minutes: 181
+            minutes: 181,
+            warning: Warning::None,
         }
     );
     assert_eq!(fake.network().unwrap().ssid, "LukeSkyRouter");

@@ -246,6 +246,21 @@ export type ShellBattery = {
   /** Until empty (discharging) or full (charging); 0 unknown. */
   minutes: number;
 };
+/** An application's energy, as the session sampled it as the battery's menu opened
+    (docs/adr/0057-battery-and-energy.mdx). */
+export type ShellEnergyApp = { id: string; name: string; significant: boolean };
+/** The battery's menu (docs/adr/0057-battery-and-energy.mdx): what the session says beyond the
+    battery itself, and what the menu asks of it. */
+export type ShellBatteryMenu = {
+  /** The charge shown beside the icon (the person's `battery_percentage`). */
+  showPercentage: boolean;
+  /** Low Power Mode is on: the icon's charge is drawn yellow, as a Mac's. */
+  lowPower: boolean;
+  /** Each application's energy, sampled as the menu opens. */
+  energy: () => Promise<readonly ShellEnergyApp[]>;
+  /** Battery Settings…: Settings at its Battery page. */
+  openSettings: () => void;
+};
 export type ShellNetwork = {
   wifi: "unavailable" | "off" | "disconnected" | "connecting" | "connected";
   /** The access point's signal, 0 to 100, and its name (empty unless connected or connecting). */

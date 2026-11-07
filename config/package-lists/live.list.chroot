@@ -31,6 +31,10 @@ fontconfig
 network-manager
 pipewire-audio
 upower
+# Low Power Mode (docs/adr/0057-battery-and-energy.mdx): the session holds its power-saver
+# profile, which it applies through the platform's profile and the processor's energy preference
+# (polkit lets the active session's user hold one).
+power-profiles-daemon
 # Bluetooth (docs/adr/0055-bluetooth.mdx): BlueZ, which the session speaks to and whose pairing
 # agent it is, and PipeWire's BlueZ plugin, which makes headphones and speakers audio devices
 # (pipewire-audio depends on it; named so the audit holds that it is installed).

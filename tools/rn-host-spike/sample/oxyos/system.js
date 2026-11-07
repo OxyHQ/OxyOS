@@ -21,6 +21,16 @@ let lastNetwork = null;
 const bluetoothListeners = new Set();
 let lastBluetooth = null;
 
+/** The battery and Low Power Mode as the session last told them (docs/adr/0057-battery-and-
+    energy.mdx), and who follows them. */
+const powerListeners = new Set();
+let lastPower = null;
+
+function toldPower(state) {
+  lastPower = state;
+  for (const listener of powerListeners) listener(state);
+}
+
 /** The input sources as the session last told them (docs/adr/0041-input-methods.mdx), and who
     follows them. */
 const inputSourcesListeners = new Set();
@@ -69,6 +79,7 @@ if (native) {
       if (answer && typeof answer.inputLevel === 'number') {
         for (const listener of inputLevelListeners) listener(answer.inputLevel);
       }
+      if (answer && answer.power) toldPower(answer.power);
       return;
     }
     const asked = waiting.get(serial);
@@ -83,6 +94,7 @@ if (native) {
     if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
     if (answer && answer.inputSources) toldInputSources(answer.inputSources);
     if (answer && answer.sound) toldSound(answer.sound);
+    if (answer && answer.power) toldPower(answer.power);
     asked.resolve(answer);
   });
 }
@@ -199,6 +211,38 @@ export function useBluetoothState() {
   React.useEffect(() => {
     const unsubscribe = bluetooth.subscribe(setState);
     bluetooth.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
+ * Battery and energy (docs/adr/0057-battery-and-energy.mdx): the shell (its `shell` grant: the
+ * battery's menu) and Settings (`settings`: its Battery page) are told the state as it changes
+ * (`{battery, health, chargeLimit, lowPower, showPercentage, criticalAction}`), and ask for the
+ * charge history (`{powerHistory: {day, days}}`) and each application's energy, sampled as asked
+ * (`{energy: {apps}}`). Settings alone limits the battery's charge, citing the press that asked
+ * (`{chargeLimit: {}}` or `{failed: {reason}}`). Low Power Mode, the timers and the menu bar's
+ * percentage are preferences, which Settings changes as it changes any.
+ */
+export const power = {
+  state: () => ask({ power: {} }),
+  history: () => ask({ powerHistory: {} }),
+  energy: () => ask({ energy: {} }),
+  setChargeLimit: (enabled) => ask({ chargeLimit: { enabled } }),
+  current: () => lastPower,
+  subscribe(listener) {
+    powerListeners.add(listener);
+    return () => powerListeners.delete(listener);
+  },
+};
+
+/** The battery and Low Power Mode as they change, for a view: asked once, then followed. */
+export function usePowerState() {
+  const [state, setState] = React.useState(lastPower);
+  React.useEffect(() => {
+    const unsubscribe = power.subscribe(setState);
+    power.state();
     return unsubscribe;
   }, []);
   return state;

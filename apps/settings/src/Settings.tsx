@@ -19,6 +19,7 @@ import {
   RiAccessibilityLine,
   RiAddLine,
   RiBluetoothLine,
+  RiBatteryLine,
   RiCalendarLine,
   RiCheckLine,
   RiComputerLine,
@@ -135,6 +136,7 @@ import {
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import { WallpaperPage } from "./WallpaperPage";
 import { BluetoothPage } from "./BluetoothPage";
+import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import {
   formatSize as formatBytes,
@@ -2241,13 +2243,19 @@ export function Settings({
   const props = { snapshot, actions, strings, locale };
   const words = strings.pages;
   // Wi-Fi, Bluetooth and Network first, as a Mac lists them: Wi-Fi and Network only with the
-  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx).
+  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx);
+  // then Battery (Energy on a computer without one, docs/adr/0057-battery-and-energy.mdx), once the
+  // session has told it.
   const networked = snapshot.network !== undefined;
   const bluetooth = snapshot.bluetooth !== undefined;
+  const power = snapshot.power;
   const connectionItems: SettingsNavGroup["items"] = [
     ...(networked ? [{ key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" }] : []),
     ...(bluetooth ? [{ key: "bluetooth", label: words.bluetooth, icon: RiBluetoothLine, page: "bluetooth" }] : []),
     ...(networked ? [{ key: "network", label: words.network, icon: RiGlobalLine, page: "network" }] : []),
+    ...(power
+      ? [{ key: "battery", label: power.battery ? words.battery : words.energy, icon: RiBatteryLine, page: "battery" }]
+      : []),
   ];
   const connections: SettingsNavGroup[] =
     connectionItems.length === 0
@@ -2343,6 +2351,16 @@ export function Settings({
           network: { title: words.network, content: <NetworkPage {...props} /> },
         }),
     ...(bluetooth ? { bluetooth: { title: words.bluetooth, content: <BluetoothPage {...props} /> } } : {}),
+    // Opened by its URL (`oxyos-settings://battery`, the battery's menu's Battery Settings…) even
+    // before the session has told the state, which it then shows.
+    ...(power === undefined
+      ? {}
+      : {
+          battery: {
+            title: power?.battery || power === null ? words.battery : words.energy,
+            content: <BatteryPage {...props} />,
+          },
+        }),
   };
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

@@ -13,10 +13,12 @@ import {
   bluetooth,
   inputSources,
   network,
+  power,
   sound as soundApi,
   useBluetoothState,
   useInputSourcesState,
   useNetworkState,
+  usePowerState,
   useSoundState,
   useSystemSheets,
 } from './oxyos/system';
@@ -29,6 +31,8 @@ import { useSessionLocale } from './oxyos/locale';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
+  ShellBatteryMenu,
+  ShellEnergyApp,
   ShellInputMethod,
   ShellLock,
   ShellMenu,
@@ -244,6 +248,7 @@ function ProbeShell({
   sheet,
   screenshots,
   inputMethod,
+  battery,
 }: {
   /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
   screenshots?: ShellScreenshots;
@@ -267,6 +272,8 @@ function ProbeShell({
   notifications?: ShellNotifications;
   /** Input methods (ADR 0041): the candidate window and the top bar's input sources. */
   inputMethod?: ShellInputMethod;
+  /** The battery's menu (ADR 0057), once the session told the battery and energy. */
+  battery?: ShellBatteryMenu;
 }) {
   // The same wallpaper while it draws the same: the wallpaper and what blurs it render again only
   // when it changes.
@@ -288,6 +295,7 @@ function ProbeShell({
       sheet={sheet}
       screenshots={screenshots}
       inputMethod={inputMethod}
+      battery={battery}
     />
   );
 }
@@ -424,6 +432,8 @@ function SessionShell() {
   const bluetoothDevices = useBluetoothState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
+  // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
+  const powerState = usePowerState() as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -744,6 +754,27 @@ function SessionShell() {
     }),
     [shell.candidates, sources, act],
   );
+  // The battery's menu (ADR 0057): its percentage and Low Power Mode as the session says them, the
+  // applications' energy sampled as it opens, and Battery Settings… opening Settings at its page.
+  const showPercentage = !!powerState?.showPercentage;
+  const lowPower = !!powerState?.lowPower?.on;
+  const battery: ShellBatteryMenu | undefined = React.useMemo(
+    () =>
+      powerState
+        ? {
+            showPercentage,
+            lowPower,
+            energy: async () => {
+              const answer = (await power.energy()) as { energy?: { apps?: ShellEnergyApp[] } };
+              return answer?.energy?.apps ?? [];
+            },
+            openSettings: () => {
+              shell.openUrl('oxyos-settings://battery');
+            },
+          }
+        : undefined,
+    [!!powerState, showPercentage, lowPower, shell.openUrl],
+  );
   const first = dock ? sheets[0] : undefined;
   const sheet = React.useMemo(() => {
     const firstText = first ? readSheet(first.text) : null;
@@ -776,6 +807,7 @@ function SessionShell() {
       notifications={notifications}
       screenshots={screenshots}
       inputMethod={inputMethod}
+      battery={battery}
     />
   );
 }

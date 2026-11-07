@@ -22,6 +22,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@oxy.so/bloom/dropdown-menu";
 
@@ -29,8 +30,8 @@ import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
 import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
-import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
-import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
+import { batteryLabel, batteryMenuLines, significantApps, wifiBars, wifiLabel, wifiOn } from "../controls";
+import type { ShellBattery, ShellBatteryMenu, ShellEnergyApp, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
 import type { ShellKeyboard } from "../platform";
 import { barClock, clockSaid } from "../clock";
 import { useShellLocale, useShellMessages } from "../useShellMessages";
@@ -134,14 +135,15 @@ function ControlsIcon({
   );
 }
 
-/** The battery as the session says it is: its charge filled in, a bolt while it charges. */
-function BatteryIcon({ power }: { power: ShellBattery }) {
+/** The battery as the session says it is: its charge filled in, a bolt while it charges; red when
+    low, yellow in Low Power Mode, as a Mac's. */
+function BatteryIcon({ power, lowPower = false }: { power: ShellBattery; lowPower?: boolean }) {
   const fill = Math.max(1, Math.round((17 * Math.min(100, power.percent)) / 100));
   const low = power.battery === "discharging" && power.percent <= 10;
   return (
     <Svg width={24} height={12} viewBox="0 0 26 13">
       <Rect x="1" y="1" width="21" height="11" rx="3" stroke="#ffffffcc" fill="none" />
-      <Rect x="3" y="3" width={fill} height="7" rx="1.5" fill={low ? "#ff5a4f" : "#fff"} />
+      <Rect x="3" y="3" width={fill} height="7" rx="1.5" fill={low ? "#ff5a4f" : lowPower ? "#ffd60a" : "#fff"} />
       <Rect x="23.5" y="4" width="1.5" height="5" rx=".7" fill="#ffffffb3" />
       {(power.battery === "charging" || power.battery === "full") && (
         <Path d="M12.6 1.6 8.4 7.1h3l-1 4.3 4.3-5.6h-3.1l1-4.2Z" fill="#26313d" stroke="#fff" strokeWidth=".6" />
@@ -214,6 +216,100 @@ const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }
   );
 });
 
+const BATTERY_ITEM = "shell-battery";
+const BATTERY_MENU_WIDTH = 260;
+const batteryTitle = { fontWeight: "600" } as const;
+const percentText = { color: "#fff", fontSize: 12, lineHeight: 16, marginRight: 4 } as const;
+
+/**
+ * The battery's status menu (docs/adr/0057-battery-and-energy.mdx), as a Mac's: the icon (and its
+ * charge in percent, as the person chose), opening the charge, the power source and the time left
+ * or until full, the applications using significant energy (sampled as it opens), and Battery
+ * Settings…. Named "Battery", its charge and state its value, as the level indicator was.
+ */
+const BatteryMenuItem = memo(function BatteryMenuItem({
+  power,
+  menu,
+  onItemFocus,
+  onOpenChange,
+  restoreFocus,
+}: {
+  power: ShellBattery;
+  menu: ShellBatteryMenu;
+  onItemFocus?: (testID: string) => void;
+  onOpenChange?: (open: boolean) => void;
+  restoreFocus: boolean;
+}) {
+  const messages = useShellMessages();
+  const [open, setOpenState] = useState(false);
+  // The applications' energy, as the session sampled it when the menu opened; null until it says.
+  const [apps, setApps] = useState<readonly ShellEnergyApp[] | null>(null);
+  const { energy } = menu;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      onOpenChange?.(next);
+      if (!next) return;
+      setApps(null);
+      energy().then(setApps, () => setApps([]));
+    },
+    [onOpenChange, energy],
+  );
+  const lines = batteryMenuLines(power, messages);
+  const said = batteryLabel(power, messages);
+  if (!lines || said === undefined) return null;
+  const significant = apps === null ? null : significantApps(apps);
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild restoreFocus={restoreFocus}>
+        <Button
+          appearance="plain"
+          testID={BATTERY_ITEM}
+          accessibilityLabel={messages.topBar.battery}
+          accessibilityValue={{ min: 0, max: 100, now: power.percent, text: said }}
+          aria-expanded={open}
+          style={{ ...menuStyle, paddingLeft: 2, paddingRight: 2 }}
+          colors={TRANSPARENT_WHITE}
+          hitSlop={STATUS_SLOP}
+          onFocus={() => onItemFocus?.(BATTERY_ITEM)}
+        >
+          <Box className="flex-row items-center">
+            {menu.showPercentage && <Text style={percentText}>{lines.charge}</Text>}
+            <BatteryIcon power={power} lowPower={menu.lowPower} />
+          </Box>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent label={messages.battery.title} sideOffset={MENU_SIDE_OFFSET} minWidth={BATTERY_MENU_WIDTH}>
+        <DropdownMenuLabel style={batteryTitle}>{`${messages.battery.title}  ${lines.charge}`}</DropdownMenuLabel>
+        <DropdownMenuLabel>{lines.source}</DropdownMenuLabel>
+        <DropdownMenuLabel>{lines.time}</DropdownMenuLabel>
+        {menu.lowPower && <DropdownMenuLabel>{messages.battery.lowPower}</DropdownMenuLabel>}
+        {significant !== null && (
+          <>
+            <DropdownMenuSeparator />
+            {significant.length === 0 ? (
+              <DropdownMenuLabel>{messages.battery.noSignificant}</DropdownMenuLabel>
+            ) : (
+              <>
+                <DropdownMenuLabel style={batteryTitle}>{messages.battery.significant}</DropdownMenuLabel>
+                {significant.map((app) => (
+                  <DropdownMenuLabel key={app.id} inset>
+                    {app.name}
+                  </DropdownMenuLabel>
+                ))}
+              </>
+            )}
+          </>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem testID="shell-battery-settings" onPress={menu.openSettings}>
+          {messages.battery.settings}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+});
+
 /** The Ethernet icon, as Bloom's icons are drawn (a Button's `icon`). */
 function EthernetIcon({ width = 15, height = 15, fill = "#fff" }: { width?: number; height?: number; fill?: string }) {
   return <RiArrowLeftRightLine width={width} height={height} fill={fill} />;
@@ -260,10 +356,16 @@ export interface StatusPanels {
 }
 const NOTHING_OPEN: StatusPanels = { network: false, controlCenter: false, notifications: false };
 
-/** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx). */
-function statusItems(network: ShellNetwork | undefined, inputSources?: InputSourcesState | null): string[] {
+/** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx): the
+    battery's first where it is a menu. */
+function statusItems(
+  network: ShellNetwork | undefined,
+  inputSources?: InputSourcesState | null,
+  battery = false,
+): string[] {
   const first = networkItem(network);
   return [
+    ...(battery ? [BATTERY_ITEM] : []),
     ...(first ? [first] : []),
     ...(showsInputSources(inputSources) ? [INPUT_SOURCE_ITEM] : []),
     "shell-search",
@@ -273,8 +375,12 @@ function statusItems(network: ShellNetwork | undefined, inputSources?: InputSour
 }
 
 /** The status item Super+F8 puts the keyboard on, as a Mac's Control-F8 its first status menu. */
-export function firstStatusItem(network: ShellNetwork | undefined, inputSources?: InputSourcesState | null): string {
-  return statusItems(network, inputSources)[0];
+export function firstStatusItem(
+  network: ShellNetwork | undefined,
+  inputSources?: InputSourcesState | null,
+  battery = false,
+): string {
+  return statusItems(network, inputSources, battery)[0];
 }
 
 const INPUT_SOURCE_ITEM = "shell-input-source";
@@ -667,6 +773,7 @@ export const TopBar = memo(function TopBar({
   showEmoji,
   openKeyboardSettings,
   onInputMenuChange,
+  batteryMenu,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
@@ -708,16 +815,20 @@ export const TopBar = memo(function TopBar({
   selectInputSource?: (id: string) => void;
   showEmoji?: () => void;
   openKeyboardSettings?: () => void;
-  /** The input source's menu opened or closed: while open, its keys (Escape among them) are its
-      own. */
+  /** The input source's or the battery's menu opened or closed: while open, its keys (Escape
+      among them) are its own. */
   onInputMenuChange?: (open: boolean) => void;
+  /** The battery's menu, once the session told what it needs (docs/adr/0057-battery-and-
+      energy.mdx); without it the battery is a level indicator alone. */
+  batteryMenu?: ShellBatteryMenu;
 }) {
   // The status item the keyboard is on, as the platform focuses it.
   const focusedItem = useRef<string | null>(null);
   // Whether the input source's menu is open: its keys are its own (its rows, Escape), not the
   // status items'.
   const inputMenuOpen = useRef(false);
-  const items = statusItems(network, inputSources);
+  const batteryButton = !!(power && batteryMenu && power.battery !== "absent");
+  const items = statusItems(network, inputSources, batteryButton);
   const latestItems = useRef(items);
   latestItems.current = items;
   useEffect(() => {
@@ -776,7 +887,18 @@ export const TopBar = memo(function TopBar({
       />
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
-          {power && <BatteryItem power={power} />}
+          {power &&
+            (batteryMenu ? (
+              <BatteryMenuItem
+                power={power}
+                menu={batteryMenu}
+                onItemFocus={onItemFocus}
+                onOpenChange={inputMenuChanged}
+                restoreFocus={!!statusKeys}
+              />
+            ) : (
+              <BatteryItem power={power} />
+            ))}
           {network && (
             <NetworkItem network={network} open={open.network} onPress={networkStatus} onItemFocus={onItemFocus} />
           )}
