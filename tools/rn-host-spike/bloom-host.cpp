@@ -2047,8 +2047,9 @@ int main(int argc, char** argv) {
         arrived |= deliverApplication(services);
         if (arrived) diagnostics.trigger("data arriving");
         busy |= arrived;
-        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx), and the applications
-        // the session's registry (docs/adr/0030-installing-applications.mdx): each looked at.
+        // The wallpaper follows the clock (docs/adr/0048-wallpapers.mdx: a variant of the sun's,
+        // a shuffle's next), and the applications the session's registry
+        // (docs/adr/0030-installing-applications.mdx): each looked at.
         bool wallpaperChanged = shellMode && shellState.tick();
         bool applicationsChanged = shellMode && shellState.applicationsChanged();
         bool shellChanged = wallpaperChanged || applicationsChanged, closeRequested = false;

@@ -3,8 +3,9 @@
 // title, workspace and state, and the workspaces. JavaScript reads it through the OxyOSShell
 // module (host-modules.cpp) and hears `OxyOSShellChanged` when it changes. Also whether the session
 // is locked (docs/adr/0010-lock-screen.mdx), the session's user, whom the lock screen names, and
-// whether Caps Lock is on, which its password field shows; and the wallpaper's frame that shows the
-// sun now (docs/adr/0012-solar-wallpaper.mdx), from the solar wallpaper OXYOS_WALLPAPER names. And
+// whether Caps Lock is on, which its password field shows; and what its output's wallpaper shows now
+// (docs/adr/0048-wallpapers.mdx): the choice the session tells this output's shell, turned into a
+// picture by crates/oxyos-wallpaper at the moment and in the appearance the session gives. And
 // the outputs (docs/adr/0018-several-displays.mdx): the shell runs on one, `output`, and has the dock
 // only on the primary; each says whether a zoomed or full-screen window covers it (`covered`,
 // docs/adr/0034-the-dock.mdx).
@@ -37,7 +38,9 @@ class ShellState {
   //   menuBar: { window, serial, items: [{ parent, kind, enabled, checkable, checked, label, shortcut }] }
   //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
-  //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
+  //   user: { name, fullName }, capsLock,
+//   wallpaper: { key, uri: "file://..." or null, fit, color: "#rrggbb", slow } or null (none told:
+//   the shell's own; `slow`, the clock brought it: a variant of the sun's or a shuffle's next),
   //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null }],
   //   output, outputs: [{ id, x, y, width, height, scale, primary }],
   //   oxyApi: Oxy's API, where adding an account at the login screen signs in (OXYOS_OXY_API),
@@ -58,10 +61,12 @@ class ShellState {
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
   // outputs the compositor's, in the global space's logical pixels, empty until it has told them.
   folly::dynamic state() const;
-  // Each turn: true if the wallpaper's frame changed (the sun moved on to another).
+  // Each turn: true if what the wallpaper shows changed by the clock (the sun reached another
+  // variant, a shuffle's next one).
   bool tick();
-  // When tick should look again: the wallpaper's next frame, at most a minute away (the system's
-  // clock may jump, or the machine sleep, meanwhile); none for no wallpaper or a fixed moment.
+  // When tick should look again: when the wallpaper next changes by the clock, at most a minute
+  // away (the system's clock may jump, or the machine sleep, meanwhile); none for a wallpaper the
+  // clock never changes or a fixed moment (OXYOS_WALLPAPER_NOW).
   std::optional<std::chrono::steady_clock::time_point> nextChange() const;
   // The session's shell follows its applications (docs/adr/0030-installing-applications.mdx,
   // decision 7): one installed, updated or removed is listed at once. The watch's descriptor
@@ -151,18 +156,21 @@ class ShellState {
   std::map<uint32_t, Notification> notifications_;
   NotificationTexts notificationTexts_;
   bool doNotDisturb_ = false, previews_ = false;
-  // The solar wallpaper: its folder, frames (by index), anchors, the frame shown when there is
-  // no sun (the time zone has no place), the frame chosen and when it next changes.
-  std::string wallpaperDir_;
-  std::map<uint32_t, std::string> wallpaperFrames_;
-  std::vector<OxyOSSolarAnchor> anchors_;
-  uint32_t previewFrame_ = 0;
-  std::optional<uint32_t> frame_;
-  int64_t nextChange_ = 0;
-  void chooseFrame();
+  // The wallpaper (docs/adr/0048-wallpapers.mdx): the choice the session told this output's shell
+  // (OUTPUT_WALLPAPER, in chunks) and the one being received; the session's appearance, which an
+  // automatic variant may follow; when the session started (a shuffle's `login` slot); what it
+  // shows now, and when the clock next changes that (0, never).
+  std::optional<std::string> wallpaperChoice_;
+  std::string receivingWallpaper_;
+  bool dark_ = false;
+  int64_t login_ = 0;
+  folly::dynamic wallpaper_ = nullptr;
+  int64_t wallpaperNext_ = 0;
+  // Turns the choice into what to draw, at the moment and in the appearance now: true if that
+  // changed. `slow`: the clock brought it.
+  bool showWallpaper(bool slow);
   folly::dynamic applications_ = folly::dynamic::array();
   void readApplications();
-  folly::dynamic wallpaperUri() const;
   static std::string oxyApi();
   // The session's user, from the account database: the login name, and the full name of its
   // GECOS field (empty if it has none).

@@ -4,8 +4,9 @@
  *
  * The state: { windows: [{ id, appId, title, workspace, minimized, focused, launched, used, hidden }],
  * workspaces, active,
- * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper the file of the
- * solar wallpaper's frame that shows the sun now (null without one); applications the session's
+ * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper what this
+ * output's wallpaper shows now (docs/adr/0048-wallpapers.mdx, `useShellWallpaper` in wallpaper.js:
+ * { key, uri, fit, color, slow }, null where the session told none); applications the session's
  * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null, opens: [media
  * types it declares, its MimeType: what files dropped on its dock icon it takes, ADR 0034] }]., windows numbered by the compositor and workspaces from 0.
  * The windows' sizes, { width, height } by window id, are `useWindowSizes()`'s, not the state's.

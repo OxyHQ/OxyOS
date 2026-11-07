@@ -5,7 +5,6 @@ import {
   View,
   useColorScheme,
   useWindowDimensions,
-  type ImageSourcePropType,
   type PointerEvent,
 } from "react-native";
 import { BlurTargetView, BlurView } from "expo-blur";
@@ -18,6 +17,7 @@ import { APPLICATION_TYPE, DRAG_SLOP, shellDrag } from "../app-drag";
 import { Box, PressArea } from "../primitives";
 import { AppIcon } from "../apps";
 import { Wallpaper } from "./Wallpaper";
+import type { ShellWallpaper } from "../wallpaper";
 import type { ShellApplication, ShellFolder } from "../model";
 import type { ShellKeyboard } from "../platform";
 import {
@@ -133,7 +133,7 @@ export const LaunchpadBackdrop = memo(function LaunchpadBackdrop({
 }: {
   /** Whether it is shown, with Launchpad. */
   open: boolean;
-  wallpaper: ImageSourcePropType;
+  wallpaper: ShellWallpaper;
 }) {
   const { width, height } = useWindowDimensions();
   const dark = useColorScheme() === "dark";
@@ -149,7 +149,7 @@ export const LaunchpadBackdrop = memo(function LaunchpadBackdrop({
         ref={target}
         style={{ position: "absolute", left: 0, top: 0, width, height }}
       >
-        <Wallpaper source={wallpaper} decorative />
+        <Wallpaper wallpaper={wallpaper} decorative />
       </BlurTargetView>
       {/* A blur of radius 30 (its intensity over its reduction factor), and a dark tint over it
           (a fifth; a quarter in dark mode): the icons' white labels read on either. */}

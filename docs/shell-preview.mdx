@@ -56,9 +56,7 @@ A Linux host must provide live registry/compositor/service snapshots, translate 
 
 ## Wallpaper resources
 
-The user-supplied Solar Gradients HEIC contains 16 frames at 5120 × 2880. All frames were imported as JPEG derivatives with Display P3 profiles under `assets/wallpapers/solar-gradients`, along with the original decoded solar metadata and source hash. The browser host currently supplies frame 08 to the shared `Wallpaper` component.
-
-The preview shows frame 08 of the solar wallpaper. On OxyOS the system chooses the frame that shows the sun now and tells the shell ([ADR 0012](./adr/0012-solar-wallpaper)); the preview has no system to ask.
+The wallpapers are the system's catalog ([ADR 0048](./adr/0048-wallpapers)), `config/includes.chroot_after_packages/usr/share/oxyos/wallpapers`, which the image installs as `/usr/share/oxyos/wallpapers`: OxyOS's own work, recorded in `/usr/share/doc/oxyos-wallpapers/copyright`. The preview shows the catalog's default, `oxyos`, light; on OxyOS the session tells each display's shell its choice and the host turns it into the picture to draw. *Solar Gradients*, imported here before from a HEIC of Apple's macOS wallpaper, was not OxyOS's to ship and is gone (ADR 0048, decision 8).
 
 ## Overview gestures and window-management boundary
 

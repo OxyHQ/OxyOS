@@ -418,8 +418,13 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
-A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
-that moment where that time zone is (ADR 0012).
+Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
+config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
+docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
+`wallpaper_all_desktops`, and the session's own lines, `wallpaper.DISPLAY` and
+`wallpaper.DISPLAY.N`). A scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
+follows (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on) and the time zone whose sun a
+`sun` wallpaper's Automatic follows (ADR 0012).
 
 A scenario with `reader` ({}) runs the session's screen reader (`oxyos-reader`, beside the
 offscreen compositor unless `--reader` names it), which speaks the session's language (the
@@ -4583,13 +4588,16 @@ def main():
         env["OXYOS_HOST_RENDERER"] = options.renderer
     if options.check_render:
         env["OXYOS_HOST_RENDER_CHECK"] = "1"
+    # The system's wallpapers, as the image installs them (docs/adr/0048-wallpapers.mdx), never the
+    # developer's machine's.
+    env["OXYOS_WALLPAPERS"] = str(pathlib.Path(__file__).resolve().parents[2] /
+                                  "config/includes.chroot_after_packages/usr/share/oxyos/wallpapers")
+    env.pop("OXYOS_WALLPAPER_NOW", None)
     if scenario.get("wallpaper"):
-        # The solar wallpaper (ADR 0012) at a moment and a time zone the scenario fixes: the
-        # wallpaper's folder (from the repository's root), "TZ" and "now" (unix seconds).
+        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), fixed.
         wallpaper = scenario["wallpaper"]
-        env["OXYOS_WALLPAPER"] = str(pathlib.Path(__file__).resolve().parents[2] / wallpaper["folder"])
         env["TZ"] = wallpaper["tz"]
-        env["OXYOS_SOLAR_NOW"] = str(wallpaper["now"])
+        env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
     if "store" in scenario:

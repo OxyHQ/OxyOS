@@ -22,6 +22,7 @@ import { SetupSignIn } from './SetupSignIn';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useSessionLocale } from './oxyos/locale';
+import { useShellWallpaper } from './oxyos/wallpaper';
 
 /** How long the network may take to answer before setup says it needs it. */
 const REACH_MS = 5000;
@@ -75,9 +76,8 @@ export default function LoginSession() {
     const timer = setTimeout(() => setAccounts(accountsFrom(shell.accounts())), RETRY_MS);
     return () => clearTimeout(timer);
   }, [accounts, shell]);
-  const wallpaper = state?.wallpaper
-    ? { uri: state.wallpaper }
-    : require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg');
+  // The catalog's default, as the login screen's session tells it (docs/adr/0048-wallpapers.mdx).
+  const wallpaper = useShellWallpaper(state?.wallpaper);
   const actions: LoginActions = {
     authenticate: (account, password) => shell.authenticate(password, account),
     answer: shell.authentication ?? undefined,
@@ -92,7 +92,7 @@ export default function LoginSession() {
     <SafeAreaProvider>
       <BloomProvider mode="dark" colorPreset="graphite" haptics={false} locale={locale} platform={oxyosSurfaces}>
         <View testID="login-background" style={styles.fill}>
-          <Wallpaper source={wallpaper} decorative />
+          <Wallpaper wallpaper={wallpaper} decorative />
           {state?.locked && (
             <Surface kind="lock" style={StyleSheet.absoluteFill}>
               <LoginScreen accounts={accounts} actions={actions} wallpaper={wallpaper} now={now} Masked={Masked} />
