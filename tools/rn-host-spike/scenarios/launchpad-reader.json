@@ -66,10 +66,10 @@
    }
   },
   {
-   "name": "typing searches: Atlas and Allo, the first highlighted; the search keeps the screen reader's focus and echoes the letter, then the results are said politely, once",
+   "name": "typing searches the applications as the search service finds them, by their names' words' beginnings: Atlas, Ajustes and Allo, the first highlighted; the search keeps the screen reader's focus and echoes the letter, then the results are said politely, once",
    "do": [
     "keyboard",
-    "l"
+    "a"
    ],
    "allow_unchanged": true,
    "expect": {
@@ -85,6 +85,11 @@
       },
       {
        "role": "Button",
+       "name": "Ajustes",
+       "state": []
+      },
+      {
+       "role": "Button",
        "name": "Allo",
        "state": []
       }
@@ -92,25 +97,25 @@
     },
     "spoken": [
      {
-      "text": "l",
+      "text": "a",
       "interrupting": true
      },
      {
-      "text": "2 resultados",
+      "text": "3 resultados",
       "interrupting": false
      }
     ],
     "announcements": [
      {
       "politeness": "polite",
-      "text": "2 resultados",
+      "text": "3 resultados",
       "live": true
      }
     ]
    }
   },
   {
-   "name": "→ highlights Allo: the screen reader's focus moves to it, said once by its name",
+   "name": "→ highlights Ajustes: the screen reader's focus moves to it, said once by its name",
    "do": [
     "key",
     [
@@ -124,7 +129,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Allo",
+       "name": "Ajustes",
        "state": [
         "selected",
         "focused"
@@ -139,7 +144,7 @@
     },
     "spoken": [
      {
-      "text": "Allo, seleccionado, botón",
+      "text": "Ajustes, seleccionado, botón",
       "interrupting": true
      }
     ],
@@ -169,7 +174,7 @@
       },
       {
        "role": "Button",
-       "name": "Allo",
+       "name": "Ajustes",
        "state": []
       }
      ]
@@ -197,7 +202,7 @@
       {
        "role": "Search",
        "name": "Buscar aplicaciones",
-       "value": "ll",
+       "value": "al",
        "state": [
         "focused"
        ]
@@ -206,7 +211,7 @@
     },
     "spoken": [
      {
-      "text": "Buscar aplicaciones, ll, campo de búsqueda",
+      "text": "Buscar aplicaciones, al, campo de búsqueda",
       "interrupting": true
      },
      {
@@ -227,14 +232,14 @@
    "name": "typed on, the search echoes what is typed; the count, the same, is not said again",
    "do": [
     "keyboard",
-    "o"
+    "l"
    ],
    "allow_unchanged": true,
    "expect": {
     "react": {},
     "spoken": [
      {
-      "text": "o",
+      "text": "l",
       "interrupting": true
      }
     ],
@@ -253,7 +258,7 @@
     "texts": [],
     "in_shell": {
      "texts": [
-      "No hay aplicaciones que coincidan con «lloz»."
+      "No hay aplicaciones que coincidan con «allz»."
      ]
     },
     "spoken": [
@@ -318,7 +323,7 @@
     "react": {},
     "spoken": [
      {
-      "text": "llo, borrado",
+      "text": "all, borrado",
       "interrupting": true
      }
     ],

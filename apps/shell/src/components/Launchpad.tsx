@@ -25,16 +25,12 @@ import {
   SEARCH_HEIGHT,
   launcherLayout,
   moveSelection,
+  nameMatches,
   pageOf,
   type LauncherKey,
 } from "../launcher";
 import { useShellMessages } from "../useShellMessages";
 
-const normalize = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase();
 type Entry = { app: ShellApplication } | { folder: ShellFolder };
 
 /** The search field's colours over the blurred desktop. One object for every render: Bloom derives
@@ -192,34 +188,33 @@ export const Launchpad = memo(function Launchpad({
   /** The platform's keys before the focused field, where it has them (the arrows and Return). */
   keyboard?: ShellKeyboard;
   /** The system's search (docs/adr/0051-search.mdx), where the platform has it: what is typed
-      finds the applications it returns, in its order, as Spotlight's do. Without it, the names that
-      hold what is typed. */
+      finds the applications it returns (by their names and their keywords), shown in Launchpad's
+      own order. Until it answers a text, and without it, the names whose words begin with what is
+      typed. */
   search?: ShellSearch;
 }) {
   const messages = useShellMessages();
   const words = messages.launchpad;
   const [query, setQuery] = useState("");
-  // The applications the search service found for the latest text it answered (until it answers
-  // the first, the names that hold the text); an answer to an earlier text is dropped.
-  const [found, setFound] = useState<readonly string[] | null>(null);
+  // The applications the search service found, and for which text: used while that text is the
+  // one typed; an answer to an earlier text is dropped.
+  const [found, setFound] = useState<{ text: string; ids: ReadonlySet<string> } | null>(null);
   const asked = useRef(0);
   const wanted = query.trim();
   useEffect(() => {
     const mine = ++asked.current;
-    if (!service || !wanted) {
-      setFound(null);
-      return;
-    }
+    if (!service || !wanted) return;
     service
       .query({ text: wanted, categories: ["application"], limit: Math.max(1, applications.length), language: messages.language })
       .then(
         (results) => {
           if (mine !== asked.current) return;
-          setFound(results.items.flatMap((item) => applicationOf(item) ?? []));
+          setFound({ text: wanted, ids: new Set(results.items.flatMap((item) => applicationOf(item) ?? [])) });
         },
         (error: unknown) => console.warn("Launchpad's search failed", { error }),
       );
   }, [service, wanted, applications.length, messages.language]);
+  const answered = found && found.text === wanted ? found.ids : null;
   const [folder, setFolder] = useState<ShellFolder | null>(null);
   const [page, setPage] = useState(0);
   // The icon highlighted by the arrows (an index into every entry), none until one is pressed;
@@ -238,19 +233,15 @@ export const Launchpad = memo(function Launchpad({
   const capacity = columns * rows;
   const grouped = new Set(folders.flatMap((group) => [...group.appIds]));
   const byId = new Map(applications.map((app) => [app.id, app]));
-  const entries: Entry[] =
-    query && found
-      ? found.flatMap((id) => {
-          const app = byId.get(id);
-          return app ? [{ app }] : [];
-        })
-      : applications
-          .filter(
-            (app) =>
-              (query || !grouped.has(app.id)) &&
-              normalize(app.name).includes(normalize(query)),
-          )
-          .map((app) => ({ app }));
+  const entries: Entry[] = applications
+    .filter((app) =>
+      query
+        ? answered
+          ? answered.has(app.id)
+          : nameMatches(app.name, query)
+        : !grouped.has(app.id),
+    )
+    .map((app) => ({ app }));
   if (!query) entries.push(...folders.map((group) => ({ folder: group })));
   const pageCount = Math.max(1, Math.ceil(entries.length / capacity));
   const currentPage = Math.min(page, pageCount - 1);

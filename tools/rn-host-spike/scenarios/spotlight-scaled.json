@@ -1,5 +1,5 @@
 {
- "about": "At 1.25 (the ThinkPad's 1600\u00d71000), as spotlight.json at 1: Spotlight (docs/adr/0051-search.mdx) through the real search service, on a home the scenario makes, with Allo (sample/EditingProbe.tsx) open, in Spanish: Super+Space opens the panel and its field takes the keyboard, Allo told it lost it and receiving nothing after; what is typed searches the person's files by name as it is typed (the service started at the first question, its first crawl's results arriving through its watch), the top hit first, a hidden folder's file never shown; a word of a file's text finds it; the arrows move the selection, which the screen reader is told; Escape clears the text and closes with none, Allo given the keyboard back; a file written while the panel is open appears in it; the applications are found by their names in the session's language and Settings' pages by their declared words, and Return opens the top hit: a page of Settings, Settings launched at it.",
+ "about": "At 1.25 (the ThinkPad's 1600×1000), as spotlight.json at 1: Spotlight (docs/adr/0051-search.mdx) through the real search service, on a home the scenario makes, with Allo (sample/EditingProbe.tsx) open, in Spanish: Super+Space opens the panel and its field takes the keyboard, Allo told it lost it and receiving nothing after; what is typed searches the person's files by name as it is typed (the service started at the first question, its first crawl's results arriving through its watch), the top hit first, a hidden folder's file never shown; a word of a file's text finds it; the arrows move the selection, which the screen reader is told; Escape clears the text and closes with none, Allo given the keyboard back; a file written while the panel is open appears in it; the applications are found by their names in the session's language and Settings' pages by their declared words, and Return opens the top hit: a page of Settings, Settings launched at it.",
  "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -14,7 +14,7 @@
  "home": {
   "items": {
    "Documents/": "",
-   "Documents/informe trimestral.txt": "Las ventas del tercer trimestre crecieron en C\u00f3rdoba.",
+   "Documents/informe trimestral.txt": "Las ventas del tercer trimestre crecieron en Córdoba.",
    "Documents/notas de viaje.md": "# Viaje a Sevilla\nbillete de tren y hotel",
    "Documents/Proyectos/": "",
    "Documents/Proyectos/presupuesto del faro.txt": "pintura y cristales",
@@ -58,7 +58,7 @@
      "shell": [
       {
        "role": "Search",
-       "name": "B\u00fasqueda en Spotlight"
+       "name": "Búsqueda en Spotlight"
       }
      ]
     }
@@ -144,7 +144,7 @@
    "do": [
     "wait_named",
     [
-     "presupuesto del faro.txt, Texto sin formato, Documents \u203a Proyectos",
+     "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
      10000
     ]
    ],
@@ -178,7 +178,7 @@
    }
   },
   {
-   "name": "\u2193 moves the selection to the next result, the screen reader's focus with it",
+   "name": "↓ moves the selection to the next result, the screen reader's focus with it",
    "do": [
     "key",
     [
@@ -200,7 +200,7 @@
       },
       {
        "role": "Button",
-       "name": "presupuesto del faro.txt, Texto sin formato, Documents \u203a Proyectos",
+       "name": "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
        "state": []
       }
      ]
@@ -237,7 +237,7 @@
     },
     "in_shell": {
      "absent": [
-      "B\u00fasqueda en Spotlight"
+      "Búsqueda en Spotlight"
      ]
     }
    }
@@ -276,7 +276,7 @@
    "do": [
     "wait_named",
     [
-     "Ajustes, Aplicaci\u00f3n",
+     "Ajustes, Aplicación",
      10000
     ]
    ],
@@ -293,7 +293,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Ajustes, Aplicaci\u00f3n",
+       "name": "Ajustes, Aplicación",
        "state": [
         "selected"
        ]
@@ -391,7 +391,7 @@
    "do": [
     "wait_named",
     [
-     "Autom\u00e1tica",
+     "Automática",
      15000
     ]
    ],

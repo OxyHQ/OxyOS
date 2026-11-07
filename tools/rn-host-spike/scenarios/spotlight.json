@@ -14,7 +14,7 @@
  "home": {
   "items": {
    "Documents/": "",
-   "Documents/informe trimestral.txt": "Las ventas del tercer trimestre crecieron en C\u00f3rdoba.",
+   "Documents/informe trimestral.txt": "Las ventas del tercer trimestre crecieron en Córdoba.",
    "Documents/notas de viaje.md": "# Viaje a Sevilla\nbillete de tren y hotel",
    "Documents/Proyectos/": "",
    "Documents/Proyectos/presupuesto del faro.txt": "pintura y cristales",
@@ -58,7 +58,7 @@
      "shell": [
       {
        "role": "Search",
-       "name": "B\u00fasqueda en Spotlight"
+       "name": "Búsqueda en Spotlight"
       }
      ]
     }
@@ -144,7 +144,7 @@
    "do": [
     "wait_named",
     [
-     "presupuesto del faro.txt, Texto sin formato, Documents \u203a Proyectos",
+     "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
      10000
     ]
    ],
@@ -178,7 +178,7 @@
    }
   },
   {
-   "name": "\u2193 moves the selection to the next result, the screen reader's focus with it",
+   "name": "↓ moves the selection to the next result, the screen reader's focus with it",
    "do": [
     "key",
     [
@@ -200,7 +200,7 @@
       },
       {
        "role": "Button",
-       "name": "presupuesto del faro.txt, Texto sin formato, Documents \u203a Proyectos",
+       "name": "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
        "state": []
       }
      ]
@@ -237,7 +237,7 @@
     },
     "in_shell": {
      "absent": [
-      "B\u00fasqueda en Spotlight"
+      "Búsqueda en Spotlight"
      ]
     }
    }
@@ -276,7 +276,7 @@
    "do": [
     "wait_named",
     [
-     "Ajustes, Aplicaci\u00f3n",
+     "Ajustes, Aplicación",
      10000
     ]
    ],
@@ -293,7 +293,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "Ajustes, Aplicaci\u00f3n",
+       "name": "Ajustes, Aplicación",
        "state": [
         "selected"
        ]
@@ -391,7 +391,7 @@
    "do": [
     "wait_named",
     [
-     "Autom\u00e1tica",
+     "Automática",
      15000
     ]
    ],

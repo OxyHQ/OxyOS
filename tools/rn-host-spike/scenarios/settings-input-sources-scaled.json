@@ -356,7 +356,7 @@
      "click@input-sources-add": 1,
      "blur@input-sources-add": 1,
      "focus@input-source-add-pinyin": 1,
-     "scroll@ScrollView#704": 2,
+     "scroll@ScrollView#716": 2,
      "show@settings-page": 1
     },
     "keyboard_focus": {

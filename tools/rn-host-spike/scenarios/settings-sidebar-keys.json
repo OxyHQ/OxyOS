@@ -295,7 +295,7 @@
    }
   },
   {
-   "name": "End: the last row, About, across into the General group; the sidebar scrolls it into view (fifteen rows, twelve in sight)",
+   "name": "End: the last row, About, across into the General group; the sidebar scrolls it into view (sixteen rows, twelve in sight)",
    "do": [
     "key",
     [
@@ -308,7 +308,7 @@
      "shortcut@menu-bar": 1,
      "blur@settings-nav-wallpaper": 1,
      "focus@settings-nav-about": 1,
-     "scroll@ScrollView#212": 1
+     "scroll@ScrollView#224": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-about",
@@ -410,7 +410,7 @@
      "shortcut@menu-bar": 1,
      "blur@settings-nav-privacy": 1,
      "focus@settings-nav-appearance": 1,
-     "scroll@ScrollView#212": 1
+     "scroll@ScrollView#224": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-appearance",

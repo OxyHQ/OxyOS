@@ -31,7 +31,8 @@
 //! ```
 //!
 //! **Who sees what** (decision 6): the shell sees every item but the categories the person turned
-//! off; any other client sees the files, and an application the session launched its own items
+//! off for Spotlight (a question naming its categories, the launcher's, is not Spotlight's); any
+//! other client sees the files, and an application the session launched its own items
 //! too. Donating and removing are a launched application's, its own items alone; the preferences
 //! are Settings' (the `settings` grant).
 //!
@@ -785,6 +786,7 @@ impl Service {
             within.push(std::fs::canonicalize(&path).unwrap_or(path));
         }
         let parsed = query::parse(&asked.text, &asked.tokens, now);
+        let asked_categories = asked.categories.clone();
         let question = Question {
             parsed: parsed.clone(),
             within,
@@ -794,8 +796,16 @@ impl Service {
         let viewer = Viewer {
             shell: asker.shell,
             application: asker.application().map(String::from),
+            // The person's switches are Spotlight's: a question that names its categories (the
+            // launcher's, for applications) is not Spotlight's, as a Mac's Launchpad finds every
+            // application whatever Spotlight shows.
             hidden: if asker.shell {
-                self.preferences.hidden.clone()
+                self.preferences
+                    .hidden
+                    .iter()
+                    .filter(|category| !asked_categories.contains(category))
+                    .copied()
+                    .collect()
             } else {
                 Vec::new()
             },

@@ -1,5 +1,5 @@
 {
- "about": "At 1.25, as settings-spotlight.json at 1: Settings \u203a Spotlight (docs/adr/0051-search.mdx, decision 9) on the real search service, in Spanish: the page from the sidebar, a switch for each kind of result as a Mac lists them, the index's state; a kind turned off kept by the service in the person's configuration at once, and on again.",
+ "about": "At 1.25, as settings-spotlight.json at 1: Settings › Spotlight (docs/adr/0051-search.mdx, decision 9) on the real search service, in Spanish: the page from the sidebar, a switch for each kind of result as a Mac lists them, the index's state; a kind turned off kept by the service in the person's configuration at once, and on again.",
  "module": "OxyOSSettings",
  "locale": "es_ES.UTF-8",
  "window": [
@@ -34,7 +34,7 @@
    ],
    "expect": {
     "texts": [
-     "Resultados de b\u00fasqueda",
+     "Resultados de búsqueda",
      "Aplicaciones",
      "Documentos PDF",
      "Ajustes del Sistema"

@@ -101,7 +101,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
    - **Categories**, each a section of the results, a `kind:` and a switch in Settings: application, settings, folder, document, pdf, text, source, presentation, spreadsheet, image, movie, music, archive, contact, event, mail, message, other.
 
 6. **Who sees what.** The compositor tells the service, with each question, who asks: the launched application's id (from its launch record), whether the session launched it, and its `shell` and `settings` grants.
-   - **The shell** sees every item, but the categories the person turned off for Spotlight.
+   - **The shell** sees every item, but the categories the person turned off for Spotlight. A question that names its categories is not Spotlight's: the launcher's, which asks for applications, finds them whatever Spotlight shows, as a Mac's Launchpad does.
    - **Any other client** sees the files and folders, which it reaches through `expo-file-system` anyway (ADR 0028; when applications are confined, its results follow its scope), and, if the session launched it, its own declared and donated items. It never sees the applications, Settings' pages or another application's items.
    - **Donating and removing** are a launched application's, its own items alone. A client the session did not launch donates nothing.
    - **The preferences** are Settings' (`settings`), as its other pages' are.
@@ -138,7 +138,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
     - **Its material is opaque**, light or dark: a Mac's Spotlight blurs what is behind it, which the shell cannot (it draws only its own surfaces), and a translucent panel without a blur shows a window's text through its results.
     - **Live:** a file or folder row can be dragged out, as the desktop's icons are (ADR 0047). While the panel is open, the results follow the index (`watch`).
     - **Opening:** an application is opened, a file with its application, a folder in Dropsea, a page in Settings, anything else at its URL; and the service is told it was used.
-    - **The launcher's search** (Super alone) asks the same service for applications, in its order.
+    - **The launcher's search** (Super alone) asks the same service for applications: those whose names have words beginning with what is typed are shown at once, and the service's answer, which adds what their keywords find, when it comes, in Launchpad's own order (a grid, not a ranking).
 
 11. **Dropsea's search** (OxyHQ/Dropsea#49) asks the service for the person's files when it runs on a platform with `search`, everywhere (*This Computer*, its default, as Finder's *This Mac*) or within the place shown, the results in its own list with their location. As the person types, a menu under the field offers Finder's tokens: kinds, the person's tags, dates (today to this year) and *Name matches*; ↓ and Return make one a token of Bloom's `Search` (17.20.0: `tokens`, `onRemoveToken`, Backspace at the start removing the last). The menu is drawn in the window, not in a platform popup, which would take the keyboard from the field. `dropsea://files?uri=…&select=…` opens a folder with an item selected. Elsewhere (the web, phones, cloud places), its search is as before.
 
