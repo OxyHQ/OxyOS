@@ -2407,6 +2407,7 @@ dependencies = [
  "oxyos-ipc",
  "oxyos-kms",
  "oxyos-networks",
+ "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
@@ -2698,6 +2699,7 @@ dependencies = [
  "oxyos-input-methods",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-search",
@@ -2749,6 +2751,19 @@ version = "0.1.0"
 dependencies = [
  "oxyos-compositor-core",
  "oxyos-protocol",
+]
+
+[[package]]
+name = "oxyos-power"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "futures-lite",
+ "oxyos-seat",
+ "rustix",
+ "serde",
+ "serde_json",
+ "zbus",
 ]
 
 [[package]]
@@ -2812,6 +2827,7 @@ dependencies = [
  "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-search",

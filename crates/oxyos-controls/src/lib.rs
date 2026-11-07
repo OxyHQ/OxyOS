@@ -137,6 +137,17 @@ impl Level {
     }
 }
 
+/// How low UPower says the battery is (its display device's `WarningLevel`): past its `Action`
+/// level it takes its critical action itself (docs/adr/0057-battery-and-energy.mdx).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Warning {
+    #[default]
+    None,
+    Low,
+    Critical,
+    Action,
+}
+
 /// The battery as the system has it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Battery {
@@ -146,6 +157,7 @@ pub struct Battery {
     pub on_ac: bool,
     /// Until empty (discharging) or full (charging); 0 unknown.
     pub minutes: u32,
+    pub warning: Warning,
 }
 
 impl Battery {
@@ -155,6 +167,7 @@ impl Battery {
         percent: 0,
         on_ac: true,
         minutes: 0,
+        warning: Warning::None,
     };
 }
 

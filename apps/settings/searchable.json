@@ -36,6 +36,15 @@
     }
   },
   {
+    "id": "settings:battery",
+    "url": "oxyos-settings://battery",
+    "titles": { "en": "Battery", "es": "Batería" },
+    "keywords": {
+      "en": ["battery", "energy", "power", "charge", "charging", "charge limit", "low power mode", "sleep", "battery health", "cycles", "usage"],
+      "es": ["batería", "energía", "carga", "cargar", "límite de carga", "modo de bajo consumo", "reposo", "salud de la batería", "ciclos", "uso"]
+    }
+  },
+  {
     "id": "settings:appearance",
     "url": "oxyos-settings://appearance",
     "titles": { "en": "Appearance", "es": "Apariencia" },

@@ -337,6 +337,41 @@ impl Scene {
         for (index, action) in content.actions.iter_mut().enumerate() {
             action.background = background & (1 << index) != 0;
         }
+        match self.keep_notification(application, content, banner) {
+            Ok(number) => answer(self, number, NotificationOutcome::Posted),
+            Err(outcome) => answer(self, 0, outcome),
+        }
+    }
+
+    /// The session's own notification (docs/adr/0057-battery-and-energy.mdx, decision 8: the
+    /// battery running low), posted as `application` (a system application, so the shell names it
+    /// and activating it opens it): kept and shown as an application's is, the same `identifier`
+    /// replacing the one before. Its number, or why it was not kept.
+    pub fn post_system_notification(
+        &mut self,
+        application: &str,
+        identifier: &str,
+        title: &str,
+        body: &str,
+        sound: bool,
+    ) -> Result<u32, NotificationOutcome> {
+        let content = Content {
+            identifier: identifier.to_owned(),
+            title: title.to_owned(),
+            body: body.to_owned(),
+            sound,
+            ..Content::default()
+        };
+        self.keep_notification(application.to_owned(), content, true)
+    }
+
+    /// Keeps a notification of `application` and tells the shells; throttled past its burst.
+    fn keep_notification(
+        &mut self,
+        application: String,
+        content: Content,
+        banner: bool,
+    ) -> Result<u32, NotificationOutcome> {
         let now = self.clock;
         let recent = self
             .notifications
@@ -350,8 +385,7 @@ impl Scene {
             recent.pop_front();
         }
         if recent.len() >= NOTIFICATION_BURST {
-            answer(self, 0, NotificationOutcome::Throttled);
-            return;
+            return Err(NotificationOutcome::Throttled);
         }
         recent.push_back(now);
         // The same identifier again replaces the application's notification, as a Mac's does.
@@ -408,7 +442,6 @@ impl Scene {
             posted: now,
             withheld,
         });
-        answer(self, number, NotificationOutcome::Posted);
         if sound {
             self.request_notification_sound();
         }
@@ -416,6 +449,7 @@ impl Scene {
         for shell in self.shell_clients() {
             self.tell_notification(shell, number, show);
         }
+        Ok(number)
     }
 
     /// The clients of `application`, by their launch records.

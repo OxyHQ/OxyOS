@@ -60,8 +60,8 @@ struct Rule {
     change: Change,
 }
 
-/// UPower's: its display device's charge, state and time left, and whether the machine is on
-/// battery; not its energy, rate or voltage, which change at every reading.
+/// UPower's: its display device's charge, state, time left and warning level, and whether the
+/// machine is on battery; not its energy, rate or voltage, which change at every reading.
 const UPOWER_RULES: [Rule; 2] = [
     Rule {
         sender: UPOWER,
@@ -76,6 +76,7 @@ const UPOWER_RULES: [Rule; 2] = [
             "State",
             "TimeToEmpty",
             "TimeToFull",
+            "WarningLevel",
         ],
         change: Change::Battery,
     },

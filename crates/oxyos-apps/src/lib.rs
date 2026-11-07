@@ -1678,6 +1678,14 @@ impl Launcher {
         exited
     }
 
+    /// Every process it started that runs, and what it was launched as (each application's energy,
+    /// docs/adr/0057-battery-and-energy.mdx).
+    pub fn running(&self) -> impl Iterator<Item = (u32, &Launched)> {
+        self.children
+            .iter()
+            .map(|(child, launched)| (child.id(), launched))
+    }
+
     /// What a running process it started was launched as, by pid.
     pub fn application_of(&self, pid: u32) -> Option<&Launched> {
         self.children

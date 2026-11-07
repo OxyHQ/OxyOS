@@ -660,8 +660,10 @@ impl Display {
         u32::from(self.connector)
     }
 
-    /// Turns the output off, its CRTC and planes freed for another (its monitor was unplugged).
-    /// A frame on its way is never completed: the display is dropped after this.
+    /// Turns the output off, its CRTC and planes freed for another: its monitor was unplugged (the
+    /// display is dropped after this), or the displays sleep for want of input
+    /// (docs/adr/0057-battery-and-energy.mdx), and the next frame presented modesets it again. A
+    /// frame on its way is never completed.
     pub fn turn_off(&mut self) -> io::Result<()> {
         if !self.configured {
             return Ok(());

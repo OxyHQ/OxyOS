@@ -22,6 +22,8 @@ oxyos-sound = { path = "../../crates/oxyos-sound" }
 # The account's files, which a file chooser's answer is checked against (ADR 0029, decision 8).
 oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
+# Battery and energy (docs/adr/0057-battery-and-energy.mdx).
+oxyos-power = { path = "../../crates/oxyos-power" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 # The accounts' service's session socket: what it launches registered, the lock's online check
 # (docs/adr/0020-oxy-account-login.mdx). Its sockets only, not its HTTP client.

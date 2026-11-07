@@ -410,3 +410,25 @@ fn a_removed_workspace_is_said_once() {
     assert_eq!(h.scene.take_removed_workspaces(), [1]);
     assert!(h.scene.take_removed_workspaces().is_empty());
 }
+
+#[test]
+fn in_low_power_mode_surfaces_on_a_faster_display_pace_at_sixty() {
+    let mut h = two_outputs();
+    let _slow = window_at(&mut h, APP, 1, (100, 100));
+    window_at(&mut h, OTHER, 1, (2000, 100));
+    h.clear_log();
+    // Low Power Mode (docs/adr/0057-battery-and-energy.mdx): 60 Hz at most.
+    h.scene.set_refresh_cap(Some(60_000));
+    h.pump();
+    // The 144 Hz output's surface is told 60; the 60 Hz one's is told nothing (unchanged).
+    assert_eq!(refreshes(&h, OTHER), [(1, 60_000)]);
+    assert!(refreshes(&h, APP).is_empty());
+    // A surface made meanwhile on the fast display is told 60 from the start.
+    window_at(&mut h, OTHER, 2, (2100, 200));
+    assert_eq!(refreshes(&h, OTHER).last(), Some(&(2, 60_000)));
+    // Off: their own again.
+    h.clear_log();
+    h.scene.set_refresh_cap(None);
+    h.pump();
+    assert_eq!(refreshes(&h, OTHER), [(1, 144_000), (2, 144_000)]);
+}

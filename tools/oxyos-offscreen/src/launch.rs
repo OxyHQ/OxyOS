@@ -301,6 +301,9 @@ pub enum Step {
     /// The played BlueZ changes the machine (`--bluetooth-bus`, docs/adr/0055-bluetooth.mdx): its
     /// control interface's `Act`, a device appearing, asking to pair, a code typed on it.
     Bluetooth(String),
+    /// The played power services change the machine (`--power-bus`, docs/adr/0057-battery-and-
+    /// energy.mdx): unplugged, a lower charge, UPower's warning.
+    Power(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -487,6 +490,7 @@ impl Step {
             Step::Network(what) => format!("the network daemon: {what}"),
             Step::Sound(what) => format!("the sound: {what}"),
             Step::Bluetooth(what) => format!("BlueZ: {what}"),
+            Step::Power(what) => format!("the power services: {what}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -692,6 +696,7 @@ impl Step {
             Step::Network(what) => format!("\"network\":{}", json_string(what)),
             Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
             Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
+            Step::Power(what) => format!("\"power\":{}", json_string(what)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -890,6 +895,11 @@ pub struct Launch {
     /// machine's Bluetooth (`--controls`) follows it too, and each step's result says what BlueZ
     /// holds (`bluetooth`).
     pub bluetooth_bus: Option<String>,
+    /// `--power-bus ADDRESS`: UPower, power-profiles-daemon and logind as played on this bus
+    /// (`oxyos-offscreen --play-power`), never the system's; the session's battery and energy
+    /// (docs/adr/0057-battery-and-energy.mdx) and the played machine's battery (`--controls`) are
+    /// theirs, and each step's result says what they hold (`power`).
+    pub power_bus: Option<String>,
     /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
     /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
     /// in a directory of the run's own with nothing learned before.
@@ -917,7 +927,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1023,6 +1033,7 @@ impl Launch {
         let mut network_bus = None;
         let mut sound = None;
         let mut bluetooth_bus = None;
+        let mut power_bus = None;
         let mut input_methods = None;
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
@@ -1153,6 +1164,11 @@ impl Launch {
                 Some("--bluetooth-bus") => {
                     let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     bluetooth_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--power-bus") => {
+                    let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    power_bus = Some(address.to_string());
                     continue;
                 }
                 Some("--input-sources-available") => {
@@ -1599,6 +1615,10 @@ impl Launch {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Bluetooth(what.to_string())
                 }
+                Some("--power") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Power(what.to_string())
+                }
                 Some("--clipboard") => {
                     let list = args.next().ok_or(USAGE)?;
                     let mut contents = Vec::new();
@@ -1778,6 +1798,7 @@ impl Launch {
                 network_bus,
                 sound,
                 bluetooth_bus,
+                power_bus,
                 input_methods,
                 input_sources_available,
                 outputs: screens,
@@ -4779,6 +4800,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Network(_)
         | Step::Sound(_)
         | Step::Bluetooth(_)
+        | Step::Power(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -4824,6 +4846,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .as_ref()
         .or(launch.bluetooth_bus.as_ref())
     {
+        // D-Bus's runtime (zbus's, on async-io) keeps a reactor for the life of the process (its
+        // poller, its wake and its timer): started now, a connection made and gone, it is the
+        // process's before the session counts its descriptors, as the session's own would be.
+        drop(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
+    if let Some(address) = launch.power_bus.as_ref().or(launch.network_bus.as_ref()) {
         // D-Bus's runtime (zbus's, on async-io) keeps a reactor for the life of the process (its
         // poller, its wake and its timer): started now, a connection made and gone, it is the
         // process's before the session counts its descriptors, as the session's own would be.
@@ -4978,6 +5006,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ));
         session.played_sound = Some(played);
     }
+    if let Some(address) = &launch.power_bus {
+        // The played power services' control: a step changes the machine and its result says
+        // what they hold.
+        session.power_control =
+            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
         let mut fake = oxyos_controls::Fake::from_file(file.clone())?;
@@ -4987,10 +5021,32 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let Some(address) = &launch.network_bus {
             fake = fake.with_network_bus(address)?;
         }
+        if let Some(address) = &launch.power_bus {
+            fake = fake.with_power_bus(address)?;
+        }
         session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
             oxyos_controls::Worker::inline(Box::new(fake.clone())),
         ));
         session.controls = Some(fake);
+    }
+    if let Some(address) = &launch.power_bus {
+        // The machine's power services, played on the run's own bus, and the session's side of
+        // battery and energy over them (ADR 0057); its history in the session's own directory.
+        if session.compositor.controls.is_none() {
+            let fake = oxyos_controls::Fake::parse("")?.with_power_bus(address)?;
+            session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
+                oxyos_controls::Worker::inline(Box::new(fake.clone())),
+            ));
+            session.controls = Some(fake);
+        }
+        let power = oxyos_compositor::power::Power::new(
+            Some(address.clone()),
+            Some(session.directory().join("battery-history")),
+        )?;
+        let waker = power.wake_fd()?;
+        session.power_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.power = Some(power);
     }
     if launch.input_method {
         let mut ime = crate::ime::Ime::connect(&mut session.compositor)?;
@@ -5509,6 +5565,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Power(_)) => {
+                if let Step::Power(what) = step {
+                    session.power_act(what)?;
+                }
+                0
+            }
             _ if matches!(step, Step::Clipboard(_)) => {
                 if let (Step::Clipboard(contents), Some(pasteboard)) =
                     (step, session.pasteboard.as_mut())
@@ -5725,7 +5787,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5757,6 +5819,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .as_ref()
                 .map_or("null".to_string(), |played| played.machine().to_string()),
             session.bluetooth_state(),
+            session.power_state(),
+            session.compositor.displays_off(),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(
                 &session.compositor,

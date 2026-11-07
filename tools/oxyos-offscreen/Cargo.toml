@@ -16,6 +16,8 @@ oxyos-kms = { path = "../../crates/oxyos-kms" }
 oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-vt = { path = "../../crates/oxyos-vt" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
+# The power services played on a run's own bus (docs/adr/0057-battery-and-energy.mdx).
+oxyos-power = { path = "../../crates/oxyos-power" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 # The search service, which this program runs as its child (docs/adr/0051-search.mdx).
 oxyos-search = { path = "../../crates/oxyos-search" }

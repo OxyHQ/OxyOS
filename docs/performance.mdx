@@ -312,7 +312,15 @@ back, and a place in the sidebar. Every step checks what React received, the sel
 focus the assistive technology holds and the popups, not only pixels. For each input, the latency
 from it to the first frame that changed (held to the scenario's budget, about four times what it
 takes on this machine unloaded) and the application's host's work until the step settled (each
-frame's `busy_ms`, summed) and the JavaScript in it. `perf-dropsea-home.json` is the same home with
+frame's `busy_ms`, summed) and the JavaScript in it. The steps that go to another place (Downloads
+opened, back to the home, Documents from the sidebar) are also held to what React renders
+(`renders.components_max`, above, *What a step re-renders*), which no load moves: on 7 November
+2026 the press back crossed its 450 ms budget on a loaded gate (459 and 478 ms) because Dropsea's
+sidebar drew all its rows, with their menus and drop targets, at every navigation (tags had added
+seven), 636 of the 3038 components it rendered, and each list row drew views for tags it did not
+have; with the sidebar's tree kept the same objects and empty tags drawing nothing
+(OxyHQ/Dropsea#51), and a tree row drawn only when the selection moves onto or off it (Bloom
+17.20.2), it renders 2503, the sidebar two rows. `perf-dropsea-home.json` is the same home with
 360,000 files under `node_modules/` and `Oxy/` (the ThinkPad's), the window zoomed to the work
 area at 1.25 (1536 × 930): the launch and the press back to the home held to a budget of their
 JavaScript (`js_work.js_ms_max`), half a minute left alone to a refresh in every
@@ -970,6 +978,14 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   advertisement seen again. In a session the hardware controls no longer follow BlueZ themselves.
   `tools/oxyos-offscreen/tests/bluetooth_idle.rs` holds it to the idle budget over a played BlueZ
   signalling what is not followed, and `crates/oxyos-compositor/tests/idle.rs` with no bus yet.
+- **Battery and energy add no wakeup** (7 November 2026, [ADR 0057](./adr/0057-battery-and-energy)).
+  The battery's history is written as UPower signals a change of the charge (the controls' narrow
+  match, which now also delivers its `WarningLevel`), each application's energy is sampled then and
+  when the person asks, the power part's worker waits on its jobs alone and its follower on two
+  narrow matches of power-profiles-daemon's (its name's owner, `ProfileReleased`); the display's
+  dim, its turning off and the machine's sleep are deadlines of the compositor's turn, as the idle
+  lock's. While the displays are off nothing is composed and no client is given a frame, so what
+  animates stops. In Low Power Mode every surface on a display faster than 60 Hz paces at 60.
 - **A border drawn with rounded corners visited every pixel of its box** to find the ring: 19 ms
   of a two-panel Inbox's 25 ms frame. Rows now skip the ring's hole and fill what a rounded
   rectangle covers whole at once (pixel for pixel the same).

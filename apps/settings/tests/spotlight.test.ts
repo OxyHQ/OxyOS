@@ -62,7 +62,9 @@ test("a kind the preferences do not name is shown, and the index's state is a li
 function settingsPages(): Map<string, string[]> {
   const source = readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8");
   const pages = new Map<string, string[]>();
-  for (const match of source.matchAll(/"?([a-z][a-z-]*)"?:\s*\{\s*title:\s*(words|strings)\.([\w.]+),/g)) {
+  // A title is `words.x`, or a choice between two (`… ? words.battery : words.energy`), the page
+  // known by the first.
+  for (const match of source.matchAll(/"?([a-z][a-z-]*)"?:\s*\{\s*title:\s*(?:[^,{}]*\?\s*)?(words|strings)\.([\w.]+)[,\s]/g)) {
     const [, key, root, path] = match;
     pages.set(key, root === "words" ? ["pages", ...path.split(".")] : path.split("."));
   }

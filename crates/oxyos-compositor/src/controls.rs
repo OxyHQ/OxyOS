@@ -42,6 +42,11 @@ pub struct Controls {
     following: Option<Following>,
     /// Bluetooth is told by the Bluetooth part (`bluetooth_is`, ADR 0055), which follows BlueZ.
     bluetooth_followed: bool,
+    /// The batteries the system said since the power's part last took them
+    /// (docs/adr/0057-battery-and-energy.mdx).
+    batteries: Vec<Battery>,
+    /// The display's brightness before the idle dim, and what it was dimmed to.
+    dimmed: Option<(u32, u32)>,
 }
 
 /// A level as the scene keeps it.
@@ -111,6 +116,8 @@ impl Controls {
             keyboard_before: FULL_LEVEL,
             following: None,
             bluetooth_followed: false,
+            batteries: Vec::new(),
+            dimmed: None,
         }
     }
 
@@ -177,6 +184,64 @@ impl Controls {
                 );
             }
         }
+    }
+
+    /// The batteries the system said since the last call, in order (the power's part records
+    /// them, docs/adr/0057-battery-and-energy.mdx).
+    pub fn take_batteries(&mut self) -> Vec<Battery> {
+        std::mem::take(&mut self.batteries)
+    }
+
+    /// Asks the system for the battery again (the development compositor's played machine
+    /// changed).
+    pub fn read_battery(&mut self) {
+        self.worker.send(Command::ReadBattery);
+    }
+
+    /// The display dims before it turns off for want of input (`on`), to a quarter of its
+    /// brightness, or comes back to it (docs/adr/0057-battery-and-energy.mdx, decision 6). No
+    /// bezel shows it. Brought back, a brightness the person changed meanwhile is theirs.
+    pub fn dim(&mut self, scene: &mut Scene, on: bool) {
+        let known = self
+            .levels
+            .get(&Control::DisplayBrightness)
+            .copied()
+            .flatten();
+        let Some(known) = known else {
+            self.dimmed = None;
+            return;
+        };
+        if on {
+            if self.dimmed.is_none() && known.value > 0 {
+                let dimmed = (known.value / 4).max(1);
+                self.dimmed = Some((known.value, dimmed));
+                self.set(scene, Control::DisplayBrightness, known, dimmed, None);
+            }
+        } else if let Some((before, dimmed)) = self.dimmed.take() {
+            if known.value == dimmed {
+                self.set(scene, Control::DisplayBrightness, known, before, None);
+            }
+        }
+    }
+
+    /// The display's brightness scaled by `numerator / denominator` (slightly dimmer on battery,
+    /// docs/adr/0057-battery-and-energy.mdx, decision 9), no bezel shown; nothing without one
+    /// known, or at nothing.
+    pub fn scale_display(&mut self, scene: &mut Scene, numerator: u32, denominator: u32) {
+        let Some(known) = self
+            .levels
+            .get(&Control::DisplayBrightness)
+            .copied()
+            .flatten()
+        else {
+            return;
+        };
+        if known.value == 0 || denominator == 0 {
+            return;
+        }
+        let value = (u64::from(known.value) * u64::from(numerator) / u64::from(denominator))
+            .clamp(1, u64::from(FULL_LEVEL)) as u32;
+        self.set(scene, Control::DisplayBrightness, known, value, None);
     }
 
     /// One turn: the keys and requests the scene took, and the worker's answers told to the
@@ -297,7 +362,14 @@ impl Controls {
                 let bezel = tag.filter(|_| level.is_some());
                 scene.set_control_level(control, scene_level(level), bezel);
             }
-            Outcome::Battery(battery) => scene.set_power(power_status(battery)),
+            Outcome::Battery(battery) => {
+                scene.set_power(power_status(battery));
+                // Kept for the power's part; a compositor without one keeps only the latest few.
+                if self.batteries.len() >= 16 {
+                    self.batteries.remove(0);
+                }
+                self.batteries.push(battery);
+            }
             Outcome::Network(network) => scene.set_network(network_status(&network)),
             Outcome::Bluetooth(bluetooth) => scene.set_bluetooth(bluetooth_status(bluetooth)),
             Outcome::KeyboardByFirmware(firmware) => self.keyboard_by_firmware = firmware,

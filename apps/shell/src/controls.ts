@@ -63,6 +63,39 @@ export function batteryLabel(power: ShellBattery | undefined, messages: ShellMes
   }
 }
 
+/** The battery's menu's lines (docs/adr/0057-battery-and-energy.mdx), as a Mac's: its charge, the
+    power source, and the time left or until full ("3 h 20 min remaining", "Calculating…" before
+    UPower knows, "Fully Charged", "Not Charging" held at its limit). Nothing without a battery. */
+export function batteryMenuLines(
+  power: ShellBattery | undefined,
+  messages: ShellMessages,
+): { charge: string; source: string; time: string } | undefined {
+  if (!power || power.battery === "absent") return undefined;
+  const words = messages.battery;
+  const time = (() => {
+    switch (power.battery) {
+      case "charging":
+        return power.minutes > 0 ? words.untilFull(duration(power.minutes, messages)) : words.calculating;
+      case "full":
+        return words.fullyCharged;
+      case "not-charging":
+        return words.notCharging;
+      default:
+        return power.minutes > 0 ? words.remaining(duration(power.minutes, messages)) : words.calculating;
+    }
+  })();
+  return {
+    charge: messages.common.percent(power.percent),
+    source: power.onAC ? words.sourceAdapter : words.sourceBattery,
+    time,
+  };
+}
+
+/** The applications using significant energy, in the order the session said them. */
+export function significantApps<T extends { significant: boolean }>(apps: readonly T[]): T[] {
+  return apps.filter((app) => app.significant);
+}
+
 /** Wi-Fi in words, or nothing without it. */
 export function wifiLabel(network: ShellNetwork | undefined, messages: ShellMessages): string | undefined {
   if (!network || network.wifi === "unavailable") return undefined;

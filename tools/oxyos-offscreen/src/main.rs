@@ -161,6 +161,12 @@ struct Session {
     /// machine, which a step changes and whose state each step's result says.
     sound: Option<oxyos_compositor::sound_devices::SoundDevices>,
     played_sound: Option<std::sync::Arc<oxyos_audio::Played>>,
+    /// `--power-bus`: the session's battery and energy (ADR 0057), its waker among the
+    /// compositor's, and the power services played on the run's bus.
+    power: Option<oxyos_compositor::power::Power>,
+    power_waker: Option<std::os::fd::RawFd>,
+    /// A connection to the played power services' control (`oxyos-offscreen --play-power`).
+    pub power_control: Option<zbus::blocking::Connection>,
     /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
@@ -305,6 +311,9 @@ impl Session {
             bluetooth: None,
             bluetooth_waker: None,
             bluetooth_control: None,
+            power: None,
+            power_waker: None,
+            power_control: None,
             input_sources: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
@@ -544,6 +553,65 @@ impl Session {
         .unwrap_or_else(|| "null".into())
     }
 
+    /// The played power services change the machine (`--power-bus`, ADR 0057), and the session
+    /// reads the battery again, as its follower would on UPower's signal.
+    pub fn power_act(&mut self, what: &str) -> Result<()> {
+        let bus = self
+            .power_control
+            .as_ref()
+            .ok_or("a power step needs --power-bus")?;
+        bus.call_method(
+            Some("org.freedesktop.UPower"),
+            oxyos_power::played::CONTROL_PATH,
+            Some(oxyos_power::played::CONTROL),
+            "Act",
+            &(what,),
+        )?;
+        if let Some(controls) = self.compositor.controls.as_mut() {
+            controls.read_battery();
+        }
+        Ok(())
+    }
+
+    /// What the played power services hold, for a step's result; `null` without them.
+    pub fn power_state(&self) -> String {
+        let Some(bus) = self.power_control.as_ref() else {
+            return "null".into();
+        };
+        bus.call_method(
+            Some("org.freedesktop.UPower"),
+            oxyos_power::played::CONTROL_PATH,
+            Some(oxyos_power::played::CONTROL),
+            "Describe",
+            &(),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<String>().ok())
+        .unwrap_or_else(|| "null".into())
+    }
+
+    /// The battery and energy's turn (ADR 0057): the applications the run started that run.
+    fn serve_power(&mut self) {
+        let Some(power) = self.power.as_mut() else {
+            return;
+        };
+        let running: Vec<oxyos_power::energy::Running> = self
+            .launcher
+            .as_ref()
+            .map(|launcher| {
+                launcher
+                    .running()
+                    .map(|(pid, launched)| oxyos_power::energy::Running {
+                        pid,
+                        id: launched.id.clone(),
+                        name: launched.name.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        power.serve(&mut self.compositor, self.settings.preferences(), &running);
+    }
+
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
@@ -559,6 +627,8 @@ impl Session {
         self.signed_out |= oxyos_compositor::sign_out::serve(&mut self.compositor.scene, login);
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();
+        // Battery and energy (ADR 0057), before the install service takes what is left.
+        self.serve_power();
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.serve(&mut self.compositor.scene);
@@ -924,6 +994,22 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // Battery and energy's side, its threads waited for, its waker given back, and the
+        // played services gone.
+        if let Some(power) = self.power.as_mut() {
+            power.end();
+        }
+        self.power = None;
+        if let Some(waker) = self.power_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        if let Some(controls) = &self.controls {
+            controls.close_power_bus();
+        }
+        if let Some(bus) = self.power_control.take() {
+            let _ = bus.close();
+        }
         // The input methods' engine stopped, its thread waited for and its waker given back.
         self.input_methods = None;
         if let Some(waker) = self.input_methods_waker.take() {
@@ -1196,6 +1282,19 @@ fn main() -> Result<()> {
         [flag, path] if flag == "--out" => run(Path::new(path)),
         [flag, path] if flag == "--app" => Ok(app(Path::new(path))?),
         [flag, path] if flag == "--other" => Ok(other(Path::new(path))?),
+        // UPower, power-profiles-daemon and logind played on a run's own bus for the machine a
+        // file describes (docs/adr/0057-battery-and-energy.mdx), a process of its own as a
+        // session's are; `READY` is written once they are served. Never installed.
+        [flag, address, machine, ready] if flag == "--play-power" => {
+            let machine: oxyos_power::played::Machine =
+                serde_json::from_str(&fs::read_to_string(machine)?)?;
+            let address = address.to_str().ok_or("an address is text")?;
+            let _played = oxyos_power::played::Played::serve(address, machine)?;
+            fs::write(ready, "served\n")?;
+            loop {
+                std::thread::park();
+            }
+        }
         _ if args.iter().any(|arg| arg == "--launch") => {
             let (out, launch) = launch::Launch::parse(&args)?;
             launch::run(&out, &launch)

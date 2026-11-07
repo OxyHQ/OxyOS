@@ -560,6 +560,9 @@ pub struct Scene {
     minimize_targets: BTreeMap<SurfaceKey, minimize_targets::SurfaceTargets>,
     /// The notifications kept for the session (ADR 0026).
     notifications: notifications::Notifications,
+    /// The fastest refresh surfaces are told to pace their frames by (Low Power Mode's 60 Hz,
+    /// docs/adr/0057-battery-and-energy.mdx, decision 4); none, their output's own.
+    refresh_cap: Option<u32>,
     /// The displays as the program running the compositor said them, what Settings was told of
     /// them and the changes it asked for (ADR 0018).
     displays: displays::Displays,
@@ -2090,7 +2093,7 @@ impl Scene {
         let scale_120 = self
             .output(output)
             .map_or(SCALE_DENOMINATOR, |o| o.scale_120);
-        let refresh_mhz = self.output(output).map_or(0, |o| o.refresh_mhz);
+        let refresh_mhz = self.paced_refresh(self.output(output).map_or(0, |o| o.refresh_mhz));
         let size = fit(size, scale_120);
         let presentation =
             Presentation::new(physical(size, scale_120)).expect("physical sizes are valid");
@@ -2172,13 +2175,28 @@ impl Scene {
         self.send_configure(key);
     }
 
+    /// Surfaces pace their frames at most at `cap` mHz (Low Power Mode's 60 Hz on a faster display,
+    /// docs/adr/0057-battery-and-energy.mdx, decision 4), or at their output's refresh: each is
+    /// told the refresh it paces by as it changes (`Refresh`).
+    pub fn set_refresh_cap(&mut self, cap: Option<u32>) {
+        self.refresh_cap = cap;
+    }
+
+    /// The refresh a surface on an output of `refresh_mhz` paces by.
+    fn paced_refresh(&self, refresh_mhz: u32) -> u32 {
+        match self.refresh_cap {
+            Some(cap) if refresh_mhz > cap => cap,
+            _ => refresh_mhz,
+        }
+    }
+
     /// Tells each surface's client the refresh of the output it is on now, where it is not the
     /// one last told: the surface moved to another output, or its display is at another mode.
     fn tell_refreshes(&mut self) {
         let refreshes: BTreeMap<OutputId, u32> = self
             .outputs
             .iter()
-            .map(|output| (output.id, output.refresh_mhz))
+            .map(|output| (output.id, self.paced_refresh(output.refresh_mhz)))
             .collect();
         let mut told = Vec::new();
         let mut moved = Vec::new();
