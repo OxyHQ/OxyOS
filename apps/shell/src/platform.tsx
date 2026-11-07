@@ -119,6 +119,42 @@ export type ShellKeyboard = {
   subscribe(listener: (event: ShellKeyEvent) => boolean): () => void;
 };
 
+/** A part of a query the person has made a token of (an application, a kind, a date), and one
+    result, as the search index takes and gives them (docs/adr/0051-search.mdx): Bloom's
+    PlatformSearch says their fields; the shell reads only a result's `id`. */
+export type ShellSearchToken = { [field: string]: unknown };
+export type ShellSearchItem = { id: string; [field: string]: unknown };
+
+export type ShellSearchQuery = {
+  text: string;
+  tokens?: ShellSearchToken[];
+  within?: string[];
+  categories?: string[];
+  limit?: number;
+  language?: string;
+};
+
+/**
+ * The session's search index (docs/adr/0051-search.mdx), Spotlight's: a query's results, its top
+ * hit and whether the index is still being built; a listener told when what was found may have
+ * changed; the person's choice of a result, which ranks it higher; the items an application gives
+ * the index; and, for Settings alone, the index's preferences and status. A refusal rejects with an
+ * Error whose `code` is the reason.
+ */
+export type ShellSearch = {
+  query(query: ShellSearchQuery): Promise<{ items: ShellSearchItem[]; topHit: string | null; indexing: boolean }>;
+  watch(listener: () => void): () => void;
+  used(id: string): void;
+  index: {
+    donate(items: ShellSearchItem[]): Promise<void>;
+    remove(ids: string[]): Promise<void>;
+    removeAll(): Promise<void>;
+  };
+  preferences(): Promise<object>;
+  setPreferences(preferences: object): Promise<object>;
+  status(): Promise<object>;
+};
+
 export type ShellPlatform = {
   Surface: ComponentType<ShellSurfaceProps>;
   /** Where the platform masks views; without it, what would be masked is drawn plainly. */
@@ -155,6 +191,9 @@ export type ShellPlatform = {
   /** Whether the desktop has the keyboard now, where the platform says: read by the desktop alone,
       whose selection is drawn in the accent's colour only then. */
   useDesktopKeyboard?: () => boolean;
+  /** The session's search index (docs/adr/0051-search.mdx), where the platform has one: Spotlight
+      queries it. */
+  search?: ShellSearch;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

@@ -222,7 +222,11 @@ export type ShellCommand = {
     // Super+↑ and Super+↓, or three or four fingers swiped up and down on the touchpad: Mission
     // Control and App Exposé, as a Mac's Control-↑ and Control-↓ (docs/adr/0045-app-expose.mdx).
     | "mission-control"
-    | "app-expose";
+    | "app-expose"
+    // Super+Space: Spotlight, as a Mac's ⌘Space; Super+Return: what Spotlight has chosen revealed
+    // where it is, as a Mac's ⌘Return (docs/adr/0051-search.mdx).
+    | "spotlight"
+    | "reveal";
 };
 
 /** Whether `window` is the application `appId`'s: its id, given by the session's launch record

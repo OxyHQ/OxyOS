@@ -201,4 +201,6 @@ export const oxyosShell = {
   keyboard: oxyosSurfaces.keyboard,
   focusDesktop,
   useDesktopKeyboard,
+  // The session's search index, Spotlight's (docs/adr/0051-search.mdx).
+  search: oxyosSurfaces.search,
 };

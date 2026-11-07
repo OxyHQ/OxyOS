@@ -187,6 +187,19 @@ export type SettingsActions = {
   privacy?: PrivacyActions;
   network?: NetworkActions;
   account?: AccountActions;
+  /** Settings › Spotlight's platform: the search index's preferences, kept and changed (the index
+      takes them from Settings alone), and what it holds and is doing. */
+  search?: SettingsSearch;
+};
+
+/**
+ * The session's search index as Settings asks it (docs/adr/0051-search.mdx). A refusal rejects with
+ * an Error whose `code` is the reason.
+ */
+export type SettingsSearch = {
+  preferences(): Promise<object>;
+  setPreferences(preferences: object): Promise<object>;
+  status(): Promise<object>;
 };
 
 /**
