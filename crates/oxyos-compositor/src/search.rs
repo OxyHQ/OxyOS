@@ -185,8 +185,8 @@ pub struct Search {
     /// Asks waiting for the service to start, and those it has not answered.
     held: Vec<SearchAsk>,
     answering: BTreeSet<(ClientId, u32)>,
-    /// The session's languages, the most wanted first: told to the service as its languages
-    /// (`es`, then English, every application's own); the registry's names are looked up in them.
+    /// The session's locale: its language is told to the service, then English (every
+    /// application's own name's), and the registry's names are looked up in it.
     locale: Option<String>,
     /// What the applications are listed from, and the list as last told.
     listing: Option<Arc<oxyos_apps::Listing>>,
