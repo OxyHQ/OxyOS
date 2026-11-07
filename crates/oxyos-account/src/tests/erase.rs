@@ -10,7 +10,6 @@ use crate::erase::{
 };
 use crate::platform::TokenReason;
 use crate::store::Enrollment;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -579,22 +578,19 @@ fn the_preview_and_the_answers_wire_shapes_are_the_documented_ones() {
     );
 }
 
-/// A `systemctl` of the test's own: it writes its arguments to a log, says `LOAD_STATE` for
-/// `show` and exits `START` for `start`.
+/// A `systemctl` of the test's own: a link to the committed `fake-systemctl`, which writes its
+/// arguments to a log beside it, says `load_state` for `show` and exits `start` for `start`.
 fn systemctl(dir: &TempDir, load_state: &str, start: i32) -> (Systemctl, PathBuf) {
-    let log = dir.path().join("asked");
-    let script = dir.path().join("systemctl");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tests/fake-systemctl");
+    let link = dir.path().join("systemctl");
+    std::os::unix::fs::symlink(fixture, &link).unwrap();
     fs::write(
-        &script,
-        format!(
-            "#!/bin/sh\necho \"$@\" >> '{}'\ncase \"$2\" in\n  show) echo '{load_state}' ;;\n  \
-             start) exit {start} ;;\nesac\n",
-            log.display()
-        ),
+        dir.path().join("systemctl.load-state"),
+        format!("{load_state}\n"),
     )
     .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
-    (Systemctl::at(script), log)
+    fs::write(dir.path().join("systemctl.start-status"), start.to_string()).unwrap();
+    (Systemctl::at(link), dir.path().join("systemctl.log"))
 }
 
 #[test]

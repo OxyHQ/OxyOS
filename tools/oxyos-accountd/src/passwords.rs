@@ -87,14 +87,13 @@ mod tests {
 
     use super::*;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::time::Duration;
 
     const PASSWORD: &str = "correct horse battery";
 
     /// A PAM configuration directory whose service accepts PASSWORD alone (pam_exec hands the
-    /// password on, NUL-terminated, to a script of its own), removed when dropped.
+    /// password to the committed `check-password`), removed when dropped.
     struct Config(PathBuf);
 
     impl Config {
@@ -103,13 +102,7 @@ mod tests {
                 std::env::temp_dir().join(format!("oxyos-accountd-{}-{name}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
-            let script = dir.join("check-password");
-            fs::write(
-                &script,
-                format!("#!/bin/sh\n[ \"$(tr -d '\\000')\" = '{PASSWORD}' ]\n"),
-            )
-            .unwrap();
-            fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+            let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/check-password");
             fs::write(
                 dir.join(PAM_SERVICE),
                 format!(

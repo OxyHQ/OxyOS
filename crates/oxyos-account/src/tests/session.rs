@@ -466,6 +466,8 @@ fn only_settings_registered_as_a_system_application_erases_the_machine() {
         serde_json::json!([
             {"send": {"erasePreview": {}}},
             {"send": {"eraseAll": {"password": "not it"}}},
+            // Told to go on once the refusal was seen to have armed nothing.
+            "wait",
             {"send": {"eraseAll": {"password": PASSWORD}}},
         ]),
     );
@@ -488,6 +490,7 @@ fn only_settings_registered_as_a_system_application_erases_the_machine() {
         serde_json::json!({"refused": {"reason": "wrongPassword"}})
     );
     assert!(!socket.system.asked().contains(&"arm"));
+    settings.go();
     assert_eq!(
         settings.line(),
         serde_json::json!({"erasing": {"signedOut": ["Ada Lovelace"], "notSignedOut": []}})
