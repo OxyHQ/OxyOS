@@ -560,7 +560,7 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
                 <Slider
                   // A balance leans from the centre: no side of it is filled, as a Mac's.
                   minimumTrackTintColor={theme.colors.border}
-                  value={Math.round(Math.min(1, Math.max(-1, balance)) * 100)}
+                  value={Math.min(1, Math.max(-1, balance)) * 100}
                   min={-100}
                   max={100}
                   step={100 / 64}
