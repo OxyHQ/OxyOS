@@ -1,5 +1,5 @@
 {
-  "about": "Settings' Sound page as a Mac's (docs/adr/0051-sound-devices.mdx), Settings granted `settings` as the image's policy grants it, over a played machine (the development compositor's --sound: the built-in speakers chosen at half, a DELL U2720Q display on HDMI at three quarters, the built-in microphone at 80 % hearing at half; WirePlumber's choice and its remembered stack played). Output & Input opens at Output: each output named with its type, the speakers chosen, the output volume, mute and a centred balance, nothing metered. Choosing the display makes it WirePlumber's configured default and shows its volume; the balance moves a step to the left and the volume a sixteenth up through the hardware controls, both on the display. Input shows the microphone chosen, its volume and its level, metered only while the tab shows; the meter follows the microphone; a USB headset plugged in takes over the input; back at Output nothing is metered. Every step checks what the played machine then has. At scale 1.25 (the ThinkPad's panel).",
+  "about": "Settings' Sound page as a Mac's (docs/adr/0051-sound-devices.mdx), Settings granted `settings` as the image's policy grants it, over a played machine (the development compositor's --sound: the built-in speakers chosen at half, a DELL U2720Q display on HDMI at three quarters, the built-in microphone at 80 % hearing at half; WirePlumber's choice and its remembered stack played). Output & Input opens at Output: each output named with its type, the speakers chosen, the output volume, mute and a centred balance, nothing metered. Choosing the display makes it WirePlumber's configured default and shows its volume; the balance moves a step to the left and the volume a sixteenth up through the hardware controls, both on the display. Input shows the microphone chosen, its volume and its level, metered only while the tab shows; the meter follows the microphone; a USB headset plugged in takes over the input; back at Output nothing is metered. Every step checks what the played machine then has, exactly what Settings was delivered and React received, and that no text field has the keyboard. At scale 1.25 (the ThinkPad's panel).",
   "locale": "en_US.UTF-8",
   "module": "OxyOSSettings",
   "window": [
@@ -120,7 +120,13 @@
           "default_output": "alsa_output.speaker",
           "metering": false,
           "calls": []
-        }
+        },
+        "focus_input": null,
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "click@settings-nav-sound": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -159,6 +165,18 @@
           "calls": [
             "default output alsa_output.hdmi1"
           ]
+        },
+        "focus_input": null,
+        "react": {
+          "touchStart@sound-output-alsa_output.hdmi1": 1,
+          "touchEnd@sound-output-alsa_output.hdmi1": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
         }
       }
     },
@@ -196,7 +214,12 @@
             "default output alsa_output.hdmi1",
             "balance -0.125"
           ]
-        }
+        },
+        "focus_input": null,
+        "react": {
+          "accessibilityAction@sound-balance": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -235,7 +258,12 @@
             "balance -0.125",
             "volume output 0.8125"
           ]
-        }
+        },
+        "focus_input": null,
+        "react": {
+          "accessibilityAction@sound-output-volume": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -281,6 +309,17 @@
             "volume output 0.8125",
             "meter true"
           ]
+        },
+        "focus_input": null,
+        "react": {
+          "touchStart@sound-tab-input": 1,
+          "touchEnd@sound-tab-input": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
         }
       }
     },
@@ -307,7 +346,10 @@
         },
         "sound": {
           "metering": true
-        }
+        },
+        "focus_input": null,
+        "react": {},
+        "delivered": {}
       }
     },
     {
@@ -361,7 +403,10 @@
           "configured_inputs": [
             "alsa_input.usb-jabra"
           ]
-        }
+        },
+        "focus_input": null,
+        "react": {},
+        "delivered": {}
       }
     },
     {
@@ -399,6 +444,17 @@
             "default input alsa_input.usb-jabra",
             "meter false"
           ]
+        },
+        "focus_input": null,
+        "react": {
+          "touchStart@sound-tab-output": 1,
+          "touchEnd@sound-tab-output": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
         }
       }
     }
