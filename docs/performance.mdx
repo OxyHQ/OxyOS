@@ -922,6 +922,17 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   text, from the process's start, Settings 328 → 248 ms, WindowProbe 287 → 193, Dropsea 396 →
   222. `settings.json` holds it (`worklets`: none compiled from its text, from the launch on), and
   every scenario passes with it.
+- **Every preference the session told Settings back rendered its whole window** (8 November 2026):
+  a switch turned rendered Settings' window again, its rail of sixteen rows with their icons, its
+  toolbar and panels and the page, 471 components for Do Not Disturb's switch, 530 for a
+  segmented control's choice, because every page was given the whole snapshot as its props, and
+  the window was made from those pages. The pages now take it from a context (`WithPageProps` in
+  `apps/settings/src/Settings.tsx`) and the window is made only from what it is made of (the
+  language, which pages there are), so a preference renders the page that shows it: 117 and 171
+  components, the page and Bloom's providers; the switch's JavaScript 15–16 ms → 5.2–5.5 ms, the
+  segmented control's 13–14 → 8.6–9.8, Reduce motion's (which Bloom's own motion follows, through
+  the whole window) 24–27 → 18–19, on this machine, alternated. `settings.json` holds the first two
+  (`renders`).
 - **Every level of the microphone rendered the whole of Settings** (7 November 2026). While Sound's
   Input tab shows, the session tells Settings the input's level about 23 times a second as long as
   the microphone hears ([ADR 0056](./adr/0056-sound-devices), decision 7), and Settings held it in
