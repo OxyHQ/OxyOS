@@ -355,7 +355,7 @@ fn applications_see_files_and_their_own_items_and_the_shell_sees_all() {
         application("so.oxy.allo"),
         json!({"donate": {"items": [{"id": "ana", "title": "Ana García", "category": "contact", "text": "+34 600", "keywords": ["friend"], "url": "allo://contact/ana"}]}}),
     );
-    assert_eq!(done, "done");
+    assert_eq!(done, json!({"done": {}}));
     let both = |mut found: Vec<String>| {
         found.sort();
         found
@@ -392,12 +392,12 @@ fn applications_see_files_and_their_own_items_and_the_shell_sees_all() {
             application("so.oxy.dropsea"),
             json!({"remove": {"ids": ["ana"]}})
         ),
-        "done"
+        json!({"done": {}})
     );
     assert_eq!(service.query("garcia"), ["so.oxy.allo:ana"]);
     assert_eq!(
         service.ask_as(2, application("so.oxy.allo"), json!({"removeAll": {}})),
-        "done"
+        json!({"done": {}})
     );
     assert!(service.query("garcia").is_empty());
 
@@ -405,8 +405,14 @@ fn applications_see_files_and_their_own_items_and_the_shell_sees_all() {
     write(&service.home.join("ana-budget.txt"), "x");
     let budget = service.id("ana-budget.txt");
     service.until("ana", |found| found.len() == 2);
-    assert_eq!(service.ask(json!({"used": {"id": budget}})), "noted");
-    assert_eq!(service.ask(json!({"used": {"id": budget}})), "noted");
+    assert_eq!(
+        service.ask(json!({"used": {"id": budget}})),
+        json!({"noted": {}})
+    );
+    assert_eq!(
+        service.ask(json!({"used": {"id": budget}})),
+        json!({"noted": {}})
+    );
     let answer = service.ask(json!({"query": {"text": "ana"}}));
     assert_eq!(answer["results"]["items"][0]["id"], budget);
     assert!(answer["results"]["items"][0]["lastUsed"].is_i64());
@@ -462,7 +468,10 @@ fn settings_alone_keeps_folders_and_categories_out() {
 fn watchers_are_told_of_changes() {
     let mut service = Running::start(|_| {});
     service.settled();
-    assert_eq!(service.ask_as(7, shell(), json!({"watch": {}})), "watching");
+    assert_eq!(
+        service.ask_as(7, shell(), json!({"watch": {}})),
+        json!({"watching": {}})
+    );
     write(&service.home.join("new.txt"), "fresh");
     let start = Instant::now();
     loop {

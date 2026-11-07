@@ -18,10 +18,11 @@
 //! ```text
 //! {"query": {"text", "tokens"?, "within"?: [URI], "categories"?, "limit"?, "language"?}}
 //!                                   ← {"results": {"items": [Item], "topHit": ID|null, "indexing"}}
-//! {"watch": {}}                     ← "watching", then {"changed": {}} unasked after each change
-//! {"used": {"id"}}                  ← "noted"
+//! {"watch": {}}                     ← {"watching": {}}, then {"changed": {}} unasked after each change
+//! {"unwatch": {}}                   ← {"unwatched": {}}
+//! {"used": {"id"}}                  ← {"noted": {}}
 //! {"donate": {"items": [{"id", "title", "category", "text"?, "keywords"?, "url", "modified"?}]}}
-//! {"remove": {"ids": [ID]}}  {"removeAll": {}}          ← "done", once the index holds it
+//! {"remove": {"ids": [ID]}}  {"removeAll": {}}          ← {"done": {}}, once the index holds it
 //! {"preferences": {}}  {"setPreferences": {"categories"?, "excluded"?: [URI]}}
 //!                                   ← {"preferences": {"categories": {NAME: bool}, "excluded": [URI]}}
 //! {"status": {}}                    ← {"status": {"indexing", "items", "partial", "bytes", "readsPdf",
@@ -245,6 +246,7 @@ struct Donated {
 enum Ask {
     Query(Asked),
     Watch {},
+    Unwatch {},
     Used {
         id: String,
     },
@@ -559,11 +561,15 @@ impl Service {
             Ask::Query(asked) => Some(self.query(asker, asked)),
             Ask::Watch {} => {
                 self.watchers.insert(client);
-                Some(json!("watching"))
+                Some(json!({"watching": {}}))
+            }
+            Ask::Unwatch {} => {
+                self.watchers.remove(&client);
+                Some(json!({"unwatched": {}}))
             }
             Ask::Used { id } => {
                 self.used(&id);
-                Some(json!("noted"))
+                Some(json!({"noted": {}}))
             }
             Ask::Donate { items } => {
                 let Some(owner) = asker.application().map(String::from) else {
@@ -618,7 +624,7 @@ impl Service {
                         text,
                     ));
                 }
-                let done = self.once_committed(client, serial, json!("done"));
+                let done = self.once_committed(client, serial, json!({"done": {}}));
                 self.send(Command::Put {
                     records,
                     done: Some(done),
@@ -629,7 +635,7 @@ impl Service {
                 let Some(owner) = asker.application().map(String::from) else {
                     return Some(refused("notPermitted"));
                 };
-                let done = self.once_committed(client, serial, json!("done"));
+                let done = self.once_committed(client, serial, json!({"done": {}}));
                 self.send(Command::Remove {
                     ids: ids.iter().map(|id| format!("{owner}:{id}")).collect(),
                     done: Some(done),
@@ -640,7 +646,7 @@ impl Service {
                 let Some(owner) = asker.application().map(String::from) else {
                     return Some(refused("notPermitted"));
                 };
-                let done = self.once_committed(client, serial, json!("done"));
+                let done = self.once_committed(client, serial, json!({"done": {}}));
                 self.send(Command::Replace {
                     source: Source::Donated,
                     owner: Some(owner),
