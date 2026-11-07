@@ -85,16 +85,20 @@ class Scenario:
 
     # Starting.
 
+    def is_prompt(self, frame):
+        """Plymouth's passphrase prompt: the boot logo, pixel for pixel, above, and the field drawn
+        under it (anything else, a firmware's logo included, is not)."""
+        if frame.size != self.mark.size or frame.rgb == self.mark.rgb:
+            return False
+        split = int(frame.height * 0.6) * frame.width * 3
+        return frame.rgb[:split] == self.mark.rgb[:split]
+
     def wait_for_prompt(self, timeout):
-        """The disk's password prompt: the boot logo, then the screen changes but for the mark (the
-        passphrase field drawn under it)."""
+        """The disk's password prompt on the screen."""
         deadline = time.monotonic() + timeout
-        seen_mark = False
         while time.monotonic() < deadline:
             frame = self.screen()
-            if frame.rgb == self.mark.rgb:
-                seen_mark = True
-            elif seen_mark and not frame.is_black():
+            if self.is_prompt(frame):
                 return frame
             if self.m.exited():
                 raise Failure("QEMU exited before the password prompt")
@@ -192,8 +196,9 @@ class Scenario:
                    state if state == "running" else state + "; " + sh("systemctl --failed --no-legend --plain"))
         failed = sh("systemctl --failed --no-legend --plain").strip()
         self.check(f"{label}: no failed unit", not failed, failed or "none")
+        # No SecureBoot variable: firmware without Secure Boot.
         secure = sh("od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
-                    " | awk '{print $NF}'").strip()
+                    " 2>/dev/null | awk '{print $NF}'").strip() or "0"
         wanted = "1" if self.args.firmware == "secureboot" else "0"
         self.check(f"{label}: Secure Boot is {'on' if wanted == '1' else 'off'}, as the firmware has it", secure == wanted,
                    f"SecureBoot {secure}")
@@ -227,7 +232,7 @@ class Scenario:
                    "vda1 c12a7328-f81f-11d2-ba4b-00a0c93ec93b ESP vfat" in layout
                    and f"vda2 {RECOVERY_TYPE} OxyOS\\x20Recovery ext4" in layout
                    and "crypto_LUKS" in layout, layout)
-        sh("systemctl is-active --wait oxyos-boot-tries.service", timeout=180)
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
         entries = self.entries(sh)
         self.facts["entries_after_first_boot"] = entries
         self.check("after a complete boot the entry has its three tries again, beside the recovery's",
@@ -277,7 +282,7 @@ class Scenario:
         self.m.wait_serial("Restarting", timeout=60, after=marks[0])
         self.unlock()
         sh = self.shell(marks[1])
-        sh("systemctl is-active --wait oxyos-boot-tries.service", timeout=180)
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
         entries = self.entries(sh)
         self.check("Restart in the recovery goes back to OxyOS", any(re.fullmatch(r"oxyos-.+\+3\.conf", e) for e in entries),
                    " ".join(entries))
@@ -302,7 +307,7 @@ class Scenario:
         self.m.wait_serial("Restarting", timeout=60, after=marks[0])
         self.unlock()
         sh = self.shell(marks[1])
-        sh("systemctl is-active --wait oxyos-boot-tries.service", timeout=180)
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
         entries = self.entries(sh)
         self.check("Restart gave OxyOS its tries back", any(re.fullmatch(r"oxyos-.+\+3\.conf", e) for e in entries),
                    " ".join(entries))

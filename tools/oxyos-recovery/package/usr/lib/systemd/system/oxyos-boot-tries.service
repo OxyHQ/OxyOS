@@ -1,6 +1,7 @@
 # After a complete boot, the boot loader entry that started OxyOS gets its tries back, so that
 # three starts in a row that never complete end in the recovery (docs/adr/0054-recovery-and-erasing.mdx,
-# decision 2). Runs once systemd-bless-boot has marked the boot good.
+# decision 2). Runs once systemd-bless-boot has marked the boot good, which pulls it in
+# (systemd-bless-boot.service.d/oxyos.conf).
 [Unit]
 Description=Give OxyOS's boot entry its tries back
 Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0054-recovery-and-erasing.mdx
@@ -21,6 +22,3 @@ ProtectHome=yes
 PrivateNetwork=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
-
-[Install]
-WantedBy=multi-user.target

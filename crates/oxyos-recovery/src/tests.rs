@@ -183,10 +183,8 @@ fn the_recovery_entry_boots_its_partition_read_only_verified_into_the_recovery_a
         "dm-verity-root-hash=filesystem.squashfs:{ROOT_HASH} "
     )));
     assert!(entry.contains("systemd.unit=oxyos-recovery.target"));
-    assert!(
-        !entry.contains("components") && !entry.contains("username="),
-        "live-config makes no user"
-    );
+    assert!(entry.contains(" live-config.nocomponents ") && entry.contains(" noeject "));
+    assert!(!entry.contains("username="), "live-config makes no user");
     assert_eq!(
         Entry::parse(layout::RECOVERY_ENTRY).unwrap().tries,
         None,

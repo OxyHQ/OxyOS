@@ -162,11 +162,12 @@ pub const RECOVERY_DIRECTORY: &str = "oxyos-recovery";
 
 /// The recovery's boot entry (Boot Loader Specification Type 1): the medium's kernel and live-boot
 /// initramfs, booting the image on OxyOS Recovery (found by its partition UUID) read-only, every
-/// block verified against `root_hash`, into `oxyos-recovery.target`. No `components`: live-config
-/// makes no live user and logs nobody in; the recovery is its own program on the console.
+/// block verified against `root_hash`, into `oxyos-recovery.target`. `live-config.nocomponents`:
+/// live-config makes no live user and logs nobody in, the recovery is its own program on the
+/// console; `noeject`: restarting asks for no medium to be removed (the medium is the disk).
 pub fn recovery_entry(recovery_partuuid: &str, root_hash: &str, version: &str) -> String {
     format!(
-        "title      OxyOS Recovery\nsort-key   oxyos-recovery\nversion    {version}\nlinux      /{RECOVERY_DIRECTORY}/linux\ninitrd     /{RECOVERY_DIRECTORY}/initrd.img\noptions    boot=live live-media=/dev/disk/by-partuuid/{recovery_partuuid} live-media-path=/live dm-verity-root-hash=filesystem.squashfs:{root_hash} systemd.unit=oxyos-recovery.target systemd.hostname=oxyos-recovery quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\n"
+        "title      OxyOS Recovery\nsort-key   oxyos-recovery\nversion    {version}\nlinux      /{RECOVERY_DIRECTORY}/linux\ninitrd     /{RECOVERY_DIRECTORY}/initrd.img\noptions    boot=live live-media=/dev/disk/by-partuuid/{recovery_partuuid} live-media-path=/live noeject live-config.nocomponents dm-verity-root-hash=filesystem.squashfs:{root_hash} systemd.unit=oxyos-recovery.target systemd.hostname=oxyos-recovery quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\n"
     )
 }
 
