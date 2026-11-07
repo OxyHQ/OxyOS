@@ -40,6 +40,16 @@ let lastInputSources = null;
     who follows them, and who follows the input's level. */
 const soundListeners = new Set();
 let lastSound = null;
+
+/** AutoFill's list the session last told the shell to draw (docs/adr/0050-keychain-autofill-and-passkeys.mdx),
+    null when none, and who follows it. */
+const autofillListeners = new Set();
+let lastAutofill = null;
+
+function toldAutofill(list) {
+  lastAutofill = list ?? null;
+  for (const listener of autofillListeners) listener(lastAutofill);
+}
 const inputLevelListeners = new Set();
 
 function toldSound(state) {
@@ -76,6 +86,7 @@ if (native) {
       if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
       if (answer && answer.inputSources) toldInputSources(answer.inputSources);
       if (answer && answer.sound) toldSound(answer.sound);
+      if (answer && 'autofill' in answer) toldAutofill(answer.autofill);
       if (answer && typeof answer.inputLevel === 'number') {
         for (const listener of inputLevelListeners) listener(answer.inputLevel);
       }
@@ -274,6 +285,32 @@ export function useInputSourcesState() {
     const unsubscribe = inputSources.subscribe(setState);
     inputSources.state();
     return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
+ * AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6): the session tells the
+ * shell (its `shell` grant) the list to draw at a field's caret (`{autofill: {content, items,
+ * highlighted}}`, `{autofill: null}` to hide it), and the shell picks the item pressed
+ * (`choose`, citing the press), answered `{chosen: {}}` or `{refused: {reason}}`. The application
+ * whose field it is never sees the list.
+ */
+export const autofill = {
+  choose: (index) => ask({ chooseAutofill: { index } }),
+  current: () => lastAutofill,
+  subscribe(listener) {
+    autofillListeners.add(listener);
+    return () => autofillListeners.delete(listener);
+  },
+};
+
+/** AutoFill's list as the session tells it, for a view. */
+export function useAutofillState() {
+  const [state, setState] = React.useState(lastAutofill);
+  React.useEffect(() => {
+    setState(lastAutofill);
+    return autofill.subscribe(setState);
   }, []);
   return state;
 }

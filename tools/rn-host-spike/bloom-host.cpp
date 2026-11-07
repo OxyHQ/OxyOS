@@ -2289,6 +2289,10 @@ int main(int argc, char** argv) {
                   }
                   auto told = toldSerials.find(change.surface);
                   editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
+                  // AutoFill's fill, the person's pick (docs/adr/0050-keychain-autofill-and-passkeys.mdx):
+                  // the field and its pair replaced whole; its text is never reported.
+                  OxyOSTextFill filled{};
+                  if (window->fill(filled)) editing.fill(filled);
                 }
               }
               if (withheld) return;
@@ -2885,7 +2889,8 @@ int main(int argc, char** argv) {
                 told.caret_height = static_cast<uint32_t>(std::ceil(caret->size.height));
               }
               bool newField = !toldField || toldField->tag != field->tag || toldField->surface != field->surface;
-              toldSerials[field->surface] = window->textInput(field->surface, &told, newField);
+              toldSerials[field->surface] =
+                  window->textInput(field->surface, &told, newField, field->content, field->paired);
             }
             toldField = std::move(field);
             toldCaret = caret;
