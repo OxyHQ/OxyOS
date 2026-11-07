@@ -7,6 +7,7 @@ import pathlib
 import shutil
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -152,18 +153,19 @@ class Machine:
         arguments += [
             "-nic", "user,model=virtio-net-pci",
             "-device", "virtio-rng-pci",
-            "-qmp", f"unix:{self.directory / 'qmp.sock'},server=on,wait=off",
-            "-chardev", f"socket,id=serial,path={self.directory / 'serial.sock'},server=on,wait=off",
+            "-qmp", f"unix:{self.sockets / 'qmp.sock'},server=on,wait=off",
+            "-chardev", f"socket,id=serial,path={self.sockets / 'serial.sock'},server=on,wait=off",
             "-serial", "chardev:serial",
         ]
         if self.debug_serial:
-            arguments += ["-chardev", f"socket,id=debug,path={self.directory / 'debug.sock'},server=on,wait=off",
+            arguments += ["-chardev", f"socket,id=debug,path={self.sockets / 'debug.sock'},server=on,wait=off",
                           "-serial", "chardev:debug"]
         return arguments
 
     def start(self):
-        for name in ("qmp.sock", "serial.sock", "debug.sock"):
-            (self.directory / name).unlink(missing_ok=True)
+        # Unix sockets' paths are limited to 107 bytes, which a run's directory may exceed: they are
+        # in a short directory of their own, removed when the machine stops.
+        self.sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-qemu-"))
         self.process = subprocess.Popen(self.command_line(), stdout=subprocess.DEVNULL,
                                         stderr=open(self.directory / "qemu.log", "wb"))
         self.started = time.monotonic()
@@ -184,7 +186,7 @@ class Machine:
         return time.monotonic() - self.started
 
     def _connect(self, name):
-        path = str(self.directory / name)
+        path = str(self.sockets / name)
         deadline = time.monotonic() + 30
         while True:
             try:
@@ -213,7 +215,8 @@ class Machine:
         (self.directory / "serial.log").write_bytes(bytes(self.serial_log))
         if self.debug_serial:
             (self.directory / "debug.log").write_bytes(bytes(self.debug_log))
-        for name in ("VARS.fd", "screen.ppm", "qmp.sock", "serial.sock", "debug.sock"):
+        shutil.rmtree(self.sockets, ignore_errors=True)
+        for name in ("VARS.fd", "screen.ppm"):
             (self.directory / name).unlink(missing_ok=True)
 
     # QMP.

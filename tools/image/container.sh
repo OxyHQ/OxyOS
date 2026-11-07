@@ -191,8 +191,10 @@ build() {
     # config/<file>.<architecture> overrides by it.
     export LB_ARCHITECTURE="$ARCHITECTURE"
     # The pinned live-build: another version may build a different image from the same config.
+    # cryptsetup-bin: live-build's binary_dm-verity runs veritysetup on the build's own system, and
+    # without it writes an empty root hash and no hash tree, saying nothing.
     install_tools "live-build=${LIVE_BUILD_VERSION}" apt-utils cpio file wget xz-utils bzip2 rsync \
-        ca-certificates || die "live-build ${LIVE_BUILD_VERSION} is not installable; update LIVE_BUILD_VERSION in tools/image/container.sh deliberately"
+        ca-certificates cryptsetup-bin || die "live-build ${LIVE_BUILD_VERSION} is not installable; update LIVE_BUILD_VERSION in tools/image/container.sh deliberately"
 
     mkdir -p "$BUILD" /work/out
     cd "$BUILD"
@@ -245,6 +247,12 @@ build() {
     fi
     finished=$(date +%s)
 
+    # The image's dm-verity hash tree and root hash (LB_DM_VERITY): the installer and the recovery
+    # refuse an image without them.
+    if [ "$(sed -n 's/^LB_DM_VERITY="\(.*\)"$/\1/p' config/binary)" = true ]; then
+        [ -s binary/live/filesystem.squashfs.verity ] && grep -qE '^[0-9a-f]{64}$' binary/live/filesystem.squashfs.roothash ||
+            die "the image has no dm-verity hash tree or root hash"
+    fi
     . config/oxyos.conf
     iso=$(ls ./*.hybrid.iso 2>/dev/null | head -n 1)
     [ -n "$iso" ] || die "lb build produced no .hybrid.iso"
