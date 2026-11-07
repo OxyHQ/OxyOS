@@ -68,7 +68,7 @@
       }
     },
     {
-      "name": "the SDK's own sign-in, in Spanish",
+      "name": "the SDK's own chooser, in Spanish: its QR beside the form, the email or username field focused",
       "do": [
         "wait",
         2000
@@ -79,13 +79,18 @@
           "texts": [
             "Añadir una cuenta de Oxy",
             "Iniciar sesión",
-            "Email o nombre de usuario"
-          ]
+            "Email o nombre de usuario",
+            "Escanea con Commons para entrar"
+          ],
+          "absent": [
+            "Descargar Commons"
+          ],
+          "focus_input": "signin-identifier"
         }
       }
     },
     {
-      "name": "Tab: Descargar Commons",
+      "name": "Tab: Continuar, after the field",
       "do": [
         "key",
         [
@@ -96,17 +101,18 @@
       "expect": {
         "spoken": [
           {
-            "text": "Descargar Commons, botón",
+            "text": "Continuar, botón",
             "interrupting": true
           }
         ]
       }
     },
     {
-      "name": "Tab: the email or username field",
+      "name": "Shift+Tab: back to the email or username field, said",
       "do": [
         "key",
         [
+          42,
           15
         ]
       ],
@@ -117,7 +123,10 @@
             "text": "Email o nombre de usuario, campo de texto",
             "interrupting": true
           }
-        ]
+        ],
+        "in_shell": {
+          "focus_input": "signin-identifier"
+        }
       }
     },
     {

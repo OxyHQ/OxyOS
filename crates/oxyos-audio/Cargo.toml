@@ -1,0 +1,21 @@
+[package]
+name = "oxyos-audio"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# PipeWire's own Rust bindings (the PipeWire project's): the session's one audio stack, its
+# outputs and inputs, their volumes and the default chosen through WirePlumber's metadata
+# (docs/adr/0056-sound-devices.mdx).
+pipewire = { version = "0.10", features = ["v0_3_49"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Waiting on the client's waker in its tests.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "event"] }

@@ -4,7 +4,14 @@ import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
 import { Box } from "../primitives";
 import type { ShellKeyboard } from "../platform";
-import { sheetView, validWifiPassword, type SheetText } from "../sheet";
+import {
+  bluetoothCodeTyped,
+  sheetView,
+  spokenCode,
+  validBluetoothCode,
+  validWifiPassword,
+  type SheetText,
+} from "../sheet";
 import { useShellMessages } from "../useShellMessages";
 
 export const SHEET_WIDTH = 380;
@@ -15,6 +22,8 @@ export const SHEET_BUTTON_WIDTH = 120;
 const INK = "#1d2430";
 const QUIET = "#5b6472";
 const ERROR = "#d93025";
+/** The space after each digit of a code shown. */
+const CODE_SPACING = 8;
 
 /**
  * A system sheet (docs/adr/0030-installing-applications.mdx, decision 9): the session's question
@@ -29,12 +38,20 @@ const ERROR = "#d93025";
  * A Wi-Fi password sheet (docs/adr/0038-networks.mdx) has a secure field, focused at once: its
  * answer is the password, by its Join button (enabled once the password can be one) or Return,
  * and goes to the session alone. The password lives in the field's own state and nowhere else.
+ *
+ * Pairing a Bluetooth device (docs/adr/0055-bluetooth.mdx), as a Mac's: a code to compare, or to
+ * type on the device, is shown large, its digits spaced and said one by one; the code the device
+ * shows, or its PIN, is typed in a field focused at once (a passkey's digits only), answered by
+ * Pair (enabled once it can be one) or Return, and goes to the session alone. A code shown to type
+ * on a device has Cancel alone, in the answer's place: the session takes the sheet away once the
+ * device is paired.
  */
 export const SystemSheet = memo(function SystemSheet({
   text,
   names,
   answer,
   answerPassword,
+  answerCode,
   keyboard,
 }: {
   text: SheetText;
@@ -43,10 +60,13 @@ export const SystemSheet = memo(function SystemSheet({
   answer: (accepted: boolean) => void;
   /** A password sheet's answer: the password typed. */
   answerPassword?: (password: string) => void;
+  /** A Bluetooth pairing code's answer: the passkey or PIN typed. */
+  answerCode?: (code: string) => void;
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
 }) {
-  const view = sheetView(text, useShellMessages(), names);
+  const messages = useShellMessages();
+  const view = sheetView(text, messages, names);
   const [password, setPassword] = useState("");
   // Answered once: the session takes the sheet away, and a second press or Return sends nothing.
   const answered = useRef(false);
@@ -55,6 +75,14 @@ export const SystemSheet = memo(function SystemSheet({
     answered.current = true;
     setPassword("");
     answerPassword(typed);
+  };
+  const [code, setCode] = useState("");
+  const codeKind = view.codeField?.kind;
+  const submitCode = (typed: string) => {
+    if (answered.current || !answerCode || !codeKind || !validBluetoothCode(typed, codeKind)) return;
+    answered.current = true;
+    setCode("");
+    answerCode(typed);
   };
   const latestAnswer = useRef(answer);
   latestAnswer.current = answer;
@@ -88,7 +116,11 @@ export const SystemSheet = memo(function SystemSheet({
         accessibilityLabel={view.title}
         // Said as it appears, once, by the screen reader: its title, then what went wrong and what
         // it says, as VoiceOver reads an alert's message after its title.
-        accessibilityHint={[view.error, view.body].filter(Boolean).join(". ") || undefined}
+        accessibilityHint={
+          [view.error, view.body, view.code ? messages.sheet.bluetoothCodeSaid(spokenCode(view.code)) : ""]
+            .filter(Boolean)
+            .join(". ") || undefined
+        }
         style={{
           width: SHEET_WIDTH,
           height: SHEET_HEIGHT,
@@ -136,6 +168,48 @@ export const SystemSheet = memo(function SystemSheet({
             />
           </TextField>
         ) : null}
+        {view.code ? (
+          <Text
+            testID="system-sheet-code"
+            // Said digit by digit, as VoiceOver says a pairing code.
+            accessibilityLabel={spokenCode(view.code)}
+            style={{
+              fontSize: 34,
+              fontWeight: "600",
+              color: INK,
+              textAlign: "center",
+              letterSpacing: CODE_SPACING,
+              // The spacing follows each digit, the last one too: as much before the first keeps it
+              // centred.
+              paddingLeft: CODE_SPACING,
+              fontVariant: ["tabular-nums"],
+            }}
+          >
+            {view.code}
+          </Text>
+        ) : null}
+        {view.codeField && codeKind ? (
+          <TextField>
+            <TextFieldInput
+              testID="system-sheet-code-field"
+              label={view.codeField.label}
+              placeholder={view.codeField.label}
+              value={code}
+              onChangeText={(typed) => setCode(bluetoothCodeTyped(typed, codeKind))}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline={false}
+              keyboardType={codeKind === "passkey" ? "number-pad" : "default"}
+              inputMode={codeKind === "passkey" ? "numeric" : "text"}
+              maxLength={codeKind === "passkey" ? 6 : 16}
+              returnKeyType="done"
+              submitBehavior="submit"
+              // What the field holds as Return is pressed, as the password is sent.
+              onSubmitEditing={({ nativeEvent }) => submitCode(bluetoothCodeTyped(nativeEvent.text, codeKind))}
+            />
+          </TextField>
+        ) : null}
         {view.lines.map((line, index) => (
           <Box key={index} testID={`system-sheet-line-${index}`} style={{ gap: 2 }}>
             <Text style={{ fontSize: 14, color: INK }}>{line.label}</Text>
@@ -151,17 +225,26 @@ export const SystemSheet = memo(function SystemSheet({
               </Button>
             </Box>
           ) : null}
-          <Box style={{ width: SHEET_BUTTON_WIDTH }}>
-            <Button
-              testID="system-sheet-accept"
-              appearance="solid"
-              tone={view.destructive ? "danger" : "accent"}
-              disabled={view.password ? !answerPassword || !validWifiPassword(password) : false}
-              onPress={() => (view.password ? submit(password) : answer(true))}
-            >
-              {view.accept}
-            </Button>
-          </Box>
+          {/* Without an answer (a code shown to type on a device), Cancel alone, where the answer is. */}
+          {view.accept ? (
+            <Box style={{ width: SHEET_BUTTON_WIDTH }}>
+              <Button
+                testID="system-sheet-accept"
+                appearance="solid"
+                tone={view.destructive ? "danger" : "accent"}
+                disabled={
+                  view.password
+                    ? !answerPassword || !validWifiPassword(password)
+                    : codeKind
+                      ? !answerCode || !validBluetoothCode(code, codeKind)
+                      : false
+                }
+                onPress={() => (view.password ? submit(password) : codeKind ? submitCode(code) : answer(true))}
+              >
+                {view.accept}
+              </Button>
+            </Box>
+          ) : null}
         </Box>
       </Box>
     </Box>

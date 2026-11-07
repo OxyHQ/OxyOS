@@ -645,6 +645,11 @@ typedef struct OxyOSEvent {
 #define OXYOS_ASSERTIVE 2
 /* The parent of a root node. */
 #define OXYOS_NO_ACCESSIBLE_PARENT 0xFFFFFFFF
+/* The geometry the protocol takes, in logical pixels: a coordinate within ±OXYOS_MAX_COORDINATE, a
+ * width or height of at most OXYOS_MAX_DIMENSION. A snapshot with a node outside it is refused
+ * whole: a runtime clamps what it publishes (a scroll view's content may be taller). */
+#define OXYOS_MAX_COORDINATE 1048576
+#define OXYOS_MAX_DIMENSION 16384
 
 /* A popup's placement: anchor rectangle in parent-local logical coordinates, the popup's logical
  * size, anchor and gravity (0 center, 1 top, 2 bottom, 3 left, 4 right, 5 top-left,

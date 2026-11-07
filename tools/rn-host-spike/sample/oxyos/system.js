@@ -1,7 +1,8 @@
 // Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
 // and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), the shell's system sheets,
-// and the capabilities an application asks for at first use. The session decides; nothing here
+// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), Wi-Fi and networks
+// (`network`), Bluetooth (`bluetooth`), the shell's system sheets, and the capabilities an
+// application asks for at first use. The session decides; nothing here
 // grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -16,14 +17,34 @@ let lastState = null;
 const networkListeners = new Set();
 let lastNetwork = null;
 
+/** Bluetooth as the session last told it (docs/adr/0055-bluetooth.mdx), and who follows it. */
+const bluetoothListeners = new Set();
+let lastBluetooth = null;
+
 /** The input sources as the session last told them (docs/adr/0041-input-methods.mdx), and who
     follows them. */
 const inputSourcesListeners = new Set();
 let lastInputSources = null;
 
+/** The sound's outputs and inputs as the session last told them (docs/adr/0056-sound-devices.mdx),
+    who follows them, and who follows the input's level. */
+const soundListeners = new Set();
+let lastSound = null;
+const inputLevelListeners = new Set();
+
+function toldSound(state) {
+  lastSound = state;
+  for (const listener of soundListeners) listener(state);
+}
+
 function toldInputSources(state) {
   lastInputSources = state;
   for (const listener of inputSourcesListeners) listener(state);
+}
+
+function toldBluetooth(state) {
+  lastBluetooth = state;
+  for (const listener of bluetoothListeners) listener(state);
 }
 
 function toldNetwork(state) {
@@ -42,7 +63,12 @@ if (native) {
     if (serial === 0) {
       if (answer && answer.updateState) told(answer.updateState);
       if (answer && answer.network) toldNetwork(answer.network);
+      if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
       if (answer && answer.inputSources) toldInputSources(answer.inputSources);
+      if (answer && answer.sound) toldSound(answer.sound);
+      if (answer && typeof answer.inputLevel === 'number') {
+        for (const listener of inputLevelListeners) listener(answer.inputLevel);
+      }
       return;
     }
     const asked = waiting.get(serial);
@@ -54,7 +80,9 @@ if (native) {
     waiting.delete(serial);
     if (answer && answer.updateState) told(answer.updateState);
     if (answer && answer.network) toldNetwork(answer.network);
+    if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
     if (answer && answer.inputSources) toldInputSources(answer.inputSources);
+    if (answer && answer.sound) toldSound(answer.sound);
     asked.resolve(answer);
   });
 }
@@ -143,6 +171,40 @@ export function useNetworkState() {
 }
 
 /**
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the shell (its `shell` grant) and Settings (the
+ * `bluetooth` grant) ask the session, which alone speaks to BlueZ and is the machine's pairing
+ * agent. The state is told as it changes; a connection is answered once it is done
+ * (`{connected}`, `{paired}` or `{failed: {reason}}`), any code a pairing needs asked or shown in
+ * the shell's system sheets on the way. Settings holds discovery while its Bluetooth page is open
+ * (`discover(true)`, then `discover(false)`); the session ends it when Settings goes.
+ */
+export const bluetooth = {
+  state: () => ask({ bluetooth: {} }),
+  setPower: (on) => ask({ bluetoothPower: { on } }),
+  discover: (on) => ask({ bluetoothDiscover: { on } }),
+  connect: (id) => ask({ bluetoothConnect: { id } }),
+  disconnect: (id) => ask({ bluetoothDisconnect: { id } }),
+  forget: (id) => ask({ bluetoothForget: { id } }),
+  rename: (id, name) => ask({ bluetoothRename: { id, name } }),
+  current: () => lastBluetooth,
+  subscribe(listener) {
+    bluetoothListeners.add(listener);
+    return () => bluetoothListeners.delete(listener);
+  },
+};
+
+/** Bluetooth as it changes, for a view: asked once, then followed. */
+export function useBluetoothState() {
+  const [state, setState] = React.useState(lastBluetooth);
+  React.useEffect(() => {
+    const unsubscribe = bluetooth.subscribe(setState);
+    bluetooth.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): the session tells Settings (its
  * `settings` grant) and the shell the sources in effect and the input methods its engine has, as
  * they change, and answers `{inputSources: {}}` with them. Settings changes them through the
@@ -170,6 +232,57 @@ export function useInputSourcesState() {
     return unsubscribe;
   }, []);
   return state;
+}
+
+/**
+ * The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): the shell (its `shell` grant)
+ * and Settings (its `settings` grant) ask the session, which alone speaks to PipeWire. Asked once,
+ * the state is told again as it changes (`{sound: {available, output, input}}`, each side its
+ * `devices` with `id`, `name`, `kind`, `transport` and `selected`, and the chosen one's `volume`,
+ * `muted` and `balance`). What changes the machine cites the press or key that asked; while locked
+ * it is refused. The input's level is told only while a view meters it (`meter(true)`), and
+ * nothing listens to the input once none does.
+ */
+export const sound = {
+  state: () => ask({ sound: {} }),
+  select: (direction, id) => ask({ soundDevice: { direction, id } }),
+  setVolume: (direction, volume) => ask({ soundVolume: { direction, volume } }),
+  setMuted: (direction, muted) => ask({ soundMuted: { direction, muted } }),
+  setBalance: (balance) => ask({ soundBalance: { balance } }),
+  meter: (on) => ask({ soundMeter: { on } }),
+  current: () => lastSound,
+  subscribe(listener) {
+    soundListeners.add(listener);
+    return () => soundListeners.delete(listener);
+  },
+};
+
+/** The sound as the session tells it, for a view: asked once, then followed. */
+export function useSoundState() {
+  const [state, setState] = React.useState(lastSound);
+  React.useEffect(() => {
+    const unsubscribe = sound.subscribe(setState);
+    sound.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/** The chosen input's level (0 to 1) while `on`: metered from when it is on until it is off or
+    the view goes, so nothing listens to the input meanwhile. */
+export function useInputLevel(on) {
+  const [level, setLevel] = React.useState(0);
+  React.useEffect(() => {
+    if (!on || !native) return undefined;
+    inputLevelListeners.add(setLevel);
+    sound.meter(true);
+    return () => {
+      inputLevelListeners.delete(setLevel);
+      setLevel(0);
+      if (inputLevelListeners.size === 0) sound.meter(false);
+    };
+  }, [on]);
+  return level;
 }
 
 /** The update state as it changes, for a page: asked once, then followed. */
@@ -234,5 +347,11 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ password: { sheet, password } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword };
+  // A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the PIN or passkey the person
+  // typed, to the session alone, citing the press or key that submitted it, as a password is.
+  const answerCode = React.useCallback((sheet, code) => {
+    native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword, answerCode };
 }

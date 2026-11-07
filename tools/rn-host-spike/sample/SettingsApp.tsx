@@ -3,10 +3,11 @@
  * session's: every preference as the session keeps it (`OxyOSSettings`, which only the client the
  * session granted `settings` has), a change asked of the session, which validates, keeps and
  * applies it and tells every application; the displays as the session shows them and their changes
- * (docs/adr/0018-several-displays.mdx); the machine's facts; and the networks as the session
- * tells them (docs/adr/0038-networks.mdx). Without the grant (a host run outside a session, the
- * browser preview) the model is a fixture kept in memory. Its language is the session's locale
- * (docs/adr/0040-language-and-region.mdx, decision 5), given to `BloomProvider` and followed live;
+ * (docs/adr/0018-several-displays.mdx); the machine's facts; and the networks and Bluetooth as the
+ * session tells them (docs/adr/0038-networks.mdx, docs/adr/0055-bluetooth.mdx). Without the grant
+ * (a host run outside a session, the browser preview) the model is a fixture kept in memory. Its
+ * language is the session's locale (docs/adr/0040-language-and-region.mdx, decision 5), given to
+ * `BloomProvider` and followed live;
  * the fixture's is the one its own preferences give. Its Oxy account is the machine's Oxy session
  * as the platform gives every application (oxyos/session-host.js, docs/adr/0020-oxy-account-login.mdx):
  * signing out is the session's (`signOut`, with the `settings` grant), removing the account the
@@ -33,11 +34,16 @@ import { useSessionLocale } from './oxyos/locale';
 import {
   available,
   session as systemSession,
+  bluetooth as systemBluetooth,
   network as systemNetwork,
   privacy,
+  sound as systemSound,
   updates as systemUpdates,
+  useInputLevel,
   useInputSourcesState,
+  useBluetoothState,
   useNetworkState,
+  useSoundState,
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
@@ -48,6 +54,13 @@ import {
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
+import type {
+  BluetoothActions,
+  BluetoothAnswer,
+  BluetoothDevice,
+  BluetoothState,
+} from '../../../apps/settings/src/bluetooth';
+import type { SoundActions, SoundDirection, SoundSide, SoundState } from '../../../apps/settings/src/sound';
 import {
   INPUT_METHODS,
   inputSourcesOf,
@@ -211,6 +224,49 @@ const NETWORK_FIXTURE: NetworkState = {
   ethernet: { device: true, state: 'unplugged', speed: 0, details: null },
   joining: null,
 };
+
+/** The reference ThinkPad's Bluetooth (ADR 0055): on, its paired AirPods and mouse connected, its
+    keyboard not; a speaker and a phone nearby, seen once the page discovers. */
+const BLUETOOTH_PAIRED: BluetoothDevice[] = [
+  {
+    id: '7C:04:D0:A1:3E:52', address: '7C:04:D0:A1:3E:52', name: 'AirPods Pro', kind: 'headphones',
+    paired: true, connected: true, busy: null, battery: 80, audio: true, input: false,
+  },
+  {
+    id: 'F0:B3:EC:21:6A:9D', address: 'F0:B3:EC:21:6A:9D', name: 'Magic Keyboard', kind: 'keyboard',
+    paired: true, connected: false, busy: null, battery: 64, audio: false, input: true,
+  },
+  {
+    id: 'D4:3B:04:7F:12:C8', address: 'D4:3B:04:7F:12:C8', name: 'MX Master 3S', kind: 'mouse',
+    paired: true, connected: true, busy: null, battery: 55, audio: false, input: true,
+  },
+];
+const BLUETOOTH_NEARBY: BluetoothDevice[] = [
+  {
+    id: '00:42:79:B6:58:E1', address: '00:42:79:B6:58:E1', name: 'JBL Flip 6', kind: 'speaker',
+    paired: false, connected: false, busy: null, battery: null, audio: true, input: false,
+  },
+  {
+    id: '58:24:29:9C:0D:3F', address: '58:24:29:9C:0D:3F', name: 'Pixel 8', kind: 'phone',
+    paired: false, connected: false, busy: null, battery: null, audio: false, input: false,
+  },
+];
+const BLUETOOTH_FIXTURE: BluetoothState = {
+  available: true,
+  adapter: {
+    name: 'ThinkPad',
+    address: '3C:58:C2:1A:7E:91',
+    powered: true,
+    blocked: false,
+    discovering: false,
+    discoverable: false,
+  },
+  devices: BLUETOOTH_PAIRED,
+};
+/** Each fixture device's own name, which an empty rename gives back. */
+const BLUETOOTH_NAMES = new Map(
+  [...BLUETOOTH_PAIRED, ...BLUETOOTH_NEARBY].map((device) => [device.id, device.name]),
+);
 
 /** The session's preferences, as its file keeps them, read into the application's model. */
 function preferencesOf(values: Record<string, string>): Preferences {
@@ -516,6 +572,197 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
   return told ? { network: told, actions: session } : { network: undefined, actions: undefined };
 }
 
+/** A machine's sound without a session: the built-in speakers chosen and a display's beside them,
+    the built-in microphone chosen. */
+const SOUND_FIXTURE: SoundState = {
+  available: true,
+  output: {
+    devices: [
+      { id: 'speakers', name: 'Speakers', kind: 'speakers', transport: 'builtIn', selected: true },
+      { id: 'dell', name: 'DELL U2720Q', kind: 'hdmi', transport: 'hdmi', selected: false },
+    ],
+    volume: 0.5,
+    muted: false,
+    balance: 0,
+  },
+  input: {
+    devices: [{ id: 'microphone', name: 'Microphone', kind: 'microphone', transport: 'builtIn', selected: true }],
+    volume: 0.75,
+    muted: false,
+    balance: null,
+  },
+};
+
+/**
+ * Sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): in a session, the state it tells
+ * Settings (its `settings` grant), followed, and its requests, the input's level metered while the
+ * Input tab asks for it; none until the session has told it. Without a session, the fixture,
+ * changed where it is (its level stays at nothing).
+ */
+function useSoundModel(): { sound: SoundState | null; level: number; actions: SoundActions | undefined } {
+  const told: SoundState | null = useSoundState();
+  const [metering, setMetering] = React.useState(false);
+  const level: number = useInputLevel(metering);
+  const [fixture, setFixture] = React.useState(SOUND_FIXTURE);
+  const session = React.useMemo<SoundActions>(
+    () => ({
+      select: (direction, id) => {
+        systemSound.select(direction, id);
+      },
+      setVolume: (direction, volume) => {
+        systemSound.setVolume(direction, volume);
+      },
+      setMuted: (direction, muted) => {
+        systemSound.setMuted(direction, muted);
+      },
+      setBalance: (balance) => {
+        systemSound.setBalance(balance);
+      },
+      meter: setMetering,
+    }),
+    [],
+  );
+  const local = React.useMemo<SoundActions>(() => {
+    const change = (direction: SoundDirection, side: (side: SoundSide) => SoundSide) =>
+      setFixture((state) => ({ ...state, [direction]: side(state[direction]) }));
+    return {
+      select: (direction, id) =>
+        change(direction, (side) => ({
+          ...side,
+          devices: side.devices.map((device) => ({ ...device, selected: device.id === id })),
+        })),
+      setVolume: (direction, volume) => change(direction, (side) => ({ ...side, volume })),
+      setMuted: (direction, muted) => change(direction, (side) => ({ ...side, muted })),
+      setBalance: (balance) => change('output', (side) => ({ ...side, balance })),
+      meter: () => {},
+    };
+  }, []);
+  if (!available) return { sound: fixture, level: 0, actions: local };
+  return { sound: told, level, actions: told ? session : undefined };
+}
+
+/**
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the state the session tells a client with its
+ * `bluetooth` grant, followed, and its requests. The session tells nothing without the grant, so
+ * the page is there only once it has told the state. Without a session the fixture plays the
+ * machine: discovery finds its nearby devices after a moment, a connection pairs and connects
+ * after another (no code asked: that is the shell's sheet), a phone is paired with nothing to
+ * connect, and a forget or a rename changes the list.
+ */
+function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: BluetoothActions | undefined } {
+  const told: BluetoothState | null = useBluetoothState();
+  const [fixture, setFixture] = React.useState(BLUETOOTH_FIXTURE);
+  const current = React.useRef(fixture);
+  current.current = fixture;
+  const session = React.useMemo<BluetoothActions>(
+    () => ({
+      setPower: (on) => systemBluetooth.setPower(on) as Promise<BluetoothAnswer>,
+      discover: (on) => systemBluetooth.discover(on) as Promise<BluetoothAnswer>,
+      connect: (id) => systemBluetooth.connect(id) as Promise<BluetoothAnswer>,
+      disconnect: (id) => systemBluetooth.disconnect(id) as Promise<BluetoothAnswer>,
+      forget: (id) => systemBluetooth.forget(id) as Promise<BluetoothAnswer>,
+      rename: (id, name) => systemBluetooth.rename(id, name) as Promise<BluetoothAnswer>,
+    }),
+    [],
+  );
+  const local = React.useMemo<BluetoothActions>(() => {
+    const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const sorted = (devices: BluetoothDevice[]) =>
+      [...devices].sort((a, b) => a.name.localeCompare(b.name) || a.address.localeCompare(b.address));
+    const change = (id: string, edit: (device: BluetoothDevice) => BluetoothDevice) =>
+      setFixture((state) => ({
+        ...state,
+        devices: sorted(state.devices.map((device) => (device.id === id ? edit(device) : device))),
+      }));
+    const on = () => !!current.current.adapter?.powered;
+    const find = (id: string) => current.current.devices.find((device) => device.id === id);
+    return {
+      setPower: async (powered) => {
+        setFixture((state) => ({
+          ...state,
+          adapter: state.adapter && {
+            ...state.adapter,
+            powered,
+            discovering: false,
+            discoverable: false,
+          },
+          // Off, every device lets go and nothing nearby is seen; on, the paired ones that were
+          // connected as the fixture began come back, as their own devices reconnect them.
+          devices: state.devices
+            .filter((d) => d.paired)
+            .map((d) => ({
+              ...d,
+              busy: null,
+              connected: powered && !!BLUETOOTH_PAIRED.find((p) => p.id === d.id)?.connected,
+            })),
+        }));
+        return { bluetooth: current.current };
+      },
+      discover: async (wanted) => {
+        if (!on()) return { failed: { reason: 'unavailable' } };
+        setFixture((state) => ({
+          ...state,
+          adapter: state.adapter && { ...state.adapter, discovering: wanted, discoverable: wanted },
+          devices: wanted ? state.devices : state.devices.filter((d) => d.paired),
+        }));
+        if (wanted) {
+          await later(1200);
+          setFixture((state) =>
+            state.adapter?.discovering
+              ? {
+                  ...state,
+                  devices: sorted([
+                    ...state.devices,
+                    ...BLUETOOTH_NEARBY.filter((n) => !state.devices.some((d) => d.id === n.id)),
+                  ]),
+                }
+              : state,
+          );
+        }
+        return { discovering: { on: wanted } };
+      },
+      connect: async (id) => {
+        const device = find(id);
+        if (!device) return { failed: { reason: 'notFound' } };
+        if (!on()) return { failed: { reason: 'unavailable' } };
+        if (device.busy) return { failed: { reason: 'busy' } };
+        change(id, (d) => ({ ...d, busy: 'connecting' }));
+        await later(1500);
+        // A phone pairs with nothing to connect, as a Mac's does.
+        const phone = device.kind === 'phone';
+        change(id, (d) => ({
+          ...d,
+          busy: null,
+          paired: true,
+          connected: !phone,
+          battery: d.battery ?? (d.kind === 'speaker' ? 70 : null),
+        }));
+        return phone ? { paired: { id } } : { connected: { id } };
+      },
+      disconnect: async (id) => {
+        if (!find(id)) return { failed: { reason: 'notFound' } };
+        change(id, (d) => ({ ...d, busy: 'disconnecting' }));
+        await later(600);
+        change(id, (d) => ({ ...d, busy: null, connected: false }));
+        return { disconnected: { id } };
+      },
+      forget: async (id) => {
+        if (!find(id)) return { failed: { reason: 'notFound' } };
+        setFixture((state) => ({ ...state, devices: state.devices.filter((d) => d.id !== id) }));
+        return { forgotten: { id } };
+      },
+      rename: async (id, typed) => {
+        if (!find(id)) return { failed: { reason: 'notFound' } };
+        const name = typed.trim() || BLUETOOTH_NAMES.get(id) || id;
+        change(id, (d) => ({ ...d, name }));
+        return { renamed: { id, name } };
+      },
+    };
+  }, []);
+  if (!available) return { bluetooth: fixture, actions: local };
+  return told ? { bluetooth: told, actions: session } : { bluetooth: undefined, actions: undefined };
+}
+
 /**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): in a session, as it tells them
  * (none until it has); without one, the fixture's preferences with every input method installed.
@@ -666,12 +913,17 @@ export default function SettingsApp() {
   const model = useSettingsModel();
   const install = useInstallModel();
   const networks = useNetworkModel();
+  const bluetooth = useBluetoothModel();
+  const sound = useSoundModel();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
     ...model.snapshot,
     updates: install.updates,
     privacy: install.privacy,
     network: networks.network,
+    bluetooth: bluetooth.bluetooth,
+    sound: sound.sound,
+    soundInputLevel: sound.level,
     inputSources,
     account: useAccount(),
   };
@@ -680,6 +932,8 @@ export default function SettingsApp() {
     updates: install.updatesActions,
     privacy: install.privacyActions,
     network: networks.actions,
+    bluetooth: bluetooth.actions,
+    sound: sound.actions,
     account: sessionHost ? accountActions : undefined,
     chooseFolder,
     // Settings › Spotlight (docs/adr/0051-search.mdx): the session's search index, which takes its

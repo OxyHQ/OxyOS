@@ -48,6 +48,23 @@ pub struct Fake {
     /// network requests change.
     /// Clones share it, so it is closed once for all of them.
     network_bus: Arc<Mutex<Option<zbus::blocking::Connection>>>,
+    /// The volumes from a played sound instead (`oxyos_audio::Played`, docs/adr/0056-sound-
+    /// devices.mdx): each device its own, as the one chosen changes.
+    sound: Sound,
+}
+
+/// The played sound the volumes are, if any.
+#[derive(Clone, Default)]
+struct Sound(Option<Arc<dyn oxyos_audio::Audio>>);
+
+impl std::fmt::Debug for Sound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Sound(played)"
+        } else {
+            "Sound(none)"
+        })
+    }
 }
 
 fn index(control: Control) -> usize {
@@ -148,6 +165,13 @@ fn bluetooth_name(state: BluetoothState) -> &'static str {
 }
 
 impl Fake {
+    /// Its output's and input's volumes those of `sound`'s chosen devices, as a session's are its
+    /// sound's.
+    pub fn with_sound(mut self, sound: Arc<dyn oxyos_audio::Audio>) -> Self {
+        self.sound = Sound(Some(sound));
+        self
+    }
+
     /// Its network read from, and Wi-Fi turned on and off on, the NetworkManager on the bus at
     /// `address`, as a session's is on the system bus.
     pub fn with_network_bus(self, address: &str) -> io::Result<Self> {
@@ -222,6 +246,7 @@ impl Fake {
             state: Arc::new(Mutex::new(state)),
             file: None,
             network_bus: Arc::default(),
+            sound: Sound::default(),
         })
     }
 
@@ -330,6 +355,9 @@ impl Fake {
 
 impl System for Fake {
     fn level(&mut self, control: Control) -> io::Result<Option<Level>> {
+        if let (Some(sound), Some(_)) = (&self.sound.0, crate::volume_direction(control)) {
+            return Ok(crate::audio_level(&sound.state(), control));
+        }
         let state = self.state.lock().expect("the fake's state");
         Ok(state.levels[index(control)].map(|(value, muted)| {
             let mut level = Level::new(value, muted);
@@ -342,6 +370,9 @@ impl System for Fake {
     }
 
     fn set_level(&mut self, control: Control, value: u32) -> io::Result<()> {
+        if let (Some(sound), Some(_)) = (&self.sound.0, crate::volume_direction(control)) {
+            return crate::set_audio_level(sound.as_ref(), control, value);
+        }
         {
             let mut state = self.state.lock().expect("the fake's state");
             let steps = Self::keyboard_steps(&state);
@@ -367,6 +398,10 @@ impl System for Fake {
     }
 
     fn set_muted(&mut self, control: Control, muted: bool) -> io::Result<()> {
+        if let (Some(sound), Some(direction)) = (&self.sound.0, crate::volume_direction(control)) {
+            sound.set_muted(direction, muted);
+            return Ok(());
+        }
         {
             let mut state = self.state.lock().expect("the fake's state");
             let level = state.levels[index(control)]

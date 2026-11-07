@@ -206,6 +206,11 @@ fn the_header_matches_the_abi() {
             AccessibleState::LIVE_ASSERTIVE.into(),
         ),
         ("OXYOS_NO_ACCESSIBLE_PARENT", NO_ACCESSIBLE_PARENT.into()),
+        (
+            "OXYOS_MAX_COORDINATE",
+            oxyos_protocol::MAX_COORDINATE.into(),
+        ),
+        ("OXYOS_MAX_DIMENSION", oxyos_protocol::MAX_DIMENSION.into()),
         ("OXYOS_STATE_DISABLED", AccessibleState::DISABLED.into()),
         ("OXYOS_STATE_SELECTED", AccessibleState::SELECTED.into()),
         ("OXYOS_STATE_CHECKED", AccessibleState::CHECKED.into()),

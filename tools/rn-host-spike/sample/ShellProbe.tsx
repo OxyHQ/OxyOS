@@ -9,7 +9,17 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
-import { inputSources, network, useInputSourcesState, useNetworkState, useSystemSheets } from './oxyos/system';
+import {
+  bluetooth,
+  inputSources,
+  network,
+  sound as soundApi,
+  useBluetoothState,
+  useInputSourcesState,
+  useNetworkState,
+  useSoundState,
+  useSystemSheets,
+} from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
@@ -405,9 +415,13 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword } = useSystemSheets();
+  const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
+  // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
+  const sound = useSoundState();
+  // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
+  const bluetoothDevices = useBluetoothState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
   // One the shell cannot read is refused: it never confirms what it did not show.
@@ -643,8 +657,31 @@ function SessionShell() {
         network.join(ssid);
       },
       openWifiSettings: () => act.menuCommand('system.settings'),
+      // The outputs (ADR 0056): the session plays to the one chosen. Sound Settings opens
+      // Settings as Wi-Fi Settings does.
+      sound,
+      selectOutput: (id) => {
+        soundApi.select('output', id);
+      },
+      openSoundSettings: () => act.menuCommand('system.settings'),
+      // Bluetooth (ADR 0055): the session turns it on and off, connects and disconnects, asking
+      // what a pairing needs and saying what failed in its own sheets. Bluetooth Settings opens
+      // Settings at its Bluetooth page, a URL the shell opens as any other.
+      bluetoothDevices,
+      setBluetooth: (on) => {
+        bluetooth.setPower(on);
+      },
+      connectBluetooth: (id) => {
+        bluetooth.connect(id);
+      },
+      disconnectBluetooth: (id) => {
+        bluetooth.disconnect(id);
+      },
+      openBluetoothSettings: () => {
+        shell.openUrl('oxyos-settings://bluetooth');
+      },
     };
-  }, [told, bezel, networks, act]);
+  }, [told, bezel, networks, sound, bluetoothDevices, act]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;
@@ -719,8 +756,10 @@ function SessionShell() {
       answer: (accepted: boolean) => answer(first.sheet, accepted),
       // A Wi-Fi password sheet's answer (ADR 0038): to the session alone.
       answerPassword: (password: string) => answerPassword(first.sheet, password),
+      // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
+      answerCode: (code: string) => answerCode(first.sheet, code),
     };
-  }, [first, registry, answer, answerPassword]);
+  }, [first, registry, answer, answerPassword, answerCode]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell

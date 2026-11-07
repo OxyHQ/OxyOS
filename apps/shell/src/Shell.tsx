@@ -170,6 +170,9 @@ export const Shell = memo(function Shell({
     /** A Wi-Fi password sheet's answer (docs/adr/0038-networks.mdx): the password, to the
         session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerPassword?: (password: string) => void;
+    /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
+        to the session alone. Without it such a sheet cannot be answered but by Cancel. */
+    answerCode?: (code: string) => void;
   };
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
@@ -1103,6 +1106,7 @@ export const Shell = memo(function Shell({
               names={sheet.names}
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
+              answerCode={sheet.answerCode}
               keyboard={platform.keyboard}
             />
           </Surface>

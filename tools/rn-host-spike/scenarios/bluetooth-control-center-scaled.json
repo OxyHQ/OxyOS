@@ -1,0 +1,557 @@
+{
+  "about": "Bluetooth in Control Center as a Mac's (docs/adr/0055-bluetooth.mdx), over a BlueZ played on the run's own bus (oxyos-fake-bluez): AirPods Pro (connected, 80 %), a Magic Keyboard, an MX Master 3S (connected, 55 %) and a speaker out of reach, paired; a Pixel 8 not paired. The session is BlueZ's default pairing agent and nothing discovers; the module is a switch and opens the view, which lists the paired devices with their state and battery; a press connects the keyboard and disconnects the AirPods; the speaker's failure is said in the shell's sheet; the phone asking to pair shows the code to compare, and Pair pairs it; a service asked is refused; the switch turns BlueZ's adapter off and on; Allo receives nothing throughout, then has the keyboard again. Every step checks what BlueZ holds. At scale 1.25 (the ThinkPad's panel).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 2
+  },
+  "bluetooth": {
+    "adapter": {
+      "name": "ThinkPad",
+      "address": "00:1A:7D:DA:71:13",
+      "powered": true
+    },
+    "devices": [
+      {
+        "address": "AC:90:85:11:22:33",
+        "name": "AirPods Pro",
+        "icon": "audio-headphones",
+        "paired": true,
+        "connected": true,
+        "battery": 80,
+        "uuids": [
+          "0000110b-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "F0:B3:EC:44:55:66",
+        "name": "Magic Keyboard",
+        "icon": "input-keyboard",
+        "paired": true,
+        "uuids": [
+          "00001124-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "D4:5A:66:77:88:99",
+        "name": "MX Master 3S",
+        "icon": "input-mouse",
+        "paired": true,
+        "connected": true,
+        "battery": 55,
+        "uuids": [
+          "00001124-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "70:BF:92:DD:EE:FF",
+        "name": "Far Speaker",
+        "icon": "audio-card",
+        "paired": true,
+        "connect": "fail",
+        "uuids": [
+          "0000110b-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "3C:28:6D:01:02:03",
+        "name": "Pixel 8",
+        "icon": "phone",
+        "pairing": "confirm",
+        "passkey": 482913
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "The session is BlueZ's default pairing agent, and nothing discovers",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "agent": {
+            "default": true,
+            "capability": "KeyboardDisplay"
+          },
+          "adapter": {
+            "powered": true,
+            "discovering": false,
+            "discovery_clients": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Control Center opened: Bluetooth's module is a switch, on, and its title opens its view",
+      "do": [
+        "press_named",
+        "Control Center"
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "Bluetooth",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Bluetooth Devices",
+              "value": "2 devices"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Bluetooth's view: its switch and the paired devices, each with its state and the battery of a connected one; nothing nearby, nothing discovered",
+      "do": [
+        "press_named",
+        "Bluetooth Devices"
+      ],
+      "expect": {
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "Bluetooth",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "AirPods Pro, Connected, Battery 80%"
+            },
+            {
+              "role": "Button",
+              "name": "Far Speaker, Not Connected"
+            },
+            {
+              "role": "Button",
+              "name": "Magic Keyboard, Not Connected"
+            },
+            {
+              "role": "Button",
+              "name": "MX Master 3S, Connected, Battery 55%"
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Devices",
+            "Bluetooth Settings…"
+          ],
+          "absent": [
+            "Pixel 8"
+          ]
+        },
+        "bluetooth": {
+          "adapter": {
+            "discovering": false,
+            "discovery_clients": 0
+          }
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "A paired keyboard pressed connects",
+      "do": [
+        "press_named",
+        "Magic Keyboard, Not Connected"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Connected, as BlueZ has it",
+      "do": [
+        "wait_named",
+        [
+          "Magic Keyboard, Connected",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "devices": {
+            "F0:B3:EC:44:55:66": {
+              "connected": true
+            }
+          }
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The AirPods pressed disconnect",
+      "do": [
+        "press_named",
+        "AirPods Pro, Connected, Battery 80%"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Disconnected",
+      "do": [
+        "wait_named",
+        [
+          "AirPods Pro, Not Connected",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "devices": {
+            "AC:90:85:11:22:33": {
+              "connected": false
+            }
+          }
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "A speaker that does not answer: the session says it could not connect, in a sheet",
+      "do": [
+        "press_named",
+        "Far Speaker, Not Connected"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The sheet: why, and OK",
+      "do": [
+        "wait_named",
+        [
+          "Couldn't connect to “Far Speaker”.",
+          8000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Make sure it's turned on, nearby and in pairing mode."
+          ]
+        },
+        "bluetooth": {
+          "devices": {
+            "70:BF:92:DD:EE:FF": {
+              "connected": false
+            }
+          }
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Read and closed",
+      "do": [
+        "press_named",
+        "OK"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "A phone asks to pair: the shell's sheet shows the code to compare",
+      "do": [
+        "bluetooth",
+        {
+          "pair_request": "3C:28:6D:01:02:03"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The code, large, and Pair",
+      "do": [
+        "wait_named",
+        [
+          "Confirm that “Pixel 8” shows this code.",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "482913"
+          ]
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Paired: BlueZ has it paired",
+      "do": [
+        "press_named",
+        "Pair"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Its pairing accepted",
+      "do": [
+        "wait",
+        800
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "devices": {
+            "3C:28:6D:01:02:03": {
+              "paired": true
+            }
+          },
+          "answers": {
+            "pair 3C:28:6D:01:02:03": "accepted"
+          }
+        }
+      }
+    },
+    {
+      "name": "Paired, the phone is among the devices",
+      "do": [
+        "wait_named",
+        [
+          "Pixel 8, Not Connected",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "A paired device not trusted asks for a service: the shell asks the person",
+      "do": [
+        "bluetooth",
+        {
+          "service_request": {
+            "address": "F0:B3:EC:44:55:66",
+            "uuid": "00001105-0000-1000-8000-00805f9b34fb"
+          }
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Refused",
+      "do": [
+        "wait_named",
+        [
+          "Don't Allow",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Don't Allow",
+      "do": [
+        "press_named",
+        "Don't Allow"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "BlueZ was told no",
+      "do": [
+        "wait",
+        800
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "answers": {
+            "service F0:B3:EC:44:55:66": "refused"
+          }
+        }
+      }
+    },
+    {
+      "name": "Bluetooth off from its switch: BlueZ's adapter off, the list says so",
+      "do": [
+        "press_output",
+        [
+          1240,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Off",
+      "do": [
+        "wait_named",
+        [
+          "Bluetooth is off.",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "adapter": {
+            "powered": false
+          }
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "On again",
+      "do": [
+        "press_output",
+        [
+          1240,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "On",
+      "do": [
+        "wait_named",
+        [
+          "Magic Keyboard, Not Connected",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "adapter": {
+            "powered": true
+          }
+        }
+      }
+    },
+    {
+      "name": "A press outside closes Control Center, and Allo has the keyboard again",
+      "do": [
+        "press_output",
+        [
+          300,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Dialog",
+              "name": "Control Center"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Keys typed are Allo's",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line"
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "typed",
+      "do": [
+        "keyboard",
+        "ok"
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "keyPress@line": 2,
+          "change@line": 2,
+          "selectionChange@line": 2
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2,
+            "text_input": 2
+          }
+        },
+        "texts": [
+          "Line: \"ok\" [2,2]"
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

@@ -1,18 +1,19 @@
 //! A session's [`System`]: the machine the session runs on, through what it already runs.
 
 use crate::backlight::{self, Setter};
-use crate::{audio::Wpctl, bluetooth, network, power};
+use crate::{audio_level, bluetooth, network, power, set_audio_level, volume_direction};
 use crate::{Battery, Bluetooth, Control, Level, Network, System};
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use zbus::blocking::Connection;
 
-/// The machine: PipeWire's volumes through `wpctl`, backlights in `sysfs` set through
+/// The machine: PipeWire's volumes through the session's client (`oxyos_audio`), backlights in `sysfs` set through
 /// `setter`, and UPower, NetworkManager and BlueZ on the system bus. The bus and logind are
 /// reached when first needed and again after a failure, so a session started before them
 /// follows them once they are up.
 pub struct Session {
-    wpctl: Wpctl,
+    audio: Arc<dyn oxyos_audio::Audio>,
     sysfs: PathBuf,
     setter: Option<Box<dyn Setter>>,
     /// Makes the setter: logind's `SetBrightness` on this process's session.
@@ -21,10 +22,10 @@ pub struct Session {
 }
 
 impl Session {
-    /// The session's own: `wpctl` from the `PATH`, `/sys`, logind.
-    pub fn new() -> Self {
+    /// The session's own: its sound (`audio`), `/sys`, logind.
+    pub fn new(audio: Arc<dyn oxyos_audio::Audio>) -> Self {
         Self::with(
-            Wpctl::default(),
+            audio,
             PathBuf::from("/sys"),
             Box::new(|| {
                 oxyos_seat::Brightness::of_session().map(|logind| Box::new(logind) as Box<_>)
@@ -33,12 +34,12 @@ impl Session {
     }
 
     pub fn with(
-        wpctl: Wpctl,
+        audio: Arc<dyn oxyos_audio::Audio>,
         sysfs: PathBuf,
         make_setter: Box<dyn Fn() -> io::Result<Box<dyn Setter>> + Send>,
     ) -> Self {
         Self {
-            wpctl,
+            audio,
             sysfs,
             setter: None,
             make_setter,
@@ -72,16 +73,12 @@ impl Session {
     }
 }
 
-impl Default for Session {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl System for Session {
     fn level(&mut self, control: Control) -> io::Result<Option<Level>> {
         match control {
-            Control::OutputVolume | Control::InputVolume => self.wpctl.level(control),
+            Control::OutputVolume | Control::InputVolume => {
+                Ok(audio_level(&self.audio.state(), control))
+            }
             _ => self
                 .backlight(control)
                 .map(|device| device.level())
@@ -91,7 +88,9 @@ impl System for Session {
 
     fn set_level(&mut self, control: Control, value: u32) -> io::Result<()> {
         match control {
-            Control::OutputVolume | Control::InputVolume => self.wpctl.set_level(control, value),
+            Control::OutputVolume | Control::InputVolume => {
+                set_audio_level(self.audio.as_ref(), control, value)
+            }
             _ => {
                 let device = self
                     .backlight(control)
@@ -109,7 +108,10 @@ impl System for Session {
     }
 
     fn set_muted(&mut self, control: Control, muted: bool) -> io::Result<()> {
-        self.wpctl.set_muted(control, muted)
+        let direction =
+            volume_direction(control).ok_or_else(|| io::Error::other("not a volume"))?;
+        self.audio.set_muted(direction, muted);
+        Ok(())
     }
 
     fn keyboard_changed_by_firmware(&mut self) -> bool {

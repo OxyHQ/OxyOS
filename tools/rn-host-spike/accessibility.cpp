@@ -521,15 +521,23 @@ void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
   }
   for (size_t i = 0; i < nodes.size(); ++i) {
     const auto& node = nodes[i];
-    auto rounded = [](float v) { return static_cast<int32_t>(std::lround(v)); };
+    // Within the geometry the protocol takes (OXYOS_MAX_COORDINATE, OXYOS_MAX_DIMENSION): a node
+    // past it (a scroll view's content taller than that) is published clamped, never refused with
+    // the whole snapshot, which would end the client.
+    auto rounded = [](float v) {
+      return static_cast<int32_t>(std::clamp<long>(std::lround(v), -OXYOS_MAX_COORDINATE, OXYOS_MAX_COORDINATE));
+    };
+    auto extent = [](float v) {
+      return static_cast<uint32_t>(std::clamp<long>(std::lround(v), 0L, OXYOS_MAX_DIMENSION));
+    };
     wire.push_back(OxyOSAccessibleNode{
         .parent = node.parent < 0 ? OXYOS_NO_ACCESSIBLE_PARENT : static_cast<uint32_t>(node.parent),
         .role = protocolRole(node.role),
         .state = protocolState(node.state),
         .x = rounded(node.rect.origin.x),
         .y = rounded(node.rect.origin.y),
-        .width = static_cast<uint32_t>(std::max(0L, std::lround(node.rect.size.width))),
-        .height = static_cast<uint32_t>(std::max(0L, std::lround(node.rect.size.height))),
+        .width = extent(node.rect.size.width),
+        .height = extent(node.rect.size.height),
         .name = node.name.c_str(),
         .value = node.value.c_str(),
         .actions = node.actions,
