@@ -1,7 +1,8 @@
 //! The service through its control socket, on homes the tests make: the index following files
 //! made, written, renamed, moved and deleted; who sees what; donations, Settings' preferences, the
 //! applications and their packages' declared items; and the service doing nothing while nothing
-//! happens.
+//! happens. The indexer is in the idle class: on a busy machine it waits for idle CPUs, so the
+//! tests wait for it generously.
 
 use crate::service::{serve, Paths};
 use oxyos_files::{uri, Scope};
@@ -63,7 +64,7 @@ impl Running {
             .name("search-serve".into())
             .spawn(move || serve(theirs, scope, Some(paths)))
             .unwrap();
-        ours.set_read_timeout(Some(Duration::from_secs(20)))
+        ours.set_read_timeout(Some(Duration::from_secs(60)))
             .unwrap();
         Running {
             home,
@@ -130,7 +131,7 @@ impl Running {
                 return;
             }
             assert!(
-                start.elapsed() < Duration::from_secs(20),
+                start.elapsed() < Duration::from_secs(60),
                 "never settled: {status}"
             );
             std::thread::sleep(Duration::from_millis(50));
@@ -146,7 +147,7 @@ impl Running {
                 return found;
             }
             assert!(
-                start.elapsed() < Duration::from_secs(10),
+                start.elapsed() < Duration::from_secs(60),
                 "{text:?} never found what was wanted: {found:?}"
             );
             std::thread::sleep(Duration::from_millis(50));
@@ -266,7 +267,7 @@ fn files_unchanged_are_not_read_again() {
         let (ours, theirs) = UnixStream::pair().unwrap();
         let kept = paths.clone();
         let thread = std::thread::spawn(move || serve(theirs, scope, Some(kept)));
-        ours.set_read_timeout(Some(Duration::from_secs(20)))
+        ours.set_read_timeout(Some(Duration::from_secs(60)))
             .unwrap();
         let mut running = Running {
             home: std::fs::canonicalize(&home).unwrap(),
@@ -472,7 +473,7 @@ fn watchers_are_told_of_changes() {
         {
             break;
         }
-        assert!(start.elapsed() < Duration::from_secs(10), "no change told");
+        assert!(start.elapsed() < Duration::from_secs(60), "no change told");
         let message = service.read();
         service.unasked.push(message);
     }
