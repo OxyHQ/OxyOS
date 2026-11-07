@@ -22,7 +22,12 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "output_pixels": {},
+        "output_pixels": {
+          "1375,500": "#8891da",
+          "250,750": "#2b67b3",
+          "800,125": "#4672c9",
+          "1550,312": "#8888d4"
+        },
         "react": {}
       }
     },
@@ -44,12 +49,16 @@
       "do": [
         "press_output",
         [
-          1110,
-          77
+          990,
+          76
         ]
       ],
       "expect": {
-        "output_pixels": {},
+        "output_pixels": {
+          "1375,500": "#262c8a",
+          "250,750": "#0b1a32",
+          "800,125": "#131e4a"
+        },
         "preferences_file": {
           "appearance": "dark"
         },
@@ -66,7 +75,12 @@
         ]
       ],
       "expect": {
-        "output_pixels": {},
+        "output_pixels": {
+          "1375,500": "#262c8a",
+          "250,750": "#0b1a32",
+          "800,125": "#131e4a",
+          "1550,312": "#2c2181"
+        },
         "react": {}
       }
     }
