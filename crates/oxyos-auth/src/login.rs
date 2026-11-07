@@ -134,6 +134,18 @@ impl Login {
         Ok(())
     }
 
+    /// Opens the login screen's session (logind's class `greeter`): its account checked, never
+    /// authenticated. Its service authenticates nobody (`pam_deny`), so there are no credentials
+    /// to establish, and `pam_setcred` is not called: it runs the service's auth stack, which
+    /// denies, and would fail the session (ADR 0020). Only after [`Login::check_account`]
+    /// accepted.
+    pub fn open_greeter_session(&mut self) -> Result<(), Error> {
+        let code = self.transaction.open_session();
+        self.checked(code, "opening the session")?;
+        self.session = true;
+        Ok(())
+    }
+
     /// The environment the modules set (`XDG_SESSION_ID`, `XDG_RUNTIME_DIR`, the locale…) and
     /// what [`Login::set_env`] set, `NAME=value` each.
     pub fn environment(&self) -> Vec<(String, String)> {

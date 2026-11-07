@@ -418,6 +418,32 @@ session required pam_permit.so
     }
 
     #[test]
+    fn the_login_screens_session_opens_without_credentials_from_a_service_that_denies() {
+        // The login screen's service (tools/oxyos-login/pam.d/oxyos-login-greeter)
+        // authenticates nobody. pam_setcred runs that auth stack, so establishing credentials
+        // fails; the greeter's session establishes none and opens.
+        let config = Config::new("login-greeter");
+        config.service(
+            "oxyos-login-greeter",
+            "auth required pam_deny.so\naccount required pam_permit.so\n\
+             session required pam_permit.so\n",
+        );
+        let mut login = start(&config, "oxyos-login-greeter");
+        assert_eq!(login.check_account(), Ok(Outcome::Accepted));
+        assert!(login.open_session().is_err());
+        let mut login = start(&config, "oxyos-login-greeter");
+        assert_eq!(login.check_account(), Ok(Outcome::Accepted));
+        login.open_greeter_session().unwrap();
+        login.close_session().unwrap();
+        // And nobody authenticates through it.
+        assert_eq!(
+            start(&config, "oxyos-login-greeter")
+                .authenticate(Secret::new(PASSWORD.as_bytes().to_vec())),
+            Ok(Outcome::Rejected)
+        );
+    }
+
+    #[test]
     fn the_password_answers_one_prompt_only() {
         // A second hidden prompt (a code, a new password) is not the password's to answer.
         let config = Config::new("login-prompts");
