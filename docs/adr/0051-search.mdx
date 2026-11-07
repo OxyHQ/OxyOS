@@ -66,7 +66,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
      - Settings' package declares every page (`settings:<page>`, `oxyos-settings://<page>`). Only the system Settings' package (`so.oxy.settings`, an id no other source can shadow, ADR 0030 decision 7) declares items of the Settings category; any other package's are its own.
    - **Donated items:** what a running application gives (decision 8).
 
-4. **Kept current, never crawled again for a change** (`indexer.rs`), on one thread:
+4. **Kept current, never crawled again for a change** (`indexer.rs`, the crawler, which reads; `writer.rs`, the writer, which changes the index):
    - **The first crawl reconciles.** Every folder is watched before it is read. An item the index holds as it is on the disk (its modification time in nanoseconds and its size) is not read again; one changed or new is read; one gone is removed. A session starting on an index of a hundred thousand files reads their metadata, not their text.
    - **Then inotify says each change:**
      - an item made, written and closed (`IN_CLOSE_WRITE`), or its attributes changed (tags, `touch`): read again;
@@ -81,7 +81,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
    - **Commits:**
      - what was written is committed once nothing waits, or every two seconds while a crawl goes on, so results appear as it goes;
      - each commit is told to the service's reader, which reloads (tantivy's reader that follows the directory itself polls it on a clock: not used);
-     - after a commit with nothing waiting, the writer is closed: its threads end and its memory is given back.
+     - after a commit with the crawler settled, tantivy's writer is closed: its threads end and its memory is given back (`malloc_trim` with it).
 
 5. **The query language and the ranking** (`query.rs`, `index.rs`).
    - **Words** match as beginnings of words in the title and the keywords (`rep` finds *Report*), and as words in the text, the last one also as a beginning (what is being typed). Every word must match somewhere.
@@ -150,9 +150,11 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
     - Control+Super+Space stays emoji, and Super alone stays the launcher.
 
 13. **Battery and idle** (docs/performance.mdx's rules).
-    - **The indexer is in the CPU's idle class** (`SCHED_IDLE`, the class cgroup v2's `cpu.idle` and systemd's `CPUWeight=idle` give a cgroup's tasks) and the disk's (`IOPRIO_CLASS_IDLE`). Its threads and the PDF reader it starts inherit both. The service's answering thread keeps the normal class, so a question is answered at once while the indexer works.
-      - Not a cgroup of its own: the session's processes share one logind scope with no delegated subtree and no user manager to ask for one (decision 1).
-    - **While nothing happens, nothing wakes:** both threads wait on their descriptors with no deadline. A deadline exists only while a change is settling or a crawl is committing. The writer and its threads exist only while there is something to write.
+    - **The crawler is in the CPU's idle class** (`SCHED_IDLE`, the class cgroup v2's `cpu.idle` and systemd's `CPUWeight=idle` give a cgroup's tasks) and the disk's (`IOPRIO_CLASS_IDLE`): it reads the files and their text, and the PDF reader it starts inherits both.
+    - **The writer is apart, at nice 10**, with tantivy's threads it starts. What the session and the applications give the index (the applications listed, Settings' pages, donations) is written and committed at once, however busy the machine is: an unprivileged thread never leaves the idle class once in it, so a single indexing thread there would have starved the launcher's search on a busy machine (the gate's scenarios showed it).
+    - **The answering thread keeps the normal class**, so a question is answered at once while the index is being built.
+    - **No cgroup of its own:** the session's processes share one logind scope with no delegated subtree and no user manager to ask for one (decision 1); the scheduler's classes, per thread, are what a cgroup's `cpu.idle` would give.
+    - **While nothing happens, nothing wakes:** the three threads wait on their descriptors and channels with no deadline. A deadline exists only while a change is settling or written changes wait for their commit. tantivy's threads exist only while there is something to write.
     - **The PDF reader** runs under `prlimit` (1 GiB of memory, 20 s of CPU) and is killed after 30 s.
 
 ## Steps
