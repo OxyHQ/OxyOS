@@ -11,8 +11,9 @@ input), so running it again writes the same bytes: the art is reviewed here, as 
 Each wallpaper is SVG, drawn by Skia at the display's size (no raster held larger than the
 display): a base linear gradient, soft glows (ellipses filled with radial gradients whose opacity
 falls off as a Gaussian, so no edge shows) and translucent ribbons, layered so a wide gradient is
-never one flat ramp of a few 8-bit steps. Only rect, ellipse, path, linearGradient and
-radialGradient are used: no filters, text, external references or embedded rasters.
+never one flat ramp of a few 8-bit steps. Only rect, ellipse, circle, path, linearGradient and
+radialGradient are used, every gradient in the drawing's coordinates (userSpaceOnUse): no filters,
+text, external references or embedded rasters.
 """
 
 import colorsys
@@ -100,7 +101,14 @@ class Drawing:
             t = i / 8
             a = opacity * (math.exp(-falloff * t * t) - math.exp(-falloff)) / (1 - math.exp(-falloff))
             stops.append((t, colour, a))
-        self.defs.append(f'<radialGradient id="{gid}">{self._stops(stops)}</radialGradient>')
+        # In the drawing's own coordinates, never the ellipse's bounding box: the unit circle
+        # scaled to the ellipse's radii and moved to its centre (the ellipse's rotation applies to
+        # its fill too). Skia's SVG module draws a bounding-box gradient on an ellipse as black.
+        self.defs.append(
+            f'<radialGradient id="{gid}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" '
+            f'gradientTransform="translate({x:g} {y:g}) scale({rx:g} {ry:g})">'
+            f'{self._stops(stops)}</radialGradient>'
+        )
         transform = f' transform="rotate({rotate:g} {x:g} {y:g})"' if rotate else ""
         self.body.append(
             f'<ellipse cx="{x:g}" cy="{y:g}" rx="{rx:g}" ry="{ry:g}" fill="url(#{gid})"{transform}/>'
