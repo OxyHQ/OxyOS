@@ -1,6 +1,9 @@
 #include "worklets-host.h"
 
 #include "host-modules.h"
+#include "report.h"
+
+#include <cxxreact/JSBigString.h>
 
 #include <worklets/NativeModules/WorkletsModuleProxy.h>
 #include <worklets/NativeModules/WorkletsModuleProxyInitializer.h>
@@ -58,11 +61,12 @@ class UnsupportedNetworking : public worklets::NetworkingBackend {
 
 }  // namespace
 
-WorkletsHost::WorkletsHost(const DisplayRefresh& refresh)
+WorkletsHost::WorkletsHost(const DisplayRefresh& refresh, std::string compiled)
     : refresh_(refresh),
       ui_(std::make_shared<LoopUIScheduler>()),
       frames_(std::make_shared<std::vector<std::function<void(double)>>>()),
-      wanted_(std::make_shared<bool>(true)) {}
+      wanted_(std::make_shared<bool>(true)),
+      compiled_(std::move(compiled)) {}
 
 WorkletsHost::~WorkletsHost() {
   if (initializer_) initializer_->invalidate();
@@ -98,6 +102,7 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
       throw jsi::JSError(rt, "Worklets bundle mode is not supported on OxyOS yet");
     }
     proxy_ = initializer_->finalize(rt, false, [] { return worklets::BundleModeConfig{}; });
+    if (auto runtime = proxy_ ? proxy_->getUIWorkletRuntime() : nullptr) makeWorkletsCompiled(runtime->getJSIRuntime());
     return jsi::Value(true);
   });
   module->method("start", [this](jsi::Runtime&, const jsi::Value*, size_t) {
@@ -107,6 +112,44 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
   module->method("prepareBundleMode", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value(false); });
   module->unsupported({"toggleSlowAnimationsOnUIRuntime"});
   return module;
+}
+
+void WorkletsHost::makeWorkletsCompiled(jsi::Runtime& ui) {
+  // Worklets make a worklet on the UI runtime the first time it runs there, from its text: with
+  // `evalWithSourceUrl(code, "worklet_<hash>")` where the runtime has one (worklets' own
+  // valueUnpacker), else `eval`. Hermes compiling each from source cost about a quarter of a
+  // millisecond, hundreds of them before Settings' first frame showed its text (docs/performance.mdx).
+  // The framework's are compiled ahead (`__oxyosWorklets`, by that URL), evaluated here from their
+  // file, mapped and shared by every application on this runtime; a worklet the framework does
+  // not have (an application's own) is compiled from its text, as worklets would.
+  if (!compiled_.empty()) {
+    try {
+      ui.evaluateJavaScript(react::JSBigFileString::fromPath(compiled_), compiled_);
+    } catch (const std::exception& error) {
+      std::cerr << "[host] the framework's worklets compiled ahead could not be read (" << error.what()
+                << "): each is compiled from its text\n";
+    }
+  }
+  ui.global().setProperty(
+      ui, "evalWithSourceUrl",
+      jsi::Function::createFromHostFunction(
+          ui, jsi::PropNameID::forAscii(ui, "evalWithSourceUrl"), 2,
+          [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) -> jsi::Value {
+            if (count < 2 || !args[0].isString() || !args[1].isString()) {
+              throw jsi::JSError(rt, "evalWithSourceUrl: a worklet's text and its URL");
+            }
+            std::string url = args[1].getString(rt).utf8(rt);
+            auto table = rt.global().getProperty(rt, "__oxyosWorklets");
+            if (table.isObject()) {
+              auto compiled = table.getObject(rt).getProperty(rt, url.c_str());
+              if (compiled.isObject()) {
+                Report::get().worklet(url, true);
+                return compiled;
+              }
+            }
+            Report::get().worklet(url, false);
+            return rt.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(args[0].getString(rt).utf8(rt)), url);
+          }));
 }
 
 void WorkletsHost::watchRequests() {

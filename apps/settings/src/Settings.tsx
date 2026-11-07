@@ -99,11 +99,12 @@ import {
   joinFailureNeedsNote,
   otherNetworks,
   SCAN_INTERVAL_MS,
-  signalBars,
   type KnownNetwork,
   type NearbyNetwork,
   type NetworkDetails,
 } from "./network";
+// The platform's one rule for a signal's arcs, the shell's (and the session's).
+import { signalArcs } from "../../shell/src/network";
 import {
   hourCycleOf,
   languageItems,
@@ -1960,7 +1961,7 @@ function PrivacyPage({ snapshot, actions, strings }: PageProps) {
     faint. Its words are its row's. */
 function SignalGlyph({ signal }: { signal: number }) {
   const theme = useTheme();
-  const bars = signalBars(signal);
+  const bars = signalArcs(signal);
   const arc = (on: boolean) => (on ? theme.colors.text : theme.colors.textTertiary);
   return (
     <Svg width={18} height={14} viewBox="0 0 20 16">
@@ -1993,7 +1994,7 @@ function networkLabel(
   ...states: (string | null | undefined)[]
 ): string {
   const glyphs = network
-    ? [isLocked(network.security) ? words.secured : words.open, words.signal(signalBars(network.signal))]
+    ? [isLocked(network.security) ? words.secured : words.open, words.signal(signalArcs(network.signal))]
     : [];
   return [ssid, ...states, ...glyphs].filter(Boolean).join(", ");
 }
