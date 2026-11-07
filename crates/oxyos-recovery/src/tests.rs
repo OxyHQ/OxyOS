@@ -1133,7 +1133,7 @@ fn a_wifi_password_goes_on_standard_input_never_on_the_command_line() {
     assert_eq!(host.inputs[0].1, b"hunter2\n");
 }
 
-// A machine converted by hand (ADR 0054, "Machines that boot with GRUB").
+// A machine converted by hand (ADR 0054, decision 9).
 
 /// The ThinkPad's disk after its conversion: Debian's EFI system partition and root (the generic
 /// Linux type), OxyOS Recovery taken from the swap, and the swap that is left.

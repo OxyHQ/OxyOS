@@ -80,7 +80,7 @@ pub enum Kind {
     /// systemd-repart, which an erase can make again.
     Installed,
     /// By hand: a machine converted to OxyOS on the partitions it had, its recovery added in space
-    /// of its own (ADR 0054, "Machines that boot with GRUB"). Its root is named by the recovery's
+    /// of its own (ADR 0054, decision 9). Its root is named by the recovery's
     /// boot entry (`oxyos.recovery.root=PARTUUID=…`), not by its type. Its disk is not an install's,
     /// so nothing erases it: erasing such a machine is installing OxyOS onto it from the
     /// installation medium.
