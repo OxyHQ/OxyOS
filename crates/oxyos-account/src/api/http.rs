@@ -12,8 +12,8 @@ use zeroize::Zeroizing;
 const MAX_ANSWER: u64 = 256 * 1024;
 
 pub struct HttpApi {
-    agent: Agent,
-    base: String,
+    pub(crate) agent: Agent,
+    pub(crate) base: String,
 }
 
 impl HttpApi {
@@ -102,7 +102,7 @@ pub(crate) struct Answer {
     pub(crate) body: Zeroizing<Vec<u8>>,
 }
 
-fn answer(
+pub(crate) fn answer(
     result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<Answer, ApiError> {
     let mut response = result.map_err(transport)?;
@@ -142,7 +142,7 @@ struct ErrorBody {
     error: Option<serde_json::Value>,
 }
 
-fn refusal(answer: &Answer) -> ApiError {
+pub(crate) fn refusal(answer: &Answer) -> ApiError {
     let code = serde_json::from_slice::<ErrorBody>(&answer.body)
         .ok()
         .and_then(|body| body.error)
@@ -186,13 +186,13 @@ struct Data<T> {
 /// An answer in `sendSuccess`'s envelope or bare: the application mint's is read either way.
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum Enveloped<T> {
+pub(crate) enum Enveloped<T> {
     Data { data: T },
     Bare(T),
 }
 
 impl<T> Enveloped<T> {
-    fn into_inner(self) -> T {
+    pub(crate) fn into_inner(self) -> T {
         match self {
             Enveloped::Data { data } | Enveloped::Bare(data) => data,
         }

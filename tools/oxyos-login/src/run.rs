@@ -328,6 +328,11 @@ impl Login {
                 }
             }
             Action::Answer { verdict, wait_s } => {
+                // Accepted, the password opens the account's keychain (ADR 0050 decision 2)
+                // before it is let go.
+                if verdict == Verdict::Accepted {
+                    self.unlock_keychain();
+                }
                 // The attempt has concluded: its password is let go.
                 if matches!(verdict, Verdict::Accepted | Verdict::Rejected) {
                     self.password = None;
@@ -409,6 +414,31 @@ impl Login {
                 }
             }
         }
+    }
+
+    /// Gives the accepted password to the accounts' service, which unlocks the account's keychain
+    /// with it, on a thread of its own: the keybag's Argon2id never delays the session, and a
+    /// keychain that does not unlock signs nobody out.
+    fn unlock_keychain(&self) {
+        let (Some(account), Some(password)) = (self.manager.handing_over(), &self.password) else {
+            return;
+        };
+        let Ok(text) = std::str::from_utf8(password) else {
+            return;
+        };
+        let password = oxyos_account::Secret::new(text);
+        let account = account.to_owned();
+        let socket = self.config.accountd.clone();
+        let _ = std::thread::Builder::new()
+            .name("oxyos-login-keychain".into())
+            .spawn(move || {
+                match oxyos_account::ipc::unlock_keychain(&socket, &account, password) {
+                    Ok(state) => eprintln!("[login] {account}'s keychain: {state:?}"),
+                    Err(error) => {
+                        eprintln!("[login] {account}'s keychain was not unlocked: {error}")
+                    }
+                }
+            });
     }
 
     /// On the development path, the login screen's part ends when it is told: its connection is

@@ -104,6 +104,18 @@ fn accounts(socket: &Path, verifier: PathBuf, oxy: Oxy) {
                 };
                 let _ = connection.send(&Answer::Checked(checked));
             }
+            Ok(Some(Some(Request::UnlockKeychain { user, password }))) => {
+                // Whose keychain, and that its password came: never the password itself.
+                let line = format!("{user} {}\n", password.expose().len());
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(verifier.with_file_name("unlocked"))
+                    .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+                let _ = connection.send(&Answer::Keychain(
+                    oxyos_account::keychain::KeychainState::Off,
+                ));
+            }
             _ => {}
         }
     });
@@ -207,6 +219,14 @@ fn a_wrong_password_is_refused_and_the_right_one_starts_the_session() {
     assert!(recorded.contains("XDG_SESSION_CLASS"), "{recorded}");
     assert_eq!(recorded.lines().count(), 1);
     assert!(!recorded.contains(PASSWORD));
+    // The accepted password, and it alone, unlocked Ada's keychain (ADR 0050 decision 2).
+    let unlocked = dir.0.join("unlocked");
+    let mut said = String::new();
+    wait_for("the keychain's unlock", || {
+        said = std::fs::read_to_string(&unlocked).unwrap_or_default();
+        !said.is_empty()
+    });
+    assert_eq!(said, format!("{ADA} {}\n", PASSWORD.len()));
     stop(login);
 }
 
@@ -241,5 +261,6 @@ fn an_account_oxy_signed_out_does_not_sign_in_with_its_old_password() {
     );
     std::thread::sleep(Duration::from_millis(300));
     assert!(!record.exists(), "nobody signed in");
+    assert!(!dir.0.join("unlocked").exists(), "no keychain unlocked");
     stop(login);
 }

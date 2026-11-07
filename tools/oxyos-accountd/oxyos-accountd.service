@@ -34,10 +34,18 @@ Environment=OXYOS_SESSION_PROGRAM=/usr/bin/oxyos-session
 Environment=OXYOS_LOGIN_PROGRAM=/usr/libexec/oxyos/oxyos-login
 EnvironmentFile=-/etc/oxyos/accountd.conf
 
-# Its own: /var/lib/oxyos/accounts (0700) and its sockets' directory, /run/oxyos/accountd (0755:
-# its socket and the session socket, both 0666, whose peers the kernel names).
-StateDirectory=oxyos/accounts
+# Its own: /var/lib/oxyos/accounts and /var/lib/oxyos/keychain (0700; a directory per account's
+# keychain in it, ADR 0050) and its sockets' directory, /run/oxyos/accountd (0755: its socket and
+# the session socket, both 0666, whose peers the kernel names).
+StateDirectory=oxyos/accounts oxyos/keychain
 StateDirectoryMode=0700
+
+# The keychains' keys are locked in memory while their sessions are unlocked (mlock, ADR 0050
+# decision 2): a page per key, a few per account, counted against RLIMIT_MEMLOCK, which it has
+# without CAP_IPC_LOCK. A key that cannot be locked keeps its keychain locked, so the limit is set
+# well above what it needs. Nothing it holds is ever written to a core file.
+LimitMEMLOCK=16M
+LimitCORE=0
 RuntimeDirectory=oxyos/accountd
 RuntimeDirectoryMode=0755
 

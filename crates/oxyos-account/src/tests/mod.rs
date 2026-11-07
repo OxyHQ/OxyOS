@@ -8,6 +8,8 @@ mod dev_server;
 mod erase;
 mod id;
 mod ipc;
+#[cfg(feature = "keychain")]
+mod keychain;
 mod platform;
 mod session;
 mod setup;

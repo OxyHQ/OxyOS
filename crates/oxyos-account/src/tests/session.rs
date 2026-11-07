@@ -16,7 +16,7 @@ use std::process::{Child, ChildStdout};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-fn me() -> u32 {
+pub(super) fn me() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
@@ -26,16 +26,16 @@ fn parent_program() -> PathBuf {
     std::fs::read_link(format!("/proc/{}/exe", parent.as_raw_nonzero())).unwrap()
 }
 
-struct Socket {
-    path: PathBuf,
-    sessions: Arc<Sessions<FakeApi, FakeUsers>>,
-    machine: Machine,
-    system: Arc<FakeSystem>,
+pub(super) struct Socket {
+    pub(super) path: PathBuf,
+    pub(super) sessions: Arc<Sessions<FakeApi, FakeUsers>>,
+    pub(super) machine: Machine,
+    pub(super) system: Arc<FakeSystem>,
 }
 
 /// A service whose session socket serves every connection on a thread of its own, Ada enrolled
 /// as this test's user (and so the machine's administrator).
-fn service(api: FakeApi) -> Socket {
+pub(super) fn service(api: FakeApi) -> Socket {
     let machine = machine_as(api, PASSWORD, Some(me()));
     let path = machine.dir.path().join("session");
     let listener = crate::ipc::Listener::bind(&path).unwrap();
@@ -100,13 +100,13 @@ if len(sys.argv) > 2:
     run(sys.argv[1], json.loads(sys.argv[2]))
 "#;
 
-struct Application {
+pub(super) struct Application {
     child: Child,
     output: BufReader<ChildStdout>,
 }
 
 impl Application {
-    fn start(socket: &Socket, steps: serde_json::Value) -> Self {
+    pub(super) fn start(socket: &Socket, steps: serde_json::Value) -> Self {
         let mut child = std::process::Command::new("python3")
             .args(["-I", "-c", APPLICATION])
             .arg(&socket.path)
@@ -120,18 +120,18 @@ impl Application {
         Self { child, output }
     }
 
-    fn pidfd(&self) -> rustix::fd::OwnedFd {
+    pub(super) fn pidfd(&self) -> rustix::fd::OwnedFd {
         pidfd::open(self.child.id()).unwrap()
     }
 
     /// Lets it go on (connect, or past a "wait").
-    fn go(&mut self) {
+    pub(super) fn go(&mut self) {
         let stdin = self.child.stdin.as_mut().unwrap();
         stdin.write_all(b"go\n").unwrap();
         stdin.flush().unwrap();
     }
 
-    fn line(&mut self) -> serde_json::Value {
+    pub(super) fn line(&mut self) -> serde_json::Value {
         let mut line = String::new();
         self.output.read_line(&mut line).unwrap();
         if line.trim() == "closed" {
@@ -140,17 +140,17 @@ impl Application {
         serde_json::from_str(line.trim()).unwrap_or_else(|_| panic!("not JSON: {line:?}"))
     }
 
-    fn end(mut self) {
+    pub(super) fn end(mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
 
-fn not_permitted() -> serde_json::Value {
+pub(super) fn not_permitted() -> serde_json::Value {
     serde_json::json!({"refused": {"reason": "notPermitted"}})
 }
 
-fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
+pub(super) fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !done() {
         assert!(Instant::now() < deadline, "waited too long for {what}");

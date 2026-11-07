@@ -18,8 +18,13 @@ pub enum Error {
     Signature(&'static str),
     /// The roster does not verify.
     Roster(crate::roster::RosterError),
-    /// An item older than one already seen (its counter went back).
+    /// An item older than one already seen (its counter went back), or Oxy's revision going back.
     Rollback,
+    /// Oxy answered something other than what was asked or verified (another member, another
+    /// enrollment, a ciphertext not the one sent): refused, never used.
+    Answer(&'static str),
+    /// A recovery key that is not the vault's.
+    NotThisRecoveryKey,
     /// The keybag did not open with the password given.
     WrongPassword,
     /// The store already holds a keybag, or records sealed under one (made once; changed only by
@@ -30,6 +35,8 @@ pub enum Error {
     Unsafe(PathBuf),
     /// The system's random generator failed.
     Random,
+    /// A key could not be locked in memory (`mlock`, the process's `RLIMIT_MEMLOCK`).
+    Memory(io::Error),
     Io(io::Error),
 }
 
@@ -41,6 +48,8 @@ impl fmt::Display for Error {
             Error::Signature(what) => write!(f, "signature refused: {what}"),
             Error::Roster(error) => write!(f, "roster refused: {error}"),
             Error::Rollback => f.write_str("an item older than one already seen"),
+            Error::Answer(what) => write!(f, "Oxy's answer refused: {what}"),
+            Error::NotThisRecoveryKey => f.write_str("not this vault's recovery key"),
             Error::WrongPassword => f.write_str("the keybag does not open with this password"),
             Error::Exists => f.write_str("the keychain's store is not empty"),
             Error::Unsafe(path) => write!(
@@ -49,6 +58,7 @@ impl fmt::Display for Error {
                 path.display()
             ),
             Error::Random => f.write_str("the system's random generator failed"),
+            Error::Memory(error) => write!(f, "a key cannot be locked in memory: {error}"),
             Error::Io(error) => write!(f, "{error}"),
         }
     }
@@ -57,7 +67,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::Io(error) => Some(error),
+            Error::Io(error) | Error::Memory(error) => Some(error),
             Error::Roster(error) => Some(error),
             _ => None,
         }

@@ -1,6 +1,7 @@
 //! A member device's keys (Oxy ADR 0063 D2): Ed25519 to sign, X25519 to be sealed to. Made on
 //! the machine, kept in its store sealed, never sent anywhere.
 
+use crate::memory::Pinned;
 use crate::wire::getrandom;
 use crate::Result;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
@@ -12,6 +13,8 @@ use zeroize::Zeroizing;
 pub struct KeyPairs {
     signing: Box<SigningKey>,
     boxing: Box<StaticSecret>,
+    /// Declared after the keys: let go once they are overwritten.
+    pinned: Vec<Pinned>,
 }
 
 impl KeyPairs {
@@ -29,7 +32,18 @@ impl KeyPairs {
         Self {
             signing: Box::new(SigningKey::from_bytes(signing)),
             boxing: Box::new(StaticSecret::from(*boxing)),
+            pinned: Vec::new(),
         }
+    }
+
+    /// Locks both secret keys in memory ([`crate::memory`]).
+    pub fn pin(&mut self) -> Result<()> {
+        if self.pinned.is_empty() {
+            let signing = Pinned::of(&*self.signing)?;
+            let boxing = Pinned::of(&*self.boxing)?;
+            self.pinned = vec![signing, boxing];
+        }
+        Ok(())
     }
 
     /// The Ed25519 public key.

@@ -240,6 +240,8 @@ pub struct Platform<A, U> {
     watchers: Mutex<Vec<(u32, Weak<OwnedFd>)>>,
     /// Checks still asking Oxy after their answer was given, for [`Platform::settle`].
     background: Arc<(Mutex<usize>, Condvar)>,
+    /// The accounts' keychains (ADR 0050), when the service runs them.
+    keychains: std::sync::OnceLock<Arc<dyn crate::keychain::Keychains>>,
     /// The machine's erase is armed: nothing more is asked of Oxy but its accounts' sign-outs.
     erasing: AtomicBool,
 }
@@ -292,8 +294,19 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             revision: AtomicU64::new(now_millis()),
             watchers: Mutex::new(Vec::new()),
             background: Arc::new((Mutex::new(0), Condvar::new())),
+            keychains: std::sync::OnceLock::new(),
             erasing: AtomicBool::new(erasing),
         }
+    }
+
+    /// Gives the platform the accounts' keychains (once).
+    pub fn set_keychains(&self, keychains: Arc<dyn crate::keychain::Keychains>) {
+        let _ = self.keychains.set(keychains);
+    }
+
+    /// The accounts' keychains, when the service runs them.
+    pub fn keychains(&self) -> Option<&Arc<dyn crate::keychain::Keychains>> {
+        self.keychains.get()
     }
 
     pub fn setup(&self) -> &Setup<A, U> {
@@ -860,6 +873,9 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             .get(&enrollment.account)
             .map_err(|error| RemoveError::Failed(error.to_string()))?
             .ok_or(RemoveError::NotEnrolled)?;
+        if let Some(keychains) = self.keychains() {
+            keychains.lock(enrollment.uid);
+        }
         if let Some(credential) = &enrollment.credential {
             self.setup.end_online(credential, &enrollment.account);
         }
@@ -916,6 +932,9 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                  stays signed out"
             );
             return;
+        }
+        if let Some(keychains) = self.keychains() {
+            keychains.forget(enrollment.uid, user.as_str());
         }
         let _machine = self.setup.lock_machine();
         if let Err(error) = self.setup.store().remove(user) {

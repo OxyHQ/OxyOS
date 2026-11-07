@@ -657,6 +657,9 @@ fn main() -> Result<()> {
         }
     };
     let mut shell_started = Instant::now();
+    // Whether the session was locked at the end of the last turn: locking, its keychain locks too
+    // (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 2).
+    let mut was_locked = compositor.scene.is_locked();
     let ended = loop {
         // What woke the turn of children exiting: they are looked at below, every turn.
         drain(&children_exited);
@@ -1067,6 +1070,14 @@ fn main() -> Result<()> {
                 break Ok(());
             }
         }
+        // Locked in this turn: the keychain locks before the turn waits.
+        let locked = compositor.scene.is_locked();
+        if locked && !was_locked {
+            if let Some(registrar) = REGISTRAR.get() {
+                registrar.keychain_lock();
+            }
+        }
+        was_locked = locked;
         // The turn waits until the next thing due on a clock, if anything is sooner than IDLE_WAIT:
         // the login screen's splash ending, a shell started again, the sun crossing the horizon,
         // a display's mode on trial going back.
