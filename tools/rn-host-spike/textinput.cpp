@@ -18,6 +18,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 using namespace facebook::react;
@@ -155,6 +157,78 @@ State::Shared TextInputComponentDescriptor::createInitialState(
     const ShadowNodeFamily::Shared& family) const {
   return std::make_shared<AndroidTextInputShadowNode::ConcreteState>(
       std::make_shared<const AndroidTextInputState>(AndroidTextInputState({}, {}, {}, 0)), family);
+}
+
+namespace {
+
+// Each text input props' `textContentType`, by the props it belongs to, while they live; only
+// those that have one are kept.
+struct ContentTypes {
+  std::mutex lock;
+  std::unordered_map<const Props*, std::pair<std::weak_ptr<const Props>, std::string>> byProps;
+  size_t added = 0;
+};
+
+ContentTypes& contentTypes() {
+  static ContentTypes table;
+  return table;
+}
+
+}  // namespace
+
+std::string textContentTypeOf(const Props& props) {
+  auto& table = contentTypes();
+  std::lock_guard<std::mutex> held(table.lock);
+  auto it = table.byProps.find(&props);
+  return it == table.byProps.end() ? std::string{} : it->second.second;
+}
+
+Props::Shared TextInputComponentDescriptor::cloneProps(const PropsParserContext& context, const Props::Shared& props,
+                                                       RawProps rawProps) const {
+  // As JavaScript gave it, before Android's props, which drop it, are made; one not given again is
+  // the source's, one set to null (removed) none.
+  std::string type = props ? textContentTypeOf(*props) : std::string{};
+  if (!rawProps.isEmpty()) {
+    folly::dynamic raw = rawProps.toDynamic();
+    if (raw.isObject()) {
+      if (auto it = raw.find("textContentType"); it != raw.items().end()) {
+        type = it->second.isString() ? it->second.asString() : std::string{};
+      }
+    }
+  }
+  auto made = ConcreteComponentDescriptor::cloneProps(context, props, std::move(rawProps));
+  auto& table = contentTypes();
+  std::lock_guard<std::mutex> held(table.lock);
+  if (++table.added % 256 == 0) {
+    for (auto it = table.byProps.begin(); it != table.byProps.end();) {
+      it = it->second.first.expired() ? table.byProps.erase(it) : std::next(it);
+    }
+  }
+  if (type.empty()) {
+    table.byProps.erase(made.get());
+  } else {
+    table.byProps[made.get()] = {made, std::move(type)};
+  }
+  return made;
+}
+
+uint8_t autofillContent(const AndroidTextInputProps& props, const std::string& textContentType) {
+  // iOS's textContentType first, as an application that sets both means it.
+  if (textContentType == "username") return OXYOS_CONTENT_USERNAME;
+  if (textContentType == "emailAddress") return OXYOS_CONTENT_EMAIL;
+  if (textContentType == "password") return OXYOS_CONTENT_PASSWORD;
+  if (textContentType == "newPassword") return OXYOS_CONTENT_NEW_PASSWORD;
+  if (textContentType == "oneTimeCode") return OXYOS_CONTENT_ONE_TIME_CODE;
+  // `autoComplete` reaches Android's props as React Native maps the web's names (TextInput.js,
+  // autoCompleteWebToAutoCompleteAndroidMap): `current-password` as `password`, `new-password` as
+  // `password-new`, `one-time-code` as `sms-otp`; a name it does not map arrives as given.
+  const auto& hint = props.autoComplete;
+  if (hint == "username") return OXYOS_CONTENT_USERNAME;
+  if (hint == "email") return OXYOS_CONTENT_EMAIL;
+  if (hint == "password" || hint == "current-password") return OXYOS_CONTENT_PASSWORD;
+  if (hint == "password-new" || hint == "new-password") return OXYOS_CONTENT_NEW_PASSWORD;
+  if (hint == "sms-otp" || hint == "one-time-code") return OXYOS_CONTENT_ONE_TIME_CODE;
+  return OXYOS_CONTENT_NONE;
 }
 
 void TextInputComponentDescriptor::adopt(ShadowNode& shadowNode) const {
@@ -524,6 +598,9 @@ std::optional<TextEditing::Field> TextEditing::field() const {
   // `autoCorrect` is not told: these props cannot tell it unset from false.
   if (props->autoCapitalize == "none") field.hints |= OXYOS_HINT_NO_CAPITALIZATION;
   if (props->multiline) field.hints |= OXYOS_HINT_MULTILINE;
+  // What it holds for AutoFill, and whether its pair is on the same surface.
+  field.content = autofillContent(*props, textContentTypeOf(*props));
+  field.paired = field.content != OXYOS_CONTENT_NONE && pairedOf(focused_) >= 0;
   if (field.purpose == OXYOS_PURPOSE_PASSWORD || field.purpose == OXYOS_PURPOSE_PIN) return field;
   // The composition belongs to the input method: the text is told without it, the caret where
   // it begins.
@@ -543,7 +620,13 @@ std::optional<Rect> TextEditing::caretRect() const {
   auto placement = locate_(focused_);
   if (it == tree_.views().end() || !placement) return std::nullopt;
   const auto& view = it->second.view;
-  if (std::static_pointer_cast<const AndroidTextInputProps>(view.props)->secureTextEntry) return std::nullopt;
+  // A secure field's caret, which says how long its password is, is told only for AutoFill's
+  // list, placed under it (docs/adr/0050-keychain-autofill-and-passkeys.mdx): to the compositor
+  // alone, which tells no input method of a password field (ADR 0008, decision 4).
+  if (std::static_pointer_cast<const AndroidTextInputProps>(view.props)->secureTextEntry &&
+      contentOf(focused_) == OXYOS_CONTENT_NONE) {
+    return std::nullopt;
+  }
   auto caret = TextInputGeometry(view, text_).caret(caret_);
   auto content = view.layoutMetrics.getContentFrame();
   Point scroll{};
@@ -694,6 +777,112 @@ std::string TextEditing::valueOf(Tag tag) const {
       ->getData()
       .attributedStringBox.getValue()
       .getString();
+}
+
+uint8_t TextEditing::contentOf(Tag tag) const {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end() || std::string(it->second.view.componentName ? it->second.view.componentName : "") !=
+                                       "AndroidTextInput") {
+    return OXYOS_CONTENT_NONE;
+  }
+  const auto& props = *std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  return autofillContent(props, textContentTypeOf(props));
+}
+
+Tag TextEditing::pairedOf(Tag tag) const {
+  auto own = contentOf(tag);
+  auto placement = locate_(tag);
+  if (own == OXYOS_CONTENT_NONE || own == OXYOS_CONTENT_ONE_TIME_CODE || own == OXYOS_CONTENT_NEW_PASSWORD ||
+      !placement) {
+    return -1;
+  }
+  bool password = own == OXYOS_CONTENT_PASSWORD;
+  // The text inputs in tree order, from the root down, each before its children.
+  std::vector<Tag> inputs;
+  std::vector<Tag> pending{tree_.root()};
+  while (!pending.empty()) {
+    Tag at = pending.back();
+    pending.pop_back();
+    auto it = tree_.views().find(at);
+    if (it == tree_.views().end()) continue;
+    if (std::string(it->second.view.componentName ? it->second.view.componentName : "") == "AndroidTextInput") {
+      inputs.push_back(at);
+    }
+    pending.insert(pending.end(), it->second.children.rbegin(), it->second.children.rend());
+  }
+  // The other half of the pair: for a username or an email, a password (a field saying so, or a
+  // secure one saying nothing else); for a password, a username or an email. Editable, on the
+  // same surface.
+  auto other = [&](Tag candidate) {
+    if (candidate == tag) return false;
+    auto it = tree_.views().find(candidate);
+    const auto& props = *std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+    auto at = locate_(candidate);
+    if (!props.editable || !at || at->surface != placement->surface) return false;
+    auto content = autofillContent(props, textContentTypeOf(props));
+    if (password) return content == OXYOS_CONTENT_USERNAME || content == OXYOS_CONTENT_EMAIL;
+    return content == OXYOS_CONTENT_PASSWORD || (props.secureTextEntry && content == OXYOS_CONTENT_NONE);
+  };
+  auto self = std::find(inputs.begin(), inputs.end(), tag);
+  if (self == inputs.end()) return -1;
+  auto after = std::find_if(std::next(self), inputs.end(), other);
+  auto before = std::find_if(std::make_reverse_iterator(self), inputs.rend(), other);
+  if (password) {
+    if (before != inputs.rend()) return *before;
+    return after != inputs.end() ? *after : -1;
+  }
+  if (after != inputs.end()) return *after;
+  return before != inputs.rend() ? *before : -1;
+}
+
+void TextEditing::setUnfocusedText(Tag tag, std::string text) {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end() || !it->second.view.state || tag == focused_) return;
+  const auto& view = it->second.view;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  if (!props->editable) return;
+  text = fitted(*props, std::move(text), 0);
+  const auto& state = std::static_pointer_cast<const TextInputState>(view.state);
+  auto data = state->getData();
+  if (data.attributedStringBox.getValue().getString() == text) return;
+  int count = static_cast<int>(data.mostRecentEventCount) + 1;
+  data.attributedStringBox = AttributedStringBox{attributed(*props, text)};
+  data.mostRecentEventCount = count;
+  state->updateState(std::move(data));
+  // Focused later, its caret is at the end of what was filled, its old edits gone.
+  histories_.erase(tag);
+  unfocusedSelections_.erase(tag);
+  int end = utf16Length(text);
+  view.eventEmitter->dispatchEvent("change", folly::dynamic::object("text", text)("eventCount", count)("target", tag)(
+                                                 "selection", folly::dynamic::object("start", end)("end", end)));
+  std::string shown;
+  if (props->secureTextEntry) {
+    for (size_t i = 0; i < text.size(); ++i) {
+      if (!continuation(text, i)) shown += "\u2022";
+    }
+  } else {
+    shown = text;
+  }
+  Report::get().deliver("change", 0, view, folly::dynamic::object("text", shown)("eventCount", count));
+}
+
+void TextEditing::fill(const OxyOSTextFill& fill) {
+  if (focused_ < 0) return;
+  auto placement = locate_(focused_);
+  if (!placement || fill.surface != placement->surface) return;
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  // The pair as the field told it, found before its own text changes.
+  Tag paired = fill.has_paired_fill ? pairedOf(focused_) : -1;
+  if (fill.has_fill && props->editable) {
+    endComposition();
+    // One edit of its own, as a paste: replaced whole, the caret after it; no key press.
+    merging_ = false;
+    replace(0, text_.size(), fitted(*props, std::string(fill.fill, fill.fill_length), 0), "");
+    merging_ = false;
+  }
+  if (paired >= 0) setUnfocusedText(paired, std::string(fill.paired_fill, fill.paired_fill_length));
 }
 
 bool TextEditing::onSelection(uint32_t surface, float x, float y) const {

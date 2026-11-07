@@ -29,6 +29,11 @@
 //!   can be reached, its verifier locked and credential forgotten at once; then its sessions
 //!   ended, its user and home removed, its file and picture forgotten.
 //!
+//! - **Erasing the machine** ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx), the
+//!   [`erase`](crate::erase) module's): once the erase is armed the platform mints no token and
+//!   checks no password online ([`Platform::begin_erasing`]), and every account is signed out of
+//!   this device online as removing one does ([`Platform::sign_out_for_erase`]).
+//!
 //! Every change of an account's file happens under the machine's lock ([`Setup::lock_machine`])
 //! and only if the file still holds the credential the change was made from, so a setup, a
 //! rotation and a revocation never undo one another. An account's online calls are made one at a
@@ -37,13 +42,13 @@
 use crate::api::{ApiError, Attestation, DeviceCredential, OxyApi, Profile, SignInStep};
 use crate::secret::Secret;
 use crate::setup::Setup;
-use crate::store::{Enrollment, State};
+use crate::store::{Enrollment, State, ERASE_ARMED};
 use crate::users::{verifier_password, Users, UsersError};
-use crate::AccountId;
+use crate::{AccountId, UserName};
 use rustix::fd::OwnedFd;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, SystemTime};
 
@@ -237,6 +242,8 @@ pub struct Platform<A, U> {
     background: Arc<(Mutex<usize>, Condvar)>,
     /// The accounts' keychains (ADR 0050), when the service runs them.
     keychains: std::sync::OnceLock<Arc<dyn crate::keychain::Keychains>>,
+    /// The machine's erase is armed: nothing more is asked of Oxy but its accounts' sign-outs.
+    erasing: AtomicBool,
 }
 
 fn now_millis() -> u64 {
@@ -278,6 +285,9 @@ pub fn attestation(desktop_entry_id: &str, system: bool) -> Attestation {
 
 impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platform<A, U> {
     pub fn new(setup: Setup<A, U>) -> Self {
+        // An erase armed before the service started again still holds: the machine is erased at
+        // its next boot, and nothing more is asked of Oxy until then.
+        let erasing = setup.store().fact(ERASE_ARMED);
         Self {
             setup,
             live: Mutex::new(HashMap::new()),
@@ -285,6 +295,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             watchers: Mutex::new(Vec::new()),
             background: Arc::new((Mutex::new(0), Condvar::new())),
             keychains: std::sync::OnceLock::new(),
+            erasing: AtomicBool::new(erasing),
         }
     }
 
@@ -434,6 +445,9 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
     /// more than [`REFRESH_BEFORE`] left (unless `reason` says it was refused), else a new one.
     /// None offline, signed out, or refused.
     pub fn token(&self, uid: u32, attestation: &Attestation, reason: TokenReason) -> Option<Token> {
+        if self.erasing() {
+            return None;
+        }
         let enrollment = self.enrollment_of(uid).ok().flatten()?;
         let user = enrollment.user.as_str().to_owned();
         let calls = self.online_calls(&user);
@@ -617,6 +631,9 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         let Some(platform) = self.setup.platform() else {
             return Online::Failed("not configured".into());
         };
+        if self.erasing() {
+            return Online::Failed("the machine is being erased".into());
+        }
         let calls = self.online_calls(enrollment.user.as_str());
         let _calls = calls.lock().unwrap_or_else(|p| p.into_inner());
         let api = self.setup.api();
@@ -930,6 +947,50 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(user.as_str());
+    }
+
+    /// Whether Oxy was reached by the last call made for `user`'s account, as its snapshot says.
+    pub fn online(&self, user: &UserName) -> bool {
+        self.with_live(user.as_str(), |live| live.online)
+    }
+
+    /// The machine's erase is armed (ADR 0054): from now on no token is minted and no password is
+    /// checked online; only [`Platform::sign_out_for_erase`] asks Oxy anything. Recorded in the
+    /// store, so the service started again before the machine restarts keeps to it.
+    pub fn begin_erasing(&self) {
+        self.erasing.store(true, Ordering::SeqCst);
+        if let Err(error) = self.setup.store().record_fact(ERASE_ARMED) {
+            eprintln!(
+                "oxyos-accountd: that the erase is armed cannot be recorded: {error}; this \
+                 service keeps to it until it stops"
+            );
+        }
+    }
+
+    pub fn erasing(&self) -> bool {
+        self.erasing.load(Ordering::SeqCst)
+    }
+
+    /// Signs `user`'s account out of this device online, as removing it does (its own token
+    /// minted, `POST /session/device/signout {all: true}`), under its online calls and with the
+    /// credential its file holds now. Ok when Oxy ended it, or there was nothing left to end (no
+    /// credential, a session already gone); else why not (offline, refused). The file is left as
+    /// it is: the erase takes it with the disk.
+    pub fn sign_out_for_erase(&self, user: &UserName) -> Result<(), String> {
+        let calls = self.online_calls(user.as_str());
+        let _calls = calls.lock().unwrap_or_else(|p| p.into_inner());
+        let enrollment = self
+            .setup
+            .store()
+            .get_user(user.as_str())
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "no longer enrolled".to_owned())?;
+        let Some(credential) = &enrollment.credential else {
+            return Ok(());
+        };
+        self.setup
+            .sign_out_online(credential, &enrollment.account)
+            .map_err(|error| error.to_string())
     }
 
     /// The account `user` names, if it is enrolled.

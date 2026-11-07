@@ -138,6 +138,11 @@ fn requests() -> Vec<Request> {
             surface: 1,
             text: TextChunk::new("nate@").unwrap(),
         },
+        Request::TextInputContentType {
+            surface: 1,
+            content: TextContentType::Email,
+            paired: true,
+        },
         Request::TextInputSelection {
             surface: 1,
             anchor: 5,
@@ -820,6 +825,11 @@ fn events() -> Vec<Event> {
             end: 3,
             style: PreeditStyle::Converting,
         },
+        Event::TextInputFill {
+            surface: 1,
+            paired: true,
+            text: TextChunk::new("fixture-password").unwrap(),
+        },
         Event::TextInputDone {
             surface: 1,
             serial: 12,
@@ -1220,6 +1230,36 @@ fn notification_fields_and_outcomes_are_closed_sets() {
     .unwrap();
     bytes[4 + 1 + 4] = 11;
     assert!(read_request(&mut Cursor::new(bytes)).is_err());
+}
+
+#[test]
+fn text_content_types_are_a_closed_set() {
+    for (raw, content) in [
+        (0, TextContentType::None),
+        (1, TextContentType::Username),
+        (2, TextContentType::Email),
+        (3, TextContentType::Password),
+        (4, TextContentType::NewPassword),
+        (5, TextContentType::OneTimeCode),
+    ] {
+        assert_eq!(TextContentType::from_raw(raw), Some(content));
+    }
+    assert!(TextContentType::from_raw(6).is_none());
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::TextInputContentType {
+            surface: 1,
+            content: TextContentType::Password,
+            paired: false,
+        },
+    )
+    .unwrap();
+    // The content type follows the 4-byte length, the opcode and the surface.
+    let mut bad = bytes.clone();
+    bad[4 + 1 + 4] = 6;
+    assert!(read_request(&mut Cursor::new(bad)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
 }
 
 #[test]
@@ -1851,6 +1891,25 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         read_event_for(&mut Cursor::new(&v29), 29).unwrap(),
         wallpaper
     );
+    // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) is version 30's: a field of a
+    // compositor of version 29 never says what it holds, and is never filled.
+    let content = Request::TextInputContentType {
+        surface: 1,
+        content: TextContentType::Username,
+        paired: true,
+    };
+    assert_eq!(request_since(&content), 30);
+    let fill = Event::TextInputFill {
+        surface: 1,
+        paired: false,
+        text: TextChunk::new("bea@example.com").unwrap(),
+    };
+    assert_eq!(event_since(&fill), 30);
+    assert!(!write_event_for(&mut nothing, &fill, 29).unwrap());
+    let mut v30 = Vec::new();
+    assert!(write_event_for(&mut v30, &fill, 30).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v30), 30).unwrap(), fill);
+    assert!(read_event_for(&mut Cursor::new(&v30), 29).is_err());
     // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
     let scroll = Event::Scroll {
         surface: 1,

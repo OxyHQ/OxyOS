@@ -26,7 +26,7 @@ mod tests;
 mod text_input;
 pub use candidates::Candidates;
 pub use gpu::{GpuChange, GpuTable, SyncPoints, MAX_PLANES};
-pub use text_input::{Field, Transaction};
+pub use text_input::{Field, FillText, Transaction};
 
 /// The compositor closed the connection. A socket closed while requests were still unread
 /// reports a reset instead of end-of-file; both mean the same to the client.

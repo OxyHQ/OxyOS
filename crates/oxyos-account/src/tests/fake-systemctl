@@ -1,0 +1,9 @@
+#!/bin/sh
+# systemctl's stand-in for the tests (erase.rs, `systemctl`): run through a link, it writes down
+# how it was run beside that link ($0.log), says $0.load-state for `show` and exits $0.start-status
+# for `start`. A script the test wrote itself could not be run reliably (users.rs, `recording_tools`).
+echo "$*" >> "$0.log"
+case "$2" in
+  show) cat "$0.load-state" ;;
+  start) exit "$(cat "$0.start-status")" ;;
+esac

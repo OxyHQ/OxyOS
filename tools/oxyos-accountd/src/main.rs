@@ -8,11 +8,18 @@
 //!   login screen where Oxy is. Only root and the login program's user may.
 //! - The session socket (`oxyos-account`'s `session`): the session program registers what it
 //!   launches and checks the lock's passwords online; the applications it launched get the
-//!   platform's Oxy session (snapshots, tokens) and Settings removes the account.
+//!   platform's Oxy session (snapshots, tokens) and Settings removes the account, or erases the
+//!   machine ([ADR 0054](../../../docs/adr/0054-recovery-and-erasing.mdx), `oxyos-account`'s
+//!   `erase`): an administrator's own password, checked by PAM under `oxyos-accountd`
+//!   ([`passwords`]), `oxyos-erase.service` started to arm it, then the machine restarted.
 //! - The accounts' keychains (`oxyos-account`'s `keychain`, ADR 0050): unlocked by the login
 //!   program and the session's lock with the account's password, locked with the session; AutoFill
 //!   for the session, the vault for Settings, synced with Oxy with OxyOS's own token. Their keys are
 //!   locked in memory: a keychain whose keys cannot be stays locked (the unit's `LimitMEMLOCK`).
+//!
+//! The first account set up on a machine is its administrator (a member of `sudo`); at its start
+//! the service makes the enrolled account with the lowest uid one where accounts are enrolled and
+//! none is (a machine set up before administrators existed).
 //!
 //! Its configuration is its unit's environment:
 //! - `OXYOS_OXY_API`: Oxy's API, `https://api.oxy.so` by default (plain HTTP only to this
@@ -38,7 +45,10 @@
 //! It logs what each request came to (the account's user, the reason it was refused) on standard
 //! error, the journal's; never a password, a secret, a code or a token.
 
+mod passwords;
+
 use oxyos_account::api::{Attestation, HttpApi, PlatformClient};
+use oxyos_account::erase::{Eraser, Systemctl};
 use oxyos_account::ipc::{self, Enrollers, Listener, Outcome, Peer};
 use oxyos_account::keychain::service::{self as keychain, KeychainService, Memory, TokenSource};
 use oxyos_account::platform::{Platform, TokenReason};
@@ -170,6 +180,19 @@ fn session_log(uid: u32, event: &Event) {
             eprintln!("oxyos-accountd: uid {uid}'s lock checked its password: {checked:?}")
         }
         Event::Removed => eprintln!("oxyos-accountd: uid {uid}'s Settings removed its account"),
+        Event::ErasePreviewed => {
+            eprintln!("oxyos-accountd: uid {uid}'s Settings asked what erasing would do")
+        }
+        Event::Erasing {
+            signed_out,
+            not_signed_out,
+        } => eprintln!(
+            "oxyos-accountd: uid {uid}'s Settings erased this machine: {signed_out} accounts \
+             signed out online, {not_signed_out} not; restarting"
+        ),
+        Event::EraseRefused(reason) => {
+            eprintln!("oxyos-accountd: uid {uid}'s Settings: the erase refused: {reason:?}")
+        }
         Event::Refused(_) => {
             eprintln!("oxyos-accountd: uid {uid} on the session socket: not permitted")
         }
@@ -288,6 +311,14 @@ fn run() -> Result<(), String> {
              passwords are not checked online"
         ),
     }
+    match setup.ensure_administrator() {
+        Ok(Some(user)) => eprintln!(
+            "oxyos-accountd: no enrolled account was an administrator: {user}, the first set up, \
+             is now"
+        ),
+        Ok(None) => {}
+        Err(error) => eprintln!("oxyos-accountd: the machine has no administrator: {error}"),
+    }
     let platform: Arc<Service> = Arc::new(Platform::new(setup));
     // The accounts' keychains, synced with OxyOS's own token for each account.
     let tokens = Arc::downgrade(&platform);
@@ -329,6 +360,10 @@ fn run() -> Result<(), String> {
         Registrars::new(
             options.session_program.clone(),
             options.login_program.clone(),
+        ),
+        Eraser::new(
+            Box::new(Systemctl::new()),
+            Box::new(passwords::PamPasswords::new()),
         ),
     ));
     std::thread::Builder::new()

@@ -298,6 +298,12 @@ pub enum Step {
     /// The played sound changes (`--sound`, docs/adr/0056-sound-devices.mdx): headphones plugged
     /// in, a display unplugged, another program's volume (`oxyos_audio::Played::act`).
     Sound(String),
+    /// The played BlueZ changes the machine (`--bluetooth-bus`, docs/adr/0055-bluetooth.mdx): its
+    /// control interface's `Act`, a device appearing, asking to pair, a code typed on it.
+    Bluetooth(String),
+    /// The played power services change the machine (`--power-bus`, docs/adr/0057-battery-and-
+    /// energy.mdx): unplugged, a lower charge, UPower's warning.
+    Power(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -483,6 +489,8 @@ impl Step {
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
             Step::Network(what) => format!("the network daemon: {what}"),
             Step::Sound(what) => format!("the sound: {what}"),
+            Step::Bluetooth(what) => format!("BlueZ: {what}"),
+            Step::Power(what) => format!("the power services: {what}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -687,6 +695,8 @@ impl Step {
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
             Step::Network(what) => format!("\"network\":{}", json_string(what)),
             Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
+            Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
+            Step::Power(what) => format!("\"power\":{}", json_string(what)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -801,6 +811,9 @@ pub struct Launch {
     /// `--im-candidates horizontal|vertical`: it hands the system candidates for what it
     /// composes, which the session's shell draws (ADR 0041).
     pub im_candidates: Option<crate::ime::Layout>,
+    /// `--autofill-fixture ID`: AutoFill answered by the fixture keychain, its items associated
+    /// with the application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+    pub autofill_fixture: Option<String>,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
@@ -880,6 +893,16 @@ pub struct Launch {
     /// volumes (`--controls`) are its chosen devices', and each step's result says what it is
     /// then (`sound`).
     pub sound: Option<PathBuf>,
+    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth (docs/adr/0055-bluetooth.mdx) is the
+    /// BlueZ on this bus, a played one (`oxyos-fake-bluez`), never the system's; the played
+    /// machine's Bluetooth (`--controls`) follows it too, and each step's result says what BlueZ
+    /// holds (`bluetooth`).
+    pub bluetooth_bus: Option<String>,
+    /// `--power-bus ADDRESS`: UPower, power-profiles-daemon and logind as played on this bus
+    /// (`oxyos-offscreen --play-power`), never the system's; the session's battery and energy
+    /// (docs/adr/0057-battery-and-energy.mdx) and the played machine's battery (`--controls`) are
+    /// theirs, and each step's result says what they hold (`power`).
+    pub power_bus: Option<String>,
     /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
     /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
     /// in a directory of the run's own with nothing learned before.
@@ -907,7 +930,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1002,6 +1025,7 @@ impl Launch {
         let mut launch_settle = SETTLE;
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
+        let mut autofill_fixture = None;
         let mut shell = None;
         let mut file_chooser = None;
         let mut companion = None;
@@ -1012,6 +1036,8 @@ impl Launch {
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
         let mut sound = None;
+        let mut bluetooth_bus = None;
+        let mut power_bus = None;
         let mut input_methods = None;
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
@@ -1118,6 +1144,11 @@ impl Launch {
                     );
                     continue;
                 }
+                Some("--autofill-fixture") => {
+                    let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    autofill_fixture = Some(id.to_string());
+                    continue;
+                }
                 Some("--preferences") => {
                     preferences = Some(args.next().ok_or(USAGE)?.into());
                     continue;
@@ -1137,6 +1168,16 @@ impl Launch {
                 Some("--network-bus") => {
                     let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     network_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--bluetooth-bus") => {
+                    let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    bluetooth_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--power-bus") => {
+                    let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    power_bus = Some(address.to_string());
                     continue;
                 }
                 Some("--input-sources-available") => {
@@ -1579,6 +1620,14 @@ impl Launch {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Network(what.to_string())
                 }
+                Some("--bluetooth") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Bluetooth(what.to_string())
+                }
+                Some("--power") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Power(what.to_string())
+                }
                 Some("--clipboard") => {
                     let list = args.next().ok_or(USAGE)?;
                     let mut contents = Vec::new();
@@ -1737,6 +1786,7 @@ impl Launch {
                 launch_settle,
                 input_method,
                 im_candidates,
+                autofill_fixture,
                 shell,
                 file_chooser,
                 companion,
@@ -1757,6 +1807,8 @@ impl Launch {
                 controls,
                 network_bus,
                 sound,
+                bluetooth_bus,
+                power_bus,
                 input_methods,
                 input_sources_available,
                 outputs: screens,
@@ -2121,6 +2173,44 @@ fn shell_json(compositor: &Compositor) -> String {
         compositor.scene.is_locked(),
         compositor.signed_in
     )
+}
+
+/// AutoFill during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
+/// `--autofill-fixture`: the list a shell draws now (its items, the highlighted one) and what the
+/// fixture keychain was asked since the last step; `null` without it.
+fn autofill_json(session: &Session) -> String {
+    let Some(keychain) = session.autofill_keychain.as_ref() else {
+        return "null".to_string();
+    };
+    let asked: Vec<String> = std::mem::take(&mut keychain.borrow_mut().asked)
+        .iter()
+        .map(|asked| json_string(asked))
+        .collect();
+    let shown =
+        session
+            .compositor
+            .scene
+            .autofill_shown()
+            .map_or("null".to_string(), |(_, list)| {
+                let items: Vec<String> = list
+                    .items
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "{{\"kind\":\"{:?}\",\"title\":{},\"detail\":{}}}",
+                            item.kind,
+                            json_string(&item.title),
+                            json_string(&item.detail)
+                        )
+                    })
+                    .collect();
+                format!(
+                    "{{\"highlighted\":{},\"items\":[{}]}}",
+                    list.highlighted,
+                    items.join(",")
+                )
+            });
+    format!("{{\"shown\":{shown},\"asked\":[{}]}}", asked.join(","))
 }
 
 /// The application's first popup, if one is shown.
@@ -2518,6 +2608,8 @@ fn transactions_json(session: &Session) -> String {
     let mut transactions = Vec::new();
     let (mut delete, mut commit, mut preedit) = ((0, 0), String::new(), String::new());
     let (mut cursor, mut segments) = ((0, 0), Vec::new());
+    // AutoFill's fill of the field and of its pair, by its bytes.
+    let (mut fill, mut paired_fill): (Option<String>, Option<usize>) = (None, None);
     for (client, event) in &session.compositor.text_input_log {
         if *client != CLIENT {
             continue;
@@ -2534,6 +2626,13 @@ fn transactions_json(session: &Session) -> String {
             }
             oxyos_protocol::Event::TextInputPreeditCursor { begin, end, .. } => {
                 cursor = (*begin, *end)
+            }
+            oxyos_protocol::Event::TextInputFill { paired, text, .. } => {
+                if *paired {
+                    *paired_fill.get_or_insert(0) += text.as_str().len();
+                } else {
+                    fill.get_or_insert_with(String::new).push_str(text.as_str());
+                }
             }
             oxyos_protocol::Event::TextInputPreeditSegment {
                 begin, end, style, ..
@@ -2559,6 +2658,20 @@ fn transactions_json(session: &Session) -> String {
                                 | oxyos_protocol::TextPurpose::Pin
                         ) || state.hints.contains(oxyos_protocol::TextHints::SENSITIVE)
                     });
+                // A fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the field's text, as
+                // any transaction's, and only how long its paired field's is (a password).
+                if fill.is_some() || paired_fill.is_some() {
+                    let own = match fill.take() {
+                        Some(_) if secret => "{\"withheld\":true}".to_string(),
+                        Some(text) => json_string(&text),
+                        None => "null".to_string(),
+                    };
+                    let paired = paired_fill
+                        .take()
+                        .map_or("null".to_string(), |bytes| bytes.to_string());
+                    transactions.push(format!("{{\"fill\":{own},\"paired_fill_bytes\":{paired}}}"));
+                    continue;
+                }
                 if secret {
                     transactions.push("{\"withheld\":true}".to_string());
                     (delete, cursor) = ((0, 0), (0, 0));
@@ -4757,6 +4870,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Clipboard(_)
         | Step::Network(_)
         | Step::Sound(_)
+        | Step::Bluetooth(_)
+        | Step::Power(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -4797,7 +4912,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             "--displays plays the session's displays: no --outputs or --kms with it".into(),
         );
     }
-    if let Some(address) = &launch.network_bus {
+    if let Some(address) = launch
+        .network_bus
+        .as_ref()
+        .or(launch.bluetooth_bus.as_ref())
+    {
+        // D-Bus's runtime (zbus's, on async-io) keeps a reactor for the life of the process (its
+        // poller, its wake and its timer): started now, a connection made and gone, it is the
+        // process's before the session counts its descriptors, as the session's own would be.
+        drop(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
+    if let Some(address) = launch.power_bus.as_ref().or(launch.network_bus.as_ref()) {
         // D-Bus's runtime (zbus's, on async-io) keeps a reactor for the life of the process (its
         // poller, its wake and its timer): started now, a connection made and gone, it is the
         // process's before the session counts its descriptors, as the session's own would be.
@@ -4868,6 +4993,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
         )?);
     }
+    if let Some(application) = &launch.autofill_fixture {
+        // AutoFill as the session serves it, its keychain the fixture's.
+        let keychain = std::rc::Rc::new(std::cell::RefCell::new(
+            crate::autofill::FixtureKeychain::new(application.clone()),
+        ));
+        session.autofill = Some(oxyos_compositor::autofill::Autofill::new(Box::new(
+            crate::autofill::Shared(keychain.clone()),
+        )));
+        session.autofill_keychain = Some(keychain);
+    }
     if let Some(methods) = &launch.input_sources_available {
         // The state played or the engine run, never both telling it.
         if launch.input_methods.is_some() {
@@ -4888,6 +5023,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.compositor.wakers.push(waker);
         session.networks = Some(networks);
         session.network_control =
+            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
+    if let Some(address) = &launch.bluetooth_bus {
+        // The session's Bluetooth and its pairing agent, over the played BlueZ on the run's own
+        // bus.
+        let bluetooth = oxyos_compositor::bluetooth::Bluetooth::on_bus(Some(address.clone()))?;
+        let waker = bluetooth.wake_fd()?;
+        session.bluetooth_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.bluetooth = Some(bluetooth);
+        session.bluetooth_control =
             Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
     }
     if let Some(prefix) = &launch.input_methods {
@@ -4927,6 +5073,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ));
         session.played_sound = Some(played);
     }
+    if let Some(address) = &launch.power_bus {
+        // The played power services' control: a step changes the machine and its result says
+        // what they hold.
+        session.power_control =
+            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+    }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
         let mut fake = oxyos_controls::Fake::from_file(file.clone())?;
@@ -4936,10 +5088,32 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let Some(address) = &launch.network_bus {
             fake = fake.with_network_bus(address)?;
         }
+        if let Some(address) = &launch.power_bus {
+            fake = fake.with_power_bus(address)?;
+        }
         session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
             oxyos_controls::Worker::inline(Box::new(fake.clone())),
         ));
         session.controls = Some(fake);
+    }
+    if let Some(address) = &launch.power_bus {
+        // The machine's power services, played on the run's own bus, and the session's side of
+        // battery and energy over them (ADR 0057); its history in the session's own directory.
+        if session.compositor.controls.is_none() {
+            let fake = oxyos_controls::Fake::parse("")?.with_power_bus(address)?;
+            session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
+                oxyos_controls::Worker::inline(Box::new(fake.clone())),
+            ));
+            session.controls = Some(fake);
+        }
+        let power = oxyos_compositor::power::Power::new(
+            Some(address.clone()),
+            Some(session.directory().join("battery-history")),
+        )?;
+        let waker = power.wake_fd()?;
+        session.power_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.power = Some(power);
     }
     if launch.input_method {
         let mut ime = crate::ime::Ime::connect(&mut session.compositor)?;
@@ -5452,6 +5626,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Bluetooth(_)) => {
+                if let Step::Bluetooth(what) = step {
+                    session.bluetooth_act(what)?;
+                }
+                0
+            }
+            _ if matches!(step, Step::Power(_)) => {
+                if let Step::Power(what) = step {
+                    session.power_act(what)?;
+                }
+                0
+            }
             _ if matches!(step, Step::Clipboard(_)) => {
                 if let (Step::Clipboard(contents), Some(pasteboard)) =
                     (step, session.pasteboard.as_mut())
@@ -5668,7 +5854,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5686,6 +5872,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .input_sources
                 .as_ref()
                 .map_or("null".to_string(), |sources| sources.json()),
+            autofill_json(&session),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             minimize_target_json(&session.compositor),
@@ -5699,6 +5886,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .played_sound
                 .as_ref()
                 .map_or("null".to_string(), |played| played.machine().to_string()),
+            session.bluetooth_state(),
+            session.power_state(),
+            session.compositor.displays_off(),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(
                 &session.compositor,

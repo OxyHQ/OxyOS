@@ -121,6 +121,8 @@ impl Scene {
                 .insert(client, id.to_string());
             // Started for a notification's response (ADR 0026): it is given it now.
             self.deliver_pending_responses(client, id);
+            // Its field focused before its launch record was found is offered AutoFill now.
+            self.refresh_autofill();
         }
     }
 

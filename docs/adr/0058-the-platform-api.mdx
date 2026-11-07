@@ -1,0 +1,122 @@
+---
+title: "ADR 0058: The platform API"
+description: One typed, documented, versioned JavaScript API through which everything that runs on OxyOS reaches the platform (files, tags, search, notifications, the pasteboard, drag and drop, sounds, the network, Bluetooth, power, the keychain, the account, windows and menus), in the spirit of a Mac's frameworks. It covers its frameworks and names, its conventions (async, cancellable, one error type, followed state), one permission gate in the host, its versioning, and how today's forty-odd modules migrate to it without a big bang.
+order: 67
+---
+
+# ADR 0058: The platform API
+
+Status: **accepted** (decided on 7 November 2026, at the platform author's request for "a good OS API, like macOS's or better"); steps to come, each its own pull request. Builds on [ADR 0001](./0001-native-platform-boundaries) (the session authority, grants), [ADR 0015](./0015-application-model) (an application never asks which platform it is on), [ADR 0030](./0030-installing-applications) (capabilities, decision 8; runtimes' `abi` and `api`, decision 2; the framework, decision 17) and [ADR 0033](./0033-protocol-versions) (a version only adds).
+
+## Problem
+
+Every part of the platform an application can reach was added by the decision that needed it, each in the shape that decision chose. A survey of `main` (7bcf348a, 7 November 2026) found:
+
+- **About 45 TurboModules** registered in one `if`/`else` (`tools/rn-host-spike/host-modules.cpp`, `createHostModule`), and the glue that turns them into what applications use (`sample/oxyos/*.js`: `system.js`, `files.js`, `platform-surface.js`, `expo-adapter.js`, `session-host.js`, `shell-state.js` …).
+- **Six ways to answer a call**: a promise; a serial the host chooses and a global event that names it (`OxyOSSystem`, `OxyOSFileChooser`, `OxyOSSettings`); a serial JavaScript chooses (`OxyOSNotifications.post`); node-style callbacks (AsyncStorage, AccessibilityInfo); a callback argument (`OxyOSDrag.start`'s `onCancel`); one listener at a time (`OxyOSKeyboard.setListener`).
+- **Five ways to fail**: a `JSError` thrown synchronously, even from a method that returns a promise (the clipboard, `OxyOSFiles.request`); a rejected `Error` with a message; a resolved `{refused: {reason}}` or `{failed: {reason}}` that never rejects (every system request, the account, the chooser); a typed code (`FilesError.code`, Expo's `ERR_*`, `SearchError.code`); and silence (a notification posted without the capability answers `false`, a sound or a thumbnail without a grant nothing).
+- **Four ways to be missing**: the module is `null` (`OxyOSFiles` where there is no files service), `getConstants().available` is false (Window, MenuBar, Editing, Sounds, Drag, AccountSession), the first call throws (Shell, System, FileChooser, Notifications, Clipboard), or `getEnforcing` crashes the bundle (the Expo adapter's `OxyOSCrypto`, `OxyOSApplication`, `OxyOSClipboard`). Nothing tells JavaScript the API level it runs on except those flags.
+- **Calls that block the JavaScript thread on another process**: `OxyOSShell.accounts()` and `OxyOSAccountSession.snapshot()`/`platform()` (sockets to `oxyos-accountd`), `OxyOSSettings.getApplications`/`getWallpapers`/`getSystem` (the registry and the disk), every `OxyOSFiles.call`.
+- **No cancellation** for a system request (`system.js`'s `waiting` map is never emptied of a request the session does not answer), a capability asked (its listener stays), the account's promises, a drag, a paste or a search; only the chooser, networking, images and transfers can be cancelled.
+- **Two or more ways to do one thing**: Wi-Fi on and off (`OxyOSShell.setWifiEnabled`, `system.js`'s `network.setWifi`); the output volume (`setControlLevel('output')`, `{soundVolume}`); Do Not Disturb and the appearance (their own shell calls, `setPreference`); locking (`OxyOSShell.lockSession`, `OxyOSAccountSession.lockSession`); opening a URL (`OxyOSShell.openUrl`, `IntentAndroid.openURL`, which refuses all but `oxyos-settings://`); the locale (`I18nManager`, frozen at start, `OxyOSLocale`, `__oxyosIntl`, `ExpoLocalization`); the network's state (`RNCNetInfo` from the kernel, `system.js`'s from NetworkManager); choosing files (four ways).
+- **Capabilities enforced in some places only.** ADR 0030, decision 8, says the host enforces every capability an installed application was granted. `network` is checked by three copies of the same lines (`network.cpp`, `websocket.cpp`, `images.cpp`, each `LaunchCapabilities::fromEnvironment()`), but not for `expo-file-system`'s downloads and uploads (`crates/oxyos-files/src/transfer.rs`), which reach the network through the files service; `files` is checked nowhere (only the paths' scope applies); `notifications` is the only one through `services.system.allows`.
+- **Names in four styles**: `OxyOS*` modules beside Android's (`IntentAndroid`, `ImageLoader`) and Expo's (`OxyOSExpoImage`); events as `OxyOS*Changed`, as nouns (`OxyOSShellLaunch`, `OxyOSSystemAnswer`), and as React Native's own (`appearanceChanged`, `websocketOpen`); the session's request vocabulary bare (`{scan}`, `{join}`, `{wifi}`) beside prefixed (`{bluetoothPower}`, `{soundVolume}`, `{chargeLimit}`); "sound" both the interface's sounds (`OxyOSSounds`) and the devices (`system.js`'s `sound`).
+- **ADRs that no longer say what is**: ADR 0030, decision 9, specifies `OxyOSStore` (`status`, `install`, `update`, `uninstall`, `open`), which the store's requests go through `OxyOSSystem.request` instead of; decision 8 names "ADR 0027's `OxyOSFiles`", and there is no ADR 0027.
+
+Each of these was right where it was added. Together they are not an API: nobody can learn it, document it, check it or keep it compatible.
+
+## What a Mac does
+
+macOS gives an application one set of frameworks, each owning one domain (Foundation's `FileManager`, UniformTypeIdentifiers, UserNotifications, `NSPasteboard`, Core Spotlight, AuthenticationServices, Network), under one discipline: one naming style, one error type (`NSError`: a domain and a code), asynchronous calls that can be cancelled (a completion handler or `async`, and `Task` cancellation), state followed through one mechanism (key-value observing, `Combine` publishers, `@Observable`), availability stated per symbol (`@available(macOS 14, *)`), and entitlements and privacy prompts (TCC) checked by the system, never by the application. What it does not give is a way to write the same application for the web and for phones; Oxy's applications are written once (ADR 0015), so OxyOS's API must also stay behind the cross-platform seams those applications already use.
+
+## Decision
+
+1. **One platform API: `@oxyos/platform`, in the runtime's framework.** Its frameworks, each one domain, each a subpath (`@oxyos/platform/files`) and a namespace of the root (`platform.files`):
+
+   | Framework | What | A Mac's | Who may use it | Today |
+   | --- | --- | --- | --- | --- |
+   | `application` | This application: its id, launch URL, directories, opening a URL or a file in another application, its permissions (`requestPermission`) | `NSWorkspace`, `Bundle` | Every application | `OxyOSApplication`, `IntentAndroid`, `OxyOSShell.openUrl`, `OxyOSSystem.requestCapability`, `getLaunch` |
+   | `files` | Items, places, the Trash, watching, transfers, tags; media types | `FileManager`, `URLResourceValues`, UniformTypeIdentifiers | `files` capability (and the paths' scope, ADR 0028) | `OxyOSFiles`, `files.js`, the `files` part of `platform-surface.js` |
+   | `chooser` | The system's open and save panels | `NSOpenPanel` | Every application, citing an input | `OxyOSFileChooser`, `file-chooser.js` |
+   | `search` | Searching the person's things, donating an application's own | Core Spotlight | Every application; results filtered by the service (ADR 0051, decision 6) | `OxyOSSearch`, `search.js` |
+   | `notifications` | Posting, withdrawing, responses | UserNotifications | `notifications` capability | `OxyOSNotifications`, `expo-adapter.js` |
+   | `pasteboard` | Copying and pasting | `NSPasteboard` | Every application, citing an input (ADR 0007) | `OxyOSClipboard` |
+   | `drag` | Dragging out and dropping in | `NSDraggingSession` | Every application, citing a press | `OxyOSDrag`, `OxyOSDropTargetView` |
+   | `sounds` | The system's interface sounds | `NSSound` system sounds | Every application, citing an input | `OxyOSSounds` |
+   | `network` | Reachability; Wi-Fi and networks | Network, CoreWLAN | Reachability: everyone. Wi-Fi: the `network` grant or `shell` | `RNCNetInfo`, `system.js`'s `network`, `OxyOSShell.setWifiEnabled` |
+   | `bluetooth` | Adapters and devices | IOBluetooth | `bluetooth` grant or `shell` | `system.js`'s `bluetooth` |
+   | `audio` | Output and input devices, volumes, the input level | Core Audio | `settings` grant or `shell` | `system.js`'s `sound`, `OxyOSShell.setControlLevel` |
+   | `power` | The battery, Low Power Mode, history, energy | IOKit power sources | `settings` grant or `shell` | `system.js`'s `power` |
+   | `keychain` | Credentials, AutoFill, passkeys | Security, AuthenticationServices | Every application, for what is associated with it (ADR 0050) | none yet |
+   | `account` | The Oxy session: who, a token, locking | (an Apple Account) | Every application the session launched | `OxyOSAccountSession`, `session-host.js` |
+   | `windows` | The window's state and operations, the menu bar, popups | AppKit's `NSWindow`, `NSMenu` | Every application, its own windows | `OxyOSWindow`, `OxyOSMenuBar`, `OxyOSPopupView` |
+   | `appearance` | Light or dark, the accent, reduced motion and transparency, the locale | `NSAppearance`, `Locale` | Every application | `Appearance`, `OxyOSPreferences`, `OxyOSLocale`, `I18nManager`, `ExpoLocalization` |
+   | `settings` | The session's preferences, displays, input sources, updates, privacy | System Settings' private frameworks | `settings`, `updates`, `privacy` grants | `OxyOSSettings`, `system.js`'s `updates`, `privacy`, `inputSources` |
+   | `store` | Installing, updating, removing applications | StoreKit's App Store side | `store` grant | `system.js`'s `store`, `store-installer.js` |
+   | `shell` | What only the session's shell does: windows of other applications, launching, the dock, sheets | (the Dock and WindowServer's private API) | `shell` grant | `OxyOSShell`, `shell-state.js` |
+
+   The interface's sounds are `sounds` and the devices are `audio`, so no name means two things. `settings`, `store` and `shell` are the platform's own, open only with their grant; the rest are every application's.
+
+2. **Who imports it.** ADR 0015 stands: an Oxy application, built once for the web, phones and OxyOS, never imports anything of OxyOS's and never asks which platform it is on. So:
+   - **Bloom's platform adapter** (`oxyosSurfaces`, `sample/oxyos/platform-surface.js`), **the Expo modules the runtime implements** (`expo-file-system`, `expo-notifications`, `expo-clipboard` …, `expo-adapter.js`) and **the Oxy SDK's seams** (the session host, the store's installer) are written over `@oxyos/platform` and nothing else. Dropsea's `usePlatformFiles`, `usePlatformDrag`, `usePlatformSearch` and Atlas's installer reach OxyOS through it, unchanged.
+   - **OxyOS's own applications** (the shell, Settings, the login screen) import it directly: they are OxyOS.
+   - **An application written for OxyOS alone** may import it too: importing it is not asking which platform it runs on, it is being an OxyOS application. A capability an Oxy application needs and Bloom lacks is added at its owner in Bloom (ADR 0015, decision 3), its OxyOS side this API.
+   - **The raw TurboModules are the runtime's private business.** They are reached only by the framework's own modules (`framework.mjs`'s `own`, and what they import), which ship with the host that implements them, so renaming or removing one changes neither the runtime's `abi` nor any package. Only `@oxyos/platform`'s exports are a contract.
+
+3. **One shape for every framework.**
+   - **Names.** Frameworks are nouns (`files`, `pasteboard`); functions are lowerCamel verbs (`files.list`, `pasteboard.writeText`, `notifications.post`); options are one object as the last argument; values are plain data (no classes across the boundary), enumerations string literals (`'output' | 'input'`), never numbers. A module behind framework `x` is `OxyOSX` (`OxyOSFiles`, `OxyOSPasteboard`). The session's request vocabulary (`SystemRequest`'s JSON) is named the same way inside each framework (`network.join`, `bluetooth.connect`), mapped to the wire's existing names by the package until the session is changed in its own step.
+   - **Asynchronous.** Everything that reaches another process or the disk returns a promise. Synchronous answers are only for what the host already holds (constants, the last state told, a cached value); no new synchronous call blocks the JavaScript thread on IPC, and the ones above become asynchronous (decision 8). `expo-file-system`'s `*Sync` methods stay synchronous because Expo defines them so.
+   - **Cancellable.** Every asynchronous call takes `{signal?: AbortSignal}` in its options. Aborting rejects it with `cancelled` at once and tells the host, which cancels what it can (a request on the protocol, a transfer, a search) and drops the answer otherwise; nothing waits forever, and no listener outlives its call.
+   - **One error.** A call fails by rejecting with a `PlatformError` (an `Error` with `domain`, the framework, and `code`), never by resolving `{refused}` or `{failed}`, never by throwing synchronously from a function that returns a promise, never by returning `false`. The codes are one closed list, each framework documenting which it uses: `notPermitted` (the capability or grant is missing), `needsInput` (no recent input of the person's to cite), `unavailable` (the platform has no such service here: no PipeWire, no files service), `notFound`, `exists`, `invalid`, `busy`, `locked` (the session is locked), `cancelled`, `failed` (with `reason`, the service's own words). The Expo modules map them to Expo's own codes, so an Expo application sees what it sees on Android.
+   - **Followed state.** What changes on its own (the network, Bluetooth, the battery, the sound devices, the input level, the appearance, a window's state, the account) is a `Followed<T>`: `current()` (the last told, or `null` before the first) and `subscribe(listener) => unsubscribe`, which is exactly what React's `useSyncExternalStore` takes. Following begins with the first subscriber and ends with the last, so what costs something to watch (the input's level, Bluetooth discovery, a folder's watch) is watched exactly while something shows it. `@oxyos/platform/react` gives `useFollowed(followed, select?)`, which re-renders only when the selected part changes. Events that are not state (a notification answered, a menu item chosen, a drop) are `on<Event>(listener) => unsubscribe` on their framework; no global `DeviceEventEmitter` names.
+   - **Present or not.** Each framework has `available` (a boolean, never a throw on import) and every function a documented API level (`@since`, decision 6). A framework that is not available rejects every call with `unavailable`; nothing crashes the bundle for a module the host lacks.
+   - **Citing an input.** What the person must have just asked for (copying, opening a URL, a sound, a drag, a join) cites the latest input the host received, as today; the API never takes a serial from JavaScript. Without one it rejects with `needsInput`.
+
+4. **One permission gate, in the host, before any work.** Each method of a framework's spec declares what it needs: nothing, a capability (`files`, `network`, `notifications`, `camera`, `microphone`, `location`, `oxy-account`; ADR 0030, decision 8) or a system grant (`settings`, `network`, `bluetooth`, `store`, `updates`, `privacy`, `shell`). The host checks it in one place (`Capabilities`, read once from the launch and updated by a capability granted at first use) before it does anything, and rejects with `notPermitted`; no module reads the environment itself. The session checks again what crosses the protocol, as it does today (a request without its grant is refused), so a host that is wrong is still refused. `application.requestPermission(capability)` asks the person at first use (the system's sheet, ADR 0030, decision 8) and answers `'granted' | 'denied'`; `application.permission(capability)` answers without asking. `expo-notifications`' `requestPermissionsAsync` and its siblings are that call.
+
+5. **The contract is typed, and checked against the host.** Each framework's native module has a spec in TypeScript (React Native's TurboModule spec, `NativeOxyOSFiles.ts`), and React Native's own codegen, which the runtime's build already runs for React Native's and Reanimated's specs (`rn-toolchain.sh`), makes the C++ base each module implements (`NativeOxyOSFilesCxxSpec`): a method the spec names and the host lacks, or a type that differs, does not compile. The package's public types (`.d.ts`, with each symbol's documentation and `@since`) are written over those specs, and are what the documentation is generated from. The host's hand-written method tables (`HostModule::method`) give way to the generated bases framework by framework.
+
+6. **Versioned, add-only, as the protocol.** The API's level is the runtime's `api` (ADR 0030, decision 2), exposed as `platform.api`. A runtime adds frameworks, functions, options, fields and codes; it never changes or removes one, nor what a value means (ADR 0033, decision 2). A function that must change gets a new name, and the old one stays until the runtime's `abi` that drops it, under ADR 0033's retirement policy (decision 6: two releases or six months, no package in the store built for it, said in the release notes). A package states the `api` it needs; the store serves it only to machines whose runtime has it (ADR 0030, decision 2).
+
+7. **One owner for each thing done twice.**
+
+   | What | Its owner | What goes |
+   | --- | --- | --- |
+   | Moving to the Trash, emptying it | `files.trash`, `files.emptyTrash` for an application. The dock's Trash stays the session's (`shell.trashDropped`, `shell.emptyTrash`): files dropped on it are another application's, moved citing the drop (ADR 0035, decision 12), and emptying it is confirmed in the system's sheet | nothing: two doors, each named for whose it is |
+   | Wi-Fi on and off | `network.setWifi` | `OxyOSShell.setWifiEnabled` |
+   | The output volume and mute | `audio.setVolume`, `audio.setMuted` | `OxyOSShell.setControlLevel('output'/'input')`, `setControlMuted` |
+   | Do Not Disturb, the appearance | `settings.setPreference` | `OxyOSShell.setDoNotDisturb`, `setAppearance` |
+   | Locking | `account.lock` | `OxyOSShell.lockSession` beside `OxyOSAccountSession.lockSession` |
+   | Opening a URL or a file elsewhere | `application.open` | `OxyOSShell.openUrl`, `IntentAndroid`'s own rule |
+   | Announcing to the screen reader | `appearance` keeps none; `AccessibilityInfo.announceForAccessibility` is React Native's, implemented over the shell's announcement | `OxyOSShell.announce` as a second door |
+   | The locale | `appearance.locale` (followed) | `OxyOSLocale` beside `I18nManager`'s frozen copy |
+   | The network's state | `network.reachability` (the kernel's, `oxyos-net`) and `network.wifi` (NetworkManager's), named apart | `RNCNetInfo` as a second source |
+   | The applications | `shell.applications` (followed) | `OxyOSSettings.getApplications` |
+   | Choosing files | `chooser.open`; Expo's pickers and Bloom's `files.chooser` over it | the separate paths in `expo-document-picker.js` and `expo-file-system.js` |
+
+8. **Nothing blocks the JavaScript thread on another process.** `account.current()` is followed state the host keeps (the session socket's own notifications update it); `shell.accounts()`, `settings.applications()`, `settings.wallpapers()` and `settings.system()` become promises answered from the host's own threads. The host's work for them runs off the JavaScript thread and answers through the call invoker, as networking does.
+
+9. **Documented with examples.** `docs/platform-api.mdx` says, for every framework, what it is for, what it needs, its functions and followed state with their `@since`, its errors, and an example; it is generated from the package's types and their examples so it cannot drift, and every example is compiled by the package's type check.
+
+10. **Held by tests.** Codegen holds the host to the specs (decision 5). Each framework's package has unit tests of its mapping (errors, cancellation, following), run with the apps' tests (`tools/shell-preview`, `pnpm test`). The scenarios that exercise a domain today go on doing so through the API; a scenario per framework checks `notPermitted` for an installed application without the capability, `needsInput` without an input, and `cancelled`.
+
+## Steps
+
+Each step is a pull request that leaves every scenario passing; old paths stay as adapters until their last caller moves, then go.
+
+1. **The permission gate.** `Capabilities` in the host, read once, consulted by every module; `network` checked for the files service's transfers; the three copies in `network.cpp`, `websocket.cpp` and `images.cpp` gone; a scenario of an installed application without `network` whose download is refused.
+2. **The package and its conventions.** `@oxyos/platform` in the runtime's framework: `PlatformError`, `Followed<T>` and `useFollowed`, the `available` and `api` constants, and `system.js`'s six hand-made followers (`updates`, `network`, `bluetooth`, `power`, `inputSources`, `audio`) and their hooks re-expressed as frameworks over one `followed()`; the shell and Settings migrate; the resolved `{refused}`/`{failed}` answers become rejections at the package's edge.
+3. **`audio`, `power`, `network`, `bluetooth` complete**, with cancellation of the session's requests (a serial abandoned is forgotten); the shell's control calls (decision 7) go.
+4. **`notifications`, `pasteboard`, `sounds`, `drag`, `chooser`**, the Expo modules and Bloom's adapter over them; the first modules on codegen's specs.
+5. **`files`**: the `files` capability checked, asked at first use as ADR 0030 says; `expo-file-system` over it.
+6. **`account` and `application`**: the account followed instead of a synchronous snapshot; opening a URL of any registered scheme through the session (Atlas's and Dropsea's `Linking.openURL` work); `requestPermission`.
+7. **`search` and `keychain`** land in this shape with their owners (ADR 0051, ADR 0050).
+8. **`windows`, `appearance`, `settings`, `store`, `shell`**, and the documentation page whole.
+9. **The old names go**: every `OxyOS*` module not behind a framework, the global event names, `system.js`'s `ask`.
+
+## Not in this decision
+
+- Renaming the session's request vocabulary on the wire (`SystemRequest`'s JSON), which changes the session and may come with a protocol version; until then the package maps names.
+- Camera, microphone and location, which have no host implementation yet; their frameworks come with them, in this shape.
+- Confinement (ADR 0030, decision 15): this API is what a confined application will be allowed to reach, but the kernel's enforcement is its own decision.
+- Native extensions (ADR 0030, decision 1).

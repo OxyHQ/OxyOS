@@ -4,7 +4,7 @@
  * OxyOS, natively and in the browser: only the model differs (docs/adr/0015-application-model.mdx).
  */
 import * as React from "react";
-import { AccessibilityInfo, Image, PanResponder, View } from "react-native";
+import { AccessibilityInfo, PanResponder, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
@@ -18,6 +18,8 @@ import {
 import {
   RiAccessibilityLine,
   RiAddLine,
+  RiBluetoothLine,
+  RiBatteryLine,
   RiCalendarLine,
   RiCheckLine,
   RiComputerLine,
@@ -32,6 +34,7 @@ import {
   RiNotification3Line,
   RiPaletteLine,
   RiRefreshLine,
+  RiResetLeftLine,
   RiShieldLine,
   RiUserLine,
   RiSubtractLine,
@@ -133,7 +136,11 @@ import {
 } from "./sound";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import { WallpaperPage } from "./WallpaperPage";
+import { BluetoothPage } from "./BluetoothPage";
+import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
+import { AccountPicture } from "./AccountPicture";
+import { TransferResetPage } from "./TransferResetPage";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -304,16 +311,6 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
   const act = actions.sound;
   const [tab, setTab] = React.useState<SoundDirection>("output");
   const reached = Boolean(state && act && state.available);
-  // The input's level is metered while the Input tab shows, and stopped when it is left or the page
-  // goes, so nothing listens to the input otherwise (ADR 0056, decision 7).
-  const metering = reached && tab === "input";
-  const meter = React.useRef(act?.meter);
-  meter.current = act?.meter;
-  React.useEffect(() => {
-    if (!metering) return undefined;
-    meter.current?.(true);
-    return () => meter.current?.(false);
-  }, [metering]);
   const effects = (
     <GroupedSection footer={words.uiSoundsDescription}>
       <ToggleItem
@@ -363,7 +360,7 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
       {tab === "output" ? (
         <SoundOutput side={side} act={act} words={words} />
       ) : (
-        <SoundInput side={side} level={snapshot.soundInputLevel ?? 0} act={act} words={words} />
+        <SoundInput side={side} act={act} words={words} />
       )}
     </View>
   );
@@ -581,17 +578,7 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
 }
 
 /** Input's volume, and the level as the session meters it while the tab is shown. */
-function SoundInput({
-  side,
-  level,
-  act,
-  words,
-}: {
-  side: SoundSide;
-  level: number;
-  act: SoundActions;
-  words: SoundWordsOf;
-}) {
+function SoundInput({ side, act, words }: { side: SoundSide; act: SoundActions; words: SoundWordsOf }) {
   return (
     <GroupedSection>
       {side.volume !== null ? (
@@ -607,16 +594,21 @@ function SoundInput({
         </SliderRow>
       ) : null}
       <SliderRow title={words.inputLevel} testID="sound-input-level-row">
-        <InputLevel level={level} words={words} />
+        <InputLevel follow={act.followLevel} words={words} />
       </SliderRow>
     </GroupedSection>
   );
 }
 
 /** The input level, as a Mac's: a row of small rounded segments, those the level reaches lit in
-    the accent. One element, a progress bar named by what it measures, its value in percent. */
-function InputLevel({ level, words }: { level: number; words: SoundWordsOf }) {
+    the accent. One element, a progress bar named by what it measures, its value in percent. The
+    input is metered while it shows (ADR 0056, decision 7), and a level told renders it alone:
+    it follows the level itself, about 23 times a second while the input hears, rather than
+    taking it from the page. */
+function InputLevel({ follow, words }: { follow: SoundActions["followLevel"]; words: SoundWordsOf }) {
   const theme = useTheme();
+  const [level, setLevel] = React.useState(0);
+  React.useEffect(() => follow(setLevel), [follow]);
   const lit = litSegments(level);
   const percent = percentOf(level);
   return (
@@ -2087,35 +2079,6 @@ function NetworkPage({ snapshot, strings, locale }: PageProps) {
   );
 }
 
-/** The account's picture, or its initials in a circle when it has none: decorative, its name is
-    beside it. Drawn as the sidebar's icon too, at the icon's size. */
-function AccountPicture({ view, size }: { view: AccountView & { kind: "signed_in" }; size: number }) {
-  const theme = useTheme();
-  return (
-    <View
-      importantForAccessibility="no-hide-descendants"
-      accessibilityElementsHidden
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        overflow: "hidden",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: theme.colors.primary,
-      }}
-    >
-      {view.picture ? (
-        <Image source={{ uri: view.picture }} style={{ width: size, height: size }} />
-      ) : (
-        <Text style={{ color: theme.colors.primaryForeground, fontSize: size * 0.4, fontWeight: "600" }}>
-          {view.initials}
-        </Text>
-      )}
-    </View>
-  );
-}
-
 /**
  * The Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5), as a Mac's Apple Account page:
  * the picture, the name and the handle; managing the account; signing out, which ends the session
@@ -2137,7 +2100,7 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
     <View style={PAGE}>
       {view.kind === "signed_in" ? (
         <View style={{ alignItems: "center", gap: 4 }} testID="oxy-account-card">
-          <AccountPicture view={view} size={72} />
+          <AccountPicture picture={view.picture} initials={view.initials} size={72} />
           <Text variant="title-3-semibold" style={{ marginTop: 8 }} testID="oxy-account-name">
             {view.name}
           </Text>
@@ -2238,20 +2201,25 @@ export function Settings({
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
   const props = { snapshot, actions, strings, locale };
   const words = strings.pages;
-  // Wi-Fi and Network first, as a Mac lists them, only with the platform's `network` grant.
+  // Wi-Fi, Bluetooth and Network first, as a Mac lists them: Wi-Fi and Network only with the
+  // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx);
+  // then Battery (Energy on a computer without one, docs/adr/0057-battery-and-energy.mdx), once the
+  // session has told it.
+  const networked = snapshot.network !== undefined;
+  const bluetooth = snapshot.bluetooth !== undefined;
+  const power = snapshot.power;
+  const connectionItems: SettingsNavGroup["items"] = [
+    ...(networked ? [{ key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" }] : []),
+    ...(bluetooth ? [{ key: "bluetooth", label: words.bluetooth, icon: RiBluetoothLine, page: "bluetooth" }] : []),
+    ...(networked ? [{ key: "network", label: words.network, icon: RiGlobalLine, page: "network" }] : []),
+    ...(power
+      ? [{ key: "battery", label: power.battery ? words.battery : words.energy, icon: RiBatteryLine, page: "battery" }]
+      : []),
+  ];
   const connections: SettingsNavGroup[] =
-    snapshot.network === undefined
+    connectionItems.length === 0
       ? []
-      : [
-          {
-            key: "connections",
-            label: strings.groups.connections,
-            items: [
-              { key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" },
-              { key: "network", label: words.network, icon: RiGlobalLine, page: "network" },
-            ],
-          },
-        ];
+      : [{ key: "connections", label: strings.groups.connections, items: connectionItems }];
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
@@ -2259,7 +2227,13 @@ export function Settings({
     if (account?.kind !== "signed_in") return RiUserLine;
     const shown = account;
     return function AccountIcon({ width }: { width?: number | string }) {
-      return <AccountPicture view={shown} size={typeof width === "number" ? width : 20} />;
+      return (
+        <AccountPicture
+          picture={shown.picture}
+          initials={shown.initials}
+          size={typeof width === "number" ? width : 20}
+        />
+      );
     };
     // The picture changes only with what it shows.
   }, [account?.kind, account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : ""]);
@@ -2306,6 +2280,8 @@ export function Settings({
         { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
         { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
         { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
+        // After Software Update, as a Mac's General lists Transfer or Reset.
+        { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
         { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
         { key: "about", label: words.about, icon: RiInformationLine, page: "about" },
       ],
@@ -2334,12 +2310,24 @@ export function Settings({
     "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },
     about: { title: words.about, content: <AboutPage {...props} /> },
     "software-update": { title: words.softwareUpdate, content: <SoftwareUpdatePage {...props} /> },
+    "transfer-reset": { title: words.transferReset, content: <TransferResetPage {...props} /> },
     privacy: { title: words.privacy, content: <PrivacyPage {...props} /> },
     ...(snapshot.network === undefined
       ? {}
       : {
           wifi: { title: words.wifi, content: <WifiPage {...props} /> },
           network: { title: words.network, content: <NetworkPage {...props} /> },
+        }),
+    ...(bluetooth ? { bluetooth: { title: words.bluetooth, content: <BluetoothPage {...props} /> } } : {}),
+    // Opened by its URL (`oxyos-settings://battery`, the battery's menu's Battery Settings…) even
+    // before the session has told the state, which it then shows.
+    ...(power === undefined
+      ? {}
+      : {
+          battery: {
+            title: power?.battery || power === null ? words.battery : words.energy,
+            content: <BatteryPage {...props} />,
+          },
         }),
   };
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.

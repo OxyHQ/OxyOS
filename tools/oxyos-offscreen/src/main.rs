@@ -9,6 +9,7 @@
 //! `--launch -- COMMAND` instead launches one application process (such as the native Bloom
 //! host), passing the socket in `OXYOS_COMPOSITOR_SOCKET`, and presses the points `--press` names.
 
+mod autofill;
 mod client;
 mod displays;
 mod ime;
@@ -147,16 +148,31 @@ struct Session {
     networks: Option<oxyos_compositor::networks::Networks>,
     networks_waker: Option<std::os::fd::RawFd>,
     network_control: Option<zbus::blocking::Connection>,
+    /// `--bluetooth-bus ADDRESS`: the session's Bluetooth over a played BlueZ (ADR 0055), its waker
+    /// among the compositor's, and a connection to the played BlueZ's control interface.
+    bluetooth: Option<oxyos_compositor::bluetooth::Bluetooth>,
+    bluetooth_waker: Option<std::os::fd::RawFd>,
+    bluetooth_control: Option<zbus::blocking::Connection>,
     /// `--sound FILE`: the session's sound's part (docs/adr/0056-sound-devices.mdx) over a played
     /// machine, which a step changes and whose state each step's result says.
     sound: Option<oxyos_compositor::sound_devices::SoundDevices>,
     played_sound: Option<std::sync::Arc<oxyos_audio::Played>>,
+    /// `--power-bus`: the session's battery and energy (ADR 0057), its waker among the
+    /// compositor's, and the power services played on the run's bus.
+    power: Option<oxyos_compositor::power::Power>,
+    power_waker: Option<std::os::fd::RawFd>,
+    /// A connection to the played power services' control (`oxyos-offscreen --play-power`).
+    pub power_control: Option<zbus::blocking::Connection>,
     /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
     input_methods_waker: Option<std::os::fd::RawFd>,
     /// `--input-sources-available`: the input sources the session tells, played (input_sources.rs).
     input_sources: Option<input_sources::InputSources>,
+    /// `--autofill-fixture ID`: AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) over
+    /// the fixture keychain (autofill.rs), and the director's handle on it.
+    autofill: Option<oxyos_compositor::autofill::Autofill>,
+    autofill_keychain: Option<std::rc::Rc<std::cell::RefCell<autofill::FixtureKeychain>>>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -290,7 +306,15 @@ impl Session {
             input_methods: None,
             input_methods_waker: None,
             network_control: None,
+            bluetooth: None,
+            bluetooth_waker: None,
+            bluetooth_control: None,
+            power: None,
+            power_waker: None,
+            power_control: None,
             input_sources: None,
+            autofill: None,
+            autofill_keychain: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
@@ -495,6 +519,99 @@ impl Session {
         .unwrap_or_else(|| "null".into())
     }
 
+    /// The played BlueZ changes the machine: its control interface's `Act` (ADR 0055).
+    pub fn bluetooth_act(&mut self, what: &str) -> Result<()> {
+        let bus = self
+            .bluetooth_control
+            .as_ref()
+            .ok_or("a bluetooth step needs --bluetooth-bus")?;
+        bus.call_method(
+            Some("org.bluez"),
+            "/so/oxy/OxyOS/FakeBlueZ",
+            Some("so.oxy.OxyOS.FakeBlueZ"),
+            "Act",
+            &(what,),
+        )?;
+        Ok(())
+    }
+
+    /// What the played BlueZ holds (its adapter, agent and devices, the calls made of it), for a
+    /// step's result; `null` without one.
+    pub fn bluetooth_state(&self) -> String {
+        let Some(bus) = self.bluetooth_control.as_ref() else {
+            return "null".into();
+        };
+        bus.call_method(
+            Some("org.bluez"),
+            "/so/oxy/OxyOS/FakeBlueZ",
+            Some("so.oxy.OxyOS.FakeBlueZ"),
+            "State",
+            &(),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<String>().ok())
+        .unwrap_or_else(|| "null".into())
+    }
+
+    /// The played power services change the machine (`--power-bus`, ADR 0057), and the session
+    /// reads the battery again, as its follower would on UPower's signal.
+    pub fn power_act(&mut self, what: &str) -> Result<()> {
+        let bus = self
+            .power_control
+            .as_ref()
+            .ok_or("a power step needs --power-bus")?;
+        bus.call_method(
+            Some("org.freedesktop.UPower"),
+            oxyos_power::played::CONTROL_PATH,
+            Some(oxyos_power::played::CONTROL),
+            "Act",
+            &(what,),
+        )?;
+        if let Some(controls) = self.compositor.controls.as_mut() {
+            controls.read_battery();
+        }
+        Ok(())
+    }
+
+    /// What the played power services hold, for a step's result; `null` without them.
+    pub fn power_state(&self) -> String {
+        let Some(bus) = self.power_control.as_ref() else {
+            return "null".into();
+        };
+        bus.call_method(
+            Some("org.freedesktop.UPower"),
+            oxyos_power::played::CONTROL_PATH,
+            Some(oxyos_power::played::CONTROL),
+            "Describe",
+            &(),
+        )
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<String>().ok())
+        .unwrap_or_else(|| "null".into())
+    }
+
+    /// The battery and energy's turn (ADR 0057): the applications the run started that run.
+    fn serve_power(&mut self) {
+        let Some(power) = self.power.as_mut() else {
+            return;
+        };
+        let running: Vec<oxyos_power::energy::Running> = self
+            .launcher
+            .as_ref()
+            .map(|launcher| {
+                launcher
+                    .running()
+                    .map(|(pid, launched)| oxyos_power::energy::Running {
+                        pid,
+                        id: launched.id.clone(),
+                        name: launched.name.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        power.serve(&mut self.compositor, self.settings.preferences(), &running);
+    }
+
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
@@ -502,8 +619,15 @@ impl Session {
         // the run, before the install service takes what is left.
         let login = self.compositor.login;
         self.signed_out |= oxyos_compositor::sign_out::serve(&mut self.compositor.scene, login);
+        // AutoFill's fields, picks and the shell's presses, before the install service takes the
+        // requests left.
+        if let Some(autofill) = self.autofill.as_mut() {
+            autofill.serve(&mut self.compositor);
+        }
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();
+        // Battery and energy (ADR 0057), before the install service takes what is left.
+        self.serve_power();
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.serve(&mut self.compositor.scene);
@@ -532,6 +656,18 @@ impl Session {
                 self.compositor.controls.as_mut(),
             ) {
                 controls.network_is(&mut self.compositor.scene, network);
+            }
+        }
+        // Bluetooth (ADR 0055), before the store takes the requests left; Control Center's module
+        // told from it.
+        if let Some(bluetooth) = self.bluetooth.as_mut() {
+            bluetooth.serve(&mut self.compositor.scene);
+            if let (true, Some(status), Some(controls)) = (
+                bluetooth.take_changed(),
+                bluetooth.status(),
+                self.compositor.controls.as_mut(),
+            ) {
+                controls.bluetooth_is(&mut self.compositor.scene, status);
             }
         }
         let Some(installs) = self.installs.as_mut() else {
@@ -640,6 +776,7 @@ impl Session {
                     updates: granted.updates || fixture.updates,
                     privacy: granted.privacy || fixture.privacy,
                     network: granted.network || fixture.network,
+                    bluetooth: granted.bluetooth || fixture.bluetooth,
                     ..Grants::default()
                 },
                 application: id,
@@ -845,6 +982,32 @@ impl Session {
         if let Some(waker) = self.networks_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // Bluetooth's side, its thread waited for (the agent unregistered), its waker and its
+        // connection given back.
+        self.bluetooth = None;
+        if let Some(bus) = self.bluetooth_control.take() {
+            let _ = bus.close();
+        }
+        if let Some(waker) = self.bluetooth_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // Battery and energy's side, its threads waited for, its waker given back, and the
+        // played services gone.
+        if let Some(power) = self.power.as_mut() {
+            power.end();
+        }
+        self.power = None;
+        if let Some(waker) = self.power_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        if let Some(controls) = &self.controls {
+            controls.close_power_bus();
+        }
+        if let Some(bus) = self.power_control.take() {
+            let _ = bus.close();
         }
         // The input methods' engine stopped, its thread waited for and its waker given back.
         self.input_methods = None;
@@ -1101,6 +1264,19 @@ fn main() -> Result<()> {
         [flag, path] if flag == "--out" => run(Path::new(path)),
         [flag, path] if flag == "--app" => Ok(app(Path::new(path))?),
         [flag, path] if flag == "--other" => Ok(other(Path::new(path))?),
+        // UPower, power-profiles-daemon and logind played on a run's own bus for the machine a
+        // file describes (docs/adr/0057-battery-and-energy.mdx), a process of its own as a
+        // session's are; `READY` is written once they are served. Never installed.
+        [flag, address, machine, ready] if flag == "--play-power" => {
+            let machine: oxyos_power::played::Machine =
+                serde_json::from_str(&fs::read_to_string(machine)?)?;
+            let address = address.to_str().ok_or("an address is text")?;
+            let _played = oxyos_power::played::Played::serve(address, machine)?;
+            fs::write(ready, "served\n")?;
+            loop {
+                std::thread::park();
+            }
+        }
         _ if args.iter().any(|arg| arg == "--launch") => {
             let (out, launch) = launch::Launch::parse(&args)?;
             launch::run(&out, &launch)

@@ -1,0 +1,11 @@
+# OxyOS Recovery (docs/adr/0054-recovery-and-erasing.mdx): what the recovery's boot entry starts
+# (systemd.unit=oxyos-recovery.target), from its own read-only image. No login prompt and no
+# session: the recovery program alone, on the console, with the network to get online.
+[Unit]
+Description=OxyOS Recovery
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0054-recovery-and-erasing.mdx
+Requires=basic.target
+Wants=oxyos-recovery-console.service NetworkManager.service systemd-timesyncd.service
+Conflicts=rescue.service rescue.target
+After=basic.target rescue.service rescue.target
+AllowIsolate=yes

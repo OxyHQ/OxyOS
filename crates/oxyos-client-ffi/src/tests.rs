@@ -924,6 +924,194 @@ fn the_header_matches_the_network_abi() {
     );
 }
 
+#[test]
+fn the_header_matches_the_websocket_abi() {
+    use websocket::*;
+    for (name, value) in [
+        ("OXYOS_WEBSOCKET_OPEN", i64::from(OXYOS_WEBSOCKET_OPEN)),
+        ("OXYOS_WEBSOCKET_TEXT", OXYOS_WEBSOCKET_TEXT.into()),
+        ("OXYOS_WEBSOCKET_BINARY", OXYOS_WEBSOCKET_BINARY.into()),
+        ("OXYOS_WEBSOCKET_CLOSED", OXYOS_WEBSOCKET_CLOSED.into()),
+        ("OXYOS_WEBSOCKET_FAILED", OXYOS_WEBSOCKET_FAILED.into()),
+        ("OXYOS_WEBSOCKET_EVENT", OXYOS_WEBSOCKET_EVENT.into()),
+        ("OXYOS_WEBSOCKET_EMPTY", OXYOS_WEBSOCKET_EMPTY.into()),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    let protocol = fields("OxyOSWebSocketProtocol");
+    assert_eq!(names(&protocol), ["name", "name_length"]);
+    let rust = [
+        offset_of!(OxyOSWebSocketProtocol, name),
+        offset_of!(OxyOSWebSocketProtocol, name_length),
+    ];
+    assert_eq!(
+        c_offsets(&protocol),
+        (rust.to_vec(), size_of::<OxyOSWebSocketProtocol>())
+    );
+    let request = fields("OxyOSWebSocketRequest");
+    assert_eq!(
+        names(&request),
+        [
+            "id",
+            "url",
+            "url_length",
+            "protocols",
+            "protocol_count",
+            "headers",
+            "header_count"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSWebSocketRequest, id),
+        offset_of!(OxyOSWebSocketRequest, url),
+        offset_of!(OxyOSWebSocketRequest, url_length),
+        offset_of!(OxyOSWebSocketRequest, protocols),
+        offset_of!(OxyOSWebSocketRequest, protocol_count),
+        offset_of!(OxyOSWebSocketRequest, headers),
+        offset_of!(OxyOSWebSocketRequest, header_count),
+    ];
+    assert_eq!(
+        c_offsets(&request),
+        (rust.to_vec(), size_of::<OxyOSWebSocketRequest>())
+    );
+    let event = fields("OxyOSWebSocketEvent");
+    assert_eq!(names(&event), ["kind", "code", "id", "data", "length"]);
+    let rust = [
+        offset_of!(OxyOSWebSocketEvent, kind),
+        offset_of!(OxyOSWebSocketEvent, code),
+        offset_of!(OxyOSWebSocketEvent, id),
+        offset_of!(OxyOSWebSocketEvent, data),
+        offset_of!(OxyOSWebSocketEvent, length),
+    ];
+    assert_eq!(
+        c_offsets(&event),
+        (rust.to_vec(), size_of::<OxyOSWebSocketEvent>())
+    );
+}
+
+#[test]
+fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
+    use net::*;
+    use websocket::*;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept_hdr(
+            stream,
+            |asked: &tungstenite::handshake::server::Request,
+             mut answered: tungstenite::handshake::server::Response| {
+                assert_eq!(asked.headers()["x-oxy"], "yes");
+                answered
+                    .headers_mut()
+                    .insert("sec-websocket-protocol", "chat".parse().unwrap());
+                Ok(answered)
+            },
+        )
+        .unwrap();
+        loop {
+            match socket.read() {
+                Ok(message @ (tungstenite::Message::Text(_) | tungstenite::Message::Binary(_))) => {
+                    socket.send(message).unwrap()
+                }
+                Ok(_) => {}
+                Err(_) => return,
+            }
+        }
+    });
+    let network = oxyos_net_new();
+    // SAFETY: a live network.
+    let sockets = unsafe { oxyos_websockets_new(network) };
+    assert!(!sockets.is_null());
+    let (url, chat, name, value) = (format!("ws://127.0.0.1:{port}/"), "chat", "X-Oxy", "yes");
+    let protocol = OxyOSWebSocketProtocol {
+        name: chat.as_ptr().cast(),
+        name_length: chat.len(),
+    };
+    let header = OxyOSNetHeader {
+        name: name.as_ptr().cast(),
+        name_length: name.len(),
+        value: value.as_ptr().cast(),
+        value_length: value.len(),
+    };
+    let request = OxyOSWebSocketRequest {
+        id: 3,
+        url: url.as_ptr().cast(),
+        url_length: url.len(),
+        protocols: &protocol,
+        protocol_count: 1,
+        headers: &header,
+        header_count: 1,
+    };
+    // SAFETY: live sockets, a request whose pointers outlive the call.
+    assert_eq!(unsafe { oxyos_websockets_connect(sockets, &request) }, 0);
+    // The same id again is refused.
+    // SAFETY: as above.
+    let again = unsafe { oxyos_websockets_connect(sockets, &request) };
+    assert_eq!(again, OXYOS_ERROR);
+    let mut got = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        let mut event = OxyOSWebSocketEvent::default();
+        // SAFETY: live sockets and a writable event.
+        match unsafe { oxyos_websockets_event(sockets, &mut event) } {
+            OXYOS_WEBSOCKET_EVENT => {
+                assert_eq!(event.id, 3);
+                got.push((
+                    event.kind,
+                    event.code,
+                    seen(event.data.cast(), event.length),
+                ));
+                match event.kind {
+                    OXYOS_WEBSOCKET_OPEN => {
+                        let (text, bytes) = ("hola", [0u8, 255]);
+                        // SAFETY: live sockets, messages valid for their lengths.
+                        unsafe {
+                            assert_eq!(oxyos_websockets_send(sockets, 3, text.as_ptr(), 4, 0), 0);
+                            assert_eq!(oxyos_websockets_send(sockets, 3, bytes.as_ptr(), 2, 1), 0);
+                            assert_eq!(
+                                oxyos_websockets_send(sockets, 3, bytes.as_ptr(), 2, 0),
+                                OXYOS_ERROR
+                            );
+                        }
+                    }
+                    OXYOS_WEBSOCKET_BINARY => {
+                        let reason = "bye";
+                        // SAFETY: live sockets, a reason valid for its length.
+                        unsafe {
+                            assert_eq!(
+                                oxyos_websockets_close(sockets, 3, 1006, reason.as_ptr().cast(), 3),
+                                OXYOS_ERROR
+                            );
+                            assert_eq!(
+                                oxyos_websockets_close(sockets, 3, 4000, reason.as_ptr().cast(), 3),
+                                0
+                            );
+                        }
+                    }
+                    OXYOS_WEBSOCKET_CLOSED | OXYOS_WEBSOCKET_FAILED => break,
+                    _ => {}
+                }
+            }
+            _ => std::thread::sleep(std::time::Duration::from_millis(5)),
+        }
+    }
+    assert_eq!(
+        got,
+        [
+            (OXYOS_WEBSOCKET_OPEN, 0, "chat".to_string()),
+            (OXYOS_WEBSOCKET_TEXT, 0, "hola".to_string()),
+            (OXYOS_WEBSOCKET_BINARY, 0, "\0\u{fffd}".to_string()),
+            (OXYOS_WEBSOCKET_CLOSED, 4000, "bye".to_string()),
+        ]
+    );
+    // SAFETY: freed once each, the sockets before their network.
+    unsafe {
+        oxyos_websockets_free(sockets);
+        oxyos_net_free(network);
+    }
+}
+
 /// The `length` bytes at `data`, as text.
 fn seen(data: *const c_char, length: usize) -> String {
     if data.is_null() {
@@ -2022,6 +2210,180 @@ fn text_input_through_the_c_abi() {
         assert!(requests.contains(&Request::TextInputCaret {
             surface: 1,
             rect: Rect::new(40, 8, 2, 18),
+        }));
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_autofill_abi() {
+    for (name, content) in [
+        ("OXYOS_CONTENT_NONE", TextContentType::None),
+        ("OXYOS_CONTENT_USERNAME", TextContentType::Username),
+        ("OXYOS_CONTENT_EMAIL", TextContentType::Email),
+        ("OXYOS_CONTENT_PASSWORD", TextContentType::Password),
+        ("OXYOS_CONTENT_NEW_PASSWORD", TextContentType::NewPassword),
+        ("OXYOS_CONTENT_ONE_TIME_CODE", TextContentType::OneTimeCode),
+    ] {
+        assert_eq!(define(name), content as i64, "{name}");
+    }
+    let fill = fields("OxyOSTextFill");
+    assert_eq!(
+        names(&fill),
+        [
+            "surface",
+            "has_fill",
+            "has_paired_fill",
+            "fill",
+            "fill_length",
+            "paired_fill",
+            "paired_fill_length"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSTextFill, surface),
+        offset_of!(OxyOSTextFill, has_fill),
+        offset_of!(OxyOSTextFill, has_paired_fill),
+        offset_of!(OxyOSTextFill, fill),
+        offset_of!(OxyOSTextFill, fill_length),
+        offset_of!(OxyOSTextFill, paired_fill),
+        offset_of!(OxyOSTextFill, paired_fill_length),
+    ];
+    assert_eq!(
+        c_offsets(&fill),
+        (rust.to_vec(), size_of::<OxyOSTextFill>())
+    );
+    let header: String = HEADER.split_whitespace().collect::<Vec<_>>().join(" ");
+    for declared in [
+        "int64_t oxyos_client_text_input_with_content(OxyOSClient* client, uint32_t surface, const OxyOSTextField* field, uint8_t new_field, uint8_t content, uint8_t paired);",
+        "int oxyos_client_text_fill(OxyOSClient* client, OxyOSTextFill* out);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(*mut OxyOSClient, u32, *const OxyOSTextField, u8, u8, u8) -> i64 =
+        oxyos_client_text_input_with_content;
+    let _: unsafe extern "C" fn(*mut OxyOSClient, *mut OxyOSTextFill) -> c_int =
+        oxyos_client_text_fill;
+}
+
+#[test]
+fn autofill_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-autofill-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let mut requests = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::TextInputCommit { .. });
+            requests.push(request);
+            if done {
+                break;
+            }
+        }
+        let chunk = |text| TextChunk::new(text).unwrap();
+        for event in [
+            Event::TextInputFill {
+                surface: 1,
+                paired: false,
+                text: chunk("bea@example.com"),
+            },
+            Event::TextInputFill {
+                surface: 1,
+                paired: true,
+                text: chunk("fixture-Passw0rd-1"),
+            },
+            Event::TextInputDone {
+                surface: 1,
+                serial: 41,
+                commit: 1,
+            },
+            Event::TextInputCommitText {
+                surface: 1,
+                text: chunk("x"),
+            },
+            Event::TextInputDone {
+                surface: 1,
+                serial: 42,
+                commit: 1,
+            },
+        ] {
+            server.send_event(&event, None).unwrap();
+        }
+        requests
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let field = OxyOSTextField {
+        purpose: TextPurpose::Email as u8,
+        hints: 0,
+        text: std::ptr::null(),
+        length: 0,
+        anchor: 0,
+        cursor: 0,
+        has_caret: 1,
+        caret_x: 4,
+        caret_y: 2,
+        caret_width: 2,
+        caret_height: 18,
+    };
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the field
+    // outlives the calls.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // An unknown content type is refused before sending.
+        assert_eq!(
+            oxyos_client_text_input_with_content(client, 1, &field, 0, 6, 0),
+            -1
+        );
+        assert_eq!(
+            oxyos_client_text_input_with_content(client, 1, &field, 0, OXYOS_CONTENT_EMAIL, 1),
+            1
+        );
+        let mut event = OxyOSEvent::default();
+        let mut fill: OxyOSTextFill = std::mem::zeroed();
+        let mut next = || loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT => break event,
+                OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll returned {other}"),
+            }
+        };
+        assert_eq!(next().kind, OXYOS_EVENT_TEXT_INPUT);
+        assert_eq!(oxyos_client_text_fill(client, &mut fill), 1);
+        assert_eq!(
+            (
+                fill.surface,
+                fill.has_fill,
+                seen(fill.fill, fill.fill_length),
+                fill.has_paired_fill,
+                seen(fill.paired_fill, fill.paired_fill_length),
+            ),
+            (
+                1,
+                1,
+                "bea@example.com".to_string(),
+                1,
+                "fixture-Passw0rd-1".to_string()
+            )
+        );
+        // A transaction with no fill has none.
+        assert_eq!(next().kind, OXYOS_EVENT_TEXT_INPUT);
+        assert_eq!(oxyos_client_text_fill(client, &mut fill), 0);
+        let requests = compositor.join().unwrap();
+        assert!(requests.contains(&Request::TextInputContentType {
+            surface: 1,
+            content: TextContentType::Email,
+            paired: true,
         }));
         oxyos_client_close(client);
     }

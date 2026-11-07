@@ -3,14 +3,16 @@
  * session's: every preference as the session keeps it (`OxyOSSettings`, which only the client the
  * session granted `settings` has), a change asked of the session, which validates, keeps and
  * applies it and tells every application; the displays as the session shows them and their changes
- * (docs/adr/0018-several-displays.mdx); the machine's facts; and the networks as the session
- * tells them (docs/adr/0038-networks.mdx). Without the grant (a host run outside a session, the
- * browser preview) the model is a fixture kept in memory. Its language is the session's locale
- * (docs/adr/0040-language-and-region.mdx, decision 5), given to `BloomProvider` and followed live;
+ * (docs/adr/0018-several-displays.mdx); the machine's facts; and the networks and Bluetooth as the
+ * session tells them (docs/adr/0038-networks.mdx, docs/adr/0055-bluetooth.mdx). Without the grant
+ * (a host run outside a session, the browser preview) the model is a fixture kept in memory. Its
+ * language is the session's locale (docs/adr/0040-language-and-region.mdx, decision 5), given to
+ * `BloomProvider` and followed live;
  * the fixture's is the one its own preferences give. Its Oxy account is the machine's Oxy session
  * as the platform gives every application (oxyos/session-host.js, docs/adr/0020-oxy-account-login.mdx):
  * signing out is the session's (`signOut`, with the `settings` grant), removing the account the
- * accounts' service's, which only Settings may ask.
+ * accounts' service's, which only Settings may ask, as is erasing the computer (General › Transfer
+ * or Reset, docs/adr/0054-recovery-and-erasing.mdx).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -33,14 +35,18 @@ import { useSessionLocale } from './oxyos/locale';
 import {
   available,
   session as systemSession,
+  bluetooth as systemBluetooth,
   network as systemNetwork,
+  power as systemPower,
   privacy,
   sound as systemSound,
   updates as systemUpdates,
-  useInputLevel,
+  followInputLevel,
   useInputSourcesState,
+  useBluetoothState,
   useNetworkState,
   useSoundState,
+  usePowerState,
   useUpdateState,
 } from './oxyos/system';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
@@ -50,8 +56,26 @@ import {
   type AccountOutcome,
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
+import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
+import type {
+  BluetoothActions,
+  BluetoothAnswer,
+  BluetoothDevice,
+  BluetoothState,
+} from '../../../apps/settings/src/bluetooth';
 import type { SoundActions, SoundDirection, SoundSide, SoundState } from '../../../apps/settings/src/sound';
+import {
+  chargeLimitFailureOf,
+  energyOf,
+  historyOf,
+  type AppEnergy,
+  type HistoryChart,
+  type LowPowerMode,
+  type PowerActions,
+  type PowerHistory,
+  type PowerState,
+} from '../../../apps/settings/src/battery';
 import {
   INPUT_METHODS,
   inputSourcesOf,
@@ -59,6 +83,7 @@ import {
   parseInputSourcesPreference,
 } from '../../../apps/settings/src/input-sources';
 import {
+  ENERGY_DEFAULTS,
   PREFERENCE_KEYS,
   preferenceText,
   TRIAL_SECONDS,
@@ -114,6 +139,7 @@ const FIXTURE: SettingsSnapshot = {
     notificationSoundsOff: [],
     inputSources: [],
     inputSource: 'layout',
+    ...ENERGY_DEFAULTS,
   },
   wallpapers: EMPTY_CATALOG,
   applications: [
@@ -216,6 +242,49 @@ const NETWORK_FIXTURE: NetworkState = {
   joining: null,
 };
 
+/** The reference ThinkPad's Bluetooth (ADR 0055): on, its paired AirPods and mouse connected, its
+    keyboard not; a speaker and a phone nearby, seen once the page discovers. */
+const BLUETOOTH_PAIRED: BluetoothDevice[] = [
+  {
+    id: '7C:04:D0:A1:3E:52', address: '7C:04:D0:A1:3E:52', name: 'AirPods Pro', kind: 'headphones',
+    paired: true, connected: true, busy: null, battery: 80, audio: true, input: false,
+  },
+  {
+    id: 'F0:B3:EC:21:6A:9D', address: 'F0:B3:EC:21:6A:9D', name: 'Magic Keyboard', kind: 'keyboard',
+    paired: true, connected: false, busy: null, battery: 64, audio: false, input: true,
+  },
+  {
+    id: 'D4:3B:04:7F:12:C8', address: 'D4:3B:04:7F:12:C8', name: 'MX Master 3S', kind: 'mouse',
+    paired: true, connected: true, busy: null, battery: 55, audio: false, input: true,
+  },
+];
+const BLUETOOTH_NEARBY: BluetoothDevice[] = [
+  {
+    id: '00:42:79:B6:58:E1', address: '00:42:79:B6:58:E1', name: 'JBL Flip 6', kind: 'speaker',
+    paired: false, connected: false, busy: null, battery: null, audio: true, input: false,
+  },
+  {
+    id: '58:24:29:9C:0D:3F', address: '58:24:29:9C:0D:3F', name: 'Pixel 8', kind: 'phone',
+    paired: false, connected: false, busy: null, battery: null, audio: false, input: false,
+  },
+];
+const BLUETOOTH_FIXTURE: BluetoothState = {
+  available: true,
+  adapter: {
+    name: 'ThinkPad',
+    address: '3C:58:C2:1A:7E:91',
+    powered: true,
+    blocked: false,
+    discovering: false,
+    discoverable: false,
+  },
+  devices: BLUETOOTH_PAIRED,
+};
+/** Each fixture device's own name, which an empty rename gives back. */
+const BLUETOOTH_NAMES = new Map(
+  [...BLUETOOTH_PAIRED, ...BLUETOOTH_NEARBY].map((device) => [device.id, device.name]),
+);
+
 /** The session's preferences, as its file keeps them, read into the application's model. */
 function preferencesOf(values: Record<string, string>): Preferences {
   const flag = (key: string) => values[key] === 'true';
@@ -250,7 +319,22 @@ function preferencesOf(values: Record<string, string>): Preferences {
     // None added, the layout current, unless the session keeps others (docs/adr/0041-input-methods.mdx).
     inputSources: parseInputSourcesPreference(values[PREFERENCE_KEYS.inputSources]),
     inputSource: values[PREFERENCE_KEYS.inputSource] || 'layout',
+    // Battery and energy (docs/adr/0057-battery-and-energy.mdx): the session's defaults unless it
+    // keeps others (crates/oxyos-preferences).
+    batteryPercentage: flag(PREFERENCE_KEYS.batteryPercentage),
+    lowPowerMode: (values[PREFERENCE_KEYS.lowPowerMode] as LowPowerMode) || ENERGY_DEFAULTS.lowPowerMode,
+    displayOffBattery: minutesOf(values[PREFERENCE_KEYS.displayOffBattery], ENERGY_DEFAULTS.displayOffBattery),
+    displayOffAdapter: minutesOf(values[PREFERENCE_KEYS.displayOffAdapter], ENERGY_DEFAULTS.displayOffAdapter),
+    sleepBattery: minutesOf(values[PREFERENCE_KEYS.sleepBattery], ENERGY_DEFAULTS.sleepBattery),
+    sleepAdapter: minutesOf(values[PREFERENCE_KEYS.sleepAdapter], ENERGY_DEFAULTS.sleepAdapter),
+    dimOnBattery: values[PREFERENCE_KEYS.dimOnBattery] !== 'false',
   };
+}
+
+/** A timer's minutes as the session's file keeps them, or its default. */
+function minutesOf(text: string | undefined, fallback: number): number {
+  const minutes = Number(text);
+  return text !== undefined && text !== '' && Number.isInteger(minutes) && minutes >= 0 ? minutes : fallback;
 }
 
 /** The session's model when this is Settings in a session, else the fixture's. */
@@ -544,13 +628,11 @@ const SOUND_FIXTURE: SoundState = {
 /**
  * Sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): in a session, the state it tells
  * Settings (its `settings` grant), followed, and its requests, the input's level metered while the
- * Input tab asks for it; none until the session has told it. Without a session, the fixture,
+ * Input tab's meter follows it; none until the session has told it. Without a session, the fixture,
  * changed where it is (its level stays at nothing).
  */
-function useSoundModel(): { sound: SoundState | null; level: number; actions: SoundActions | undefined } {
+function useSoundModel(): { sound: SoundState | null; actions: SoundActions | undefined } {
   const told: SoundState | null = useSoundState();
-  const [metering, setMetering] = React.useState(false);
-  const level: number = useInputLevel(metering);
   const [fixture, setFixture] = React.useState(SOUND_FIXTURE);
   const session = React.useMemo<SoundActions>(
     () => ({
@@ -566,7 +648,7 @@ function useSoundModel(): { sound: SoundState | null; level: number; actions: So
       setBalance: (balance) => {
         systemSound.setBalance(balance);
       },
-      meter: setMetering,
+      followLevel: followInputLevel,
     }),
     [],
   );
@@ -582,11 +664,206 @@ function useSoundModel(): { sound: SoundState | null; level: number; actions: So
       setVolume: (direction, volume) => change(direction, (side) => ({ ...side, volume })),
       setMuted: (direction, muted) => change(direction, (side) => ({ ...side, muted })),
       setBalance: (balance) => change('output', (side) => ({ ...side, balance })),
-      meter: () => {},
+      followLevel: () => () => {},
     };
   }, []);
-  if (!available) return { sound: fixture, level: 0, actions: local };
-  return { sound: told, level, actions: told ? session : undefined };
+  if (!available) return { sound: fixture, actions: local };
+  return { sound: told, actions: told ? session : undefined };
+}
+
+/** The reference ThinkPad's battery (docs/adr/0057-battery-and-energy.mdx): 64 %, discharging with
+    3 h 20 min left, 87 % of its design after 412 cycles, its charge limit of 75–80 % off. */
+const POWER_FIXTURE: PowerState = {
+  battery: { percent: 64, state: 'discharging', onAc: false, minutes: 200, low: false },
+  health: { maxCapacity: 87, cycles: 412, worn: false },
+  chargeLimit: { enabled: false, end: 80, start: 75 },
+  lowPower: { mode: 'never', on: false, profiles: true, held: false },
+  showPercentage: false,
+  criticalAction: 'HybridSleep',
+};
+
+/** A day of the fixture's machine: unplugged in the morning, charged at lunch, used all afternoon. */
+function fixtureChart(end: number, bin: number, bins: number): HistoryChart {
+  const levels: (number | null)[] = [];
+  const charging: boolean[] = [];
+  const screen: number[] = [];
+  for (let index = 0; index < bins; index++) {
+    const start = end - (bins - index) * bin;
+    const hour = new Date(start * 1000).getHours();
+    const awake = hour >= 8 && hour < 23;
+    const charges = hour >= 13 && hour < 15;
+    const level = !awake ? null : charges ? 40 + (hour - 13) * 30 : hour < 13 ? 100 - (hour - 8) * 12 : 100 - (hour - 15) * 5;
+    levels.push(level === null ? null : Math.max(5, Math.min(100, Math.round(level))));
+    charging.push(charges);
+    screen.push(awake ? Math.round(bin * (hour % 3 === 0 ? 0.5 : 0.85)) : 0);
+  }
+  return { end, bin, levels, charging, screen };
+}
+
+const ENERGY_FIXTURE: AppEnergy[] = [
+  { id: 'so.oxy.allo', name: 'Allo', cpu: 1265, gpu: 312, recent: 0.34, significant: true, running: true },
+  { id: 'so.oxy.inbox', name: 'Inbox', cpu: 412, gpu: 96, recent: 0.02, significant: false, running: true },
+  { id: 'so.oxy.settings', name: 'Settings', cpu: 38, gpu: 11, recent: 0.01, significant: false, running: true },
+];
+
+/**
+ * Battery and energy (docs/adr/0057-battery-and-energy.mdx): in a session, the state the session
+ * tells Settings with its `settings` grant (none until it has: the page waits for it), the history
+ * and each app's energy asked as the page shows them, the charge limit asked of the session. Without
+ * a session, the reference ThinkPad's.
+ */
+function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
+  const told: PowerState | null = usePowerState();
+  const [fixture, setFixture] = React.useState(POWER_FIXTURE);
+  const session = React.useMemo<PowerActions>(
+    () => ({
+      history: async () => historyOf(await systemPower.history()),
+      energy: async () => energyOf(await systemPower.energy()),
+      setChargeLimit: async (enabled) => chargeLimitFailureOf(await systemPower.setChargeLimit(enabled)),
+    }),
+    [],
+  );
+  const local = React.useMemo<PowerActions>(
+    () => ({
+      history: async (): Promise<PowerHistory> => {
+        const now = Math.floor(Date.now() / 1000);
+        return {
+          day: fixtureChart(Math.ceil(now / 900) * 900, 900, 96),
+          days: fixtureChart(Math.ceil(now / 3600) * 3600, 3600, 240),
+        };
+      },
+      energy: async () => ENERGY_FIXTURE,
+      setChargeLimit: async (enabled) => {
+        setFixture((state) => (state.chargeLimit ? { ...state, chargeLimit: { ...state.chargeLimit, enabled } } : state));
+        return null;
+      },
+    }),
+    [],
+  );
+  if (!available) return { power: fixture, actions: local };
+  return { power: told, actions: session };
+}
+
+/**
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the state the session tells a client with its
+ * `bluetooth` grant, followed, and its requests. The session tells nothing without the grant, so
+ * the page is there only once it has told the state. Without a session the fixture plays the
+ * machine: discovery finds its nearby devices after a moment, a connection pairs and connects
+ * after another (no code asked: that is the shell's sheet), a phone is paired with nothing to
+ * connect, and a forget or a rename changes the list.
+ */
+function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: BluetoothActions | undefined } {
+  const told: BluetoothState | null = useBluetoothState();
+  const [fixture, setFixture] = React.useState(BLUETOOTH_FIXTURE);
+  const current = React.useRef(fixture);
+  current.current = fixture;
+  const session = React.useMemo<BluetoothActions>(
+    () => ({
+      setPower: (on) => systemBluetooth.setPower(on) as Promise<BluetoothAnswer>,
+      discover: (on) => systemBluetooth.discover(on) as Promise<BluetoothAnswer>,
+      connect: (id) => systemBluetooth.connect(id) as Promise<BluetoothAnswer>,
+      disconnect: (id) => systemBluetooth.disconnect(id) as Promise<BluetoothAnswer>,
+      forget: (id) => systemBluetooth.forget(id) as Promise<BluetoothAnswer>,
+      rename: (id, name) => systemBluetooth.rename(id, name) as Promise<BluetoothAnswer>,
+    }),
+    [],
+  );
+  const local = React.useMemo<BluetoothActions>(() => {
+    const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const sorted = (devices: BluetoothDevice[]) =>
+      [...devices].sort((a, b) => a.name.localeCompare(b.name) || a.address.localeCompare(b.address));
+    const change = (id: string, edit: (device: BluetoothDevice) => BluetoothDevice) =>
+      setFixture((state) => ({
+        ...state,
+        devices: sorted(state.devices.map((device) => (device.id === id ? edit(device) : device))),
+      }));
+    const on = () => !!current.current.adapter?.powered;
+    const find = (id: string) => current.current.devices.find((device) => device.id === id);
+    return {
+      setPower: async (powered) => {
+        setFixture((state) => ({
+          ...state,
+          adapter: state.adapter && {
+            ...state.adapter,
+            powered,
+            discovering: false,
+            discoverable: false,
+          },
+          // Off, every device lets go and nothing nearby is seen; on, the paired ones that were
+          // connected as the fixture began come back, as their own devices reconnect them.
+          devices: state.devices
+            .filter((d) => d.paired)
+            .map((d) => ({
+              ...d,
+              busy: null,
+              connected: powered && !!BLUETOOTH_PAIRED.find((p) => p.id === d.id)?.connected,
+            })),
+        }));
+        return { bluetooth: current.current };
+      },
+      discover: async (wanted) => {
+        if (!on()) return { failed: { reason: 'unavailable' } };
+        setFixture((state) => ({
+          ...state,
+          adapter: state.adapter && { ...state.adapter, discovering: wanted, discoverable: wanted },
+          devices: wanted ? state.devices : state.devices.filter((d) => d.paired),
+        }));
+        if (wanted) {
+          await later(1200);
+          setFixture((state) =>
+            state.adapter?.discovering
+              ? {
+                  ...state,
+                  devices: sorted([
+                    ...state.devices,
+                    ...BLUETOOTH_NEARBY.filter((n) => !state.devices.some((d) => d.id === n.id)),
+                  ]),
+                }
+              : state,
+          );
+        }
+        return { discovering: { on: wanted } };
+      },
+      connect: async (id) => {
+        const device = find(id);
+        if (!device) return { failed: { reason: 'notFound' } };
+        if (!on()) return { failed: { reason: 'unavailable' } };
+        if (device.busy) return { failed: { reason: 'busy' } };
+        change(id, (d) => ({ ...d, busy: 'connecting' }));
+        await later(1500);
+        // A phone pairs with nothing to connect, as a Mac's does.
+        const phone = device.kind === 'phone';
+        change(id, (d) => ({
+          ...d,
+          busy: null,
+          paired: true,
+          connected: !phone,
+          battery: d.battery ?? (d.kind === 'speaker' ? 70 : null),
+        }));
+        return phone ? { paired: { id } } : { connected: { id } };
+      },
+      disconnect: async (id) => {
+        if (!find(id)) return { failed: { reason: 'notFound' } };
+        change(id, (d) => ({ ...d, busy: 'disconnecting' }));
+        await later(600);
+        change(id, (d) => ({ ...d, busy: null, connected: false }));
+        return { disconnected: { id } };
+      },
+      forget: async (id) => {
+        if (!find(id)) return { failed: { reason: 'notFound' } };
+        setFixture((state) => ({ ...state, devices: state.devices.filter((d) => d.id !== id) }));
+        return { forgotten: { id } };
+      },
+      rename: async (id, typed) => {
+        if (!find(id)) return { failed: { reason: 'notFound' } };
+        const name = typed.trim() || BLUETOOTH_NAMES.get(id) || id;
+        change(id, (d) => ({ ...d, name }));
+        return { renamed: { id, name } };
+      },
+    };
+  }, []);
+  if (!available) return { bluetooth: fixture, actions: local };
+  return told ? { bluetooth: told, actions: session } : { bluetooth: undefined, actions: undefined };
 }
 
 /**
@@ -693,7 +970,11 @@ type SessionHost = { snapshot(): unknown; subscribe(listener: () => void): () =>
 const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as
   | SessionHost
   | undefined;
-const accountSession = TurboModuleRegistry.get<{ remove(): Promise<unknown> }>('OxyOSAccountSession');
+const accountSession = TurboModuleRegistry.get<{
+  remove(): Promise<unknown>;
+  erasePreview(): Promise<unknown>;
+  eraseAll(password: string): Promise<unknown>;
+}>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
   const reason = (answer as { refused?: { reason?: string }; failed?: { reason?: string } } | null);
@@ -703,6 +984,16 @@ const accountActions: AccountActions = {
   signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
   remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
 };
+
+/** Erasing the computer, the accounts' service's (Settings alone may ask): what it would do, read
+    strictly, and the erase with the administrator's password, handed to the host, which sends it
+    to the service and forgets it. */
+const eraseActions: EraseActions | undefined = accountSession
+  ? {
+      preview: async () => erasePreviewFrom(await accountSession.erasePreview()),
+      eraseAll: async (password) => eraseOutcomeFrom(await accountSession.eraseAll(password)),
+    }
+  : undefined;
 
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
@@ -728,15 +1019,18 @@ export default function SettingsApp() {
   const model = useSettingsModel();
   const install = useInstallModel();
   const networks = useNetworkModel();
+  const bluetooth = useBluetoothModel();
   const sound = useSoundModel();
+  const power = usePowerModel();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
     ...model.snapshot,
     updates: install.updates,
     privacy: install.privacy,
     network: networks.network,
+    bluetooth: bluetooth.bluetooth,
     sound: sound.sound,
-    soundInputLevel: sound.level,
+    power: power.power,
     inputSources,
     account: useAccount(),
   };
@@ -745,8 +1039,11 @@ export default function SettingsApp() {
     updates: install.updatesActions,
     privacy: install.privacyActions,
     network: networks.actions,
+    bluetooth: bluetooth.actions,
     sound: sound.actions,
+    power: power.actions,
     account: sessionHost ? accountActions : undefined,
+    erase: sessionHost ? eraseActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

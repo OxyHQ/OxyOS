@@ -732,6 +732,14 @@ uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool n
   return static_cast<uint32_t>(serial);
 }
 
+uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField, uint8_t content,
+                           bool paired) {
+  int64_t serial =
+      oxyos_client_text_input_with_content(client_, surface, field, newField ? 1 : 0, content, paired ? 1 : 0);
+  if (serial < 0) failed("cannot tell the text field");
+  return static_cast<uint32_t>(serial);
+}
+
 bool Window::setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects) {
   auto same = [](const OxyOSRect& a, const OxyOSRect& b) {
     return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;

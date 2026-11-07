@@ -64,7 +64,10 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// nothing, its files' media types, and the shell's files opened with an application (ADR 0035
 /// and ADR 0034), both ways, a target's events sent unasked; version 28, the volumes a drag's
 /// files are on (ADR 0047), both ways, a target's events sent unasked; version 29, each output's
-/// wallpaper (`OutputWallpaper`, docs/adr/0048-wallpapers.mdx), told to the shell.
+/// wallpaper (`OutputWallpaper`, docs/adr/0048-wallpapers.mdx), told to the shell; version 30,
+/// AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): a field's content type
+/// (`TextInputContentType`) and a fill of the credential the person picked (`TextInputFill`),
+/// sent only to a field that told its content type.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -82,6 +85,7 @@ const EVENTS_ADDED: Added = &[
     (26, 252..=252),
     (28, 253..=253),
     (29, 82..=82),
+    (30, 65..=65),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -100,6 +104,7 @@ const REQUESTS_ADDED: Added = &[
     (25, 95..=95),
     (26, 248..=250),
     (28, 252..=252),
+    (30, 69..=69),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

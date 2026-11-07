@@ -1,7 +1,7 @@
 use super::*;
 use oxyos_ipc::SharedBuffer;
 use oxyos_protocol::{
-    PreeditStyle, ServerConnection, TextHints, TextPurpose, MAX_SURROUNDING_BYTES,
+    PreeditStyle, ServerConnection, TextContentType, TextHints, TextPurpose, MAX_SURROUNDING_BYTES,
 };
 
 /// A connected client and the compositor's end, past the handshake.
@@ -547,6 +547,8 @@ fn field(text: &str, cursor: usize) -> Field<'_> {
         anchor: cursor,
         cursor,
         caret: Some(Rect::new(4, 2, 2, 18)),
+        content: TextContentType::None,
+        paired: false,
     }
 }
 
@@ -734,9 +736,130 @@ fn a_transactions_parts_are_collected_until_done() {
             segments: vec![(0, 3, PreeditStyle::Converting)],
             serial: 9,
             commit_serial: 2,
+            fill: None,
+            paired_fill: None,
         })
     );
     assert_eq!(completed[7], None);
+}
+
+#[test]
+fn a_fields_content_type_is_told_when_it_has_one_and_when_it_changes() {
+    let (mut client, server) = connected();
+    let username = Field {
+        content: TextContentType::Username,
+        paired: true,
+        ..field("", 0)
+    };
+    client.text_input(1, Some(&username), false).unwrap();
+    let content = |content, paired| Request::TextInputContentType {
+        surface: 1,
+        content,
+        paired,
+    };
+    let told = committed(&server);
+    assert!(told.contains(&content(TextContentType::Username, true)));
+    // Unchanged, it is not told again; the pair gone, it is.
+    client
+        .text_input(
+            1,
+            Some(&Field {
+                text: "b",
+                anchor: 1,
+                cursor: 1,
+                ..username
+            }),
+            false,
+        )
+        .unwrap();
+    assert!(!committed(&server)
+        .iter()
+        .any(|r| matches!(r, Request::TextInputContentType { .. })));
+    client
+        .text_input(
+            1,
+            Some(&Field {
+                paired: false,
+                ..username
+            }),
+            false,
+        )
+        .unwrap();
+    assert!(committed(&server).contains(&content(TextContentType::Username, false)));
+    // A new field with none is not told one: a field never told has none.
+    client.text_input(1, Some(&field("", 0)), true).unwrap();
+    assert!(!committed(&server)
+        .iter()
+        .any(|r| matches!(r, Request::TextInputContentType { .. })));
+}
+
+#[test]
+fn a_compositor_of_version_29_is_never_told_a_content_type() {
+    let (client, server) = Connection::pair().unwrap();
+    let compositor = std::thread::spawn(move || {
+        server.recv_request().unwrap();
+        server
+            .send_event(&Event::Welcome { version: 29 }, None)
+            .unwrap();
+        server
+    });
+    let mut client = Client::handshake(client).unwrap();
+    let server = compositor.join().unwrap();
+    let password = Field {
+        purpose: TextPurpose::Password,
+        content: TextContentType::Password,
+        paired: true,
+        ..field("", 0)
+    };
+    client.text_input(1, Some(&password), false).unwrap();
+    assert!(!committed(&server)
+        .iter()
+        .any(|r| matches!(r, Request::TextInputContentType { .. })));
+}
+
+#[test]
+fn a_fill_is_collected_into_its_transaction_and_never_shown_by_debug() {
+    let (mut client, server) = connected();
+    let chunk = |text| TextChunk::new(text).unwrap();
+    for event in [
+        Event::TextInputFill {
+            surface: 1,
+            paired: false,
+            text: chunk("bea@example.com"),
+        },
+        Event::TextInputFill {
+            surface: 1,
+            paired: true,
+            text: chunk("fixture-password-0123456789abcd"),
+        },
+        Event::TextInputFill {
+            surface: 1,
+            paired: true,
+            text: chunk("-tail"),
+        },
+        Event::TextInputDone {
+            surface: 1,
+            serial: 4,
+            commit: 3,
+        },
+    ] {
+        server.send_event(&event, None).unwrap();
+    }
+    for _ in 0..4 {
+        client.next_event().unwrap();
+    }
+    let done = client.transaction().expect("completed");
+    assert_eq!(
+        done.fill.as_ref().map(FillText::as_str),
+        Some("bea@example.com")
+    );
+    assert_eq!(
+        done.paired_fill.as_ref().map(FillText::as_str),
+        Some("fixture-password-0123456789abcd-tail")
+    );
+    assert!(done.commit.is_empty() && done.preedit.is_empty());
+    let shown = format!("{done:?}");
+    assert!(!shown.contains("bea@example.com") && !shown.contains("fixture-password"));
 }
 
 #[test]

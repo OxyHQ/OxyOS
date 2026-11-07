@@ -83,15 +83,25 @@ pub struct Grants {
     /// Settings (ADR 0038): sees the networks and joins, forgets and turns Wi-Fi on and off
     /// (`SystemRequest`), as the shell does by its own grant.
     pub network: bool,
+    /// Settings (ADR 0055): sees Bluetooth and turns it on and off, discovers, connects (pairing
+    /// first), disconnects, forgets and renames devices (`SystemRequest`), as the shell does by its
+    /// own grant (all but discovering, forgetting and renaming).
+    pub bluetooth: bool,
 }
 
 impl Grants {
-    /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030 and ADR 0038):
-    /// the store, updates, privacy and networks, the shell (Control Center's Wi-Fi, the password
-    /// sheet's answer, the input sources) and Settings (the input sources, ADR 0041). What each
-    /// may ask is the program's to decide.
+    /// Whether it asks the session in its vocabulary (`SystemRequest`, ADR 0030, ADR 0038 and ADR
+    /// 0055): the store, updates, privacy, networks and Bluetooth, the shell (Control Center's
+    /// Wi-Fi and Bluetooth, the sheets' answers, the input sources) and Settings (the input
+    /// sources, ADR 0041). What each may ask is the program's to decide.
     pub fn asks_system(&self) -> bool {
-        self.store || self.updates || self.privacy || self.network || self.shell || self.settings
+        self.store
+            || self.updates
+            || self.privacy
+            || self.network
+            || self.bluetooth
+            || self.shell
+            || self.settings
     }
 }
 
@@ -514,6 +524,9 @@ pub struct Scene {
     /// system, and the shell drawing them now with the list it was told (ADR 0041).
     shell_candidates: BTreeMap<ClientId, u32>,
     candidates_told: Option<(ClientId, input_method::CandidateList)>,
+    /// AutoFill's list (docs/adr/0050-keychain-autofill-and-passkeys.mdx), drawn by a shell in the
+    /// same candidates surface.
+    autofill: autofill::Autofill,
     /// The input-source shortcuts pressed (ADR 0041), for the program running the compositor.
     input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
@@ -548,6 +561,9 @@ pub struct Scene {
     minimize_targets: BTreeMap<SurfaceKey, minimize_targets::SurfaceTargets>,
     /// The notifications kept for the session (ADR 0026).
     notifications: notifications::Notifications,
+    /// The fastest refresh surfaces are told to pace their frames by (Low Power Mode's 60 Hz,
+    /// docs/adr/0057-battery-and-energy.mdx, decision 4); none, their output's own.
+    refresh_cap: Option<u32>,
     /// The displays as the program running the compositor said them, what Settings was told of
     /// them and the changes it asked for (ADR 0018).
     displays: displays::Displays,
@@ -1112,6 +1128,7 @@ impl Scene {
             updates: granted.updates && !held.updates,
             privacy: granted.privacy && !held.privacy,
             network: granted.network && !held.network,
+            bluetooth: granted.bluetooth && !held.bluetooth,
         };
         self.check_grants(new)?;
         let grants = self.clients.get_mut(&client).expect("connected");
@@ -1126,6 +1143,7 @@ impl Scene {
         grants.updates |= new.updates;
         grants.privacy |= new.privacy;
         grants.network |= new.network;
+        grants.bluetooth |= new.bluetooth;
         if new.accessibility {
             // Whether the session is locked, before the trees it may read (the lock screen's
             // alone while it is): told as it is, never said as a change.
@@ -1169,6 +1187,7 @@ impl Scene {
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
         self.forget_candidates_shell(client);
+        self.forget_autofill_shell(client);
         self.forget_shell_client(client);
         self.forget_switcher(client);
         self.forget_capture_shell(client);
@@ -1247,6 +1266,7 @@ impl Scene {
         grants.updates &= !revoked.updates;
         grants.privacy &= !revoked.privacy;
         grants.network &= !revoked.network;
+        grants.bluetooth &= !revoked.bluetooth;
         if !grants.asks_system() {
             self.forget_system_requests(client);
         }
@@ -1620,6 +1640,11 @@ impl Scene {
                 cursor,
             } => self.text_input_selection(key(surface), anchor, cursor),
             Request::TextInputCaret { surface, rect } => self.text_input_caret(key(surface), rect),
+            Request::TextInputContentType {
+                surface,
+                content,
+                paired,
+            } => self.text_input_content(key(surface), content, paired),
             Request::TextInputCommit { surface, serial } => {
                 self.text_input_commit(key(surface), serial)?;
                 self.refresh_input_method();
@@ -2068,7 +2093,7 @@ impl Scene {
         let scale_120 = self
             .output(output)
             .map_or(SCALE_DENOMINATOR, |o| o.scale_120);
-        let refresh_mhz = self.output(output).map_or(0, |o| o.refresh_mhz);
+        let refresh_mhz = self.paced_refresh(self.output(output).map_or(0, |o| o.refresh_mhz));
         let size = fit(size, scale_120);
         let presentation =
             Presentation::new(physical(size, scale_120)).expect("physical sizes are valid");
@@ -2150,13 +2175,28 @@ impl Scene {
         self.send_configure(key);
     }
 
+    /// Surfaces pace their frames at most at `cap` mHz (Low Power Mode's 60 Hz on a faster display,
+    /// docs/adr/0057-battery-and-energy.mdx, decision 4), or at their output's refresh: each is
+    /// told the refresh it paces by as it changes (`Refresh`).
+    pub fn set_refresh_cap(&mut self, cap: Option<u32>) {
+        self.refresh_cap = cap;
+    }
+
+    /// The refresh a surface on an output of `refresh_mhz` paces by.
+    fn paced_refresh(&self, refresh_mhz: u32) -> u32 {
+        match self.refresh_cap {
+            Some(cap) if refresh_mhz > cap => cap,
+            _ => refresh_mhz,
+        }
+    }
+
     /// Tells each surface's client the refresh of the output it is on now, where it is not the
     /// one last told: the surface moved to another output, or its display is at another mode.
     fn tell_refreshes(&mut self) {
         let refreshes: BTreeMap<OutputId, u32> = self
             .outputs
             .iter()
-            .map(|output| (output.id, output.refresh_mhz))
+            .map(|output| (output.id, self.paced_refresh(output.refresh_mhz)))
             .collect();
         let mut told = Vec::new();
         let mut moved = Vec::new();
@@ -5029,6 +5069,11 @@ mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 mod input_method;
 pub use input_method::{KeySymbol, MAX_PENDING_KEYS};
+mod autofill;
+pub use autofill::{
+    AutofillItem, AutofillKind, AutofillList, AutofillPick, AutofillQuery, MAX_AUTOFILL_ITEMS,
+    MAX_AUTOFILL_TEXT_BYTES,
+};
 pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;

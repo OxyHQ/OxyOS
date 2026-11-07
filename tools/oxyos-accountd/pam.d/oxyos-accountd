@@ -1,0 +1,6 @@
+# oxyos-accountd's check of an administrator's own password before it erases the machine
+# (docs/adr/0054-recovery-and-erasing.mdx): checked as the system checks one at a login, against
+# the account's verifier on this machine (pam_unix), the account checked. Installed as
+# /etc/pam.d/oxyos-accountd.
+@include common-auth
+@include common-account

@@ -1,0 +1,24 @@
+# After a complete boot, the boot loader entry that started OxyOS gets its tries back, so that
+# three starts in a row that never complete end in the recovery (docs/adr/0054-recovery-and-erasing.mdx,
+# decision 2). Runs once systemd-bless-boot has marked the boot good, which pulls it in
+# (systemd-bless-boot.service.d/oxyos.conf).
+[Unit]
+Description=Give OxyOS's boot entry its tries back
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0054-recovery-and-erasing.mdx
+Requires=boot-complete.target
+After=boot-complete.target systemd-bless-boot.service
+RequiresMountsFor=/efi
+# Started by systemd-boot, whose entries are on the EFI system partition at /efi.
+ConditionPathExists=/sys/firmware/efi/efivars/LoaderEntrySelected-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+ConditionPathIsDirectory=/efi/loader/entries
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/oxyos-recovery boot-tries
+ProtectSystem=strict
+ReadWritePaths=/efi
+ProtectHome=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

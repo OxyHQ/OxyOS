@@ -225,6 +225,18 @@ def oxyos_packages():
     return wanted
 
 
+def own_programs():
+    """Each package of OxyOS's own programs (tools/image/programs/<name>/program) and its files."""
+    wanted = {}
+    for program in sorted((ROOT / "tools" / "image" / "programs").glob("*/program")):
+        values = dict(re.findall(r'^([A-Z_0-9]+)="([^"]*)"', program.read_text(), re.M))
+        binaries = [entry.split(":", 1)[1] for entry in values.get("BINARIES", "").split()]
+        files = ROOT / values.get("FILES", "")
+        tree = [str(p.relative_to(files)) for p in files.rglob("*") if p.is_file() or p.is_symlink()] if values.get("FILES") else []
+        wanted[values["PACKAGE"]] = binaries + tree
+    return wanted
+
+
 def parse_listing(path):
     files = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -295,6 +307,21 @@ def audit_image(audit, gate):
         installed = packages.get(name, {}).get("Version")
         if installed is not None and installed != version:
             violations.append(f"package {name} is {installed}, not OxyOS's {version} (tools/image/packages)")
+
+    # OxyOS's own programs (tools/image/programs/): built here, by tools/image/build.sh packages,
+    # with every file the package carries in the image.
+    os_version = re.search(r'^OS_VERSION="?([^"\n]+)"?', (CONFIG / "oxyos.conf").read_text(), re.M).group(1)
+    for name, paths in own_programs().items():
+        fields = packages.get(name)
+        if fields is None:
+            violations.append(f"OxyOS's program {name} is not installed (tools/image/programs)")
+            continue
+        if not fields.get("Version", "").startswith(os_version + ".") or "hello@oxy.so" not in fields.get("Maintainer", ""):
+            violations.append(f"package {name} {fields.get('Version')} is not OxyOS's own build (tools/image/build.sh packages)")
+        listed = set(files_of.get(name, ()))
+        for path in paths:
+            if path not in listed:
+                violations.append(f"package {name} lacks /{path}")
 
     # 3. Files.
     files = parse_listing(audit / "files.txt")

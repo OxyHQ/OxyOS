@@ -1,0 +1,282 @@
+{
+  "about": "Settings › Battery as a Mac's (docs/adr/0057-battery-and-energy.mdx), Settings granted `settings`, over UPower, power-profiles-daemon and logind played on the run's own bus (the ThinkPad's battery at 64 %, discharging, 3 h 20 min left; 49.6 of 57 Wh, 412 cycles; UPower's charge threshold 75–80 % off). Its sidebar has Battery once the session told the battery; the page says the level and state, Battery Health (Normal, 87 % maximum capacity, 412 cycles), Low Power Mode, the charts of the last 24 hours with this session's charge, and the applications. Low Power Mode Only on Battery holds power-saver (the played daemon's); Options… limits the charge to 80 %, UPower writing 75 and 80 to the battery's sysfs, with no password asked, then lets it charge full again (0 and 100); the display's timer on battery and the menu bar's percentage are the preferences file's, the top bar showing the charge; plugged in, the page says it charges and the hold is let go.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings"
+    ]
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "power": {
+    "battery": {
+      "percent": 64.0,
+      "state": "discharging",
+      "time_to_empty": 12000,
+      "energy_full": 49.6,
+      "energy_full_design": 57.0,
+      "cycles": 412,
+      "threshold": {
+        "start": 75,
+        "end": 80
+      }
+    },
+    "on_ac": false,
+    "critical_action": "HybridSleep"
+  },
+  "steps": [
+    {
+      "name": "Settings, once the session told it the battery: Battery in its sidebar",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Battery"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Battery: the level and state, Battery Health, Low Power Mode, the last 24 hours and Options…",
+      "do": [
+        "press",
+        [
+          136,
+          110
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Battery Level",
+          "64%",
+          "Discharging · 3 h 20 min remaining",
+          "Battery Health",
+          "Normal",
+          "Maximum Capacity",
+          "87%",
+          "Cycle Count",
+          "412",
+          "Low Power Mode",
+          "Last 24 Hours"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Image",
+              "name": "Battery level, Last 24 Hours, now 64%"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Low Power Mode's choices",
+      "do": [
+        "press",
+        [
+          810,
+          413
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Never",
+          "Always",
+          "Only on Battery",
+          "Only on Power Adapter"
+        ]
+      }
+    },
+    {
+      "name": "Only on Battery: the preference kept, power-saver held as the machine is on battery",
+      "do": [
+        "press_named",
+        "Only on Battery"
+      ],
+      "expect": {
+        "preferences_file": {
+          "low_power_mode": "battery"
+        },
+        "power": {
+          "active_profile": "power-saver"
+        }
+      }
+    },
+    {
+      "name": "Scrolled down to the applications and Options…",
+      "do": [
+        "scroll",
+        [
+          600,
+          400,
+          1000
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Apps",
+          "Options…"
+        ]
+      }
+    },
+    {
+      "name": "Options…",
+      "do": [
+        "press_named",
+        "Options…"
+      ],
+      "expect": {
+        "texts": [
+          "Battery Options",
+          "Limit charge to 80%"
+        ]
+      }
+    },
+    {
+      "name": "Limit charge to 80 %: UPower writes the thresholds to the battery's sysfs, with no password asked",
+      "do": [
+        "press_output",
+        [
+          820,
+          202
+        ]
+      ],
+      "expect": {
+        "power": {
+          "sysfs": {
+            "start": "75",
+            "end": "80"
+          },
+          "battery": {
+            "charge_limit": true
+          },
+          "calls": [
+            "HoldProfile power-saver",
+            "EnableChargeThreshold true"
+          ]
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Limit charge to 80%",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Off again: it charges full, 0 and 100",
+      "do": [
+        "press_output",
+        [
+          820,
+          202
+        ]
+      ],
+      "expect": {
+        "power": {
+          "sysfs": {
+            "start": "0",
+            "end": "100"
+          },
+          "battery": {
+            "charge_limit": false
+          }
+        }
+      }
+    },
+    {
+      "name": "The display's timer on battery",
+      "do": [
+        "press_output",
+        [
+          788,
+          314
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "5 minutes",
+          "Never"
+        ]
+      }
+    },
+    {
+      "name": "Five minutes: the preference kept",
+      "do": [
+        "press_named",
+        "5 minutes"
+      ],
+      "expect": {
+        "preferences_file": {
+          "display_off_battery": "5"
+        }
+      }
+    },
+    {
+      "name": "Done",
+      "do": [
+        "press_named",
+        "Done"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Plugged in: charging, the hold let go",
+      "do": [
+        "power",
+        {
+          "on_ac": true,
+          "state": "charging",
+          "time_to_full": 2700
+        }
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "name": "Battery Level, 64%, Charging · 45 min until full"
+            }
+          ]
+        },
+        "power": {
+          "active_profile": "balanced",
+          "holds": []
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

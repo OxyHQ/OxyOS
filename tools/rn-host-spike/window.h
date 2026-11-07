@@ -354,8 +354,13 @@ class Window {
   // none is (`field` null); only what changed is sent. Returns the commit serial transactions
   // made for this state carry. Throws on failure.
   uint32_t textInput(uint32_t surface, const OxyOSTextField* field, bool newField);
+  // The same with what the field holds for AutoFill (OXYOS_CONTENT_*) and whether its pair is on
+  // the surface (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+  uint32_t textInput(uint32_t surface, const OxyOSTextField* field, bool newField, uint8_t content, bool paired);
   // Inside `dispatch`'s callback, for a TEXT_INPUT event: the transaction it completed.
   bool transaction(OxyOSTextTransaction& out) { return oxyos_client_text_transaction(client_, &out) == 1; }
+  // AutoFill's fill of that transaction, if it carries one.
+  bool fill(OxyOSTextFill& out) { return oxyos_client_text_fill(client_, &out) == 1; }
 
   // Called once the window is configured, before the application starts (docs/adr/0031-gpu-buffers.mdx,
   // decision 12): chooses the painter, the GPU's where the compositor names a GPU this process

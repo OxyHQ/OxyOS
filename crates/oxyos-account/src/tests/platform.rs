@@ -40,7 +40,7 @@ impl Machine {
     }
 
     /// The same machine, its Oxy another (offline, say).
-    fn with_api(&self, api: FakeApi) -> Machine {
+    pub(crate) fn with_api(&self, api: FakeApi) -> Machine {
         let store = Store::open(&self.dir.path().join("accounts")).unwrap();
         let users = FakeUsers::default();
         for name in self.users().names() {
@@ -49,6 +49,7 @@ impl Machine {
                 users.users.lock().unwrap().get_mut(&name).unwrap().1 = Some(verifier);
             }
         }
+        *users.administrators.lock().unwrap() = self.users().administrators.lock().unwrap().clone();
         Machine {
             platform: Arc::new(Platform::new(
                 Setup::new(api, users, store).with_platform(platform_client()),
@@ -454,12 +455,19 @@ fn every_online_sign_in_rotates_the_platform_credential() {
         assert!(live.contains(&platform_secret(n)));
         assert!(!live.contains(&platform_secret(n - 1)));
     }
-    // Written whole: nothing half-written beside the file.
+    // Written whole: nothing half-written beside the file (and the machine's administrator made,
+    // a fact of its own).
+    let mut files: Vec<String> = std::fs::read_dir(machine.platform.setup().store().directory())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
     assert_eq!(
-        std::fs::read_dir(machine.platform.setup().store().directory())
-            .unwrap()
-            .count(),
-        1
+        files,
+        [
+            crate::store::ADMINISTRATOR_MADE.to_owned(),
+            format!("{}.json", user())
+        ]
     );
     // The old session's tokens are not handed out again.
     let after = machine

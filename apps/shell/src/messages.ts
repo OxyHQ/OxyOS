@@ -128,6 +128,19 @@ const en = (f: Formats) => ({
     previousPage: "Previous Page",
     nextPage: "Next Page",
   },
+  /** AutoFill's list at a field (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+  autofill: {
+    /** The list's name while nothing is highlighted. */
+    list: "Passwords",
+    /** A new password's suggestion, as Safari offers it. */
+    strongPassword: "Use Strong Password",
+    /** What a code's row is, for its login's username. */
+    code: (username: string) => (username ? `Verification code for ${username}` : "Verification code"),
+    /** An item, its second line, its place and how many there are:
+        "bea@example.com, example.com, 1 of 2". */
+    item: (primary: string, secondary: string, place: number, count: number) =>
+      `${primary}, ${secondary}, ${f.number(place)} of ${f.number(count)}`,
+  },
   /** The shell's own menus, while no application is active, and an application's own menu. */
   menus: {
     about: "About OxyOS",
@@ -169,9 +182,25 @@ const en = (f: Formats) => ({
     wifiConnected: "Connected",
     devices: (count: number) => f.plural(count, { one: "1 device", other: `${f.number(count)} devices` }),
   },
+  /** The battery's menu (docs/adr/0057-battery-and-energy.mdx). */
+  battery: {
+    title: "Battery",
+    sourceBattery: "Power Source: Battery",
+    sourceAdapter: "Power Source: Power Adapter",
+    remaining: (duration: string) => `${duration} remaining`,
+    untilFull: (duration: string) => `${duration} until full`,
+    calculating: "Calculating…",
+    fullyCharged: "Fully Charged",
+    notCharging: "Not Charging",
+    significant: "Using Significant Energy",
+    noSignificant: "No Apps Using Significant Energy",
+    settings: "Battery Settings…",
+    lowPower: "Low Power Mode",
+  },
   /** The Control Center's modules. */
   controlCenter: {
     wifiNetworks: "Wi-Fi Networks",
+    bluetoothDevices: "Bluetooth Devices",
     outputDevices: "Output Devices",
     darkMode: "Dark Mode",
     display: "Display",
@@ -207,6 +236,25 @@ const en = (f: Formats) => ({
     builtInSpeakers: "Built-in Speakers",
     externalHeadphones: "External Headphones",
     lineOut: "Line Out",
+  },
+  /** The Control Center's Bluetooth view (bluetooth.ts, BluetoothPanel, docs/adr/0055-bluetooth.mdx). */
+  bluetooth: {
+    back: "Back",
+    devices: "Devices",
+    settings: "Bluetooth Settings…",
+    connected: "Connected",
+    notConnected: "Not Connected",
+    /** A device's state while the session connects or disconnects it, said with its name. */
+    connecting: "Connecting",
+    disconnecting: "Disconnecting",
+    /** The same, shown. */
+    connectingShown: "Connecting…",
+    disconnectingShown: "Disconnecting…",
+    battery: (percent: string) => `Battery ${percent}`,
+    none: "No Devices",
+    off: "Bluetooth is off.",
+    blocked: "Bluetooth is turned off by a hardware switch or airplane mode.",
+    unavailable: "Bluetooth isn't available.",
   },
   /** The dock and its menus (dock.ts). */
   dock: {
@@ -380,6 +428,33 @@ const en = (f: Formats) => ({
     wifiEnterprise: "Enterprise (802.1X) networks aren't supported yet.",
     wifiWep: "WEP networks aren't supported: they aren't secure.",
     wifiOtherUnsupported: "This network isn't supported yet.",
+    /** Bluetooth's pairing (docs/adr/0055-bluetooth.mdx): a code to compare, a device asking to
+        pair or to use a service, a code to type on it or here, and a connection that failed. */
+    bluetoothPair: "Pair",
+    bluetoothConfirm: (name: string) => `Confirm that “${name}” shows this code.`,
+    bluetoothAuthorize: (name: string) => `“${name}” wants to pair with this computer.`,
+    bluetoothService: (name: string, what: string) => `Allow “${name}” to ${what}?`,
+    /** What a device asks to do, completing "Allow “X” to …?". */
+    bluetoothServices: {
+      audio: "play and record audio",
+      input: "be used as an input device",
+      phone: "connect for phone calls",
+      files: "send and receive files",
+      network: "share a network connection",
+      other: "connect to this computer",
+    } as Record<string, string>,
+    bluetoothDisplay: (name: string) => `Type this code on “${name}”, then press Return.`,
+    bluetoothPasskey: (name: string) => `Enter the code shown on “${name}”.`,
+    bluetoothPin: (name: string) => `Enter the PIN for “${name}”.`,
+    bluetoothPinHint: "If you don't know it, try 0000 or 1234.",
+    bluetoothCodeField: "Code",
+    bluetoothPinField: "PIN",
+    bluetoothFailed: (name: string) => `Couldn't connect to “${name}”.`,
+    bluetoothRejected: "The code didn't match, or the device refused the connection.",
+    bluetoothTimeout: "Make sure it's turned on, nearby and in pairing mode.",
+    bluetoothOtherFailure: "Make sure it's turned on and nearby.",
+    /** A code said digit by digit: "Code: 1 2 3 4 5 6". */
+    bluetoothCodeSaid: (digits: string) => `Code: ${digits}`,
     /** A size's units, from bytes up. */
     units: ["bytes", "KB", "MB", "GB"] as readonly string[],
     /** Each capability's name, and what an application asking for it would do. */
@@ -455,6 +530,12 @@ const es = (f: Formats): Catalogue => ({
     previousPage: "Página anterior",
     nextPage: "Página siguiente",
   },
+  autofill: {
+    list: "Contraseñas",
+    strongPassword: "Usar contraseña segura",
+    code: (username) => (username ? `Código de verificación de ${username}` : "Código de verificación"),
+    item: (primary, secondary, place, count) => `${primary}, ${secondary}, ${f.number(place)} de ${f.number(count)}`,
+  },
   menus: {
     about: "Acerca de OxyOS",
     view: "Ver",
@@ -493,8 +574,23 @@ const es = (f: Formats): Catalogue => ({
     wifiConnected: "Conectada",
     devices: (count) => f.plural(count, { one: "1 dispositivo", other: `${f.number(count)} dispositivos` }),
   },
+  battery: {
+    title: "Batería",
+    sourceBattery: "Fuente de alimentación: batería",
+    sourceAdapter: "Fuente de alimentación: adaptador de corriente",
+    remaining: (duration) => `Quedan ${duration}`,
+    untilFull: (duration) => `${duration} para cargarse`,
+    calculating: "Calculando…",
+    fullyCharged: "Cargada por completo",
+    notCharging: "Sin cargar",
+    significant: "Apps que consumen mucha energía",
+    noSignificant: "No hay apps que consuman mucha energía",
+    settings: "Ajustes de Batería…",
+    lowPower: "Modo de bajo consumo",
+  },
   controlCenter: {
     wifiNetworks: "Redes Wi-Fi",
+    bluetoothDevices: "Dispositivos Bluetooth",
     outputDevices: "Dispositivos de salida",
     darkMode: "Modo oscuro",
     display: "Pantalla",
@@ -528,6 +624,22 @@ const es = (f: Formats): Catalogue => ({
     builtInSpeakers: "Altavoces integrados",
     externalHeadphones: "Auriculares externos",
     lineOut: "Salida de línea",
+  },
+  bluetooth: {
+    back: "Atrás",
+    devices: "Dispositivos",
+    settings: "Ajustes de Bluetooth…",
+    connected: "Conectado",
+    notConnected: "No conectado",
+    connecting: "Conectando",
+    disconnecting: "Desconectando",
+    connectingShown: "Conectando…",
+    disconnectingShown: "Desconectando…",
+    battery: (percent) => `Batería ${percent}`,
+    none: "No hay dispositivos",
+    off: "Bluetooth está desactivado.",
+    blocked: "Bluetooth está desactivado por un interruptor del equipo o por el modo avión.",
+    unavailable: "Bluetooth no está disponible.",
   },
   dock: {
     menuHint: "Para abrir su menú, pulsa Flecha arriba",
@@ -688,6 +800,29 @@ const es = (f: Formats): Catalogue => ({
     wifiEnterprise: "Las redes empresariales (802.1X) aún no son compatibles.",
     wifiWep: "Las redes WEP no son compatibles: no son seguras.",
     wifiOtherUnsupported: "Esta red aún no es compatible.",
+    bluetoothPair: "Enlazar",
+    bluetoothConfirm: (name) => `Confirma que “${name}” muestra este código.`,
+    bluetoothAuthorize: (name) => `“${name}” quiere enlazarse con este ordenador.`,
+    bluetoothService: (name, what) => `¿Permitir que “${name}” ${what}?`,
+    bluetoothServices: {
+      audio: "reproduzca y grabe audio",
+      input: "se use como dispositivo de entrada",
+      phone: "se conecte para hacer llamadas",
+      files: "envíe y reciba archivos",
+      network: "comparta una conexión de red",
+      other: "se conecte a este ordenador",
+    },
+    bluetoothDisplay: (name) => `Escribe este código en “${name}” y pulsa Retorno.`,
+    bluetoothPasskey: (name) => `Introduce el código que muestra “${name}”.`,
+    bluetoothPin: (name) => `Introduce el PIN de “${name}”.`,
+    bluetoothPinHint: "Si no lo sabes, prueba con 0000 o 1234.",
+    bluetoothCodeField: "Código",
+    bluetoothPinField: "PIN",
+    bluetoothFailed: (name) => `No se ha podido conectar a “${name}”.`,
+    bluetoothRejected: "El código no coincidía o el dispositivo ha rechazado la conexión.",
+    bluetoothTimeout: "Asegúrate de que está encendido, cerca y en modo de enlace.",
+    bluetoothOtherFailure: "Asegúrate de que está encendido y cerca.",
+    bluetoothCodeSaid: (digits) => `Código: ${digits}`,
     units: ["bytes", "kB", "MB", "GB"],
     capabilities: {
       network: ["Internet", "conectarse a Internet"],

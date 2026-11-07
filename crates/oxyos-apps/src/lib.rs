@@ -39,6 +39,9 @@ pub struct Grants {
     /// `network`: it sees the networks and joins and forgets them (Settings; docs/adr/0038-
     /// networks.mdx, decision 3).
     pub network: bool,
+    /// `bluetooth`: it sees Bluetooth, discovers, pairs, connects, forgets and renames devices
+    /// (Settings; docs/adr/0055-bluetooth.mdx).
+    pub bluetooth: bool,
 }
 
 impl Grants {
@@ -53,6 +56,7 @@ impl Grants {
                 "updates" => &mut grants.updates,
                 "privacy" => &mut grants.privacy,
                 "network" => &mut grants.network,
+                "bluetooth" => &mut grants.bluetooth,
                 other => return Err(Error(format!("{other:?} is not a system grant"))),
             };
             if *grant {
@@ -74,6 +78,7 @@ impl Grants {
             ("updates", self.updates),
             ("privacy", self.privacy),
             ("network", self.network),
+            ("bluetooth", self.bluetooth),
         ]
         .into_iter()
         .filter(|(_, granted)| *granted)
@@ -90,6 +95,7 @@ impl Grants {
             updates: self.updates || other.updates,
             privacy: self.privacy || other.privacy,
             network: self.network || other.network,
+            bluetooth: self.bluetooth || other.bluetooth,
         }
     }
 }
@@ -1558,6 +1564,14 @@ impl Launcher {
             }
         }
         exited
+    }
+
+    /// Every process it started that runs, and what it was launched as (each application's energy,
+    /// docs/adr/0057-battery-and-energy.mdx).
+    pub fn running(&self) -> impl Iterator<Item = (u32, &Launched)> {
+        self.children
+            .iter()
+            .map(|(child, launched)| (child.id(), launched))
     }
 
     /// What a running process it started was launched as, by pid.

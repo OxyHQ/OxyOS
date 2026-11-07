@@ -363,7 +363,7 @@ impl RegistrarClient {
     fn ask(&self, request: &Request) -> io::Result<Result<Answer, Reason>> {
         self.connection.send(request)?;
         match self.connection.receive::<Answer>()? {
-            Some(Some(Answer::Refused { reason })) => Ok(Err(reason)),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
             Some(Some(answer)) => Ok(Ok(answer)),
             Some(None) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
             None => Err(io::Error::new(

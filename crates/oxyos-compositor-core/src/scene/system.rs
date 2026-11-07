@@ -188,6 +188,25 @@ impl Scene {
             .collect()
     }
 
+    /// The clients Bluetooth's state is told to (ADR 0055): those holding `bluetooth` or `shell`.
+    pub fn bluetooth_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.bluetooth || grants.shell)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
+    /// The clients told the battery and Low Power Mode as they change (docs/adr/0057-battery-and-
+    /// energy.mdx): the shell (its battery's menu) and Settings (its Battery page).
+    pub fn power_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.settings || grants.shell)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// Tells `client` the answer to its request `serial` (0: the update state, unasked), if it
     /// still holds a grant that asks.
     pub fn system_text(&mut self, client: ClientId, serial: u32, text: &str) {

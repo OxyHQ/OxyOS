@@ -1,0 +1,218 @@
+{
+  "about": "The menu bar's battery as a Mac's (docs/adr/0057-battery-and-energy.mdx), over UPower, power-profiles-daemon and logind played on the run's own bus (the ThinkPad's battery at 64 %, discharging, 3 h 20 min left), with Low Power Mode Only on Battery and the percentage shown. Allo (sample/EditingProbe.tsx) has its field focused. The bar shows the charge and the icon, a button named Battery valued with the charge and the time left; its menu says the charge, the power source, the time left, Low Power Mode and that no application uses significant energy, Allo receiving nothing; Escape closes it and gives the keyboard back to Allo. Unplugged: power-saver held by the session (its hold named Low Power Mode). Plugged in: the menu says the adapter and the time until full, and the hold is released. Battery Settings… opens Settings at its Battery page (oxyos-settings://battery). At scale 1.25 (the ThinkPad's panel).",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "preferences": {
+    "battery_percentage": "true",
+    "low_power_mode": "battery"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "power": {
+    "battery": {
+      "percent": 64.0,
+      "state": "discharging",
+      "time_to_empty": 12000,
+      "energy_full": 49.6,
+      "energy_full_design": 57.0,
+      "cycles": 412,
+      "threshold": {
+        "start": 75,
+        "end": 80
+      }
+    },
+    "on_ac": false,
+    "critical_action": "HybridSleep"
+  },
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard; the bar shows the battery's charge and a button named Battery, its value the charge and the time left; power-saver is held, the machine on battery",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Batería",
+              "value": "64 %, 3 h 20 min restantes"
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "64 %"
+          ]
+        },
+        "power": {
+          "active_profile": "power-saver",
+          "holds": [
+            {
+              "profile": "power-saver",
+              "reason": "Low Power Mode",
+              "application": "so.oxy.oxyos"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pressed, its menu: the charge, the power source, the time left, Low Power Mode, no application using significant energy, Battery Settings…; Allo receives nothing",
+      "do": [
+        "press_named",
+        "Batería"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Batería  64 %",
+            "Fuente de alimentación: batería",
+            "Quedan 3 h 20 min",
+            "Modo de bajo consumo",
+            "No hay apps que consuman mucha energía",
+            "Ajustes de Batería…"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Batería",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it; the keyboard is Allo's again",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "focus_input": "line",
+        "at_absent": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Ajustes de Batería…"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Plugged in: charging, the menu bar's value says the time until full; Low Power Mode Only on Battery lets power-saver go",
+      "do": [
+        "power",
+        {
+          "on_ac": true,
+          "state": "charging",
+          "time_to_full": 2700
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Batería",
+              "value": "64 %, cargando (45 min para cargarse)"
+            }
+          ]
+        },
+        "power": {
+          "active_profile": "balanced",
+          "holds": []
+        }
+      }
+    },
+    {
+      "name": "Its menu says the adapter and the time until full",
+      "do": [
+        "press_named",
+        "Batería"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Fuente de alimentación: adaptador de corriente",
+            "45 min para cargarse",
+            "Ajustes de Batería…"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Battery Settings… opens Settings at its Battery page",
+      "do": [
+        "press_named",
+        "Ajustes de Batería…"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://battery",
+            "application": "so.oxy.settings"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

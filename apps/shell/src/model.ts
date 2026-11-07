@@ -1,6 +1,8 @@
+import type { AutofillList } from "./autofill";
 import type { CandidateList, InputSourcesState } from "./input-sources";
 import type { ImageSourcePropType } from "react-native";
 import type { NetworkState } from "./network";
+import type { BluetoothState } from "./bluetooth";
 import type { SoundState } from "./sound";
 
 /** Data supplied by the OxyOS application registry and compositor, never invented by the UI. */
@@ -245,6 +247,21 @@ export type ShellBattery = {
   /** Until empty (discharging) or full (charging); 0 unknown. */
   minutes: number;
 };
+/** An application's energy, as the session sampled it as the battery's menu opened
+    (docs/adr/0057-battery-and-energy.mdx). */
+export type ShellEnergyApp = { id: string; name: string; significant: boolean };
+/** The battery's menu (docs/adr/0057-battery-and-energy.mdx): what the session says beyond the
+    battery itself, and what the menu asks of it. */
+export type ShellBatteryMenu = {
+  /** The charge shown beside the icon (the person's `battery_percentage`). */
+  showPercentage: boolean;
+  /** Low Power Mode is on: the icon's charge is drawn yellow, as a Mac's. */
+  lowPower: boolean;
+  /** Each application's energy, sampled as the menu opens. */
+  energy: () => Promise<readonly ShellEnergyApp[]>;
+  /** Battery Settings…: Settings at its Battery page. */
+  openSettings: () => void;
+};
 export type ShellNetwork = {
   wifi: "unavailable" | "off" | "disconnected" | "connecting" | "connected";
   /** The access point's signal, 0 to 100, and its name (empty unless connected or connecting). */
@@ -289,6 +306,18 @@ export type ShellControls = {
   selectOutput?: (id: string) => void;
   /** The Sound view's "Ajustes de sonido…": Settings, at its Sound page where it can be. */
   openSoundSettings?: () => void;
+  /** Bluetooth as the session tells it (docs/adr/0055-bluetooth.mdx): the Bluetooth module's
+      switch and the Control Center's Bluetooth view. Absent or null, the module only says what
+      `bluetooth` says. */
+  bluetoothDevices?: BluetoothState | null;
+  /** Bluetooth's switch: the session turns the adapter on or off. */
+  setBluetooth?: (on: boolean) => void;
+  /** A paired device pressed in the Bluetooth view: the session connects it (asking what a
+      pairing needs, and saying what failed, in its system sheets) or disconnects it. */
+  connectBluetooth?: (id: string) => void;
+  disconnectBluetooth?: (id: string) => void;
+  /** The Bluetooth view's "Bluetooth Settings…": Settings, at its Bluetooth page. */
+  openBluetoothSettings?: () => void;
 };
 
 /** A screenshot the session saved (docs/adr/0024-system-shortcuts.mdx, decision 10): the session's
@@ -322,6 +351,18 @@ export type ShellScreenshots = {
   end: () => void;
   /** Opens a saved screenshot in the application that opens it. */
   open: (id: number) => void;
+};
+
+/**
+ * AutoFill as the platform has it (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6):
+ * the list the session tells the shell to draw at a field's caret, in the same window as an input
+ * method's candidates, and the press that picks an item. The application never sees the list.
+ */
+export type ShellAutofill = {
+  /** The list to show; null while there is none. */
+  list: AutofillList | null;
+  /** An item pressed (its index in the list): the session fills it. */
+  choose: (index: number) => void;
 };
 
 /**

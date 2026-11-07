@@ -133,6 +133,7 @@ impl Scene {
     pub(super) fn refresh_input_method(&mut self) {
         self.tell_input_method();
         self.tell_candidates();
+        self.refresh_autofill();
     }
 
     /// Tells the input method what changed of the field it serves: another field (deactivating
@@ -274,16 +275,21 @@ impl Scene {
     fn candidates_shell(&self) -> Option<ClientId> {
         let im = self.input_method.as_ref()?;
         im.list.as_ref()?;
-        let served = im.active?;
-        let caret = self.text_input(served.surface)?.caret?;
-        let field = self.global_rect(served.surface)?;
+        self.caret_shell(im.active?.surface)
+    }
+
+    /// The shell of the output the caret of `surface`'s field is on, which draws what the system
+    /// shows at that caret (an input method's candidates, AutoFill's list).
+    pub(super) fn caret_shell(&self, surface: SurfaceKey) -> Option<ClientId> {
+        let caret = self.text_input(surface)?.caret?;
+        let field = self.global_rect(surface)?;
         let output = self
             .output_at(
                 i64::from(field.x) + i64::from(caret.x),
                 i64::from(field.y) + i64::from(caret.y),
             )
             .map(|output| output.id)
-            .or_else(|| self.live(served.surface).map(|node| node.output))?;
+            .or_else(|| self.live(surface).map(|node| node.output))?;
         self.shortcut_shell(output)
     }
 
@@ -441,22 +447,39 @@ impl Scene {
     /// Places the candidates below the caret of the field the input method serves (above it
     /// when there is no room), on the caret's output; hides them while it serves none or the
     /// field has not said where its caret is. A shell's candidates surface is placed the same
-    /// way while it draws a list, and hidden otherwise.
+    /// way while it draws a list, at the caret of the field the list is for: AutoFill's
+    /// (docs/adr/0050-keychain-autofill-and-passkeys.mdx), else the input method's; and hidden
+    /// otherwise.
     pub(super) fn place_candidates(&mut self) {
-        let mut surfaces: Vec<(SurfaceKey, bool)> = self
+        let served = self
+            .input_method
+            .as_ref()
+            .and_then(|im| im.active)
+            .map(|served| served.surface);
+        let autofill = self
+            .autofill
+            .told
+            .as_ref()
+            .map(|(shell, _)| *shell)
+            .zip(self.autofill_surface());
+        let mut surfaces: Vec<(SurfaceKey, Option<SurfaceKey>)> = self
             .shell_candidates
             .iter()
             .map(|(client, id)| {
-                let drawing = self
-                    .candidates_told
-                    .as_ref()
-                    .is_some_and(|(shell, _)| shell == client);
+                let anchor = match autofill {
+                    Some((shell, surface)) if shell == *client => Some(surface),
+                    _ => served.filter(|_| {
+                        self.candidates_told
+                            .as_ref()
+                            .is_some_and(|(shell, _)| shell == client)
+                    }),
+                };
                 (
                     SurfaceKey {
                         client: *client,
                         id: *id,
                     },
-                    drawing,
+                    anchor,
                 )
             })
             .collect();
@@ -467,24 +490,24 @@ impl Scene {
                         client: im.client,
                         id,
                     },
-                    true,
+                    served,
                 ));
             }
         }
-        for (key, shown) in surfaces {
-            self.place_candidates_surface(key, shown);
+        for (key, anchor) in surfaces {
+            self.place_candidates_surface(key, anchor);
         }
     }
 
-    fn place_candidates_surface(&mut self, key: SurfaceKey, shown: bool) {
+    /// Places a candidates surface below the caret of `anchor`'s field, or hides it (none).
+    fn place_candidates_surface(&mut self, key: SurfaceKey, anchor: Option<SurfaceKey>) {
         let Some(node) = self.nodes.get(&key) else {
             return;
         };
         let size = node.pending.map_or(node.size, |(_, _, size)| size);
-        let active = self.input_method.as_ref().and_then(|im| im.active);
-        let placed = active.filter(|_| shown).and_then(|served| {
-            let caret = self.text_input(served.surface)?.caret?;
-            let field = self.global_rect(served.surface)?;
+        let placed = anchor.and_then(|surface| {
+            let caret = self.text_input(surface)?.caret?;
+            let field = self.global_rect(surface)?;
             let positioner = Positioner {
                 anchor_rect: caret,
                 size,
@@ -547,6 +570,7 @@ impl Scene {
         if self.reader_key(key, pressed)
             || self.hardware_key(key, pressed)
             || self.system_key(key, pressed)
+            || self.autofill_key(key, pressed)
         {
             return;
         }

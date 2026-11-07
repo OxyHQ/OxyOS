@@ -10,15 +10,22 @@ import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import {
+  bluetooth,
+  autofill as autofillApi,
   inputSources,
   network,
+  power,
   sound as soundApi,
+  useBluetoothState,
+  useAutofillState,
   useInputSourcesState,
   useNetworkState,
+  usePowerState,
   useSoundState,
   useSystemSheets,
 } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
+import { readAutofill } from '../../../apps/shell/src/autofill';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
@@ -27,7 +34,10 @@ import { useSessionLocale } from './oxyos/locale';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
+  ShellBatteryMenu,
+  ShellEnergyApp,
   ShellInputMethod,
+  ShellAutofill,
   ShellLock,
   ShellMenu,
   ShellMenuItem,
@@ -242,7 +252,11 @@ function ProbeShell({
   sheet,
   screenshots,
   inputMethod,
+  battery,
+  autofill,
 }: {
+  /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+  autofill?: ShellAutofill;
   /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
   screenshots?: ShellScreenshots;
   /** The session's system sheet to show now (ADR 0030). */
@@ -265,6 +279,8 @@ function ProbeShell({
   notifications?: ShellNotifications;
   /** Input methods (ADR 0041): the candidate window and the top bar's input sources. */
   inputMethod?: ShellInputMethod;
+  /** The battery's menu (ADR 0057), once the session told the battery and energy. */
+  battery?: ShellBatteryMenu;
 }) {
   // The same wallpaper while it draws the same: the wallpaper and what blurs it render again only
   // when it changes.
@@ -286,6 +302,8 @@ function ProbeShell({
       sheet={sheet}
       screenshots={screenshots}
       inputMethod={inputMethod}
+      battery={battery}
+      autofill={autofill}
     />
   );
 }
@@ -413,13 +431,17 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword } = useSystemSheets();
+  const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
   const sound = useSoundState();
+  // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
+  const bluetoothDevices = useBluetoothState();
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
+  // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
+  const powerState = usePowerState() as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -660,8 +682,24 @@ function SessionShell() {
         soundApi.select('output', id);
       },
       openSoundSettings: () => act.menuCommand('system.settings'),
+      // Bluetooth (ADR 0055): the session turns it on and off, connects and disconnects, asking
+      // what a pairing needs and saying what failed in its own sheets. Bluetooth Settings opens
+      // Settings at its Bluetooth page, a URL the shell opens as any other.
+      bluetoothDevices,
+      setBluetooth: (on) => {
+        bluetooth.setPower(on);
+      },
+      connectBluetooth: (id) => {
+        bluetooth.connect(id);
+      },
+      disconnectBluetooth: (id) => {
+        bluetooth.disconnect(id);
+      },
+      openBluetoothSettings: () => {
+        shell.openUrl('oxyos-settings://bluetooth');
+      },
     };
-  }, [told, bezel, networks, sound, act]);
+  }, [told, bezel, networks, sound, bluetoothDevices, act]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;
@@ -724,6 +762,40 @@ function SessionShell() {
     }),
     [shell.candidates, sources, act],
   );
+  // The battery's menu (ADR 0057): its percentage and Low Power Mode as the session says them, the
+  // applications' energy sampled as it opens, and Battery Settings… opening Settings at its page.
+  const showPercentage = !!powerState?.showPercentage;
+  const lowPower = !!powerState?.lowPower?.on;
+  const battery: ShellBatteryMenu | undefined = React.useMemo(
+    () =>
+      powerState
+        ? {
+            showPercentage,
+            lowPower,
+            energy: async () => {
+              const answer = (await power.energy()) as { energy?: { apps?: ShellEnergyApp[] } };
+              return answer?.energy?.apps ?? [];
+            },
+            openSettings: () => {
+              shell.openUrl('oxyos-settings://battery');
+            },
+          }
+        : undefined,
+    [!!powerState, showPercentage, lowPower, shell.openUrl],
+  );
+
+  // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
+  // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
+  const autofillTold = useAutofillState();
+  const autofill: ShellAutofill = React.useMemo(
+    () => ({
+      list: readAutofill(autofillTold),
+      choose: (index) => {
+        autofillApi.choose(index);
+      },
+    }),
+    [autofillTold],
+  );
   const first = dock ? sheets[0] : undefined;
   const sheet = React.useMemo(() => {
     const firstText = first ? readSheet(first.text) : null;
@@ -736,8 +808,10 @@ function SessionShell() {
       answer: (accepted: boolean) => answer(first.sheet, accepted),
       // A Wi-Fi password sheet's answer (ADR 0038): to the session alone.
       answerPassword: (password: string) => answerPassword(first.sheet, password),
+      // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
+      answerCode: (code: string) => answerCode(first.sheet, code),
     };
-  }, [first, registry, answer, answerPassword]);
+  }, [first, registry, answer, answerPassword, answerCode]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell
@@ -754,6 +828,8 @@ function SessionShell() {
       notifications={notifications}
       screenshots={screenshots}
       inputMethod={inputMethod}
+      battery={battery}
+      autofill={autofill}
     />
   );
 }

@@ -7,6 +7,8 @@ import type {
   ShellCommand,
   ShellControls,
   ShellInputMethod,
+  ShellBatteryMenu,
+  ShellAutofill,
   ShellLock,
   ShellMenu,
   ShellNotification,
@@ -33,6 +35,7 @@ import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
+import { AutofillWindow } from "./components/AutofillWindow";
 import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
 import type { SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
@@ -127,6 +130,8 @@ export const Shell = memo(function Shell({
   sheet,
   screenshots,
   inputMethod,
+  battery,
+  autofill,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -169,6 +174,9 @@ export const Shell = memo(function Shell({
     /** A Wi-Fi password sheet's answer (docs/adr/0038-networks.mdx): the password, to the
         session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerPassword?: (password: string) => void;
+    /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
+        to the session alone. Without it such a sheet cannot be answered but by Cancel. */
+    answerCode?: (code: string) => void;
   };
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
@@ -176,6 +184,12 @@ export const Shell = memo(function Shell({
   /** Input methods, where the platform has them (docs/adr/0041-input-methods.mdx): the candidate
       window at the caret, and the top bar's input source item. */
   inputMethod?: ShellInputMethod;
+  /** The battery's menu, where the platform has the session's battery and energy
+      (docs/adr/0057-battery-and-energy.mdx). */
+  battery?: ShellBatteryMenu;
+  /** AutoFill, where the platform has it (docs/adr/0050-keychain-autofill-and-passkeys.mdx): its
+      list at a field's caret, drawn in the candidate window's surface. */
+  autofill?: ShellAutofill;
 }) {
   const { Surface } = platform;
   const messages = useShellMessages();
@@ -257,8 +271,8 @@ export const Shell = memo(function Shell({
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -458,7 +472,11 @@ export const Shell = memo(function Shell({
           setControlCenter(null);
           setCenter(false);
           setStatusKeys((keys) => ({
-            target: firstStatusItem(now.controls?.network, now.inputSources),
+            target: firstStatusItem(
+              now.controls?.network,
+              now.inputSources,
+              !!(now.battery && now.controls?.power && now.controls.power.battery !== "absent"),
+            ),
             request: (keys?.request ?? 0) + 1,
           }));
           break;
@@ -819,11 +837,16 @@ export const Shell = memo(function Shell({
             showEmoji={inputMethod?.showEmoji}
             openKeyboardSettings={inputMethod?.openKeyboardSettings}
             onInputMenuChange={inputMenuChanged}
+            batteryMenu={battery}
           />
         </Surface>
-        {inputMethod && (
+        {(inputMethod || autofill) && (
+          // What the system shows at a field's caret: AutoFill's list, or an input method's
+          // candidates (docs/adr/0050-keychain-autofill-and-passkeys.mdx, ADR 0041).
           <Surface kind="candidates" style={CANDIDATES_AREA}>
-            {inputMethod.candidates ? (
+            {autofill?.list ? (
+              <AutofillWindow list={autofill.list} onChoose={autofill.choose} />
+            ) : inputMethod?.candidates ? (
               <CandidateWindow
                 list={inputMethod.candidates}
                 onChoose={inputMethod.choose}
@@ -1048,6 +1071,7 @@ export const Shell = memo(function Shell({
               names={sheet.names}
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
+              answerCode={sheet.answerCode}
               keyboard={platform.keyboard}
             />
           </Surface>

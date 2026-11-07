@@ -60,8 +60,10 @@
 //! PipeWire's default devices (through WirePlumber's `wpctl`) and on the backlights (through
 //! logind's `SetBrightness`) whatever has the keyboard, locked or not, and no application sees
 //! them; the shell shows each level and its Control Center sets them, turns Wi-Fi on and off
-//! (NetworkManager) and shows the battery (UPower) and Bluetooth (BlueZ), which the session looks
-//! at every few seconds, off the compositor's turn.
+//! (NetworkManager) and shows the battery (UPower), followed as they change, off the compositor's
+//! turn. Bluetooth (docs/adr/0055-bluetooth.mdx) is BlueZ's, through the session alone: on and
+//! off, discovery while Settings' Bluetooth page holds it, connecting, pairing (the session is
+//! BlueZ's default pairing agent, its questions the shell's sheets), forgetting and renaming.
 //!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
@@ -325,8 +327,8 @@ fn main() -> Result<()> {
     }
     // The machine's volumes, backlights, battery and network, on a thread of their own: every
     // call may wait on another process (ADR 0025). Each is read again as it changes, never on a
-    // clock; the network by the networks' part below, which the login screen has not, and the
-    // volumes by the sound's.
+    // clock; the network and Bluetooth by their own parts below, which the login screen has not,
+    // and the volumes by the sound's.
     match oxyos_controls::Worker::spawn(Box::new(oxyos_controls::Session::new(pipewire))) {
         Ok(worker) => {
             let mut controls = oxyos_compositor::controls::Controls::new(worker);
@@ -574,6 +576,28 @@ fn main() -> Result<()> {
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
     };
+    // Bluetooth (ADR 0055): the shell's and Settings' requests and the machine's pairing agent,
+    // over the system's BlueZ, as the session's user. The login screen has none: a paired device
+    // reconnects by itself there, and nothing is paired before a person signs in.
+    let mut bluetooth = if greeter {
+        None
+    } else {
+        let bluetooth = oxyos_compositor::bluetooth::Bluetooth::on_bus(None)?;
+        compositor.wakers.push(bluetooth.wake_fd()?);
+        Some(bluetooth)
+    };
+    // Battery and energy (docs/adr/0057-battery-and-energy.mdx): the battery's menu and Settings,
+    // Low Power Mode through power-profiles-daemon, the charge limit through UPower, the display's
+    // and the machine's sleep through logind, the history and each application's energy. The
+    // login screen has none of it.
+    let mut power = if greeter {
+        None
+    } else {
+        let power =
+            oxyos_compositor::power::Power::new(None, oxyos_power::history::session_path())?;
+        compositor.wakers.push(power.wake_fd()?);
+        Some(power)
+    };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
     let mut input_methods = if greeter {
@@ -690,6 +714,18 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
+        // Battery and energy (ADR 0057), before the store, which takes the requests left.
+        if let Some(power) = power.as_mut() {
+            let running: Vec<oxyos_power::energy::Running> = launcher
+                .running()
+                .map(|(pid, launched)| oxyos_power::energy::Running {
+                    pid,
+                    id: launched.id.clone(),
+                    name: launched.name.clone(),
+                })
+                .collect();
+            power.serve(&mut compositor, settings.preferences(), &running);
+        }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
             networks.serve(&mut compositor.scene);
@@ -700,6 +736,17 @@ fn main() -> Result<()> {
                 compositor.controls.as_mut(),
             ) {
                 controls.network_is(&mut compositor.scene, network);
+            }
+        }
+        if let Some(bluetooth) = bluetooth.as_mut() {
+            bluetooth.serve(&mut compositor.scene);
+            // Control Center's Bluetooth module, told from what the Bluetooth part follows.
+            if let (true, Some(status), Some(controls)) = (
+                bluetooth.take_changed(),
+                bluetooth.status(),
+                compositor.controls.as_mut(),
+            ) {
+                controls.bluetooth_is(&mut compositor.scene, status);
             }
         }
         if let Some(installs) = installs.as_mut() {
@@ -965,6 +1012,7 @@ fn main() -> Result<()> {
                     updates: launched.grants.updates,
                     privacy: launched.grants.privacy,
                     network: launched.grants.network,
+                    bluetooth: launched.grants.bluetooth,
                     ..Grants::default()
                 },
             })
@@ -1060,6 +1108,11 @@ fn main() -> Result<()> {
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
+    // Recorded as ended; power-saver let go as it goes.
+    if let Some(power) = power.as_mut() {
+        power.end();
+    }
+    drop(power);
     launcher.end(Duration::from_secs(2));
     for shell in shells.values_mut() {
         end(shell)?;

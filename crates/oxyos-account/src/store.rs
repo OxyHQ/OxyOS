@@ -7,6 +7,13 @@
 //!   again online gives it a credential anew.
 //! - Version 1 files (step 1's, a device credential and nothing else) are read as ready accounts.
 //!
+//! - **Two facts of the machine** are files of the same directory, beside the accounts'
+//!   ([`Store::fact`]): [`ADMINISTRATOR_MADE`], the machine's first administrator was made (once,
+//!   never again: a machine whose administrator was removed gets no new one by itself), and
+//!   [`ERASE_ARMED`], the erase is armed and the recovery erases the machine at its next boot
+//!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)), which a service started again
+//!   before that boot keeps to.
+//!
 //! - The directory is the service's alone: mode 0700, owned by the service's user, not a symbolic
 //!   link. One that is anything else is refused, never repaired.
 //! - Each file is mode 0600 and written whole: to a new file beside it, flushed to the disk,
@@ -31,6 +38,12 @@ use zeroize::Zeroizing;
 pub const STATE_DIRECTORY: &str = "/var/lib/oxyos/accounts";
 /// Where accounts' pictures are: a file named by the account's user, for the login screen.
 pub const PICTURES_DIRECTORY: &str = "/var/lib/oxyos/pictures";
+
+/// The machine's first administrator was made (by its first setup, or by the service's start on a
+/// machine set up before administrators existed).
+pub const ADMINISTRATOR_MADE: &str = "administrator-made";
+/// The erase is armed: until the machine restarts into its recovery, nothing more is asked of Oxy.
+pub const ERASE_ARMED: &str = "erase-armed";
 
 /// The version of an account's file written; version 1 is still read.
 const VERSION: u32 = 2;
@@ -302,6 +315,16 @@ impl Store {
         Ok(users)
     }
 
+    /// Every enrolled account whose file can be read, by its user. A file that cannot be read is
+    /// no account, and is left out, as [`Store::list`] leaves it out.
+    pub fn enrollments(&self) -> io::Result<Vec<Enrollment>> {
+        Ok(self
+            .users()?
+            .iter()
+            .filter_map(|user| self.get_user(user).ok().flatten())
+            .collect())
+    }
+
     /// Writes the account's file whole, replacing the one it had.
     pub fn put(&self, enrollment: &Enrollment) -> io::Result<()> {
         let stored = Written {
@@ -345,6 +368,28 @@ impl Store {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),
         }
+    }
+
+    /// Whether the machine's fact `name` ([`ADMINISTRATOR_MADE`], [`ERASE_ARMED`]) holds. One that
+    /// cannot be read holds: each is the safer of the two answers.
+    pub fn fact(&self, name: &str) -> bool {
+        !matches!(fs::symlink_metadata(self.directory.join(name)), Err(error) if error.kind() == io::ErrorKind::NotFound)
+    }
+
+    /// Records the machine's fact `name`: an empty file, mode 0600, flushed with its directory.
+    pub fn record_fact(&self, name: &str) -> io::Result<()> {
+        let file = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(self.directory.join(name))
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        file.sync_all()?;
+        self.sync()
     }
 
     /// Flushes the directory, so a rename or a removal survives a crash.

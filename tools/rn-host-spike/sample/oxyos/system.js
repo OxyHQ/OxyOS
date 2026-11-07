@@ -1,7 +1,8 @@
 // Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
 // and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), the shell's system sheets,
-// and the capabilities an application asks for at first use. The session decides; nothing here
+// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), Wi-Fi and networks
+// (`network`), Bluetooth (`bluetooth`), the shell's system sheets, and the capabilities an
+// application asks for at first use. The session decides; nothing here
 // grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -16,6 +17,20 @@ let lastState = null;
 const networkListeners = new Set();
 let lastNetwork = null;
 
+/** Bluetooth as the session last told it (docs/adr/0055-bluetooth.mdx), and who follows it. */
+const bluetoothListeners = new Set();
+let lastBluetooth = null;
+
+/** The battery and Low Power Mode as the session last told them (docs/adr/0057-battery-and-
+    energy.mdx), and who follows them. */
+const powerListeners = new Set();
+let lastPower = null;
+
+function toldPower(state) {
+  lastPower = state;
+  for (const listener of powerListeners) listener(state);
+}
+
 /** The input sources as the session last told them (docs/adr/0041-input-methods.mdx), and who
     follows them. */
 const inputSourcesListeners = new Set();
@@ -25,6 +40,16 @@ let lastInputSources = null;
     who follows them, and who follows the input's level. */
 const soundListeners = new Set();
 let lastSound = null;
+
+/** AutoFill's list the session last told the shell to draw (docs/adr/0050-keychain-autofill-and-passkeys.mdx),
+    null when none, and who follows it. */
+const autofillListeners = new Set();
+let lastAutofill = null;
+
+function toldAutofill(list) {
+  lastAutofill = list ?? null;
+  for (const listener of autofillListeners) listener(lastAutofill);
+}
 const inputLevelListeners = new Set();
 
 function toldSound(state) {
@@ -35,6 +60,11 @@ function toldSound(state) {
 function toldInputSources(state) {
   lastInputSources = state;
   for (const listener of inputSourcesListeners) listener(state);
+}
+
+function toldBluetooth(state) {
+  lastBluetooth = state;
+  for (const listener of bluetoothListeners) listener(state);
 }
 
 function toldNetwork(state) {
@@ -53,11 +83,14 @@ if (native) {
     if (serial === 0) {
       if (answer && answer.updateState) told(answer.updateState);
       if (answer && answer.network) toldNetwork(answer.network);
+      if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
       if (answer && answer.inputSources) toldInputSources(answer.inputSources);
       if (answer && answer.sound) toldSound(answer.sound);
+      if (answer && 'autofill' in answer) toldAutofill(answer.autofill);
       if (answer && typeof answer.inputLevel === 'number') {
         for (const listener of inputLevelListeners) listener(answer.inputLevel);
       }
+      if (answer && answer.power) toldPower(answer.power);
       return;
     }
     const asked = waiting.get(serial);
@@ -69,8 +102,10 @@ if (native) {
     waiting.delete(serial);
     if (answer && answer.updateState) told(answer.updateState);
     if (answer && answer.network) toldNetwork(answer.network);
+    if (answer && answer.bluetooth) toldBluetooth(answer.bluetooth);
     if (answer && answer.inputSources) toldInputSources(answer.inputSources);
     if (answer && answer.sound) toldSound(answer.sound);
+    if (answer && answer.power) toldPower(answer.power);
     asked.resolve(answer);
   });
 }
@@ -159,6 +194,72 @@ export function useNetworkState() {
 }
 
 /**
+ * Bluetooth (docs/adr/0055-bluetooth.mdx): the shell (its `shell` grant) and Settings (the
+ * `bluetooth` grant) ask the session, which alone speaks to BlueZ and is the machine's pairing
+ * agent. The state is told as it changes; a connection is answered once it is done
+ * (`{connected}`, `{paired}` or `{failed: {reason}}`), any code a pairing needs asked or shown in
+ * the shell's system sheets on the way. Settings holds discovery while its Bluetooth page is open
+ * (`discover(true)`, then `discover(false)`); the session ends it when Settings goes.
+ */
+export const bluetooth = {
+  state: () => ask({ bluetooth: {} }),
+  setPower: (on) => ask({ bluetoothPower: { on } }),
+  discover: (on) => ask({ bluetoothDiscover: { on } }),
+  connect: (id) => ask({ bluetoothConnect: { id } }),
+  disconnect: (id) => ask({ bluetoothDisconnect: { id } }),
+  forget: (id) => ask({ bluetoothForget: { id } }),
+  rename: (id, name) => ask({ bluetoothRename: { id, name } }),
+  current: () => lastBluetooth,
+  subscribe(listener) {
+    bluetoothListeners.add(listener);
+    return () => bluetoothListeners.delete(listener);
+  },
+};
+
+/** Bluetooth as it changes, for a view: asked once, then followed. */
+export function useBluetoothState() {
+  const [state, setState] = React.useState(lastBluetooth);
+  React.useEffect(() => {
+    const unsubscribe = bluetooth.subscribe(setState);
+    bluetooth.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
+ * Battery and energy (docs/adr/0057-battery-and-energy.mdx): the shell (its `shell` grant: the
+ * battery's menu) and Settings (`settings`: its Battery page) are told the state as it changes
+ * (`{battery, health, chargeLimit, lowPower, showPercentage, criticalAction}`), and ask for the
+ * charge history (`{powerHistory: {day, days}}`) and each application's energy, sampled as asked
+ * (`{energy: {apps}}`). Settings alone limits the battery's charge, citing the press that asked
+ * (`{chargeLimit: {}}` or `{failed: {reason}}`). Low Power Mode, the timers and the menu bar's
+ * percentage are preferences, which Settings changes as it changes any.
+ */
+export const power = {
+  state: () => ask({ power: {} }),
+  history: () => ask({ powerHistory: {} }),
+  energy: () => ask({ energy: {} }),
+  setChargeLimit: (enabled) => ask({ chargeLimit: { enabled } }),
+  current: () => lastPower,
+  subscribe(listener) {
+    powerListeners.add(listener);
+    return () => powerListeners.delete(listener);
+  },
+};
+
+/** The battery and Low Power Mode as they change, for a view: asked once, then followed. */
+export function usePowerState() {
+  const [state, setState] = React.useState(lastPower);
+  React.useEffect(() => {
+    const unsubscribe = power.subscribe(setState);
+    power.state();
+    return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): the session tells Settings (its
  * `settings` grant) and the shell the sources in effect and the input methods its engine has, as
  * they change, and answers `{inputSources: {}}` with them. Settings changes them through the
@@ -184,6 +285,32 @@ export function useInputSourcesState() {
     const unsubscribe = inputSources.subscribe(setState);
     inputSources.state();
     return unsubscribe;
+  }, []);
+  return state;
+}
+
+/**
+ * AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6): the session tells the
+ * shell (its `shell` grant) the list to draw at a field's caret (`{autofill: {content, items,
+ * highlighted}}`, `{autofill: null}` to hide it), and the shell picks the item pressed
+ * (`choose`, citing the press), answered `{chosen: {}}` or `{refused: {reason}}`. The application
+ * whose field it is never sees the list.
+ */
+export const autofill = {
+  choose: (index) => ask({ chooseAutofill: { index } }),
+  current: () => lastAutofill,
+  subscribe(listener) {
+    autofillListeners.add(listener);
+    return () => autofillListeners.delete(listener);
+  },
+};
+
+/** AutoFill's list as the session tells it, for a view. */
+export function useAutofillState() {
+  const [state, setState] = React.useState(lastAutofill);
+  React.useEffect(() => {
+    setState(lastAutofill);
+    return autofill.subscribe(setState);
   }, []);
   return state;
 }
@@ -222,21 +349,17 @@ export function useSoundState() {
   return state;
 }
 
-/** The chosen input's level (0 to 1) while `on`: metered from when it is on until it is off or
-    the view goes, so nothing listens to the input meanwhile. */
-export function useInputLevel(on) {
-  const [level, setLevel] = React.useState(0);
-  React.useEffect(() => {
-    if (!on || !native) return undefined;
-    inputLevelListeners.add(setLevel);
-    sound.meter(true);
-    return () => {
-      inputLevelListeners.delete(setLevel);
-      setLevel(0);
-      if (inputLevelListeners.size === 0) sound.meter(false);
-    };
-  }, [on]);
-  return level;
+/** Follows the chosen input's level (0 to 1): metered from the first follower until the last
+    stops, so nothing listens to the input while no view shows its level (ADR 0056, decision 7).
+    Returns the stop. */
+export function followInputLevel(listener) {
+  if (!native) return () => {};
+  inputLevelListeners.add(listener);
+  if (inputLevelListeners.size === 1) sound.meter(true);
+  return () => {
+    if (!inputLevelListeners.delete(listener)) return;
+    if (inputLevelListeners.size === 0) sound.meter(false);
+  };
 }
 
 /** The update state as it changes, for a page: asked once, then followed. */
@@ -301,5 +424,11 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ password: { sheet, password } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword };
+  // A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the PIN or passkey the person
+  // typed, to the session alone, citing the press or key that submitted it, as a password is.
+  const answerCode = React.useCallback((sheet, code) => {
+    native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword, answerCode };
 }

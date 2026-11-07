@@ -40,6 +40,13 @@ pub struct Controls {
     keyboard_before: u32,
     /// What follows the system's changes (a session's), stopped when the controls go.
     following: Option<Following>,
+    /// Bluetooth is told by the Bluetooth part (`bluetooth_is`, ADR 0055), which follows BlueZ.
+    bluetooth_followed: bool,
+    /// The batteries the system said since the power's part last took them
+    /// (docs/adr/0057-battery-and-energy.mdx).
+    batteries: Vec<Battery>,
+    /// The display's brightness before the idle dim, and what it was dimmed to.
+    dimmed: Option<(u32, u32)>,
 }
 
 /// A level as the scene keeps it.
@@ -108,16 +115,20 @@ impl Controls {
             keyboard_by_firmware: false,
             keyboard_before: FULL_LEVEL,
             following: None,
+            bluetooth_followed: false,
+            batteries: Vec::new(),
+            dimmed: None,
         }
     }
 
     /// Follows the system's changes (a session's: its worker on a thread of its own), each read
-    /// again as it changes: the bus's services (NetworkManager too where `network`, when no other
-    /// part follows it) and the backlights under `sysfs`; the volumes are told by the sound's part
-    /// ([`Self::audio_is`]). Nothing for an inline worker.
-    pub fn follow(&mut self, network: bool, sysfs: PathBuf) -> std::io::Result<()> {
+    /// again as it changes: the bus's services (UPower; NetworkManager and BlueZ too where `own`,
+    /// when no other part follows them, as at the login screen) and the backlights under `sysfs`;
+    /// the volumes are told by the sound's part ([`Self::audio_is`]). Nothing for an inline
+    /// worker.
+    pub fn follow(&mut self, own: bool, sysfs: PathBuf) -> std::io::Result<()> {
         if let Some(commands) = self.worker.commands() {
-            self.following = Some(Following::start(commands, network, sysfs)?);
+            self.following = Some(Following::start(commands, own, sysfs)?);
         }
         Ok(())
     }
@@ -144,6 +155,13 @@ impl Controls {
         self.outcome(scene, Outcome::Network(network));
     }
 
+    /// Bluetooth as the Bluetooth part has it (ADR 0055), which alone follows BlueZ in a session:
+    /// told as if read here.
+    pub fn bluetooth_is(&mut self, scene: &mut Scene, bluetooth: oxyos_controls::Bluetooth) {
+        self.bluetooth_followed = true;
+        self.outcome(scene, Outcome::Bluetooth(bluetooth));
+    }
+
     /// A request as the Control Center's (Settings' Sound page sets a volume this way, so the
     /// keys, the bezel and the slider follow it).
     pub fn ask(&mut self, scene: &mut Scene, request: ControlRequest) {
@@ -168,6 +186,64 @@ impl Controls {
         }
     }
 
+    /// The batteries the system said since the last call, in order (the power's part records
+    /// them, docs/adr/0057-battery-and-energy.mdx).
+    pub fn take_batteries(&mut self) -> Vec<Battery> {
+        std::mem::take(&mut self.batteries)
+    }
+
+    /// Asks the system for the battery again (the development compositor's played machine
+    /// changed).
+    pub fn read_battery(&mut self) {
+        self.worker.send(Command::ReadBattery);
+    }
+
+    /// The display dims before it turns off for want of input (`on`), to a quarter of its
+    /// brightness, or comes back to it (docs/adr/0057-battery-and-energy.mdx, decision 6). No
+    /// bezel shows it. Brought back, a brightness the person changed meanwhile is theirs.
+    pub fn dim(&mut self, scene: &mut Scene, on: bool) {
+        let known = self
+            .levels
+            .get(&Control::DisplayBrightness)
+            .copied()
+            .flatten();
+        let Some(known) = known else {
+            self.dimmed = None;
+            return;
+        };
+        if on {
+            if self.dimmed.is_none() && known.value > 0 {
+                let dimmed = (known.value / 4).max(1);
+                self.dimmed = Some((known.value, dimmed));
+                self.set(scene, Control::DisplayBrightness, known, dimmed, None);
+            }
+        } else if let Some((before, dimmed)) = self.dimmed.take() {
+            if known.value == dimmed {
+                self.set(scene, Control::DisplayBrightness, known, before, None);
+            }
+        }
+    }
+
+    /// The display's brightness scaled by `numerator / denominator` (slightly dimmer on battery,
+    /// docs/adr/0057-battery-and-energy.mdx, decision 9), no bezel shown; nothing without one
+    /// known, or at nothing.
+    pub fn scale_display(&mut self, scene: &mut Scene, numerator: u32, denominator: u32) {
+        let Some(known) = self
+            .levels
+            .get(&Control::DisplayBrightness)
+            .copied()
+            .flatten()
+        else {
+            return;
+        };
+        if known.value == 0 || denominator == 0 {
+            return;
+        }
+        let value = (u64::from(known.value) * u64::from(numerator) / u64::from(denominator))
+            .clamp(1, u64::from(FULL_LEVEL)) as u32;
+        self.set(scene, Control::DisplayBrightness, known, value, None);
+    }
+
     /// One turn: the keys and requests the scene took, and the worker's answers told to the
     /// scene.
     pub fn serve(&mut self, scene: &mut Scene) {
@@ -175,6 +251,11 @@ impl Controls {
             self.request(scene, request);
         }
         for outcome in self.worker.outcomes() {
+            // Bluetooth followed by its own part: what the worker read of it (as the Control
+            // Center opens) is not a second word on it.
+            if self.bluetooth_followed && matches!(outcome, Outcome::Bluetooth(_)) {
+                continue;
+            }
             self.outcome(scene, outcome);
         }
     }
@@ -281,7 +362,14 @@ impl Controls {
                 let bezel = tag.filter(|_| level.is_some());
                 scene.set_control_level(control, scene_level(level), bezel);
             }
-            Outcome::Battery(battery) => scene.set_power(power_status(battery)),
+            Outcome::Battery(battery) => {
+                scene.set_power(power_status(battery));
+                // Kept for the power's part; a compositor without one keeps only the latest few.
+                if self.batteries.len() >= 16 {
+                    self.batteries.remove(0);
+                }
+                self.batteries.push(battery);
+            }
             Outcome::Network(network) => scene.set_network(network_status(&network)),
             Outcome::Bluetooth(bluetooth) => scene.set_bluetooth(bluetooth_status(bluetooth)),
             Outcome::KeyboardByFirmware(firmware) => self.keyboard_by_firmware = firmware,
@@ -347,7 +435,7 @@ pub(crate) fn again(
 }
 
 impl Following {
-    fn start(commands: Sender<Command>, network: bool, sysfs: PathBuf) -> std::io::Result<Self> {
+    fn start(commands: Sender<Command>, own: bool, sysfs: PathBuf) -> std::io::Result<Self> {
         let stop = Arc::new(Stop::new()?);
         let mut threads = Vec::new();
         let spawn = |name: &str, run: Box<dyn FnOnce() + Send>| {
@@ -360,9 +448,7 @@ impl Following {
                 Box::new(move || {
                     let socket = oxyos_networks::bus_socket(None);
                     again("the system bus", &stop, socket, |stop| {
-                        follow::bus(network, stop.fd(), |change| {
-                            commands.send(read(change)).is_ok()
-                        })
+                        follow::bus(own, stop.fd(), |change| commands.send(read(change)).is_ok())
                     });
                 }),
             )?);

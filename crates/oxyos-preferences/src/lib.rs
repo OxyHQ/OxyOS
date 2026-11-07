@@ -71,6 +71,98 @@ impl Previews {
     }
 }
 
+/// When Low Power Mode is on (docs/adr/0057-battery-and-energy.mdx), as a Mac's Battery settings
+/// offer it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LowPowerMode {
+    #[default]
+    Never,
+    Always,
+    /// While the machine runs on its battery.
+    OnBattery,
+    /// While it runs on its power adapter.
+    OnAdapter,
+}
+
+impl LowPowerMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            LowPowerMode::Never => "never",
+            LowPowerMode::Always => "always",
+            LowPowerMode::OnBattery => "battery",
+            LowPowerMode::OnAdapter => "adapter",
+        }
+    }
+
+    /// Whether it is on, the machine on its adapter (`on_ac`) or not.
+    pub fn on(self, on_ac: bool) -> bool {
+        match self {
+            LowPowerMode::Never => false,
+            LowPowerMode::Always => true,
+            LowPowerMode::OnBattery => !on_ac,
+            LowPowerMode::OnAdapter => on_ac,
+        }
+    }
+}
+
+/// The longest a display-off or sleep timer takes, in minutes: three hours, as a Mac's longest.
+pub const MAX_SLEEP_MINUTES: u32 = 180;
+
+/// How the machine saves energy on its battery and on its adapter (docs/adr/0057-battery-and-
+/// energy.mdx): minutes with no input before the display turns off and before the machine
+/// sleeps, 0 never.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Energy {
+    pub display_off_battery: u32,
+    pub display_off_adapter: u32,
+    pub sleep_battery: u32,
+    pub sleep_adapter: u32,
+    /// The display slightly dimmer while on battery.
+    pub dim_on_battery: bool,
+    pub low_power_mode: LowPowerMode,
+}
+
+impl Default for Energy {
+    fn default() -> Self {
+        Self {
+            display_off_battery: 2,
+            display_off_adapter: 10,
+            sleep_battery: 10,
+            sleep_adapter: 0,
+            dim_on_battery: true,
+            low_power_mode: LowPowerMode::default(),
+        }
+    }
+}
+
+impl Energy {
+    /// Minutes before the display turns off, on the adapter (`on_ac`) or not; 0 never.
+    pub fn display_off(&self, on_ac: bool) -> u32 {
+        if on_ac {
+            self.display_off_adapter
+        } else {
+            self.display_off_battery
+        }
+    }
+
+    /// Minutes before the machine sleeps; 0 never.
+    pub fn sleep(&self, on_ac: bool) -> u32 {
+        if on_ac {
+            self.sleep_adapter
+        } else {
+            self.sleep_battery
+        }
+    }
+}
+
+fn sleep_minutes(value: &str) -> Result<u32, Refused> {
+    value
+        .parse()
+        .ok()
+        .filter(|minutes| *minutes <= MAX_SLEEP_MINUTES)
+        .ok_or(Refused::BadValue)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preferences {
     pub appearance: Appearance,
@@ -100,6 +192,10 @@ pub struct Preferences {
     pub lock_after: u32,
     /// The screen reader is on when the session starts (ADR 0014).
     pub screen_reader: bool,
+    /// The battery's percentage shown beside its icon in the menu bar (ADR 0057).
+    pub battery_percentage: bool,
+    /// The display's and the machine's sleep, Low Power Mode and the battery's options (ADR 0057).
+    pub energy: Energy,
     /// The language the person chose, one of [`LANGUAGES`]; none is the system's (ADR 0040).
     pub language: Option<String>,
     /// The region the person chose, as CLDR names one (two ASCII capitals); none is the
@@ -145,6 +241,8 @@ impl Default for Preferences {
             wallpapers: wallpaper::Wallpapers::default(),
             lock_after: 5,
             screen_reader: false,
+            battery_percentage: false,
+            energy: Energy::default(),
             language: None,
             region: None,
             hour_cycle: HourCycle::default(),
@@ -248,6 +346,13 @@ pub const KEYS: &[&str] = &[
     "wallpaper_all_desktops",
     "lock_after",
     "screen_reader",
+    "battery_percentage",
+    "low_power_mode",
+    "display_off_battery",
+    "display_off_adapter",
+    "sleep_battery",
+    "sleep_adapter",
+    "dim_on_battery",
     "language",
     "region",
     "hour_cycle",
@@ -311,6 +416,21 @@ impl Preferences {
                     .ok_or(Refused::BadValue)?
             }
             "screen_reader" => self.screen_reader = boolean(value)?,
+            "battery_percentage" => self.battery_percentage = boolean(value)?,
+            "low_power_mode" => {
+                self.energy.low_power_mode = match value {
+                    "never" => LowPowerMode::Never,
+                    "always" => LowPowerMode::Always,
+                    "battery" => LowPowerMode::OnBattery,
+                    "adapter" => LowPowerMode::OnAdapter,
+                    _ => return Err(Refused::BadValue),
+                }
+            }
+            "display_off_battery" => self.energy.display_off_battery = sleep_minutes(value)?,
+            "display_off_adapter" => self.energy.display_off_adapter = sleep_minutes(value)?,
+            "sleep_battery" => self.energy.sleep_battery = sleep_minutes(value)?,
+            "sleep_adapter" => self.energy.sleep_adapter = sleep_minutes(value)?,
+            "dim_on_battery" => self.energy.dim_on_battery = boolean(value)?,
             "language" => self.language = locale::language(value)?,
             "region" => self.region = locale::region(value)?,
             "hour_cycle" => self.hour_cycle = HourCycle::parse(value).ok_or(Refused::BadValue)?,
@@ -367,6 +487,13 @@ impl Preferences {
             "wallpaper_all_desktops" => self.wallpapers.all_desktops.to_string(),
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),
+            "battery_percentage" => self.battery_percentage.to_string(),
+            "low_power_mode" => self.energy.low_power_mode.name().to_owned(),
+            "display_off_battery" => self.energy.display_off_battery.to_string(),
+            "display_off_adapter" => self.energy.display_off_adapter.to_string(),
+            "sleep_battery" => self.energy.sleep_battery.to_string(),
+            "sleep_adapter" => self.energy.sleep_adapter.to_string(),
+            "dim_on_battery" => self.energy.dim_on_battery.to_string(),
             "language" => self.language.clone().unwrap_or_default(),
             "region" => self.region.clone().unwrap_or_default(),
             "hour_cycle" => self.hour_cycle.name().to_owned(),

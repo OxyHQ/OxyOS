@@ -1,6 +1,8 @@
 //! A session doing nothing wakes for nothing (docs/performance.mdx, *Idle*): the parts that follow
-//! the system for it (the install service's update state, NetworkManager, the hardware controls'
-//! bus and backlights, and the sound's PipeWire, docs/adr/0056-sound-devices.mdx) wait on their sources and on the order to stop, never on a clock.
+//! the system for it (the install service's update state, NetworkManager, BlueZ
+//! (docs/adr/0055-bluetooth.mdx), the hardware controls' bus and backlights, and the sound's
+//! PipeWire, docs/adr/0056-sound-devices.mdx) wait on their sources and on the order to stop,
+//! never on a clock.
 //! Here every source is missing, as on a machine where none has started yet: the process's
 //! threads together may wake at most once a second and use at most 0.1 % of a core, as
 //! `perf.py`'s idle budget holds an application to; a service's socket made is then seen at once,
@@ -9,6 +11,7 @@
 //! One test in a binary of its own: it counts every thread of the process, and sets the
 //! environment before any thread reads it.
 
+use oxyos_compositor::bluetooth::Bluetooth;
 use oxyos_compositor::controls::Controls;
 use oxyos_compositor::installs::{Asker, Installs};
 use oxyos_compositor::networks::Networks;
@@ -106,6 +109,8 @@ fn on_this_machine_the_parts_do_not_wake_while_nothing_happens() {
     installs.serve(&mut scene, &|_| Asker::Unknown);
     let mut networks = Networks::on_bus(None).unwrap();
     networks.serve(&mut scene);
+    let mut bluetooth = Bluetooth::on_bus(None).unwrap();
+    bluetooth.serve(&mut scene);
     // The session's own sound and controls, reading the machine as a session does.
     let (mut sound, pipewire) = SoundDevices::pipewire().unwrap();
     sound.serve(&mut scene, None);
@@ -124,6 +129,7 @@ fn on_this_machine_the_parts_do_not_wake_while_nothing_happens() {
     let stopping = Instant::now();
     drop(controls);
     drop(sound);
+    drop(bluetooth);
     drop(networks);
     drop(installs);
     assert!(
@@ -158,6 +164,8 @@ fn the_parts_following_the_system_do_not_wake_while_nothing_happens() {
     installs.serve(&mut scene, &|_| Asker::Unknown);
     let mut networks = Networks::on_bus(None).unwrap();
     networks.serve(&mut scene);
+    let mut bluetooth = Bluetooth::on_bus(None).unwrap();
+    bluetooth.serve(&mut scene);
     let fake = oxyos_controls::Fake::parse("battery = discharging\nbattery_percent = 50").unwrap();
     let mut controls = Controls::new(oxyos_controls::Worker::spawn(Box::new(fake)).unwrap());
     controls.follow(true, sysfs).unwrap();
@@ -191,6 +199,7 @@ fn the_parts_following_the_system_do_not_wake_while_nothing_happens() {
     let stopping = Instant::now();
     drop(sound);
     drop(controls);
+    drop(bluetooth);
     drop(networks);
     drop(installs);
     assert!(

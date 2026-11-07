@@ -1298,6 +1298,22 @@ typedef struct OxyOSTextField {
 int64_t oxyos_client_text_input(OxyOSClient* client, uint32_t surface, const OxyOSTextField* field,
                                 uint8_t new_field);
 
+/* What a field holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+#define OXYOS_CONTENT_NONE 0
+#define OXYOS_CONTENT_USERNAME 1
+#define OXYOS_CONTENT_EMAIL 2
+#define OXYOS_CONTENT_PASSWORD 3
+#define OXYOS_CONTENT_NEW_PASSWORD 4
+#define OXYOS_CONTENT_ONE_TIME_CODE 5
+
+/* oxyos_client_text_input, with what the field holds for AutoFill: `content` (OXYOS_CONTENT_*)
+ * and, non-zero `paired`, that its window has the other field of the account's pair (a username's
+ * or an email's password field, a password's username field), which a fill fills too. A
+ * compositor older than protocol version 30 is told neither, and never fills. */
+int64_t oxyos_client_text_input_with_content(OxyOSClient* client, uint32_t surface,
+                                             const OxyOSTextField* field, uint8_t new_field,
+                                             uint8_t content, uint8_t paired);
+
 /* One styled segment of a composition, in bytes of it. */
 typedef struct OxyOSPreeditSegment {
   uint32_t begin;
@@ -1328,6 +1344,25 @@ typedef struct OxyOSTextTransaction {
 
 /* The transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_text_transaction(OxyOSClient* client, OxyOSTextTransaction* out);
+
+/* AutoFill's fill of the transaction the TEXT_INPUT event just returned completed: the whole text
+ * the focused field (`has_fill`) and its paired field (`has_paired_fill`) are to hold, each
+ * replacing what it held, applied with the rest of the transaction. A credential: the strings are
+ * not NUL-terminated, stay valid until the next oxyos_client_poll, which overwrites them, and are
+ * never to be logged. */
+typedef struct OxyOSTextFill {
+  uint32_t surface;
+  uint8_t has_fill;
+  uint8_t has_paired_fill;
+  const char* fill;
+  size_t fill_length;
+  const char* paired_fill;
+  size_t paired_fill_length;
+} OxyOSTextFill;
+
+/* The fill of the transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled,
+ * or 0 (no transaction, or one with no fill). */
+int oxyos_client_text_fill(OxyOSClient* client, OxyOSTextFill* out);
 
 /* Input methods' candidates, drawn by the session's shell (docs/adr/0041-input-methods.mdx). */
 #define OXYOS_NO_CANDIDATE 255
@@ -1474,6 +1509,82 @@ int oxyos_net_abort(OxyOSNet* net, int64_t id);
 int oxyos_net_clear_cookies(OxyOSNet* net);
 /* Takes one answer without blocking: OXYOS_NET_ANSWER with *out filled, or OXYOS_NET_EMPTY. */
 int oxyos_net_answer(OxyOSNet* net, OxyOSNetAnswer* out);
+
+/* WebSockets (crates/oxyos-net's websocket.rs): the engine behind React Native's WebSocketModule.
+ * The protocol is tungstenite's, TLS rustls' verified against the system's certificates, through the
+ * environment's proxy as the network's requests go; each socket runs on a thread of its own that
+ * sleeps until its connection, the caller or the machine's addresses wake it. Opening one sends the
+ * network's cookies for its origin, the caller's headers, an Origin of its own unless the caller
+ * gave one and the protocols in one Sec-WebSocket-Protocol; offline (no default route) it fails at
+ * once, but to this machine. Strings are a pointer and a length, never NUL-terminated. Used by one
+ * thread at a time. */
+typedef struct OxyOSWebSockets OxyOSWebSockets;
+
+/* Event kinds (OxyOSWebSocketEvent.kind): a socket opens, then messages, then it is closed or it
+ * fails, the last of its events. */
+#define OXYOS_WEBSOCKET_OPEN 1
+#define OXYOS_WEBSOCKET_TEXT 2
+#define OXYOS_WEBSOCKET_BINARY 3
+#define OXYOS_WEBSOCKET_CLOSED 4
+#define OXYOS_WEBSOCKET_FAILED 5
+
+/* Results of oxyos_websockets_event. */
+#define OXYOS_WEBSOCKET_EVENT 1
+#define OXYOS_WEBSOCKET_EMPTY 0
+
+typedef struct OxyOSWebSocketProtocol {
+  const char* name;
+  size_t name_length;
+} OxyOSWebSocketProtocol;
+
+/* url is ws:, wss:, or http: and https: for them. */
+typedef struct OxyOSWebSocketRequest {
+  int64_t id;
+  const char* url;
+  size_t url_length;
+  const OxyOSWebSocketProtocol* protocols;
+  size_t protocol_count;
+  const OxyOSNetHeader* headers;
+  size_t header_count;
+} OxyOSWebSocketRequest;
+
+/* OPEN: data is the protocol the server chose (empty if none). TEXT: the text, UTF-8. BINARY: the
+ * bytes. CLOSED: code and data the reason of the peer's close frame (1005 if it had none; 0 for a
+ * socket used while not open). FAILED: data is why. Valid until the next oxyos_websockets_event or
+ * oxyos_websockets_free. */
+typedef struct OxyOSWebSocketEvent {
+  uint32_t kind;
+  uint32_t code;
+  int64_t id;
+  const uint8_t* data;
+  size_t length;
+} OxyOSWebSocketEvent;
+
+/* The application's WebSockets, sending `net`'s cookies, or NULL. */
+OxyOSWebSockets* oxyos_websockets_new(OxyOSNet* net);
+/* Closes every open socket with 1001 (going away), waiting a second at most for the close frames to
+ * be sent, and frees them; nothing more is heard. NULL is ignored. */
+void oxyos_websockets_free(OxyOSWebSockets* sockets);
+/* Readable while events are queued (for poll/epoll). */
+int oxyos_websockets_fd(OxyOSWebSockets* sockets);
+/* Starts opening a socket: it opens or fails through events. OXYOS_ERROR for a malformed URL or
+ * header or an id in use, and no event follows. */
+int oxyos_websockets_connect(OxyOSWebSockets* sockets, const OxyOSWebSocketRequest* request);
+/* Sends text (binary 0, UTF-8, else OXYOS_ERROR) or bytes. A socket not open ends instead: FAILED,
+ * then CLOSED with code 0. */
+int oxyos_websockets_send(OxyOSWebSockets* sockets, int64_t id, const uint8_t* data, size_t length,
+                          uint8_t binary);
+/* Sends a ping frame, as oxyos_websockets_send. */
+int oxyos_websockets_ping(OxyOSWebSockets* sockets, int64_t id);
+/* Starts the close handshake: CLOSED follows once both close frames are exchanged (FAILED if the
+ * peer does not answer within 60 s). An opening socket FAILS at once; a closed or closing one is left
+ * alone. OXYOS_ERROR, changing nothing, for a code no close frame may carry (outside 1000 to 4999,
+ * 1004 to 1006, 1015 to 2999) or a reason over 123 bytes. */
+int oxyos_websockets_close(OxyOSWebSockets* sockets, int64_t id, uint32_t code, const char* reason,
+                           size_t reason_length);
+/* Takes one event without blocking: OXYOS_WEBSOCKET_EVENT with *out filled, or
+ * OXYOS_WEBSOCKET_EMPTY. */
+int oxyos_websockets_event(OxyOSWebSockets* sockets, OxyOSWebSocketEvent* out);
 
 /* Images (crates/oxyos-image): PNG, JPEG, WebP and GIF (animated ones frame by frame when asked, else
  * their first frame), data: URIs, BlurHashes and ThumbHashes, decoded into
@@ -1929,6 +2040,20 @@ int64_t oxyos_account_session_token(const char* reason, char* out, size_t capaci
 /* Removes the calling application's account from this computer (decision 5): Settings alone may.
  * Blocks while the service revokes, ends the account's sessions and forgets it. 0, or OXYOS_ERROR. */
 int oxyos_account_session_remove(void);
+/* Erasing this computer (docs/adr/0054-recovery-and-erasing.mdx): Settings alone may ask. What it
+ * would do, for the calling application's account: JSON {"available" (it has a recovery),
+ * "administrator" (the account is one), "online", "accounts": [{"name", "handle" (or null),
+ * "signsOutOnline"}]}, the asking account first; OXYOS_ERROR when the service could not be asked or
+ * refused. */
+int64_t oxyos_account_session_erase_preview(char* out, size_t capacity);
+/* Erases this computer with the administrator's `password` (secret: copied into a buffer this
+ * library overwrites; overwrite your own). Blocks while the service checks it, arms the erase and
+ * signs the accounts out online: never on the interface's thread. The answer, JSON:
+ * {"erasing": {"signedOut", "notSignedOut"}} (the machine restarts and its recovery erases it), or
+ * {"refused": {"reason" ("notPermitted", "notAdministrator", "wrongPassword", "throttled",
+ * "unavailable", "failed"), "retryAfter"? (seconds, throttled)}}, nothing changed. Give
+ * OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_erase_all(const char* password, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */

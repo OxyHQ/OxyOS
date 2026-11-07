@@ -3,6 +3,7 @@
 #include "files.h"
 #include "images.h"
 #include "text.h"
+#include "websocket.h"
 
 #include <cxxreact/ReactNativeVersion.h>
 #include <folly/dynamic.h>
@@ -1605,6 +1606,69 @@ std::shared_ptr<TurboModule> createHostModule(
       return count > 0 ? call(rt, args[0], jsi::Value(true)) : jsi::Value::undefined();
     });
     module->listeners();
+  } else if (name == "WebSocketModule" && services.webSockets) {
+    // React Native's Android WebSocket module (WebSocket.js through NativeWebSocketModule):
+    // websocket.h. What `new WebSocket` and `close` refuse throws, as on the web.
+    auto& sockets = *services.webSockets;
+    auto id = [](jsi::Runtime& rt, const jsi::Value& value, const char* method) {
+      if (!value.isNumber()) throw jsi::JSError(rt, std::string("WebSocketModule.") + method + ": the socket's id is a number");
+      return static_cast<int64_t>(value.getNumber());
+    };
+    module->method("connect", [&sockets, id](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 4) throw jsi::JSError(rt, "WebSocketModule.connect: missing arguments");
+      std::vector<std::string> protocols;
+      if (args[1].isObject() && args[1].asObject(rt).isArray(rt)) {
+        for (const auto& protocol : jsi::dynamicFromValue(rt, args[1])) {
+          if (protocol.isString()) protocols.push_back(protocol.asString());
+        }
+      }
+      std::vector<std::pair<std::string, std::string>> headers;
+      folly::dynamic options =
+          args[2].isObject() ? jsi::dynamicFromValue(rt, args[2]) : folly::dynamic(folly::dynamic::object());
+      if (options.isObject() && options.count("headers") && options["headers"].isObject()) {
+        for (const auto& [key, value] : options["headers"].items()) {
+          // As Android: a value that is not a string is left out, and said.
+          if (!value.isString()) {
+            std::cerr << "[host] WebSocket: ignoring the header " << key.asString() << ", whose value is not a string\n";
+            continue;
+          }
+          headers.emplace_back(key.asString(), value.asString());
+        }
+      }
+      try {
+        sockets.connect(id(rt, args[3], "connect"), text(rt, args[0]), protocols, headers);
+      } catch (const std::invalid_argument& error) {
+        throw jsi::JSError(rt, std::string("WebSocket: ") + error.what());
+      }
+      return jsi::Value::undefined();
+    });
+    module->method("send", [&sockets, id](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2) throw jsi::JSError(rt, "WebSocketModule.send: missing arguments");
+      sockets.send(id(rt, args[1], "send"), text(rt, args[0]));
+      return jsi::Value::undefined();
+    });
+    module->method("sendBinary", [&sockets, id](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2) throw jsi::JSError(rt, "WebSocketModule.sendBinary: missing arguments");
+      auto bytes = base64Decode(text(rt, args[0]));
+      if (!bytes) throw jsi::JSError(rt, "WebSocketModule.sendBinary: not base64");
+      sockets.sendBinary(id(rt, args[1], "sendBinary"), *bytes);
+      return jsi::Value::undefined();
+    });
+    module->method("ping", [&sockets, id](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1) throw jsi::JSError(rt, "WebSocketModule.ping: missing arguments");
+      sockets.ping(id(rt, args[0], "ping"));
+      return jsi::Value::undefined();
+    });
+    module->method("close", [&sockets, id](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 3) throw jsi::JSError(rt, "WebSocketModule.close: missing arguments");
+      try {
+        sockets.close(id(rt, args[2], "close"), args[0].isNumber() ? args[0].getNumber() : 1000, text(rt, args[1]));
+      } catch (const std::invalid_argument& error) {
+        throw jsi::JSError(rt, std::string("WebSocket.close: ") + error.what());
+      }
+      return jsi::Value::undefined();
+    });
+    module->listeners();
   } else if (name == "BlobModule") {
     module->constants(folly::dynamic::object("BLOB_URI_SCHEME", "content")("BLOB_URI_HOST", nullptr));
     // Responses become blobs in the network module itself.
@@ -1634,10 +1698,24 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count > 0) services.blobs.release(text(rt, args[0]));
       return jsi::Value::undefined();
     });
-    // There is no WebSocket module yet, so no socket to send a blob over.
-    module->unsupported({"addWebSocketHandler", "removeWebSocketHandler"});
-    module->method("sendOverSocket", [](jsi::Runtime& rt, const jsi::Value*, size_t) -> jsi::Value {
-      throw jsi::JSError(rt, "BlobModule.sendOverSocket: OxyOS has no WebSocket module yet");
+    // A socket's binary messages as blobs (a WebSocket whose binaryType is "blob"), and a blob
+    // sent over one, as Android's BlobModule hands them to its WebSocketModule (websocket.h).
+    auto handler = [&services](bool blobs) {
+      return [&services, blobs](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        if (count < 1 || !args[0].isNumber()) throw jsi::JSError(rt, "BlobModule: a WebSocket's id is a number");
+        if (services.webSockets) services.webSockets->receiveBlobs(static_cast<int64_t>(args[0].getNumber()), blobs);
+        return jsi::Value::undefined();
+      };
+    };
+    module->method("addWebSocketHandler", handler(true));
+    module->method("removeWebSocketHandler", handler(false));
+    module->method("sendOverSocket", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[1].isNumber()) throw jsi::JSError(rt, "BlobModule.sendOverSocket: missing arguments");
+      auto bytes = blobBytes(services.blobs, jsi::dynamicFromValue(rt, args[0]));
+      if (!bytes) throw jsi::JSError(rt, "BlobModule.sendOverSocket: the blob does not exist");
+      if (!services.webSockets) throw jsi::JSError(rt, "BlobModule.sendOverSocket: no WebSockets in this runtime");
+      services.webSockets->sendBinary(static_cast<int64_t>(args[1].getNumber()), *bytes);
+      return jsi::Value::undefined();
     });
   } else if (name == "FileReaderModule") {
     module->method("readAsText", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
@@ -1782,8 +1860,12 @@ std::shared_ptr<TurboModule> createHostModule(
     //   `subscribe()` then `OxyOSAccountSessionChanged` at each change (null once it ended), and
     //   `getAccessToken(reason)`, a promise of {accessToken, expiresAt} or null. The service knows
     //   the application by its launch: the host claims nothing. Settings' `remove()` removes its
-    //   account from this computer (the service refuses anyone else); `lockSession()` locks the
-    //   session for the SDK's sign-in, while the application's window is the active one.
+    //   account from this computer (the service refuses anyone else); `erasePreview()` (what
+    //   erasing this computer would do) and `eraseAll(password)` (the erase, with the
+    //   administrator's password: {erasing} or {refused: {reason, retryAfter?}}) erase it
+    //   (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone too; each a promise of the
+    //   service's answer, {failed} when it could not be asked. `lockSession()` locks the session
+    //   for the SDK's sign-in, while the application's window is the active one.
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
     //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
     //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
@@ -1849,6 +1931,25 @@ std::shared_ptr<TurboModule> createHostModule(
                                                 "failed", folly::dynamic::object("reason", "unavailable"))));
       return promise(rt, [session, settle](std::shared_ptr<jsi::Value> resolve) {
         session().remove(settle(resolve, "removal", false));
+      });
+    });
+    module->method("erasePreview", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value*,
+                                                                         size_t) {
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      return promise(rt, [session, settle](std::shared_ptr<jsi::Value> resolve) {
+        session().erasePreview(settle(resolve, "erase preview", false));
+      });
+    });
+    // The password goes to the service and is forgotten here; nothing of it is logged.
+    module->method("eraseAll", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
+                                                                     size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.eraseAll: the password");
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      std::string password = args[0].asString(rt).utf8(rt);
+      return promise(rt, [session, settle, password = std::move(password)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().eraseAll(std::move(password), settle(resolve, "erase", false));
       });
     });
     // The SDK's `request('sign_in')`: the session locks, and unlocking checks the password with

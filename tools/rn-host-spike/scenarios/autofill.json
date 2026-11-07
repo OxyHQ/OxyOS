@@ -1,0 +1,629 @@
+{
+ "about": "AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6) in Bloom's fields (sample/LoginFormProbe.tsx), which say only what they hold (`textContentType`, `autoComplete`), with the development compositor's fixture keychain (`autofill`: made-up logins of the application, a strong password, a code) and the session's shell drawing the list, the screen reader on in Spanish. Focusing the username field asks for the application's suggestions and shows them under the caret, a key and the username over the site, the first on the accent and said; ↓ and ↑ move it, each said, and the field hears none of those keys; Escape hides it. Focusing the password field, paired with the username, shows them again; a press on a login fills its password into the field and its username into the username field, as typed: React hears each change, the password only as bullets, and it never appears in a report. The new password field is offered Use Strong Password with the password shown, Return filling it; the code field the logins whose code it takes, Return filling the current code. At 1 (1280 × 720), light.",
+ "locale": "es_ES.UTF-8",
+ "module": "LoginFormProbe",
+ "window": [
+  800,
+  480
+ ],
+ "app": {
+  "id": "so.oxy.loginprobe",
+  "title": "Login probe"
+ },
+ "autofill": {
+  "application": "so.oxy.loginprobe"
+ },
+ "shell": "OxyOSShell",
+ "reader": {},
+ "steps": [
+  {
+   "name": "the form with the shell, the screen reader on: no list",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "autofill": {
+     "shown": null,
+     "asked": []
+    },
+    "shell": {
+     "candidates": null
+    },
+    "never": [
+     "fixture-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "the username field focused: the application's logins under its caret, the first highlighted and said",
+   "do": [
+    "press",
+    [
+     400,
+     42
+    ]
+   ],
+   "expect": {
+    "focus_input": "username",
+    "autofill": {
+     "shown": {
+      "highlighted": 0,
+      "items": [
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "bea@example.com"
+       },
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "ana@example.com"
+       }
+      ]
+     },
+     "asked": [
+      "suggest username"
+     ]
+    },
+    "shell": {
+     "candidates": [
+      276,
+      157,
+      252,
+      99
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "bea@example.com, example.com, 1 de 2",
+      "live": true
+     }
+    ],
+    "transactions": [],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "touchStart@username": 1,
+     "touchEnd@username": 1,
+     "focus@username": 1,
+     "selectionChange@username": 1
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "position": [
+        1,
+        2
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "ana@example.com, example.com, 2 de 2",
+       "position": [
+        2,
+        2
+       ],
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "↓ highlights the next, said with its place; the field hears nothing",
+   "do": [
+    "strokes",
+    [
+     108
+    ]
+   ],
+   "expect": {
+    "autofill": {
+     "shown": {
+      "highlighted": 1,
+      "items": [
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "bea@example.com"
+       },
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "ana@example.com"
+       }
+      ]
+     },
+     "asked": []
+    },
+    "react": {},
+    "delivered": {},
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "ana@example.com, example.com, 2 de 2",
+      "live": true
+     }
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "ana@example.com, example.com, 2 de 2",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "position": [
+        1,
+        2
+       ],
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "ana@example.com, example.com, 2 de 2",
+       "position": [
+        2,
+        2
+       ],
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "↑ back to the first",
+   "do": [
+    "strokes",
+    [
+     103
+    ]
+   ],
+   "expect": {
+    "autofill": {
+     "shown": {
+      "highlighted": 0,
+      "items": [
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "bea@example.com"
+       },
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "ana@example.com"
+       }
+      ]
+     }
+    },
+    "react": {},
+    "delivered": {},
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "bea@example.com, example.com, 1 de 2",
+      "live": true
+     }
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "position": [
+        1,
+        2
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "ana@example.com, example.com, 2 de 2",
+       "position": [
+        2,
+        2
+       ],
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape hides the list; the field keeps its focus and hears nothing",
+   "do": [
+    "strokes",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "autofill": {
+     "shown": null,
+     "asked": []
+    },
+    "shell": {
+     "candidates": null
+    },
+    "focus_input": "username",
+    "react": {},
+    "delivered": {},
+    "never": [
+     "fixture-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "the password field focused, paired with the username: the logins again",
+   "do": [
+    "press",
+    [
+     400,
+     90
+    ]
+   ],
+   "expect": {
+    "focus_input": "password",
+    "autofill": {
+     "shown": {
+      "highlighted": 0,
+      "items": [
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "bea@example.com"
+       },
+       {
+        "kind": "Login",
+        "title": "example.com",
+        "detail": "ana@example.com"
+       }
+      ]
+     },
+     "asked": [
+      "suggest password"
+     ]
+    },
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "touchStart@password": 1,
+     "touchEnd@password": 1,
+     "blur@username": 1,
+     "endEditing@username": 1,
+     "focus@password": 1,
+     "selectionChange@password": 1
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "bea@example.com, example.com, 1 de 2",
+       "position": [
+        1,
+        2
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "ana@example.com, example.com, 2 de 2",
+       "position": [
+        2,
+        2
+       ],
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "a login pressed: its password into the field, its username into the username field, as typed; the list gone",
+   "do": [
+    "press_named",
+    "ana@example.com, example.com, 2 de 2"
+   ],
+   "expect": {
+    "focus_input": "password",
+    "autofill": {
+     "shown": null,
+     "asked": [
+      "fill password"
+     ]
+    },
+    "shell": {
+     "candidates": null
+    },
+    "transactions": [
+     {
+      "fill": {
+       "withheld": true
+      },
+      "paired_fill_bytes": 15
+     }
+    ],
+    "texts": [
+     "ana@example.com",
+     "••••••••••••••••••",
+     "Password: 18 characters"
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "change@password": 1,
+     "selectionChange@password": 1,
+     "change@username": 1
+    }
+   }
+  },
+  {
+   "name": "the new password field: Use Strong Password, the password shown",
+   "do": [
+    "press",
+    [
+     400,
+     170
+    ]
+   ],
+   "expect": {
+    "focus_input": "new-password",
+    "autofill": {
+     "shown": {
+      "highlighted": 0,
+      "items": [
+       {
+        "kind": "StrongPassword",
+        "title": "",
+        "detail": "fixtr-Strng-Pass0-wordX"
+       }
+      ]
+     },
+     "asked": [
+      "generate"
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Usar contraseña segura, fixtr-Strng-Pass0-wordX, 1 de 1",
+      "live": true
+     }
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "touchStart@new-password": 1,
+     "touchEnd@new-password": 1,
+     "blur@password": 1,
+     "endEditing@password": 1,
+     "focus@new-password": 1,
+     "selectionChange@new-password": 1
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "Usar contraseña segura, fixtr-Strng-Pass0-wordX, 1 de 1",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Usar contraseña segura, fixtr-Strng-Pass0-wordX, 1 de 1",
+       "position": [
+        1,
+        1
+       ],
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Return fills it as shown",
+   "do": [
+    "strokes",
+    [
+     28
+    ]
+   ],
+   "expect": {
+    "focus_input": "new-password",
+    "autofill": {
+     "shown": null,
+     "asked": []
+    },
+    "transactions": [
+     {
+      "fill": {
+       "withheld": true
+      },
+      "paired_fill_bytes": null
+     }
+    ],
+    "texts": [
+     "New password: 23 characters"
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "change@new-password": 1,
+     "selectionChange@new-password": 1
+    }
+   }
+  },
+  {
+   "name": "the code field: the logins whose code it takes",
+   "do": [
+    "press",
+    [
+     400,
+     250
+    ]
+   ],
+   "expect": {
+    "focus_input": "code",
+    "autofill": {
+     "shown": {
+      "highlighted": 0,
+      "items": [
+       {
+        "kind": "Code",
+        "title": "example.com",
+        "detail": "bea@example.com"
+       },
+       {
+        "kind": "Code",
+        "title": "example.com",
+        "detail": "ana@example.com"
+       }
+      ]
+     },
+     "asked": [
+      "suggest oneTimeCode"
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "example.com, Código de verificación de bea@example.com, 1 de 2",
+      "live": true
+     }
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "touchStart@code": 1,
+     "touchEnd@code": 1,
+     "blur@new-password": 1,
+     "endEditing@new-password": 1,
+     "focus@code": 1,
+     "selectionChange@code": 1
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "List",
+       "name": "example.com, Código de verificación de bea@example.com, 1 de 2",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "example.com, Código de verificación de bea@example.com, 1 de 2",
+       "position": [
+        1,
+        2
+       ],
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "example.com, Código de verificación de ana@example.com, 2 de 2",
+       "position": [
+        2,
+        2
+       ],
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Return fills the current code",
+   "do": [
+    "strokes",
+    [
+     28
+    ]
+   ],
+   "expect": {
+    "focus_input": "code",
+    "autofill": {
+     "shown": null,
+     "asked": [
+      "fill oneTimeCode"
+     ]
+    },
+    "transactions": [
+     {
+      "fill": "246810",
+      "paired_fill_bytes": null
+     }
+    ],
+    "texts": [
+     "246810"
+    ],
+    "never": [
+     "fixture-Passw0rd"
+    ],
+    "react": {
+     "change@code": 1,
+     "selectionChange@code": 1
+    }
+   }
+  }
+ ]
+}

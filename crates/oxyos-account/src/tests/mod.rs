@@ -5,6 +5,7 @@
 
 mod api;
 mod dev_server;
+mod erase;
 mod id;
 mod ipc;
 #[cfg(feature = "keychain")]
@@ -323,6 +324,7 @@ pub(crate) enum UserStep {
     Remove,
     Lock,
     EndSessions,
+    MakeAdministrator,
 }
 
 /// The machine's users, in memory: each user's entry and verifier (the password itself, as a
@@ -335,6 +337,8 @@ pub(crate) struct FakeUsers {
     pub(crate) locked: Mutex<BTreeSet<String>>,
     /// Users whose sessions were ended.
     pub(crate) ended: Mutex<Vec<String>>,
+    /// The administrators' group's members.
+    pub(crate) administrators: Mutex<BTreeSet<String>>,
     pub(crate) steps: Mutex<Vec<UserStep>>,
 }
 
@@ -380,6 +384,11 @@ impl FakeUsers {
     pub(crate) fn steps(&self) -> Vec<UserStep> {
         self.steps.lock().unwrap().clone()
     }
+
+    /// Whether `name` is in the administrators' group.
+    pub(crate) fn is_admin(&self, name: &str) -> bool {
+        self.administrators.lock().unwrap().contains(name)
+    }
 }
 
 impl Users for FakeUsers {
@@ -423,6 +432,8 @@ impl Users for FakeUsers {
 
     fn remove(&self, name: &UserName) -> Result<(), UsersError> {
         self.step(UserStep::Remove)?;
+        // userdel takes the user out of its groups.
+        self.administrators.lock().unwrap().remove(name.as_str());
         match self.users.lock().unwrap().remove(name.as_str()) {
             Some(_) => Ok(()),
             None => Err(UsersError::Missing),
@@ -443,6 +454,22 @@ impl Users for FakeUsers {
         self.ended.lock().unwrap().push(name.as_str().into());
         Ok(())
     }
+
+    fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError> {
+        Ok(self.administrators.lock().unwrap().contains(name.as_str()))
+    }
+
+    fn make_administrator(&self, name: &UserName) -> Result<(), UsersError> {
+        self.step(UserStep::MakeAdministrator)?;
+        if !self.users.lock().unwrap().contains_key(name.as_str()) {
+            return Err(UsersError::Missing);
+        }
+        self.administrators
+            .lock()
+            .unwrap()
+            .insert(name.as_str().into());
+        Ok(())
+    }
 }
 
 /// A system root of the test's own for the real passwd tools (`--prefix`): its own account
@@ -457,8 +484,9 @@ impl Root {
         fs::create_dir_all(dir.path().join("home")).unwrap();
         fs::write(etc.join("passwd"), "root:x:0:0:root:/root:/bin/sh\n").unwrap();
         fs::write(etc.join("shadow"), "root:*:20000:0:99999:7:::\n").unwrap();
-        fs::write(etc.join("group"), "root:x:0:\n").unwrap();
-        fs::write(etc.join("gshadow"), "root:*::\n").unwrap();
+        // The administrators' group, as Debian's base system has it.
+        fs::write(etc.join("group"), "root:x:0:\nsudo:x:27:\n").unwrap();
+        fs::write(etc.join("gshadow"), "root:*::\nsudo:*::\n").unwrap();
         fs::write(
             etc.join("login.defs"),
             "UID_MIN 1000\nUID_MAX 60000\nGID_MIN 1000\nGID_MAX 60000\nHOME_MODE 0700\n\

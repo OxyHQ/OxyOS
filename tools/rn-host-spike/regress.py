@@ -125,6 +125,17 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "metering", each device's "volume", "balance" and "muted", and "calls", every change the
   session made, in order), each key given matching: a dict key by key, a list item by item and of
   the same length;
+- bluetooth: with the scenario's `bluetooth` (a BlueZ played by oxyos-fake-bluez on a bus of the
+  run's own, docs/adr/0055-bluetooth.mdx), what it holds once the step settled ("adapter" with its
+  "powered", "discovering", "discoverable", "discovery_clients"; "agent" with its "capability" and
+  "default"; "devices" by address, each "present", "paired", "trusted", "connected", "alias",
+  "battery"; "log", the calls made of it in order), each key given matching as `network`'s;
+- displays_off: whether the displays are off for want of input once the step settled (ADR 0057);
+- power: with the scenario's `power` (UPower, power-profiles-daemon and logind played on a bus of
+  the run's own for the machine it describes, oxyos_power::played, docs/adr/0057-battery-and-
+  energy.mdx), what they hold once the step settled ("on_ac", "battery" with its "percent",
+  "state" and "charge_limit", "sysfs" with the battery's "start" and "end" thresholds as UPower
+  wrote them, "active_profile", "holds", "suspends", "calls"), each key given matching;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -555,7 +566,10 @@ compositor), which checks them with PAM from a configuration of the run's own (`
 accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's API is a refused port,
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
-code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks,
+code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks
+(true) or `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
+namespace over a WebSocket, which tells the screen at once ("socket"; its frames logged as `WS ...`
+requests with status 101),
 for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
@@ -574,9 +588,15 @@ session's launches (`account.registered`; any other process is refused `notPermi
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
 application's window first shows TEXT). A token it mints names the application it is for and is no
-credential. A step's `account_session` expectation is what it was asked in the step, exactly, in
-any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused; `token boot: token`,
-`token preflight: no token`, `subscribe: snapshot`, `remove: removed`).
+credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
+`account.erase` is what `erasePreview` answers (over an available computer whose asking account is
+its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
+password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says
+so); a wrong one is refused `wrongPassword`, and from the `account.erase.throttle_after`th wrong one
+on, `throttled` with `retryAfter` 30. A step's `account_session` expectation is what it was asked in
+the step, exactly, in any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused;
+`token boot: token`, `token preflight: no token`, `subscribe: snapshot`, `remove: removed`,
+`erasePreview: preview`, `eraseAll: erasing` or the reason it was refused).
 
 Every scenario, every step, whatever it says (docs/adr/0016-windows.mdx, decision 11): the person's
 input reached exactly whom it should, once. The development compositor records every input event
@@ -603,7 +623,9 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import base64
 import collections
+import hashlib
 import json
 import math
 import re
@@ -997,6 +1019,14 @@ def director_args(step, out):
         # The played network daemon changes the machine (ADR 0038): {"ethernet": "plugged"},
         # {"access_point": {...}}, {"remove_access_point": ssid}, {"hardware_enabled": false}.
         return args + ["--network", json.dumps(value)]
+    if kind == "bluetooth":
+        # The played BlueZ changes the machine (ADR 0055): {"appear": {...}}, {"pair_request":
+        # address}, {"typed": address}, {"connect": address}, {"battery": {...}}, {"blocked": true}.
+        return args + ["--bluetooth", json.dumps(value)]
+    if kind == "power":
+        # The played power services change the machine (ADR 0057): {"on_ac": false},
+        # {"percent": 9, "warning": "low"}, {"state": "charging", "time_to_full": 3600}.
+        return args + ["--power", json.dumps(value)]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -1105,6 +1135,15 @@ def account_snapshot(spec):
                              "displayName": "Ada Lovelace"}}, **spec.get("snapshot", {}))
 
 
+def erase_preview(spec):
+    """What the played service says erasing would do (`account.erase`, the password left out)."""
+    told = {"available": True, "administrator": True, "online": True,
+            "accounts": [{"name": "Ada Lovelace", "handle": "ada", "signsOutOnline": True}]}
+    told.update({key: value for key, value in spec.get("erase", {}).items()
+                 if key not in ("password", "throttle_after")})
+    return told
+
+
 def played_token(application, reason):
     """A token the played service mints: no credential, only what it names (the application it is
     for, as a real one's `azp` does), so a probe can say whose it is without showing a token."""
@@ -1121,8 +1160,10 @@ def serve_account_session(path, spec, log):
     session's, not this stand-in's): the peer's process (SO_PEERCRED) is looked up by the id its
     launch gave it (OXYOS_APP_ID, never a process the session did not start, OXYOS_APP_UNRECORDED).
     Anyone else is refused `notPermitted`. `snapshot` and `subscribe` (pushed again at each change),
-    `token` (a played token naming the application, or none offline or signed out) and Settings'
-    `remove`. Each request is logged ({t, application, asked, answered})."""
+    `token` (a played token naming the application, or none offline or signed out), and Settings'
+    `remove`, `erasePreview` and `eraseAll` (the erase's password checked against
+    `account.erase.password`, never logged). Each request is logged ({t, application, asked,
+    answered})."""
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     listener.bind(str(path))
     listener.listen(16)
@@ -1131,6 +1172,7 @@ def serve_account_session(path, spec, log):
     ACCOUNT["snapshot"] = account_snapshot(spec)
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
+    wrong_passwords = [0]
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1202,6 +1244,32 @@ def serve_account_session(path, spec, log):
                         token = None
                         record(application, asked, "no token")
                     connection.send(json.dumps({"token": token}).encode())
+                elif message == {"erasePreview": {}} and application == "so.oxy.settings":
+                    record(application, asked, "preview")
+                    connection.send(json.dumps({"erasePreview": erase_preview(spec)}).encode())
+                elif (asked == "eraseAll" and application == "so.oxy.settings"
+                      and isinstance(message["eraseAll"], dict)):
+                    erase = spec.get("erase", {})
+                    preview = erase_preview(spec)
+                    throttle_after = erase.get("throttle_after")
+                    if not preview["available"]:
+                        answer = {"refused": {"reason": "unavailable"}}
+                    elif not preview["administrator"]:
+                        answer = {"refused": {"reason": "notAdministrator"}}
+                    elif throttle_after is not None and wrong_passwords[0] >= throttle_after:
+                        answer = {"refused": {"reason": "throttled", "retryAfter": 30}}
+                    elif message["eraseAll"].get("password") != erase.get("password"):
+                        wrong_passwords[0] += 1
+                        answer = {"refused": {"reason": "wrongPassword"}}
+                    else:
+                        accounts = preview["accounts"]
+                        answer = {"erasing": {
+                            "signedOut": [a["name"] for a in accounts if a["signsOutOnline"]],
+                            "notSignedOut": [a["name"] for a in accounts if not a["signsOutOnline"]]}}
+                    record(application, asked,
+                           "erasing" if "erasing" in answer else answer["refused"]["reason"])
+                    # The real service then restarts the computer; the run goes on.
+                    connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
                     # The real service then ends the account's sessions, this one with them.
@@ -1298,9 +1366,70 @@ def played_oxy(spec, log):
                     "name": {"first": spec.get("first", spec["username"]), "last": spec.get("last", ""),
                              "full": spec.get("name", spec["username"])}}
 
+        def log(self, what):
+            with lock, open(log, "a") as out:
+                out.write(json.dumps({"t": time.monotonic_ns(), "request": what, "status": 101}) + "\n")
+
+        def socket_io(self):
+            """Socket.IO (Engine.IO 4) over a WebSocket, as Oxy's API serves it to the SDK: its
+            `/auth-session` namespace, which a QR's screen joins with its secret token (logged as
+            `{token}`) to be told the instant a phone approves (`auth_update`, a signal the screen
+            answers by asking the status). With `qr.approve` "socket" the phone approves once the
+            screen joined: only the socket can tell it before the SDK's next status check, twelve
+            seconds on."""
+            websocket_accept(self)
+            self.log("WS /socket.io/")
+            # Frames are written from the approval's thread too.
+            writing = threading.Lock()
+            websocket_send(self.wfile, 0x1, '0{"sid":"played","upgrades":[],"pingInterval":25000,'
+                                            '"pingTimeout":20000,"maxPayload":1000000}')
+            while (frame := websocket_read(self.rfile)) is not None:
+                opcode, payload = frame
+                if opcode == 0x8:
+                    with writing:
+                        websocket_send(self.wfile, 0x8, payload)
+                    return
+                if opcode != 0x1:
+                    continue
+                packet = payload.decode()
+                if packet.startswith("40/auth-session"):
+                    self.log("WS /auth-session connect")
+                    with writing:
+                        websocket_send(self.wfile, 0x1, '40/auth-session,{"sid":"played-auth"}')
+                elif packet.startswith("42/auth-session,"):
+                    event = json.loads(packet[len("42/auth-session,"):])
+                    if event[:1] != ["join"] or len(event) < 2:
+                        continue
+                    self.log("WS /auth-session join {token}")
+                    if spec.get("qr", {}).get("approve") == "socket":
+                        threading.Thread(target=self.approve, args=(event[1], writing), daemon=True).start()
+
+        def approve(self, token, writing):
+            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, told
+            on the socket at once."""
+            time.sleep(spec.get("qr", {}).get("approve_after_ms", 0) / 1000)
+            with lock:
+                request = state["requests"].get(token)
+                approved = request is not None and request["status"] == "pending"
+                if approved:
+                    request["status"] = "authorized"
+            if not approved:
+                return
+            try:
+                with writing:
+                    websocket_send(self.wfile, 0x1, '42/auth-session,["auth_update",{"status":"authorized"}]')
+                self.log("WS /auth-session auth_update")
+            except OSError:
+                pass
+
         def do_GET(self):
             path = self.path.split("?")[0]
-            if path == "/users/me/sign-in-methods":
+            if path == "/socket.io/" and self.headers.get("Upgrade", "").lower() == "websocket":
+                try:
+                    self.socket_io()
+                except (OSError, ValueError, struct.error):
+                    pass
+            elif path == "/users/me/sign-in-methods":
                 self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
                                  "backupCodesRemaining": 0})
             elif path == "/users/me":
@@ -1317,7 +1446,7 @@ def played_oxy(spec, log):
                 # Commons and pressing Allow (Oxy's approval itself is Oxy's, never the machine's).
                 with lock:
                     request = state["requests"].get(path.rsplit("/", 1)[1])
-                    if request and spec.get("qr", {}).get("approve") and request["status"] == "pending":
+                    if request and spec.get("qr", {}).get("approve") is True and request["status"] == "pending":
                         request["status"] = "authorized"
                 if not request:
                     self.reply(404, {"error": "not_found", "message": "Session not found"})
@@ -1449,12 +1578,106 @@ def login_program(out, offscreen, login):
     return process, greeter, record, env, (refusing, sockets)
 
 
+# The server side of a WebSocket (RFC 6455) for the scenarios' local servers: just what the probes
+# need of it (an upgrade answered, frames read unmasked and written, a fragmented message joined),
+# not a client, and nothing an application runs. The client under test is the host's, tungstenite's.
+WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+def websocket_accept(handler, protocol=None):
+    """Answers `handler`'s upgrade request (101), choosing `protocol`; the connection is the socket's
+    from here."""
+    key = handler.headers.get("Sec-WebSocket-Key", "")
+    accept = base64.b64encode(hashlib.sha1((key + WEBSOCKET_GUID).encode()).digest()).decode()
+    lines = ["HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade",
+             f"Sec-WebSocket-Accept: {accept}"]
+    if protocol:
+        lines.append(f"Sec-WebSocket-Protocol: {protocol}")
+    handler.wfile.write(("\r\n".join(lines) + "\r\n\r\n").encode())
+    handler.wfile.flush()
+    handler.close_connection = True
+
+
+def websocket_read(rfile):
+    """The next message or control frame: (opcode, payload), a fragmented message joined; None once
+    the connection ends."""
+    message, kind = b"", None
+    while True:
+        head = rfile.read(2)
+        if len(head) < 2:
+            return None
+        fin, opcode, masked, length = head[0] & 0x80, head[0] & 0x0F, head[1] & 0x80, head[1] & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", rfile.read(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", rfile.read(8))[0]
+        mask = rfile.read(4) if masked else b"\0\0\0\0"
+        payload = bytes(b ^ mask[i % 4] for i, b in enumerate(rfile.read(length)))
+        if opcode >= 0x8:
+            return opcode, payload
+        kind = kind if opcode == 0 else opcode
+        message += payload
+        if fin:
+            return kind, message
+
+
+def websocket_send(wfile, opcode, payload=b""):
+    """One unmasked frame, as a server sends it."""
+    payload = payload.encode() if isinstance(payload, str) else payload
+    length = len(payload)
+    if length < 126:
+        head = struct.pack("!BB", 0x80 | opcode, length)
+    elif length < 1 << 16:
+        head = struct.pack("!BBH", 0x80 | opcode, 126, length)
+    else:
+        head = struct.pack("!BBQ", 0x80 | opcode, 127, length)
+    wfile.write(head + payload)
+    wfile.flush()
+
+
+def websocket_close(wfile, code, reason=""):
+    websocket_send(wfile, 0x8, struct.pack("!H", code) + reason.encode())
+
+
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes the probes of scenarios/network.json and file-system.json call
-    (sample/NetworkProbe.tsx, sample/FileSystemProbe.tsx)."""
+    """The routes the probes of scenarios/network.json, websocket.json and file-system.json call
+    (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx, sample/FileSystemProbe.tsx)."""
 
     def log_message(self, *args):
         pass
+
+    def websocket(self):
+        """A WebSocket's routes (sample/WebSocketProbe.tsx): /echo sends back each message and
+        answers a ping with a pong and the text "ping heard"; /header says the X-Probe header it was
+        opened with, then echoes; /count sends "0" to "49"; /close closes at once with 4001; /slow
+        answers its upgrade three seconds late. The first protocol offered is chosen."""
+        path = self.path.split("?")[0]
+        if path == "/slow":
+            time.sleep(3)
+        offered = [p.strip() for p in self.headers.get("Sec-WebSocket-Protocol", "").split(",") if p.strip()]
+        try:
+            websocket_accept(self, offered[0] if offered else None)
+            if path == "/header":
+                websocket_send(self.wfile, 0x1, self.headers.get("X-Probe", "none"))
+            elif path == "/count":
+                for n in range(50):
+                    websocket_send(self.wfile, 0x1, str(n))
+            elif path == "/close":
+                websocket_close(self.wfile, 4001, "the server says bye")
+            while (frame := websocket_read(self.rfile)) is not None:
+                opcode, payload = frame
+                if opcode in (0x1, 0x2):
+                    websocket_send(self.wfile, opcode, payload)
+                elif opcode == 0x9:
+                    websocket_send(self.wfile, 0xA, payload)
+                    websocket_send(self.wfile, 0x1, "ping heard")
+                elif opcode == 0x8:
+                    # The close answered with its own code and reason, then the connection ended,
+                    # as a server ends it.
+                    websocket_send(self.wfile, 0x8, payload)
+                    return
+        except (OSError, struct.error):
+            return
 
     def reply(self, status, body, content_type="text/plain", headers=()):
         data = body if isinstance(body, bytes) else body.encode()
@@ -1467,7 +1690,9 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/json":
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            self.websocket()
+        elif self.path == "/json":
             self.reply(200, '{"hello":"OxyOS","n":3}', "application/json", [("X-OxyOS", "yes")])
         elif self.path == "/text":
             self.reply(200, "plain text from the server")
@@ -3269,7 +3494,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # a transaction's parts left out of the expectation are what an empty part says.
         got = result.get("transactions", [])
         empty = {"delete": [0, 0], "commit": "", "preedit": "", "cursor": [0, 0], "segments": []}
-        wanted = [{**empty, **want} for want in expect["transactions"]]
+        # An AutoFill fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) is said whole: the
+        # field's text and its paired field's length.
+        wanted = [want if "fill" in want else {**empty, **want} for want in expect["transactions"]]
         if got != wanted:
             fail(f"transactions given {got}, expected exactly {wanted}")
     if "delivered" in expect:
@@ -3768,6 +3995,29 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         else:
             for problem in matches_within(expect["sound"], held, "the sound's"):
                 fail(problem)
+    if "bluetooth" in expect:
+        # What the played BlueZ holds once the step settled (ADR 0055): the session's calls, its
+        # agent and discovery, not only what was drawn.
+        held = result.get("bluetooth")
+        if held is None:
+            fail("no BlueZ's state (the scenario needs `bluetooth`)")
+        else:
+            held = json.loads(held) if isinstance(held, str) else held
+            for problem in matches_within(expect["bluetooth"], held, "BlueZ's"):
+                fail(problem)
+    if "displays_off" in expect and result.get("displays_off") != expect["displays_off"]:
+        # The displays turned off for want of input (ADR 0057, decision 6).
+        fail(f"displays off: {result.get('displays_off')}, expected {expect['displays_off']}")
+    if "power" in expect:
+        # What the played power services hold once the step settled (ADR 0057): Low Power Mode's
+        # hold, the charge limit in the battery's sysfs, the machine put to sleep.
+        held = result.get("power")
+        if held is None:
+            fail("no power services' state (the scenario needs `power`)")
+        else:
+            held = json.loads(held) if isinstance(held, str) else held
+            for problem in matches_within(expect["power"], held, "the power services'"):
+                fail(problem)
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
@@ -3929,6 +4179,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: im.get(k) for k, v in wanted.items() if im.get(k) != v}
         if differing:
             fail(f"the input method has {differing}, expected {wanted}")
+    if "autofill" in expect:
+        # AutoFill's list (docs/adr/0050-keychain-autofill-and-passkeys.mdx): what a shell draws
+        # now (`shown`, null when none) and what the fixture keychain was asked during the step.
+        held, wanted = result.get("autofill") or {}, expect["autofill"]
+        differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
+        if differing:
+            fail(f"AutoFill has {differing}, expected {wanted}")
     if "input_sources" in expect:
         held, wanted = result.get("input_sources") or {}, expect["input_sources"]
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
@@ -4440,6 +4697,69 @@ def network_daemon(spec, out, offscreen):
     return address, stop
 
 
+def bluetooth_daemon(spec, out, offscreen):
+    """A bus of the run's own and a played BlueZ on it (docs/adr/0055-bluetooth.mdx), the machine
+    `spec` describes (oxyos-fake-bluez's: the adapter, the devices paired and nearby, how each
+    pairs and connects); its address and a function that stops both."""
+    base = out / "bluetooth"
+    shutil.rmtree(base, ignore_errors=True)
+    base.mkdir(parents=True)
+    # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
+    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    address = bus.stdout.readline().strip()
+    (base / "machine.json").write_text(json.dumps(spec))
+    fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-bluez"
+    log = open(base / "bluez.log", "w")
+    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    wait_for(base / "state.json")
+
+    def stop():
+        for process in (daemon, bus):
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        log.close()
+    return address, stop
+
+
+def power_services(spec, out, offscreen):
+    """A bus of the run's own and UPower, power-profiles-daemon and logind played on it by the
+    development compositor's own program (`--play-power`, docs/adr/0057-battery-and-energy.mdx),
+    for the machine `spec` describes, its battery's sysfs a directory of the run's own (UPower's
+    thresholds written there, 0 and 100 to begin with): the compositor's arguments and a function
+    that stops both."""
+    base = out / "power"
+    shutil.rmtree(base, ignore_errors=True)
+    sysfs = base / "BAT0"
+    sysfs.mkdir(parents=True)
+    (sysfs / "charge_control_start_threshold").write_text("0")
+    (sysfs / "charge_control_end_threshold").write_text("100")
+    machine = dict(spec)
+    machine.setdefault("sysfs", str(sysfs))
+    (base / "machine.json").write_text(json.dumps(machine))
+    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    address = bus.stdout.readline().strip()
+    log = open(base / "services.log", "w")
+    services = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
+                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log)
+    wait_for(base / "ready")
+
+    def stop():
+        for process in (services, bus):
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        log.close()
+    return ["--power-bus", address], stop
+
+
 def install_arguments(scenario, out, machine=None, offscreen=None):
     """System grants (`grants`: {ID: [GRANT, ...]}) as the image's policy gives them, and the
     install service the session asks (`installd`: null for a socket no service is at, or
@@ -4639,6 +4959,20 @@ def main():
         # networks and the played machine's Wi-Fi are its, never the developer's machine's.
         network_address, stop_network = network_daemon(scenario["network"], out, options.offscreen)
         command += ["--network-bus", network_address]
+    stop_bluetooth = None
+    if "bluetooth" in scenario:
+        # The system's BlueZ, played on a bus of the run's own (ADR 0055): the session's Bluetooth,
+        # its pairing agent and the played machine's Control Center module are its, never the
+        # developer's machine's.
+        bluetooth_address, stop_bluetooth = bluetooth_daemon(scenario["bluetooth"], out, options.offscreen)
+        command += ["--bluetooth-bus", bluetooth_address]
+    stop_power = None
+    if "power" in scenario:
+        # The machine's power services, played on a bus of the run's own (ADR 0057): the
+        # session's battery, Low Power Mode, charge limit and sleep are theirs, never the
+        # developer's machine's.
+        power_arguments, stop_power = power_services(scenario["power"], out, options.offscreen)
+        command += power_arguments
     if "input_sources" in scenario:
         # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
         # played with an engine that has the input methods named (none: none installed), from the
@@ -4663,6 +4997,10 @@ def main():
             # It hands the system candidates for what it composes, laid out "horizontal" or
             # "vertical", which the session's shell draws at the caret (ADR 0041).
             command += ["--im-candidates", scenario["im_candidates"]]
+    if scenario.get("autofill"):
+        # AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) answered by the development
+        # compositor's fixture keychain, its made-up items associated with the application named.
+        command += ["--autofill-fixture", scenario["autofill"]["application"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
@@ -4845,6 +5183,10 @@ def main():
     finally:
         if stop_network is not None:
             stop_network()
+        if stop_bluetooth is not None:
+            stop_bluetooth()
+        if stop_power is not None:
+            stop_power()
     if recorder is not None:
         recorder.stop()
     (out / "director.log").write_text(run.stdout + run.stderr)
