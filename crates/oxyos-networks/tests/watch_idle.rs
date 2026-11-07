@@ -1,7 +1,9 @@
-//! Following NetworkManager wakes for its signals and the order to stop, never a clock: watching a
-//! played daemon (`oxyos-fake-networkmanager`, on a bus of the test's own) that says nothing, the
-//! process's threads together wake at most once a second and use at most 0.1 % of a core (the idle
-//! budget, docs/performance.mdx); a change is still told, and the order to stop ends it at once.
+//! Following NetworkManager wakes for its signals that change what is shown and the order to stop,
+//! never a clock: watching a played daemon (`oxyos-fake-networkmanager`, on a bus of the test's
+//! own) that says nothing a session shows (another access point's strength, the joined one seen
+//! again), the process's threads together wake at most once a second and use at most 0.1 % of a
+//! core (the idle budget, docs/performance.mdx); a change is still told, and the order to stop
+//! ends it at once.
 //!
 //! One test in a binary of its own: it counts every thread of the process.
 
@@ -88,7 +90,10 @@ fn a_quiet_daemon_followed_wakes_nothing() {
     let machine = directory.join("machine.json");
     std::fs::write(
         &machine,
-        r#"{"access_points": [{"ssid": "Café Libre", "strength": 55}], "ethernet": "unplugged"}"#,
+        r#"{"access_points": [{"ssid": "Home", "strength": 70, "security": "wpa", "password": "correct horse"},
+            {"ssid": "Café Libre", "strength": 55}],
+            "connections": [{"ssid": "Home", "password": "correct horse"}], "active": "Home",
+            "ethernet": "unplugged"}"#,
     )
     .unwrap();
     let fake = Command::new(env!("CARGO_BIN_EXE_oxyos-fake-networkmanager"))
@@ -117,18 +122,52 @@ fn a_quiet_daemon_followed_wakes_nothing() {
                 Some(&address),
                 Duration::from_millis(30),
                 stop.as_fd(),
-                |_| told.send(()).is_ok(),
+                |_| {
+                    // The access point joined, as a read says it: its strength is followed.
+                    let point = oxyos_networks::NetworkManager::connect(Some(&address))
+                        .and_then(|manager| manager.state())
+                        .ok()
+                        .and_then(|state| state.wifi.point);
+                    if told.send(point.is_some()).is_ok() {
+                        oxyos_networks::Follow::Point(point)
+                    } else {
+                        oxyos_networks::Follow::Stop
+                    }
+                },
             )
         })
     };
-    heard
-        .recv_timeout(Duration::from_secs(5))
-        .expect("told at start");
+    assert!(
+        heard
+            .recv_timeout(Duration::from_secs(5))
+            .expect("told at start"),
+        "an access point is joined"
+    );
     std::thread::sleep(Duration::from_millis(500));
     while heard.try_recv().is_ok() {}
 
+    let act = |what: &str| {
+        let status = Command::new("busctl")
+            .arg(format!("--address={address}"))
+            .args([
+                "call",
+                "org.freedesktop.NetworkManager",
+                "/so/oxy/OxyOS/FakeNetworkManager",
+                "so.oxy.OxyOS.FakeNetworkManager",
+                "Act",
+                "s",
+                what,
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success());
+    };
     let (switches, cpu) = sample();
     let measured = Duration::from_secs(3);
+    // What a session never shows is never delivered: another access point's strength, and the
+    // joined one seen again by a scan.
+    act(r#"{"strength": {"ssid": "Café Libre", "strength": 90}}"#);
+    act(r#"{"seen": "Home"}"#);
     std::thread::sleep(measured);
     let (switches_after, cpu_after) = sample();
     // Each thread's, a thread that ended counted as none.
@@ -150,20 +189,7 @@ fn a_quiet_daemon_followed_wakes_nothing() {
     );
     assert!(share <= 0.1, "{share} % of a core following a quiet daemon");
 
-    let status = Command::new("busctl")
-        .arg(format!("--address={address}"))
-        .args([
-            "call",
-            "org.freedesktop.NetworkManager",
-            "/so/oxy/OxyOS/FakeNetworkManager",
-            "so.oxy.OxyOS.FakeNetworkManager",
-            "Act",
-            "s",
-            r#"{"ethernet": "plugged"}"#,
-        ])
-        .status()
-        .unwrap();
-    assert!(status.success());
+    act(r#"{"ethernet": "plugged"}"#);
     heard
         .recv_timeout(Duration::from_secs(5))
         .expect("told of the cable");
