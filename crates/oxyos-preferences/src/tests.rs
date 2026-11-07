@@ -55,7 +55,8 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
          reduce_motion = yes\n\
          lock_after = 99999\n\
          volume = 11\n\
-         wallpaper = solar-gradients\n\
+         wallpaper = horizon\n\
+         wallpaper.BOE-0A4B-00000001.2 = color:1f4fd8\n\
          no equals sign\n\
          screen_reader = true\n",
     );
@@ -63,7 +64,11 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
     assert_eq!(preferences.accent, "ocean-blue");
     assert!(!preferences.reduce_motion, "`yes` is not a boolean here");
     assert_eq!(preferences.lock_after, 5, "more than a day is refused");
-    assert_eq!(preferences.wallpaper.as_deref(), Some("solar-gradients"));
+    assert_eq!(preferences.wallpapers.default.text(), "horizon");
+    assert_eq!(
+        preferences.wallpapers.shown("BOE-0A4B-00000001", 2).text(),
+        "color:1f4fd8"
+    );
     assert!(preferences.screen_reader);
 }
 
@@ -136,21 +141,17 @@ fn a_change_is_validated_and_a_refused_one_changes_nothing() {
         preferences.set("accent", &"a".repeat(MAX_ACCENT_BYTES)),
         Ok(())
     );
-    // A wallpaper's name may be longer than an accent's.
+    // A wallpaper is a choice (docs/adr/0048-wallpapers.mdx), a path of the person's included.
     assert_eq!(
-        preferences.set("wallpaper", &"a".repeat(MAX_VALUE_BYTES)),
+        preferences.set("wallpaper", "photo:fill:000000:/home/ana/Pictures/a.jpg"),
         Ok(())
-    );
-    assert_eq!(
-        preferences.set("wallpaper", &"a".repeat(MAX_VALUE_BYTES + 1)),
-        Err(Refused::BadValue)
     );
     assert_eq!(
         preferences.set("wallpaper", "../../secret"),
         Err(Refused::BadValue)
     );
     assert_eq!(preferences.set("wallpaper", ""), Ok(()));
-    assert_eq!(preferences.wallpaper, None);
+    assert_eq!(preferences.wallpapers.default, wallpaper::Choice::Default);
     assert_eq!(preferences.set("lock_after", "0"), Ok(()));
     assert_eq!(preferences.set("lock_after", "-1"), Err(Refused::BadValue));
     assert_eq!(preferences.set("brightness", "1"), Err(Refused::UnknownKey));
@@ -169,7 +170,8 @@ fn what_is_written_reads_back_the_same() {
         ("ui_sounds", "false"),
         ("trackpad_natural_scrolling", "false"),
         ("mouse_natural_scrolling", "true"),
-        ("wallpaper", "solar-gradients"),
+        ("wallpaper", "horizon/night"),
+        ("wallpaper_all_desktops", "false"),
         ("lock_after", "15"),
         ("screen_reader", "true"),
         ("language", "es"),
@@ -181,6 +183,16 @@ fn what_is_written_reads_back_the_same() {
         preferences.set(key, value).unwrap();
         assert_eq!(preferences.get(key).as_deref(), Some(value));
     }
+    // And a display's and a desktop's wallpapers, the session's lines.
+    preferences.wallpapers.choose(
+        &wallpaper::Place {
+            display: "DEL-A0B4-7Y9K2N3",
+            primary: false,
+            desktop: 3,
+        },
+        &[],
+        wallpaper::Choice::parse("folder:tile:202020:15:/home/ana/Fotos").unwrap(),
+    );
     assert_eq!(Preferences::parse(&preferences.to_text()), preferences);
     for key in KEYS {
         assert!(

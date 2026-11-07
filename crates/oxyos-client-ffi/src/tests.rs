@@ -2514,6 +2514,32 @@ fn window_events_convert_field_by_field() {
     })
     .unwrap();
     assert_eq!(uncovered.flag, 0);
+    // Its wallpaper (docs/adr/0048-wallpapers.mdx, version 28), in chunks.
+    assert_eq!(
+        define("OXYOS_EVENT_OUTPUT_WALLPAPER"),
+        i64::from(OXYOS_EVENT_OUTPUT_WALLPAPER)
+    );
+    assert_eq!(
+        define("OXYOS_WALLPAPER_LAST"),
+        i64::from(OXYOS_WALLPAPER_LAST)
+    );
+    let wallpaper = convert(&Event::OutputWallpaper {
+        output: 2,
+        index: 1,
+        last: true,
+        text: PreeditText::new("horizon").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            wallpaper.kind,
+            wallpaper.code,
+            wallpaper.detail,
+            wallpaper.flag
+        ),
+        (OXYOS_EVENT_OUTPUT_WALLPAPER, 2, 1, OXYOS_WALLPAPER_LAST)
+    );
+    assert_eq!(&wallpaper.text[..8], b"horizon\0");
     let removed = convert(&Event::OutputRemoved { output: 2 }).unwrap();
     assert_eq!(
         (removed.kind, removed.code),
@@ -3580,6 +3606,50 @@ fn the_header_matches_the_solar_abi() {
     // SAFETY: a null array with a count of 0, and writable outputs.
     let refused = unsafe { oxyos_solar_frame(std::ptr::null(), 0, 0, &mut frame, &mut next) };
     assert_eq!((refused, frame, next), (OXYOS_ERROR, 7, 7));
+}
+
+#[test]
+fn the_header_matches_the_wallpaper_abi() {
+    use crate::wallpapers::*;
+    type Show = unsafe extern "C" fn(*const c_char, u32, i64, i64, bool, *mut c_char, usize) -> i64;
+    type Catalog = unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> i64;
+    type Thumbnail = unsafe extern "C" fn(*const c_char, u32, u32, *mut c_char, usize) -> i64;
+    assert_eq!(
+        declaration("oxyos_wallpaper_show"),
+        type_of(oxyos_wallpaper_show as Show)
+    );
+    assert_eq!(
+        declaration("oxyos_wallpaper_catalog"),
+        type_of(oxyos_wallpaper_catalog as Catalog)
+    );
+    assert_eq!(
+        declaration("oxyos_wallpaper_thumbnail"),
+        type_of(oxyos_wallpaper_thumbnail as Thumbnail)
+    );
+    assert_eq!(
+        declaration("oxyos_wallpaper_folder"),
+        type_of(oxyos_wallpaper_folder as Catalog)
+    );
+    // The image's catalog, in Spanish: its categories, the default, a wallpaper's variants.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers");
+    let json = catalog_json(&oxyos_wallpaper::Catalog::read(&root), "es-ES");
+    assert_eq!(json["default"], "oxyos");
+    assert_eq!(json["categories"][0]["id"], "dynamic");
+    let horizon = json["categories"][0]["wallpapers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["id"] == "horizon")
+        .unwrap();
+    assert_eq!(horizon["name"], "Horizonte");
+    assert_eq!(horizon["automatic"], "sun");
+    assert!(horizon["preview"].as_str().unwrap().starts_with("file:///"));
+    // Not a URI: refused, said.
+    let bad = CString::new("relative/a.png").unwrap();
+    // SAFETY: a NUL-terminated string and no buffer.
+    let refused = unsafe { oxyos_wallpaper_thumbnail(bad.as_ptr(), 8, 8, std::ptr::null_mut(), 0) };
+    assert_eq!(refused, i64::from(OXYOS_ERROR));
 }
 
 #[test]

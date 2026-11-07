@@ -59,6 +59,8 @@ struct Told {
     outputs: BTreeMap<OutputId, (Output, bool)>,
     /// Each output, whether a zoomed or full-screen window covered it (ADR 0034).
     covered: BTreeMap<OutputId, bool>,
+    /// Each output's wallpaper (docs/adr/0048-wallpapers.mdx).
+    wallpapers: BTreeMap<OutputId, String>,
 }
 
 #[derive(Debug, Default)]
@@ -72,6 +74,9 @@ pub(super) struct ShellWindows {
     /// The application of each client whose process the session started (ADR 0013): its
     /// windows' id, whatever they claim.
     applications: BTreeMap<ClientId, String>,
+    /// What each output shows, as the program running the compositor says
+    /// (docs/adr/0048-wallpapers.mdx): the person's choice's text.
+    wallpapers: BTreeMap<OutputId, String>,
 }
 
 impl Scene {
@@ -87,6 +92,18 @@ impl Scene {
         shell.numbers.remove(&key);
         shell.names.remove(&key);
         shell.receiving.retain(|(window, _), _| *window != key);
+    }
+
+    /// What each output shows (docs/adr/0048-wallpapers.mdx), from the program running the
+    /// compositor, which keeps the person's choices: each shell is told each output's when it
+    /// connects and whenever it changes (`OutputWallpaper`), after the output itself.
+    pub fn set_output_wallpapers(&mut self, wallpapers: BTreeMap<OutputId, String>) {
+        self.shell_windows.wallpapers = wallpapers;
+    }
+
+    /// What each output was last said to show.
+    pub fn output_wallpapers(&self) -> &BTreeMap<OutputId, String> {
+        &self.shell_windows.wallpapers
     }
 
     pub(super) fn forget_shell_client(&mut self, client: ClientId) {
@@ -388,6 +405,13 @@ impl Scene {
             .collect();
         let covered: BTreeMap<OutputId, bool> =
             outputs.keys().map(|id| (*id, self.covered(*id))).collect();
+        let wallpapers: BTreeMap<OutputId, String> = self
+            .shell_windows
+            .wallpapers
+            .iter()
+            .filter(|(id, _)| outputs.contains_key(id))
+            .map(|(id, choice)| (*id, choice.clone()))
+            .collect();
         for client in shells {
             let told = self.shell_windows.told.remove(&client).unwrap_or_default();
             // Outputs first: a shell places what it shows on them.
@@ -418,6 +442,31 @@ impl Scene {
                             covered,
                         },
                     );
+                }
+            }
+            // Each output's wallpaper after its Output, when first told and whenever it changes.
+            for (id, choice) in &wallpapers {
+                if told.wallpapers.get(id) != Some(choice) {
+                    // One empty chunk for the default.
+                    let mut chunks: Vec<PreeditText> = TextChunk::split(choice)
+                        .iter()
+                        .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
+                        .collect();
+                    if chunks.is_empty() {
+                        chunks.push(PreeditText::new("").expect("empty"));
+                    }
+                    let count = chunks.len();
+                    for (index, text) in chunks.into_iter().enumerate() {
+                        self.emit(
+                            client,
+                            Event::OutputWallpaper {
+                                output: *id,
+                                index: index as u8,
+                                last: index + 1 == count,
+                                text,
+                            },
+                        );
+                    }
                 }
             }
             for number in told.windows.keys().filter(|n| !now.contains_key(n)) {
@@ -489,6 +538,7 @@ impl Scene {
                     workspaces: Some(workspaces),
                     outputs: outputs.clone(),
                     covered: covered.clone(),
+                    wallpapers: wallpapers.clone(),
                 },
             );
         }
