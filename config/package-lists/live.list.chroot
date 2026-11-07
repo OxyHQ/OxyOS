@@ -20,6 +20,27 @@ apt-transport-https
 psmisc
 cryptsetup
 
+# Installing and recovering (docs/adr/0023-installing-oxyos.mdx, docs/adr/0054-recovery-and-erasing.mdx):
+# oxyos-recovery (OxyOS's own, tools/image/programs/) writes this image onto a disk with
+# systemd-repart, the root inside LUKS2 (systemd-cryptsetup's systemd-cryptenroll for the recovery
+# key, cryptsetup-initramfs to unlock it at boot); an installed system boots through Debian's
+# Microsoft-signed shim and Debian-signed systemd-boot, which counts its boots, with the recovery
+# as an entry of its own. The same program is the recovery, and arms an erase on the installed
+# system.
+oxyos-recovery
+systemd-repart
+systemd-boot
+systemd-cryptsetup
+cryptsetup-initramfs
+shim-signed
+efibootmgr
+#if ARCHITECTURES amd64
+systemd-boot-efi-amd64-signed
+#endif
+#if ARCHITECTURES arm64
+systemd-boot-efi-arm64-signed
+#endif
+
 # Boot logo (docs/adr/0017-boot-logo.mdx): Plymouth draws the theme `oxyos` straight
 # through DRM/KMS, no display server. Not plymouth-themes: it brings plymouth-label (Pango,
 # Cairo, GLib) and themes the image does not use. fontconfig because Debian's initramfs hook

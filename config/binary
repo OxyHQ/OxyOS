@@ -37,8 +37,11 @@ LB_CHECKSUMS="sha256 md5"
 # Set compression
 LB_COMPRESSION="none"
 
-# Support dm-verity on rootfs
-LB_DM_VERITY=""
+# The image's hash tree (dm-verity): live-boot reads every block of the squashfs through it,
+# against its root hash, on the live medium and in the recovery, whose boot entry carries the root
+# hash on its command line (docs/adr/0054-recovery-and-erasing.mdx, decision 3). The installer
+# checks the image against it before writing it, and the recovery's copy after.
+LB_DM_VERITY="true"
 
 # Support FEC on dm-verity rootfs
 LB_DM_VERITY_FEC_ROOTS=""
@@ -53,8 +56,10 @@ LB_ZSYNC="true"
 # NEVER, *EVER*, *E*V*E*R* SET THIS OPTION to false.
 LB_BUILD_WITH_CHROOT="true"
 
-# Set debian-installer
-LB_DEBIAN_INSTALLER="live"
+# No debian-installer: OxyOS installs by writing this image whole (oxyos-recovery install,
+# docs/adr/0023-installing-oxyos.mdx, decision 1), never with Debian's installer, its partitioner or
+# its first user.
+LB_DEBIAN_INSTALLER="none"
 
 # Set debian-installer suite
 LB_DEBIAN_INSTALLER_DISTRIBUTION="trixie"

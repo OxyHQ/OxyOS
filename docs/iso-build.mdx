@@ -30,11 +30,11 @@ Do not install `oxyos-platform-probe` as a compositor, session, greeter or boot 
 | `common` | apt, systemd, `live-boot` initramfs, recommends on. Sources `oxyos.conf` for `LB_IMAGE_NAME`. |
 | `bootstrap` | `amd64` unless the build sets `LB_ARCHITECTURE` ([Architectures](#architectures)), Debian `trixie`, `main contrib non-free non-free-firmware` from `deb.debian.org`. |
 | `chroot` | squashfs + overlay, stock `linux-image`. `LB_SECURITY="false"`; the security suite comes from `archives/oxyos.list.*`. |
-| `binary` | `iso-hybrid`, syslinux (BIOS) + grub-efi (UEFI), Secure Boot `auto`, text debian-installer (`LB_DEBIAN_INSTALLER_GUI="false"`: the GTK installer runs an X.org server). |
+| `binary` | `iso-hybrid`, syslinux (BIOS) + grub-efi (UEFI), Secure Boot `auto`, the squashfs's dm-verity hash tree (`LB_DM_VERITY`: live-boot reads it verified, and the installer and the recovery check it, [ADR 0054](./adr/0054-recovery-and-erasing), decision 3), no debian-installer (`LB_DEBIAN_INSTALLER="none"`: OxyOS installs by writing this image, [ADR 0023](./adr/0023-installing-oxyos)). |
 | `binary.arm64`, `chroot.arm64` | What differs on arm64, read by live-build after `binary` and `chroot`: no BIOS bootloader, a failsafe entry without the PC's arguments, the `arm64` kernel. |
 | `oxyos.conf` | OS identity (name, version, codename, URLs). `includes.chroot_after_packages/etc/oxyos/oxyos.conf` must be an identical copy; the check script enforces it. |
 
-Live command line: `boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles username=user hostname=oxyos`; an installed system's GRUB gets the same `quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles` from the drop-in below. The failsafe entry keeps `nosplash`. Why each is there: [ADR 0017](./adr/0017-boot-logo). `plymouth.ignore-serial-consoles` came with arm64: where the firmware names a serial console (an AArch64 machine's ACPI SPCR table or its device tree's `stdout-path`; QEMU's `virt` machine has both), the kernel enables it with no `console=` argument, and Plymouth, seeing a serial console, forces its text view on every display, so the screen stayed black until the login prompt. With it Plymouth keeps the boot logo on the screen; the kernel and systemd still write to the serial console.
+Live command line: `boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles username=user hostname=oxyos`; an installed system's systemd-boot entries get the same `quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles` from its `/etc/kernel/cmdline`, which the installer writes ([ADR 0054](./adr/0054-recovery-and-erasing), decision 7). The failsafe entry keeps `nosplash`. Why each is there: [ADR 0017](./adr/0017-boot-logo). `plymouth.ignore-serial-consoles` came with arm64: where the firmware names a serial console (an AArch64 machine's ACPI SPCR table or its device tree's `stdout-path`; QEMU's `virt` machine has both), the kernel enables it with no `console=` argument, and Plymouth, seeing a serial console, forces its text view on every display, so the screen stayed black until the login prompt. With it Plymouth keeps the boot logo on the screen; the kernel and systemd still write to the serial console.
 
 ### Architectures
 
@@ -52,7 +52,7 @@ What the generic UEFI image does not boot yet, and why (each target's own boot p
 
 ### Package manifest
 
-`package-lists/live.list.chroot` is the authoritative target-runtime manifest for every architecture; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, the clock's synchronization, what the OxyOS runtime loads, command-line utilities, and the firmware and microcode.
+`package-lists/live.list.chroot` is the authoritative target-runtime manifest for every architecture; there is no metapackage. It holds the live tooling, core system tools, installing and recovering (OxyOS's own `oxyos-recovery`, systemd-repart, systemd-boot and Debian's signed shim and systemd-boot, systemd-cryptsetup, cryptsetup-initramfs, efibootmgr: [ADR 0054](./adr/0054-recovery-and-erasing)), the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, the clock's synchronization, what the OxyOS runtime loads, command-line utilities, and the firmware and microcode.
 
 **The clock: `systemd-timesyncd`.** systemd's SNTP client, enabled by its package (the audit checks it is); Settings reports its synchronized flag ([ADR 0019](./adr/0019-settings)). Not chrony or NTPsec: a laptop or desktop needs its clock set from the network's time servers, not to serve time or discipline it to the microsecond, and timesyncd is part of systemd, which the base already runs. Without it a machine whose clock drifts or loses its battery fails TLS, and with it the Oxy account's sign-in.
 
@@ -64,7 +64,7 @@ What the generic UEFI image does not boot yet, and why (each target's own boot p
 - **out, refused:** firmware only servers and data centres have, matched by `SERVER_FIRMWARE` in `scripts/check-image-config.py` (in the manifest) and by the built image's audit. That covers network adapters (`firmware-bnx2`, `-bnx2x`, `-cavium`, `-myricom`, `-netronome`, `-netxen`, `-liquidio`), switch ASICs (`-marvell-prestera`), storage HBAs (`-qlogic`), BMC graphics (`-ast`) and data-centre GPUs (`-nvidia-tesla-*-gsp`). `archives/no-server-firmware.pref.chroot` pins them to -1 during the build: `firmware-libertas` recommends `firmware-marvell-prestera`, and a hard dependency on one fails the build.
 - **out, not firmware:** what live-build's own detection would add, since it installs every package with a file under `/lib/firmware`. In a built image that was astronomy camera drivers (`indi-dsi`, `libfishcamp1t64`, `libsbig4t64`), and through them Cairo, `libxcb-render0` and `libxcb-shm0`; the telephony cards' `dahdi-firmware-nonfree`; and the two `b43` installers, which download firmware from the internet as they install.
 
-`LB_FIRMWARE_BINARY` is `"false"` as well: the detection would put its firmware, servers' included, in the debian-installer's pool on the ISO. The live installer copies the live system, so an installed system has the manifest's firmware; only the installer's own use of non-free firmware while it runs (Wi-Fi during the installation) is lost, until the installer leaves the image ([ADR 0023](./adr/0023-installing-oxyos), step 4).
+`LB_FIRMWARE_BINARY` is `"false"` as well: the detection would put its firmware, servers' included, in an installer's pool on the ISO, and the image has no debian-installer. OxyOS's installer copies the live system, so an installed system has the manifest's firmware.
 
 `archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth`, `x11-common` and `kasumi` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
 
@@ -73,9 +73,17 @@ Known residue, from Debian packaging rather than this configuration: `libpipewir
 ### Accounts and login
 
 - **Live**: live-config creates `user` from `username=user` with its default groups and password and auto-logs in on the console. The image pre-creates no account and grants no `input`, `render` or `seat` access.
-- **Installed**: the debian-installer creates the first user; `passwd/root-login` is false, so that user administers through `sudo`. Login is the standard getty/PAM path.
+- **Installed** (`oxyos-recovery install --developer`, [ADR 0023](./adr/0023-installing-oxyos)): no user, and root locked; the first boot is setup's. A development install may make one development user, an administrator through `sudo`, whose password also unlocks the disk.
 
 Device and seat delegation for the future compositor belongs to the session authority described in the architecture, not to group grants.
+
+### OxyOS's own programs
+
+A program of this repository that the image needs is built from the Cargo workspace and packaged by `tools/image/build.sh packages`, never copied in by hand or downloaded prebuilt. `tools/image/programs/<name>/program` names the package, the workspace package (`CRATE`), its binaries with where each is installed, the package's other files (laid out as installed, in the program's own directory), its `Depends` and description. The build installs rustup's toolchain of `rust-toolchain.toml` in the image's container (kept under `packages/rust/`), builds with `--locked` (the crates checked against `Cargo.lock` as they are fetched), and writes `packages/<arch>/<package>_<version>_<arch>.deb`, its version the OS's and the commit's time (`1.0.<SOURCE_DATE_EPOCH>`), its files dated by the commit; the image build puts it in live-build's `config/packages.chroot/` and the manifest names it.
+
+| Program | Package | What |
+| --- | --- | --- |
+| `tools/oxyos-recovery` | `oxyos-recovery` | The development installer, the recovery, arming an erase, counting boots, and their units ([ADR 0054](./adr/0054-recovery-and-erasing)) |
 
 ### OxyOS's patched Debian packages
 
@@ -94,12 +102,12 @@ A machine installed by hand (the ThinkPad) takes the same packages from `package
 | `hooks/live/0800-oxyos-branding.hook.chroot` | Writes `/etc/os-release`, `/etc/lsb-release`, `/etc/issue`, `/etc/issue.net` from `oxyos.conf`. `/etc/issue` begins with `\e[?25h`: the login prompt shows the console's cursor the boot logo's command line hid. |
 | `hooks/live/0800-rm-log.hook.chroot` | Truncates `/var/log` before squashing. |
 | `hooks/{live,normal}/*` symlinks | Stock live-build hooks under `/usr/share/live/build/hooks/`. |
-| `includes.chroot_after_packages/etc/default/grub.d/oxyos.cfg` | `GRUB_INIT_TUNE` and the boot logo's `GRUB_CMDLINE_LINUX_DEFAULT` for installed systems, as a drop-in that keeps Debian's `/etc/default/grub`. |
 | `includes.chroot_after_packages/etc/plymouth/plymouthd.conf` | The boot logo: theme `oxyos`, no show delay, `DeviceScale=1` ([ADR 0017](./adr/0017-boot-logo)). Replaces `plymouth`'s conffile after the packages; live-build's `update-initramfs` in `chroot_hacks` then puts the theme in the initramfs. |
 | `includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/` | The Plymouth script theme: the session's splash, the Oxy mark on black, drawn by `tools/oxyos-boot-logo` from the session's own code (regenerate it with `cargo run -p oxyos-boot-logo -- <this directory>`; `cargo test` fails when it is stale), and a passphrase field. |
 | `includes.chroot_after_packages/usr/share/X11/locale/` | The compose tables the compositor's keyboard composes dead keys with (`crates/oxyos-input`): `compose.dir`, `locale.alias` and the 16 UTF-8 tables they name, copied unchanged from Debian's `libx11-data` 2:1.8.12-1 (MIT, `usr/share/doc/oxyos-compose-tables/copyright`). The package itself is not installed. These are data files at the directory xkbcommon reads by default, with no X11 code. |
 | `includes.chroot_after_packages/usr/lib/oxyos/apt-setup` + unit | Each boot of the live system, an installed system's first: rewrites `sources.list` as deb822 `debian.sources` (and drops live-build's `oxyos.list`, which would repeat the security suite), then removes itself. POSIX `sh` and executable: the check script fails an included script that is not (the first built image's boot found it failing on every boot, `203/EXEC`). |
-| `preseed/`, `includes.installer/preseed.cfg` | Firmware licence acceptance; no root login. |
+| `preseed/preseed.cfg.chroot` | The firmware packages' licence acceptance, while they are installed. |
+| `includes.chroot_after_packages/etc/cryptsetup-initramfs/conf-hook`, `etc/initramfs-tools/conf.d/oxyos-umask` | An installed system's install key goes into its initramfs (`KEYFILE_PATTERN`), which is made readable by root alone (`UMASK=0077`): the first boot unlocks the root without a password until setup replaces the key ([ADR 0023](./adr/0023-installing-oxyos), decision 3). |
 | `bootloaders/` | live-build bootloader templates and OxyOS splash artwork. |
 
 New hooks are POSIX `sh` (`set -e`, `P:` progress lines) and must pass `sh -n`; the check script runs it on every hook.
@@ -150,6 +158,7 @@ python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --firm
 python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --firmware bios        # SeaBIOS, isolinux
 python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-arm64.iso                        # AAVMF
 python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-arm64.iso --firmware secureboot  # AAVMF, Debian's shim
+python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --recovery [--firmware secureboot]  # install, recovery, erase
 ```
 
 The tests boot the image as built in QEMU (`qemu-system-x86_64`, Debian's `ovmf` for UEFI: `OVMF_CODE_4M.fd`, or `OVMF_CODE_4M.secboot.fd` with `OVMF_VARS_4M.ms.fd`'s Microsoft keys for Secure Boot). KVM is used when `/dev/kvm` is usable, else TCG with longer timeouts. The display is QEMU's standard VGA (`--display virtio` for virtio-gpu) with an EDID whose preferred mode is the size under test, 1920×1200 by default, the ThinkPad's: the theme must have a `splash-WxH.png` of that size, since the mark is compared pixel for pixel.
@@ -190,6 +199,10 @@ Building and booting found two things, fixed here:
 - **The audit's extraction** looked for `/live/initrd.img`, which live-build writes for syslinux only: the arm64 ISO has only the kernel's versioned name. It now takes the medium's one `/live/initrd.img*`.
 
 The amd64 image from the same commit is unchanged by the arm64 work: the same 389 packages and sizes as [ADR 0023](./adr/0023-installing-oxyos)'s build, the audit passes, and all checks pass with UEFI (18), Secure Boot (18) and SeaBIOS (17), with the new command line.
+
+### Installing, the recovery and erasing (`--recovery`)
+
+`--recovery` (UEFI or Secure Boot) runs one machine through ADR 0054's whole life, on a blank 24 GiB virtual disk under the run's directory (never a disk of the host) and with its firmware's variables kept from start to start: the development installer from the live medium (encrypted, a development user, a recovery key); the installed system through shim and systemd-boot, the disk's password typed at Plymouth's field over QMP; the recovery reached by Space held on a USB keyboard at the boot menu, and by three starts cut off at the password prompt; *Erase All Content and Settings* armed by `oxyos-erase.service` and carried out by the recovery; *Erase and Reinstall* from the recovery's menu; and after each erase a first boot with no user, a new LUKS2 volume that neither old secret opens, and the recovery untouched. The installed system's and the recovery's consoles are asked for through the firmware's OEM strings (`io.systemd.boot.kernel-cmdline-extra`: `console=ttyS0`, and systemd's debug shell on a second serial port for the checks), not in the image. Each start's screens, both serial logs and QEMU's log are under `acceptance/<image>/recovery-<firmware>/recovery/`. Results: [ADR 0054](./adr/0054-recovery-and-erasing#results).
 
 ### Static checks
 

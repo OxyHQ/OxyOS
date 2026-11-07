@@ -1,0 +1,10 @@
+# OxyOS's own program, built from this repository's Cargo workspace and packaged for the image by
+# tools/image/build.sh packages (docs/iso-build.mdx, "OxyOS's own programs").
+PACKAGE="oxyos-recovery"
+# The workspace package and the binaries it builds, each with where it is installed.
+CRATE="oxyos-recovery-tool"
+BINARIES="oxyos-recovery:usr/sbin/oxyos-recovery"
+# The package's other files, laid out as installed.
+FILES="tools/oxyos-recovery/package"
+DEPENDS="systemd, systemd-repart, systemd-boot, systemd-cryptsetup, cryptsetup-bin, cryptsetup-initramfs, shim-signed, efibootmgr, e2fsprogs, dosfstools, util-linux, network-manager, plymouth"
+DESCRIPTION="OxyOS's installer, recovery and erase (docs/adr/0054-recovery-and-erasing.mdx)"

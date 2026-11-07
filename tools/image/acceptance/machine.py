@@ -52,9 +52,23 @@ def default_accel(architecture):
 
 
 class Machine:
+    """One boot of a machine. `image` is the medium in its optical drive (None: no medium). A
+    machine that boots more than once (an install, then the installed system) keeps its `disk` and
+    its firmware's variables (`variables`, copied from the firmware's template the first time), as
+    a computer keeps its disk and NVRAM. `smbios` are the firmware's OEM strings (SMBIOS type 11):
+    systemd-boot appends `io.systemd.boot.kernel-cmdline-extra=` to every entry's command line,
+    the way a virtual machine is given a console without changing the image. `debug_serial` adds a
+    second serial port (ttyS1), for systemd's debug shell; `usb_keyboard` adds a USB keyboard, which
+    OVMF reads in systemd-boot's menu (its PS/2 driver gives systemd-boot no keys)."""
+
     def __init__(self, image, directory, firmware="uefi", resolution=(1920, 1200), display="std",
-                 accel=None, memory=2048, cpus=None, architecture="amd64"):
-        self.image = pathlib.Path(image)
+                 accel=None, memory=2048, cpus=None, architecture="amd64", disk=None, variables=None,
+                 smbios=(), debug_serial=False, usb_keyboard=False):
+        self.image = pathlib.Path(image) if image else None
+        self.disk = pathlib.Path(disk) if disk else None
+        self.variables = pathlib.Path(variables) if variables else None
+        self.smbios, self.debug_serial, self.usb_keyboard = list(smbios), debug_serial, usb_keyboard
+        self.debug_log = bytearray()
         self.directory = pathlib.Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.architecture = architecture
@@ -86,14 +100,17 @@ class Machine:
             machine = "q35,accel=" + self.accel
             cpu = "host" if self.accel == "kvm" else "max"
             arguments = ["qemu-system-x86_64"]
-        arguments += ["-nodefaults", "-no-reboot", "-display", "none",
+        # A machine with a disk restarts as a computer does (an install, an erase); a medium alone
+        # is booted once, and its end is QEMU's.
+        arguments += ["-nodefaults", "-display", "none"] + ([] if self.disk else ["-no-reboot"]) + [
                       "-m", str(self.memory), "-smp", str(self.cpus), "-cpu", cpu]
         code, variables, secure = FIRMWARE[self.architecture][self.firmware]
         if code:
             if not pathlib.Path(code).exists():
                 raise Failure(f"no {self.firmware} firmware at {code} (Debian's {FIRMWARE_PACKAGE[self.architecture]} package)")
-            copy = self.directory / "VARS.fd"
-            shutil.copyfile(variables, copy)
+            copy = self.variables or self.directory / "VARS.fd"
+            if not (self.variables and copy.exists()):
+                shutil.copyfile(variables, copy)
             if secure and not arm:
                 # OVMF keeps its variables out of the OS's reach in SMM; the virt machine has no
                 # SMM, and AAVMF's Secure Boot needs none.
@@ -112,14 +129,26 @@ class Machine:
         else:
             # bochs-drm offers only modes that fit its video memory twice: 16 MB drops 1920x1200.
             arguments += ["-device", f"VGA,edid=on,xres={width},yres={height},vgamem_mb=64"]
-        arguments += ["-drive", f"file={self.image},media=cdrom,readonly=on,if=none,id=cd"]
+        if self.image:
+            arguments += ["-drive", f"file={self.image},media=cdrom,readonly=on,if=none,id=cd"]
         if arm:
             # No IDE or PS/2 on virt: the medium on virtio-scsi, a USB keyboard (the one AAVMF's
             # menu and GRUB read, where QMP's keys arrive).
-            arguments += ["-device", "virtio-scsi-pci,id=scsi", "-device", "scsi-cd,bus=scsi.0,drive=cd,bootindex=0",
-                          "-device", "qemu-xhci,id=usb", "-device", "usb-kbd,bus=usb.0"]
+            arguments += ["-device", "virtio-scsi-pci,id=scsi", "-device", "qemu-xhci,id=usb", "-device", "usb-kbd,bus=usb.0"]
+            if self.image:
+                arguments += ["-device", "scsi-cd,bus=scsi.0,drive=cd,bootindex=0"]
         else:
-            arguments += ["-device", "ide-cd,drive=cd,bootindex=0"]
+            if self.image:
+                arguments += ["-device", "ide-cd,drive=cd,bootindex=0"]
+            if self.usb_keyboard:
+                arguments += ["-device", "qemu-xhci,id=usb", "-device", "usb-kbd,bus=usb.0"]
+        if self.disk:
+            # A disk that can be discarded, as an SSD is (an erase discards the old root).
+            arguments += ["-drive", f"file={self.disk},format=raw,if=none,id=disk,discard=unmap",
+                          "-device", "virtio-blk-pci,drive=disk,bootindex=1"]
+        for value in self.smbios:
+            # QEMU's option syntax doubles a literal comma.
+            arguments += ["-smbios", "type=11,value=" + value.replace(",", ",,")]
         arguments += [
             "-nic", "user,model=virtio-net-pci",
             "-device", "virtio-rng-pci",
@@ -127,10 +156,13 @@ class Machine:
             "-chardev", f"socket,id=serial,path={self.directory / 'serial.sock'},server=on,wait=off",
             "-serial", "chardev:serial",
         ]
+        if self.debug_serial:
+            arguments += ["-chardev", f"socket,id=debug,path={self.directory / 'debug.sock'},server=on,wait=off",
+                          "-serial", "chardev:debug"]
         return arguments
 
     def start(self):
-        for name in ("qmp.sock", "serial.sock"):
+        for name in ("qmp.sock", "serial.sock", "debug.sock"):
             (self.directory / name).unlink(missing_ok=True)
         self.process = subprocess.Popen(self.command_line(), stdout=subprocess.DEVNULL,
                                         stderr=open(self.directory / "qemu.log", "wb"))
@@ -143,6 +175,9 @@ class Machine:
         self.execute("qmp_capabilities")
         self.serial = self._connect("serial.sock")
         threading.Thread(target=self._read_serial, daemon=True).start()
+        if self.debug_serial:
+            self.debug = self._connect("debug.sock")
+            threading.Thread(target=self._read_debug, daemon=True).start()
         return self
 
     def elapsed(self):
@@ -176,7 +211,9 @@ class Machine:
                 self.process.kill()
                 self.process.wait()
         (self.directory / "serial.log").write_bytes(bytes(self.serial_log))
-        for name in ("VARS.fd", "screen.ppm", "qmp.sock", "serial.sock"):
+        if self.debug_serial:
+            (self.directory / "debug.log").write_bytes(bytes(self.debug_log))
+        for name in ("VARS.fd", "screen.ppm", "qmp.sock", "serial.sock", "debug.sock"):
             (self.directory / name).unlink(missing_ok=True)
 
     # QMP.
@@ -227,6 +264,24 @@ class Machine:
             with self.serial_lock:
                 self.serial_log += data
 
+    def _read_debug(self):
+        while True:
+            try:
+                data = self.debug.recv(4096)
+            except OSError:
+                return
+            if not data:
+                return
+            with self.serial_lock:
+                self.debug_log += data
+
+    def debug_text(self):
+        with self.serial_lock:
+            return self.debug_log.decode("utf-8", errors="replace")
+
+    def exited(self):
+        return self.process.poll() is not None
+
     def serial_text(self):
         with self.serial_lock:
             return self.serial_log.decode("utf-8", errors="replace")
@@ -249,12 +304,28 @@ class Machine:
     def send_serial(self, text):
         self.serial.sendall(text.encode())
 
-    def run(self, command, timeout=120):
-        """Run `command` in the serial console's shell and return its output."""
+    def run(self, command, timeout=120, debug=False):
+        """Run `command` in the serial console's shell (`debug`: the debug shell's, on ttyS1) and
+        return its output."""
         begin, end = "@@OXYOS-BEGIN@@", "@@OXYOS-END@@"
+        text = self.debug_text if debug else self.serial_text
+        send = self.debug.sendall if debug else self.serial.sendall
         # The markers are split in what is typed, so the echoed command never matches them.
-        mark = len(self.serial_text())
-        self.send_serial(f"printf '%s\\n' '@@OXYOS-BEGIN''@@'; {command}; printf '%s\\n' '@@OXYOS-END''@@'\r")
-        _, start = self.wait_serial(begin + "\r\n", begin + "\n", timeout=timeout, after=mark)
-        _, stop = self.wait_serial(end, timeout=timeout, after=start)
-        return self.serial_text()[start:stop - len(end)].replace("\r", "").strip("\n")
+        mark = len(text())
+        send(f"printf '%s\\n' '@@OXYOS-BEGIN''@@'; {command}; printf '%s\\n' '@@OXYOS-END''@@'\r".encode())
+        _, start = self.wait_text(text, (begin + "\r\n", begin + "\n"), timeout, mark)
+        _, stop = self.wait_text(text, (end,), timeout, start)
+        return text()[start:stop - len(end)].replace("\r", "").strip("\n")
+
+    def wait_text(self, text, needles, timeout, after=0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            current = text()
+            for needle in needles:
+                index = current.find(needle, after)
+                if index >= 0:
+                    return needle, index + len(needle)
+            if self.process.poll() is not None:
+                raise Failure(f"QEMU exited ({self.process.returncode}) waiting for {needles}")
+            time.sleep(0.1)
+        raise Failure(f"no {' or '.join(map(repr, needles))} within {timeout} s")

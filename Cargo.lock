@@ -2481,6 +2481,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-recovery"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
+name = "oxyos-recovery-tool"
+version = "0.1.0"
+dependencies = [
+ "oxyos-recovery",
+ "rustix",
+ "zeroize",
+]
+
+[[package]]
 name = "oxyos-seat"
 version = "0.1.0"
 dependencies = [
