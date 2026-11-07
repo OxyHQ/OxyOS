@@ -52,7 +52,11 @@ What the generic UEFI image does not boot yet, and why (each target's own boot p
 
 ### Package manifest
 
-`package-lists/live.list.chroot` is the authoritative target-runtime manifest for every architecture; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities, and the firmware and microcode.
+`package-lists/live.list.chroot` is the authoritative target-runtime manifest for every architecture; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, the clock's synchronization, what the OxyOS runtime loads, command-line utilities, and the firmware and microcode.
+
+**The clock: `systemd-timesyncd`.** systemd's SNTP client, enabled by its package (the audit checks it is); Settings reports its synchronized flag ([ADR 0019](./adr/0019-settings)). Not chrony or NTPsec: a laptop or desktop needs its clock set from the network's time servers, not to serve time or discipline it to the microsecond, and timesyncd is part of systemd, which the base already runs. Without it a machine whose clock drifts or loses its battery fails TLS, and with it the Oxy account's sign-in.
+
+**What the OxyOS runtime loads.** `oxyos-session`, `oxyos-login` and the Bloom host are not packaged into the image yet ([ADR 0023](./adr/0023-installing-oxyos), step 5), but a machine installed from it, onto which they are deployed, must not need apt for what they load. The manifest names it, each with its reason, as found in each binary's `NEEDED` entries and in `/proc/<pid>/maps` of the running session, login program and Bloom hosts on an installed ThinkPad: the Vulkan loader and Mesa's drivers (`libvulkan1`, `mesa-vulkan-drivers`), libinput (`libinput10`), ICU, HarfBuzz and FreeType (`libicu76`, `libharfbuzz0b`, `libfreetype6`), the fallback fonts (`fonts-noto-cjk`, `fonts-noto-color-emoji`), the input-method engine's run-time packages ([ADR 0041](./adr/0041-input-methods), decision 1: `dbus-daemon`, `libjson-c5`, `libfmt10`, `libboost-iostreams1.83.0`, `libhangul1`, `libhangul-data`, `libanthy1t64`, `anthy-common`, `xkb-data`, `iso-codes`) and the screen reader's voice (`espeak-ng`, [ADR 0014](./adr/0014-screen-reader), decision 3). Everything else they load (PAM, PipeWire's client library, libpng, zlib, Brotli, GLib through HarfBuzz) is already in the base or comes with these. `anthy-common` recommends `kasumi`, Anthy's GTK 3 dictionary editor, which would bring GTK, Cairo, Pango and the X11 and Wayland client libraries: `archives/no-display-stack.pref.chroot` pins it out.
 
 **Firmware: laptops and desktops.** OxyOS runs on laptops and desktops, so the image carries the firmware of their hardware and not a server's. The manifest names it (`LB_FIRMWARE_CHROOT="false"` and `LB_FIRMWARE_BINARY="false"`, which the check script enforces):
 - **in, on both architectures** (Debian's firmware packages are architecture-independent, and a PCIe or USB device needs the same firmware in either machine): graphics: AMD's and NVIDIA's consumer GPUs (`firmware-nvidia-graphics`); Wi-Fi and Bluetooth: Intel, Realtek, Qualcomm Atheros, MediaTek, Broadcom (the Raspberry Pi's too), Marvell, and the older USB adapters, with `wireless-regdb`; Cirrus Logic amplifiers; USB TV tuners; `firmware-misc-nonfree` for everything else small (Arm's Mali CSF firmware among it).
@@ -62,9 +66,9 @@ What the generic UEFI image does not boot yet, and why (each target's own boot p
 
 `LB_FIRMWARE_BINARY` is `"false"` as well: the detection would put its firmware, servers' included, in the debian-installer's pool on the ISO. The live installer copies the live system, so an installed system has the manifest's firmware; only the installer's own use of non-free firmware while it runs (Wi-Fi during the installation) is lost, until the installer leaves the image ([ADR 0023](./adr/0023-installing-oxyos), step 4).
 
-`archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth` and `x11-common` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
+`archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth`, `x11-common` and `kasumi` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
 
-Known residue, from Debian packaging rather than this configuration: `libpipewire-0.3-modules` depends on `libpulse0`, which links the X11 client libraries (`libx11-6`, `libx11-xcb1`, `libxcb1`). They are inert libraries with no server or `DISPLAY`. Removing them needs a Debian change or our own build, and is part of the native image gate. A built image's audit confirms them, with `/etc/X11/xkb` (`xkb-data`'s keyboard layouts, which xkbcommon reads) and `/etc/X11/Xsession.d` (`dbus-user-session`'s snippet for X sessions, which nothing runs), and nothing else; `scripts/check-image-contents.py` reports them as residue and `--gate` refuses them.
+Known residue, from Debian packaging rather than this configuration: `libpipewire-0.3-modules` depends on `libpulse0`, which links the X11 client libraries (`libx11-6`, `libx11-xcb1`, `libxcb1`), and Debian's Mesa links its Vulkan drivers' window-system integration for X11 and Wayland, which brings `libwayland-client0` and `libxcb-dri3-0`, `-present0`, `-randr0`, `-shm0`, `-sync1` and `-xfixes0`. They are inert client libraries with no server, `DISPLAY` or `WAYLAND_DISPLAY`: OxyOS's processes present through the OxyOS protocol and never create an X11 or Wayland surface. Removing them needs a Debian change or our own builds (Mesa's with no X11 or Wayland platform), and is part of the native image gate. A built image's audit confirms them, with `/etc/X11/xkb` (`xkb-data`'s keyboard layouts, which xkbcommon reads) and `/etc/X11/Xsession.d` (`dbus-user-session`'s snippet for X sessions, which nothing runs), and nothing else; `scripts/check-image-contents.py` reports them as residue and `--gate` refuses them.
 
 ### Accounts and login
 
@@ -72,6 +76,16 @@ Known residue, from Debian packaging rather than this configuration: `libpipewir
 - **Installed**: the debian-installer creates the first user; `passwd/root-login` is false, so that user administers through `sudo`. Login is the standard getty/PAM path.
 
 Device and seat delegation for the future compositor belongs to the session authority described in the architecture, not to group grants.
+
+### OxyOS's patched Debian packages
+
+A Debian package OxyOS needs changed is rebuilt from Debian's own source package with OxyOS's patches, never replaced by another program or patched in place on a machine. `tools/image/packages/<source>/` holds the pin (`source`: the Debian version, the SHA-256 of each of its files, OxyOS's version above Debian's, the binary packages the image takes) and the patches, upstream-style, applied after Debian's own. `tools/image/build.sh packages` builds them in the image's container into `packages/<arch>/` under the work directory (again only when the pin or a patch changed), and the image build, which runs it first, puts them in live-build's `config/packages.chroot/`. The build stops when Debian's archive has moved past the pinned version: the patches are then rebased onto the new one, never left on an old Plymouth. The audit fails an image whose package is not OxyOS's version.
+
+| Source | Version | Why |
+| --- | --- | --- |
+| `plymouth` (`plymouth`, `libplymouth5`) | `24.004.60-5+oxyos1` | Plymouth opens only DRM devices with connectors: never a render node, nor the GPU of a hybrid laptop that drives no display ([ADR 0017](./adr/0017-boot-logo), decision 6) |
+
+A machine installed by hand (the ThinkPad) takes the same packages from `packages/<arch>/`: `apt install ./plymouth_<version>_amd64.deb ./libplymouth5_<version>_amd64.deb`, then `update-initramfs -u`.
 
 ### Hooks and overlays
 
@@ -101,6 +115,7 @@ tools/image/build.sh                  # build the amd64 image, then audit what w
 tools/image/build.sh --arch arm64     # the arm64 image, in the arm64 container
 tools/image/build.sh audit [ISO]      # audit the newest image (or ISO) again
 tools/image/build.sh clean [--arch A] # remove an architecture's build tree, keep its package cache
+tools/image/build.sh packages [--arch A] # OxyOS's patched Debian packages alone (the build runs it first)
 ```
 
 `build.sh` runs live-build in a privileged `debian:trixie` container of the image's architecture (pinned by digest: each platform's manifest in one image index, since Docker's classic image store keeps one platform per digest; `--privileged` for the chroot's mounts and device nodes), so nothing is installed on the host. An arm64 build on an x86-64 host needs QEMU's user-mode emulation registered (Debian's `qemu-user-binfmt`, whose `binfmt_misc` entry has the `F` flag, so the container needs no emulator of its own); `build.sh` says so when it is missing. The audit's extraction runs in the host's own container, whatever the image's architecture. The repository is mounted read-only; everything is written under `OXYOS_BUILD_DIR` (default `~/oxyos-build`; not `/tmp`, which is often RAM and a build needs several GB):
@@ -110,6 +125,7 @@ tools/image/build.sh clean [--arch A] # remove an architecture's build tree, kee
 | `build/<arch>/` | live-build's tree, a fresh copy of `config/` each build; `build/<arch>/cache/` keeps the downloaded packages and the bootstrap stage between builds (`OXYOS_FRESH=1` drops them) |
 | `out/oxyos-base-<version>-<commit>-<arch>.iso` | the image; *base* because it is the console base. `.packages` (every package and version installed), `.build-info` (commit, architecture, `SOURCE_DATE_EPOCH`, live-build's and debootstrap's versions, the container), `.iso.sha256`, `build-<arch>.log` |
 | `audit/<image>/` | what the audit extracted |
+| `packages/<arch>/`, `packages/sources/` | OxyOS's patched Debian packages and the Debian sources they were built from ([below](#oxyoss-patched-debian-packages)); `packages/<source>-<arch>.log` |
 | `acceptance/<image>/<firmware>/` | the acceptance tests' screens, serial logs and results |
 
 What is pinned: the container image, live-build (`LIVE_BUILD_VERSION` in `tools/image/container.sh`: another version may build another image from the same configuration, so the build stops rather than use it), the configuration by commit (`-dirty` when `config/` or `tools/image/` has uncommitted changes) and `SOURCE_DATE_EPOCH`, the commit's time. Debian's packages come from the archive at build time; `.packages` records what was resolved. `build.sh` uses `docker`, or `sudo -n docker` when only that works; `DOCKER` overrides it.
@@ -121,7 +137,8 @@ What is pinned: the container image, live-build (`LIVE_BUILD_VERSION` in `tools/
 - an installed package is a display server, Wayland compositor, greeter, toolkit runtime or desktop application, or a file is one (`Xorg`, `Xwayland`, `libwayland-server`, `libgtk-3`, `libQt6*`, session directories), whatever put it there;
 - a package is neither in the manifest nor in its dependency closure (Pre-Depends, Depends, Recommends) from what live-build installs itself (debootstrap's required and important packages, the kernel, the keyring, the firmware), or a manifest package is missing;
 - a file of `includes.chroot_after_packages/` is missing or differs in the image, or `/etc/os-release` is not OxyOS's;
-- the initramfs lacks the `oxyos` theme or Plymouth's script plugin, does not select `Theme=oxyos`, or carries the label plugin.
+- the initramfs lacks the `oxyos` theme or Plymouth's script plugin, does not select `Theme=oxyos`, or carries the label plugin;
+- a package OxyOS rebuilds (`tools/image/packages/`) is Debian's version rather than OxyOS's, or `systemd-timesyncd` is installed and not enabled.
 
 It reports the sizes (the ISO, the squashfs, what packages install, the largest packages), what live-build's firmware detection added beyond firmware, files in `/usr` no package owns, and the known residue. `--gate` also fails on the residue: that is the bar a published image clears. `--json FILE` writes the report.
 

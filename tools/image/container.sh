@@ -7,6 +7,8 @@
 #   container.sh extract I  extract the dpkg database and the file list of image I (under /work)
 #                           into /work/audit/<image name>/ for scripts/check-image-contents.py
 #   container.sh clean      remove the build tree (root-owned), keeping the package cache
+#   container.sh packages   build OxyOS's patched Debian packages (tools/image/packages/) into
+#                           /work/packages/<arch>
 #
 # Environment: OXYOS_ARCHITECTURE (amd64 or arm64: the image's, which must be this container's
 # own), HOST_UID, HOST_GID (owner of what is left in /work/out and /work/audit),
@@ -40,6 +42,87 @@ hand_back() {
     chown -R "${HOST_UID:-0}:${HOST_GID:-0}" "$@"
 }
 
+# OxyOS's patched Debian packages (tools/image/packages/<source>/): each Debian source package,
+# fetched from the archive and checked against its pinned SHA-256s, OxyOS's patches added to its
+# own (quilt) series, rebuilt as OxyOS's version, and its binary packages the image takes left in
+# /work/packages/<arch>/. A source whose inputs are unchanged since its last build is not built
+# again (a stamp of the inputs beside its packages).
+packages() {
+    [ "$(dpkg --print-architecture)" = "$ARCHITECTURE" ] ||
+        die "$ARCHITECTURE packages in a $(dpkg --print-architecture) container: run through tools/image/build.sh --arch"
+    out=/work/packages/$ARCHITECTURE
+    sources=/work/packages/sources
+    mkdir -p "$out" "$sources"
+    # What is left under /work/packages is the host user's, whether the build succeeds or not.
+    trap 'hand_back /work/packages' EXIT
+    install_tools dpkg-dev build-essential fakeroot quilt curl ca-certificates
+    for dir in /src/tools/image/packages/*/; do
+        [ -f "$dir/source" ] || continue
+        # shellcheck disable=SC1091 # the package's own pin
+        . "$dir/source"
+        stamp=$(cat "$dir"/source "$dir"/*.patch | sha256sum | cut -d' ' -f1)
+        # The archive must not have moved past the pinned Debian version: OxyOS's packages would
+        # keep the image on the older one, its fixes lost.
+        archive=$(apt-cache show "$SOURCE" 2>/dev/null | sed -n 's/^Version: //p' | sort -V | tail -n 1)
+        if [ -n "$archive" ] && dpkg --compare-versions "$archive" gt "$DEBIAN_VERSION"; then
+            die "Debian has $SOURCE $archive, newer than tools/image/packages/$SOURCE pins ($DEBIAN_VERSION): rebase the patches onto it"
+        fi
+        if [ -f "$out/$SOURCE.stamp" ] && [ "$(cat "$out/$SOURCE.stamp")" = "$stamp" ]; then
+            say "$SOURCE $VERSION: up to date"
+            continue
+        fi
+        pool="https://deb.debian.org/debian/pool/main/$(printf %.1s "$SOURCE")/$SOURCE"
+        dsc="${SOURCE}_${DEBIAN_VERSION}.dsc"
+        for pair in "$dsc $DSC_SHA256" "$ORIG $ORIG_SHA256" "$DEBIAN_TARBALL $DEBIAN_SHA256"; do
+            set -- $pair
+            [ -f "$sources/$1" ] || curl -fsSL --retry 5 -o "$sources/$1" "$pool/$1"
+            echo "$2  $sources/$1" | sha256sum -c --quiet || die "$1 does not match its pinned SHA-256"
+        done
+        tree=/work/packages/build/$ARCHITECTURE/$SOURCE
+        rm -rf "$tree" && mkdir -p "$tree"
+        # Unpacked as <source>-<upstream version>, the directory its tarball has: Plymouth's build
+        # takes its version from that name when it is not a git checkout.
+        src=$tree/$SOURCE-${DEBIAN_VERSION%-*}
+        dpkg-source -x --skip-patches "$sources/$dsc" "$src" >/dev/null
+        for patch in "$dir"/*.patch; do
+            name=oxyos-$(basename "$patch")
+            cp "$patch" "$src/debian/patches/$name"
+            echo "$name" >>"$src/debian/patches/series"
+        done
+        (cd "$src" && QUILT_PATCHES=debian/patches quilt push -a -q >/dev/null) ||
+            die "$SOURCE: OxyOS's patches do not apply to Debian's $DEBIAN_VERSION"
+        changelog=$src/debian/changelog
+        {
+            printf '%s (%s) trixie; urgency=medium\n\n' "$SOURCE" "$VERSION"
+            for patch in "$dir"/*.patch; do
+                printf '  * OxyOS: %s\n' "$(sed -n 's/^Subject: \(\[PATCH[^]]*\] \)\{0,1\}//p' "$patch" | head -n 1)"
+            done
+            printf '\n -- %s  %s\n\n' "$MAINTAINER" "$DATE"
+            cat "$changelog"
+        } >"$changelog.new"
+        mv "$changelog.new" "$changelog"
+        apt-get build-dep -y -q --no-install-recommends "$src" >/dev/null
+        log=/work/packages/$SOURCE-$ARCHITECTURE.log
+        say "building $SOURCE $VERSION; log in packages/$SOURCE-$ARCHITECTURE.log"
+        # The files' times are the changelog entry's, not the image's commit: the stamp says the
+        # same inputs, so the packages must be the same.
+        if ! (cd "$src" && SOURCE_DATE_EPOCH=$(date -d "$DATE" +%s) DEB_BUILD_OPTIONS="nocheck parallel=$(nproc)" \
+            dpkg-buildpackage -b -uc -us) >"$log" 2>&1; then
+            tail -n 40 "$log" >&2
+            die "$SOURCE failed to build"
+        fi
+        for binary in $BINARIES; do
+            rm -f "$out/${binary}"_*.deb
+            deb="$tree/${binary}_${VERSION}_${ARCHITECTURE}.deb"
+            [ -f "$deb" ] || die "$SOURCE built no $(basename "$deb")"
+            cp "$deb" "$out/"
+        done
+        echo "$stamp" >"$out/$SOURCE.stamp"
+        rm -rf "$tree"
+        say "$SOURCE $VERSION: $BINARIES in packages/$ARCHITECTURE"
+    done
+}
+
 build() {
     [ -d /src/config ] || die "/src/config missing: mount the repository at /src"
     # A native build: live-build bootstraps and runs the chroot with this container's own
@@ -65,6 +148,19 @@ build() {
     fi
     find . -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf --one-file-system {} +
     cp -a /src/config config
+    # OxyOS's patched Debian packages (packages(), run first by build.sh): live-build installs
+    # every package of config/packages.chroot from a local repository, above the archive's.
+    for dir in /src/tools/image/packages/*/; do
+        [ -f "$dir/source" ] || continue
+        # shellcheck disable=SC1091 # the package's own pin
+        . "$dir/source"
+        mkdir -p config/packages.chroot
+        for binary in $BINARIES; do
+            deb=/work/packages/$ARCHITECTURE/${binary}_${VERSION}_${ARCHITECTURE}.deb
+            [ -f "$deb" ] || die "no $(basename "$deb"): tools/image/build.sh packages builds it"
+            cp "$deb" config/packages.chroot/
+        done
+    done
     # lb build runs lb config when .build/config is missing, which would rewrite config/ with
     # live-build's defaults: the configuration is complete as committed.
     mkdir -p .build
@@ -153,5 +249,6 @@ case "${1:-}" in
     build) build ;;
     extract) shift; extract "$@" ;;
     clean) clean ;;
-    *) die "usage: container.sh build | extract IMAGE | clean" ;;
+    packages) packages ;;
+    *) die "usage: container.sh build | extract IMAGE | clean | packages" ;;
 esac
