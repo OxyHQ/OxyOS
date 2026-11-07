@@ -1298,6 +1298,22 @@ typedef struct OxyOSTextField {
 int64_t oxyos_client_text_input(OxyOSClient* client, uint32_t surface, const OxyOSTextField* field,
                                 uint8_t new_field);
 
+/* What a field holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
+#define OXYOS_CONTENT_NONE 0
+#define OXYOS_CONTENT_USERNAME 1
+#define OXYOS_CONTENT_EMAIL 2
+#define OXYOS_CONTENT_PASSWORD 3
+#define OXYOS_CONTENT_NEW_PASSWORD 4
+#define OXYOS_CONTENT_ONE_TIME_CODE 5
+
+/* oxyos_client_text_input, with what the field holds for AutoFill: `content` (OXYOS_CONTENT_*)
+ * and, non-zero `paired`, that its window has the other field of the account's pair (a username's
+ * or an email's password field, a password's username field), which a fill fills too. A
+ * compositor older than protocol version 30 is told neither, and never fills. */
+int64_t oxyos_client_text_input_with_content(OxyOSClient* client, uint32_t surface,
+                                             const OxyOSTextField* field, uint8_t new_field,
+                                             uint8_t content, uint8_t paired);
+
 /* One styled segment of a composition, in bytes of it. */
 typedef struct OxyOSPreeditSegment {
   uint32_t begin;
@@ -1328,6 +1344,25 @@ typedef struct OxyOSTextTransaction {
 
 /* The transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_text_transaction(OxyOSClient* client, OxyOSTextTransaction* out);
+
+/* AutoFill's fill of the transaction the TEXT_INPUT event just returned completed: the whole text
+ * the focused field (`has_fill`) and its paired field (`has_paired_fill`) are to hold, each
+ * replacing what it held, applied with the rest of the transaction. A credential: the strings are
+ * not NUL-terminated, stay valid until the next oxyos_client_poll, which overwrites them, and are
+ * never to be logged. */
+typedef struct OxyOSTextFill {
+  uint32_t surface;
+  uint8_t has_fill;
+  uint8_t has_paired_fill;
+  const char* fill;
+  size_t fill_length;
+  const char* paired_fill;
+  size_t paired_fill_length;
+} OxyOSTextFill;
+
+/* The fill of the transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled,
+ * or 0 (no transaction, or one with no fill). */
+int oxyos_client_text_fill(OxyOSClient* client, OxyOSTextFill* out);
 
 /* Input methods' candidates, drawn by the session's shell (docs/adr/0041-input-methods.mdx). */
 #define OXYOS_NO_CANDIDATE 255

@@ -2191,6 +2191,7 @@ dependencies = [
  "oxyos-ipc",
  "oxyos-protocol",
  "rustix",
+ "zeroize",
 ]
 
 [[package]]
@@ -2258,6 +2259,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]

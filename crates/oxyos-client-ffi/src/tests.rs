@@ -2217,6 +2217,180 @@ fn text_input_through_the_c_abi() {
 }
 
 #[test]
+fn the_header_matches_the_autofill_abi() {
+    for (name, content) in [
+        ("OXYOS_CONTENT_NONE", TextContentType::None),
+        ("OXYOS_CONTENT_USERNAME", TextContentType::Username),
+        ("OXYOS_CONTENT_EMAIL", TextContentType::Email),
+        ("OXYOS_CONTENT_PASSWORD", TextContentType::Password),
+        ("OXYOS_CONTENT_NEW_PASSWORD", TextContentType::NewPassword),
+        ("OXYOS_CONTENT_ONE_TIME_CODE", TextContentType::OneTimeCode),
+    ] {
+        assert_eq!(define(name), content as i64, "{name}");
+    }
+    let fill = fields("OxyOSTextFill");
+    assert_eq!(
+        names(&fill),
+        [
+            "surface",
+            "has_fill",
+            "has_paired_fill",
+            "fill",
+            "fill_length",
+            "paired_fill",
+            "paired_fill_length"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSTextFill, surface),
+        offset_of!(OxyOSTextFill, has_fill),
+        offset_of!(OxyOSTextFill, has_paired_fill),
+        offset_of!(OxyOSTextFill, fill),
+        offset_of!(OxyOSTextFill, fill_length),
+        offset_of!(OxyOSTextFill, paired_fill),
+        offset_of!(OxyOSTextFill, paired_fill_length),
+    ];
+    assert_eq!(
+        c_offsets(&fill),
+        (rust.to_vec(), size_of::<OxyOSTextFill>())
+    );
+    let header: String = HEADER.split_whitespace().collect::<Vec<_>>().join(" ");
+    for declared in [
+        "int64_t oxyos_client_text_input_with_content(OxyOSClient* client, uint32_t surface, const OxyOSTextField* field, uint8_t new_field, uint8_t content, uint8_t paired);",
+        "int oxyos_client_text_fill(OxyOSClient* client, OxyOSTextFill* out);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(*mut OxyOSClient, u32, *const OxyOSTextField, u8, u8, u8) -> i64 =
+        oxyos_client_text_input_with_content;
+    let _: unsafe extern "C" fn(*mut OxyOSClient, *mut OxyOSTextFill) -> c_int =
+        oxyos_client_text_fill;
+}
+
+#[test]
+fn autofill_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-autofill-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let mut requests = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::TextInputCommit { .. });
+            requests.push(request);
+            if done {
+                break;
+            }
+        }
+        let chunk = |text| TextChunk::new(text).unwrap();
+        for event in [
+            Event::TextInputFill {
+                surface: 1,
+                paired: false,
+                text: chunk("bea@example.com"),
+            },
+            Event::TextInputFill {
+                surface: 1,
+                paired: true,
+                text: chunk("fixture-Passw0rd-1"),
+            },
+            Event::TextInputDone {
+                surface: 1,
+                serial: 41,
+                commit: 1,
+            },
+            Event::TextInputCommitText {
+                surface: 1,
+                text: chunk("x"),
+            },
+            Event::TextInputDone {
+                surface: 1,
+                serial: 42,
+                commit: 1,
+            },
+        ] {
+            server.send_event(&event, None).unwrap();
+        }
+        requests
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let field = OxyOSTextField {
+        purpose: TextPurpose::Email as u8,
+        hints: 0,
+        text: std::ptr::null(),
+        length: 0,
+        anchor: 0,
+        cursor: 0,
+        has_caret: 1,
+        caret_x: 4,
+        caret_y: 2,
+        caret_width: 2,
+        caret_height: 18,
+    };
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the field
+    // outlives the calls.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // An unknown content type is refused before sending.
+        assert_eq!(
+            oxyos_client_text_input_with_content(client, 1, &field, 0, 6, 0),
+            -1
+        );
+        assert_eq!(
+            oxyos_client_text_input_with_content(client, 1, &field, 0, OXYOS_CONTENT_EMAIL, 1),
+            1
+        );
+        let mut event = OxyOSEvent::default();
+        let mut fill: OxyOSTextFill = std::mem::zeroed();
+        let mut next = || loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT => break event,
+                OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll returned {other}"),
+            }
+        };
+        assert_eq!(next().kind, OXYOS_EVENT_TEXT_INPUT);
+        assert_eq!(oxyos_client_text_fill(client, &mut fill), 1);
+        assert_eq!(
+            (
+                fill.surface,
+                fill.has_fill,
+                seen(fill.fill, fill.fill_length),
+                fill.has_paired_fill,
+                seen(fill.paired_fill, fill.paired_fill_length),
+            ),
+            (
+                1,
+                1,
+                "bea@example.com".to_string(),
+                1,
+                "fixture-Passw0rd-1".to_string()
+            )
+        );
+        // A transaction with no fill has none.
+        assert_eq!(next().kind, OXYOS_EVENT_TEXT_INPUT);
+        assert_eq!(oxyos_client_text_fill(client, &mut fill), 0);
+        let requests = compositor.join().unwrap();
+        assert!(requests.contains(&Request::TextInputContentType {
+            surface: 1,
+            content: TextContentType::Email,
+            paired: true,
+        }));
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn the_header_matches_the_input_candidates_abi() {
     for (name, value) in [
         (
