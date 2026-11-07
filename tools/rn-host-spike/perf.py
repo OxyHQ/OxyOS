@@ -180,6 +180,9 @@ IDLES = [
     ("shell and Allo", {"module": "EditingProbe", "window": [600, 360], "shell": "OxyOSShell",
                         "app": {"id": "so.oxy.allo", "title": "Allo"}}),
     ("Settings", SETTINGS_APP),
+    # An application holding a WebSocket open to regress.py's local server, which sends nothing: the
+    # socket's thread sleeps in poll (crates/oxyos-net's websocket.rs), so the host's idle is the same.
+    ("WebSocket open", {"module": "WebSocketProbe", "window": [800, 520], "http": {"port": 18646}}),
 ]
 IDLE_WAIT_MS = 9000
 

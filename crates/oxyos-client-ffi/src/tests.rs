@@ -924,6 +924,194 @@ fn the_header_matches_the_network_abi() {
     );
 }
 
+#[test]
+fn the_header_matches_the_websocket_abi() {
+    use websocket::*;
+    for (name, value) in [
+        ("OXYOS_WEBSOCKET_OPEN", i64::from(OXYOS_WEBSOCKET_OPEN)),
+        ("OXYOS_WEBSOCKET_TEXT", OXYOS_WEBSOCKET_TEXT.into()),
+        ("OXYOS_WEBSOCKET_BINARY", OXYOS_WEBSOCKET_BINARY.into()),
+        ("OXYOS_WEBSOCKET_CLOSED", OXYOS_WEBSOCKET_CLOSED.into()),
+        ("OXYOS_WEBSOCKET_FAILED", OXYOS_WEBSOCKET_FAILED.into()),
+        ("OXYOS_WEBSOCKET_EVENT", OXYOS_WEBSOCKET_EVENT.into()),
+        ("OXYOS_WEBSOCKET_EMPTY", OXYOS_WEBSOCKET_EMPTY.into()),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    let protocol = fields("OxyOSWebSocketProtocol");
+    assert_eq!(names(&protocol), ["name", "name_length"]);
+    let rust = [
+        offset_of!(OxyOSWebSocketProtocol, name),
+        offset_of!(OxyOSWebSocketProtocol, name_length),
+    ];
+    assert_eq!(
+        c_offsets(&protocol),
+        (rust.to_vec(), size_of::<OxyOSWebSocketProtocol>())
+    );
+    let request = fields("OxyOSWebSocketRequest");
+    assert_eq!(
+        names(&request),
+        [
+            "id",
+            "url",
+            "url_length",
+            "protocols",
+            "protocol_count",
+            "headers",
+            "header_count"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSWebSocketRequest, id),
+        offset_of!(OxyOSWebSocketRequest, url),
+        offset_of!(OxyOSWebSocketRequest, url_length),
+        offset_of!(OxyOSWebSocketRequest, protocols),
+        offset_of!(OxyOSWebSocketRequest, protocol_count),
+        offset_of!(OxyOSWebSocketRequest, headers),
+        offset_of!(OxyOSWebSocketRequest, header_count),
+    ];
+    assert_eq!(
+        c_offsets(&request),
+        (rust.to_vec(), size_of::<OxyOSWebSocketRequest>())
+    );
+    let event = fields("OxyOSWebSocketEvent");
+    assert_eq!(names(&event), ["kind", "code", "id", "data", "length"]);
+    let rust = [
+        offset_of!(OxyOSWebSocketEvent, kind),
+        offset_of!(OxyOSWebSocketEvent, code),
+        offset_of!(OxyOSWebSocketEvent, id),
+        offset_of!(OxyOSWebSocketEvent, data),
+        offset_of!(OxyOSWebSocketEvent, length),
+    ];
+    assert_eq!(
+        c_offsets(&event),
+        (rust.to_vec(), size_of::<OxyOSWebSocketEvent>())
+    );
+}
+
+#[test]
+fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
+    use net::*;
+    use websocket::*;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept_hdr(
+            stream,
+            |asked: &tungstenite::handshake::server::Request,
+             mut answered: tungstenite::handshake::server::Response| {
+                assert_eq!(asked.headers()["x-oxy"], "yes");
+                answered
+                    .headers_mut()
+                    .insert("sec-websocket-protocol", "chat".parse().unwrap());
+                Ok(answered)
+            },
+        )
+        .unwrap();
+        loop {
+            match socket.read() {
+                Ok(message @ (tungstenite::Message::Text(_) | tungstenite::Message::Binary(_))) => {
+                    socket.send(message).unwrap()
+                }
+                Ok(_) => {}
+                Err(_) => return,
+            }
+        }
+    });
+    let network = oxyos_net_new();
+    // SAFETY: a live network.
+    let sockets = unsafe { oxyos_websockets_new(network) };
+    assert!(!sockets.is_null());
+    let (url, chat, name, value) = (format!("ws://127.0.0.1:{port}/"), "chat", "X-Oxy", "yes");
+    let protocol = OxyOSWebSocketProtocol {
+        name: chat.as_ptr().cast(),
+        name_length: chat.len(),
+    };
+    let header = OxyOSNetHeader {
+        name: name.as_ptr().cast(),
+        name_length: name.len(),
+        value: value.as_ptr().cast(),
+        value_length: value.len(),
+    };
+    let request = OxyOSWebSocketRequest {
+        id: 3,
+        url: url.as_ptr().cast(),
+        url_length: url.len(),
+        protocols: &protocol,
+        protocol_count: 1,
+        headers: &header,
+        header_count: 1,
+    };
+    // SAFETY: live sockets, a request whose pointers outlive the call.
+    assert_eq!(unsafe { oxyos_websockets_connect(sockets, &request) }, 0);
+    // The same id again is refused.
+    // SAFETY: as above.
+    let again = unsafe { oxyos_websockets_connect(sockets, &request) };
+    assert_eq!(again, OXYOS_ERROR);
+    let mut got = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        let mut event = OxyOSWebSocketEvent::default();
+        // SAFETY: live sockets and a writable event.
+        match unsafe { oxyos_websockets_event(sockets, &mut event) } {
+            OXYOS_WEBSOCKET_EVENT => {
+                assert_eq!(event.id, 3);
+                got.push((
+                    event.kind,
+                    event.code,
+                    seen(event.data.cast(), event.length),
+                ));
+                match event.kind {
+                    OXYOS_WEBSOCKET_OPEN => {
+                        let (text, bytes) = ("hola", [0u8, 255]);
+                        // SAFETY: live sockets, messages valid for their lengths.
+                        unsafe {
+                            assert_eq!(oxyos_websockets_send(sockets, 3, text.as_ptr(), 4, 0), 0);
+                            assert_eq!(oxyos_websockets_send(sockets, 3, bytes.as_ptr(), 2, 1), 0);
+                            assert_eq!(
+                                oxyos_websockets_send(sockets, 3, bytes.as_ptr(), 2, 0),
+                                OXYOS_ERROR
+                            );
+                        }
+                    }
+                    OXYOS_WEBSOCKET_BINARY => {
+                        let reason = "bye";
+                        // SAFETY: live sockets, a reason valid for its length.
+                        unsafe {
+                            assert_eq!(
+                                oxyos_websockets_close(sockets, 3, 1006, reason.as_ptr().cast(), 3),
+                                OXYOS_ERROR
+                            );
+                            assert_eq!(
+                                oxyos_websockets_close(sockets, 3, 4000, reason.as_ptr().cast(), 3),
+                                0
+                            );
+                        }
+                    }
+                    OXYOS_WEBSOCKET_CLOSED | OXYOS_WEBSOCKET_FAILED => break,
+                    _ => {}
+                }
+            }
+            _ => std::thread::sleep(std::time::Duration::from_millis(5)),
+        }
+    }
+    assert_eq!(
+        got,
+        [
+            (OXYOS_WEBSOCKET_OPEN, 0, "chat".to_string()),
+            (OXYOS_WEBSOCKET_TEXT, 0, "hola".to_string()),
+            (OXYOS_WEBSOCKET_BINARY, 0, "\0\u{fffd}".to_string()),
+            (OXYOS_WEBSOCKET_CLOSED, 4000, "bye".to_string()),
+        ]
+    );
+    // SAFETY: freed once each, the sockets before their network.
+    unsafe {
+        oxyos_websockets_free(sockets);
+        oxyos_net_free(network);
+    }
+}
+
 /// The `length` bytes at `data`, as text.
 fn seen(data: *const c_char, length: usize) -> String {
     if data.is_null() {

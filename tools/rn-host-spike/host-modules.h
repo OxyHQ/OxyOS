@@ -25,6 +25,8 @@
 
 namespace oxyos {
 
+class WebSockets;
+
 class Files;
 class Images;
 
@@ -304,6 +306,8 @@ struct DragService {
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
+  // WebSockets (websocket.h), the application's for its runtime's life.
+  WebSockets* webSockets = nullptr;
   ClipboardService clipboard{};
   ShellService shell{};
   // Whether the host runs an application in a window of its own (not the shell, not offscreen):

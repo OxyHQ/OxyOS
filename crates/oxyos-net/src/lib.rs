@@ -19,11 +19,14 @@
 //! `Content-Length`, as Android's OkHttp sends a body's whose length it knows. With
 //! `upload_progress`, what was sent is answered as it goes ([`Answer::Sent`]).
 //!
+//! [`websocket`] is WebSockets (React Native's `WebSocketModule`), sending this network's cookies.
+//!
 //! [`cache`] is a private HTTP cache on disk, as OkHttp's, that [`Network::fetch_cached`] runs a
 //! request through (React Native's remote images, `crates/oxyos-image`).
 
 pub mod cache;
 pub mod connectivity;
+pub mod websocket;
 
 use cookie_store::{CookieStore, RawCookie};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -383,6 +386,17 @@ impl Network {
             .lock()
             .expect("lock")
             .retain(|answer| answer.id() != id);
+    }
+
+    /// The `Cookie` header the jar sends to `url`, if it holds any for it (a WebSocket's opening
+    /// sends them, as Android's module does).
+    pub fn cookie_header(&self, url: &Url) -> Option<String> {
+        let jar = self.shared.cookies.lock().expect("lock");
+        let values: Vec<String> = jar
+            .get_request_values(url)
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect();
+        (!values.is_empty()).then(|| values.join("; "))
     }
 
     /// Forgets every cookie.

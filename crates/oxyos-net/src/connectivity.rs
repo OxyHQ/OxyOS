@@ -203,9 +203,19 @@ impl Default for Connectivity {
 
 /// An rtnetlink socket told of every link, address and route change.
 fn watch() -> std::io::Result<OwnedFd> {
-    use rustix::net::{netlink, AddressFamily, SocketFlags, SocketType};
     // RTMGRP_LINK, RTMGRP_IPV4_IFADDR, RTMGRP_IPV4_ROUTE, RTMGRP_IPV6_IFADDR, RTMGRP_IPV6_ROUTE.
-    const GROUPS: u32 = 0x1 | 0x10 | 0x40 | 0x100 | 0x400;
+    subscribe(0x1 | 0x10 | 0x40 | 0x100 | 0x400)
+}
+
+/// A non-blocking rtnetlink socket readable when an address is added to or removed from the
+/// machine (a WebSocket finds its network gone by it).
+pub fn watch_addresses() -> std::io::Result<OwnedFd> {
+    // RTMGRP_IPV4_IFADDR, RTMGRP_IPV6_IFADDR.
+    subscribe(0x10 | 0x100)
+}
+
+fn subscribe(groups: u32) -> std::io::Result<OwnedFd> {
+    use rustix::net::{netlink, AddressFamily, SocketFlags, SocketType};
     let socket = rustix::net::socket_with(
         AddressFamily::NETLINK,
         SocketType::RAW,
@@ -213,7 +223,7 @@ fn watch() -> std::io::Result<OwnedFd> {
         // NETLINK_ROUTE is the default protocol.
         None,
     )?;
-    rustix::net::bind(&socket, &netlink::SocketAddrNetlink::new(0, GROUPS))?;
+    rustix::net::bind(&socket, &netlink::SocketAddrNetlink::new(0, groups))?;
     Ok(socket)
 }
 
