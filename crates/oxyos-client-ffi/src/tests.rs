@@ -5295,6 +5295,93 @@ fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
             oxyos_files_open_read(files, outside.as_ptr().cast(), outside.len(), &mut size),
             OXYOS_ERROR
         );
+        // Tags (docs/adr/0049-file-tags.mdx): the index started by a watch and asked, an item
+        // tagged, read, found and its change heard; where the temporary directory keeps no
+        // `user.` attributes, the change says so and the rest is skipped.
+        std::fs::write(home.join("Documents/report.txt"), "report").unwrap();
+        let report = format!("file://{}/Documents/report.txt", home.display());
+        let folder = format!("file://{}/Documents/", home.display());
+        // A reply with this id, the events taken meanwhile kept.
+        let mut events = Vec::new();
+        let reply_to = |id: u64, events: &mut Vec<String>| loop {
+            let (got, json, _) = take();
+            if got == id {
+                return json;
+            }
+            events.push(json);
+        };
+        ask(10, r#"{"op":"watchTags"}"#.into());
+        let watch = reply_to(10, &mut events);
+        let watch: u64 = serde_json::from_str::<serde_json::Value>(&watch).unwrap()["value"]
+            .as_u64()
+            .expect("a watch");
+        ask(11, r#"{"op":"tagNames"}"#.into());
+        assert_eq!(reply_to(11, &mut events), r#"{"ok":true,"value":[]}"#);
+        let (_, called, _) = call(r#"{"op":"tagged","name":"Work"}"#.into(), &[]);
+        assert!(called.contains(r#""error":"invalid""#), "{called}");
+        let (_, invalid, _) = call(
+            format!(r#"{{"op":"changeTags","uris":["{report}"],"add":[{{"name":"a,b"}}]}}"#),
+            &[],
+        );
+        assert!(invalid.contains(r#""error":"invalid""#), "{invalid}");
+        let (_, changed, _) = call(
+            format!(
+                r#"{{"op":"changeTags","uris":["{report}","file:///etc/passwd"],"add":[{{"name":"Work","color":"red"}},{{"name":"Q3"}}],"remove":[]}}"#
+            ),
+            &[],
+        );
+        if changed.contains(r#""error":"unsupported""#) {
+            eprintln!("skipped: the temporary directory keeps no user. extended attributes");
+        } else {
+            assert_eq!(
+                changed,
+                format!(
+                    r#"{{"ok":true,"value":[{{"ok":true,"result":"{report}","uri":"{report}"}},{{"error":"refused","message":"refused: /etc/passwd is outside the home, the mounted volumes and the application's folders","ok":false,"uri":"file:///etc/passwd"}}]}}"#
+                )
+            );
+            // No Mac's attribute on it: the names alone are kept.
+            let tags = r#"[{"color":null,"name":"Work"},{"color":null,"name":"Q3"}]"#;
+            let (_, held, _) = call(format!(r#"{{"op":"tagsIn","uri":"{folder}"}}"#), &[]);
+            assert_eq!(
+                held,
+                format!(r#"{{"ok":true,"value":{{"{report}":{tags}}}}}"#)
+            );
+            let (_, of, _) = call(
+                format!(r#"{{"op":"tagsOf","uris":["{report}","{folder}gone.txt"]}}"#),
+                &[],
+            );
+            assert_eq!(of, format!(r#"{{"ok":true,"value":[{tags},null]}}"#));
+            // The index heard it.
+            let heard = format!(r#"{{"watch":{watch}}}"#);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !events.contains(&heard) {
+                assert!(std::time::Instant::now() < deadline, "{events:?}");
+                let (id, json, _) = take();
+                assert_eq!(id, 0);
+                events.push(json);
+            }
+            ask(12, r#"{"op":"tagged","name":"work"}"#.into());
+            let found = reply_to(12, &mut events);
+            assert!(
+                found.contains(&format!(r#""uri":"{report}""#))
+                    && found.contains(r#""isDirectory":false"#)
+                    && found.contains(r#""size":6"#)
+                    && found.contains(tags),
+                "{found}"
+            );
+            ask(13, r#"{"op":"tagNames"}"#.into());
+            assert_eq!(
+                reply_to(13, &mut events),
+                r#"{"ok":true,"value":[{"count":1,"name":"Q3"},{"count":1,"name":"Work"}]}"#
+            );
+            // In the Trash, an item's tags come with it.
+            let (_, trashed, _) = call(format!(r#"{{"op":"trash","uris":["{report}"]}}"#), &[]);
+            assert!(trashed.contains(r#""ok":true"#), "{trashed}");
+            let (_, held, _) = call(r#"{"op":"trashed"}"#.into(), &[]);
+            assert!(held.contains(&format!(r#""tags":{tags}"#)), "{held}");
+        }
+        let (_, unwatched, _) = call(format!(r#"{{"op":"unwatch","watch":{watch}}}"#), &[]);
+        assert_eq!(unwatched, r#"{"ok":true,"value":null}"#);
         oxyos_files_free(files);
     }
     std::fs::remove_dir_all(home).unwrap();

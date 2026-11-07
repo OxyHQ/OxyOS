@@ -1,0 +1,262 @@
+{
+  "about": "Tags on the person's files (sample/FileTagsProbe.tsx, sample/oxyos/platform-surface.js's files.tags, docs/adr/0049-file-tags.mdx), Bloom's usePlatformFiles().tags as a file manager uses it, on a home of the run's own whose items' extended attributes the run sets (a Mac's tags among them, as a binary property list) and checks after every step: the attributes themselves, user.xdg.tags written and a Mac's com.apple.metadata:_kMDItemUserTags kept true. On start: the index started by the watch, finding the tags of a file from a Mac. Tag: two files tagged (one outside the home refused), a folder's tags and items' tags read, a name with a comma refused. Mac: a Mac's tags read with their colours and changed, its attribute rewritten with the change's colours; a tag respelt in place (removed, then added). Copy and move: expo-file-system's copy and move keep the tags, and the index finds them. Rename and Trash: the index follows a rename, the Trash (the item leaves the index and the Trash's list says its tags) and the way back (it returns). Another program tags a file as setfattr does: the index's watch hears it and finds it.",
+  "module": "FileTagsProbe",
+  "window": [
+    1000,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.tagsprobe",
+    "title": "File Tags Probe"
+  },
+  "home": {
+    "items": {
+      "Documents/report.txt": "quarterly report",
+      "Documents/plan.txt": "the plan",
+      "Documents/mac.pages": "from a Mac",
+      "Documents/draft.txt": "a draft",
+      "Documents/Projects/": "",
+      "Downloads/": ""
+    },
+    "xattrs": {
+      "Documents/mac.pages": {
+        "user.com.apple.metadata:_kMDItemUserTags": {
+          "bplist": [
+            "Red\n6",
+            "Clients"
+          ]
+        }
+      }
+    },
+    "later": [
+      {
+        "when_shown": "tags: waiting for another program",
+        "xattrs": {
+          "Documents/draft.txt": {
+            "user.xdg.tags": "Later"
+          }
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "on start: the index watched, finding a Mac's file's tags",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "tags: available",
+          "names at start: Clients:1 Red:1"
+        ],
+        "home": {
+          "xattrs": {
+            "Documents/mac.pages": {
+              "user.com.apple.metadata:_kMDItemUserTags": {
+                "bplist": [
+                  "Red\n6",
+                  "Clients"
+                ]
+              },
+              "user.xdg.tags": false
+            },
+            "Documents/report.txt": {
+              "user.xdg.tags": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Tag: pressed",
+      "do": [
+        "press_named",
+        "Tag"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "two files tagged, read back, a bad name refused; the index finds them",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "tagged: ok ok refused",
+          "in Documents: mac.pages: Red(red) Clients, plan.txt: Work Q3, report.txt: Work Q3",
+          "of items: Work Q3 | null",
+          "bad name: threw invalid",
+          "index has Work: Documents/plan.txt Documents/report.txt"
+        ],
+        "home": {
+          "xattrs": {
+            "Documents/report.txt": {
+              "user.xdg.tags": "Work,Q3"
+            },
+            "Documents/plan.txt": {
+              "user.xdg.tags": "Work,Q3"
+            },
+            "Documents/mac.pages": {
+              "user.xdg.tags": false,
+              "user.com.apple.metadata:_kMDItemUserTags": {
+                "bplist": [
+                  "Red\n6",
+                  "Clients"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Mac: pressed",
+      "do": [
+        "press_named",
+        "Mac"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "a Mac's tags changed, its attribute kept true; a tag respelt in place",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "mac changed: ok",
+          "mac now: Red(red) Work(blue)",
+          "respelt: WORK Q3"
+        ],
+        "home": {
+          "xattrs": {
+            "Documents/mac.pages": {
+              "user.xdg.tags": "Red,Work",
+              "user.com.apple.metadata:_kMDItemUserTags": {
+                "bplist": [
+                  "Red\n6",
+                  "Work\n4"
+                ]
+              }
+            },
+            "Documents/plan.txt": {
+              "user.xdg.tags": "WORK,Q3"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Copy and move: pressed",
+      "do": [
+        "press_named",
+        "Copy and move"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "a copy and a move keep their tags; the index finds them where they are",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "copy: Work Q3",
+          "move: Documents/Projects/plan.txt WORK Q3",
+          "index has Q3: Documents/Projects/plan.txt Documents/report.txt Downloads/report.txt"
+        ],
+        "home": {
+          "Documents/plan.txt": false,
+          "Downloads/report.txt": "quarterly report",
+          "xattrs": {
+            "Downloads/report.txt": {
+              "user.xdg.tags": "Work,Q3"
+            },
+            "Documents/report.txt": {
+              "user.xdg.tags": "Work,Q3"
+            },
+            "Documents/Projects/plan.txt": {
+              "user.xdg.tags": "WORK,Q3"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Rename and Trash: pressed",
+      "do": [
+        "press_named",
+        "Rename and Trash"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "the index follows a rename, the Trash and the way back",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "renamed: Documents/final.txt",
+          "index after rename: Documents/Projects/plan.txt Documents/final.txt Downloads/report.txt",
+          "trashed: ok",
+          "index after trash: Documents/Projects/plan.txt Downloads/report.txt",
+          "in the Trash: final.txt: Work Q3",
+          "restored: ok",
+          "index after restore: Documents/Projects/plan.txt Documents/final.txt Downloads/report.txt",
+          "names: Q3:3 Red:1 WORK:4"
+        ],
+        "home": {
+          "Documents/report.txt": false,
+          "Documents/final.txt": "quarterly report",
+          "trash": [],
+          "xattrs": {
+            "Documents/final.txt": {
+              "user.xdg.tags": "Work,Q3"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Another program: pressed",
+      "do": [
+        "press_named",
+        "Another program"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "another program tags a file: the watch hears it, the index finds it",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "tags: waiting for another program",
+          "another program: Documents/draft.txt"
+        ],
+        "home": {
+          "xattrs": {
+            "Documents/draft.txt": {
+              "user.xdg.tags": "Later"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
