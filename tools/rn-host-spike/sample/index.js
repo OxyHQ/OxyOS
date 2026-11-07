@@ -17,6 +17,7 @@ import ModalProbe from './ModalProbe';
 import IntlProbe from './IntlProbe';
 import LocaleProbe from './LocaleProbe';
 import SecureProbe from './SecureProbe';
+import LoginFormProbe from './LoginFormProbe';
 import TransformProbe from './TransformProbe';
 import SheetProbe from './SheetProbe';
 import ShellProbe from './ShellProbe';
@@ -70,6 +71,7 @@ import TextDragPeer from './TextDragPeer';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
+AppRegistry.registerComponent('LoginFormProbe', () => LoginFormProbe);
 AppRegistry.registerComponent('SettingsUrlProbe', () => SettingsUrlProbe);
 AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('WebSocketProbe', () => WebSocketProbe);

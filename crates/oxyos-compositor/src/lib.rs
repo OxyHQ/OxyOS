@@ -27,6 +27,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 pub mod arrangement;
+pub mod autofill;
 pub mod controls;
 pub mod drag_badge;
 mod gpu_buffers;
@@ -1630,6 +1631,7 @@ impl Compositor {
                         | Event::TextInputPreeditText { .. }
                         | Event::TextInputPreeditCursor { .. }
                         | Event::TextInputPreeditSegment { .. }
+                        | Event::TextInputFill { .. }
                         | Event::TextInputDone { .. }
                 ) {
                     self.text_input_log.push((client, event));

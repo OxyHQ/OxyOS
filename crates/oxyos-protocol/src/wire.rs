@@ -302,6 +302,14 @@ wire_enum! {
     }
 }
 wire_enum! {
+    /// What a field holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision
+    /// 6), beside its purpose: an account's name, an email address used as one, its password, a
+    /// new password being chosen, a verification code; or none.
+    TextContentType: u8 {
+        None = 0, Username = 1, Email = 2, Password = 3, NewPassword = 4, OneTimeCode = 5,
+    }
+}
+wire_enum! {
     /// The pointer's shape a surface wants while the pointer is over it, as Android's pointer
     /// icons name them: the arrow, text, a hand on what can be pressed, and the rest.
     PointerShape: u8 {

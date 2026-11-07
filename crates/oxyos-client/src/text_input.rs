@@ -3,13 +3,17 @@
 
 use crate::Client;
 use oxyos_protocol::{
-    Event, PreeditStyle, Rect, Request, TextChunk, TextHints, TextPurpose, MAX_SURROUNDING_BYTES,
+    Event, PreeditStyle, Rect, Request, TextChunk, TextContentType, TextHints, TextPurpose,
+    MAX_SURROUNDING_BYTES,
 };
 use std::collections::BTreeMap;
 use std::io;
 
 /// A focused text field: what it is for, its text and selection (byte offsets on character
 /// boundaries, the composition left out), and its caret's rectangle in surface coordinates.
+/// `content` is what it holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) and
+/// `paired` whether its window has the other field of the account's pair; a compositor older than
+/// version 30 is told neither.
 #[derive(Clone, Copy, Debug)]
 pub struct Field<'a> {
     pub purpose: TextPurpose,
@@ -18,6 +22,8 @@ pub struct Field<'a> {
     pub anchor: usize,
     pub cursor: usize,
     pub caret: Option<Rect>,
+    pub content: TextContentType,
+    pub paired: bool,
 }
 
 /// One change for a field, applied whole: delete `delete_before` bytes before the selection and
@@ -36,6 +42,34 @@ pub struct Transaction {
     pub serial: u64,
     /// The field's commit the change was made for (what `Client::text_input` returned).
     pub commit_serial: u32,
+    /// AutoFill's fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the whole text the
+    /// focused field and its paired field are to hold, each replacing what it held; none for a
+    /// field not filled.
+    pub fill: Option<FillText>,
+    pub paired_fill: Option<FillText>,
+}
+
+/// Text a fill carries, a credential: its bytes are overwritten when it goes, and `Debug` never
+/// shows it.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct FillText(String);
+
+impl FillText {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for FillText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FillText({} bytes)", self.0.len())
+    }
+}
+
+impl Drop for FillText {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.0);
+    }
 }
 
 /// What the compositor holds of a field: the part of its text it was told and the rest.
@@ -47,6 +81,7 @@ struct Told {
     anchor: u32,
     cursor: u32,
     caret: Option<Rect>,
+    content: (TextContentType, bool),
 }
 
 #[derive(Debug, Default)]
@@ -125,6 +160,7 @@ impl Client {
             anchor,
             cursor,
             caret: field.caret,
+            content: (field.content, field.paired),
         };
         let before = if new_field {
             None
@@ -146,6 +182,24 @@ impl Client {
                 surface,
                 purpose: told.purpose,
                 hints: told.hints,
+            });
+        }
+        // What it holds for AutoFill, to a compositor that knows it; a field that holds nothing for
+        // it is not told so when it is new, as one never told has none.
+        let content_known = oxyos_protocol::request_since(&Request::TextInputContentType {
+            surface,
+            content: TextContentType::None,
+            paired: false,
+        }) <= self.version();
+        let content_changed = match &before {
+            None => told.content != (TextContentType::None, false),
+            Some(b) => b.content != told.content,
+        };
+        if content_known && content_changed {
+            requests.push(Request::TextInputContentType {
+                surface,
+                content: told.content.0,
+                paired: told.content.1,
             });
         }
         let text_changed = before
@@ -210,6 +264,7 @@ impl Client {
             | Event::TextInputPreeditText { surface, .. }
             | Event::TextInputPreeditCursor { surface, .. }
             | Event::TextInputPreeditSegment { surface, .. }
+            | Event::TextInputFill { surface, .. }
             | Event::TextInputDone { surface, .. } => surface,
             _ => return,
         };
@@ -233,6 +288,16 @@ impl Client {
             Event::TextInputPreeditSegment {
                 begin, end, style, ..
             } => building.segments.push((begin, end, style)),
+            Event::TextInputFill { paired, text, .. } => {
+                let fill = if paired {
+                    &mut building.paired_fill
+                } else {
+                    &mut building.fill
+                };
+                fill.get_or_insert_with(FillText::default)
+                    .0
+                    .push_str(text.as_str());
+            }
             Event::TextInputDone { serial, commit, .. } => {
                 building.serial = serial;
                 building.commit_serial = commit;

@@ -14,6 +14,11 @@
  * that takes the press activating its window, as a Mac's title bar, its window buttons and its
  * text and table views do; any other press that activates a window only activates it
  * (docs/adr/0016-windows.mdx, decision 9). Bloom's window drag regions and controls set it.
+ *
+ * And `textContentType`, a text input's iOS prop, which React Native sends only to iOS: what the
+ * field holds for AutoFill (`username`, `password`, `newPassword`, `oneTimeCode`, `emailAddress`),
+ * read by the host beside `autoComplete`, which Android's config sends
+ * (docs/adr/0050-keychain-autofill-and-passkeys.mdx). An application sets either, as on a phone.
  */
 import Android from 'react-native/Libraries/NativeComponent/BaseViewConfig.android';
 
@@ -32,6 +37,7 @@ const BaseViewConfigOxyOS = {
     onPointerUp: true,
     onPointerUpCapture: true,
     acceptsFirstMouse: true,
+    textContentType: true,
   },
 };
 

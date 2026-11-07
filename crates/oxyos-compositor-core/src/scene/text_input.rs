@@ -4,8 +4,8 @@
 
 use super::{Scene, SurfaceKey};
 use oxyos_protocol::{
-    ErrorCode, Event, PreeditStyle, PreeditText, Rect, TextChunk, TextHints, TextPurpose,
-    MAX_SURROUNDING_BYTES,
+    ErrorCode, Event, PreeditStyle, PreeditText, Rect, TextChunk, TextContentType, TextHints,
+    TextPurpose, MAX_SURROUNDING_BYTES,
 };
 
 /// Styled segments one composition may have.
@@ -30,6 +30,10 @@ pub struct TextInputState {
     pub serial: u32,
     /// Which field of the surface this is: each enable starts another.
     pub field: u32,
+    /// What it holds for AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx), and whether
+    /// its window has the other field of the account's pair.
+    pub content: TextContentType,
+    pub paired: bool,
 }
 
 impl Default for TextInputState {
@@ -43,6 +47,8 @@ impl Default for TextInputState {
             caret: None,
             serial: 0,
             field: 0,
+            content: TextContentType::None,
+            paired: false,
         }
     }
 }
@@ -56,6 +62,7 @@ struct Pending {
     surrounding: Option<String>,
     selection: Option<(u32, u32)>,
     caret: Option<Rect>,
+    content: Option<(TextContentType, bool)>,
 }
 
 #[derive(Debug, Default)]
@@ -139,6 +146,16 @@ impl Scene {
         Ok(())
     }
 
+    pub(super) fn text_input_content(
+        &mut self,
+        key: SurfaceKey,
+        content: TextContentType,
+        paired: bool,
+    ) -> Result<(), ErrorCode> {
+        self.text_input_entry(key)?.pending.content = Some((content, paired));
+        Ok(())
+    }
+
     pub(super) fn text_input_surrounding(
         &mut self,
         key: SurfaceKey,
@@ -218,6 +235,10 @@ impl Scene {
         }
         if pending.caret.is_some() {
             state.caret = pending.caret;
+        }
+        if let Some((content, paired)) = pending.content {
+            state.content = content;
+            state.paired = paired;
         }
         let within = |offset: u32| state.surrounding.is_char_boundary(offset as usize);
         if !within(state.anchor) || !within(state.cursor) {

@@ -811,6 +811,9 @@ pub struct Launch {
     /// `--im-candidates horizontal|vertical`: it hands the system candidates for what it
     /// composes, which the session's shell draws (ADR 0041).
     pub im_candidates: Option<crate::ime::Layout>,
+    /// `--autofill-fixture ID`: AutoFill answered by the fixture keychain, its items associated
+    /// with the application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+    pub autofill_fixture: Option<String>,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
@@ -927,7 +930,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1022,6 +1025,7 @@ impl Launch {
         let mut launch_settle = SETTLE;
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
+        let mut autofill_fixture = None;
         let mut shell = None;
         let mut file_chooser = None;
         let mut companion = None;
@@ -1138,6 +1142,11 @@ impl Launch {
                         crate::ime::Layout::named(layout)
                             .ok_or_else(|| format!("--im-candidates {layout:?}\n{USAGE}"))?,
                     );
+                    continue;
+                }
+                Some("--autofill-fixture") => {
+                    let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    autofill_fixture = Some(id.to_string());
                     continue;
                 }
                 Some("--preferences") => {
@@ -1777,6 +1786,7 @@ impl Launch {
                 launch_settle,
                 input_method,
                 im_candidates,
+                autofill_fixture,
                 shell,
                 file_chooser,
                 companion,
@@ -2163,6 +2173,44 @@ fn shell_json(compositor: &Compositor) -> String {
         compositor.scene.is_locked(),
         compositor.signed_in
     )
+}
+
+/// AutoFill during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
+/// `--autofill-fixture`: the list a shell draws now (its items, the highlighted one) and what the
+/// fixture keychain was asked since the last step; `null` without it.
+fn autofill_json(session: &Session) -> String {
+    let Some(keychain) = session.autofill_keychain.as_ref() else {
+        return "null".to_string();
+    };
+    let asked: Vec<String> = std::mem::take(&mut keychain.borrow_mut().asked)
+        .iter()
+        .map(|asked| json_string(asked))
+        .collect();
+    let shown =
+        session
+            .compositor
+            .scene
+            .autofill_shown()
+            .map_or("null".to_string(), |(_, list)| {
+                let items: Vec<String> = list
+                    .items
+                    .iter()
+                    .map(|item| {
+                        format!(
+                            "{{\"kind\":\"{:?}\",\"title\":{},\"detail\":{}}}",
+                            item.kind,
+                            json_string(&item.title),
+                            json_string(&item.detail)
+                        )
+                    })
+                    .collect();
+                format!(
+                    "{{\"highlighted\":{},\"items\":[{}]}}",
+                    list.highlighted,
+                    items.join(",")
+                )
+            });
+    format!("{{\"shown\":{shown},\"asked\":[{}]}}", asked.join(","))
 }
 
 /// The application's first popup, if one is shown.
@@ -2560,6 +2608,8 @@ fn transactions_json(session: &Session) -> String {
     let mut transactions = Vec::new();
     let (mut delete, mut commit, mut preedit) = ((0, 0), String::new(), String::new());
     let (mut cursor, mut segments) = ((0, 0), Vec::new());
+    // AutoFill's fill of the field and of its pair, by its bytes.
+    let (mut fill, mut paired_fill): (Option<String>, Option<usize>) = (None, None);
     for (client, event) in &session.compositor.text_input_log {
         if *client != CLIENT {
             continue;
@@ -2576,6 +2626,13 @@ fn transactions_json(session: &Session) -> String {
             }
             oxyos_protocol::Event::TextInputPreeditCursor { begin, end, .. } => {
                 cursor = (*begin, *end)
+            }
+            oxyos_protocol::Event::TextInputFill { paired, text, .. } => {
+                if *paired {
+                    *paired_fill.get_or_insert(0) += text.as_str().len();
+                } else {
+                    fill.get_or_insert_with(String::new).push_str(text.as_str());
+                }
             }
             oxyos_protocol::Event::TextInputPreeditSegment {
                 begin, end, style, ..
@@ -2601,6 +2658,20 @@ fn transactions_json(session: &Session) -> String {
                                 | oxyos_protocol::TextPurpose::Pin
                         ) || state.hints.contains(oxyos_protocol::TextHints::SENSITIVE)
                     });
+                // A fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the field's text, as
+                // any transaction's, and only how long its paired field's is (a password).
+                if fill.is_some() || paired_fill.is_some() {
+                    let own = match fill.take() {
+                        Some(_) if secret => "{\"withheld\":true}".to_string(),
+                        Some(text) => json_string(&text),
+                        None => "null".to_string(),
+                    };
+                    let paired = paired_fill
+                        .take()
+                        .map_or("null".to_string(), |bytes| bytes.to_string());
+                    transactions.push(format!("{{\"fill\":{own},\"paired_fill_bytes\":{paired}}}"));
+                    continue;
+                }
                 if secret {
                     transactions.push("{\"withheld\":true}".to_string());
                     (delete, cursor) = ((0, 0), (0, 0));
@@ -4922,6 +4993,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
         )?);
     }
+    if let Some(application) = &launch.autofill_fixture {
+        // AutoFill as the session serves it, its keychain the fixture's.
+        let keychain = std::rc::Rc::new(std::cell::RefCell::new(
+            crate::autofill::FixtureKeychain::new(application.clone()),
+        ));
+        session.autofill = Some(oxyos_compositor::autofill::Autofill::new(Box::new(
+            crate::autofill::Shared(keychain.clone()),
+        )));
+        session.autofill_keychain = Some(keychain);
+    }
     if let Some(methods) = &launch.input_sources_available {
         // The state played or the engine run, never both telling it.
         if launch.input_methods.is_some() {
@@ -5773,7 +5854,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5791,6 +5872,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .input_sources
                 .as_ref()
                 .map_or("null".to_string(), |sources| sources.json()),
+            autofill_json(&session),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             minimize_target_json(&session.compositor),

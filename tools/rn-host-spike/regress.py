@@ -3494,7 +3494,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # a transaction's parts left out of the expectation are what an empty part says.
         got = result.get("transactions", [])
         empty = {"delete": [0, 0], "commit": "", "preedit": "", "cursor": [0, 0], "segments": []}
-        wanted = [{**empty, **want} for want in expect["transactions"]]
+        # An AutoFill fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) is said whole: the
+        # field's text and its paired field's length.
+        wanted = [want if "fill" in want else {**empty, **want} for want in expect["transactions"]]
         if got != wanted:
             fail(f"transactions given {got}, expected exactly {wanted}")
     if "delivered" in expect:
@@ -4177,6 +4179,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: im.get(k) for k, v in wanted.items() if im.get(k) != v}
         if differing:
             fail(f"the input method has {differing}, expected {wanted}")
+    if "autofill" in expect:
+        # AutoFill's list (docs/adr/0050-keychain-autofill-and-passkeys.mdx): what a shell draws
+        # now (`shown`, null when none) and what the fixture keychain was asked during the step.
+        held, wanted = result.get("autofill") or {}, expect["autofill"]
+        differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
+        if differing:
+            fail(f"AutoFill has {differing}, expected {wanted}")
     if "input_sources" in expect:
         held, wanted = result.get("input_sources") or {}, expect["input_sources"]
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
@@ -4988,6 +4997,10 @@ def main():
             # It hands the system candidates for what it composes, laid out "horizontal" or
             # "vertical", which the session's shell draws at the caret (ADR 0041).
             command += ["--im-candidates", scenario["im_candidates"]]
+    if scenario.get("autofill"):
+        # AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) answered by the development
+        # compositor's fixture keychain, its made-up items associated with the application named.
+        command += ["--autofill-fixture", scenario["autofill"]["application"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.

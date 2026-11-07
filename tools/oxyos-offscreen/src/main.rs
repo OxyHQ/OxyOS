@@ -9,6 +9,7 @@
 //! `--launch -- COMMAND` instead launches one application process (such as the native Bloom
 //! host), passing the socket in `OXYOS_COMPOSITOR_SOCKET`, and presses the points `--press` names.
 
+mod autofill;
 mod client;
 mod displays;
 mod ime;
@@ -168,6 +169,10 @@ struct Session {
     input_methods_waker: Option<std::os::fd::RawFd>,
     /// `--input-sources-available`: the input sources the session tells, played (input_sources.rs).
     input_sources: Option<input_sources::InputSources>,
+    /// `--autofill-fixture ID`: AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) over
+    /// the fixture keychain (autofill.rs), and the director's handle on it.
+    autofill: Option<oxyos_compositor::autofill::Autofill>,
+    autofill_keychain: Option<std::rc::Rc<std::cell::RefCell<autofill::FixtureKeychain>>>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -308,6 +313,8 @@ impl Session {
             power_waker: None,
             power_control: None,
             input_sources: None,
+            autofill: None,
+            autofill_keychain: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
@@ -612,6 +619,11 @@ impl Session {
         // the run, before the install service takes what is left.
         let login = self.compositor.login;
         self.signed_out |= oxyos_compositor::sign_out::serve(&mut self.compositor.scene, login);
+        // AutoFill's fields, picks and the shell's presses, before the install service takes the
+        // requests left.
+        if let Some(autofill) = self.autofill.as_mut() {
+            autofill.serve(&mut self.compositor);
+        }
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();
         // Battery and energy (ADR 0057), before the install service takes what is left.

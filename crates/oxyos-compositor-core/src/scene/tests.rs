@@ -8143,6 +8143,8 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
     assert_eq!((h.rect(next).x, h.rect(next).y), (0, 0));
 }
 
+/// AutoFill's list and its fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+mod autofill;
 mod choosers;
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;

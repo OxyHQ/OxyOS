@@ -9,7 +9,7 @@ use crate::wire::{
     NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
     Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
     SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk,
-    TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -157,6 +157,12 @@ messages! {
         // window grows and shrinks with its list. Configured anew; what it showed stays until a
         // frame of the new size is presented, placed by that size from then.
         68 => ResizeInputCandidates { surface: u32, size: Size },
+        // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6; version 30): what
+        // the focused field holds beside its purpose, part of its state as TextInputPurpose is,
+        // applied at TextInputCommit; `paired`: the window has the other field of the account's
+        // pair (a username's or an email's password field, a password's username field), which a
+        // fill fills too (TextInputFill). A field never told one has none.
+        69 => TextInputContentType { surface: u32, content: TextContentType, paired: bool },
         // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
         // `index` 0 begins it, `last` applies it. The application id is the application's own
         // claim until launch records give it; the shell shows it, nothing is authorized by it.
@@ -569,6 +575,11 @@ messages! {
         // or on a chevron (ChooseInputCandidate, TurnInputCandidatesPage).
         63 => InputMethodCandidateChosen { index: u8 },
         64 => InputMethodCandidatesPage { forward: bool },
+        // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 6; version 30): part
+        // of a transaction (applied at TextInputDone with the rest), the whole text of the focused
+        // field (`paired` false) or of its paired field (true), in chunks, replacing what each
+        // held. Sent only for the credential the person picked in the platform's suggestions.
+        65 => TextInputFill { surface: u32, paired: bool, text: TextChunk },
         // To the session's shell (ADR 0009): each window, by a number the compositor gives it
         // (never a surface id), as it appears and changes, its title and application id in chunks
         // as SetTitle's, its closing; and the workspaces and the active one.
