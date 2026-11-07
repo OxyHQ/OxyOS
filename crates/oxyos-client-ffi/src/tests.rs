@@ -6286,6 +6286,9 @@ fn the_header_matches_the_drag_abi() {
         "oxyos_client_start_drag_with",
         "oxyos_client_open_files",
         "oxyos_files_media_type",
+        "oxyos_client_start_drag_with_volumes",
+        "oxyos_files_volume",
+        "oxyos_files_folder_volume",
     ] {
         assert!(HEADER.contains(&format!("{function}(")), "{function}");
     }
@@ -6293,6 +6296,10 @@ fn the_header_matches_the_drag_abi() {
     assert_eq!(
         define("OXYOS_EVENT_DRAG_OFFER_FILE_TYPE"),
         i64::from(OXYOS_EVENT_DRAG_OFFER_FILE_TYPE)
+    );
+    assert_eq!(
+        define("OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME"),
+        i64::from(OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME)
     );
 }
 
@@ -6322,6 +6329,7 @@ fn a_vanishing_drag_says_so_and_its_files_types_and_a_target_reads_them() {
             types: 0,
             modifiers: 0,
             file_types: 2,
+            file_volumes: 0,
         }];
         for mime in ["image/png", long] {
             let chunks = TextChunk::split(mime);
@@ -6516,6 +6524,22 @@ unsafe fn poll_until(client: *mut OxyOSClient, kind: u32) -> OxyOSEvent {
     }
 }
 
+/// Polls `client` until its next event, which it returns.
+///
+/// # Safety
+/// `client` is a live client.
+unsafe fn poll_next(client: *mut OxyOSClient) -> OxyOSEvent {
+    let mut event = OxyOSEvent::default();
+    loop {
+        // SAFETY: forwarded caller contract.
+        match unsafe { oxyos_client_poll(client, &mut event) } {
+            OXYOS_POLL_EVENT => return event,
+            OXYOS_POLL_EMPTY => std::thread::yield_now(),
+            other => panic!("poll: {other}"),
+        }
+    }
+}
+
 #[test]
 fn a_source_offers_its_types_and_the_library_writes_the_one_the_target_receives() {
     let (client, compositor) = drag_pair("source", |server| {
@@ -6621,6 +6645,7 @@ fn a_target_is_told_the_drag_answers_it_and_receives_the_drop_through_a_pipe() {
                 types: 1,
                 modifiers: 0,
                 file_types: 0,
+                file_volumes: 0,
             },
             Event::DragOfferType { offer: 5, mime },
         ] {
@@ -6781,4 +6806,239 @@ fn system_sounds_go_through_the_c_abi_to_a_compositor_of_version_23() {
         assert_eq!(received, wanted, "version {version}");
         std::fs::remove_dir_all(directory).unwrap();
     }
+}
+
+/// The requests a client sends a compositor of `version` for one drag, up to its StartDrag, and
+/// that client's reading of a drag of `volumes` entering it, a volume a line, as the C ABI hands
+/// them over: (DRAG_ENTER's count, the volumes in order).
+fn a_drag_with_volumes_at(version: u16, volumes: &[&str]) -> (Vec<Request>, (u8, Vec<String>)) {
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-volumes-{version}-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let _ = std::fs::remove_file(&socket);
+    let listener = Listener::bind(&socket).unwrap();
+    let told: Vec<String> = volumes.iter().map(|volume| (*volume).to_owned()).collect();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        server.recv_request().unwrap();
+        server
+            .send_event_for(&Event::Welcome { version }, None, version)
+            .unwrap();
+        let mut requests = Vec::new();
+        loop {
+            let request = server.recv_request().unwrap().0;
+            let started = matches!(request, Request::StartDrag { .. });
+            requests.push(request);
+            if started {
+                break;
+            }
+        }
+        // Then, as a target, a drag of files on those volumes entering it, as this version has it.
+        let mut events = vec![Event::DragEnter {
+            surface: 1,
+            offer: 9,
+            serial: 50,
+            x: 0,
+            y: 0,
+            actions: DragActions::COPY.union(DragActions::MOVE),
+            types: 0,
+            modifiers: 0,
+            file_types: 0,
+            file_volumes: told.len() as u8,
+        }];
+        for volume in &told {
+            let chunks = TextChunk::split(volume);
+            for (index, chunk) in chunks.iter().enumerate() {
+                events.push(Event::DragOfferFileVolume {
+                    offer: 9,
+                    index: index as u16,
+                    last: index + 1 == chunks.len(),
+                    text: PreeditText::new(chunk.as_str()).unwrap(),
+                });
+            }
+        }
+        // Something after, so the client knows it read all there was.
+        events.push(Event::DragLeave {
+            surface: 1,
+            offer: 9,
+        });
+        for event in events {
+            server.send_event_for(&event, None, version).unwrap();
+        }
+        requests
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let uris = b"file:///home/ana/a.txt\r\nfile:///media/ana/Stick/b.txt\r\n";
+    let types = "text/plain\n";
+    let said = "259:1\n8:17\n259:1\n";
+    // SAFETY: the client is live until closed below; entries and strings point to live locals.
+    let read = unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        let entries = [clipboard_entry("text/uri-list", uris)];
+        let drag = oxyos_client_start_drag_with_volumes(
+            client,
+            1,
+            0,
+            77,
+            OXYOS_DRAG_MOVE,
+            entries.as_ptr(),
+            1,
+            0,
+            types.as_ptr().cast(),
+            types.len(),
+            said.as_ptr().cast(),
+            said.len(),
+        );
+        assert_eq!(drag, 1);
+        let enter = poll_until(client, OXYOS_EVENT_DRAG_ENTER);
+        let mut read = Vec::new();
+        let mut current = String::new();
+        loop {
+            let event = poll_next(client);
+            match event.kind {
+                OXYOS_EVENT_DRAG_OFFER_FILE_VOLUME => {
+                    assert_eq!(event.code, 9);
+                    current.push_str(CStr::from_ptr(event.text.as_ptr().cast()).to_str().unwrap());
+                    if event.flag == 1 {
+                        read.push(std::mem::take(&mut current));
+                    }
+                }
+                OXYOS_EVENT_DRAG_LEAVE => break,
+                other => panic!("{other}"),
+            }
+        }
+        oxyos_client_close(client);
+        (enter.flag, read)
+    };
+    let requests = compositor.join().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+    (requests, read)
+}
+
+#[test]
+fn a_drag_says_its_files_volumes_to_a_compositor_of_version_28_and_a_target_reads_them() {
+    let (requests, read) = a_drag_with_volumes_at(28, &["259:1", "8:17"]);
+    // Each volume once, after the files' types, before the start.
+    let said: Vec<&str> = requests
+        .iter()
+        .filter_map(|request| match request {
+            Request::DragFileVolume { text, last, .. } => {
+                assert!(*last, "a volume fits a chunk");
+                Some(text.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said, ["259:1", "8:17"]);
+    let typed = requests
+        .iter()
+        .position(|request| matches!(request, Request::DragFileType { .. }))
+        .unwrap();
+    let first = requests
+        .iter()
+        .position(|request| matches!(request, Request::DragFileVolume { .. }))
+        .unwrap();
+    assert!(typed < first);
+    assert!(matches!(requests.last(), Some(Request::StartDrag { .. })));
+    // The target: DRAG_ENTER's flag counts them, and each is read whole.
+    assert_eq!(read, (2, vec!["259:1".to_owned(), "8:17".to_owned()]));
+}
+
+#[test]
+fn a_compositor_of_version_27_is_told_no_volumes_and_tells_none() {
+    let (requests, read) = a_drag_with_volumes_at(27, &[]);
+    assert!(!requests
+        .iter()
+        .any(|request| matches!(request, Request::DragFileVolume { .. })));
+    // Its files' types are told still, and the drag starts as before.
+    assert!(requests
+        .iter()
+        .any(|request| matches!(request, Request::DragFileType { .. })));
+    assert!(matches!(requests.last(), Some(Request::StartDrag { .. })));
+    assert_eq!(read, (0, Vec::new()));
+}
+
+#[test]
+fn an_items_volume_is_its_own_and_a_folder_drops_where_it_leads() {
+    let volume = |of: unsafe extern "C" fn(
+        *const std::ffi::c_char,
+        usize,
+        *mut std::ffi::c_char,
+        usize,
+    ) -> std::ffi::c_int,
+                  uri: &str| {
+        let mut out = [0 as std::ffi::c_char; 64];
+        // SAFETY: the URI and the buffer are live locals of their lengths.
+        let length = unsafe { of(uri.as_ptr().cast(), uri.len(), out.as_mut_ptr(), out.len()) };
+        (length > 0).then(|| {
+            // SAFETY: written NUL-terminated.
+            unsafe { CStr::from_ptr(out.as_ptr()) }
+                .to_str()
+                .unwrap()
+                .to_owned()
+        })
+    };
+    let item = |uri: &str| volume(crate::files::oxyos_files_volume, uri);
+    let folder = |uri: &str| volume(crate::files::oxyos_files_folder_volume, uri);
+    let here = std::env::temp_dir().join(format!("oxyos-client-ffi-volume-{}", std::process::id()));
+    std::fs::create_dir_all(here.join("Documents")).unwrap();
+    std::fs::write(here.join("a.txt"), "a").unwrap();
+    std::fs::write(here.join("Documents/b.txt"), "b").unwrap();
+    let uri = |path: &std::path::Path, directory: bool| oxyos_files::uri::of(path, directory);
+    // One file system, one volume, named MAJOR:MINOR.
+    let one = item(&uri(&here.join("a.txt"), false)).unwrap();
+    assert_eq!(
+        item(&uri(&here.join("Documents/b.txt"), false)),
+        Some(one.clone())
+    );
+    assert_eq!(
+        folder(&uri(&here.join("Documents"), true)),
+        Some(one.clone())
+    );
+    assert!(one.split_once(':').is_some());
+    // Nothing there has none.
+    assert_eq!(item(&uri(&here.join("gone.txt"), false)), None);
+    assert_eq!(item("https://oxy.so/a.txt"), None);
+    // On /dev/shm, another file system than the temporary directory's: another volume; a link
+    // here to a file there is here, and a link to a folder there drops there.
+    let shm = std::path::Path::new("/dev/shm");
+    use std::os::unix::fs::MetadataExt;
+    if std::fs::metadata(shm).map(|m| m.dev()).ok()
+        != std::fs::metadata(&here).map(|m| m.dev()).ok()
+    {
+        let there = shm.join(format!("oxyos-client-ffi-volume-{}", std::process::id()));
+        std::fs::create_dir_all(&there).unwrap();
+        std::fs::write(there.join("c.txt"), "c").unwrap();
+        std::os::unix::fs::symlink(there.join("c.txt"), here.join("c.txt")).unwrap();
+        std::os::unix::fs::symlink(&there, here.join("There")).unwrap();
+        let other = item(&uri(&there.join("c.txt"), false)).unwrap();
+        let link = item(&uri(&here.join("c.txt"), false));
+        let folder_link = item(&uri(&here.join("There"), true));
+        let dropped_into = folder(&uri(&here.join("There"), true));
+        std::fs::remove_dir_all(&there).unwrap();
+        assert_ne!(other, one);
+        assert_eq!(link, Some(one.clone()));
+        assert_eq!(folder_link, Some(one.clone()));
+        assert_eq!(dropped_into, Some(other));
+    } else {
+        eprintln!("skipped two volumes: /dev/shm is on the temporary directory's file system");
+    }
+    // A buffer too small takes nothing.
+    let mut small = [0 as std::ffi::c_char; 2];
+    let a = uri(&here.join("a.txt"), false);
+    // SAFETY: the URI and the buffer are live locals of their lengths.
+    let length = unsafe {
+        crate::files::oxyos_files_volume(
+            a.as_ptr().cast(),
+            a.len(),
+            small.as_mut_ptr(),
+            small.len(),
+        )
+    };
+    assert_eq!(length, OXYOS_ERROR);
+    std::fs::remove_dir_all(&here).unwrap();
 }

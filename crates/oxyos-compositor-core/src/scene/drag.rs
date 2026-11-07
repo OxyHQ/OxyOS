@@ -8,8 +8,8 @@
 use super::*;
 use crate::scene::launch::assemble;
 use oxyos_protocol::{
-    DragActions, DragCancelReason, MAX_DRAG_TYPES, MAX_FILE_TYPE_BYTES, MAX_OPEN_FILES_BYTES,
-    MAX_TRASH_FILES_BYTES, MODIFIER_ALT, MODIFIER_SUPER,
+    DragActions, DragCancelReason, MAX_DRAG_TYPES, MAX_FILE_TYPE_BYTES, MAX_FILE_VOLUME_BYTES,
+    MAX_OPEN_FILES_BYTES, MAX_TRASH_FILES_BYTES, MODIFIER_ALT, MODIFIER_SUPER,
 };
 use std::collections::VecDeque;
 
@@ -31,6 +31,9 @@ const MAX_TRASH_REQUESTS: usize = 16;
 const MAX_OPEN_REQUESTS: usize = 16;
 /// The first protocol version whose drags may vanish and say their files' types (ADR 0035).
 pub const VANISH_VERSION: u16 = 26;
+/// The first protocol version whose drags say the volumes their files are on
+/// (docs/adr/0047-finder-drags-and-the-desktop.mdx): a target of an older one is never told them.
+pub const VOLUMES_VERSION: u16 = 28;
 
 #[derive(Debug, Default)]
 pub(super) struct Drags {
@@ -52,15 +55,19 @@ pub(super) struct Drags {
     open_requests: Vec<OpenFilesRequest>,
     /// A dragged file's type in chunks (DragFileType), by client.
     file_type_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
+    /// A dragged file's volume in chunks (DragFileVolume), by client.
+    file_volume_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
 }
 
 /// What a source said of a drag before starting it: the types it offers, its files' types
-/// (DragFileType) and whether it vanishes dropped on nothing (DragVanish).
+/// (DragFileType) and volumes (DragFileVolume), and whether it vanishes dropped on nothing
+/// (DragVanish).
 #[derive(Debug, Default)]
 struct Pending {
     drag: u32,
     types: Vec<TextChunk>,
     file_types: Vec<String>,
+    file_volumes: Vec<String>,
     vanish: bool,
 }
 
@@ -78,6 +85,8 @@ struct Drag {
     types: Vec<TextChunk>,
     /// The media types of the files it carries, as its source declares them.
     file_types: Vec<String>,
+    /// The volumes the files it carries are on, as its source declares them.
+    file_volumes: Vec<String>,
     /// Dropped on nothing that takes it, its image vanishes in a poof where it is.
     vanish: bool,
     actions: DragActions,
@@ -299,6 +308,37 @@ impl Scene {
         Ok(())
     }
 
+    /// A volume a file the drag carries is on (DragFileVolume), in chunks, as its files' types
+    /// are said; kept distinct, at most MAX_DRAG_TYPES.
+    pub(super) fn drag_file_volume(
+        &mut self,
+        client: ClientId,
+        drag: u32,
+        index: u16,
+        last: bool,
+        text: PreeditText,
+    ) -> Result<(), ErrorCode> {
+        let Some(volume) = assemble(
+            &mut self.drags.file_volume_receiving,
+            (client, drag),
+            index,
+            last,
+            text,
+            MAX_FILE_VOLUME_BYTES,
+        )?
+        else {
+            return Ok(());
+        };
+        let entry = self.pending(client, drag);
+        if !volume.is_empty()
+            && entry.file_volumes.len() < MAX_DRAG_TYPES
+            && !entry.file_volumes.contains(&volume)
+        {
+            entry.file_volumes.push(volume);
+        }
+        Ok(())
+    }
+
     /// The drag, dropped on nothing that takes it, vanishes where it is (DragVanish).
     pub(super) fn drag_vanish(&mut self, client: ClientId, drag: u32) {
         self.pending(client, drag).vanish = true;
@@ -379,6 +419,7 @@ impl Scene {
             home: icon_origin(pressed_at, hotspot.unwrap_or_default()),
             types: said.types,
             file_types: said.file_types,
+            file_volumes: said.file_volumes,
             vanish: said.vanish,
             actions,
             offer: self.drags.offers,
@@ -440,11 +481,12 @@ impl Scene {
         if hit == old {
             return false;
         }
-        let (offer, actions, types, file_types) = (
+        let (offer, actions, types, file_types, file_volumes) = (
             drag.offer,
             drag.actions,
             drag.types.clone(),
             drag.file_types.clone(),
+            drag.file_volumes.clone(),
         );
         if let Some(old) = old.filter(|old| self.nodes.contains_key(old)) {
             self.emit(
@@ -456,6 +498,16 @@ impl Scene {
             );
         }
         let target = hit.map(|surface| {
+            // Its files' volumes only to a target that knows them (version 28): an older one is
+            // told none, and its count of them is left out of its DragEnter anyway.
+            let volumes: &[String] = if self
+                .version_of(surface.client)
+                .is_none_or(|version| version >= VOLUMES_VERSION)
+            {
+                &file_volumes
+            } else {
+                &[]
+            };
             let serial = self.next_serial();
             let (x, y) = self.local(surface, self.pointer.0, self.pointer.1);
             self.emit(
@@ -470,6 +522,7 @@ impl Scene {
                     types: types.len() as u8,
                     modifiers: self.modifiers(),
                     file_types: file_types.len() as u8,
+                    file_volumes: volumes.len() as u8,
                 },
             );
             for mime in &types {
@@ -484,6 +537,22 @@ impl Scene {
                     self.emit(
                         surface.client,
                         Event::DragOfferFileType {
+                            offer,
+                            index: index as u16,
+                            last: index + 1 == count,
+                            text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                        },
+                    );
+                }
+            }
+            // And their volumes after those (version 28).
+            for volume in volumes {
+                let chunks = TextChunk::split(volume);
+                let count = chunks.len();
+                for (index, chunk) in chunks.iter().enumerate() {
+                    self.emit(
+                        surface.client,
+                        Event::DragOfferFileVolume {
                             offer,
                             index: index as u16,
                             last: index + 1 == count,
@@ -890,6 +959,9 @@ impl Scene {
             .retain(|(owner, _), _| *owner != client);
         self.drags
             .file_type_receiving
+            .retain(|(owner, _), _| *owner != client);
+        self.drags
+            .file_volume_receiving
             .retain(|(owner, _), _| *owner != client);
         if self
             .drags

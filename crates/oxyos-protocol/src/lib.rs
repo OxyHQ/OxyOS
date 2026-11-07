@@ -29,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 27;
+pub const VERSION: u16 = 28;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -96,6 +96,9 @@ pub const MAX_CLIPBOARD_TYPES: usize = 16;
 pub const MAX_DRAG_TYPES: usize = 16;
 /// The longest media type of a dragged file a drag says (DragFileType, in chunks).
 pub const MAX_FILE_TYPE_BYTES: usize = 255;
+/// The longest volume of a dragged file a drag says (DragFileVolume, version 28): the platform
+/// names one `MAJOR:MINOR`, its device number, far shorter.
+pub const MAX_FILE_VOLUME_BYTES: usize = 64;
 /// The most bytes of `file://` URIs the shell asks the session to put in the Trash at once
 /// (TrashFiles, ADR 0035): room for hundreds of files.
 pub const MAX_TRASH_FILES_BYTES: usize = 256 * 1024;

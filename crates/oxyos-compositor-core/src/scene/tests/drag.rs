@@ -5,7 +5,7 @@
 use super::*;
 use crate::scene::{
     negotiate_action, AppearanceChange, OpenFilesRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
-    DRAG_VERSION, MAX_OPEN_DROPS,
+    DRAG_VERSION, MAX_OPEN_DROPS, VOLUMES_VERSION,
 };
 use oxyos_protocol::{DragActions, DragCancelReason, MODIFIER_ALT, MODIFIER_SUPER};
 
@@ -961,6 +961,154 @@ fn a_drags_files_types_are_told_to_its_target_after_its_types_each_once() {
     assert_eq!(told, [long, "image/png"]);
     // The third window, never under the pointer, is told nothing.
     assert!(drag_events(&to(&logged(&mut d.h), LOCKER)).is_empty());
+}
+
+/// The source says each of `texts` in chunks with `say` (DragFileType, DragFileVolume).
+fn say_in_chunks(d: &mut Desk, texts: &[&str], say: fn(u16, bool, PreeditText) -> Request) {
+    for text in texts {
+        let chunks = TextChunk::split(text);
+        for (index, chunk) in chunks.iter().enumerate() {
+            d.h.request(
+                APP,
+                say(
+                    index as u16,
+                    index + 1 == chunks.len(),
+                    PreeditText::new(chunk.as_str()).unwrap(),
+                ),
+            )
+            .unwrap();
+        }
+    }
+}
+
+/// Each whole text a target was told in chunks by `told` (its DragOfferFileType or
+/// DragOfferFileVolume), in order.
+fn assembled(events: &[Event], told: fn(&Event) -> Option<(&PreeditText, bool)>) -> Vec<String> {
+    let mut whole = Vec::new();
+    let mut current = String::new();
+    for (text, last) in events.iter().filter_map(told) {
+        current.push_str(text.as_str());
+        if last {
+            whole.push(std::mem::take(&mut current));
+        }
+    }
+    whole
+}
+
+/// A drag of files from the source's press, saying `types` of its files and their `volumes`.
+fn start_with_volumes(d: &mut Desk, types: &[&str], volumes: &[&str]) {
+    let (x, y) = center(&d.h, d.source);
+    let serial = d.h.press(x, y);
+    d.h.request(
+        APP,
+        Request::DragType {
+            drag: 7,
+            mime: mime(URIS),
+        },
+    )
+    .unwrap();
+    say_in_chunks(d, types, |index, last, text| Request::DragFileType {
+        drag: 7,
+        index,
+        last,
+        text,
+    });
+    say_in_chunks(d, volumes, |index, last, text| Request::DragFileVolume {
+        drag: 7,
+        index,
+        last,
+        text,
+    });
+    d.h.request(
+        APP,
+        Request::StartDrag {
+            drag: 7,
+            surface: d.source.id,
+            icon: 0,
+            serial,
+            actions: DragActions::COPY.union(DragActions::MOVE),
+        },
+    )
+    .unwrap();
+}
+
+fn file_volume(event: &Event) -> Option<(&PreeditText, bool)> {
+    match event {
+        Event::DragOfferFileVolume { text, last, .. } => Some((text, *last)),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_drags_volumes_are_told_to_its_target_after_its_files_types_each_once() {
+    let mut d = desk();
+    // A volume as the platform names it, one longer than a chunk (the protocol does not read
+    // them), and the first again (said once).
+    let long = "opaque-volume-name-longer-than-one-chunk";
+    start_with_volumes(&mut d, &["image/png"], &["259:1", long, "259:1"]);
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.clear_log();
+    d.h.scene.pointer_motion(tx, ty);
+    let events = logged(&mut d.h);
+    let target = drag_events(&to(&events, OTHER));
+    assert!(matches!(
+        target[0],
+        Event::DragEnter {
+            types: 1,
+            file_types: 1,
+            file_volumes: 2,
+            ..
+        }
+    ));
+    assert!(matches!(target[1], Event::DragOfferType { .. }));
+    assert!(matches!(target[2], Event::DragOfferFileType { .. }));
+    // The volumes after the files' types, each once, the long one in its chunks.
+    assert!(target[3..]
+        .iter()
+        .all(|event| matches!(event, Event::DragOfferFileVolume { .. })));
+    assert_eq!(assembled(&target, file_volume), ["259:1", long]);
+    // The third window, never under the pointer, is told nothing.
+    assert!(drag_events(&to(&events, LOCKER)).is_empty());
+    // Back over the source and over the target again: told them anew with each entering, once.
+    let (sx, sy) = center(&d.h, d.source);
+    d.h.scene.pointer_motion(sx, sy);
+    d.h.scene.pointer_motion(tx, ty);
+    let events = logged(&mut d.h);
+    assert_eq!(
+        assembled(&drag_events(&to(&events, OTHER)), file_volume),
+        ["259:1", long]
+    );
+    assert_eq!(
+        assembled(&drag_events(&to(&events, APP)), file_volume),
+        ["259:1", long]
+    );
+    assert!(drag_events(&to(&events, LOCKER)).is_empty());
+}
+
+#[test]
+fn a_target_of_version_27_is_never_told_a_drags_volumes() {
+    let mut d = desk();
+    d.h.scene.set_version(OTHER, VOLUMES_VERSION - 1);
+    start_with_volumes(&mut d, &["text/plain"], &["8:2"]);
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.clear_log();
+    d.h.scene.pointer_motion(tx, ty);
+    let target = drag_events(&to(&logged(&mut d.h), OTHER));
+    // Its entering counts none, and its files' types are still told.
+    assert!(matches!(
+        target[0],
+        Event::DragEnter {
+            file_types: 1,
+            file_volumes: 0,
+            ..
+        }
+    ));
+    assert!(target
+        .iter()
+        .any(|event| matches!(event, Event::DragOfferFileType { .. })));
+    assert!(!target
+        .iter()
+        .any(|event| matches!(event, Event::DragOfferFileVolume { .. })));
 }
 
 #[test]

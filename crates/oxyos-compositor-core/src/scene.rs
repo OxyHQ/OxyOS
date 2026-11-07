@@ -1493,6 +1493,12 @@ impl Scene {
                 last,
                 text,
             } => self.drag_file_type(client, drag, index, last, text),
+            Request::DragFileVolume {
+                drag,
+                index,
+                last,
+                text,
+            } => self.drag_file_volume(client, drag, index, last, text),
             Request::OpenFiles {
                 input,
                 index,
@@ -5037,7 +5043,7 @@ mod drag;
 pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
 pub use drag::{
     negotiate_action, OpenFilesRequest, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
-    DRAG_VERSION, MAX_OPEN_DROPS, VANISH_VERSION,
+    DRAG_VERSION, MAX_OPEN_DROPS, VANISH_VERSION, VOLUMES_VERSION,
 };
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};

@@ -125,7 +125,7 @@ fn run(scale_120: u32) {
                             vec![(TextChunk::new("text/uri-list").unwrap(), b"x\r\n".to_vec())],
                             DragOptions {
                                 vanish: true,
-                                file_types: Vec::new(),
+                                ..DragOptions::default()
                             },
                         )
                         .unwrap();

@@ -13,6 +13,8 @@
 //! - [`trash`] moves items to the Trash as the freedesktop.org Trash specification (1.0) says,
 //!   and lists, restores and removes what it holds.
 //! - [`places`]: the home, its favourite folders (the XDG user directories) and the volumes.
+//! - [`volume`]: which file system an item is on, which decides whether a move is a rename (a
+//!   drag of files says its files' volumes, so a target prefers a move or a copy as Finder does).
 //! - [`watch`]: what changes in a folder or a file, typed and debounced as `expo-file-system`'s
 //!   watchers say it, and whether the Trash or the volumes changed, through inotify and the mount
 //!   table.
@@ -36,6 +38,7 @@ pub mod service;
 pub mod transfer;
 pub mod trash;
 pub mod uri;
+pub mod volume;
 pub mod watch;
 
 pub use scope::{Access, Application, Root, Scope};
