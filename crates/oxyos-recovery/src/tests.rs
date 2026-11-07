@@ -663,15 +663,15 @@ fn an_install_checks_the_image_lays_the_disk_out_checks_the_recovery_and_sets_th
         format!("mount -o ro /dev/vda2 {run}/recovery"),
         format!("veritysetup verify {run}/recovery/live/filesystem.squashfs"),
         format!("umount {run}/recovery"),
-        format!("cryptsetup open --key-file {run}/root.key /dev/vda3 oxyos-target"),
-        format!("mount /dev/mapper/oxyos-target {target}"),
+        format!("cryptsetup open --key-file {run}/root.key /dev/vda3 oxyos-root"),
+        format!("mount /dev/mapper/oxyos-root {target}"),
         format!("mount /dev/vda1 {target}/efi"),
         format!("chroot {target} apt-get purge --yes --quiet --allow-remove-essential live-boot"),
         format!("chroot {target} dpkg-reconfigure --frontend=noninteractive systemd-boot"),
         format!("chroot {target} update-initramfs -u -k all"),
         format!("umount {target}/efi"),
         format!("umount {target}"),
-        "cryptsetup close oxyos-target".to_string(),
+        "cryptsetup close oxyos-root".to_string(),
     ];
     let positions: Vec<usize> = order.iter().map(|c| host.position(c)).collect();
     assert!(
@@ -799,7 +799,7 @@ fn a_failure_while_setting_up_unmounts_and_closes_everything_it_opened() {
         .filter(|c| c.starts_with(&format!("umount {target}")))
         .count();
     assert_eq!(mounts, unmounts, "{:#?}", host.commands);
-    assert!(host.commands.last().unwrap() == "cryptsetup close oxyos-target");
+    assert!(host.commands.last().unwrap() == "cryptsetup close oxyos-root");
 }
 
 #[test]
@@ -971,7 +971,7 @@ fn an_erase_condemns_the_system_destroys_the_root_and_makes_it_again_from_the_re
         "wipefs --all /dev/vda3".to_string(),
         "blkdiscard --force /dev/vda3".to_string(),
         format!("systemd-repart --dry-run=no --factory-reset=yes --definitions={run}/repart.d --key-file={run}/root.key /dev/vda"),
-        format!("cryptsetup open --key-file {run}/root.key /dev/vda3 oxyos-target"),
+        format!("cryptsetup open --key-file {run}/root.key /dev/vda3 oxyos-root"),
         format!("chroot {} update-initramfs -u -k all", machine.target().display()),
     ];
     let positions: Vec<usize> = order.iter().map(|c| host.position(c)).collect();

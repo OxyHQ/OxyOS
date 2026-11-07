@@ -371,7 +371,9 @@ fn set_up_mounted(
         .clone()
         .ok_or_else(|| failed("the root has no UUID", ""))?;
     let device = if encrypted {
-        let name = "oxyos-target";
+        // Opened under the name its crypttab gives it: cryptsetup's initramfs hook finds the root's
+        // entry by the mapping the target's / is mounted from.
+        let name = layout::ROOT_MAPPER;
         mounts.host.run(&Command::new("cryptsetup").args([
             "open",
             "--key-file",
