@@ -1159,13 +1159,19 @@ std::shared_ptr<TurboModule> createHostModule(
       }
     });
     auto later = [invoker](jsi::Runtime& rt, Settle start) { return settledLater(invoker, rt, std::move(start)); };
-    module->method("wallpaperThumbnail", [later](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+    // A photo's thumbnail and a folder's images read the person's files outside the files API
+    // (docs/adr/0028-file-access.mdx): only Settings, whom the session granted `settings` (it alone is
+    // told the preferences), may ask. Any other client is answered nothing, and nothing is read.
+    auto granted = [&services] { return services.settings.values && !services.settings.values().isNull(); };
+    module->method("wallpaperThumbnail", [later, granted](jsi::Runtime& rt, const jsi::Value* args,
+                                                          size_t count) -> jsi::Value {
       if (count < 3 || !args[0].isString() || !args[1].isNumber() || !args[2].isNumber()) {
         throw jsi::JSError(rt, "OxyOSSettings.wallpaperThumbnail: a URI, a width and a height");
       }
       std::string uri = args[0].asString(rt).utf8(rt);
       auto side = [](double pixels) { return static_cast<uint32_t>(std::clamp(pixels, 1.0, 1024.0)); };
       uint32_t width = side(args[1].asNumber()), height = side(args[2].asNumber());
+      if (!granted()) return later(rt, [](auto resolve, auto) { resolve(nullptr); });
       return later(rt, [uri, width, height](auto resolve, auto) {
         WallpaperWork::run([uri, width, height, resolve] {
           std::string error;
@@ -1188,9 +1194,11 @@ std::shared_ptr<TurboModule> createHostModule(
         });
       });
     });
-    module->method("wallpaperFolder", [later](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> jsi::Value {
+    module->method("wallpaperFolder", [later, granted](jsi::Runtime& rt, const jsi::Value* args,
+                                                       size_t count) -> jsi::Value {
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSettings.wallpaperFolder: a path");
       std::string path = args[0].asString(rt).utf8(rt);
+      if (!granted()) return later(rt, [](auto resolve, auto) { resolve(folly::dynamic::array()); });
       return later(rt, [path](auto resolve, auto) {
         WallpaperWork::run([path, resolve] {
           std::string error;
