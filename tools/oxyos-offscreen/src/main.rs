@@ -755,6 +755,11 @@ impl Session {
     /// scenario's (`--reader`): its preference is kept and told, not followed.
     fn serve_preferences(&mut self) {
         let now = oxyos_compositor::settings::now();
+        // Each display's wallpaper is kept by its identity (docs/adr/0048-wallpapers.mdx): with
+        // `--displays`, the virtual displays'; otherwise each output is `output-ID`.
+        if let Some((displays, _)) = self.displays.as_ref() {
+            self.settings.set_display_identities(displays.identities());
+        }
         for key in self.settings.serve(&mut self.compositor, now) {
             eprintln!("[preferences] {key} changed");
             if let Some(methods) = self.input_methods.as_mut() {

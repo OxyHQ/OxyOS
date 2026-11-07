@@ -332,3 +332,81 @@ fn every_surface_is_told_its_outputs_refresh_and_paces_by_it() {
         Err(ErrorCode::InvalidGeometry)
     );
 }
+
+/// What the shell was told each output shows since the last call (docs/adr/0048-wallpapers.mdx),
+/// each choice whole.
+fn wallpapers_told(h: &mut Harness) -> Vec<(u32, String)> {
+    let mut told = Vec::new();
+    let mut text = String::new();
+    for event in to(&logged(h), SHELL) {
+        if let Event::OutputWallpaper {
+            output,
+            index,
+            last,
+            text: chunk,
+        } = event
+        {
+            if index == 0 {
+                text.clear();
+            }
+            text.push_str(chunk.as_str());
+            if last {
+                told.push((output, std::mem::take(&mut text)));
+            }
+        }
+    }
+    told
+}
+
+#[test]
+fn the_shell_is_told_what_each_output_shows_and_where_settings_is() {
+    let mut h = two_outputs();
+    logged(&mut h);
+    // Each output's, after its Output, the default as one empty chunk; an output that is not
+    // shown is never told.
+    let long = format!("photo:fill:000000:/home/ana/{}.jpg", "a".repeat(100));
+    h.scene.set_output_wallpapers(
+        [
+            (1, String::new()),
+            (2, long.clone()),
+            (9, "horizon".to_owned()),
+        ]
+        .into(),
+    );
+    assert_eq!(
+        wallpapers_told(&mut h),
+        [(1, String::new()), (2, long.clone())]
+    );
+    // Only what changed.
+    h.scene
+        .set_output_wallpapers([(1, "color:1f4fd8".to_owned()), (2, long.clone())].into());
+    assert_eq!(wallpapers_told(&mut h), [(1, "color:1f4fd8".to_owned())]);
+    assert!(wallpapers_told(&mut h).is_empty());
+    // Settings' display: the output of its topmost window; none without one, or without the
+    // grant.
+    assert_eq!(h.scene.settings_output(), None);
+    let window = window_at(&mut h, OTHER, 1, (2400, 300));
+    assert_eq!(h.scene.settings_output(), None);
+    h.scene
+        .grant(
+            OTHER,
+            Grants {
+                settings: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(h.scene.settings_output(), Some(2));
+    assert_eq!(h.scene.window_workspace(window), Some(0));
+}
+
+#[test]
+fn a_removed_workspace_is_said_once() {
+    let mut h = Harness::new();
+    h.request(SHELL, Request::AddWorkspace {}).unwrap();
+    h.request(SHELL, Request::AddWorkspace {}).unwrap();
+    h.request(SHELL, Request::RemoveWorkspace { workspace: 1 })
+        .unwrap();
+    assert_eq!(h.scene.take_removed_workspaces(), [1]);
+    assert!(h.scene.take_removed_workspaces().is_empty());
+}

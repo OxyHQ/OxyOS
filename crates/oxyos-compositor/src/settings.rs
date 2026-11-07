@@ -13,6 +13,12 @@
 //! change. `screen_reader` is the program's to follow ([`Settings::serve`] says it changed): it alone
 //! starts and stops its reader.
 //!
+//! The wallpapers (docs/adr/0048-wallpapers.mdx): what each output shows (its active desktop's
+//! choice, else its display's, else the default) is told to the shells each turn it changes; a
+//! choice Settings sends is made where Settings' window is, and Settings is told `wallpaper` as the
+//! choice there. Displays are known by the identities the program gives
+//! ([`Settings::set_display_identities`]); an output it names none for is `output-ID`.
+//!
 //! The session's locale (docs/adr/0040-language-and-region.mdx) is the person's `language`,
 //! `region` and `hour_cycle` over the environment's POSIX locale (`LC_ALL`, `LC_MESSAGES`, `LANG`,
 //! read once when the settings are made): told to every client on connecting and again when a
@@ -21,7 +27,8 @@
 
 use crate::Compositor;
 use oxyos_compositor_core::scene::ApplicationList;
-use oxyos_compositor_core::DrawingPreferences;
+use oxyos_compositor_core::{DrawingPreferences, OutputId, Scene};
+use oxyos_preferences::wallpaper::{Choice, Place as WallpaperPlace};
 use oxyos_preferences::{Appearance, Preferences, KEYS};
 use oxyos_protocol::{ApplicationListKind, PreeditText};
 use oxyos_solar::Place;
@@ -65,6 +72,9 @@ pub struct Settings {
     environment_locale: Option<String>,
     /// The locale is the system's alone, whatever the preferences say: the login screen's.
     system_locale_only: bool,
+    /// Each output's display's identity (docs/adr/0018-several-displays.mdx), as the program
+    /// knows them: a display's wallpaper is kept by it.
+    identities: Vec<(OutputId, String)>,
 }
 
 impl Settings {
@@ -76,6 +86,7 @@ impl Settings {
             crossing: None,
             environment_locale: oxyos_preferences::environment_locale(),
             system_locale_only: false,
+            identities: Vec::new(),
         }
     }
 
@@ -161,10 +172,15 @@ impl Settings {
             accent: PreeditText::new(&preferences.accent).expect("an accent is one chunk"),
             caret_blink: preferences.caret_blink,
         };
+        // `wallpaper` is the choice where Settings is, as it sees and sets it.
+        let here = self.wallpaper_here(&compositor.scene);
         let values: Vec<(String, String)> = KEYS
             .iter()
             .map(|key| {
-                let value = preferences.get(key).expect("every key has a value");
+                let value = match *key {
+                    "wallpaper" => here.clone(),
+                    _ => preferences.get(key).expect("every key has a value"),
+                };
                 (key.to_string(), value)
             })
             .collect();
@@ -202,6 +218,7 @@ impl Settings {
                 ids: preferences.notification_sounds_off.clone(),
             },
         );
+        self.follow_wallpapers(compositor);
     }
 
     /// Changes one preference for the session itself (the input source Super+Space chose, ADR
@@ -233,7 +250,13 @@ impl Settings {
     pub fn serve(&mut self, compositor: &mut Compositor, now: i64) -> Vec<String> {
         let mut changed = Vec::new();
         for change in compositor.scene.take_preference_changes() {
-            let accepted = match self.change(&change.key, &change.value) {
+            let made = match change.key.as_str() {
+                "wallpaper" | "wallpaper_all_desktops" => {
+                    self.change_wallpaper(&compositor.scene, &change.key, &change.value)
+                }
+                _ => self.change(&change.key, &change.value),
+            };
+            let accepted = match made {
                 Ok(true) => {
                     changed.push(change.key);
                     true
@@ -294,8 +317,147 @@ impl Settings {
         }
         if !changed.is_empty() || self.crossing.is_some_and(|crossing| now >= crossing) {
             self.apply(compositor, now);
+        } else {
+            self.follow_wallpapers(compositor);
         }
         changed
+    }
+
+    /// The displays' identities by output (docs/adr/0018-several-displays.mdx), as the program
+    /// shows them: what their wallpapers are kept by.
+    pub fn set_display_identities(&mut self, identities: Vec<(OutputId, String)>) {
+        self.identities = identities;
+    }
+
+    /// The identity a display's wallpaper is kept by: its display's, else `output-ID`.
+    fn identity(&self, output: OutputId) -> String {
+        self.identities
+            .iter()
+            .find(|(id, _)| *id == output)
+            .map_or_else(
+                || format!("output-{output}"),
+                |(_, identity)| identity.clone(),
+            )
+    }
+
+    /// Every output shown, in the arrangement's order (the first the primary), its identity, and
+    /// the active desktop (from 1).
+    fn wallpaper_places(&self, scene: &Scene) -> Vec<(OutputId, String, bool)> {
+        scene
+            .outputs()
+            .iter()
+            .enumerate()
+            .map(|(index, output)| (output.id, self.identity(output.id), index == 0))
+            .collect()
+    }
+
+    /// Where Settings is: the display holding most of its window (the primary if it shows
+    /// none), and the active desktop.
+    fn settings_place(&self, scene: &Scene) -> Option<(String, bool, u32)> {
+        let places = self.wallpaper_places(scene);
+        let output = scene.settings_output();
+        let (_, identity, primary) = places
+            .iter()
+            .find(|(id, _, _)| Some(*id) == output)
+            .or_else(|| places.first())?;
+        Some((identity.clone(), *primary, scene.workspaces().1 + 1))
+    }
+
+    /// The choice shown where Settings is: what it sees as `wallpaper`.
+    fn wallpaper_here(&self, scene: &Scene) -> String {
+        let wallpapers = &self.preferences.wallpapers;
+        match self.settings_place(scene) {
+            Some((identity, _, desktop)) => wallpapers.shown(&identity, desktop).text(),
+            None => wallpapers.default.text(),
+        }
+    }
+
+    /// Follows the desktops removed (their choices go with them) and tells the shells what each
+    /// output shows now and Settings the choice where it is, each only when it changed.
+    pub fn follow_wallpapers(&mut self, compositor: &mut Compositor) {
+        let removed = compositor.scene.take_removed_workspaces();
+        if !removed.is_empty() {
+            let kept = self.keep_wallpapers(|wallpapers| {
+                for workspace in &removed {
+                    wallpapers.remove_desktop(workspace + 1);
+                }
+            });
+            if let Err(error) = kept {
+                eprintln!("[preferences] the desktops' wallpapers: {error}");
+            }
+        }
+        let desktop = compositor.scene.workspaces().1 + 1;
+        let shown = self
+            .wallpaper_places(&compositor.scene)
+            .into_iter()
+            .map(|(output, identity, _)| {
+                let choice = self.preferences.wallpapers.shown(&identity, desktop);
+                (output, choice.text())
+            })
+            .collect();
+        compositor.scene.set_output_wallpapers(shown);
+        let here = self.wallpaper_here(&compositor.scene);
+        compositor.scene.set_preference_value("wallpaper", &here);
+    }
+
+    /// A choice Settings made (`wallpaper`), or *Show on all desktops* (`wallpaper_all_desktops`),
+    /// where Settings is: kept as any change is, whether it changed.
+    fn change_wallpaper(&mut self, scene: &Scene, key: &str, value: &str) -> Result<bool, String> {
+        let places = self.wallpaper_places(scene);
+        let identities: Vec<&str> = places
+            .iter()
+            .map(|(_, identity, _)| identity.as_str())
+            .collect();
+        let Some((identity, primary, desktop)) = self.settings_place(scene) else {
+            return Err("no display to choose a wallpaper for".to_owned());
+        };
+        let here = WallpaperPlace {
+            display: &identity,
+            primary,
+            desktop,
+        };
+        match key {
+            "wallpaper" => {
+                let choice = Choice::parse(value).map_err(|error| error.to_string())?;
+                self.keep_wallpapers(|wallpapers| wallpapers.choose(&here, &identities, choice))
+            }
+            _ => {
+                let on = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err(oxyos_preferences::Refused::BadValue.to_string()),
+                };
+                let shown: Vec<WallpaperPlace> = places
+                    .iter()
+                    .map(|(_, identity, primary)| WallpaperPlace {
+                        display: identity,
+                        primary: *primary,
+                        desktop,
+                    })
+                    .collect();
+                self.keep_wallpapers(|wallpapers| wallpapers.set_all_desktops(on, &shown))
+            }
+        }
+    }
+
+    /// Changes the wallpapers kept and keeps them: whether they changed. Refused, with nothing
+    /// changed, if the file cannot be written.
+    fn keep_wallpapers(
+        &mut self,
+        change: impl FnOnce(&mut oxyos_preferences::wallpaper::Wallpapers),
+    ) -> Result<bool, String> {
+        let mut changed = self.preferences.clone();
+        change(&mut changed.wallpapers);
+        if changed == self.preferences {
+            return Ok(false);
+        }
+        if let Some(file) = &self.file {
+            changed
+                .save(file)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+        }
+        self.preferences = changed;
+        Ok(true)
     }
 
     /// Keeps a change of what the session's displays keep (docs/adr/0018-several-displays.mdx):
@@ -604,6 +766,155 @@ mod tests {
         ask(&mut compositor, 3, "lock_after=0");
         settings.serve(&mut compositor, DAY);
         assert_eq!(compositor.idle.deadline(), None);
+    }
+
+    /// What the shell was told each output shows, and Settings `wallpaper`, since the last call
+    /// (docs/adr/0048-wallpapers.mdx): each whole choice, in order.
+    fn wallpapers_told(
+        compositor: &mut Compositor,
+        shell: ClientId,
+    ) -> (Vec<(u32, String)>, Vec<String>) {
+        let (mut outputs, mut here) = (Vec::new(), Vec::new());
+        let (mut output_text, mut preference) = (String::new(), String::new());
+        for (to, event) in compositor.scene.drain_events() {
+            match event {
+                Event::OutputWallpaper {
+                    output,
+                    index,
+                    last,
+                    text,
+                } if to == shell => {
+                    if index == 0 {
+                        output_text.clear();
+                    }
+                    output_text.push_str(text.as_str());
+                    if last {
+                        outputs.push((output, std::mem::take(&mut output_text)));
+                    }
+                }
+                Event::Preference { index, last, text } if to == SETTINGS => {
+                    if index == 0 {
+                        preference.clear();
+                    }
+                    preference.push_str(text.as_str());
+                    if last {
+                        if let Some(value) = preference.strip_prefix("wallpaper=") {
+                            here.push(value.to_owned());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        (outputs, here)
+    }
+
+    #[test]
+    fn a_wallpaper_is_chosen_where_settings_is_and_each_shell_told_its_outputs() {
+        const SHELL: ClientId = 7;
+        let directory = scratch("wallpapers");
+        let file = directory.join("oxyos").join("preferences");
+        let mut compositor = compositor();
+        compositor
+            .scene
+            .add_output(Output {
+                id: 2,
+                rect: Rect::new(64, 0, 64, 64),
+                scale_120: 120,
+                refresh_mhz: 60_000,
+            })
+            .unwrap();
+        compositor
+            .scene
+            .connect(
+                SHELL,
+                Grants {
+                    shell: true,
+                    ..Grants::default()
+                },
+            )
+            .unwrap();
+        let mut settings = Settings::load(Some(file.clone()), None);
+        settings.set_display_identities(vec![(1, "BOE-0A4B-1".to_owned())]);
+        settings.apply(&mut compositor, DAY);
+        // Both outputs, the default; Settings, the default where it is.
+        assert_eq!(
+            wallpapers_told(&mut compositor, SHELL),
+            (
+                vec![(1, String::new()), (2, String::new())],
+                vec![String::new()]
+            )
+        );
+        // Settings shows no window: its choice is the primary's, the default; the other display
+        // keeps the old default as its own.
+        ask(&mut compositor, 1, "wallpaper=horizon");
+        assert_eq!(settings.serve(&mut compositor, DAY), ["wallpaper"]);
+        assert_eq!(
+            wallpapers_told(&mut compositor, SHELL),
+            (vec![(1, "horizon".to_owned())], vec!["horizon".to_owned()])
+        );
+        // A long path, in chunks; a bad choice refused.
+        let photo = format!("photo:fit:000000:/home/ana/{}.jpg", "f".repeat(300));
+        ask(&mut compositor, 2, &format!("wallpaper={photo}"));
+        ask(&mut compositor, 3, "wallpaper=photo:fit:000000:../a.jpg");
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(
+            wallpapers_told(&mut compositor, SHELL),
+            (vec![(1, photo.clone())], vec![photo.clone()])
+        );
+        // Each desktop its own: off, a second desktop active, a colour there.
+        ask(&mut compositor, 4, "wallpaper_all_desktops=false");
+        settings.serve(&mut compositor, DAY);
+        compositor
+            .scene
+            .handle(SHELL, Request::AddWorkspace {})
+            .unwrap();
+        compositor
+            .scene
+            .handle(SHELL, Request::ActivateWorkspace { workspace: 1 })
+            .unwrap();
+        ask(&mut compositor, 5, "wallpaper=color:1f4fd8");
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(
+            wallpapers_told(&mut compositor, SHELL),
+            (
+                vec![(1, "color:1f4fd8".to_owned())],
+                vec!["color:1f4fd8".to_owned()]
+            )
+        );
+        // Back on the first desktop: the photo, told without a change of preference.
+        compositor
+            .scene
+            .handle(SHELL, Request::ActivateWorkspace { workspace: 0 })
+            .unwrap();
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(
+            wallpapers_told(&mut compositor, SHELL),
+            (vec![(1, photo.clone())], vec![photo.clone()])
+        );
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(&format!("\nwallpaper = {photo}\n")), "{text}");
+        assert!(
+            text.contains("\nwallpaper_all_desktops = false\n"),
+            "{text}"
+        );
+        assert!(text.contains("\nwallpaper.output-2 = \n"), "{text}");
+        assert!(
+            text.contains("\nwallpaper.BOE-0A4B-1.2 = color:1f4fd8\n"),
+            "{text}"
+        );
+        // The second desktop removed: its choice goes with it.
+        compositor
+            .scene
+            .handle(SHELL, Request::RemoveWorkspace { workspace: 1 })
+            .unwrap();
+        settings.serve(&mut compositor, DAY);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("color:1f4fd8"), "{text}");
+        // Kept: a session started again shows the same.
+        let again = Settings::load(Some(file), None);
+        assert_eq!(again.preferences(), settings.preferences());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

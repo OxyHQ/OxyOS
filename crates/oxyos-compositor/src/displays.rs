@@ -242,6 +242,15 @@ impl Displays {
         &self.shown
     }
 
+    /// Each output shown and its display's identity: what a display's wallpaper is kept by
+    /// (docs/adr/0048-wallpapers.mdx).
+    pub fn identities(&self) -> Vec<(OutputId, String)> {
+        self.shown
+            .iter()
+            .map(|shown| (shown.output.id, shown.display.identity.clone()))
+            .collect()
+    }
+
     /// Whether a mode is on trial, and the output it is shown on.
     pub fn on_trial(&self) -> Option<OutputId> {
         self.trial.as_ref().map(|trial| trial.output)
