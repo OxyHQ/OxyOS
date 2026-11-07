@@ -1,0 +1,67 @@
+{
+  "about": "A display's wallpaper is the person's choice, kept for that display (ADR 0048, decisions 2, 3 and 6), each drawn by its shell at its fit: six displays side by side, the first (the primary, with the dock) a colour (the default `wallpaper`), the others photos of the repository's (`wallpaper.output-N`): the test JPEG (16:9) filling its display, fitted within it over its margin's colour, and stretched to it; the shell's 192-pixel Allo icon centred at its own size, and tiled.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    300,
+    160
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "480x300,480x300,480x300,480x300,480x300,480x300",
+  "preferences": {
+    "appearance": "light",
+    "wallpaper": "color:1f5fd6",
+    "wallpaper.output-2": "photo:fill:000000:{repo}/assets/test-images/p3-5120x2880.jpg",
+    "wallpaper.output-3": "photo:fit:203040:{repo}/assets/test-images/p3-5120x2880.jpg",
+    "wallpaper.output-4": "photo:center:102030:{repo}/tools/shell-preview/assets/apps/allo.png",
+    "wallpaper.output-5": "photo:tile:102030:{repo}/tools/shell-preview/assets/apps/allo.png",
+    "wallpaper.output-6": "photo:stretch:000000:{repo}/assets/test-images/p3-5120x2880.jpg"
+  },
+  "steps": [
+    {
+      "name": "each display shows its own wallpaper at its fit: the colour; the photo filling (cropped), fitted (its margin's colour below it) and stretched (each its own place of the gradient's rings); the icon centred at its size and tiled over their colour",
+      "do": [
+        "wait",
+        1500
+      ],
+      "expect": {
+        "screen_pixels": {
+          "2": {
+            "150,60": "#00b585",
+            "60,200": "#00bf5f",
+            "300,250": "#ffae00"
+          },
+          "3": {
+            "240,292": "#203040",
+            "150,60": "#00a380",
+            "60,200": "#00c065"
+          },
+          "4": {
+            "240,160": "#ffffff",
+            "200,120": "#ffffff",
+            "160,80": "#102030",
+            "280,240": "#102030",
+            "460,40": "#102030",
+            "20,290": "#102030"
+          },
+          "5": {
+            "60,60": "#ffffff",
+            "260,60": "#ffffff",
+            "180,180": "#102030",
+            "380,180": "#102030"
+          },
+          "6": {
+            "150,60": "#00a881",
+            "60,200": "#00c16f",
+            "300,250": "#ffad00"
+          }
+        },
+        "output_pixels": {
+          "20,60": "#1f5fd6",
+          "460,200": "#1f5fd6"
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}
