@@ -37,19 +37,49 @@
           "Resultados de búsqueda",
           "Aplicaciones",
           "Documentos PDF",
-          "Ajustes del Sistema",
-          "Privacidad de búsqueda…"
-        ]
+          "Ajustes del Sistema"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Aplicaciones",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Switch",
+              "name": "Documentos PDF",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
       }
     },
     {
-      "name": "Applications turned off: kept by the search service at once",
+      "name": "Applications' switch pressed off: kept by the search service at once",
       "do": [
-        "press_named",
-        "Aplicaciones"
+        "press_output",
+        [
+          1021,
+          235
+        ]
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Aplicaciones",
+              "state": []
+            }
+          ]
+        }
+      }
     },
     {
       "name": "the service's configuration says so",
@@ -65,13 +95,28 @@
       }
     },
     {
-      "name": "on again",
+      "name": "pressed on again",
       "do": [
-        "press_named",
-        "Aplicaciones"
+        "press_output",
+        [
+          1021,
+          235
+        ]
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Aplicaciones",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
     },
     {
       "name": "the configuration again",

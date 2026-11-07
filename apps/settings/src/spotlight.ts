@@ -29,10 +29,10 @@ export const SEARCH_CATEGORIES: readonly SearchCategory[] = [
 ];
 
 /** The kinds as a Mac's Search results list shows them: by their names, alphabetically in the
-    person's language. */
+    person's language (`localeCompare`: the Bloom host's Hermes has no `Intl.Collator`). */
 export function categoriesInOrder(words: Messages["spotlight"], language: string): SearchCategory[] {
-  const collator = new Intl.Collator(language, { sensitivity: "base" });
-  return [...SEARCH_CATEGORIES].sort((a, b) => collator.compare(words.categories[a] ?? a, words.categories[b] ?? b));
+  const name = (category: SearchCategory) => words.categories[category] ?? category;
+  return [...SEARCH_CATEGORIES].sort((a, b) => name(a).localeCompare(name(b), language, { sensitivity: "base" }));
 }
 
 /** A `file://` URI's path, decoded, without its trailing slash (but the root's). */

@@ -178,7 +178,7 @@
       }
     },
     {
-      "name": "↓ moves the selection to the next result",
+      "name": "↓ moves the selection to the next result, the screen reader's focus with it",
       "do": [
         "key",
         [
@@ -194,8 +194,14 @@
               "role": "Button",
               "name": "acuarela.txt, Texto sin formato, Documents",
               "state": [
-                "selected"
+                "selected",
+                "focused"
               ]
+            },
+            {
+              "role": "Button",
+              "name": "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
+              "state": []
             }
           ]
         }
@@ -364,8 +370,20 @@
         "in_shell": {
           "absent": [
             "Mejor resultado"
+          ],
+          "urls_opened": [
+            {
+              "url": "oxyos-settings://appearance",
+              "application": "so.oxy.settings"
+            }
           ]
-        }
+        },
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://appearance",
+            "application": "so.oxy.settings"
+          }
+        ]
       }
     },
     {

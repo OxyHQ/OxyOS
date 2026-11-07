@@ -113,12 +113,14 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
      - from the service: each answer, for its client.
    - **What a client asks** (the vocabulary in `service.rs`):
      - `query` (`text`, `tokens`, `within`, `categories`, `limit`, `language`) ← `results` (`items`, `topHit`, `indexing`);
-     - `watch`, `used`;
+     - `watch` and `unwatch` (the client's first listener and its last), `used`;
      - `donate`, `remove` and `removeAll` (answered once the index holds them);
      - `preferences` and `setPreferences`;
-     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`).
+     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`, `read`).
+
+     Every answer is one object of one key (`{"done": {}}`, `{"results": {…}}`); a refusal is `{"refused": {"reason"}}`: `notPermitted`, `invalid`, and from the compositor `unavailable` (no service) or `busy` (more than 64 asks waiting in the scene, 256 in the broker).
    - **An item:** `id`, `category`, `title` (in the language asked), `uri` for a file (a folder's ending in `/`), `url`, `application`, `icon`, `contentType`, `size`, `modified`, `created`, `lastUsed`, `tags`, `snippet` (of a text, source or office document among the first ten, about 160 characters around the first word found) and `location` (its folder from the home, `Documents › Work`).
-   - **The host** (`OxyOSSearch`) and **Bloom's `PlatformSearch`** (`usePlatformSearch`, Bloom 17.20.0): `query`, `watch`, `used`, and `index.donate`, `index.remove`, `index.removeAll` (Core Spotlight's `CSSearchableIndex`). The shell has the same as its platform's `search`, and Settings as its actions' `search` (`preferences`, `setPreferences`, `status`).
+   - **The host** (`OxyOSSearch`) and **Bloom's `PlatformSearch`** (`usePlatformSearch`, Bloom 17.20.0): `query`, `watch`, `used`, and `index.donate`, `index.remove`, `index.removeAll` (Core Spotlight's `CSSearchableIndex`). The shell has the same as its platform's `search`, and Settings as its actions' `search` (`preferences`, `setPreferences`, `status`, and `watch`, so its page shows the index's state as it changes, never asking on a clock).
 
 8. **Applications' items, Core Spotlight's way.** An application donates `{id, title, category, text?, keywords?, url, modified?}`: contacts, events, mail and messages later, through the applications that keep them.
    - The category is one of contact, event, mail, message or other; at most 1000 items a request; 64 KiB of text an item.
@@ -132,12 +134,13 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
 
 10. **The search panel** (`apps/shell/src/components/Spotlight.tsx`). **Super+Space** opens it, as ⌘Space opens Spotlight, at the owner's request (ADR 0024 and 0041 amended; below); again, it closes.
     - **The panel:** floating, centred, a fifth of the way down; its field large. As the person types, results come grouped by category with small headers: **Top Hit** first, then each section in the order of its best item, a few rows each. On the right, a preview of the selected item: its picture or icon, title, kind, size, dates, tags, snippet and location.
-    - **Keys:** ↑ ↓ go through the results; Return opens; **Super+Return** shows a file or folder in Dropsea (`dropsea://files?uri=…&select=…`), as ⌘Return shows it in Finder. Escape clears the text, and closes with none.
+    - **Keys:** ↑ ↓ go through the results, the screen reader's focus with them; Control with them goes a section at a time; Return opens; **Super+Return** (and Control+Return, the applications' ⌘ on OxyOS) shows a file or folder in Dropsea (`dropsea://files?uri=…&select=…`), as ⌘Return shows it in Finder. Escape clears the text, and closes with none, the window that had the keyboard given it back.
+    - **Its material is opaque**, light or dark: a Mac's Spotlight blurs what is behind it, which the shell cannot (it draws only its own surfaces), and a translucent panel without a blur shows a window's text through its results.
     - **Live:** a file or folder row can be dragged out, as the desktop's icons are (ADR 0047). While the panel is open, the results follow the index (`watch`).
     - **Opening:** an application is opened, a file with its application, a folder in Dropsea, a page in Settings, anything else at its URL; and the service is told it was used.
     - **The launcher's search** (Super alone) asks the same service for applications, in its order.
 
-11. **Dropsea's search** (OxyHQ/Dropsea) asks the service for the person's files when it runs on a platform with `search`, within the place shown or everywhere ("This Computer"), with tokens for kinds, tags and dates as Finder offers them; elsewhere, as before.
+11. **Dropsea's search** (OxyHQ/Dropsea#49) asks the service for the person's files when it runs on a platform with `search`, everywhere (*This Computer*, its default, as Finder's *This Mac*) or within the place shown, the results in its own list with their location. As the person types, a menu under the field offers Finder's tokens: kinds, the person's tags, dates (today to this year) and *Name matches*; ↓ and Return make one a token of Bloom's `Search` (17.20.0: `tokens`, `onRemoveToken`, Backspace at the start removing the last). The menu is drawn in the window, not in a platform popup, which would take the keyboard from the field. `dropsea://files?uri=…&select=…` opens a folder with an item selected. Elsewhere (the web, phones, cloud places), its search is as before.
 
 12. **The system's keys change** (ADR 0024 and 0041, amended 8 November 2026):
     - **Super+Space** is Spotlight;
