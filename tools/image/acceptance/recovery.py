@@ -285,7 +285,10 @@ class Scenario:
         shown = self.hold_space(console)
         menu = self.screen()
         self.save(menu, "boot-menu")
-        self.check("holding Space as the machine starts shows the boot menu, with OxyOS Recovery", shown and not menu.is_black())
+        picker = self.m.serial_text()[console:]
+        self.check("holding Space as the machine starts shows the startup picker: OxyOS, its Recovery and the firmware's menu",
+                   shown and not menu.is_black() and "Reboot Into Firmware Interface" in picker
+                   and "EFI Default Loader" not in picker)
         # The menu's first entry is OxyOS; the recovery is the next.
         self.m.keys("down")
         self.m.keys("ret")
