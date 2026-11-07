@@ -40,9 +40,10 @@ type Icon = typeof RiWifiLine;
 /** A round button with a title and what it is, as a Mac's Control Center modules: on, it is
     the accent's. `onPress` absent, it only says (Bluetooth, where the session told only its
     state). `more`: its title and a chevron open its view (Wi-Fi's networks, Bluetooth's
-    devices), a button of its own, whose value is the status shown. Each module is said once, as VoiceOver says a Mac's: its switch by
-    its title, its state and `value` (what the status says beyond on or off: the network joined),
-    and its status text, which says no more than that, is not read again after it. */
+    devices), a button of its own, whose value is the status shown. Each module is said once,
+    as VoiceOver says a Mac's: its switch by its title, its state and `value` (what the status
+    says beyond on or off: the network joined), and its status text, which says no more than
+    that, is not read again after it. */
 function Module({
   icon,
   title,
