@@ -579,6 +579,39 @@ fn closed_while_opening_it_fails_at_once() {
 }
 
 #[test]
+fn closed_once_it_opened_but_before_its_opening_was_heard_it_fails_and_closes() {
+    let (port, seen) = server(Behaviour::Echo, None);
+    let mut sockets = WebSockets::new(network(), options(None, true)).unwrap();
+    sockets
+        .connect(connect(19, format!("ws://127.0.0.1:{port}/")))
+        .unwrap();
+    // Opened, its opening queued and not taken.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while sockets.shared.events.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    sockets.close(19, 1000, "").unwrap();
+    assert_eq!(
+        events(&mut sockets, 19, Duration::from_secs(2)),
+        [Event::Failed {
+            id: 19,
+            message: "closed before it opened".into()
+        }]
+    );
+    // The connection it had is closed, going away, and its thread ends.
+    let wanted = "close Some((1001, \"\"))".to_string();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !seen.lock().unwrap().contains(&wanted) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(seen.lock().unwrap().contains(&wanted), "{seen:?}");
+    while *sockets.shared.running.lock().unwrap() > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(*sockets.shared.running.lock().unwrap(), 0);
+}
+
+#[test]
 fn a_server_that_never_answers_times_out_opening() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();

@@ -200,11 +200,14 @@ impl Socket {
         }
     }
 
+    /// Stops a socket the caller has not yet seen open: one still opening stops (its connection
+    /// shut down), and one that opened meanwhile closes with 1001.
     fn stop_opening(&self) {
         self.abort.store(true, Ordering::Relaxed);
         if let Some(connection) = &*self.connection.lock().expect("lock") {
             let _ = connection.shutdown(Shutdown::Both);
         }
+        self.tell(Command::GoingAway);
     }
 }
 
@@ -230,6 +233,18 @@ impl Shared {
         if still {
             self.queue(event);
         }
+    }
+
+    /// Ends a socket now: what it queued is dropped, `event` is its last.
+    fn end_now(&self, event: Event) {
+        let id = event.id();
+        let mut heard = self.heard.lock().expect("lock");
+        heard.remove(&id);
+        self.events
+            .lock()
+            .expect("lock")
+            .retain(|queued| queued.id() != id);
+        self.queue(event);
     }
 
     fn queue(&self, event: Event) {
@@ -393,7 +408,8 @@ impl WebSockets {
             State::Connecting => {
                 socket.stop_opening();
                 self.sockets.remove(&id);
-                self.shared.emit(Event::Failed {
+                // Its opening, if it was queued meanwhile, is not told: it failed.
+                self.shared.end_now(Event::Failed {
                     id,
                     message: "closed before it opened".into(),
                 });
@@ -688,6 +704,10 @@ impl Job {
         let id = self.id;
         let opened = self.open();
         if self.abort.load(Ordering::Relaxed) {
+            // Closed by the caller before it heard the socket open: closed going away, unheard.
+            if let Ok((socket, _)) = opened {
+                self.go_away(socket);
+            }
             return;
         }
         let (socket, response) = match opened {
@@ -744,6 +764,8 @@ impl Job {
                 Err(HandshakeError::Failure(error)) => return Err(handshake_failure(error)),
             }
         };
+        // Open: stopping it now closes it, never shuts it down.
+        *self.connection.lock().expect("lock") = None;
         let tcp = socket.get_mut().tcp();
         tcp.set_read_timeout(None).map_err(|e| e.to_string())?;
         tcp.set_write_timeout(None).map_err(|e| e.to_string())?;
