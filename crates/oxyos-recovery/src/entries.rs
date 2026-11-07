@@ -76,10 +76,14 @@ impl Entry {
 
     /// One of OxyOS's own kernels' entries (kernel-install's, named by the entry token `oxyos`),
     /// not the recovery's.
+    ///
+    /// kernel-install names them `<entry token>-<kernel version>`, and a kernel's version begins
+    /// with a digit: the recovery's (`oxyos-recovery`) and any other entry a person added are not
+    /// counted, condemned or removed.
     pub fn is_system(&self) -> bool {
-        self.id.starts_with("oxyos-")
-            && self.file_name != crate::layout::RECOVERY_ENTRY
-            && self.id != "oxyos-recovery"
+        self.id
+            .strip_prefix("oxyos-")
+            .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()))
     }
 }
 

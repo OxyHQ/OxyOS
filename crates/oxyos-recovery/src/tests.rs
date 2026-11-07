@@ -353,6 +353,12 @@ fn entry_names_are_read_with_and_without_their_counter() {
     assert_eq!(bad.file_name_with(None), "oxyos-6.12.48.conf");
     assert!(!Entry::parse(layout::RECOVERY_ENTRY).unwrap().is_system());
     assert!(!Entry::parse("debian-6.12.conf").unwrap().is_system());
+    assert!(
+        !Entry::parse("oxyos-recovery-check.conf")
+            .unwrap()
+            .is_system(),
+        "a person's own entry"
+    );
     assert!(Entry::parse("loader.conf.new").is_none());
 }
 
