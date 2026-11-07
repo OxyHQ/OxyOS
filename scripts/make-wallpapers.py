@@ -101,13 +101,17 @@ class Drawing:
             t = i / 8
             a = opacity * (math.exp(-falloff * t * t) - math.exp(-falloff)) / (1 - math.exp(-falloff))
             stops.append((t, colour, a))
-        # In the drawing's own coordinates, never the ellipse's bounding box: the unit circle
-        # scaled to the ellipse's radii and moved to its centre (the ellipse's rotation applies to
-        # its fill too). Skia's SVG module draws a bounding-box gradient on an ellipse as black.
+        # In the drawing's own coordinates, never the ellipse's bounding box (Skia's SVG module
+        # draws a bounding-box gradient on an ellipse as black): a circle of the larger radius at
+        # the ellipse's centre, squeezed about that centre to the other radius (the ellipse's
+        # rotation applies to its fill too). The matrix stays near the identity: Skia's raster
+        # pipeline evaluates a gradient through a large one (a unit circle scaled a thousandfold)
+        # at too little precision, in visible steps.
+        r = max(rx, ry)
         self.defs.append(
-            f'<radialGradient id="{gid}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" '
-            f'gradientTransform="translate({x:g} {y:g}) scale({rx:g} {ry:g})">'
-            f'{self._stops(stops)}</radialGradient>'
+            f'<radialGradient id="{gid}" gradientUnits="userSpaceOnUse" cx="{x:g}" cy="{y:g}" '
+            f'r="{r:g}" gradientTransform="translate({x:g} {y:g}) scale({rx / r:.6g} {ry / r:.6g}) '
+            f'translate({-x:g} {-y:g})">{self._stops(stops)}</radialGradient>'
         )
         transform = f' transform="rotate({rotate:g} {x:g} {y:g})"' if rotate else ""
         self.body.append(
