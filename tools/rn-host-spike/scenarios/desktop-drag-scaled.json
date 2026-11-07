@@ -175,7 +175,10 @@
           ],
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": 1,
+            "touchMove@desktop": [
+              1,
+              2
+            ],
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -226,7 +229,10 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": 1,
+            "touchMove@desktop": [
+              1,
+              2
+            ],
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": [
               1,
@@ -272,7 +278,10 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": 1,
+            "touchMove@desktop": [
+              1,
+              2
+            ],
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -348,7 +357,10 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": 1,
+            "touchMove@desktop": [
+              1,
+              2
+            ],
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -399,7 +411,10 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": 1,
+            "touchMove@desktop": [
+              1,
+              2
+            ],
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -451,7 +466,10 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": 1,
+            "touchMove@desktop": [
+              1,
+              2
+            ],
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
