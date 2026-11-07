@@ -5166,11 +5166,11 @@ def main():
         env["TZ"] = scenario["tz"]
         RUN_TZ = scenario["tz"]
     # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
-    # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first" or
-    # "grant-first" (docs/adr/0039-keyboard-access.mdx, decision 26).
+    # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first",
+    # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26).
     env.pop("OXYOS_HOST_TEST_ORDER", None)
     if "host_order" in scenario:
-        if scenario["host_order"] not in ("focus-first", "grant-first"):
+        if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first"):
             raise ValueError(f"unknown host_order {scenario['host_order']!r}")
         env["OXYOS_HOST_TEST_ORDER"] = scenario["host_order"]
     recorder = None

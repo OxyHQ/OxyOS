@@ -1,0 +1,529 @@
+{
+ "about": "The top bar's input source menu (as shell-input-sources-scaled: the person's sources Pinyin, Japanese and Korean, Pinyin current, the layout Spanish, ImeProbe's window behind, the screen reader on in Spanish, at 1.25, dark) in the order forced by the shell's host (`host_order` \"popup-focus-first\", docs/adr/0039-keyboard-access.mdx, decision 26): Bloom's move of the reader's focus into each menu as it opens reaches the host before the compositor's keyboard enter on the menu does, as on a loaded machine. Every menu, opened from the keyboard and by a press on the item after Escape gave the keyboard back to the window, has its first row focused and said after its title, no focus move into it declined, and the order was the one forced (`first_order`). With the host judging a move into a menu by the compositor's grant (before this order existed), the menus opened by a press fail: the move declined, the first row unfocused, only the title said.",
+ "locale": "es_ES.UTF-8",
+ "layout": "es",
+ "module": "ImeProbe",
+ "window": [
+  800,
+  480
+ ],
+ "shell": "OxyOSShell",
+ "preferences": {
+  "input_sources": "pinyin,japanese,korean",
+  "input_source": "pinyin",
+  "appearance": "dark"
+ },
+ "input_sources": {
+  "available": [
+   "pinyin",
+   "japanese",
+   "korean"
+  ]
+ },
+ "reader": {},
+ "host_order": "popup-focus-first",
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "the person has the layout, Pinyin, Japanese and Korean, Pinyin current: the top bar shows 拼, named Input source with Pinyin as its value",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Fuente de entrada",
+       "value": "Pinyin – Simplificado",
+       "state": [
+        "collapsed"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "texts": [
+      "拼"
+     ],
+     "absent": [
+      "あ"
+     ]
+    },
+    "input_sources": {
+     "current": "pinyin",
+     "selected": [],
+     "emoji": 0
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Super+F8: the keyboard on the first status item, the input source, said with its value",
+   "do": [
+    "key",
+    [
+     125,
+     66
+    ]
+   ],
+   "expect": {
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Fuente de entrada",
+       "value": "Pinyin – Simplificado",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Fuente de entrada, Pinyin – Simplificado, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Space opens its menu: the sources, the current one checked, then the emoji picker and Keyboard settings; said by its title, the keyboard on its first row",
+   "do": [
+    "key",
+    57
+   ],
+   "expect": {
+    "delivered": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Fuente de entrada",
+       "value": "Pinyin – Simplificado",
+       "state": [
+        "expanded"
+       ]
+      },
+      {
+       "role": "Menu",
+       "name": "Fuente de entrada"
+      },
+      {
+       "role": "CheckBox",
+       "name": "Español",
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "role": "CheckBox",
+       "name": "Pinyin – Simplificado",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "CheckBox",
+       "name": "Japonés – Romaji",
+       "state": []
+      },
+      {
+       "role": "CheckBox",
+       "name": "Coreano de 2 juegos",
+       "state": []
+      },
+      {
+       "role": "MenuItem",
+       "name": "Mostrar emojis y símbolos"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Abrir ajustes de Teclado…"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Fuente de entrada, menú",
+      "interrupting": true
+     },
+     {
+      "text": "Español, no marcada, casilla",
+      "interrupting": false
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "host_input": {
+      "a11y.focus.declined": 0,
+      "test.keyboard.held": 1,
+      "test.keyboard.given": 1
+     },
+     "first_order": [
+      "a11y_event:focus@shell-topbar",
+      "test.keyboard.given"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape closes the menu: the keyboard back on the item, said again",
+   "do": [
+    "key",
+    1
+   ],
+   "expect": {
+    "delivered": {},
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Fuente de entrada",
+       "value": "Pinyin – Simplificado",
+       "state": [
+        "collapsed",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "shell": [
+      {
+       "role": "Menu",
+       "name": "Fuente de entrada"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Fuente de entrada, Pinyin – Simplificado, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Escape again leaves the status items: the window has the keyboard back",
+   "do": [
+    "key",
+    1
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     }
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "a press on the item opens its menu",
+   "do": [
+    "press_named",
+    "Fuente de entrada"
+   ],
+   "expect": {
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Menu",
+       "name": "Fuente de entrada"
+      },
+      {
+       "role": "CheckBox",
+       "name": "Español",
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "role": "CheckBox",
+       "name": "Pinyin – Simplificado",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "CheckBox",
+       "name": "Japonés – Romaji",
+       "state": []
+      },
+      {
+       "role": "CheckBox",
+       "name": "Coreano de 2 juegos",
+       "state": []
+      },
+      {
+       "role": "MenuItem",
+       "name": "Mostrar emojis y símbolos"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Abrir ajustes de Teclado…"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Fuente de entrada, menú",
+      "interrupting": true
+     },
+     {
+      "text": "Español, no marcada, casilla",
+      "interrupting": false
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "host_input": {
+      "a11y.focus.declined": 0,
+      "test.keyboard.held": 1,
+      "test.keyboard.given": 1
+     },
+     "first_order": [
+      "a11y_event:focus@shell-topbar",
+      "test.keyboard.given"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Japanese chosen: the session switches and keeps it as the person's choice, the top bar shows あ, the switch said by the new source's name, the window has the keyboard back",
+   "do": [
+    "press_named",
+    "Japonés – Romaji"
+   ],
+   "expect": {
+    "input_sources": {
+     "current": "japanese",
+     "selected": [
+      "japanese"
+     ],
+     "emoji": 0
+    },
+    "preferences_file": {
+     "input_sources": "pinyin,japanese,korean",
+     "input_source": "japanese"
+    },
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Fuente de entrada",
+       "value": "Japonés – Romaji",
+       "state": [
+        "collapsed"
+       ]
+      }
+     ]
+    },
+    "in_shell": {
+     "texts": [
+      "あ"
+     ],
+     "absent": [
+      "拼"
+     ]
+    },
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Japonés – Romaji",
+      "live": false
+     }
+    ],
+    "spoken": [
+     {
+      "text": "Japonés – Romaji",
+      "interrupting": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "the menu again: Japanese checked",
+   "do": [
+    "press_named",
+    "Fuente de entrada"
+   ],
+   "expect": {
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Menu",
+       "name": "Fuente de entrada"
+      },
+      {
+       "role": "CheckBox",
+       "name": "Español",
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "role": "CheckBox",
+       "name": "Pinyin – Simplificado",
+       "state": []
+      },
+      {
+       "role": "CheckBox",
+       "name": "Japonés – Romaji",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "CheckBox",
+       "name": "Coreano de 2 juegos",
+       "state": []
+      },
+      {
+       "role": "MenuItem",
+       "name": "Mostrar emojis y símbolos"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Abrir ajustes de Teclado…"
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Fuente de entrada, menú",
+      "interrupting": true
+     },
+     {
+      "text": "Español, no marcada, casilla",
+      "interrupting": false
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "host_input": {
+      "a11y.focus.declined": 0,
+      "test.keyboard.held": 1,
+      "test.keyboard.given": 1
+     },
+     "first_order": [
+      "a11y_event:focus@shell-topbar",
+      "test.keyboard.given"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Show Emoji & Symbols asks the session for the emoji picker; the window has the keyboard back",
+   "do": [
+    "press_named",
+    "Mostrar emojis y símbolos"
+   ],
+   "expect": {
+    "input_sources": {
+     "current": "japanese",
+     "selected": [],
+     "emoji": 1
+    },
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     }
+    },
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
+   "name": "the menu again",
+   "do": [
+    "press_named",
+    "Fuente de entrada"
+   ],
+   "expect": {
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "spoken": [
+     {
+      "text": "Fuente de entrada, menú",
+      "interrupting": true
+     },
+     {
+      "text": "Español, no marcada, casilla",
+      "interrupting": false
+     }
+    ],
+    "announcements": [],
+    "in_shell": {
+     "host_input": {
+      "a11y.focus.declined": 0,
+      "test.keyboard.held": 1,
+      "test.keyboard.given": 1
+     },
+     "first_order": [
+      "a11y_event:focus@shell-topbar",
+      "test.keyboard.given"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Open Keyboard Settings… opens Settings, which takes the keyboard",
+   "do": [
+    "press_named",
+    "Abrir ajustes de Teclado…"
+   ],
+   "expect": {
+    "delivered": {
+     "1": {
+      "focus.in": 1,
+      "focus.out": 1
+     },
+     "launched": {
+      "focus.in": 1
+     }
+    },
+    "input_sources": {
+     "current": "japanese",
+     "selected": [],
+     "emoji": 0
+    },
+    "spoken": []
+   }
+  }
+ ]
+}

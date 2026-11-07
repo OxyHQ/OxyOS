@@ -332,6 +332,21 @@ void PopupHost::dismissed(const OxyOSEvent& event) {
   }
 }
 
+uint32_t PopupHost::awaitingFocus() const {
+  for (const auto& [tag, popup] : popups_) {
+    if (!popup.tooltip && !popup.dismissed && !accessibility_.publishedFocus(popup.surface)) return popup.surface;
+  }
+  return 0;
+}
+
+bool inPopupView(const ViewTree& tree, Tag view) {
+  for (Tag at : ancestry(tree, view)) {
+    const auto& shown = tree.views().at(at).view;
+    if (shown.componentName && std::strcmp(shown.componentName, kPopupComponent) == 0) return true;
+  }
+  return false;
+}
+
 uint32_t PopupHost::surfaceOf(Tag view) const {
   for (Tag at : ancestry(tree_, view)) {
     auto it = popups_.find(at);
