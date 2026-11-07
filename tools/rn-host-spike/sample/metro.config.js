@@ -292,9 +292,12 @@ const serializer = {
 
 module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
   serializer,
-  // The repository's own images (wallpapers, the shell's app artwork) for the image probe.
+  // The repository's own images (its test JPEG, the shell's app artwork) for the image probe, and
+  // the system's wallpapers (docs/adr/0048-wallpapers.mdx), the catalog's default being the shell's
+  // own where the session told none.
   watchFolders: [BLOOM, NODE_MODULES, __dirname, ...(APP ? [APP.checkout] : []), path.resolve(__dirname, '../../../assets'),
     path.resolve(__dirname, '../../shell-preview/assets'),
+    path.resolve(__dirname, '../../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers'),
     // The shell's own sources (apps/shell), for the shell probe.
     path.resolve(__dirname, '../../../apps')],
   resolver: {
