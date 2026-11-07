@@ -308,16 +308,6 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
   const act = actions.sound;
   const [tab, setTab] = React.useState<SoundDirection>("output");
   const reached = Boolean(state && act && state.available);
-  // The input's level is metered while the Input tab shows, and stopped when it is left or the page
-  // goes, so nothing listens to the input otherwise (ADR 0056, decision 7).
-  const metering = reached && tab === "input";
-  const meter = React.useRef(act?.meter);
-  meter.current = act?.meter;
-  React.useEffect(() => {
-    if (!metering) return undefined;
-    meter.current?.(true);
-    return () => meter.current?.(false);
-  }, [metering]);
   const effects = (
     <GroupedSection footer={words.uiSoundsDescription}>
       <ToggleItem
@@ -367,7 +357,7 @@ function SoundPage({ snapshot, actions, strings }: PageProps) {
       {tab === "output" ? (
         <SoundOutput side={side} act={act} words={words} />
       ) : (
-        <SoundInput side={side} level={snapshot.soundInputLevel ?? 0} act={act} words={words} />
+        <SoundInput side={side} act={act} words={words} />
       )}
     </View>
   );
@@ -585,17 +575,7 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
 }
 
 /** Input's volume, and the level as the session meters it while the tab is shown. */
-function SoundInput({
-  side,
-  level,
-  act,
-  words,
-}: {
-  side: SoundSide;
-  level: number;
-  act: SoundActions;
-  words: SoundWordsOf;
-}) {
+function SoundInput({ side, act, words }: { side: SoundSide; act: SoundActions; words: SoundWordsOf }) {
   return (
     <GroupedSection>
       {side.volume !== null ? (
@@ -611,16 +591,21 @@ function SoundInput({
         </SliderRow>
       ) : null}
       <SliderRow title={words.inputLevel} testID="sound-input-level-row">
-        <InputLevel level={level} words={words} />
+        <InputLevel follow={act.followLevel} words={words} />
       </SliderRow>
     </GroupedSection>
   );
 }
 
 /** The input level, as a Mac's: a row of small rounded segments, those the level reaches lit in
-    the accent. One element, a progress bar named by what it measures, its value in percent. */
-function InputLevel({ level, words }: { level: number; words: SoundWordsOf }) {
+    the accent. One element, a progress bar named by what it measures, its value in percent. The
+    input is metered while it shows (ADR 0056, decision 7), and a level told renders it alone:
+    it follows the level itself, about 23 times a second while the input hears, rather than
+    taking it from the page. */
+function InputLevel({ follow, words }: { follow: SoundActions["followLevel"]; words: SoundWordsOf }) {
   const theme = useTheme();
+  const [level, setLevel] = React.useState(0);
+  React.useEffect(() => follow(setLevel), [follow]);
   const lit = litSegments(level);
   const percent = percentOf(level);
   return (

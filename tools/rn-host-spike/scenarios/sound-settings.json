@@ -1,5 +1,5 @@
 {
-  "about": "Settings' Sound page as a Mac's (docs/adr/0056-sound-devices.mdx), Settings granted `settings` as the image's policy grants it, over a played machine (the development compositor's --sound: the built-in speakers chosen at half, a DELL U2720Q display on HDMI at three quarters, the built-in microphone at 80 % hearing at half; WirePlumber's choice and its remembered stack played). Output & Input opens at Output: each output named with its type, the speakers chosen, the output volume, mute and a centred balance, nothing metered. Choosing the display makes it WirePlumber's configured default and shows its volume; the balance moves a step to the left and the volume a sixteenth up through the hardware controls, both on the display. Input shows the microphone chosen, its volume and its level, metered only while the tab shows; the meter follows the microphone; a USB headset plugged in takes over the input; back at Output nothing is metered. Every step checks what the played machine then has, exactly what Settings was delivered and React received, and that no text field has the keyboard.",
+  "about": "Settings' Sound page as a Mac's (docs/adr/0056-sound-devices.mdx), Settings granted `settings` as the image's policy grants it, over a played machine (the development compositor's --sound: the built-in speakers chosen at half, a DELL U2720Q display on HDMI at three quarters, the built-in microphone at 80 % hearing at half; WirePlumber's choice and its remembered stack played). Output & Input opens at Output: each output named with its type, the speakers chosen, the output volume, mute and a centred balance, nothing metered. Choosing the display makes it WirePlumber's configured default and shows its volume; the balance moves a step to the left and the volume a sixteenth up through the hardware controls, both on the display. Input shows the microphone chosen, its volume and its level, metered only while the tab shows; the meter follows the microphone, a level told rendering the meter alone (its segments: about 23 a second while the microphone hears; it rendered the whole window, 546 components, once); a USB headset plugged in takes over the input; back at Output nothing is metered. Every step checks what the played machine then has, exactly what Settings was delivered and React received, and that no text field has the keyboard.",
   "locale": "en_US.UTF-8",
   "module": "OxyOSSettings",
   "window": [
@@ -324,7 +324,7 @@
       }
     },
     {
-      "name": "Louder: the meter follows",
+      "name": "Louder: the meter follows, and the level renders the meter alone (its sixteen segments), never the page or the window it is in",
       "do": [
         "sound",
         {
@@ -335,6 +335,12 @@
         }
       ],
       "expect": {
+        "renders": {
+          "tops": [
+            "InputLevel"
+          ],
+          "components_max": 18
+        },
         "at": {
           "window": [
             {
