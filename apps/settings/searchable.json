@@ -1,0 +1,173 @@
+[
+  {
+    "id": "settings:oxy-account",
+    "url": "oxyos-settings://oxy-account",
+    "titles": { "en": "Oxy Account", "es": "Cuenta de Oxy" },
+    "keywords": {
+      "en": ["oxy", "account", "oxy id", "sign out", "log out", "sign in", "profile", "user", "name", "picture", "email", "manage account", "remove account", "username", "handle"],
+      "es": ["oxy", "cuenta", "id de oxy", "cerrar sesión", "iniciar sesión", "perfil", "usuario", "nombre", "foto", "correo", "gestionar cuenta", "eliminar cuenta", "nombre de usuario"]
+    }
+  },
+  {
+    "id": "settings:wifi",
+    "url": "oxyos-settings://wifi",
+    "titles": { "en": "Wi-Fi", "es": "Wi-Fi" },
+    "keywords": {
+      "en": ["wifi", "wi-fi", "wireless", "internet", "network", "router", "hotspot", "ssid", "password", "join", "airport", "wlan", "known networks", "auto-join"],
+      "es": ["wifi", "wi-fi", "inalámbrica", "internet", "red", "router", "punto de acceso", "ssid", "contraseña", "conectarse", "wlan", "redes conocidas", "conexión automática"]
+    }
+  },
+  {
+    "id": "settings:network",
+    "url": "oxyos-settings://network",
+    "titles": { "en": "Network", "es": "Red" },
+    "keywords": {
+      "en": ["network", "ethernet", "cable", "wired", "lan", "ip address", "ipv4", "ipv6", "dns", "router", "gateway", "subnet", "mac address", "internet", "connection"],
+      "es": ["red", "ethernet", "cable", "por cable", "lan", "dirección ip", "ipv4", "ipv6", "dns", "router", "puerta de enlace", "subred", "dirección mac", "internet", "conexión"]
+    }
+  },
+  {
+    "id": "settings:appearance",
+    "url": "oxyos-settings://appearance",
+    "titles": { "en": "Appearance", "es": "Apariencia" },
+    "keywords": {
+      "en": ["appearance", "dark mode", "light mode", "dark", "light", "auto", "night", "theme", "accent", "accent colour", "accent color", "colour", "color", "highlight"],
+      "es": ["apariencia", "modo oscuro", "modo claro", "oscuro", "claro", "automático", "noche", "tema", "color de acento", "acento", "color", "resaltado"]
+    }
+  },
+  {
+    "id": "settings:wallpaper",
+    "url": "oxyos-settings://wallpaper",
+    "titles": { "en": "Wallpaper", "es": "Fondo de pantalla" },
+    "keywords": {
+      "en": ["wallpaper", "background", "desktop picture", "desktop", "photo", "picture", "image", "colour", "color", "shuffle", "dynamic", "solar"],
+      "es": ["fondo de pantalla", "fondo", "imagen de escritorio", "escritorio", "foto", "imagen", "color", "aleatorio", "dinámico", "solar"]
+    }
+  },
+  {
+    "id": "settings:notifications",
+    "url": "oxyos-settings://notifications",
+    "titles": { "en": "Notifications", "es": "Notificaciones" },
+    "keywords": {
+      "en": ["notifications", "alerts", "banners", "do not disturb", "focus", "badges", "previews", "notification sounds", "lock screen", "notification center", "silence"],
+      "es": ["notificaciones", "avisos", "alertas", "tiras", "no molestar", "concentración", "globos", "previsualizaciones", "sonidos de notificación", "pantalla de bloqueo", "centro de notificaciones", "silenciar"]
+    }
+  },
+  {
+    "id": "settings:sound",
+    "url": "oxyos-settings://sound",
+    "titles": { "en": "Sound", "es": "Sonido" },
+    "keywords": {
+      "en": ["sound", "volume", "audio", "speakers", "headphones", "output", "input", "microphone", "mute", "alert sound", "sound effects", "interface sounds", "beep"],
+      "es": ["sonido", "volumen", "audio", "altavoces", "auriculares", "salida", "entrada", "micrófono", "silenciar", "sonido de alerta", "efectos de sonido", "sonidos de la interfaz", "pitido"]
+    }
+  },
+  {
+    "id": "settings:lock-screen",
+    "url": "oxyos-settings://lock-screen",
+    "titles": { "en": "Lock Screen", "es": "Pantalla de bloqueo" },
+    "keywords": {
+      "en": ["lock screen", "lock", "screen saver", "sleep", "idle", "password", "require password", "lock after", "security", "auto-lock"],
+      "es": ["pantalla de bloqueo", "bloquear", "salvapantallas", "reposo", "inactividad", "contraseña", "solicitar contraseña", "bloquear tras", "seguridad", "bloqueo automático"]
+    }
+  },
+  {
+    "id": "settings:displays",
+    "url": "oxyos-settings://displays",
+    "titles": { "en": "Displays", "es": "Pantallas" },
+    "keywords": {
+      "en": ["displays", "display", "monitor", "screen", "resolution", "scale", "scaling", "larger text", "more space", "refresh rate", "hz", "arrangement", "external display", "main display", "brightness", "hidpi", "retina"],
+      "es": ["pantallas", "pantalla", "monitor", "resolución", "escala", "escalado", "texto más grande", "más espacio", "frecuencia de actualización", "hz", "disposición", "pantalla externa", "pantalla principal", "brillo", "hidpi", "retina"]
+    }
+  },
+  {
+    "id": "settings:accessibility",
+    "url": "oxyos-settings://accessibility",
+    "titles": { "en": "Accessibility", "es": "Accesibilidad" },
+    "keywords": {
+      "en": ["accessibility", "screen reader", "voiceover", "reduce motion", "reduce transparency", "animations", "cursor", "caret", "blinking", "vision", "contrast", "assistive", "a11y"],
+      "es": ["accesibilidad", "lector de pantalla", "voiceover", "reducir movimiento", "reducir transparencia", "animaciones", "cursor", "intermitente", "visión", "contraste", "asistencia", "a11y"]
+    }
+  },
+  {
+    "id": "settings:language-region",
+    "url": "oxyos-settings://language-region",
+    "titles": { "en": "Language & Region", "es": "Idioma y región" },
+    "keywords": {
+      "en": ["language", "region", "locale", "country", "translation", "english", "spanish", "date format", "time format", "number format", "12-hour", "24-hour", "first day of week", "calendar"],
+      "es": ["idioma", "región", "configuración regional", "país", "traducción", "inglés", "español", "formato de fecha", "formato de hora", "formato de número", "12 horas", "24 horas", "primer día de la semana", "calendario"]
+    }
+  },
+  {
+    "id": "settings:keyboard",
+    "url": "oxyos-settings://keyboard",
+    "titles": { "en": "Keyboard", "es": "Teclado" },
+    "keywords": {
+      "en": ["keyboard", "layout", "input sources", "input method", "typing", "keys", "shortcuts", "key repeat", "pinyin", "japanese", "korean", "chinese", "emoji", "dictation"],
+      "es": ["teclado", "distribución", "fuentes de entrada", "método de entrada", "escritura", "teclas", "atajos", "repetición de teclas", "pinyin", "japonés", "coreano", "chino", "emoji", "dictado"]
+    }
+  },
+  {
+    "id": "settings:mouse",
+    "url": "oxyos-settings://mouse",
+    "titles": { "en": "Mouse", "es": "Ratón" },
+    "keywords": {
+      "en": ["mouse", "natural scrolling", "scrolling", "scroll direction", "pointer", "wheel", "click", "tracking speed"],
+      "es": ["ratón", "mouse", "desplazamiento natural", "desplazamiento", "dirección de desplazamiento", "puntero", "rueda", "clic", "velocidad"]
+    }
+  },
+  {
+    "id": "settings:trackpad",
+    "url": "oxyos-settings://trackpad",
+    "titles": { "en": "Trackpad", "es": "Trackpad" },
+    "keywords": {
+      "en": ["trackpad", "touchpad", "natural scrolling", "scrolling", "gestures", "swipe", "tap to click", "pointer", "fingers"],
+      "es": ["trackpad", "touchpad", "panel táctil", "desplazamiento natural", "desplazamiento", "gestos", "deslizar", "tocar para hacer clic", "puntero", "dedos"]
+    }
+  },
+  {
+    "id": "settings:date-time",
+    "url": "oxyos-settings://date-time",
+    "titles": { "en": "Date & Time", "es": "Fecha y hora" },
+    "keywords": {
+      "en": ["date", "time", "clock", "time zone", "timezone", "24-hour time", "set time automatically", "ntp", "calendar"],
+      "es": ["fecha", "hora", "reloj", "zona horaria", "formato de 24 horas", "ajustar la hora automáticamente", "ntp", "calendario"]
+    }
+  },
+  {
+    "id": "settings:software-update",
+    "url": "oxyos-settings://software-update",
+    "titles": { "en": "Software Update", "es": "Actualización de software" },
+    "keywords": {
+      "en": ["software update", "update", "upgrade", "updates", "version", "install updates", "apps", "new version", "patch", "atlas"],
+      "es": ["actualización de software", "actualizar", "actualizaciones", "versión", "instalar actualizaciones", "apps", "nueva versión", "parche", "atlas"]
+    }
+  },
+  {
+    "id": "settings:spotlight",
+    "url": "oxyos-settings://spotlight",
+    "titles": { "en": "Spotlight", "es": "Spotlight" },
+    "keywords": {
+      "en": ["spotlight", "search", "find", "index", "search results", "search privacy", "exclude folder", "categories", "indexing"],
+      "es": ["spotlight", "buscar", "búsqueda", "encontrar", "índice", "resultados de búsqueda", "privacidad de búsqueda", "excluir carpeta", "categorías", "indexación"]
+    }
+  },
+  {
+    "id": "settings:privacy",
+    "url": "oxyos-settings://privacy",
+    "titles": { "en": "Privacy", "es": "Privacidad" },
+    "keywords": {
+      "en": ["privacy", "security", "permissions", "camera", "microphone", "location", "files", "notifications", "background", "login items", "app access", "tracking"],
+      "es": ["privacidad", "seguridad", "permisos", "cámara", "micrófono", "ubicación", "archivos", "notificaciones", "segundo plano", "ítems de inicio", "acceso de apps", "rastreo"]
+    }
+  },
+  {
+    "id": "settings:about",
+    "url": "oxyos-settings://about",
+    "titles": { "en": "About", "es": "Información" },
+    "keywords": {
+      "en": ["about", "about this computer", "version", "oxyos version", "processor", "cpu", "memory", "ram", "storage", "disk", "computer name", "serial number", "system information", "hardware"],
+      "es": ["información", "acerca de este ordenador", "versión", "versión de oxyos", "procesador", "cpu", "memoria", "ram", "almacenamiento", "disco", "nombre del ordenador", "número de serie", "información del sistema", "hardware"]
+    }
+  }
+]
