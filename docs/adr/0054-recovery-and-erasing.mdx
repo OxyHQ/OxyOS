@@ -6,7 +6,7 @@ order: 63
 
 # ADR 0054: Recovery and erasing
 
-Status: **accepted** (decisions 1 to 9, taken with the platform's author's delegation); steps 1 and 2 implemented, step 1 run in QEMU ([results](#results)). Builds on [ADR 0023](./0023-installing-oxyos) (the image written whole, the disk, LUKS2, systemd-boot under shim, the gate), whose step 4 (the development installer) is implemented here and whose decisions 2 and 7 this amends; [ADR 0020](./0020-oxy-account-login) (enrolled accounts, `oxyos-accountd`, Remove), which it amends with administrators; [ADR 0017](./0017-boot-logo) (Plymouth and its passphrase field) and [ADR 0019](./0019-settings) (Settings).
+Status: **accepted** (decisions 1 to 9, taken with the platform's author's delegation); steps 1 and 2 implemented, step 1 run in QEMU and on a converted ThinkPad (decision 9) ([results](#results)). Builds on [ADR 0023](./0023-installing-oxyos) (the image written whole, the disk, LUKS2, systemd-boot under shim, the gate), whose step 4 (the development installer) is implemented here and whose decisions 2 and 7 this amends; [ADR 0020](./0020-oxy-account-login) (enrolled accounts, `oxyos-accountd`, Remove), which it amends with administrators; [ADR 0017](./0017-boot-logo) (Plymouth and its passphrase field) and [ADR 0019](./0019-settings) (Settings).
 
 ## Problem
 
@@ -97,6 +97,16 @@ What building and running found, fixed here:
 - `boot-complete.target` must be ordered after `multi-user.target`, or systemd-bless-boot marks a boot good three seconds in; and the entry's tries are given back from `systemd-bless-boot.service` (a target is ordered after what it wants, so wanting the unit from `multi-user.target` made a cycle that dropped it).
 - live-boot asks to remove the medium at every shutdown of the recovery, and live-config made its live user there: the recovery's entry says `noeject` and `live-config.nocomponents`.
 - OVMF's PS/2 driver gives systemd-boot no keys from QEMU: the tests' machine has a USB keyboard, as a laptop's firmware presents its own.
+
+**The startup picker and converted machines (8 November 2026),** the image of commit `78da315fc2f2`: `--recovery` 52 of 52 with UEFI and 52 of 52 with Secure Boot again, the picker now checked to list OxyOS, OxyOS Recovery and *Reboot Into Firmware Interface* and nothing else. In QEMU, holding Space or Super+R shows it; Alt alone does not (decision 2).
+
+**The ThinkPad, converted (decision 9),** remotely, with a person's session on its seat checked before every restart and its game servers kept running:
+- Its partition table, EFI system partition and GRUB configuration saved first (`~/oxyos-conversion-backup/{recovery,systemd-boot}-2026-11-08/`, with how to restore each, also kept off the machine); its root and its EFI system partition's existing files untouched by the partitioning.
+- The 24.6 GiB swap became OxyOS Recovery (3 GiB) and a 21.6 GiB swap with the old UUID; the image written there passed its checksums and `veritysetup verify`.
+- systemd-boot behind shim started once by `efibootmgr --bootnext` with Secure Boot on: the login screen up, no failed unit, nouveau probing the T550 and nothing more (no user of it), SSH back in 35 s; then made the default and GRUB purged. Every start since is systemd-boot's, its entry counted and given its three tries back after each.
+- The recovery started once (`bootctl set-oneshot`) by an entry of the test's own that reports what it found to the EFI system partition and restarts: the converted layout found (EFI `nvme0n1p1`, recovery `nvme0n1p3`, root `nvme0n1p2`), the recovery's partition read-only through dm-verity, its program on the console; back to OxyOS after.
+- Three failed starts, as they leave the entries (`+0-3`, written by hand rather than by cutting the power three times): the next start was the recovery by itself, whose restart gave the tries back, and the start after was OxyOS. The test's entry and report then removed.
+- Found and fixed on the way: the recovery mounted a converted machine's EFI system partition read-only (so its Restart could not give tries back), and counted any `oxyos-*` entry as a kernel's (now only kernel-install's, `oxyos-<version>`).
 
 Seen, not changed: systemd-boot's menu has no per-entry hotkey for Type 1 entries (decision 2); the passphrase field shows at most eleven bullets for a longer password (ADR 0017's theme).
 
