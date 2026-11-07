@@ -1,0 +1,351 @@
+{
+  "about": "Finder's drops on a folder (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 8 and 10): sample/DragProbe.tsx drags a file of the run's home through the platform's drag, which says the volume it is on (protocol version 28), and sample/FolderDropProbe.tsx, a second application started beside it (`companion`), takes files into the home (its drop target's `folder`) with a copy or a move, a copy its own first choice. Held over it, the drag is answered with the target's own copy until it learns its folder (the probe learns it two seconds after the drag entered, as a file manager learns the folder under the pointer); then, the pointer still, the host answers the compositor again as that change commits: a move, as Finder moves on the same volume, the pointer with no badge; Option held turns it into a copy, the pointer's green plus; released, a move. Dropped again with Option held, a copy. The window's drag (the adapter's drag.watchWindow) is told its entering, and its exit once dropped, after the drop's onDrop; a drag crossing the window and let go over the desktop beyond it exits it not dropped, and the source learns nothing was dropped. The probe moves nothing itself: the home keeps the file. Another volume cannot be staged in a run's home; the Rust and C ABI tests cover it (oxyos-files, oxyos-client-ffi). At scale 1.25 (a 1600x900 display, 1280x720 logical).",
+  "module": "DragProbe",
+  "window": [
+    640,
+    420
+  ],
+  "companion": {
+    "module": "FolderDropProbe",
+    "window": [
+      260,
+      180
+    ],
+    "at": [
+      980,
+      200
+    ]
+  },
+  "home": {
+    "items": {
+      "informe.txt": "un informe"
+    }
+  },
+  "steps": [
+    {
+      "name": "the home's file held over the folder target before it knows its folder: its own copy, the pointer's green plus; the window told the drag entered",
+      "do": [
+        "drag_hold",
+        [
+          454,
+          232,
+          1110,
+          290,
+          6,
+          60
+        ]
+      ],
+      "expect": {
+        "output_pixels": {
+          "1405,384": "#28cd41"
+        },
+        "in_companion": {
+          "texts": [
+            "Over: copy",
+            "Folder: not yet",
+            "Window: enter"
+          ],
+          "react": {
+            "drag.dragEnter@folder-zone": 1,
+            "drag.dragOver@folder-zone": [
+              1,
+              60
+            ]
+          }
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "focus.in": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.enter": 1,
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the target learns its folder, the home, on the dragged file's volume, the pointer still: the host answers again as that commits, a move, no badge",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1405,384": "!#28cd41"
+        },
+        "delivered": {
+          "companion": {}
+        },
+        "in_companion": {
+          "texts": [
+            "Over: move",
+            "Folder: the home",
+            "Window: enter"
+          ],
+          "react": {
+            "drag.dragOver@folder-zone": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option held: a copy, the pointer's green plus",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1405,384": "#28cd41"
+        },
+        "in_companion": {
+          "texts": [
+            "Over: copy",
+            "Window: enter"
+          ],
+          "react": {
+            "drag.dragOver@folder-zone": 1
+          }
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Option released: a move again, no badge",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "1405,384": "!#28cd41"
+        },
+        "in_companion": {
+          "texts": [
+            "Over: move"
+          ],
+          "react": {
+            "drag.dragOver@folder-zone": 1
+          }
+        },
+        "delivered": {
+          "1": {
+            "key.release": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "released there: dropped with a move, the source told; the window's drag exits dropped, after the drop's onDrop",
+      "do": [
+        "release_output",
+        [
+          1110,
+          290
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: move"
+        ],
+        "home": {
+          "informe.txt": true
+        },
+        "in_companion": {
+          "texts": [
+            "Drops: 1",
+            "informe.txt (move)",
+            "Window: enter, exit dropped after 1 drops"
+          ],
+          "react": {
+            "drag.dragOver@folder-zone": [
+              0,
+              1
+            ],
+            "drag.dragLeave@folder-zone": 1,
+            "drag.drop@folder-zone": 1
+          }
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "companion": {
+            "drag.drop": 1,
+            "enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "key.press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "dragged and dropped again with Option held: a copy",
+      "do": [
+        "drag_paced",
+        [
+          454,
+          232,
+          1110,
+          290,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: copy"
+        ],
+        "home": {
+          "informe.txt": true
+        },
+        "in_companion": {
+          "texts": [
+            "Drops: 2",
+            "informe.txt (copy)",
+            "Window: enter, exit dropped after 2 drops"
+          ],
+          "react": {
+            "drag.dragEnter@folder-zone": 1,
+            "drag.dragOver@folder-zone": [
+              1,
+              60
+            ],
+            "drag.dragLeave@folder-zone": 1,
+            "drag.drop@folder-zone": 1
+          }
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "dragged across the window and let go over the desktop beyond it: the window's drag exits not dropped, nothing dropped anywhere",
+      "do": [
+        "drag_paced",
+        [
+          454,
+          232,
+          1268,
+          290,
+          40,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Result: none"
+        ],
+        "home": {
+          "informe.txt": true
+        },
+        "in_companion": {
+          "texts": [
+            "Drops: 2",
+            "Window: enter, exit"
+          ],
+          "react": {
+            "drag.dragEnter@folder-zone": 1,
+            "drag.dragOver@folder-zone": [
+              1,
+              60
+            ],
+            "drag.dragLeave@folder-zone": 1
+          }
+        },
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          },
+          "companion": {
+            "drag.enter": 1,
+            "drag.leave": 1,
+            "leave": 1
+          }
+        }
+      }
+    }
+  ],
+  "outputs": "1600x900@1.25"
+}
