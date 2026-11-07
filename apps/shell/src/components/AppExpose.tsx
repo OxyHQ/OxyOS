@@ -12,7 +12,7 @@ import { Text } from "@oxy.so/bloom/typography";
 import { Box, PressArea } from "../primitives";
 import { AppIcon } from "../apps";
 import { Wallpaper } from "./Wallpaper";
-import type { ImageSourcePropType } from "react-native";
+import type { ShellWallpaper } from "../wallpaper";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { exposedWindows } from "../expose";
 import type { ShellKeyboard, WindowSize, WindowViewProps } from "../platform";
@@ -173,11 +173,11 @@ const ExposeWindow = memo(function ExposeWindow({
 export const AppExposeBackdrop = memo(function AppExposeBackdrop({
   wallpaper,
 }: {
-  wallpaper: ImageSourcePropType;
+  wallpaper: ShellWallpaper;
 }) {
   return (
     <Box testID="app-expose-backdrop" pointerEvents="none" className="absolute inset-0 overflow-hidden">
-      <Wallpaper source={wallpaper} decorative />
+      <Wallpaper wallpaper={wallpaper} decorative />
       <Box className="absolute inset-0 bg-[#0b0e14]/55" />
     </Box>
   );

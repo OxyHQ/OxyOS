@@ -1636,7 +1636,7 @@ fn an_image_loads_through_the_c_abi() {
     use images::*;
     let wallpaper = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../assets/wallpapers/solar-gradients/frames/frame-08.jpg"
+        "/../../assets/test-images/p3-5120x2880.jpg"
     );
     let missing = "/nonexistent/oxy.png";
     let (mut width, mut height) = (0, 0);

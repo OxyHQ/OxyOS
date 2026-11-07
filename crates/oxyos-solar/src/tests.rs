@@ -1,7 +1,7 @@
 use super::*;
 
-/// Solar Gradients' anchors, as its manifest gives them
-/// (assets/wallpapers/solar-gradients/manifest.json).
+/// Sixteen anchors spanning a day, the rule's test case: those of the first solar wallpaper the
+/// shell showed (ADR 0012), which was not OxyOS's to ship and is gone (ADR 0048, decision 8).
 const ANCHORS: &[Anchor] = &[
     Anchor {
         frame: 0,
