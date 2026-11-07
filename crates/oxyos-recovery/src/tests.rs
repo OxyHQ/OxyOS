@@ -191,7 +191,7 @@ fn the_definitions_lay_out_an_esp_the_recovery_and_an_encrypted_root_that_an_era
 
 #[test]
 fn the_recovery_entry_boots_its_partition_read_only_verified_into_the_recovery_and_no_live_user() {
-    let entry = layout::recovery_entry("5f36a183", ROOT_HASH, VERSION);
+    let entry = layout::recovery_entry("5f36a183", ROOT_HASH, VERSION, None);
     assert!(entry.contains("title      OxyOS Recovery\n"));
     assert!(entry.contains("sort-key   oxyos-recovery\n"));
     assert!(entry.contains("live-media=/dev/disk/by-partuuid/5f36a183 "));
@@ -215,7 +215,7 @@ fn the_loader_hides_its_menu_lists_only_oxyos_and_does_not_edit_command_lines() 
         "default oxyos-*",
         "editor no",
         "auto-entries no",
-        "auto-firmware no",
+        "auto-firmware yes",
     ] {
         assert!(layout::LOADER_CONF.lines().any(|l| l == line), "{line}");
     }
@@ -1219,4 +1219,65 @@ fn a_converted_machine_is_never_erased_whatever_asks() {
         host.commands
     );
     assert_eq!(request.state, State::Armed);
+}
+
+#[test]
+fn a_converted_machines_recovery_entry_names_its_root_and_is_written_from_its_checked_image() {
+    let machine = Machine::new();
+    // What the recovery partition holds, where the (played) mount shows it.
+    let live = machine.paths.run.join("recovery/live");
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("filesystem.squashfs.roothash"), ROOT_HASH).unwrap();
+    fs::write(live.join(format!("vmlinuz-{VERSION}")), "kernel").unwrap();
+    fs::write(live.join(format!("initrd.img-{VERSION}")), "initrd").unwrap();
+    let esp = Scratch::new("esp");
+    let disk = converted_disk();
+    let recovery = disk.only(RECOVERY_TYPE).unwrap();
+    let mut host = Recorder::new();
+    let root = "129a8dff-ec84-4f37-af8a-2a048f2563a4";
+    let hash =
+        install::add_recovery_entry(&mut host, &machine.paths, esp.path(), recovery, Some(root))
+            .unwrap();
+    assert_eq!(hash, ROOT_HASH);
+    let run = machine.paths.run.display().to_string();
+    assert_eq!(
+        host.commands,
+        [
+            format!("mount -o ro /dev/nvme0n1p3 {run}/recovery"),
+            format!("veritysetup verify {run}/recovery/live/filesystem.squashfs {run}/recovery/live/filesystem.squashfs.verity {ROOT_HASH}"),
+            format!("umount {run}/recovery"),
+        ]
+    );
+    let entry = fs::read_to_string(
+        esp.path()
+            .join("loader/entries")
+            .join(layout::RECOVERY_ENTRY),
+    )
+    .unwrap();
+    assert!(entry.contains(&format!(" oxyos.recovery.root=PARTUUID={root} ")));
+    assert!(
+        entry.contains("live-media=/dev/disk/by-partuuid/5b135168-8f41-419c-bf27-3955087bcda2 ")
+    );
+    assert_eq!(
+        fs::read_to_string(esp.path().join("oxyos-recovery/linux")).unwrap(),
+        "kernel"
+    );
+    assert!(!layout::recovery_entry("p", ROOT_HASH, VERSION, None).contains("oxyos.recovery.root"));
+
+    // An image that does not match its root hash writes nothing, and is unmounted.
+    let esp = Scratch::new("esp");
+    let mut refusing = Recorder::new().answer(|c| (c.program == "veritysetup").then(|| status(1)));
+    assert!(install::add_recovery_entry(
+        &mut refusing,
+        &machine.paths,
+        esp.path(),
+        recovery,
+        Some(root)
+    )
+    .is_err());
+    assert!(!esp.path().join("loader").exists());
+    assert_eq!(
+        refusing.commands.last().unwrap(),
+        &format!("umount {run}/recovery")
+    );
 }

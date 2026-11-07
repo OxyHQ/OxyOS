@@ -39,7 +39,9 @@ fn main() -> ExitCode {
         Some("console") => console::run(),
         Some("boot-tries") => boot_tries(),
         Some("arm-erase") => arm_erase(),
-        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | arm-erase".into()),
+        Some("recovery-entry") => recovery_entry(&arguments[1..]),
+        Some("rearm") => rearm(&arguments[1..]),
+        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -126,6 +128,64 @@ fn arm_erase() -> Result<(), String> {
         "Erase armed for {} (root {}): the recovery erases it at the next boot.",
         disk.path, request.root
     );
+    Ok(())
+}
+
+/// Writes the recovery's entry, kernel and initramfs onto the EFI system partition at /efi, from
+/// the recovery partition of the disk that holds it. `--system-root PARTUUID` names a converted
+/// machine's root (ADR 0054, decision 9).
+fn recovery_entry(arguments: &[String]) -> Result<(), String> {
+    let system_root = match arguments {
+        [] => None,
+        [flag, uuid] if flag == "--system-root" => {
+            if disks::converted_root(&format!("oxyos.recovery.root=PARTUUID={uuid}")).is_none() {
+                return Err(format!("{uuid} is not a partition UUID"));
+            }
+            Some(uuid.to_ascii_lowercase())
+        }
+        _ => return Err("usage: oxyos-recovery recovery-entry [--system-root PARTUUID]".into()),
+    };
+    let mut host = System;
+    let disks = install::disks(&mut host).map_err(|e| e.to_string())?;
+    let disk = disks::disk_with_mount(&disks, ESP).ok_or(format!("nothing is mounted at {ESP}"))?;
+    let recovery = disk
+        .only(layout::RECOVERY_TYPE)
+        .ok_or(format!("{} has no OxyOS Recovery partition", disk.path))?;
+    if let Some(root) = &system_root {
+        disk.converted_layout(root).ok_or(format!(
+            "{root} is not a root partition of {} beside its recovery",
+            disk.path
+        ))?;
+    }
+    let hash = install::add_recovery_entry(
+        &mut host,
+        &Paths::default(),
+        Path::new(ESP),
+        recovery,
+        system_root.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "OxyOS Recovery's entry written: {} on {}, root hash {hash}.",
+        layout::RECOVERY_ENTRY,
+        recovery.path
+    );
+    Ok(())
+}
+
+/// Gives every OxyOS entry on the EFI system partition at `--esp` its tries back, as the
+/// recovery's Restart does.
+fn rearm(arguments: &[String]) -> Result<(), String> {
+    let [flag, esp] = arguments else {
+        return Err("usage: oxyos-recovery rearm --esp DIRECTORY".into());
+    };
+    if flag != "--esp" {
+        return Err("usage: oxyos-recovery rearm --esp DIRECTORY".into());
+    }
+    let changed = Entries::new(Path::new(esp))
+        .rearm_all(entries::TRIES)
+        .map_err(|e| e.to_string())?;
+    println!("{changed} entries given their tries back.");
     Ok(())
 }
 
