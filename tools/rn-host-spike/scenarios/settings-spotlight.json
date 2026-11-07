@@ -90,7 +90,7 @@
       "allow_unchanged": true,
       "expect": {
         "home": {
-          ".config/oxyos/search.json": "{\n  \"hidden\": [\n    \"application\"\n  ],\n  \"excluded\": []\n}"
+          ".config/oxyos/search.json": "{\n  \"excluded\": [],\n  \"hidden\": [\n    \"application\"\n  ]\n}"
         }
       }
     },
@@ -127,7 +127,7 @@
       "allow_unchanged": true,
       "expect": {
         "home": {
-          ".config/oxyos/search.json": "{\n  \"hidden\": [],\n  \"excluded\": []\n}"
+          ".config/oxyos/search.json": "{\n  \"excluded\": [],\n  \"hidden\": []\n}"
         }
       }
     }
