@@ -10,6 +10,7 @@ import {
   isLocked,
   joinFailureNeedsNote,
   otherNetworks,
+  signalBars,
   type EthernetState,
   type NearbyNetwork,
   type WifiState,
@@ -60,6 +61,17 @@ test("the network joined: marked current among those nearby, else the state's", 
   const told = nearby("LukeSkyRouter", 73, { current: true });
   assert.equal(currentNetwork(wifi([], told)), told);
   assert.equal(currentNetwork(wifi([nearby("Bar", 20)], null)), null);
+});
+
+test("signal in three arcs, as the top bar draws it", () => {
+  assert.equal(signalBars(0), 0);
+  assert.equal(signalBars(1), 1);
+  assert.equal(signalBars(33), 1);
+  assert.equal(signalBars(34), 2);
+  assert.equal(signalBars(66), 2);
+  assert.equal(signalBars(67), 3);
+  assert.equal(signalBars(73), 3);
+  assert.equal(signalBars(100), 3);
 });
 
 test("a lock for every network that asks a password, none for open and OWE ones", () => {

@@ -5,9 +5,8 @@
 
 mod bluetooth;
 
-use bluetooth::{Played, Session, MACHINE, WAIT};
+use bluetooth::{Played, Session, MACHINE};
 use oxyos_bluetooth::{Answer, Ask, Busy, Command, Done, Event, Failure, Kind};
-use std::time::Instant;
 
 #[test]
 fn reads_the_machine_and_registers_the_agent() {
@@ -187,9 +186,8 @@ fn pairing_asks_what_each_device_needs() {
     });
     played.act(r#"{"typed": "00:1F:20:0A:0B:0C"}"#);
     let mut ended = false;
-    let deadline = Instant::now() + WAIT;
     loop {
-        match session.next_by(deadline, "the pairing's outcome") {
+        match session.next() {
             Event::QuestionEnded(ended_id) => {
                 assert_eq!(ended_id, id);
                 ended = true;
@@ -240,9 +238,8 @@ fn a_code_shown_and_cancelled_ends_the_pairing() {
     let asked = session.question();
     let id = asked.id;
     played.act(r#"{"cancel": "3C:28:6D:01:02:03"}"#);
-    let deadline = Instant::now() + WAIT;
     loop {
-        match session.next_by(deadline, "the question ended") {
+        match session.next() {
             Event::QuestionEnded(ended) => {
                 assert_eq!(ended, id);
                 break;

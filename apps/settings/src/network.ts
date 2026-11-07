@@ -120,6 +120,14 @@ export function currentNetwork(state: WifiState): NearbyNetwork | null {
   );
 }
 
+/** How many of the Wi-Fi glyph's three arcs a signal fills, as the shell's top bar draws it: 0 for
+    none (no signal at all), else 1 to 3. */
+export function signalBars(signal: number): 0 | 1 | 2 | 3 {
+  if (signal <= 0) return 0;
+  if (signal >= 67) return 3;
+  if (signal >= 34) return 2;
+  return 1;
+}
 
 /** Whether joining asks for a password: a lock is shown. Open and OWE (encrypted, but with no
     password) networks have none. */

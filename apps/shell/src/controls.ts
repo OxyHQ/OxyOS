@@ -128,3 +128,9 @@ export function bluetoothLabel(
   return messages.controls.devices(bluetooth.connected);
 }
 
+/** How many of the Wi-Fi icon's three arcs its signal fills. */
+export function wifiBars(signal: number): number {
+  if (signal >= 67) return 3;
+  if (signal >= 34) return 2;
+  return 1;
+}

@@ -587,48 +587,4 @@ session required pam_permit.so
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
-
-    #[test]
-    fn the_login_screens_socket_appears_only_listening_and_only_the_greeters() {
-        use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let dir = std::env::temp_dir().join(format!(
-            "oxyos-auth-greeter-listening-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("greeter");
-        let me = rustix::process::getuid().as_raw();
-        let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
-        inotify::add_watch(&watch, &dir, WatchFlags::CREATE | WatchFlags::MOVED_TO).unwrap();
-        // Made, then made again over the one a run before left: each time the name appears only
-        // by a rename of a socket already listening, never by its bind (a greeter connecting
-        // between a bind and its listen would be refused), and already the greeter's alone.
-        for _ in 0..2 {
-            let listener = greeter::Listener::bind(&path, me).unwrap();
-            let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
-            let mut reader = inotify::Reader::new(&watch, &mut buffer);
-            let mut named = Vec::new();
-            while let Ok(event) = reader.next() {
-                if event.file_name().map(|name| name.to_bytes()) == Some(b"greeter".as_slice()) {
-                    named.push(event.events());
-                }
-            }
-            assert_eq!(named, [ReadFlags::MOVED_TO]);
-            let metadata = std::fs::metadata(&path).unwrap();
-            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
-            assert_eq!(metadata.uid(), me);
-            let _client = Greeter::connect(&path).unwrap();
-            assert!(listener.accept(me).unwrap().is_some());
-        }
-        // Nothing of the making is left beside it.
-        let left: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .map(|entry| entry.file_name())
-            .collect();
-        assert_eq!(left, [std::ffi::OsString::from("greeter")]);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
 }

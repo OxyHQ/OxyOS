@@ -7,9 +7,8 @@
 //
 // with BLOOM_DIR (the Bloom checkout, whose node_modules are the packages built from). RUNTIME is a
 // runtime's directory (runtime.json, hermesc); this writes `framework/` there: `framework.hbc`, its
-// worklets compiled ahead (`worklets.hbc`, worklets.mjs), its assets, and `framework.json`, what it
-// provides (every module's key and id, which are public, and each package's version), and names
-// its digest in runtime.json.
+// assets, and `framework.json`, what it provides (every module's key and id, which are public, and
+// each package's version), and names its digest in runtime.json.
 //
 // PREVIOUS, the framework.json of the runtime's previous `api` of the same `abi`, is the contract
 // this one keeps: an `api` only adds (decision 2), so every public module it had must be here with
@@ -26,7 +25,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { compileWorklets } from './worklets.mjs';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 const [runtimeDir, previousManifest] = process.argv.slice(2);
@@ -150,9 +148,6 @@ const built = execFileSync('node', ['bundle.mjs', path.relative(here, entry), ou
 const source = path.join(out, 'index.js');
 const bytecode = path.join(out, 'framework.hbc');
 execFileSync(path.join(runtime, 'hermesc'), ['-emit-binary', '-O', '-w', '-out', bytecode, source], { stdio: 'inherit' });
-// Its worklets, compiled ahead for worklets' UI runtime (worklets.mjs), which the host hands the
-// compiled functions instead of compiling each from its text at every launch.
-const worklets = compileWorklets(source, path.join(out, 'worklets.hbc'), path.join(runtime, 'hermesc'), bloom, execFileSync);
 fs.rmSync(source);
 
 const manifest = JSON.parse(fs.readFileSync(path.join(out, 'framework.json'), 'utf8'));
@@ -208,4 +203,4 @@ fs.writeFileSync(path.join(runtime, 'runtime.json'), JSON.stringify({
   framework: { sha256: digest, size: bytes.length, manifest: manifestDigest },
 }) + '\n');
 const count = Object.keys(manifest.modules).length;
-console.log(JSON.stringify({ framework: path.join(runtime, 'framework', 'framework.hbc'), bytes: bytes.length, modules: count, worklets, built: JSON.parse(built) }));
+console.log(JSON.stringify({ framework: path.join(runtime, 'framework', 'framework.hbc'), bytes: bytes.length, modules: count, built: JSON.parse(built) }));
