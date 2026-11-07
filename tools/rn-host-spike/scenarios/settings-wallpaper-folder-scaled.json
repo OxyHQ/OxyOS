@@ -1,0 +1,302 @@
+{
+ "about": "Settings › Wallpaper's Add Folder… (docs/adr/0048-wallpapers.mdx, decisions 2, 6 and 7) with the session's shell, in Spanish, at 1.25 (2400 × 1500): the system's file chooser (Dropsea's picker, choosing a folder) adds a folder of three photos of the person's, each two colours, its left half one and its right half another; the folder becomes the wallpaper at once, a shuffle of its photos every hour, the shell showing one of them whole (which, a hash of the clock's hour, the display and the folder's path in the run's own home), its tile in Your Photos saying how many photos it has; its interval then every 5 minutes. The wallpaper's clock is fixed. Each step checks the preferences file, the desktop beside Settings' window, the assistive technology's nodes and what React received. Needs Dropsea's package (DROPSEA_DIR).",
+ "locale": "es_ES.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  1000,
+  1040
+ ],
+ "outputs": "2400x1500@1.25",
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "wallpaper": {
+  "tz": "Europe/Madrid",
+  "now": 1782043200
+ },
+ "file_chooser": "Dropsea",
+ "home": {
+  "items": {
+   "Pictures/Viaje/Alba.png": {
+    "png": [
+     1600,
+     1000,
+     "#c8333a",
+     "#f2c94c"
+    ]
+   },
+   "Pictures/Viaje/Bosque.png": {
+    "png": [
+     1600,
+     1000,
+     "#2f9a5a",
+     "#9b51e0"
+    ]
+   },
+   "Pictures/Viaje/Costa.png": {
+    "png": [
+     1600,
+     1000,
+     "#1f5fd6",
+     "#f2994a"
+    ]
+   },
+   "Documents/": ""
+  }
+ },
+ "steps": [
+  {
+   "name": "Settings' Wallpaper page, from the sidebar",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Fondo de pantalla"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1,
+     "click@settings-nav-wallpaper": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Añadir carpeta…"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Add Folder…: the system's file chooser, choosing a folder, as a sheet of Settings' window",
+   "do": [
+    "press_named",
+    "Añadir carpeta…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-add-folder": 1,
+     "touchEnd@wallpaper-add-folder": 1
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    }
+   }
+  },
+  {
+   "name": "the chooser shows the home",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "Pictures in its sidebar",
+   "do": [
+    "press_named",
+    "Imágenes"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "its folder",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "Viaje selected",
+   "do": [
+    "press_named",
+    "Viaje"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "Open: the folder's photos are the wallpaper, one of its three each hour (the clock fixed), filling the screen; its tile in Your Photos, chosen and said with how many photos it has; the top says so, with its fit and how often it changes",
+   "do": [
+    "press_output",
+    [
+     1310,
+     601
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "chooser": null,
+    "preferences_file": {
+     "wallpaper": "folder:fill:000000:60:{home}/Pictures/Viaje"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Image",
+       "name": "Fondo de pantalla actual: Viaje, Carpeta, 3 fotos"
+      },
+      {
+       "role": "Radio",
+       "name": "Carpeta: Viaje, 3 fotos",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Ajuste"
+      },
+      {
+       "role": "Button",
+       "name": "Cambiar imagen"
+      }
+     ]
+    },
+    "output_pixels_any": [
+     {
+      "188,750": "#c8333a",
+      "375,750": "#c8333a",
+      "2062,750": "#f2c94c",
+      "2188,375": "#f2c94c"
+     },
+     {
+      "188,750": "#2f9a5a",
+      "375,750": "#2f9a5a",
+      "2062,750": "#9b51e0",
+      "2188,375": "#9b51e0"
+     },
+     {
+      "188,750": "#1f5fd6",
+      "375,750": "#1f5fd6",
+      "2062,750": "#f2994a",
+      "2188,375": "#f2994a"
+     }
+    ]
+   }
+  },
+  {
+   "name": "how often it changes: its menu",
+   "do": [
+    "press",
+    [
+     905,
+     280
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-interval": 1,
+     "touchEnd@wallpaper-interval": 1,
+     "show@wallpaper-interval-row": 1
+    },
+    "texts": [
+     "Al iniciar sesión",
+     "Cada 5 minutos",
+     "Cada 15 minutos",
+     "Cada 30 minutos",
+     "Cada hora",
+     "Cada día"
+    ]
+   }
+  },
+  {
+   "name": "Every 5 minutes: kept, the desktop one of the folder's photos",
+   "do": [
+    "press_named",
+    "Cada 5 minutos"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-interval-row": 1,
+     "touchEnd@wallpaper-interval-row": 1
+    },
+    "preferences_file": {
+     "wallpaper": "folder:fill:000000:5:{home}/Pictures/Viaje"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Radio",
+       "name": "Carpeta: Viaje, 3 fotos",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    },
+    "output_pixels_any": [
+     {
+      "188,750": "#c8333a",
+      "375,750": "#c8333a",
+      "2062,750": "#f2c94c",
+      "2188,375": "#f2c94c"
+     },
+     {
+      "188,750": "#2f9a5a",
+      "375,750": "#2f9a5a",
+      "2062,750": "#9b51e0",
+      "2188,375": "#9b51e0"
+     },
+     {
+      "188,750": "#1f5fd6",
+      "375,750": "#1f5fd6",
+      "2062,750": "#f2994a",
+      "2188,375": "#f2994a"
+     }
+    ]
+   }
+  }
+ ],
+ "final": {
+  "app_data": {
+   "so.oxy.settings": {
+    "wallpapers.json": {
+     "added": [
+      {
+       "kind": "folder",
+       "path": "{home}/Pictures/Viaje"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -118,6 +118,7 @@ import {
   type InputSourcesState,
 } from "./input-sources";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
+import { WallpaperPage } from "./WallpaperPage";
 import { accountView, type AccountView } from "./account";
 import {
   formatSize as formatBytes,
@@ -208,29 +209,6 @@ function AppearancePage({ snapshot, actions, strings }: PageProps) {
         />
       </GroupedSection>
     </View>
-  );
-}
-
-function WallpaperPage({ snapshot, actions, strings }: PageProps) {
-  const items = [
-    { value: "", label: strings.wallpaper.system },
-    ...snapshot.wallpapers.map((wallpaper) => ({ value: wallpaper.id, label: wallpaper.name })),
-  ];
-  return (
-    <GroupedSection footer={strings.wallpaper.dynamic}>
-      <GroupedSectionItem
-        title={strings.wallpaper.current}
-        rightElement={
-          <SettingsSelect
-            label={strings.wallpaper.current}
-            value={snapshot.preferences.wallpaper ?? ""}
-            items={items}
-            onChange={(value) => actions.setPreference("wallpaper", value === "" ? null : value)}
-            testID="wallpaper"
-          />
-        }
-      />
-    </GroupedSection>
   );
 }
 

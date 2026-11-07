@@ -40,8 +40,9 @@ test("preferences are named as the session's file names them", () => {
     "trackpad_natural_scrolling",
     "ui_sounds",
     "wallpaper",
+    "wallpaper_all_desktops",
   ]);
-  assert.equal(preferenceText<"wallpaper">(null), "");
+  assert.equal(preferenceText<"wallpaper">(""), "");
   assert.equal(preferenceText<"reduceMotion">(true), "true");
   assert.equal(preferenceText<"lockAfter">(15), "15");
   assert.equal(preferenceText<"notificationPreviews">("always"), "always");
