@@ -44,6 +44,14 @@ const icons = {
   'so.oxy.atlas': 'tools/shell-preview/assets/apps/atlas.png',
   'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
 };
+// Each application's declared searchable items (docs/adr/0051-search.mdx): `searchable.json` at its
+// package's root, beside `manifest.json` and `index.hbc`, listed in the manifest as every file is.
+// The search service reads `<package>/searchable.json` of each application the registry lists, as a
+// Mac's preference panes declare their search terms: Settings' pages, each with its title and the
+// words a person would type to find it, in each language (apps/settings/searchable.json).
+const searchable = {
+  'so.oxy.settings': 'apps/settings/searchable.json',
+};
 const entries = {
   'so.oxy.shell': 'entries/shell.js',
   'so.oxy.login': 'entries/login.js',
@@ -91,6 +99,7 @@ for (const [id, entry] of Object.entries(entries)) {
       .split('\n').pop());
   if (bundled.bytecode) throw new Error(`${id}: bundle.mjs wrote bytecode`);
   fs.copyFileSync(path.join(repository, icons[id]), path.join(dir, 'icon.png'));
+  if (searchable[id]) fs.copyFileSync(path.join(repository, searchable[id]), path.join(dir, 'searchable.json'));
   console.log(run(pack, ['pack', dir, path.join(here, 'packages', `${id}.json`), path.join(runtime, 'runtime.json'), key]));
   console.log(run(pack, ['compile', dir, path.join(runtime, 'hermesc')]));
   fs.mkdirSync(path.join(out, 'applications'), { recursive: true });
