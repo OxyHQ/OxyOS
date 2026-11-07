@@ -61,9 +61,11 @@
 //!
 //! A `TAG` is `{name, color}`, `color` one of Finder's seven (`red`, `orange`, `yellow`, `green`,
 //! `blue`, `purple`, `grey`) or null (docs/adr/0049-file-tags.mdx). `changeTags` removes, then
-//! adds; a name that cannot be a tag's refuses the whole request (`invalid`). `tagged` and
-//! `tagNames` start the index of the person's tagged items ([`TagIndex`]) and are answered once
-//! its first crawl ended, never holding the requests behind them; `watchTags` starts it too.
+//! adds (a name removed and added back keeps its place, and a new one takes a removed one's: a
+//! rename in place); a name that cannot be a tag's refuses the whole request (`invalid`).
+//! `tagged` and `tagNames` start the index of the person's tagged items ([`TagIndex`]) and are
+//! answered once its first crawl ended, never holding the requests behind them; `watchTags`
+//! starts it too.
 
 use crate::access::{self, Encoding, Handles, Mode, Relocation};
 use crate::places::{self, Favourite};
