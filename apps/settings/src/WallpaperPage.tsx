@@ -54,6 +54,8 @@ type Words = Messages["wallpaper"];
 const TILE = { width: 104, height: 65 } as const;
 const PREVIEW = { width: 176, height: 110 } as const;
 const RADIUS = 8;
+/** The variant menu's Automatic: no variant's id (an id begins with a letter). */
+const AUTOMATIC = "-automatic";
 /** The selection ring: its width and its gap from the picture, as a Mac's. */
 const RING = 2.5;
 const GAP = 2;
@@ -678,12 +680,14 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
             rightElement={
               <SettingsSelect
                 label={words.variant}
-                value={choice.kind === "system" ? (choice.variant ?? "") : ""}
+                value={choice.kind === "system" ? (choice.variant ?? AUTOMATIC) : AUTOMATIC}
                 items={[
-                  { value: "", label: words.automatic },
+                  { value: AUTOMATIC, label: words.automatic },
                   ...system.variants.map((variant) => ({ value: variant.id, label: variant.name })),
                 ]}
-                onChange={(variant) => set({ kind: "system", id: system.id, variant: variant || null })}
+                onChange={(variant) =>
+                  set({ kind: "system", id: system.id, variant: variant === AUTOMATIC ? null : variant })
+                }
                 testID="wallpaper-variant"
               />
             }

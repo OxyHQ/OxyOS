@@ -296,7 +296,10 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
   watchFolders: [BLOOM, NODE_MODULES, __dirname, ...(APP ? [APP.checkout] : []), path.resolve(__dirname, '../../../assets'),
     path.resolve(__dirname, '../../shell-preview/assets'),
     // The shell's own sources (apps/shell), for the shell probe.
-    path.resolve(__dirname, '../../../apps')],
+    path.resolve(__dirname, '../../../apps'),
+    // The system's wallpapers (docs/adr/0048-wallpapers.mdx): the shell's default where no session
+    // tells it one.
+    path.resolve(__dirname, '../../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers')],
   resolver: {
     platforms: [PLATFORM, 'android', 'ios', 'native', 'web'],
     // The Bloom checkout's own worktrees are not part of the app, nor the application checkout's.

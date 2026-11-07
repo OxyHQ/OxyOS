@@ -1158,7 +1158,7 @@ std::shared_ptr<TurboModule> createHostModule(
         throw jsi::JSError(rt, "OxyOSSettings.wallpaperThumbnail: a URI, a width and a height");
       }
       std::string uri = args[0].asString(rt).utf8(rt);
-      auto side = [](double pixels) { return static_cast<uint32_t>(std::clamp(pixels, 1.0, 4096.0)); };
+      auto side = [](double pixels) { return static_cast<uint32_t>(std::clamp(pixels, 1.0, 1024.0)); };
       uint32_t width = side(args[1].asNumber()), height = side(args[2].asNumber());
       return later(rt, [uri, width, height](auto resolve, auto) {
         WallpaperWork::run([uri, width, height, resolve] {
