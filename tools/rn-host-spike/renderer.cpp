@@ -649,9 +649,18 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   const float reducedSigma = k > 1 ? std::sqrt(std::max(0.25f, sigma * sigma - k * k / 4.0f)) / k : sigma;
   // What the blur reads around a pixel: three deviations.
   const int margin = static_cast<int>(std::ceil(3 * reducedSigma));
-  const float left = visible.fLeft - margin / reducedScale, top = visible.fTop - margin / reducedScale;
-  const int width = static_cast<int>(std::ceil(visible.width() * reducedScale)) + 2 * margin;
-  const int height = static_cast<int>(std::ceil(visible.height() * reducedScale)) + 2 * margin;
+  // The reduced picture's pixels lie on a grid anchored at the view's own corner, whatever part of
+  // it the canvas paints: a pixel's blur is then the same whichever damage repaints it. Anchored at
+  // the damage instead, the reduced pixels fell elsewhere at each repaint, and over a backdrop that
+  // is not flat (a wallpaper's gradient) a pixel came out a level or three apart from one frame, or
+  // one run, to the next, and a seam showed where a repaint met what was kept.
+  const float firstX = std::floor((visible.fLeft - x) * reducedScale);
+  const float firstY = std::floor((visible.fTop - y) * reducedScale);
+  const float lastX = std::ceil((visible.fRight - x) * reducedScale);
+  const float lastY = std::ceil((visible.fBottom - y) * reducedScale);
+  const float left = x + (firstX - margin) / reducedScale, top = y + (firstY - margin) / reducedScale;
+  const int width = static_cast<int>(lastX - firstX) + 2 * margin;
+  const int height = static_cast<int>(lastY - firstY) + 2 * margin;
   const SkImageInfo info = SkImageInfo::Make(width, height, kRGBA_F16Norm_SkColorType, kPremul_SkAlphaType);
   sk_sp<SkSurface> drawn = canvas.makeSurface(info);
   sk_sp<SkSurface> blurred = canvas.makeSurface(info);
