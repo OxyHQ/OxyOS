@@ -626,3 +626,49 @@ fn outcomes_answer_their_askers() {
         .count();
     assert_eq!(offs, 1);
 }
+
+#[test]
+fn bluez_gone_answers_what_was_under_way_and_takes_discovery_up_again() {
+    let mut s = Session::new();
+    s.ask(SETTINGS, r#"{"bluetoothDiscover":{"on":true}}"#, false);
+    s.until(|s| s.discovering() == Some(true));
+    let asked = s.ask(
+        SETTINGS,
+        r#"{"bluetoothConnect":{"id":"3C:28:6D:01:02:03"}}"#,
+        true,
+    );
+    s.sent(|c| matches!(c, Command::Connect { .. }));
+    let (question, _answered) = Question::new(
+        11,
+        Asked::Confirm(1),
+        "3C:28:6D:01:02:03".into(),
+        "Pixel 8".into(),
+        Kind::Phone,
+    );
+    s.played.give(Event::Question(question));
+    let (sheet, _) = s.wait_sheet(0);
+    // BlueZ stops: the connection is answered, its question withdrawn.
+    s.played.give(Event::State(State::unavailable()));
+    s.until(|s| s.answer(SETTINGS, asked).is_some());
+    assert_eq!(
+        s.answer(SETTINGS, asked).unwrap(),
+        r#"{"failed":{"reason":"unavailable"}}"#
+    );
+    assert!(s.dismissed(sheet));
+    // Back: discovery, still held, is asked again.
+    let before = s
+        .played
+        .sent()
+        .iter()
+        .filter(|c| **c == Command::Discover(true))
+        .count();
+    s.played.give(Event::State(machine()));
+    s.until(|s| {
+        s.played
+            .sent()
+            .iter()
+            .filter(|c| **c == Command::Discover(true))
+            .count()
+            > before
+    });
+}

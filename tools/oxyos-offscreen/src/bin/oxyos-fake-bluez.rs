@@ -763,12 +763,20 @@ impl Fake {
                         "Does Not Exist",
                     ));
                 };
-                let device = machine.devices.remove(at);
-                machine.log.push(format!("RemoveDevice {}", device.address));
+                // Forgotten: no longer an object of BlueZ's, its keys gone (kept here, not present,
+                // so what was done to it can be told).
+                let device = &mut machine.devices[at];
                 let mut interfaces = vec![DEVICE.to_string()];
-                if device.battery.is_some() {
+                if device.battery.take().is_some() {
                     interfaces.push(BATTERY.to_string());
                 }
+                device.present = false;
+                device.paired = false;
+                device.trusted = false;
+                device.connected = false;
+                device.alias = None;
+                let address = device.address.clone();
+                machine.log.push(format!("RemoveDevice {address}"));
                 self.removed(object.as_str(), interfaces);
                 Ok(Answer::Nothing)
             }

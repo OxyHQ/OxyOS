@@ -1,0 +1,606 @@
+{
+  "about": "Settings › Bluetooth as a Mac's (docs/adr/0050-bluetooth.mdx), Settings granted `settings` and `bluetooth` as the image's policy grants it, over a BlueZ played on the run's own bus (oxyos-fake-bluez): AirPods Pro (connected, 80 %), a Magic Keyboard and an MX Master 3S (connected, 55 %) paired; nearby, a Pixel 8 comparing a code, an old keyboard typing a passkey, a car kit asking a legacy PIN and an advertiser with no name. The page lists My Devices and holds discovery (filtered, the computer discoverable) while it is open; connecting the phone asks the code to compare in the shell's sheet, never in Settings, and pairs it; the keyboard shows its code until it is typed on it, then connects; the car kit's PIN is typed into the shell's field and goes to BlueZ alone; ⓘ shows a device's address, kind and battery and renames it in place; Forget This Device… forgets it, confirmed; another page ends discovery. Every step checks what BlueZ holds. At scale 1.25 (the ThinkPad's panel).",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "bluetooth"
+    ]
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 2
+  },
+  "bluetooth": {
+    "adapter": {
+      "name": "ThinkPad",
+      "address": "00:1A:7D:DA:71:13",
+      "powered": true
+    },
+    "devices": [
+      {
+        "address": "AC:90:85:11:22:33",
+        "name": "AirPods Pro",
+        "icon": "audio-headphones",
+        "paired": true,
+        "connected": true,
+        "battery": 80,
+        "uuids": [
+          "0000110b-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "F0:B3:EC:44:55:66",
+        "name": "Magic Keyboard",
+        "icon": "input-keyboard",
+        "paired": true,
+        "uuids": [
+          "00001124-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "D4:5A:66:77:88:99",
+        "name": "MX Master 3S",
+        "icon": "input-mouse",
+        "paired": true,
+        "connected": true,
+        "battery": 55,
+        "uuids": [
+          "00001124-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "3C:28:6D:01:02:03",
+        "name": "Pixel 8",
+        "icon": "phone",
+        "nearby": true,
+        "pairing": "confirm",
+        "passkey": 482913,
+        "connect": "none"
+      },
+      {
+        "address": "00:1F:20:0A:0B:0C",
+        "name": "Old Keyboard",
+        "icon": "input-keyboard",
+        "nearby": true,
+        "pairing": "show-passkey",
+        "passkey": 7302,
+        "uuids": [
+          "00001124-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "00:0D:44:AA:BB:CC",
+        "name": "Car Kit",
+        "icon": "audio-headset",
+        "nearby": true,
+        "pairing": "pin",
+        "pin": "Kq79Zp",
+        "uuids": [
+          "0000111e-0000-1000-8000-00805f9b34fb"
+        ]
+      },
+      {
+        "address": "5A:11:22:33:44:55",
+        "nearby": true
+      }
+    ]
+  },
+  "secrets": [
+    "Kq79Zp"
+  ],
+  "steps": [
+    {
+      "name": "Settings with the bluetooth grant: Bluetooth in its sidebar, between Wi-Fi and Network, once the session told it Bluetooth; nothing discovers yet",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Bluetooth"
+            }
+          ]
+        },
+        "bluetooth": {
+          "adapter": {
+            "discovering": false,
+            "discovery_clients": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "Bluetooth's page: its switch, discoverable while open, My Devices with their state and battery; the page holds discovery, filtered",
+      "do": [
+        "press_named",
+        "Bluetooth"
+      ],
+      "expect": {
+        "texts": [
+          "My Devices",
+          "Nearby Devices",
+          "Now discoverable as “ThinkPad”.",
+          "AirPods Pro",
+          "Magic Keyboard",
+          "MX Master 3S"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Bluetooth",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Disconnect “AirPods Pro”"
+            },
+            {
+              "role": "Button",
+              "name": "Connect “Magic Keyboard”"
+            },
+            {
+              "role": "Button",
+              "name": "Details of “MX Master 3S”"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The devices found nearby, by name; the one with none left out",
+      "do": [
+        "wait_named",
+        [
+          "Connect “Pixel 8”",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Car Kit",
+          "Old Keyboard",
+          "Pixel 8"
+        ],
+        "bluetooth": {
+          "adapter": {
+            "discovering": true,
+            "discoverable": true,
+            "discovery_clients": 1,
+            "filtered": true
+          }
+        }
+      }
+    },
+    {
+      "name": "A phone connected from Nearby: Settings has the press; the code to compare is the shell's sheet, which takes the keyboard and the pointer, never Settings'",
+      "do": [
+        "press_named",
+        "Connect “Pixel 8”"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The sheet: the six digits",
+      "do": [
+        "wait_named",
+        [
+          "Confirm that “Pixel 8” shows this code.",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "482913"
+          ]
+        },
+        "absent": [
+          "482913"
+        ],
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Pair: BlueZ pairs and trusts it; a phone has nothing to connect, and is among My Devices; the sheet gone, Settings has the keyboard and the pointer again",
+      "do": [
+        "press_named",
+        "Pair"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Paired",
+      "do": [
+        "wait_named",
+        [
+          "Details of “Pixel 8”",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "devices": {
+            "3C:28:6D:01:02:03": {
+              "paired": true,
+              "trusted": true,
+              "connected": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A keyboard that types its code: the shell shows the code to type on it",
+      "do": [
+        "press_named",
+        "Connect “Old Keyboard”"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The code to type, and Cancel alone",
+      "do": [
+        "wait_named",
+        [
+          "Type this code on “Old Keyboard”, then press Return.",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "007302"
+          ]
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Typed on the keyboard: paired, the sheet goes by itself, and it connects",
+      "do": [
+        "bluetooth",
+        {
+          "typed": "00:1F:20:0A:0B:0C"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Connected",
+      "do": [
+        "wait_named",
+        [
+          "Disconnect “Old Keyboard”",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "007302"
+          ]
+        },
+        "delivered": {},
+        "bluetooth": {
+          "devices": {
+            "00:1F:20:0A:0B:0C": {
+              "paired": true,
+              "trusted": true,
+              "connected": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A car kit with a legacy PIN: the shell asks it",
+      "do": [
+        "press_named",
+        "Connect “Car Kit”"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The PIN's field, focused",
+      "do": [
+        "wait_named",
+        [
+          "Enter the PIN for “Car Kit”.",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "If you don't know it, try 0000 or 1234."
+          ]
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "The PIN typed into the shell's field, Settings receiving nothing",
+      "do": [
+        "type",
+        "Kq79Zp"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Return: BlueZ alone is given it; the sheet gone, Settings has the keyboard and the pointer again",
+      "do": [
+        "key",
+        28
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Paired and connected",
+      "do": [
+        "wait_named",
+        [
+          "Disconnect “Car Kit”",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "devices": {
+            "00:0D:44:AA:BB:CC": {
+              "paired": true,
+              "connected": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A device's details",
+      "do": [
+        "press_named",
+        "Details of “MX Master 3S”"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its name, address, kind and battery",
+      "do": [
+        "wait_named",
+        [
+          "Forget This Device…",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "D4:5A:66:77:88:99",
+          "Mouse",
+          "55%"
+        ]
+      }
+    },
+    {
+      "name": "Renamed in place: the name's field, focused",
+      "do": [
+        "press",
+        [
+          600,
+          136
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "bluetooth-info-name"
+      }
+    },
+    {
+      "name": "At its end",
+      "do": [
+        "key",
+        107
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A word added",
+      "do": [
+        "type",
+        " Desk"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Return renames it: BlueZ's alias",
+      "do": [
+        "key",
+        28
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Renamed",
+      "do": [
+        "wait_named",
+        [
+          "Details of “MX Master 3S Desk”",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "devices": {
+            "D4:5A:66:77:88:99": {
+              "alias": "MX Master 3S Desk"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Forget This Device…",
+      "do": [
+        "press_named",
+        "Forget This Device…"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Confirmed: forgotten, BlueZ no longer has it",
+      "do": [
+        "press_named",
+        "Forget Device"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Forgotten",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "absent": [
+          "MX Master 3S Desk"
+        ],
+        "bluetooth": {
+          "devices": {
+            "D4:5A:66:77:88:99": {
+              "present": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Another page: discovery ends and the computer is no longer discoverable",
+      "do": [
+        "press_named",
+        "Appearance"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Ended",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "bluetooth": {
+          "adapter": {
+            "discovering": false,
+            "discoverable": false,
+            "discovery_clients": 0
+          }
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

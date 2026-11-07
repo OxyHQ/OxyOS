@@ -131,12 +131,14 @@ function Battery({ device, words, locale }: { device: BluetoothDevice; words: Wo
   );
 }
 
-/** A section's heading with a spinner after it while something is under way, as a Mac's Nearby
-    Devices heading spins while it searches; drawn as Bloom's section headings are. */
-function SectionHeading({ title, busy, busyLabel }: { title: string; busy: boolean; busyLabel: string }) {
+/** A section's heading, drawn as Bloom's section headings are. Discovery runs as long as the page
+    is open, so nothing beside it spins: an animation for as long as discovery would draw a frame
+    every refresh while the page sits open (docs/performance.mdx, *Idle*); "Searching…" says it
+    while nothing is found. */
+function SectionHeading({ title }: { title: string }) {
   const theme = useTheme();
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingTop: 4, paddingBottom: 6 }}>
+    <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 6 }}>
       <Text
         variant="caption-2-semibold"
         accessibilityRole="header"
@@ -144,7 +146,6 @@ function SectionHeading({ title, busy, busyLabel }: { title: string; busy: boole
       >
         {title}
       </Text>
-      {busy ? <Loading size="xs" accessibilityLabel={busyLabel} testID="bluetooth-discovering" /> : null}
     </View>
   );
 }
@@ -470,7 +471,7 @@ export function BluetoothPage({ snapshot, actions, strings, locale }: Props) {
       ) : null}
       {on ? (
         <View>
-          <SectionHeading title={words.nearby} busy={adapter.discovering} busyLabel={words.searchingLabel} />
+          <SectionHeading title={words.nearby} />
           <GroupedSection>
             {nearby.length === 0 ? (
               <GroupedSectionItem title={words.searching} testID="bluetooth-searching" />

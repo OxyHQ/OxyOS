@@ -282,6 +282,13 @@ impl Bluetooth {
         for event in self.done.try_iter().collect::<Vec<_>>() {
             match event {
                 Event::State(state) => {
+                    let was = self.state.as_ref().is_some_and(|state| state.available);
+                    if !state.available {
+                        self.gone(scene);
+                    } else if !was && self.discovering {
+                        // BlueZ reached again, on a connection of its own: discovery asked anew.
+                        self.command(Command::Discover(true));
+                    }
                     self.state = Some(state);
                     self.tell(scene);
                 }
@@ -294,6 +301,25 @@ impl Bluetooth {
                     }
                 }
             }
+        }
+        // Questions asked or answered change what is told of their devices.
+        self.tell(scene);
+    }
+
+    /// BlueZ went (stopped, or its bus): every call under way is answered unavailable, and its
+    /// questions are withdrawn.
+    fn gone(&mut self, scene: &mut Scene) {
+        for (_, pending) in self.pending.drain() {
+            scene.system_text(
+                pending.client,
+                pending.serial,
+                &failed(Failure::Unavailable.reason()).to_string(),
+            );
+        }
+        self.connecting.clear();
+        for (_, standing) in self.standing.drain() {
+            self.sheets.remove(&standing.sheet);
+            scene.dismiss_sheet(standing.sheet);
         }
     }
 
@@ -427,7 +453,7 @@ impl Bluetooth {
             return;
         }
         if matches!(ask, Ask::Bluetooth {}) {
-            match self.state.as_ref() {
+            match self.shown() {
                 Some(state) => {
                     let text = json!({ "bluetooth": state }).to_string();
                     scene.system_text(client, serial, &text);
@@ -540,9 +566,26 @@ impl Bluetooth {
         }
     }
 
+    /// The state as told: a device whose pairing asks the person something is not told busy
+    /// meanwhile, since it waits on the person, not on the radio (as a Wi-Fi join is not told
+    /// joining while its password is asked, ADR 0038).
+    fn shown(&self) -> Option<State> {
+        let mut state = self.state.clone()?;
+        for device in &mut state.devices {
+            if self
+                .standing
+                .values()
+                .any(|standing| standing.question.address == device.address)
+            {
+                device.busy = None;
+            }
+        }
+        Some(state)
+    }
+
     /// Tells every client that follows Bluetooth its state, if it changed.
     fn tell(&mut self, scene: &mut Scene) {
-        let Some(state) = self.state.as_ref() else {
+        let Some(state) = self.shown() else {
             return;
         };
         let text = json!({ "bluetooth": state }).to_string();
