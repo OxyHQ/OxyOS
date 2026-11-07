@@ -188,19 +188,24 @@ export const Launchpad = memo(function Launchpad({
   /** The platform's keys before the focused field, where it has them (the arrows and Return). */
   keyboard?: ShellKeyboard;
   /** The system's search (docs/adr/0051-search.mdx), where the platform has it: what is typed
-      finds the applications it returns (by their names and their keywords), shown in Launchpad's
-      own order. Until it answers a text, and without it, the names whose words begin with what is
-      typed. */
+      finds the applications whose names' words begin with it, and those the service finds besides
+      by their keywords, shown in Launchpad's own order. Without it, the names alone. */
   search?: ShellSearch;
 }) {
   const messages = useShellMessages();
   const words = messages.launchpad;
   const [query, setQuery] = useState("");
   // The applications the search service found, and for which text: used while that text is the
-  // one typed; an answer to an earlier text is dropped.
+  // one typed; an answer to an earlier text is dropped. While the text stays, a change of the index
+  // (the session's applications written as the service starts, one installed) asks again.
   const [found, setFound] = useState<{ text: string; ids: ReadonlySet<string> } | null>(null);
+  const [changes, setChanges] = useState(0);
   const asked = useRef(0);
   const wanted = query.trim();
+  useEffect(() => {
+    if (!service || !wanted) return undefined;
+    return service.watch(() => setChanges((count) => count + 1));
+  }, [service, wanted]);
   useEffect(() => {
     const mine = ++asked.current;
     if (!service || !wanted) return;
@@ -213,7 +218,7 @@ export const Launchpad = memo(function Launchpad({
         },
         (error: unknown) => console.warn("Launchpad's search failed", { error }),
       );
-  }, [service, wanted, applications.length, messages.language]);
+  }, [service, wanted, changes, applications.length, messages.language]);
   const answered = found && found.text === wanted ? found.ids : null;
   const [folder, setFolder] = useState<ShellFolder | null>(null);
   const [page, setPage] = useState(0);
@@ -234,12 +239,11 @@ export const Launchpad = memo(function Launchpad({
   const grouped = new Set(folders.flatMap((group) => [...group.appIds]));
   const byId = new Map(applications.map((app) => [app.id, app]));
   const entries: Entry[] = applications
+    // The names that answer what is typed, and what the service found besides (by their
+    // keywords); never fewer than the names, so an answer from an index still being written
+    // hides nothing.
     .filter((app) =>
-      query
-        ? answered
-          ? answered.has(app.id)
-          : nameMatches(app.name, query)
-        : !grouped.has(app.id),
+      query ? nameMatches(app.name, query) || (answered?.has(app.id) ?? false) : !grouped.has(app.id),
     )
     .map((app) => ({ app }));
   if (!query) entries.push(...folders.map((group) => ({ folder: group })));
