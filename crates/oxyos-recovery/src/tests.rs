@@ -600,6 +600,13 @@ impl Machine {
                 (c.program == "blkid").then(|| Output::ok("c52459b1-9b93-4541-b894-f4e224723e5d\n"))
             })
             .answer(|c| {
+                (c.arguments.get(1).map(String::as_str) == Some("dpkg-query")).then(|| {
+                    Output::ok(
+                        "bash\ngrub-common\ngrub-efi-amd64-signed\nlive-boot\nsystemd-boot\n",
+                    )
+                })
+            })
+            .answer(|c| {
                 (c.program == "systemd-cryptenroll")
                     .then(|| Output::ok(&format!("{RECOVERY_KEY}\n")))
             })
@@ -659,7 +666,7 @@ fn an_install_checks_the_image_lays_the_disk_out_checks_the_recovery_and_sets_th
         format!("cryptsetup open --key-file {run}/root.key /dev/vda3 oxyos-target"),
         format!("mount /dev/mapper/oxyos-target {target}"),
         format!("mount /dev/vda1 {target}/efi"),
-        format!("chroot {target} apt-get purge --yes --quiet live-boot"),
+        format!("chroot {target} apt-get purge --yes --quiet --allow-remove-essential live-boot"),
         format!("chroot {target} dpkg-reconfigure --frontend=noninteractive systemd-boot"),
         format!("chroot {target} update-initramfs -u -k all"),
         format!("umount {target}/efi"),
@@ -676,9 +683,19 @@ fn an_install_checks_the_image_lays_the_disk_out_checks_the_recovery_and_sets_th
         .commands
         .iter()
         .any(|c| c.contains("SYSTEMD_REPART") || c.starts_with("systemd-repart")));
-    for line in &host.commands {
-        assert!(!line.contains("live-config-systemd") || line.contains("apt-get purge"));
-    }
+    let purge = host
+        .commands
+        .iter()
+        .find(|c| c.contains("apt-get purge"))
+        .unwrap();
+    assert!(
+        purge.ends_with("live-tools user-setup grub-common grub-efi-amd64-signed"),
+        "{purge}"
+    );
+    assert_eq!(
+        install::live_boot_loader("grub2-common\nsystemd-boot\n grub-efi-arm64-bin\n"),
+        ["grub2-common", "grub-efi-arm64-bin"]
+    );
 
     let target = machine.target();
     let read = |p: &str| fs::read_to_string(target.join(p)).unwrap();

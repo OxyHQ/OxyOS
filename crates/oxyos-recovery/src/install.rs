@@ -303,7 +303,9 @@ impl Mounts<'_> {
 }
 
 /// The live system's own packages, which an installed system has no use for; purging `live-tools`
-/// gives back `update-initramfs`, which it diverts to its own.
+/// gives back `update-initramfs`, which it diverts to its own. GRUB, the live medium's boot loader,
+/// goes too ([`live_boot_loader`]): an installed system boots with systemd-boot, whose maintainer
+/// script installs shim only where no signed GRUB claims the EFI system partition.
 pub const LIVE_PACKAGES: &[&str] = &[
     "live-boot",
     "live-boot-initramfs-tools",
@@ -314,6 +316,16 @@ pub const LIVE_PACKAGES: &[&str] = &[
     "live-tools",
     "user-setup",
 ];
+
+/// The live medium's boot loader among `installed` (`dpkg-query`'s package names): GRUB's.
+pub fn live_boot_loader(installed: &str) -> Vec<String> {
+    installed
+        .lines()
+        .map(str::trim)
+        .filter(|name| name.starts_with("grub-") || name.starts_with("grub2-"))
+        .map(String::from)
+        .collect()
+}
 
 /// The root on `layout` set up as an installed system: opened and mounted with the EFI system
 /// partition at `/efi`, the live packages purged, its tables written, systemd-boot and shim
@@ -402,9 +414,15 @@ fn set_up_mounted(
             .env("LC_ALL", "C.UTF-8")
     };
 
-    mounts
+    let installed = mounts
         .host
-        .run(&chroot("apt-get purge --yes --quiet").args(LIVE_PACKAGES.iter().copied()))?;
+        .run(&chroot("dpkg-query --show --showformat=${Package}\\n"))?;
+    // GRUB's signed package is protected: purging it is said in so many words.
+    mounts.host.run(
+        &chroot("apt-get purge --yes --quiet --allow-remove-essential")
+            .args(LIVE_PACKAGES.iter().copied())
+            .args(live_boot_loader(&installed)),
+    )?;
 
     let write = |relative: &str, text: &str, mode: u32| -> Result<(), Failed> {
         let path = target.join(relative);

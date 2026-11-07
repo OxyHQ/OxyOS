@@ -130,5 +130,8 @@ LB_SWAP_FILE_PATH=""
 # Set swap file size
 LB_SWAP_FILE_SIZE="512"
 
-# Enable/disable UEFI secure boot support
-LB_UEFI_SECURE_BOOT="auto"
+# UEFI Secure Boot: Debian's Microsoft-signed shim and signed GRUB start the medium. "enable", not
+# "auto": the image must have them, or the build fails; and "auto" installs shim-signed into the
+# chroot and purges it after, even when the manifest has it (the installed system's chain), taking
+# OxyOS's installer with it.
+LB_UEFI_SECURE_BOOT="enable"
