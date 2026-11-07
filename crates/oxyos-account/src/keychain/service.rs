@@ -130,6 +130,7 @@ struct Open {
     recovering: Option<RecoveryJoin>,
     approving: HashMap<EnrollmentId, Approving>,
     rotating: Option<Rotation>,
+    /// The last sync, or attempt at one.
     last_sync: Option<Instant>,
 }
 
@@ -761,16 +762,22 @@ impl<V: VaultApi + 'static> KeychainService<V> {
 
     fn status(&self, user: &User, uid: u32) -> Answer {
         let looked = {
-            let data = lock(&user.data);
-            match &data.phase {
-                Phase::Open(open) => Some((
-                    data.epoch,
-                    open.vault.is_none()
+            let mut data = lock(&user.data);
+            let epoch = data.epoch;
+            match &mut data.phase {
+                Phase::Open(open) => {
+                    let ask = open.vault.is_none()
                         && open.state() == KeychainState::Off
-                        && open.vault_known.is_none(),
-                    open.state() == KeychainState::Member
-                        && open.last_sync.is_none_or(|at| at.elapsed() > SYNC_AFTER),
-                )),
+                        && open.vault_known.is_none();
+                    let sync = open.state() == KeychainState::Member
+                        && open.last_sync.is_none_or(|at| at.elapsed() > SYNC_AFTER);
+                    // The attempt counts: a sync failing (offline) is not started again by every
+                    // look until a minute has passed.
+                    if sync {
+                        open.last_sync = Some(Instant::now());
+                    }
+                    Some((epoch, ask, sync))
+                }
                 _ => None,
             }
         };
