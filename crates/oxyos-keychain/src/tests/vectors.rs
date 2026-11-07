@@ -2,9 +2,10 @@
 //!
 //! `tests/vectors/oxy-keychain-v1.json` is a verbatim copy of
 //! `packages/core/src/crypto/keychain/__tests__/vectors.json` in OxyHQ/oxy at commit
-//! `fd06e237b9f56ac5e1035576c33ccad336ef10dd` (branch `feat/keychain-crypto`), SHA-256
-//! `0dae7e6355cdcb056b05bd5eebb81842806f1e6797ef2b61190c1e807ba9044f`. When the SDK changes it,
-//! copy it again and say where from here.
+//! `5b59f25dbbffac111cb65d97702ff94c2cb8da5f` (branch `feat/keychain-crypto`, OxyHQ/oxy#2219),
+//! SHA-256 `0dae7e6355cdcb056b05bd5eebb81842806f1e6797ef2b61190c1e807ba9044f`; its shape is
+//! documented in that repository's `docs/identity/keychain.md#test-vectors`. When the SDK changes
+//! it, copy it again and say where from here.
 //!
 //! Every value is rebuilt from its inputs here (ephemeral keys and nonces through the crate's
 //! test hooks), compared byte for byte, and opened back; every rejection is refused for the
