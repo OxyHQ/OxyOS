@@ -308,9 +308,9 @@ class Images {
   std::map<facebook::react::Tag, Shown> shown_;
   std::map<uint64_t, Load> loads_;
   std::map<uint64_t, Request> requests_;
-  // Whether remote images are fetched: with a network connected, and the `network` capability.
+  // Whether remote images can be fetched: a network connected (the `network` capability is the
+  // launch's, LaunchCapabilities).
   bool connected_ = false;
-  bool networkAllowed_ = false;
   // Pictures shown, shared by the views that show the same one, while any does.
   std::map<Key, std::weak_ptr<const Picture>> pictures_;
   std::set<std::string> reported_;  // URIs whose failure was logged

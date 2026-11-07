@@ -5497,7 +5497,13 @@ fn an_applications_directories_are_named_by_its_id_through_the_c_abi() {
 #[test]
 fn the_header_matches_the_files_abi() {
     use crate::files::*;
+    assert_eq!(
+        define("OXYOS_FILES_NO_NETWORK"),
+        i64::from(OXYOS_FILES_NO_NETWORK)
+    );
     type New = unsafe extern "C" fn(*const c_char, usize, *const c_char, usize) -> *mut OxyOSFiles;
+    type NewWith =
+        unsafe extern "C" fn(*const c_char, usize, *const c_char, usize, u32) -> *mut OxyOSFiles;
     type Fd = unsafe extern "C" fn(*mut OxyOSFiles) -> i32;
     type Call = unsafe extern "C" fn(
         *mut OxyOSFiles,
@@ -5515,6 +5521,10 @@ fn the_header_matches_the_files_abi() {
     type Open = unsafe extern "C" fn(*mut OxyOSFiles, *const c_char, usize, *mut u64) -> i32;
     for (name, rust) in [
         ("oxyos_files_new", type_of(oxyos_files_new as New)),
+        (
+            "oxyos_files_new_with",
+            type_of(oxyos_files_new_with as NewWith),
+        ),
         ("oxyos_files_fd", type_of(oxyos_files_fd as Fd)),
         ("oxyos_files_call", type_of(oxyos_files_call as Call)),
         (

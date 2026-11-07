@@ -1934,6 +1934,14 @@ typedef struct OxyOSFilesReply OxyOSFilesReply;
  * if they are not there, run from the bundle in the folder `bundle` (read-only; NULL for none), or
  * NULL. */
 OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length);
+/* oxyos_files_new_with's flag: the application may not reach the network (an installed version whose
+ * account did not grant `network`, docs/adr/0030-installing-applications.mdx, decision 8), so its
+ * downloads and uploads fail as the network's would ({"ok": false, "error": "network"}) before anything
+ * is asked. */
+#define OXYOS_FILES_NO_NETWORK 1
+/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK); other bits are ignored. */
+OxyOSFiles* oxyos_files_new_with(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length,
+                                 uint32_t flags);
 /* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
 void oxyos_files_free(OxyOSFiles* files);
 /* Readable while replies are queued (for poll/epoll). */

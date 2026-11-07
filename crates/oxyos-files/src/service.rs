@@ -117,12 +117,26 @@ impl Shared {
     }
 }
 
+/// Whether the application the service is for may reach the network: an installed version only if
+/// its account granted `network` (docs/adr/0030-installing-applications.mdx, decision 8), which its
+/// downloads and uploads need as its own requests do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkAccess {
+    Granted,
+    Refused,
+}
+
+/// Why a transfer is refused to an application without the network: the words the host's own
+/// requests, sockets and images are refused with.
+pub const NOT_GRANTED_THE_NETWORK: &str = "this application was not granted the network";
+
 /// What every request runs against: the scope, the watches, the open files and the transfers.
 struct Context {
     scope: Scope,
     watcher: Watcher,
     handles: Handles,
-    network: Network,
+    /// None for an application without the network: nothing of it is made.
+    network: Option<Network>,
     /// Downloads and uploads running, by their request's id.
     transfers: Mutex<HashMap<u64, Arc<Live>>>,
     /// The index of tagged items, once an application asked it something.
@@ -175,8 +189,8 @@ fn event_json(event: &Event) -> Value {
 }
 
 impl Service {
-    /// The service for `scope`.
-    pub fn new(scope: Scope) -> io::Result<Service> {
+    /// The service for `scope`, its downloads and uploads reaching the network only with `network`.
+    pub fn new(scope: Scope, network: NetworkAccess) -> io::Result<Service> {
         let (readable, wake) = UnixStream::pair()?;
         readable.set_nonblocking(true)?;
         wake.set_nonblocking(true)?;
@@ -207,7 +221,10 @@ impl Service {
             scope,
             watcher,
             handles: Handles::default(),
-            network: Network::new()?,
+            network: match network {
+                NetworkAccess::Granted => Some(Network::new()?),
+                NetworkAccess::Refused => None,
+            },
             transfers: Mutex::new(HashMap::new()),
             tag_index: Mutex::new(None),
             tag_watches: Arc::new(Mutex::new(BTreeSet::new())),
@@ -305,6 +322,15 @@ impl AsFd for Service {
 /// Starts a download or an upload (`parsed`) on a thread of its own: it is answered when it ends,
 /// as `id`, its progress said as events (`{"transfer": ID, "progress": {...}}`).
 fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, parsed: Value) {
+    // An application without the network is refused before anything is made or asked.
+    if context.network.is_none() {
+        shared.push(Reply {
+            id,
+            json: ended_json(Err(Error::Network(NOT_GRANTED_THE_NETWORK.into()))),
+            bytes: Vec::new(),
+        });
+        return;
+    }
     let live = Arc::new(Live::default());
     context
         .transfers
@@ -324,7 +350,11 @@ fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, parsed: Value
             } else {
                 transfer::upload
             };
-            let ended = run(&context.network, &context.scope, &live, &parsed, &progress);
+            let ended = match &context.network {
+                Some(network) => run(network, &context.scope, &live, &parsed, &progress),
+                // Refused before it started (below); never reached.
+                None => Err(Error::Network(NOT_GRANTED_THE_NETWORK.into())),
+            };
             context.transfers.lock().expect("lock").remove(&id);
             shared.push(Reply {
                 id,
