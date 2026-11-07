@@ -14,7 +14,7 @@
 //! - **Ranking:** BM25 over the fields, the title weighing most, then keywords and tags, then the
 //!   text; then each candidate weighed by its category (applications first, as Spotlight puts
 //!   them), by how recently it changed or was used, and by how often the person opened it. The top
-//!   hit is the best item whose title has every word typed as a word's beginning.
+//!   hit is the best item whose title, keywords or tags have every word typed as a word's beginning.
 
 use crate::category::Category;
 use crate::query::{Parsed, Span};
@@ -846,10 +846,14 @@ impl Searcher {
             if typed.is_empty() {
                 return None;
             }
+            // Its title's words, and the words it is known by (an application's keywords, a
+            // Settings page's declared terms, a file's tags).
             let title_words: Vec<String> = first
                 .record
                 .titles
                 .values()
+                .chain(&first.record.keywords)
+                .chain(&first.record.tags)
                 .flat_map(|title| fold_words(title))
                 .collect();
             typed

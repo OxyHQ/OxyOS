@@ -97,7 +97,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
      - BM25 over the fields: a title's beginnings ×3, its whole words ×2, keywords and tags ×1.5, the text ×1, a beginning in the text ×0.5. The whole text typed being the title (or a file's name without its extension) ×10.
      - Then each of the 400 best is weighed: by its category (an application ×1.6, a Settings page ×1.2, a folder ×1.1, as Spotlight puts applications first); by recency (a file or donated item changed or opened lately up to ×1.5, halving each 30 days); by use (opened from a search, `1 + 0.6·ln(1 + times)`, its weight halving over 60 days to half).
      - What the person opened is kept in `$XDG_DATA_HOME/oxyos/search/usage.json` (the 10 000 most recent).
-   - **The top hit** is the best item if every word typed begins a word of its title; none otherwise (a match in the text alone is no top hit).
+   - **The top hit** is the best item if every word typed begins a word of its title, its keywords or its tags (`modo oscuro`, a term Settings declares for Appearance, makes Appearance the top hit); none otherwise (a match in the text alone is no top hit).
    - **Categories**, each a section of the results, a `kind:` and a switch in Settings: application, settings, folder, document, pdf, text, source, presentation, spreadsheet, image, movie, music, archive, contact, event, mail, message, other.
 
 6. **Who sees what.** The compositor tells the service, with each question, who asks: the launched application's id (from its launch record), whether the session launched it, and its `shell` and `settings` grants.

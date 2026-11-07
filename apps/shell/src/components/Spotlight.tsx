@@ -76,12 +76,13 @@ const DRAG_ACTIONS = ["copy", "move", "link"] as const;
 
 /*
  * The panel's look, at scale 1 (every box a multiple of 4, whole pixels at 1.25 too). The material
- * is the shell's over windows (the Control Center's): translucent, light or dark, a hairline ring
- * and a soft shadow. Its text in the system's greys, a row selected in the person's accent.
+ * is opaque, light or dark, with a hairline ring and a soft shadow: a Mac's Spotlight blurs what is
+ * behind it, which the shell cannot (it draws only its own surfaces), and a translucent panel
+ * without a blur shows a window's text through its results. Its text in the system's greys, a row selected in the person's accent.
  */
 const PALETTE = {
   light: {
-    fill: "#f4f5f8eb",
+    fill: "#f4f5f8",
     ring: "0 0 0 .5px #0b183a26",
     shadow: "0 24px 72px #0b183a40",
     text: "#1d1d1f",
@@ -92,7 +93,7 @@ const PALETTE = {
     placeholder: "#86868b",
   },
   dark: {
-    fill: "#26272ceb",
+    fill: "#26272c",
     ring: "0 0 0 .5px #00000099, inset 0 .5px 0 #ffffff26",
     shadow: "0 24px 72px #00000073",
     text: "#f5f5f7",
@@ -656,8 +657,6 @@ function SpotlightPanel({
         kind="overlay"
         style={StyleSheet.absoluteFill}
         keyboard={keyboard}
-        focusTarget="spotlight-search"
-        focusRequest={focusRequest}
         onKeyboardLost={() => close(false)}
       >
         <View
