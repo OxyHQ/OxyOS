@@ -152,8 +152,6 @@ export type SettingsSnapshot = {
   /** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx), as the session tells them:
       null until it has. */
   sound?: SoundState | null;
-  /** The chosen input's level (0 to 1), told only while Sound's Input tab meters it. */
-  soundInputLevel?: number;
   /** The battery and energy (docs/adr/0057-battery-and-energy.mdx), as the session tells them:
       none where the platform tells none; null until it has. */
   power?: PowerState | null;

@@ -312,21 +312,17 @@ export function useSoundState() {
   return state;
 }
 
-/** The chosen input's level (0 to 1) while `on`: metered from when it is on until it is off or
-    the view goes, so nothing listens to the input meanwhile. */
-export function useInputLevel(on) {
-  const [level, setLevel] = React.useState(0);
-  React.useEffect(() => {
-    if (!on || !native) return undefined;
-    inputLevelListeners.add(setLevel);
-    sound.meter(true);
-    return () => {
-      inputLevelListeners.delete(setLevel);
-      setLevel(0);
-      if (inputLevelListeners.size === 0) sound.meter(false);
-    };
-  }, [on]);
-  return level;
+/** Follows the chosen input's level (0 to 1): metered from the first follower until the last
+    stops, so nothing listens to the input while no view shows its level (ADR 0056, decision 7).
+    Returns the stop. */
+export function followInputLevel(listener) {
+  if (!native) return () => {};
+  inputLevelListeners.add(listener);
+  if (inputLevelListeners.size === 1) sound.meter(true);
+  return () => {
+    if (!inputLevelListeners.delete(listener)) return;
+    if (inputLevelListeners.size === 0) sound.meter(false);
+  };
 }
 
 /** The update state as it changes, for a page: asked once, then followed. */

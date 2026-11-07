@@ -33,8 +33,11 @@ export type SoundActions = {
   setVolume: (direction: SoundDirection, volume: number) => void;
   setMuted: (direction: SoundDirection, muted: boolean) => void;
   setBalance: (balance: number) => void;
-  /** The input's level is told only while on (ADR 0056, decision 7): the Input tab, while shown. */
-  meter: (on: boolean) => void;
+  /**
+   * Follows the chosen input's level (0 to 1), told as it changes; returns the stop. The input is
+   * metered only while a view follows it (ADR 0056, decision 7): the Input tab's meter, while shown.
+   */
+  followLevel: (listener: (level: number) => void) => () => void;
 };
 
 /** The input level's segments, as a Mac's: sixteen. */
