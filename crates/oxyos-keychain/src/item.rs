@@ -939,6 +939,8 @@ mod tests {
         for item in every_type() {
             let sealed = item.seal(&vault(), &keyring()).unwrap();
             let shown = format!("{item:?} {:?} {sealed:?}", item.content);
+            // The random id is shown, and may happen to hold one of the texts below.
+            let shown = shown.replace(item.id.as_str(), "<id>");
             for secret in [
                 "Mail",
                 "ana@example.com",
