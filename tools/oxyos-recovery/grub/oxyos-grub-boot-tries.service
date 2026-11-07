@@ -1,0 +1,25 @@
+# After a complete boot, OxyOS gets its three boot tries back in GRUB's environment block
+# (docs/adr/0054-recovery-and-erasing.mdx, "Machines that boot with GRUB"); GRUB counts one off each
+# start (/etc/grub.d/01_oxyos_boot_tries). Installed as /etc/systemd/system/oxyos-grub-boot-tries.service,
+# with boot-complete.target ordered after multi-user.target (boot-complete.target.d/oxyos.conf).
+# DefaultDependencies=no: multi-user.target, which wants it, is then not ordered after it, which
+# would make a cycle with boot-complete.target.
+[Unit]
+Description=Give OxyOS its boot tries back (GRUB)
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0054-recovery-and-erasing.mdx
+DefaultDependencies=no
+Requires=boot-complete.target
+After=boot-complete.target local-fs.target
+Conflicts=shutdown.target
+Before=shutdown.target
+ConditionPathExists=/boot/grub/grubenv
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# What the count was, for the journal, then three tries again.
+ExecStart=/bin/sh -c 'grub-editenv /boot/grub/grubenv list | grep "^oxyos_tries=" || echo "oxyos_tries unset"'
+ExecStart=/usr/bin/grub-editenv /boot/grub/grubenv set oxyos_tries=3
+
+[Install]
+WantedBy=multi-user.target

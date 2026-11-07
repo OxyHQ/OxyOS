@@ -12,7 +12,7 @@
 use crate::messages::{Language, Text};
 use crate::terminal::{read_line, read_secret};
 use oxyos_recovery::check::{self, Refused};
-use oxyos_recovery::disks::{self, Layout};
+use oxyos_recovery::disks::{self, Kind, Layout};
 use oxyos_recovery::entries::{Entries, TRIES};
 use oxyos_recovery::host::{Command, Host, System};
 use oxyos_recovery::install::{self, Paths};
@@ -44,6 +44,12 @@ pub fn run() -> Result<(), String> {
     println!("\n{}\n", recovery.text.title());
     if recovery.layout.is_none() {
         println!("{}\n", recovery.text.no_layout());
+    } else if recovery
+        .layout
+        .as_ref()
+        .is_some_and(|l| l.kind == Kind::Converted)
+    {
+        println!("{}\n", recovery.text.converted());
     } else if recovery.carry_out_request() {
         return Ok(());
     }
@@ -59,19 +65,39 @@ impl Recovery {
         let Ok(disks) = install::disks(&mut self.host) else {
             return;
         };
-        let Some(layout) = disks::disk_with_mount(&disks, MEDIUM).and_then(|d| d.layout()) else {
+        let Some(disk) = disks::disk_with_mount(&disks, MEDIUM) else {
+            eprintln!("oxyos-recovery: no disk holds {MEDIUM}");
+            return;
+        };
+        // An install's layout, by its partitions' types; else a converted machine's, its root named
+        // by the recovery's entry.
+        let command_line = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
+        let Some(layout) = disk.layout().or_else(|| {
+            disks::converted_root(&command_line).and_then(|root| disk.converted_layout(root))
+        }) else {
+            eprintln!("oxyos-recovery: {} has no OxyOS layout", disk.path);
             return;
         };
         if !layout.recovery.mounted_at(MEDIUM) {
+            eprintln!(
+                "oxyos-recovery: the recovery started is not {}'s",
+                disk.path
+            );
             return;
         }
         let _ = std::fs::create_dir_all(&self.esp);
+        // A converted machine's EFI system partition is its own GRUB's: read, never written.
+        let mut mount = Command::new("mount");
+        if layout.kind == Kind::Converted {
+            mount = mount.args(["-o", "ro"]);
+        }
         let mounted = layout.esp.mounted_at(ESP)
-            || self
-                .host
-                .run(&Command::new("mount").args([&layout.esp.path, ESP]))
-                .is_ok();
+            || self.host.run(&mount.args([&layout.esp.path, ESP])).is_ok();
         if mounted {
+            eprintln!(
+                "oxyos-recovery: {:?} layout on {}: EFI {}, recovery {}, root {}",
+                layout.kind, disk.path, layout.esp.path, layout.recovery.path, layout.root.path
+            );
             self.layout = Some(layout);
         }
     }
@@ -86,7 +112,8 @@ impl Recovery {
     /// Carries out the erase request, if there is one for this disk. True when the computer is
     /// restarting.
     fn carry_out_request(&mut self) -> bool {
-        let Some(layout) = self.layout.clone() else {
+        // A converted machine is never erased: no request is read there.
+        let Some(layout) = self.layout.clone().filter(|l| l.kind == Kind::Installed) else {
             return false;
         };
         let mut request = match request::read(&self.esp) {
@@ -164,7 +191,13 @@ impl Recovery {
                 }
                 "6" => {
                     // Back to OxyOS, with its tries given back, unless an erase is still to finish.
-                    if matches!(request::read(&self.esp), Ok(Found::None)) {
+                    // A converted machine's GRUB gives its tries back by itself.
+                    if self
+                        .layout
+                        .as_ref()
+                        .is_some_and(|l| l.kind == Kind::Installed)
+                        && matches!(request::read(&self.esp), Ok(Found::None))
+                    {
                         let _ = Entries::new(&self.esp).rearm_all(TRIES);
                     }
                     println!("{}", self.text.restarting());
@@ -186,6 +219,10 @@ impl Recovery {
             println!("{}", self.text.no_layout());
             return Ok(false);
         };
+        if layout.kind == Kind::Converted {
+            println!("{}", self.text.converted_erase());
+            return Ok(false);
+        }
         println!("{}\n", self.text.erase_warning());
         let typed = read_line(&self.text.type_to_confirm()).map_err(|e| e.to_string())?;
         if typed.trim() != self.text.confirm_word() {

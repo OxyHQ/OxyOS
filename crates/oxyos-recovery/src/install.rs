@@ -22,7 +22,7 @@
 //! 4. the root is set up as an installed system, exactly as an install sets it up; the request is
 //!    removed. The next boot is a first boot.
 
-use crate::disks::{self, Disk, Layout};
+use crate::disks::{self, Disk, Kind, Layout};
 use crate::entries::{Entries, TRIES};
 use crate::host::{failed, Command, Failed, Host};
 use crate::layout::{self, Image};
@@ -614,6 +614,14 @@ pub fn erase(
     request: &mut EraseRequest,
     progress: &mut dyn FnMut(Step),
 ) -> Result<(), Failed> {
+    // A converted machine's disk is not an install's: systemd-repart's definitions do not describe
+    // it, and nothing here erases it.
+    if layout.kind != Kind::Installed {
+        return Err(failed(
+            "this computer was converted to OxyOS by hand",
+            "erasing it is installing OxyOS onto it from the installation medium",
+        ));
+    }
     fs::create_dir_all(&paths.run).map_err(|e| failed("the work directory", e.to_string()))?;
     progress(Step::Erasing);
     let entries = Entries::new(esp);

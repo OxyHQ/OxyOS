@@ -45,6 +45,20 @@ impl Text {
         )
     }
 
+    pub fn converted(&self) -> &'static str {
+        self.pick(
+            "This computer was converted to OxyOS by hand. Its recovery can check and repair the disk, help with a forgotten password and get online; erasing it means installing OxyOS onto it from the installation medium.",
+            "Este ordenador se pasó a OxyOS a mano. Su recuperación puede comprobar y reparar el disco, ayudarte si has olvidado la contraseña y conectarse a internet; para borrarlo hay que instalar OxyOS desde el medio de instalación.",
+        )
+    }
+
+    pub fn converted_erase(&self) -> &'static str {
+        self.pick(
+            "This computer was converted to OxyOS by hand, and its disk isn't laid out as an installation: to erase it, start it from OxyOS's installation medium and install OxyOS. Nothing was changed.",
+            "Este ordenador se pasó a OxyOS a mano y su disco no está organizado como una instalación: para borrarlo, inícialo desde el medio de instalación de OxyOS e instala OxyOS. No se ha cambiado nada.",
+        )
+    }
+
     pub fn menu(&self) -> [&'static str; 7] {
         match self.language {
             Language::English => [
