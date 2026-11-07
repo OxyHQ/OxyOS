@@ -226,6 +226,9 @@ export type SettingsSearch = {
   preferences(): Promise<SearchPreferences>;
   setPreferences(change: Partial<SearchPreferences>): Promise<SearchPreferences>;
   status(): Promise<SearchStatus>;
+  /** Told whenever the index changed (the service's `watch`): the status is asked again then,
+      never on a clock. Returns the unsubscribe. */
+  watch(listener: () => void): () => void;
 };
 
 /**

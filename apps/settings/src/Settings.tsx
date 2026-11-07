@@ -1366,16 +1366,13 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
 /** Privacy (decision 8): each installed application's capabilities asked at first use, as its
     account decided them, each a switch the install service keeps; it applies at the app's next
     launch. */
-/** How often Settings › Spotlight asks the index's state while it shows. */
-const SEARCH_STATUS_MS = 5000;
-
 /**
  * Spotlight (docs/adr/0051-search.mdx), as a Mac's Spotlight settings: a switch for each kind of
  * result, alphabetically as a Mac lists them, each kept by the search service at once; **Search
  * Privacy…**, a sheet of the folders kept out of the index, a folder added with **+** from the
  * system's folder chooser (docs/adr/0028-file-access.mdx) and the selected one removed with **−**,
  * each change said once the service kept it; and the index's state in small text, asked again
- * every few seconds while the page shows. Without the search service, it says Spotlight is not
+ * each time the service says the index changed (never on a clock: docs/performance.mdx's idle rule). Without the search service, it says Spotlight is not
  * available here.
  */
 function SpotlightPage({ actions, strings, locale }: PageProps) {
@@ -1407,10 +1404,10 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
         (error: unknown) => console.warn("[settings] the index's state could not be read:", error),
       );
     ask();
-    const timer = setInterval(ask, SEARCH_STATUS_MS);
+    const unwatch = service.watch(ask);
     return () => {
       live = false;
-      clearInterval(timer);
+      unwatch();
     };
   }, [service]);
   if (!service || failed) {
