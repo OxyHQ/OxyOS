@@ -103,6 +103,8 @@ pub enum Step {
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
     DoublePress { x: i32, y: i32 },
+    /// The same at a logical point of the output (an icon on the shell's desktop, ADR 0047).
+    DoublePressOutput { x: i32, y: i32 },
     /// Three such presses: a triple click.
     TriplePress { x: i32, y: i32 },
     /// A press and release at the first point, then a press there held and moved to the second
@@ -305,6 +307,8 @@ pub enum NamedKind {
     PressSecondary,
     Move,
     Hold,
+    /// A double press (`DoublePressOutput`'s).
+    DoublePress,
     /// A scroll by `dy` (`ScrollOutput`'s).
     Scroll {
         dy: i32,
@@ -362,6 +366,7 @@ impl Step {
                 ..
             } => format!("drag from {from:?} to {to:?} in {motions} motions at {hz} Hz"),
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
+            Step::DoublePressOutput { x, y } => format!("double press at ({x}, {y}) on the output"),
             Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
             Step::DoubleDrag { from, to } => format!("double press at {from:?} dragged to {to:?}"),
             Step::Scroll {
@@ -530,6 +535,7 @@ impl Step {
                 if *held { ",\"held\"" } else { "" }
             ),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
+            Step::DoublePressOutput { x, y } => format!("\"double_press_output\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
             Step::DoubleDrag { from, to } => {
                 format!("\"double_drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
@@ -892,7 +898,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1278,12 +1284,14 @@ impl Launch {
                 Some(
                     flag @ ("--press-named"
                     | "--press-secondary-named"
+                    | "--double-press-named"
                     | "--move-named"
                     | "--hold-named"),
                 ) => {
                     let kind = match flag {
                         "--press-named" => NamedKind::Press,
                         "--press-secondary-named" => NamedKind::PressSecondary,
+                        "--double-press-named" => NamedKind::DoublePress,
                         "--move-named" => NamedKind::Move,
                         _ => NamedKind::Hold,
                     };
@@ -1337,6 +1345,10 @@ impl Launch {
                 Some("--double-press") => {
                     let n = numbers(args.next(), 2)?;
                     Step::DoublePress { x: n[0], y: n[1] }
+                }
+                Some("--double-press-output") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::DoublePressOutput { x: n[0], y: n[1] }
                 }
                 Some("--triple-press") => {
                     let n = numbers(args.next(), 2)?;
@@ -3028,6 +3040,7 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
     Ok(match kind {
         NamedKind::Press => Step::PressOutput { x, y },
         NamedKind::PressSecondary => Step::PressSecondaryOutput { x, y },
+        NamedKind::DoublePress => Step::DoublePressOutput { x, y },
         NamedKind::Move => Step::MoveOutput { x, y },
         NamedKind::Hold => Step::HoldOutput { x, y, ms: *ms },
         NamedKind::Scroll { dy, events } => Step::ScrollOutput {
@@ -3448,6 +3461,13 @@ fn inject_through(
         Step::DoublePress { x, y } => {
             inside(window, *x, *y)?;
             let point = at(window.x + x, window.y + y);
+            press(devices, compositor, point)?;
+            compositor.read_input();
+            press(devices, compositor, point)?;
+        }
+        Step::DoublePressOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            let point = at(*x, *y);
             press(devices, compositor, point)?;
             compositor.read_input();
             press(devices, compositor, point)?;
@@ -4533,6 +4553,11 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             inside(window, *x, *y)?;
             press(&mut compositor.scene, window.x + x, window.y + y);
             press(&mut compositor.scene, window.x + x, window.y + y);
+        }
+        Step::DoublePressOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            press(&mut compositor.scene, *x, *y);
+            press(&mut compositor.scene, *x, *y);
         }
         Step::TriplePress { x, y } => {
             inside(window, *x, *y)?;

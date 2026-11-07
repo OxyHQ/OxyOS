@@ -779,7 +779,7 @@ fn the_shell_focuses_its_own_surface_only_with_an_input_it_received() {
         keys_to(&logged(&mut h), SHELL),
         [(KEY_A, true), (KEY_A, false)]
     );
-    // Only the shell's own panels and overlays; only the shell.
+    // Its background takes the keys only for a press on it (below): Super's input is none.
     h.request(
         SHELL,
         Request::CreateShellSurface {
@@ -792,14 +792,141 @@ fn the_shell_focuses_its_own_surface_only_with_an_input_it_received() {
         },
     )
     .unwrap();
+    h.present(key(SHELL, 3));
+    h.request(SHELL, Request::FocusShellSurface { surface: 3, serial })
+        .unwrap();
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 2)));
+    // Only the shell's own surfaces; only the shell.
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 4,
+            kind: ShellKind::Backdrop,
+            edge: PanelEdge::None,
+            output: 1,
+            size: Size::new(1, 1),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
     assert_eq!(
-        h.request(SHELL, Request::FocusShellSurface { surface: 3, serial }),
+        h.request(SHELL, Request::FocusShellSurface { surface: 4, serial }),
         Err(ErrorCode::InvalidRole)
     );
     assert_eq!(
         h.request(APP, Request::FocusShellSurface { surface: 1, serial }),
         Err(ErrorCode::Unauthorized)
     );
+}
+
+#[test]
+fn the_shells_desktop_takes_the_keyboard_only_for_a_press_on_it() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 2,
+            kind: ShellKind::Background,
+            edge: PanelEdge::None,
+            output: 1,
+            size: Size::new(1, 1),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
+    let desktop = key(SHELL, 2);
+    h.present(desktop);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let at = h.rect(window);
+    // Never by itself: asked with no input of the shell's, or with a key's, nothing changes.
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 2,
+            serial: h.scene.serial + 100,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    keys(&mut h, &[SUPER]);
+    let shortcut = to(&logged(&mut h), SHELL)
+        .iter()
+        .find_map(|event| match event {
+            Event::SystemShortcut { serial, .. } => Some(*serial),
+            _ => None,
+        })
+        .unwrap();
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 2,
+            serial: shortcut,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    // A press on the desktop, cited: the desktop has the keys and the window is no longer active,
+    // as a press on a Mac's desktop makes Finder active.
+    let press = h.press(at.x + at.width as i32 + 200, at.y + 50);
+    h.scene.pointer_button(BUTTON, false);
+    logged(&mut h);
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 2,
+            serial: press,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(desktop));
+    let events = logged(&mut h);
+    assert!(to(&events, APP).contains(&Event::Focus {
+        surface: 1,
+        focused: false
+    }));
+    keys(&mut h, &[KEY_A]);
+    assert_eq!(
+        keys_to(&logged(&mut h), SHELL),
+        [(KEY_A, true), (KEY_A, false)]
+    );
+    // A press on the window takes the keys back; the desktop's press, older now, gives nothing.
+    let theirs = h.press(at.x + 20, at.y + 20);
+    h.scene.pointer_button(BUTTON, false);
+    assert_eq!(h.scene.focus(), Some(window));
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 2,
+            serial: press,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    // Nor the window's press, which the shell never had.
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 2,
+            serial: theirs,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    // Locked, a press on the desktop gives it nothing.
+    let again = h.press(at.x + at.width as i32 + 200, at.y + 50);
+    h.scene.pointer_button(BUTTON, false);
+    h.scene.lock();
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 2,
+            serial: again,
+        },
+    )
+    .unwrap();
+    assert_ne!(h.scene.focus(), Some(desktop));
 }
 
 #[test]

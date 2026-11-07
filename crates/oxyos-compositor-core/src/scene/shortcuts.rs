@@ -610,8 +610,11 @@ impl Scene {
     }
 
     /// A shell asks for the keyboard focus on one of its own panels or overlays, citing an input
-    /// it received lately; without such an input, it is ignored. A surface it never had, or one of
-    /// a kind that never takes the keys (its background), is its mistake. While a system sheet
+    /// it received lately; without such an input, it is ignored. Its background (the desktop, ADR
+    /// 0047) takes the keys only for the press the person made on it, cited while it is the latest
+    /// press: a press on a Mac's desktop makes Finder active, the window that had the keys
+    /// inactive. Never by itself, and never for any other input. A surface it never had, or one of
+    /// a kind that never takes the keys, is its mistake. While a system sheet
     /// waits for the person (ADR 0030), an overlay takes the keys with no input of the shell's:
     /// the sheet is modal, the key window as a Mac's alert is, and what is typed while it asks is
     /// never the application's behind it.
@@ -634,6 +637,26 @@ impl Scene {
                 kind: ShellKind::Panel | ShellKind::Overlay | ShellKind::Notification,
                 ..
             } => {}
+            Role::Shell {
+                kind: ShellKind::Background,
+                ..
+            } => {
+                let pressed_here = self.last_press.is_some_and(|press| {
+                    press.serial == serial
+                        && press.client == key.client
+                        && press.pointer
+                        && self.root_of(press.surface) == key
+                });
+                if pressed_here
+                    && !self.locked
+                    && !node.dismissed
+                    && self.visible(key)
+                    && self.grab.is_empty()
+                {
+                    self.set_focus(Some(key));
+                }
+                return Ok(());
+            }
             // The compositor gives the lock screen the keys while locked, and takes them back as it
             // unlocks; a shell whose field still had them asks for them as the lock goes (its
             // request crosses the unlock): nothing to do, as for a surface the compositor dismissed.

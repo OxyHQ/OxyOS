@@ -534,6 +534,10 @@ function SessionShell() {
       openTrash: () => {
         shell.openUrl('dropsea://trash');
       },
+      // A desktop folder opened in Dropsea (ADR 0047), citing the press or key that opened it.
+      openUrl: (url) => {
+        shell.openUrl(url);
+      },
       emptyTrash: () => {
         shell.emptyTrash();
       },

@@ -1,4 +1,5 @@
-// The file service an application's window is given (`OxyOSFiles`, docs/adr/0028-file-access.mdx):
+// The file service an application's window is given, and the session's shell for its desktop
+// (`OxyOSFiles`, docs/adr/0028-file-access.mdx, docs/adr/0047-finder-drags-and-the-desktop.mdx):
 // the user's home, the volumes mounted for them and the application's own folders, through
 // crates/oxyos-files behind oxyos_client.h. JavaScript reaches it through expo-file-system's API
 // (sample/oxyos/expo-file-system.js) and the Bloom adapter's places and Trash

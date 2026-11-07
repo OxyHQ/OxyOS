@@ -100,8 +100,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   OpenFiles), exactly and in order, each {"name": the file's name, "application": its id};
 - urls_opened: the URLs the shell opened in the step (ADR 0034), and those applications opened (the
   platform's Settings, `oxyos-settings:`, docs/adr/0019-settings.mdx), exactly and in order, each
-  {"url", "application"}: the application started for it; a step that opens one and does not say
-  so fails;
+  {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
+  file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
+  that opens one and does not say so fails;
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
@@ -365,7 +366,8 @@ scrolls on the node of that accessible name (a dock icon), and a `scroll_output`
 or [x, y, dy, events]) at a point of the output.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
-`press_secondary_named` and `move_named` (a name) and `hold_named` ([name, ms]) are the output's
+`press_secondary_named`, `double_press_named` (an icon on the shell's desktop opened, ADR 0047) and
+`move_named` (a name) and `hold_named` ([name, ms]) are the output's
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
@@ -592,6 +594,7 @@ import re
 import shutil
 import struct
 import zlib
+import urllib.parse
 import os
 import pathlib
 import plistlib
@@ -609,7 +612,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
@@ -822,7 +825,7 @@ def director_args(step, out):
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
-                "double_press", "triple_press"):
+                "double_press", "double_press_output", "triple_press"):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "double_drag":
         # A double click whose second press is held and dragged: [x0, y0, x1, y1].
@@ -888,9 +891,9 @@ def director_args(step, out):
         # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
         # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
         return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
-    if kind in ("press_named", "press_secondary_named", "move_named"):
+    if kind in ("press_named", "press_secondary_named", "double_press_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
-        # its label), wherever it is when the step runs.
+        # its label, an icon on the desktop by its name), wherever it is when the step runs.
         return args + ["--" + kind.replace("_", "-"), value]
     if kind == "hold_named":
         # A long press on the node of this name: [name, ms].
@@ -3694,8 +3697,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if not step.get("within") and sounds != expect.get("sounds", []):
         fail(f"sounds played: {sounds}, expected {expect.get('sounds', [])}")
     urls = result.get("urls_opened") or []
-    if urls != expect.get("urls_opened", []):
-        fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
+    # "{home}" in an expected URL is the run's home's file:// URI as a URL's parameter carries it
+    # (encodeURIComponent's): a desktop folder opened in Dropsea (ADR 0047).
+    home_uri = urllib.parse.quote(f"file://{home_root.root}", safe="-_.!~*'()") if home_root else "{home}"
+    wanted_urls = [{**url, "url": url["url"].replace("{home}", home_uri)} if isinstance(url.get("url"), str) else url
+                   for url in expect.get("urls_opened", [])]
+    if urls != wanted_urls:
+        fail(f"URLs opened: {urls}, expected {wanted_urls}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
     # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,

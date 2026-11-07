@@ -124,8 +124,12 @@ export type ShellActions = {
       (docs/adr/0035-drag-and-drop.mdx). */
   trashFiles?: (uris: readonly string[]) => void;
   /** Files dropped on an application's dock icon (`file://` URIs), opened in it by the platform,
-      citing the drop (docs/adr/0034-the-dock.mdx, decision 11). */
+      citing the drop (docs/adr/0034-the-dock.mdx, decision 11); and the desktop's files opened
+      (docs/adr/0047-finder-drags-and-the-desktop.mdx), citing the press or key that opened them. */
   openFiles?: (id: string, uris: readonly string[]) => void;
+  /** A URL opened in the application that opens its scheme, citing the latest input: a desktop
+      folder opened in Dropsea (`dropsea://files?uri=…`, docs/adr/0047-finder-drags-and-the-desktop.mdx). */
+  openUrl?: (url: string) => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is

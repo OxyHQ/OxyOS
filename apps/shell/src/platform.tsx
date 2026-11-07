@@ -148,6 +148,13 @@ export type ShellPlatform = {
   /** Its keys before the focused field, where it offers them; elsewhere a field's own
       `onKeyPress` is all there is. */
   keyboard?: ShellKeyboard;
+  /** Asks the keyboard for the desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision
+      5), citing the press on it, as a press on a Mac's desktop makes Finder active: the platform
+      gives it only for that press. Without it, the desktop never has the keyboard. */
+  focusDesktop?: () => void;
+  /** Whether the desktop has the keyboard now, where the platform says: read by the desktop alone,
+      whose selection is drawn in the accent's colour only then. */
+  useDesktopKeyboard?: () => boolean;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

@@ -172,6 +172,11 @@ struct ShellService {
   // Files (file:// URIs) opened with the application `application`, citing the latest input: the
   // drop on its icon in the dock (docs/adr/0034-the-dock.mdx). False if not sent.
   std::function<bool(const std::string& application, const std::vector<std::string>& uris)> openFiles;
+  // The keyboard asked for the shell's desktop, its background, citing the press on it
+  // (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 5): the compositor gives it only for
+  // that press. `OxyOSShellDesktopKeyboard` ({ focused }) says when the desktop gains or loses it.
+  // False if not sent.
+  std::function<bool()> focusDesktop;
 };
 
 // An application's notifications (docs/adr/0026-notifications.mdx), for expo-notifications' API
