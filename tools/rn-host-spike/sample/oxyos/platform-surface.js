@@ -18,7 +18,8 @@
  * focused view (`OxyOSKeyboard`), so a menu's shortcut runs its item; a key Bloom takes goes no
  * further. Its `editing` is the window's first responder for the Edit menu's standard actions,
  * the focused text input (`OxyOSEditing`). Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
- * file manager needs beyond expo-file-system.
+ * file manager needs beyond expo-file-system, and `files.tags` the tags on the person's items
+ * (docs/adr/0049-file-tags.mdx).
  *
  * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
  * decision 8), `files.chooser` is what it was asked to show and how it answers; its window is the
@@ -357,6 +358,29 @@ function createFiles() {
     async emptyTrash() {
       await requestFiles('emptyTrash');
     },
+    // Bloom's `PlatformFileTags` (docs/adr/0049-file-tags.mdx): the items' own tags, in their
+    // extended attributes as freedesktop.org and a Mac keep them, and the index of every tagged
+    // item in the person's places.
+    tags: Object.freeze({
+      async inFolder(folderUri) {
+        return (await requestFiles('tagsIn', { uri: folderUri })).value;
+      },
+      async ofItems(uris) {
+        return (await requestFiles('tagsOf', { uris: [...uris] })).value;
+      },
+      async change(uris, { add = [], remove = [] }) {
+        const tags = add.map(({ name, color }) => ({ name, color: color ?? null }));
+        const args = { uris: [...uris], add: tags, remove: [...remove] };
+        return (await requestFiles('changeTags', args)).value.map(outcome);
+      },
+      async tagged(name) {
+        return (await requestFiles('tagged', { name })).value;
+      },
+      async names() {
+        return (await requestFiles('tagNames')).value;
+      },
+      watch: watching('watchTags'),
+    }),
     // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
     // session ends this process once it has the answer.
     chooser: chooserRequest
@@ -384,7 +408,7 @@ const dragAvailable = Boolean(nativeDrag?.getConstants()?.available);
 
 const OxyOSDropTargetView = NativeComponentRegistry.get('OxyOSDropTargetView', () => ({
   uiViewClassName: 'OxyOSDropTargetView',
-  validAttributes: { acceptKinds: true, dropActions: true, disabled: true, acceptFileTypes: true },
+  validAttributes: { acceptKinds: true, dropActions: true, disabled: true, acceptFileTypes: true, dropFolder: true },
   directEventTypes: {
     topDragEnter: { registrationName: 'onNativeDragEnter' },
     topDragOver: { registrationName: 'onNativeDragOver' },
@@ -457,6 +481,7 @@ function DropTarget({
   accept,
   actions,
   acceptFileTypes,
+  folder,
   disabled,
   onDragEnter,
   onDragOver,
@@ -472,6 +497,10 @@ function DropTarget({
       dropActions={actions.join('\n')}
       // Files whose types it does not take are no files to it: the host answers the compositor so.
       acceptFileTypes={(acceptFileTypes ?? []).join('\n')}
+      // Where files dropped on it go (Bloom's DropZone `folder`, protocol version 28): the host
+      // prefers a move when every dragged file is on this folder's volume and a copy when one is
+      // not, as Finder does, if the target allows both.
+      dropFolder={folder ?? ''}
       disabled={Boolean(disabled)}
       style={style}
       testID={testID}
@@ -493,6 +522,17 @@ function DropTarget({
   );
 }
 
+// The window's drag (Bloom's useWindowDrag): the host tells a drag coming over any of this
+// application's surfaces, and its leaving them all or ending, `dropped` when it was dropped on one
+// of them, once that drop's onDrop ran.
+const windowDragListeners = new Set();
+if (dragAvailable) {
+  DeviceEventEmitter.addListener('OxyOSWindowDrag', (event) => {
+    const told = event.type === 'exit' ? { type: 'exit', dropped: Boolean(event.dropped) } : { type: 'enter' };
+    for (const listener of [...windowDragListeners]) listener(told);
+  });
+}
+
 const drag = dragAvailable
   ? {
       // The dragged view itself is the image, as it looks (stacked and badged for several items).
@@ -511,6 +551,12 @@ const drag = dragAvailable
           { vanish: Boolean(vanish) },
           onCancel ? (reason) => onCancel(reason) : undefined,
         );
+      },
+      watchWindow(listener) {
+        windowDragListeners.add(listener);
+        return () => {
+          windowDragListeners.delete(listener);
+        };
       },
     }
   : undefined;

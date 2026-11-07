@@ -1,0 +1,165 @@
+From 902dd97e3acabf75a5b75e136dd94fd1d42095e0 Mon Sep 17 00:00:00 2001
+From: "Nate I." <oxy@oxy.so>
+Date: Sat, 7 Nov 2026 09:13:04 +0200
+Subject: [PATCH] ply-device-manager: Skip DRM devices that have no connectors
+
+Plymouth opens every DRM device udev knows: each card and each render
+node. On a hybrid laptop whose discrete GPU has no outputs (an NVIDIA
+T550 beside an Intel iGPU, on nouveau with GSP firmware), opening that
+GPU's card or render node wakes it from runtime suspend only for the
+DRM renderer to find no connectors. Waking it takes seconds, delays the
+splash at boot and shutdown, and on some GPUs and firmware it hangs the
+machine.
+
+A device that drives displays has connectors, each a child of its card
+in sysfs (card1-eDP-1), whether or not anything is plugged in. Render
+nodes never have any. So look for them in sysfs, which wakes nothing,
+and open only devices that have them.
+
+A card's connectors are registered after the card itself, so a card
+that had none yet when its add event was processed is looked at again
+when a connector is added to it.
+---
+ src/libply-splash-core/ply-device-manager.c | 94 ++++++++++++++++++++-
+ 1 file changed, 92 insertions(+), 2 deletions(-)
+
+diff --git a/src/libply-splash-core/ply-device-manager.c b/src/libply-splash-core/ply-device-manager.c
+index 59e579dd..9bba44f8 100644
+--- a/src/libply-splash-core/ply-device-manager.c
++++ b/src/libply-splash-core/ply-device-manager.c
+@@ -21,6 +21,7 @@
+ #include "ply-renderer.h"
+ 
+ #include <assert.h>
++#include <dirent.h>
+ #include <fcntl.h>
+ #include <stdbool.h>
+ #include <stdlib.h>
+@@ -374,6 +375,73 @@ verify_drm_device (struct udev_device *device)
+         return false;
+ }
+ 
++/*
++ * A DRM device that drives displays has connectors, each a child of its card
++ * in sysfs (card1-eDP-1), whether or not anything is plugged in. Render nodes
++ * have none, nor has the card of a GPU without outputs, such as the discrete
++ * GPU of many hybrid laptops: opening one can only fail to find a display,
++ * and it first wakes the GPU from runtime suspend, which takes seconds on some
++ * hardware and can hang the machine on others.
++ */
++static bool
++drm_device_has_connectors (struct udev_device *device)
++{
++        const char *syspath, *sysname;
++        size_t sysname_length;
++        struct dirent *entry;
++        bool has_connectors = false;
++        DIR *dir;
++
++        syspath = udev_device_get_syspath (device);
++        sysname = udev_device_get_sysname (device);
++
++        if (syspath == NULL || sysname == NULL)
++                return false;
++
++        dir = opendir (syspath);
++        if (dir == NULL)
++                return false;
++
++        sysname_length = strlen (sysname);
++        while ((entry = readdir (dir)) != NULL) {
++                if (strncmp (entry->d_name, sysname, sysname_length) == 0 &&
++                    entry->d_name[sysname_length] == '-') {
++                        has_connectors = true;
++                        break;
++                }
++        }
++
++        closedir (dir);
++        return has_connectors;
++}
++
++/*
++ * The card a connector that was just added belongs to, when Plymouth does not
++ * drive it yet: a card's connectors are added after the card itself, so a card
++ * that had none when its own add event came is looked at again then.
++ */
++static struct udev_device *
++get_unmanaged_card_of_added_connector (ply_device_manager_t *manager,
++                                       const char           *action,
++                                       struct udev_device   *device)
++{
++        struct udev_device *card;
++        const char *card_path;
++
++        if (strcmp (action, "add") != 0)
++                return NULL;
++
++        card = udev_device_get_parent_with_subsystem_devtype (device, SUBSYSTEM_DRM, "drm_minor");
++        if (card == NULL)
++                return NULL;
++
++        card_path = udev_device_get_devnode (card);
++        if (card_path == NULL || drm_device_in_use (manager, card_path))
++                return NULL;
++
++        return udev_device_new_from_syspath (manager->udev_context, udev_device_get_syspath (card));
++}
++
+ static bool
+ create_devices_for_udev_device (ply_device_manager_t *manager,
+                                 struct udev_device   *device)
+@@ -400,6 +468,10 @@ create_devices_for_udev_device (ply_device_manager_t *manager,
+                                 ply_trace ("ignoring since we only handle SimpleDRM devices after timeout");
+                                 return false;
+                         }
++                        if (!drm_device_has_connectors (device)) {
++                                ply_trace ("ignoring DRM device %s since it has no connectors", device_path);
++                                return false;
++                        }
+                         ply_trace ("found DRM device %s", device_path);
+                         renderer_type = PLY_RENDERER_TYPE_DRM;
+                 } else if (strcmp (subsystem, SUBSYSTEM_FRAME_BUFFER) == 0) {
+@@ -541,7 +613,7 @@ on_drm_udev_add_or_change (ply_device_manager_t *manager,
+         }
+ 
+         /* Renderer exists, bail if this is not a change event */
+-        if (strcmp (action, "change"))
++        if (action == NULL || strcmp (action, "change"))
+                 return;
+ 
+         changed = ply_renderer_handle_change_event (renderer);
+@@ -634,11 +706,29 @@ on_udev_event (ply_device_manager_t *manager)
+          * change events pending for a single card, we only re-probe the card once.
+          */
+         while ((device = udev_monitor_receive_device (manager->udev_monitor))) {
++                struct udev_device *card;
++
+                 action = udev_device_get_action (device);
+                 device_path = udev_device_get_devnode (device);
+ 
+-                if (action == NULL || device_path == NULL)
++                if (action == NULL)
++                        goto unref;
++
++                if (device_path == NULL) {
++                        card = get_unmanaged_card_of_added_connector (manager, action, device);
++                        if (card == NULL)
++                                goto unref;
++
++                        device_path = udev_device_get_devnode (card);
++                        if (verify_add_or_change (manager, action, device_path, card) &&
++                            !duplicate_device_path (pending_events, device_path)) {
++                                ply_trace ("connector %s added to card %s", udev_device_get_sysname (device), device_path);
++                                ply_list_append_data (pending_events, card);
++                        } else {
++                                udev_device_unref (card);
++                        }
+                         goto unref;
++                }
+ 
+                 ply_trace ("got %s event for device %s", action, device_path);
+ 
+-- 
+2.47.3
+

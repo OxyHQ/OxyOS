@@ -1,0 +1,504 @@
+{
+  "about": "Spring-loaded folders in Dropsea, as Finder's (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 10 and 14): a folder held under a drag for half a second blinks twice and opens in its window, the drag going on over it. notes.txt held over Projects opens it, and let go there it moves into Projects, the window staying there. plan.txt held over Projects opens it, then dragged out of the window over the desktop the window springs back to the home, and let go over the desktop nothing moves. todo.txt held over Projects opens it, and Escape cancels the drag: the window springs back. Every step checks the disk. Then the same in a grouped window (View › Group By › Kind, OxyHQ/Dropsea#45), whose items sit under their groups' headers: plan.txt dragged onto Projects, now in the Folder group, moves into it, and todo.txt held over it opens it and, let go there, moves in.",
+  "module": "Dropsea",
+  "window": [
+    640,
+    560
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "notes.txt": "hello",
+      "plan.txt": "p",
+      "Projects/": "",
+      "Projects/README.md": "readme",
+      "todo.txt": "t"
+    }
+  },
+  "steps": [
+    {
+      "name": "the home: Documents, notes.txt and plan.txt on the first row, Projects and todo.txt on the second",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Documents",
+          "notes.txt",
+          "plan.txt",
+          "Projects",
+          "todo.txt",
+          "5 items"
+        ]
+      }
+    },
+    {
+      "name": "notes.txt dragged over Projects and held: Projects lit",
+      "do": [
+        "drag_hold",
+        [
+          746,
+          180,
+          616,
+          292,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": "hello"
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "held there for a second: Projects blinks and opens in the window",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "README.md",
+          "1 item"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Projects"
+            },
+            {
+              "role": "Link",
+              "name": "Projects"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "let go over Projects' items: notes.txt moves into Projects, and the window stays there",
+      "do": [
+        "release_output",
+        [
+          746,
+          420
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "README.md",
+          "notes.txt",
+          "2 items"
+        ],
+        "home": {
+          "Projects/notes.txt": "hello",
+          "notes.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Projects"
+            }
+          ]
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "drag.drop": 1,
+            "enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Back (Ctrl+[): the home, Projects selected",
+      "do": [
+        "key",
+        [
+          29,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "plan.txt",
+          "1 of 4 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "plan.txt (in notes.txt's place now) dragged over Projects (in plan.txt's) and held",
+      "do": [
+        "drag_hold",
+        [
+          746,
+          180,
+          876,
+          180,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "home": {
+          "plan.txt": "p"
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "held there for a second: Projects opens",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "README.md",
+          "notes.txt"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Projects"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "dragged out of the window, over the desktop: the window springs back to the home",
+      "do": [
+        "move_output",
+        [
+          1150,
+          400
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "plan.txt",
+          "todo.txt"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "let go over the desktop: nothing moves",
+      "do": [
+        "release_output",
+        [
+          1150,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "home": {
+          "plan.txt": "p",
+          "Projects/plan.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            }
+          ]
+        },
+        "delivered": {
+          "0": {
+            "drag.cancelled": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "todo.txt dragged over Projects and held",
+      "do": [
+        "drag_hold",
+        [
+          616,
+          292,
+          876,
+          180,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "home": {
+          "todo.txt": "t"
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "held there for a second: Projects opens",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "README.md",
+          "notes.txt"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Projects"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape cancels the drag: the window springs back to the home",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "texts": [
+          "plan.txt",
+          "todo.txt"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the button let go: nothing moves",
+      "do": [
+        "release_output",
+        [
+          876,
+          180
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "home": {
+          "todo.txt": "t",
+          "Projects/todo.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            }
+          ]
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "View › Group By › Kind: the folders under “Folder”, the files under “Plain text”, each group starting a row of its own",
+      "do": [
+        "menu",
+        "View > Group By > Kind"
+      ],
+      "expect": {
+        "texts": [
+          "Folder",
+          "Plain text",
+          "Documents",
+          "Projects",
+          "plan.txt",
+          "todo.txt"
+        ]
+      }
+    },
+    {
+      "name": "plan.txt (the first of Plain text) dragged onto Projects (the second of Folder): the folder under the pointer in the grouped grid takes it",
+      "do": [
+        "drag_paced",
+        [
+          616,
+          363,
+          746,
+          215,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "plan.txt"
+        ],
+        "home": {
+          "Projects/plan.txt": "p",
+          "plan.txt": false
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "todo.txt (now the first of Plain text) dragged over Projects and held",
+      "do": [
+        "drag_hold",
+        [
+          616,
+          363,
+          746,
+          215,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "home": {
+          "todo.txt": "t"
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "held there for a second: Projects opens",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "README.md",
+          "notes.txt",
+          "plan.txt"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Projects"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "let go over Projects' items: todo.txt moves in, and the window stays there",
+      "do": [
+        "release_output",
+        [
+          746,
+          500
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "todo.txt"
+        ],
+        "home": {
+          "Projects/todo.txt": "t",
+          "todo.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Projects"
+            }
+          ]
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "drag.drop": 1,
+            "enter": 1
+          }
+        }
+      }
+    }
+  ]
+}

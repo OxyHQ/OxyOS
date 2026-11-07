@@ -13,6 +13,10 @@
 //! - [`trash`] moves items to the Trash as the freedesktop.org Trash specification (1.0) says,
 //!   and lists, restores and removes what it holds.
 //! - [`places`]: the home, its favourite folders (the XDG user directories) and the volumes.
+//! - [`tags`]: the person's tags on their items (a desktop's Finder tags), in the items' extended
+//!   attributes as freedesktop.org and a Mac keep them; [`tag_index`] finds every tagged item.
+//! - [`volume`]: which file system an item is on, which decides whether a move is a rename (a
+//!   drag of files says its files' volumes, so a target prefers a move or a copy as Finder does).
 //! - [`watch`]: what changes in a folder or a file, typed and debounced as `expo-file-system`'s
 //!   watchers say it, and whether the Trash or the volumes changed, through inotify and the mount
 //!   table.
@@ -32,10 +36,13 @@ pub mod places;
 mod scope;
 #[cfg(feature = "service")]
 pub mod service;
+pub mod tag_index;
+pub mod tags;
 #[cfg(feature = "service")]
 pub mod transfer;
 pub mod trash;
 pub mod uri;
+pub mod volume;
 pub mod watch;
 
 pub use scope::{Access, Application, Root, Scope};
@@ -162,5 +169,7 @@ pub fn valid_name(name: &str) -> Result<(), Error> {
 mod access_tests;
 #[cfg(test)]
 mod mounts_tests;
+#[cfg(all(test, feature = "service"))]
+mod tag_tests;
 #[cfg(all(test, feature = "service"))]
 mod tests;

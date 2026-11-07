@@ -459,13 +459,19 @@ folder {"tree": [FOLDERS, FILES]} (FOLDERS folders in it, FILES empty files in e
 `node_modules` of thousands of files, made without listing each); each
 modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so dates read the same
 on every run. `home.later` is what another program does to it while the run goes on, each when the
-application first shows a text: [{"when_shown": TEXT, "items": {...}}], items as above, made when a
+application first shows a text: [{"when_shown": TEXT, "items": {...}, "xattrs": {...}}], items as
+above, made when a
 frame of the application's window shows TEXT (so a step after that one sees the window follow a
 change it did not make), or `after_ms` after it first does (a change coming while the application
-sits idle). A step's `home` expectation checks the home once the step settled: each path given
+sits idle). `home.xattrs` (and a `later`'s) sets extended attributes, as `setfattr` would (file tags,
+docs/adr/0049-file-tags.mdx): {PATH: {NAME: VALUE}}, a value text (UTF-8) or {"bplist": [TEXT, ...]}
+(a Mac's binary property list of strings, written by Python's plistlib). A step's `home` expectation
+checks the home once the step settled: each path given
 exists (true) or not (false), a file's text, and `trash` the names in the home's Trash (its
 `files/`), each with a `.trashinfo` naming where it was; with a `shell`, the dock's Trash follows
-that home's Trash (ADR 0034). Every scenario runs in one fixed language, never the machine's
+that home's Trash (ADR 0034). Its `xattrs` ({PATH: {NAME: VALUE | false}}) checks an item's `user.`
+attributes: a value as above, or false for none. The home's attributes are read only in a scenario
+that sets or checks some. Every scenario runs in one fixed language, never the machine's
 (docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
 scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
 and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`).
@@ -594,6 +600,7 @@ import struct
 import zlib
 import os
 import pathlib
+import plistlib
 import socket
 import statistics
 import subprocess
@@ -1509,8 +1516,32 @@ def make_home(out, home):
     root.mkdir(parents=True)
     modified = home.get("modified", 1767348000)
     write_items(root, home.get("items", {}), modified)
+    write_xattrs(root, home.get("xattrs", {}))
     os.utime(root, (modified, modified))
     return root
+
+
+def xattr_bytes(value):
+    """An extended attribute's value as `home.xattrs` gives it: text, or {"bplist": [TEXT]}."""
+    if isinstance(value, str):
+        return value.encode()
+    return plistlib.dumps(value["bplist"], fmt=plistlib.FMT_BINARY)
+
+
+def write_xattrs(root, xattrs):
+    """Extended attributes as `home.xattrs` describes them, as another program (setfattr) sets
+    them; an item's modification time is kept."""
+    for relative, attributes in xattrs.items():
+        path = root / relative.rstrip("/")
+        for name, value in attributes.items():
+            os.setxattr(path, name, xattr_bytes(value))
+
+
+def wants_xattrs(scenario):
+    """Whether a scenario sets or checks extended attributes, so the home's are recorded."""
+    home = scenario.get("home", {})
+    return bool(home.get("xattrs") or any(later.get("xattrs") for later in home.get("later", []))
+                or any("xattrs" in step.get("expect", {}).get("home", {}) for step in scenario.get("steps", [])))
 
 
 def write_items(root, items, modified):
@@ -1567,13 +1598,17 @@ def change_home_later(home_root, home, report_path):
                 shown = entry.get("texts", [])
                 # A change made as its text shows, before the window draws anything after it.
                 while later and "after_ms" not in later[0] and any(later[0]["when_shown"] in text for text in shown):
-                    write_items(home_root, later.pop(0)["items"], modified)
+                    change = later.pop(0)
+                    write_items(home_root, change.get("items", {}), modified)
+                    write_xattrs(home_root, change.get("xattrs", {}))
             seen = len(lines)
             # One made a while after its text showed, which comes while the window may draw nothing.
             if later and due is None and any(later[0]["when_shown"] in text for text in shown):
                 due = time.monotonic() + later[0].get("after_ms", 0) / 1000
             if later and due is not None and time.monotonic() >= due:
-                write_items(home_root, later.pop(0)["items"], modified)
+                change = later.pop(0)
+                write_items(home_root, change.get("items", {}), modified)
+                write_xattrs(home_root, change.get("xattrs", {}))
                 due = None
             time.sleep(0.02)
 
@@ -1609,10 +1644,25 @@ def offline_when_shown(text, report_path):
     threading.Thread(target=watch, daemon=True).start()
 
 
-def home_state(root):
+class HomeState(dict):
     """What the home holds: each path in it, a folder as None and a file as its text (or its
-    size, past 4 KB)."""
-    state = {}
+    size, past 4 KB); and `xattrs`, each item's `user.` extended attributes ({PATH: {NAME:
+    BYTES}}, items with none left out) when they are read."""
+
+    def __init__(self, items=(), xattrs=None):
+        super().__init__(items)
+        self.xattrs = xattrs or {}
+
+    def __eq__(self, other):
+        return dict.__eq__(self, other) and self.xattrs == getattr(other, "xattrs", {})
+
+    def __ne__(self, other):
+        return not self == other
+
+
+def home_state(root, xattrs=False):
+    """What the home holds now (`HomeState`), its items' attributes too with `xattrs`."""
+    state = HomeState()
     for path in root.rglob("*"):
         relative = str(path.relative_to(root))
         try:
@@ -1621,6 +1671,10 @@ def home_state(root):
             else:
                 size = path.stat().st_size
                 state[relative] = path.read_text(errors="replace") if size <= 4096 else size
+            if xattrs and not path.is_symlink():
+                held = {name: os.getxattr(path, name) for name in os.listxattr(path) if name.startswith("user.")}
+                if held:
+                    state.xattrs[relative] = held
         except OSError:
             pass
     return state
@@ -1631,8 +1685,9 @@ class HomeRecorder:
     with when it was first seen, on the monotonic clock the host's report uses, so each step is
     checked against the home as it was when the step settled."""
 
-    def __init__(self, root):
+    def __init__(self, root, xattrs=False):
         self.root = root
+        self.xattrs = xattrs
         self.states = []
         self.running = True
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -1640,7 +1695,7 @@ class HomeRecorder:
 
     def run(self):
         while self.running:
-            state = home_state(self.root)
+            state = home_state(self.root, self.xattrs)
             if not self.states or self.states[-1][1] != state:
                 self.states.append((time.monotonic_ns(), state))
             time.sleep(0.01)
@@ -1648,19 +1703,39 @@ class HomeRecorder:
     def stop(self):
         self.running = False
         self.thread.join()
-        state = home_state(self.root)
+        state = home_state(self.root, self.xattrs)
         if not self.states or self.states[-1][1] != state:
             self.states.append((time.monotonic_ns(), state))
 
     def at(self, t):
         """The home as it was at `t` (the last state seen by then)."""
         seen = [state for when, state in self.states if when <= t]
-        return seen[-1] if seen else (self.states[0][1] if self.states else {})
+        return seen[-1] if seen else (self.states[0][1] if self.states else HomeState())
 
 
 def check_home(state, wanted, fail):
     """A step's `home`: what the home held once it settled."""
     for relative, want in wanted.items():
+        if relative == "xattrs":
+            for path, attributes in want.items():
+                held = getattr(state, "xattrs", {}).get(path.rstrip("/"), {})
+                for name, value in attributes.items():
+                    if value is False:
+                        if name in held:
+                            fail(f"{path} still has {name}: {held[name]!r}")
+                    elif name not in held:
+                        fail(f"{path} has no {name}")
+                    elif isinstance(value, dict) and "bplist" in value:
+                        try:
+                            got = plistlib.loads(held[name])
+                        except Exception as error:
+                            fail(f"{path}'s {name} is not a property list: {error}")
+                            continue
+                        if not held[name].startswith(b"bplist00") or got != value["bplist"]:
+                            fail(f"{path}'s {name} holds {got!r}, not the binary property list {value['bplist']!r}")
+                    elif held[name] != xattr_bytes(value):
+                        fail(f"{path}'s {name} holds {held[name]!r}, not {value!r}")
+            continue
         if relative == "trash":
             files = ".local/share/Trash/files/"
             names = sorted(path[len(files):] for path in state if path.startswith(files) and "/" not in path[len(files):])
@@ -2672,7 +2747,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if not set(got) <= set(wanted) or not all(within(got.get(k, 0), want) for k, want in wanted.items()):
             fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
-        check_home(home_root.at(end) if home_root else {}, expect["home"], fail)
+        check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
     if "react_hover" in expect:
         got = {}
         for line in report:
@@ -4647,7 +4722,7 @@ def main():
     if home_root is not None:
         report_path.unlink(missing_ok=True)
         change_home_later(home_root, scenario["home"], report_path)
-        recorder = HomeRecorder(home_root)
+        recorder = HomeRecorder(home_root, wants_xattrs(scenario))
     try:
         run = subprocess.run(command, env=env, capture_output=True, text=True)
     finally:

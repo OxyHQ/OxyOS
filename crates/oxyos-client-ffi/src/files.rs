@@ -374,16 +374,88 @@ pub unsafe extern "C" fn oxyos_files_media_type(
     let Ok(Some(uri)) = (unsafe { utf8(uri, length) }) else {
         return fail("the URI is not UTF-8");
     };
-    let media = media_type(uri);
-    if out.is_null() || media.len() + 1 > capacity {
-        return fail("the type does not fit");
+    // SAFETY: forwarded caller contract.
+    unsafe { written(media_type(uri), out, capacity, "the type does not fit") }
+}
+
+/// `text` written NUL-terminated into `out` (`capacity` bytes): its length, or OXYOS_ERROR saying
+/// `too_long` if it does not fit.
+///
+/// # Safety
+/// `out` is NULL or points to `capacity` writable bytes.
+#[allow(unsafe_code)]
+unsafe fn written(text: &str, out: *mut c_char, capacity: usize, too_long: &str) -> c_int {
+    if out.is_null() || text.len() + 1 > capacity {
+        return fail(too_long);
     }
-    // SAFETY: `out` has `capacity` writable bytes, more than the type and its NUL.
+    // SAFETY: `out` has `capacity` writable bytes, more than the text and its NUL.
     unsafe {
-        std::ptr::copy_nonoverlapping(media.as_ptr(), out.cast::<u8>(), media.len());
-        *out.add(media.len()) = 0;
+        std::ptr::copy_nonoverlapping(text.as_ptr(), out.cast::<u8>(), text.len());
+        *out.add(text.len()) = 0;
     }
-    media.len() as c_int
+    text.len() as c_int
+}
+
+/// The volume of the item a `file://` URI names (`length` bytes of UTF-8), as the platform names
+/// volumes (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 8: a drag of files says them):
+/// the file system it is on, `MAJOR:MINOR`, the item's own (a link's own, not what it leads to).
+/// Written NUL-terminated into `out` (`capacity` bytes); returns its length, or OXYOS_ERROR if
+/// nothing is there, the URI is not a file's or it does not fit.
+///
+/// # Safety
+/// `uri` points to `length` readable bytes; `out` to `capacity` writable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_volume(
+    uri: *const c_char,
+    length: usize,
+    out: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { volume_of(uri, length, out, capacity, oxyos_files::volume::of) }
+}
+
+/// The volume items dropped into the folder a `file://` URI names go to (`length` bytes of UTF-8):
+/// the folder's own, or for a link to a folder that of the folder it leads to; as
+/// [`oxyos_files_volume`] names it, written and returned the same way. A drop target compares a
+/// drag's volumes with its folder's.
+///
+/// # Safety
+/// `uri` points to `length` readable bytes; `out` to `capacity` writable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_folder_volume(
+    uri: *const c_char,
+    length: usize,
+    out: *mut c_char,
+    capacity: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { volume_of(uri, length, out, capacity, oxyos_files::volume::inside) }
+}
+
+/// A volume `of` the URI's item, written into `out`.
+///
+/// # Safety
+/// `uri` points to `length` readable bytes; `out` to `capacity` writable bytes.
+#[allow(unsafe_code)]
+unsafe fn volume_of(
+    uri: *const c_char,
+    length: usize,
+    out: *mut c_char,
+    capacity: usize,
+    of: fn(&str) -> Result<String, oxyos_files::Error>,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Ok(Some(uri)) = (unsafe { utf8(uri, length) }) else {
+        return fail("the URI is not UTF-8");
+    };
+    match of(uri) {
+        // SAFETY: forwarded caller contract.
+        Ok(volume) => unsafe { written(&volume, out, capacity, "the volume does not fit") },
+        Err(error) => fail(error),
+    }
 }
 
 /// A file's media type from its `file://` URI: a folder's, else its name's.

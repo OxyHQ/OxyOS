@@ -1,0 +1,25 @@
+# Plymouth, the boot logo's splash (docs/adr/0017-boot-logo.mdx, decision 6): Debian Trixie's
+# source package, rebuilt with OxyOS's patches (*.patch here, applied after Debian's own, in name
+# order) as the binary packages the image installs. POSIX sh, sourced by tools/image/container.sh
+# and read by scripts/check-image-contents.py.
+
+# The Debian source package and the SHA-256 of each of its files, as its .dsc lists them.
+SOURCE="plymouth"
+DEBIAN_VERSION="24.004.60-5"
+DSC_SHA256="381d5538d6b1e634de0ccf80e40494a68fda92636375fb8ef6929f507408dcc6"
+ORIG="plymouth_24.004.60.orig.tar.xz"
+ORIG_SHA256="f3f7841358c98f5e7b06a9eedbdd5e6882fd9f38bbd14a767fb083e3b55b1c34"
+DEBIAN_TARBALL="plymouth_24.004.60-5.debian.tar.xz"
+DEBIAN_SHA256="4e1b061eef5f80021c735f263062aa78839612d2561058a8a71442dc43068355"
+
+# OxyOS's version: above Debian's, so apt keeps it. The build stops when the archive has a newer
+# Debian version than DEBIAN_VERSION: the patches are then rebased onto it, not left behind.
+VERSION="24.004.60-5+oxyos1"
+# The changelog entry's author and date, fixed so the same inputs build the same packages.
+MAINTAINER="Nate I. <oxy@oxy.so>"
+DATE="Sat, 07 Nov 2026 07:00:00 +0000"
+
+# The binary packages the image installs from this build (the manifest's plymouth and what it
+# depends on of the same source). The source's others (plymouth-themes, plymouth-label,
+# plymouth-x11, libplymouth-dev) are not taken.
+BINARIES="plymouth libplymouth5"
