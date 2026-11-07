@@ -1,0 +1,358 @@
+{
+ "about": "Settings › Wallpaper's Your Photos (docs/adr/0048-wallpapers.mdx, decision 7) with the session's shell, in Spanish, at 1.25 (2400 × 1500): Add Photo… opens the system's file chooser (Dropsea's picker, ADR 0028 and 0029, decision 8) as a sheet of Settings' window; a square photo of the person's (its left half orange, its right half blue) opened from Pictures becomes the wallpaper at once, filling the screen, and is added to Your Photos, chosen, in Settings' own data (its wallpapers.json, which a later run reads). Its fit then Fit to Screen shows it whole with black around it, and the colour around it changed to white through the colour picker. Each step checks the preferences file (the photo's path in the run's home), the shell's desktop beside Settings' window, the assistive technology's nodes and what React received. Needs Dropsea's package (DROPSEA_DIR).",
+ "locale": "es_ES.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  1000,
+  1040
+ ],
+ "outputs": "2400x1500@1.25",
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "file_chooser": "Dropsea",
+ "home": {
+  "items": {
+   "Pictures/Cuadro.png": {
+    "png": [
+     1000,
+     1000,
+     "#e07b39",
+     "#2a6f97"
+    ]
+   },
+   "Documents/": ""
+  }
+ },
+ "steps": [
+  {
+   "name": "Settings' Wallpaper page, from the sidebar: Your Photos has nothing yet, and its two buttons",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Fondo de pantalla"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1,
+     "click@settings-nav-wallpaper": 1
+    },
+    "texts": [
+     "Tus fotos",
+     "Añadir foto…",
+     "Añadir carpeta…",
+     "Aquí se muestran las fotos y carpetas que añadas."
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Añadir foto…"
+      },
+      {
+       "role": "Button",
+       "name": "Añadir carpeta…"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Group",
+       "name": "Tus fotos"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Add Photo…: the system's file chooser (Dropsea's picker) as a sheet of Settings' window",
+   "do": [
+    "press_named",
+    "Añadir foto…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-add-photo": 1,
+     "touchEnd@wallpaper-add-photo": 1
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    }
+   }
+  },
+  {
+   "name": "the chooser's Pictures",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "Pictures in its sidebar",
+   "do": [
+    "press_named",
+    "Imágenes"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "its images",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "Cuadro.png selected",
+   "do": [
+    "press_named",
+    "Cuadro.png"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true
+    }
+   }
+  },
+  {
+   "name": "Open: the photo is Settings' wallpaper, filling the screen (its left half orange, its right half blue), added to Your Photos and chosen there, and the top says so with its fit",
+   "do": [
+    "press_output",
+    [
+     1310,
+     601
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "chooser": null,
+    "preferences_file": {
+     "wallpaper": "photo:fill:000000:{home}/Pictures/Cuadro.png"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Image",
+       "name": "Fondo de pantalla actual: Cuadro.png, Foto"
+      },
+      {
+       "role": "Group",
+       "name": "Tus fotos"
+      },
+      {
+       "role": "Radio",
+       "name": "Cuadro.png",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Button",
+       "name": "Ajuste"
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#e07b39",
+     "500,750": "#e07b39",
+     "1875,750": "#2a6f97",
+     "2188,375": "#2a6f97"
+    }
+   }
+  },
+  {
+   "name": "the fit's menu",
+   "do": [
+    "press",
+    [
+     905,
+     230
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-fit": 1,
+     "touchEnd@wallpaper-fit": 1,
+     "show@wallpaper-fit-row": 1
+    },
+    "texts": [
+     "Llenar pantalla",
+     "Ajustar a la pantalla",
+     "Estirar para llenar la pantalla",
+     "Centrar imagen",
+     "Mosaico"
+    ]
+   }
+  },
+  {
+   "name": "Fit to Screen: the whole square photo, the black colour around it on either side, and the colour around it now offered",
+   "do": [
+    "press_named",
+    "Ajustar a la pantalla"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-fit-row": 1,
+     "touchEnd@wallpaper-fit-row": 1
+    },
+    "preferences_file": {
+     "wallpaper": "photo:fit:000000:{home}/Pictures/Cuadro.png"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Color alrededor de la imagen, #000000"
+      }
+     ]
+    },
+    "output_pixels": {
+     "188,750": "#000000",
+     "500,750": "#e07b39",
+     "1875,750": "#2a6f97",
+     "2188,375": "#000000"
+    }
+   }
+  },
+  {
+   "name": "the colour around it: the colour picker",
+   "do": [
+    "press_named",
+    "Color alrededor de la imagen, #000000"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-margin": 1,
+     "touchEnd@wallpaper-margin": 1,
+     "show@settings-page": 1
+    },
+    "texts": [
+     "Color personalizado",
+     "Elegir"
+    ]
+   }
+  },
+  {
+   "name": "its hex field",
+   "do": [
+    "press_named",
+    "Color hexadecimal"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-color-picker-hex": 1,
+     "touchEnd@wallpaper-color-picker-hex": 1,
+     "focus@wallpaper-color-picker-hex": 1,
+     "selectionChange@wallpaper-color-picker-hex": 1
+    }
+   }
+  },
+  {
+   "name": "all of it selected",
+   "do": [
+    "key",
+    [
+     29,
+     30
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "selectionChange@wallpaper-color-picker-hex": 1
+    }
+   }
+  },
+  {
+   "name": "#FFFFFF typed",
+   "do": [
+    "type",
+    "#FFFFFF"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "change@wallpaper-color-picker-hex": 1,
+     "selectionChange@wallpaper-color-picker-hex": 1
+    }
+   }
+  },
+  {
+   "name": "Choose: white around the photo, kept",
+   "do": [
+    "press_named",
+    "Elegir"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wallpaper-color-picker-done": 1,
+     "touchEnd@wallpaper-color-picker-done": 1,
+     "blur@wallpaper-color-picker-hex": 1,
+     "endEditing@wallpaper-color-picker-hex": 1
+    },
+    "preferences_file": {
+     "wallpaper": "photo:fit:ffffff:{home}/Pictures/Cuadro.png"
+    },
+    "output_pixels": {
+     "188,750": "#ffffff",
+     "500,750": "#e07b39",
+     "1875,750": "#2a6f97",
+     "2188,375": "#ffffff"
+    }
+   }
+  }
+ ],
+ "final": {
+  "app_data": {
+   "so.oxy.settings": {
+    "wallpapers.json": {
+     "added": [
+      {
+       "kind": "photo",
+       "path": "{home}/Pictures/Cuadro.png"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

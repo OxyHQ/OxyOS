@@ -578,9 +578,11 @@ function useWallpaperModel(locale: string): {
   const actions = React.useMemo<WallpaperActions>(() => {
     const pickPhoto = async () => {
       try {
+        // Expo's answer: `{ canceled }`, or the File chosen as its `result`.
         const picked = await File.pickFileAsync({ mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'] });
-        const uri = Array.isArray(picked) ? picked[0]?.uri : picked?.uri;
-        return uri ? uriPath(uri) : null;
+        if (picked.canceled) return null;
+        const chosen = Array.isArray(picked.result) ? picked.result[0] : picked.result;
+        return chosen?.uri ? uriPath(chosen.uri) : null;
       } catch {
         // Cancelled, or refused by the session: nothing chosen.
         return null;

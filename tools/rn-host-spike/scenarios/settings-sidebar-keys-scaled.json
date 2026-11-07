@@ -127,7 +127,7 @@
     ],
     "announcements": [],
     "texts": [
-     "Sigue al sol a lo largo del día."
+     "Automático sigue la apariencia clara u oscura."
     ]
    }
   },
@@ -213,12 +213,12 @@
     ],
     "announcements": [],
     "texts": [
-     "Sigue al sol a lo largo del día."
+     "Automático sigue la apariencia clara u oscura."
     ]
    }
   },
   {
-   "name": "Tab leaves the sidebar (no other row is a stop) for the pane's first control: the wallpaper's menu",
+   "name": "Tab leaves the sidebar (no other row is a stop) for the pane's first control: the wallpaper's Dynamic wallpaper menu",
    "do": [
     "key",
     [
@@ -229,17 +229,17 @@
    "expect": {
     "react": {
      "blur@settings-nav-wallpaper": 1,
-     "focus@Fondo": 1
+     "focus@Fondo dinámico": 1
     },
     "keyboard_focus": {
-     "target": "Fondo",
+     "target": "Fondo dinámico",
      "ring": true
     },
     "at": {
      "window": [
       {
        "role": "Button",
-       "name": "Fondo",
+       "name": "Fondo dinámico",
        "state": [
         "focused"
        ]
@@ -248,7 +248,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo, OxyOS, botón",
+      "text": "Fondo dinámico, Automático, botón",
       "interrupting": true
      }
     ],
@@ -267,7 +267,7 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "blur@Fondo": 1,
+     "blur@Fondo dinámico": 1,
      "focus@settings-nav-wallpaper": 1
     },
     "keyboard_focus": {
