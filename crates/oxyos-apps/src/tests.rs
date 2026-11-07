@@ -47,6 +47,26 @@ fn an_entry_is_an_application_named_in_the_sessions_language() {
 }
 
 #[test]
+fn keywords_are_listed_in_the_sessions_language_else_their_own() {
+    let entry = "[Desktop Entry]\nType=Application\nName=Inbox\nExec=inbox\nKeywords=mail;email; letters ;\nKeywords[es]=correo;email;\n";
+    let keywords = |languages: &[&str]| {
+        let languages: Vec<String> = languages.iter().map(|l| l.to_string()).collect();
+        parse("so.oxy.inbox", entry, Path::new("/"), &languages)
+            .unwrap()
+            .unwrap()
+            .keywords
+    };
+    assert_eq!(keywords(&["es_ES", "es"]), ["correo", "email"]);
+    assert_eq!(keywords(&["en_US", "en"]), ["mail", "email", "letters"]);
+    // An entry without them has none.
+    assert!(parse("so.oxy.allo", ALLO, Path::new("/"), &[])
+        .unwrap()
+        .unwrap()
+        .keywords
+        .is_empty());
+}
+
+#[test]
 fn exec_is_split_as_the_specification_quotes_and_field_codes_are_refused() {
     let entry = |exec: &str| {
         parse(
@@ -962,6 +982,7 @@ fn a_system_launch_runs_what_the_policy_names() {
     let bloom = Application {
         id: "so.oxy.settings".into(),
         name: "Settings".into(),
+        keywords: Vec::new(),
         icon: None,
         launch: Launch::Bloom {
             module: "Settings".into(),
@@ -1256,6 +1277,7 @@ fn an_application_runs_on_its_runtimes_host() {
     let application = |runtime| Application {
         id: "so.oxy.inbox".into(),
         name: "Inbox".into(),
+        keywords: Vec::new(),
         icon: None,
         launch: Launch::Bloom {
             module: "Inbox".into(),
@@ -1373,6 +1395,7 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
     let application = Application {
         id: "so.oxy.settings".into(),
         name: "Settings".into(),
+        keywords: Vec::new(),
         icon: None,
         launch: Launch::Bloom {
             module: "OxyOSSettings".into(),
@@ -1720,4 +1743,42 @@ fn each_verified_launch_is_told_to_the_registrar_with_its_pidfd() {
     launcher.launch("so.oxy.writer").unwrap();
     assert_eq!(told.0.lock().unwrap().len(), 1);
     launcher.end(std::time::Duration::from_secs(5));
+}
+
+#[test]
+fn a_package_is_the_directory_of_its_compiled_bundle_and_manifest() {
+    let package = Directory::new("package", &[("index.hbc", ""), ("manifest.json", "{}")]);
+    let loose = Directory::new("loose", &[("index.hbc", ""), ("bundle.js", "")]);
+    let bloom = |bundle: PathBuf| Application {
+        id: "so.oxy.inbox".into(),
+        name: "Inbox".into(),
+        keywords: Vec::new(),
+        icon: None,
+        launch: Launch::Bloom {
+            module: "Inbox".into(),
+            bundle: Some(bundle),
+            runtime: Some(1),
+        },
+        pinned: None,
+        origin: Origin::Development,
+        opens: Vec::new(),
+    };
+    let packaged = bloom(package.0.join("index.hbc"));
+    assert_eq!(package_directory(&packaged), Some(package.0.as_path()));
+    // A compiled bundle with no manifest beside it, a bundle of another name, and a native
+    // client are no package.
+    assert_eq!(package_directory(&bloom(loose.0.join("index.hbc"))), None);
+    assert_eq!(package_directory(&bloom(loose.0.join("bundle.js"))), None);
+    let native = Application {
+        launch: Launch::Exec(vec!["/usr/bin/tool".into()]),
+        ..packaged
+    };
+    assert_eq!(package_directory(&native), None);
+}
+
+#[test]
+fn the_languages_of_a_tag() {
+    assert_eq!(languages_of_tag("es-ES-u-hc-h23"), ["es_ES", "es"]);
+    assert_eq!(languages_of_tag("sr-Latn-RS"), ["sr_RS", "sr"]);
+    assert_eq!(languages_of_tag("es"), ["es"]);
 }
