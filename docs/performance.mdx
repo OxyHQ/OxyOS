@@ -547,8 +547,9 @@ the application's own work.
 On the ThinkPad's GPU, 6 November 2026 (three runs each, the cache kept; ms from the process's
 start, the median): Settings' first frame 46 and its first frame with its text 166 (its first
 launch ever 171), the Inbox 178 (173), WindowProbe 137 (137), Allo beside the shell 66 (77),
-Dropsea 177 (183). Of Settings' first frame with its text, about 40 ms is worklets compiling
-Reanimated's worklets from their source on the UI runtime (below, *What remains*).
+Dropsea 177 (183). Of Settings' first frame with its text, about 40 ms was worklets compiling
+Reanimated's and Bloom's worklets from their source on the UI runtime, which the framework now
+compiles ahead (below, *What was fixed*).
 
 ### Idle
 
@@ -867,6 +868,29 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   icons, Launchpad, the overview, the panels) are memoized with handlers that stay the same, so a
   change renders what shows it. `shell-events.json` holds it (`renders`) and `perf.py shell`
   measures it.
+- **Worklets compiled every worklet from its source before an application's first frame with
+  text** (8 November 2026). A worklet reaches worklets' UI runtime as its source text (its
+  `__initData.code`), and the UI runtime makes the function the first time it runs there, with
+  `eval` (worklets' legacy mode, which the host runs): Hermes compiling it from source, about a
+  quarter of a millisecond each for texts of 100 to 3000 bytes, nearly all of it compiling
+  (timed apart, `prepareJavaScript` and `evaluatePreparedJavaScript`: 70.5 ms compiling and 1.9
+  running for Settings' 266, on this machine). Settings runs 265 before its first frame with
+  text, WindowProbe 259, the Inbox 258, Dropsea 284, all of them the framework's (Reanimated's,
+  worklets' and Bloom's components'). The framework's build now reads every worklet its bundle
+  defines (`sample/worklets.mjs`: each `__workletHash` with its source text, 1074 of them; one it
+  cannot read stops the build) and compiles them with the runtime's `hermesc` into one table,
+  `framework/worklets.hbc` (490 KB), by the URL worklets evaluates each under (`worklet_<hash>`);
+  the host evaluates it on the UI runtime, mapped from its file and shared by every application,
+  and answers worklets' own hook (`evalWithSourceUrl`, which its valueUnpacker calls where the
+  runtime has it) with the compiled function, compiling from its text only a worklet the
+  framework does not have (an application's own: none in Settings or Dropsea today). The same
+  runtime with and without the table, cold starts alternated (`perf.py cold-start`, two rounds of
+  three runs, this machine loaded by other builds), the medians: worklets' and Reanimated's work on
+  the host's thread before the window settles (the `animation` part of its frames' CPU, the first
+  2.5 s) Settings 115 → 23 ms, WindowProbe 111 → 21, Dropsea 132 → 27; the first frame with
+  text, from the process's start, Settings 328 → 248 ms, WindowProbe 287 → 193, Dropsea 396 →
+  222. `settings.json` holds it (`worklets`: none compiled from its text, from the launch on), and
+  every scenario passes with it.
 - **Every level of the microphone rendered the whole of Settings** (7 November 2026). While Sound's
   Input tab shows, the session tells Settings the input's level about 23 times a second as long as
   the microphone hears ([ADR 0056](./adr/0056-sound-devices), decision 7), and Settings held it in
@@ -1158,13 +1182,6 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
 
 ## What remains
 
-- **Worklets compile Reanimated's worklets from source on the first frame** with content: each
-  worklet reaches worklets' UI runtime as its source text, evaluated there with `eval` (worklets'
-  legacy mode, which the host runs), about 40 ms of Settings' and the Inbox's first frame with
-  text on the ThinkPad (93 ms on the development machine, timed around `UIScheduler::triggerUI`).
-  Upstream's way out is worklets' bundle mode (the UI runtime evaluating the bundle's bytecode),
-  which does not yet fit a framework and an application in two bundles; its plugin's
-  `hermesBytecode` option compiles each worklet ahead, but is marked experimental.
 - **The Vulkan driver's own memory** is 6 to 16 MiB of each host's GPU memory, which it keeps once
   allocated (above, *Memory side by side*).
 - **An application is not told that its window is hidden**: a minimized window gives back what an
