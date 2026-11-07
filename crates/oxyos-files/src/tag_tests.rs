@@ -116,6 +116,24 @@ fn tags_are_written_as_freedesktop_says_and_compared_case_aside() {
     .unwrap();
     assert_eq!(names(&now), ["Work", "Home", "Later"]);
     assert_eq!(xdg(&file).as_deref(), Some("Work,Home,Later"));
+    // A name removed and a new one added: renamed in place, as Finder renames a tag.
+    let now = tags::change(&file, &[tag("Office")], &["home".into()]).unwrap();
+    assert_eq!(names(&now), ["Work", "Office", "Later"]);
+    // Every name removed and the new list added: that list, in its order.
+    let now = tags::change(
+        &file,
+        &[tag("Desk"), tag("Work"), tag("Later"), tag("Extra")],
+        &["work".into(), "office".into(), "later".into()],
+    )
+    .unwrap();
+    assert_eq!(names(&now), ["Work", "Desk", "Later", "Extra"]);
+    // A new name with nothing removed goes last; one removed that is not there changes nothing.
+    let now = tags::change(&file, &[tag("Last")], &["absent".into()]).unwrap();
+    assert_eq!(names(&now), ["Work", "Desk", "Later", "Extra", "Last"]);
+    tags::change(&file, &[], &["desk".into(), "extra".into(), "last".into()]).unwrap();
+    tags::change(&file, &[tag("Home")], &["later".into()]).unwrap();
+    assert_eq!(xdg(&file).as_deref(), Some("Work,Home"));
+    tags::change(&file, &[tag("Later")], &[]).unwrap();
     // What another program wrote is read leniently: spaces and empty names left out, once each.
     set(&file, XDG, b" Blue ,,blue,Green,");
     assert_eq!(names(&tags::read(&file).unwrap()), ["Blue", "Green"]);

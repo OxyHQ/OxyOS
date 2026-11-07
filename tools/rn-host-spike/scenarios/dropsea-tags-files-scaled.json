@@ -1,0 +1,520 @@
+{
+  "about": "dropsea-tags-files.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018): its steps, tree, speech and disk, its drags at the window's place there.",
+  "locale": "en_US.UTF-8",
+  "module": "Dropsea",
+  "window": [
+    1024,
+    680
+  ],
+  "outputs": "1600x1000@1.25",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/report.txt": "r",
+      "Downloads/": "",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "todo.txt": "t"
+    },
+    "xattrs": {
+      "notes.txt": {
+        "user.xdg.tags": "Red"
+      },
+      "todo.txt": {
+        "user.xdg.tags": "Blue"
+      },
+      "Documents/report.txt": {
+        "user.xdg.tags": "Red,Work"
+      }
+    }
+  },
+  "reader": {},
+  "steps": [
+    {
+      "name": "The home as icons",
+      "do": [
+        "wait",
+        3000
+      ],
+      "expect": {
+        "texts": [
+          "Documents",
+          "Downloads",
+          "notes.txt",
+          "Pictures",
+          "todo.txt",
+          "5 items"
+        ],
+        "home": {
+          "xattrs": {
+            "notes.txt": {
+              "user.xdg.tags": "Red"
+            },
+            "todo.txt": {
+              "user.xdg.tags": "Blue"
+            }
+          }
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "A press selects notes.txt, said with its tag",
+      "do": [
+        "press",
+        [
+          509,
+          105
+        ]
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "1 of 5 selected",
+            "interrupting": false
+          },
+          {
+            "text": "notes.txt, Tag Red, selected, 3 of 5",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Get Info (Ctrl+I): its Tags field",
+      "do": [
+        "key",
+        [
+          29,
+          23
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "“notes.txt” Info"
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "“notes.txt” Info, dialog",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "A press in the Tags field gives it the keys",
+      "do": [
+        "press",
+        [
+          512,
+          346
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Work typed",
+      "do": [
+        "type",
+        "Work"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Return adds it: Red,Work on the disk",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "home": {
+          "xattrs": {
+            "notes.txt": {
+              "user.xdg.tags": "Red,Work"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape closes Get Info: notes.txt said with both tags",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "at_absent": {
+          "window": [
+            {
+              "role": "Dialog"
+            }
+          ]
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "value": "Tags Red, Work",
+              "state": [
+                "selected",
+                "focused"
+              ],
+              "position": [
+                3,
+                5
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "notes.txt dragged onto Documents with Option: a copy, with both tags (nothing of the home changes)",
+      "do": [
+        "drag_paced",
+        [
+          637,
+          165,
+          415,
+          165,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": "hello",
+          "Documents/notes.txt": "hello",
+          "xattrs": {
+            "Documents/notes.txt": {
+              "user.xdg.tags": "Red,Work"
+            },
+            "notes.txt": {
+              "user.xdg.tags": "Red,Work"
+            }
+          }
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "notes.txt dragged onto Downloads: moved, with both tags",
+      "do": [
+        "drag_paced",
+        [
+          637,
+          165,
+          525,
+          165,
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": false,
+          "Downloads/notes.txt": "hello",
+          "xattrs": {
+            "Downloads/notes.txt": {
+              "user.xdg.tags": "Red,Work"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "A press selects todo.txt",
+      "do": [
+        "press",
+        [
+          618,
+          105
+        ]
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "1 of 4 selected",
+            "interrupting": false
+          },
+          {
+            "text": "todo.txt, Tag Blue, selected, 4 of 4",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Move to Trash (Ctrl+Backspace): in the home's Trash, its tag kept there",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "sounds": [
+          "file-trash"
+        ],
+        "home": {
+          "todo.txt": false,
+          "trash": [
+            "todo.txt"
+          ],
+          "xattrs": {
+            ".local/share/Trash/files/todo.txt": {
+              "user.xdg.tags": "Blue"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "The Trash, from the sidebar",
+      "do": [
+        "press",
+        [
+          66,
+          440
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "todo.txt",
+          "1 item"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "value": "Tag Blue",
+              "position": [
+                1,
+                1
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A secondary press selects todo.txt and opens its menu, Put Back first: the reader stays in the menu",
+      "do": [
+        "press_secondary",
+        [
+          287,
+          105
+        ]
+      ],
+      "expect": {
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "todo.txt"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Put Back",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "1 of 1 selected",
+            "interrupting": false
+          },
+          {
+            "text": "todo.txt, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Put Back, menu item",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "↓: Put Back, the first row, active",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": []
+      }
+    },
+    {
+      "name": "Return: Put Back",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "home": {
+          "todo.txt": "t",
+          "trash": [],
+          "xattrs": {
+            "todo.txt": {
+              "user.xdg.tags": "Blue"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Settings (Ctrl+,): its Tags",
+      "do": [
+        "key",
+        [
+          29,
+          51
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Settings"
+            },
+            {
+              "role": "Button",
+              "name": "Red, Rename Tag…"
+            },
+            {
+              "role": "CheckBox",
+              "name": "Show in Sidebar",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Settings, dialog",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Red's Rename Tag…",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Red, Rename Tag…"
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Dialog",
+              "name": "Rename Tag"
+            }
+          ]
+        },
+        "spoken": [
+          {
+            "text": "Rename Tag, dialog",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Its name selected",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "Crimson typed",
+      "do": [
+        "type",
+        "Crimson"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Return renames it on every file that has it, in its place",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Crimson, Rename Tag…"
+            }
+          ]
+        },
+        "home": {
+          "xattrs": {
+            "Documents/notes.txt": {
+              "user.xdg.tags": "Crimson,Work"
+            },
+            "Downloads/notes.txt": {
+              "user.xdg.tags": "Crimson,Work"
+            },
+            "Documents/report.txt": {
+              "user.xdg.tags": "Crimson,Work"
+            },
+            "todo.txt": {
+              "user.xdg.tags": "Blue"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

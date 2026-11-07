@@ -48,7 +48,7 @@ Four things were missing on OxyOS:
    - **Read:** `user.xdg.tags` when the item has it (it wins, even empty). Otherwise a Mac's `com.apple.metadata:_kMDItemUserTags` as Linux shows it: `user.` (netatalk, `rsync -X` and `tar --xattrs` from a Mac) or `osx.` (the hfsplus driver). Its array of `Name` or `Name\nN` gives the names, and N gives Finder's colour: 1 grey, 2 green, 3 purple, 4 blue, 5 yellow, 6 red, 7 orange, 0 none. Read by the `plist` crate, never a codec of OxyOS's own; a value that is not one says no tags. A name from either attribute is trimmed, and empty or repeated names are left out.
    - **A Mac's attribute kept true:** an item that has it has it rewritten by any change, as a binary property list of the same tags (`Name\nN` with a colour, `Name` without) with the change's colours. Removing every tag removes both attributes. An item without a Mac's attribute never gains it, so its tags carry no colours.
    - **Names** compare as their Unicode lowercase; the item's first spelling is kept. A name is 1 to 255 bytes once trimmed, with no `,`, newline or other control character (the two conventions' separators).
-   - **A change** removes, then adds: each removed name goes, case aside; each added name is there once. A name the item has keeps its place and spelling, and takes the colour given if there is one. A name just removed comes back where it was, spelt and coloured as added, so removing `work` and adding `Work` respells a tag in place. A new name goes last. Every name is checked before anything is written.
+   - **A change** removes, then adds: each removed name goes, case aside; each added name is there once. A name the item has keeps its place and spelling, and takes the colour given if there is one. A name just removed comes back where it was, spelt and coloured as added, so removing `work` and adding `Work` respells a tag in place. A new name takes the place of the first name removed and not added back, so removing `Red` and adding `Crimson` renames a tag in place, as renaming a tag in Finder's settings does on every item (7 November 2026: before, a renamed tag went last); any more go last. Every name is checked before anything is written.
    - **Links** are followed (Linux keeps no `user.` attribute on a symbolic link): a link's tags are what it leads to, which must be in the scope.
    - **A volume that keeps no attributes** (FAT, most network shares) has no tags; a change there fails as `unsupported`. A read-only item cannot be tagged (Linux checks write access to set an attribute): `denied`.
 
@@ -84,7 +84,7 @@ Four things were missing on OxyOS:
 
 1. **Storage and integrity.** *Done.* Tests on real files the tests make (`src/tag_tests.rs`, skipped saying so where the temporary directory keeps no `user.` attributes) cover:
    - freedesktop.org's attribute written, read leniently and removed with the last tag;
-   - names compared case aside, checked, and changed remove-first, a tag respelt in place;
+   - names compared case aside, checked, and changed remove-first, a tag respelt and a tag renamed in place, a whole list put back in its order;
    - a Mac's property list read with its colours, rewritten with a change's, removed with the last tag, never added, a broken one replaced;
    - links followed;
    - a folder, a file beside a comment attribute and a read-only file copied, renamed, put in the Trash and back, and moved to a real second file system (`/dev/shm`), every attribute and mode kept.
@@ -106,7 +106,12 @@ Four things were missing on OxyOS:
    - the index following a rename, the Trash and the way back;
    - another program's tag heard through the watch and found.
 5. **Bloom's types** (`PlatformFiles.tags`, `PlatformTrashedItem.tags`): OxyHQ/Bloom.
-6. **Dropsea's tags**: OxyHQ/Dropsea.
+6. **Dropsea's tags**: OxyHQ/Dropsea. *Done* (7 November 2026): `scenarios/dropsea-tags.json` and `dropsea-tags-files.json`, each at 1 and 1.25, run Dropsea through the real host on homes whose files carry tags on the disk:
+   - the dots by the names (their pixels at both scales), the list's Tags column, the sidebar's Tags, and a tag's place listing exactly its items from several folders;
+   - Ctrl+Alt+1 to 7 and 0, and the context menu's colour dots from the keyboard, the screen reader saying each item's tags;
+   - Get Info's Tags field, a copy and a move by drag, the Trash and Put Back, and Settings › Tags renaming a tag in place on every file.
+
+   Every step checks the attributes themselves.
 
 ## Not in this decision
 
