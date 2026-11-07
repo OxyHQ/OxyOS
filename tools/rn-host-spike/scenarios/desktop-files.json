@@ -27,8 +27,11 @@
     {
       "name": "the desktop's icons from ~/Desktop, top right, down then leftward; the dot file not shown; each named, with its kind",
       "do": [
-        "wait",
-        1500
+        "wait_named",
+        [
+          "notas.txt",
+          10000
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
