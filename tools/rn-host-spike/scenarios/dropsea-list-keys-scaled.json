@@ -1,5 +1,5 @@
 {
-  "about": "Dropsea's items from the keyboard (docs/adr/0039-keyboard-access.mdx), as Finder's list with Full Keyboard Access and VoiceOver: the items are one Tab stop; the arrows move the selection within it and the screen reader says each item the selection reaches, by its name and, in the list, its columns, while the keyboard stays on the list; Space still Quick Looks; Shift+F10 and the Menu key open the selection's context menu at the selected item, said as a menu by its title; Escape gives the list back. At 1.25 (1600 × 1000).",
+  "about": "Dropsea's items from the keyboard (docs/adr/0039-keyboard-access.mdx), as Finder's list with Full Keyboard Access and VoiceOver: the items are one Tab stop; the arrows move the selection within it and the screen reader says each item the selection reaches, by its name and, in the list, its columns, while the keyboard stays on the list; Space still Quick Looks; Shift+F10 and the Menu key open the selection's context menu at the selected item, said as a menu by its title; Escape gives the list back. At 1.25 (1600 × 1000). The sidebar's Tags section (OxyHQ/Dropsea#43, Finder's: each favourite tag a row with its actions button, then All Tags…) comes after Locations, so Tab goes through its stops before the sidebar's Dropsea button. With an item selected the toolbar's Tags button (OxyHQ/Dropsea#43) is enabled, a Tab stop between Hide Sidebar and as Icons.",
   "locale": "en_US.UTF-8",
   "module": "Dropsea",
   "window": [
@@ -196,7 +196,415 @@
       }
     },
     {
-      "name": "Tab: sidebar-logo, said once",
+      "name": "Tab: the Tags section's Red, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Red",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Red, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Red": 1,
+          "blur@Trash": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Red's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Red",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Red, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Red": 1,
+          "blur@Red": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's Orange, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Orange",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Orange, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Orange": 1,
+          "blur@Red": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Orange's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Orange",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Orange, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Orange": 1,
+          "blur@Orange": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's Yellow, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Yellow",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Yellow, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Yellow": 1,
+          "blur@Orange": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Yellow's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Yellow",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Yellow, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Yellow": 1,
+          "blur@Yellow": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's Green, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Green",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Green, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Green": 1,
+          "blur@Yellow": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Green's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Green",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Green, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Green": 1,
+          "blur@Green": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's Blue, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Blue",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Blue, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Blue": 1,
+          "blur@Green": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Blue's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Blue",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Blue, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Blue": 1,
+          "blur@Blue": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's Purple, said once, the sidebar scrolling it into view",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Purple",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Purple, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "blur@Blue": 1,
+          "focus@Purple": 1,
+          "scroll@sidebar-scroll": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Purple's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Purple",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Purple, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Purple": 1,
+          "blur@Purple": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's Grey, said once, the sidebar scrolling it into view",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Grey",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Grey, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "blur@Purple": 1,
+          "focus@Grey": 1,
+          "scroll@sidebar-scroll": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: Grey's actions button (its menu, closed), said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "Grey",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Grey, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@Grey": 1,
+          "blur@Grey": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: the Tags section's All Tags…, said once, the sidebar scrolling it into view",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "All Tags…",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "All Tags…, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "blur@Grey": 1,
+          "focus@All Tags…": 1,
+          "scroll@sidebar-scroll": 1
+        }
+      }
+    },
+    {
+      "name": "Tab: sidebar-logo, said once, after the Tags section",
       "do": [
         "key",
         [
@@ -218,7 +626,7 @@
         "announcements": [],
         "react": {
           "focus@sidebar-logo": 1,
-          "blur@Trash": 1
+          "blur@All Tags…": 1
         }
       }
     },
@@ -636,6 +1044,33 @@
       }
     },
     {
+      "name": "Tab: Tags, the toolbar's (Documents is selected, so its tags can change)",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "tags-button",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Tags, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@tags-button": 1,
+          "blur@sidebar-toggle": 1
+        }
+      }
+    },
+    {
       "name": "Tab: as Icons",
       "do": [
         "key",
@@ -658,7 +1093,7 @@
         "announcements": [],
         "react": {
           "focus@view-icons": 1,
-          "blur@sidebar-toggle": 1
+          "blur@tags-button": 1
         }
       }
     },
@@ -744,6 +1179,34 @@
       }
     },
     {
+      "name": "Shift+Tab: Tags, the toolbar's",
+      "do": [
+        "key",
+        [
+          42,
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "tags-button",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Tags, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "react": {
+          "focus@tags-button": 1,
+          "blur@view-icons": 1
+        }
+      }
+    },
+    {
       "name": "Shift+Tab: Hide Sidebar",
       "do": [
         "key",
@@ -767,7 +1230,7 @@
         "announcements": [],
         "react": {
           "focus@sidebar-toggle": 1,
-          "blur@view-icons": 1
+          "blur@tags-button": 1
         }
       }
     },
