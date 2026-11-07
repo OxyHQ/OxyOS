@@ -473,6 +473,32 @@ function VolumeSlider({
   );
 }
 
+/** A row whose control is a slider or a meter: its title drawn and not read again, since the control is named
+    by it (as Control Center's sliders, ADR 0025), so the row is one element, the slider. */
+function SliderRow({ title, testID, children }: { title: string; testID: string; children: React.ReactNode }) {
+  const theme = useTheme();
+  return (
+    <GroupedSectionItem
+      title={title}
+      testID={testID}
+      content={
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Text
+            variant="body-regular"
+            numberOfLines={1}
+            style={{ flex: 1, color: theme.colors.text }}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {title}
+          </Text>
+          {children}
+        </View>
+      }
+    />
+  );
+}
+
 /** A slider's ends, drawn: the slider's value says them, so the reader skips them. */
 function SliderEnd({ text }: { text: string }) {
   const theme = useTheme();
@@ -491,6 +517,7 @@ function SliderEnd({ text }: { text: string }) {
 /** Output's volume with its mute, and the balance from left to right where the
     device has a left and a right. */
 function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions; words: SoundWordsOf }) {
+  const theme = useTheme();
   const balance = side.balance;
   const balanceText = (value: number) => {
     const lean = balanceLean(value);
@@ -500,20 +527,16 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
   return (
     <GroupedSection>
       {side.volume !== null ? (
-        <GroupedSectionItem
-          title={words.outputVolume}
-          testID="sound-output-volume-row"
-          rightElement={
-            <VolumeSlider
-              direction="output"
-              volume={side.volume}
-              label={words.outputVolume}
-              act={act}
-              words={words}
-              testID="sound-output-volume"
-            />
-          }
-        />
+        <SliderRow title={words.outputVolume} testID="sound-output-volume-row">
+          <VolumeSlider
+            direction="output"
+            volume={side.volume}
+            label={words.outputVolume}
+            act={act}
+            words={words}
+            testID="sound-output-volume"
+          />
+        </SliderRow>
       ) : null}
       {side.volume !== null ? (
         <GroupedSectionItem
@@ -530,14 +553,13 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
         />
       ) : null}
       {balance !== null ? (
-        <GroupedSectionItem
-          title={words.balance}
-          testID="sound-balance-row"
-          rightElement={
+        <SliderRow title={words.balance} testID="sound-balance-row">
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <SliderEnd text={words.left} />
               <View style={{ width: 160 }}>
                 <Slider
+                  // A balance leans from the centre: no side of it is filled, as a Mac's.
+                  minimumTrackTintColor={theme.colors.border}
                   value={Math.round(Math.min(1, Math.max(-1, balance)) * 100)}
                   min={-100}
                   max={100}
@@ -552,8 +574,7 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
               </View>
               <SliderEnd text={words.right} />
             </View>
-          }
-        />
+        </SliderRow>
       ) : null}
     </GroupedSection>
   );
@@ -574,26 +595,20 @@ function SoundInput({
   return (
     <GroupedSection>
       {side.volume !== null ? (
-        <GroupedSectionItem
-          title={words.inputVolume}
-          testID="sound-input-volume-row"
-          rightElement={
-            <VolumeSlider
-              direction="input"
-              volume={side.volume}
-              label={words.inputVolume}
-              act={act}
-              words={words}
-              testID="sound-input-volume"
-            />
-          }
-        />
+        <SliderRow title={words.inputVolume} testID="sound-input-volume-row">
+          <VolumeSlider
+            direction="input"
+            volume={side.volume}
+            label={words.inputVolume}
+            act={act}
+            words={words}
+            testID="sound-input-volume"
+          />
+        </SliderRow>
       ) : null}
-      <GroupedSectionItem
-        title={words.inputLevel}
-        testID="sound-input-level-row"
-        rightElement={<InputLevel level={level} words={words} />}
-      />
+      <SliderRow title={words.inputLevel} testID="sound-input-level-row">
+        <InputLevel level={level} words={words} />
+      </SliderRow>
     </GroupedSection>
   );
 }

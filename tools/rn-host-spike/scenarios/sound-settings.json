@@ -1,0 +1,406 @@
+{
+  "about": "Settings' Sound page as a Mac's (docs/adr/0051-sound-devices.mdx), Settings granted `settings` as the image's policy grants it, over a played machine (the development compositor's --sound: the built-in speakers chosen at half, a DELL U2720Q display on HDMI at three quarters, the built-in microphone at 80 % hearing at half; WirePlumber's choice and its remembered stack played). Output & Input opens at Output: each output named with its type, the speakers chosen, the output volume, mute and a centred balance, nothing metered. Choosing the display makes it WirePlumber's configured default and shows its volume; the balance moves a step to the left and the volume a sixteenth up through the hardware controls, both on the display. Input shows the microphone chosen, its volume and its level, metered only while the tab shows; the meter follows the microphone; a USB headset plugged in takes over the input; back at Output nothing is metered. Every step checks what the played machine then has.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings"
+    ]
+  },
+  "controls": {
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "sound": {
+    "outputs": [
+      {
+        "id": "alsa_output.speaker",
+        "name": "Speaker",
+        "kind": "speakers",
+        "transport": "builtIn",
+        "volume": 0.5
+      },
+      {
+        "id": "alsa_output.hdmi1",
+        "name": "DELL U2720Q",
+        "kind": "hdmi",
+        "transport": "hdmi",
+        "volume": 0.75
+      }
+    ],
+    "inputs": [
+      {
+        "id": "alsa_input.dmic",
+        "name": "Digital Microphone",
+        "kind": "microphone",
+        "transport": "builtIn",
+        "volume": 0.8,
+        "balance": null,
+        "level": 0.5
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "Sound: the effects, then Output & Input at Output: the outputs with their type, the speakers chosen; the output volume, mute and balance; nothing metered",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Sound"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Play user interface sound effects",
+          "Output & Input"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Tab",
+              "name": "Output",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Tab",
+              "name": "Input"
+            },
+            {
+              "role": "ListItem",
+              "name": "Built-in Speakers, Built-in",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "DELL U2720Q, HDMI/DisplayPort",
+              "state": []
+            },
+            {
+              "role": "Slider",
+              "name": "Output volume",
+              "value": "50%"
+            },
+            {
+              "role": "Switch",
+              "name": "Mute",
+              "state": []
+            },
+            {
+              "role": "Slider",
+              "name": "Balance",
+              "value": "Center"
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "alsa_output.speaker",
+          "metering": false,
+          "calls": []
+        }
+      }
+    },
+    {
+      "name": "The display chosen: WirePlumber's configured default, checked, its own volume shown",
+      "do": [
+        "press_named",
+        "DELL U2720Q, HDMI/DisplayPort"
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Built-in Speakers, Built-in",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "DELL U2720Q, HDMI/DisplayPort",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Slider",
+              "name": "Output volume",
+              "value": "75%"
+            }
+          ]
+        },
+        "sound": {
+          "default_output": "alsa_output.hdmi1",
+          "configured_outputs": [
+            "alsa_output.hdmi1"
+          ],
+          "calls": [
+            "default output alsa_output.hdmi1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The balance a step to the left, kept by the display",
+      "do": [
+        "a11y-action",
+        [
+          "decrement",
+          "Balance"
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Slider",
+              "name": "Balance",
+              "value": "Left 13%"
+            }
+          ]
+        },
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "balance": 0.0
+            },
+            {
+              "id": "alsa_output.hdmi1",
+              "balance": -0.125
+            }
+          ],
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "balance -0.125"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The output volume a sixteenth up, through the hardware controls as a key's",
+      "do": [
+        "a11y-action",
+        [
+          "increment",
+          "Output volume"
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Slider",
+              "name": "Output volume",
+              "value": "81%"
+            }
+          ]
+        },
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.5
+            },
+            {
+              "id": "alsa_output.hdmi1",
+              "volume": 0.8125,
+              "balance": -0.125
+            }
+          ],
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "balance -0.125",
+            "volume output 0.8125"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Input: the microphone chosen, its volume, and its level metered while the tab shows",
+      "do": [
+        "press_named",
+        "Input"
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Tab",
+              "name": "Input",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Built-in Microphone, Built-in",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Slider",
+              "name": "Input volume",
+              "value": "80%"
+            },
+            {
+              "role": "ProgressBar",
+              "name": "Input level",
+              "value": "50%"
+            }
+          ]
+        },
+        "sound": {
+          "metering": true,
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "balance -0.125",
+            "volume output 0.8125",
+            "meter true"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Louder: the meter follows",
+      "do": [
+        "sound",
+        {
+          "change": {
+            "id": "alsa_input.dmic",
+            "level": 0.75
+          }
+        }
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ProgressBar",
+              "name": "Input level",
+              "value": "75%"
+            }
+          ]
+        },
+        "sound": {
+          "metering": true
+        }
+      }
+    },
+    {
+      "name": "A USB headset plugged in: its microphone takes over the input",
+      "do": [
+        "sound",
+        {
+          "plug": {
+            "direction": "input",
+            "device": {
+              "id": "alsa_input.usb-jabra",
+              "name": "Jabra EVOLVE 65",
+              "kind": "headset",
+              "transport": "usb",
+              "volume": 0.6,
+              "balance": null,
+              "level": 0.25
+            }
+          }
+        }
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Built-in Microphone, Built-in",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Jabra EVOLVE 65, USB",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Slider",
+              "name": "Input volume",
+              "value": "60%"
+            },
+            {
+              "role": "ProgressBar",
+              "name": "Input level",
+              "value": "25%"
+            }
+          ]
+        },
+        "sound": {
+          "default_input": "alsa_input.usb-jabra",
+          "configured_inputs": [
+            "alsa_input.usb-jabra"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Output again: the input no longer metered",
+      "do": [
+        "press_named",
+        "Output"
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Tab",
+              "name": "Output",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "DELL U2720Q, HDMI/DisplayPort",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "sound": {
+          "metering": false,
+          "calls": [
+            "default output alsa_output.hdmi1",
+            "balance -0.125",
+            "volume output 0.8125",
+            "meter true",
+            "default input alsa_input.usb-jabra",
+            "meter false"
+          ]
+        }
+      }
+    }
+  ]
+}
