@@ -26,15 +26,28 @@ pub fn idle_thread() {
             std::io::Error::last_os_error()
         );
     }
-    #[allow(unsafe_code)]
-    // SAFETY: `ioprio_set` takes three integers and touches no memory of the caller's.
-    let prioritised =
-        unsafe { libc::syscall(libc::SYS_ioprio_set, IOPRIO_WHO_PROCESS, 0, IOPRIO_IDLE) };
+    let prioritised = {
+        #[allow(unsafe_code)]
+        // SAFETY: `ioprio_set` takes three integers and touches no memory of the caller's.
+        unsafe {
+            libc::syscall(libc::SYS_ioprio_set, IOPRIO_WHO_PROCESS, 0, IOPRIO_IDLE)
+        }
+    };
     if prioritised != 0 {
         eprintln!(
             "[search] the indexer keeps its disk priority: {}",
             std::io::Error::last_os_error()
         );
+    }
+}
+
+/// Gives back to the system the memory malloc keeps free (the writer's segments, closed): the
+/// service's resident memory while idle is what it holds, not what it once held.
+pub fn give_back_memory() {
+    #[allow(unsafe_code)]
+    // SAFETY: `malloc_trim` takes an integer and only releases free memory of malloc's own.
+    unsafe {
+        libc::malloc_trim(0);
     }
 }
 

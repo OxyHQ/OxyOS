@@ -251,8 +251,8 @@ SEARCH_BUDGETS = {
     "idle_cpu_percent": 0.01,
     "files_per_cpu_s": 300.0,
     "found_after_write_ms": 1500.0,
-    "idle_rss_mib": 64.0,
-    "index_bytes_per_file": 4096.0,
+    "idle_rss_mib": 40.0,
+    "index_bytes_per_file": 2048.0,
 }
 
 # The generated home's size.
@@ -886,14 +886,11 @@ class SearchService:
                 return json.loads(message["answer"]["text"])
 
     def cpu_ns(self):
-        """Its CPU time, every thread's, from schedstat."""
-        total = 0
-        for task in pathlib.Path(f"/proc/{self.process.pid}/task").iterdir():
-            try:
-                total += int((task / "schedstat").read_text().split()[0])
-            except (OSError, IndexError, ValueError):
-                pass
-        return total
+        """Its CPU time: every thread's, those ended too, and its children's it reaped (the PDF
+        reader), from /proc/PID/stat."""
+        fields = pathlib.Path(f"/proc/{self.process.pid}/stat").read_text().rsplit(")", 1)[1].split()
+        ticks = sum(int(fields[at]) for at in (11, 12, 13, 14))  # utime, stime, cutime, cstime
+        return ticks * 1e9 / os.sysconf("SC_CLK_TCK")
 
     def wakeups(self):
         total = 0

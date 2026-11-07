@@ -315,6 +315,9 @@ impl Indexer {
 
     fn commit(&mut self, close: bool) -> tantivy::Result<()> {
         let result = self.index.commit(close);
+        if close {
+            crate::sched::give_back_memory();
+        }
         self.first_uncommitted = None;
         // What waited on the commit is said before the service is woken to say it.
         for done in std::mem::take(&mut self.waiting_done) {
@@ -394,7 +397,10 @@ impl Indexer {
             || name.ends_with(".noindex")
             || EXCLUDED_FOLDERS.contains(&name)
             || path == self.scope.home_trash()
-            || self.excluded.iter().any(|excluded| path.starts_with(excluded))
+            || self
+                .excluded
+                .iter()
+                .any(|excluded| path.starts_with(excluded))
             || path.join("CACHEDIR.TAG").is_file()
     }
 
@@ -403,7 +409,10 @@ impl Indexer {
         path.file_name()
             .and_then(|name| name.to_str())
             .is_none_or(|name| name.starts_with('.'))
-            || self.excluded.iter().any(|excluded| path.starts_with(excluded))
+            || self
+                .excluded
+                .iter()
+                .any(|excluded| path.starts_with(excluded))
     }
 
     fn crawl(&mut self, top: &Path) {

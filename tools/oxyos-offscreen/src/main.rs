@@ -1083,7 +1083,10 @@ mod checks {
 fn main() -> Result<()> {
     // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
     // child, its standard input the socket the compositor brokers questions over.
-    if std::env::args_os().nth(1).is_some_and(|flag| flag == "--search-service") {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|flag| flag == "--search-service")
+    {
         std::process::exit(match oxyos_search::service::main() {
             std::process::ExitCode::SUCCESS => 0,
             _ => 1,

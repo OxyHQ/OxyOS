@@ -60,7 +60,8 @@ fn nothing_wakes_while_nothing_happens() {
         .name("search-serve".into())
         .spawn(move || serve(theirs, scope, Some(paths)))
         .unwrap();
-    ours.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    ours.set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
     let mut writer = ours.try_clone().unwrap();
     let mut reader = BufReader::new(ours);
     let mut ask = |serial: u32, ask: Value| -> Value {
@@ -80,17 +81,26 @@ fn nothing_wakes_while_nothing_happens() {
     loop {
         serial += 1;
         let status = ask(serial, json!({"status": {}}));
-        if status["status"]["indexing"] == false && status["status"]["items"].as_u64() >= Some(210) {
+        if status["status"]["indexing"] == false && status["status"]["items"].as_u64() >= Some(210)
+        {
             break;
         }
-        assert!(start.elapsed() < Duration::from_secs(30), "never settled: {status}");
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "never settled: {status}"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
     std::thread::sleep(Duration::from_millis(300));
     let before = switches();
     std::thread::sleep(Duration::from_secs(4));
     let woke = switches() - before;
-    assert_eq!(woke, 0, "the service's threads woke {woke} times in 4 s idle: {:?}", threads());
+    assert_eq!(
+        woke,
+        0,
+        "the service's threads woke {woke} times in 4 s idle: {:?}",
+        threads()
+    );
     // The writer is closed while idle: its threads are gone, the service's two remain (answering,
     // indexing) beside the test harness's two.
     let named: Vec<String> = threads();

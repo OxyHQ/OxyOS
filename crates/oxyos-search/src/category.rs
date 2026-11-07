@@ -77,7 +77,9 @@ impl Category {
 
     /// The category named `name` in the protocol.
     pub fn parse(name: &str) -> Option<Category> {
-        Category::ALL.into_iter().find(|category| category.name() == name)
+        Category::ALL
+            .into_iter()
+            .find(|category| category.name() == name)
     }
 
     /// The category a person names after `kind:` (or `tipo:`), in English or Spanish, singular or
@@ -103,8 +105,8 @@ impl Category {
             | "imagenes" | "imágenes" | "foto" | "fotos" => Category::Image,
             "movie" | "movies" | "video" | "videos" | "vídeo" | "vídeos" | "pelicula"
             | "película" | "peliculas" | "películas" => Category::Movie,
-            "music" | "audio" | "song" | "songs" | "musica" | "música" | "cancion"
-            | "canción" | "canciones" => Category::Music,
+            "music" | "audio" | "song" | "songs" | "musica" | "música" | "cancion" | "canción"
+            | "canciones" => Category::Music,
             "archive" | "archives" | "zip" | "comprimido" | "comprimidos" => Category::Archive,
             "contact" | "contacts" | "contacto" | "contactos" => Category::Contact,
             "event" | "events" | "evento" | "eventos" | "reminder" | "reminders"
@@ -148,9 +150,7 @@ impl Category {
             | "application/x-tar"
             | "application/x-xz"
             | "application/vnd.rar" => Category::Archive,
-            "application/msword" | "application/rtf" | "application/epub+zip" => {
-                Category::Document
-            }
+            "application/msword" | "application/rtf" | "application/epub+zip" => Category::Document,
             _ if media.starts_with("image/") => Category::Image,
             _ if media.starts_with("video/") => Category::Movie,
             _ if media.starts_with("audio/") => Category::Music,
@@ -171,7 +171,9 @@ const SOURCE_EXTENSIONS: &[&str] = &[
 ];
 
 /// Plain text, a Mac's "Text" kind.
-const TEXT_EXTENSIONS: &[&str] = &["txt", "text", "md", "markdown", "rst", "org", "log", "csv", "tsv"];
+const TEXT_EXTENSIONS: &[&str] = &[
+    "txt", "text", "md", "markdown", "rst", "org", "log", "csv", "tsv",
+];
 
 /// Office documents by extension: their media types are long and some are missing from the
 /// table.

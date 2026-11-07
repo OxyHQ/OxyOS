@@ -132,8 +132,29 @@ fn slide_number(name: &str) -> Option<u32> {
 
 /// Elements whose end is a break between words (paragraphs, cells, rows, slides' shapes).
 const BREAKS: &[&str] = &[
-    "p", "h", "br", "ta", "tc", "tr", "row", "c", "si", "li", "div", "td", "th",
-    "h1", "h2", "h3", "h4", "h5", "h6", "title", "table-cell", "line-break", "s",
+    "p",
+    "h",
+    "br",
+    "ta",
+    "tc",
+    "tr",
+    "row",
+    "c",
+    "si",
+    "li",
+    "div",
+    "td",
+    "th",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "title",
+    "table-cell",
+    "line-break",
+    "s",
 ];
 
 /// Appends the text of an XML document to `text`: every text node outside `script` and `style`,
@@ -340,7 +361,9 @@ pub(crate) mod tests {
             out.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", n + 1).as_bytes());
         }
         let xref = out.len();
-        out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+        out.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+        );
         for offset in offsets {
             out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
@@ -371,8 +394,14 @@ pub(crate) mod tests {
         let mut utf16 = vec![0xFF, 0xFE];
         utf16.extend("hola mundo".encode_utf16().flat_map(u16::to_le_bytes));
         std::fs::write(dir.path().join("wide.txt"), utf16).unwrap();
-        assert_eq!(of(&dir.path().join("notes.md")).unwrap(), "# Viaje a Córdoba\nbillete");
-        assert_eq!(of(&dir.path().join("main.rs")).unwrap(), "fn quarterly() {}");
+        assert_eq!(
+            of(&dir.path().join("notes.md")).unwrap(),
+            "# Viaje a Córdoba\nbillete"
+        );
+        assert_eq!(
+            of(&dir.path().join("main.rs")).unwrap(),
+            "fn quarterly() {}"
+        );
         assert_eq!(of(&dir.path().join("blob.txt")), None);
         assert_eq!(of(&dir.path().join("wide.txt")).unwrap(), "hola mundo");
     }
@@ -396,9 +425,18 @@ pub(crate) mod tests {
         zip_file(
             &pptx,
             &[
-                ("ppt/slides/slide10.xml", r#"<p:sld xmlns:a="a" xmlns:p="p"><a:t>Last</a:t></p:sld>"#),
-                ("ppt/slides/slide2.xml", r#"<p:sld xmlns:a="a" xmlns:p="p"><a:t>Second</a:t></p:sld>"#),
-                ("ppt/slides/slide1.xml", r#"<p:sld xmlns:a="a" xmlns:p="p"><a:t>First</a:t></p:sld>"#),
+                (
+                    "ppt/slides/slide10.xml",
+                    r#"<p:sld xmlns:a="a" xmlns:p="p"><a:t>Last</a:t></p:sld>"#,
+                ),
+                (
+                    "ppt/slides/slide2.xml",
+                    r#"<p:sld xmlns:a="a" xmlns:p="p"><a:t>Second</a:t></p:sld>"#,
+                ),
+                (
+                    "ppt/slides/slide1.xml",
+                    r#"<p:sld xmlns:a="a" xmlns:p="p"><a:t>First</a:t></p:sld>"#,
+                ),
             ],
         );
         let text = of(&pptx).unwrap();
@@ -408,9 +446,15 @@ pub(crate) mod tests {
         let xlsx = dir.path().join("Budget.xlsx");
         zip_file(
             &xlsx,
-            &[("xl/sharedStrings.xml", r#"<sst><si><t>Groceries</t></si><si><t>Rent</t></si></sst>"#)],
+            &[(
+                "xl/sharedStrings.xml",
+                r#"<sst><si><t>Groceries</t></si><si><t>Rent</t></si></sst>"#,
+            )],
         );
-        assert_eq!(of(&xlsx).unwrap().split_whitespace().collect::<Vec<_>>(), ["Groceries", "Rent"]);
+        assert_eq!(
+            of(&xlsx).unwrap().split_whitespace().collect::<Vec<_>>(),
+            ["Groceries", "Rent"]
+        );
 
         let odt = dir.path().join("Novel.odt");
         zip_file(

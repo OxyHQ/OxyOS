@@ -81,20 +81,36 @@ fn ask_with(
         .searcher_handle()
         .search(&question, viewer, usage, NOW)
         .unwrap();
-    let ids: Vec<String> = found.iter().map(|Found { record, .. }| record.id.clone()).collect();
+    let ids: Vec<String> = found
+        .iter()
+        .map(|Found { record, .. }| record.id.clone())
+        .collect();
     let top = top.map(|at| ids[at].clone());
     (ids, top)
 }
 
 fn home() -> Index {
     let mut index = Index::in_memory().unwrap();
-    let report = file("/home/ana/Documents/Quarterly Report.pdf", Category::Pdf, NOW - DAY);
+    let report = file(
+        "/home/ana/Documents/Quarterly Report.pdf",
+        Category::Pdf,
+        NOW - DAY,
+    );
     index
-        .put(&report, Some("Revenue grew in the third quarter, said the board."))
+        .put(
+            &report,
+            Some("Revenue grew in the third quarter, said the board."),
+        )
         .unwrap();
-    let mut camion = file("/home/ana/Documents/Camión rojo.txt", Category::Text, NOW - 40 * DAY);
+    let mut camion = file(
+        "/home/ana/Documents/Camión rojo.txt",
+        Category::Text,
+        NOW - 40 * DAY,
+    );
     camion.tags = vec!["Work".into(), "Viajes largos".into()];
-    index.put(&camion, Some("Un camión rojo en la carretera")).unwrap();
+    index
+        .put(&camion, Some("Un camión rojo en la carretera"))
+        .unwrap();
     index
         .put(
             &file("/home/ana/Documents/Work", Category::Folder, NOW - 2 * DAY),
@@ -103,15 +119,25 @@ fn home() -> Index {
         .unwrap();
     index
         .put(
-            &file("/home/ana/Documents/Work/settings notes.md", Category::Text, NOW - 3 * DAY),
+            &file(
+                "/home/ana/Documents/Work/settings notes.md",
+                Category::Text,
+                NOW - 3 * DAY,
+            ),
             Some("notes about the router settings"),
         )
         .unwrap();
     index
-        .put(&application("so.oxy.settings", "Settings", &["preferences"]), None)
+        .put(
+            &application("so.oxy.settings", "Settings", &["preferences"]),
+            None,
+        )
         .unwrap();
     index
-        .put(&application("so.oxy.dropsea", "Dropsea", &["files", "finder"]), None)
+        .put(
+            &application("so.oxy.dropsea", "Dropsea", &["files", "finder"]),
+            None,
+        )
         .unwrap();
     let mut contact = application("so.oxy.allo", "Ana García", &["friend"]);
     contact.id = "so.oxy.allo:ana".into();
@@ -218,14 +244,20 @@ fn applications_come_first_and_used_items_rise() {
         },
     )]);
     let (ids, _) = ask_with(&index, "sett", &shell(), &usage, Vec::new());
-    assert_eq!(ids[0], "file:///home/ana/Documents/Work/settings notes.md", "{ids:?}");
+    assert_eq!(
+        ids[0], "file:///home/ana/Documents/Work/settings notes.md",
+        "{ids:?}"
+    );
 }
 
 #[test]
 fn an_exact_name_beats_a_longer_one() {
     let mut index = home();
     index
-        .put(&file("/home/ana/Work plan.txt", Category::Text, NOW - 100 * DAY), None)
+        .put(
+            &file("/home/ana/Work plan.txt", Category::Text, NOW - 100 * DAY),
+            None,
+        )
         .unwrap();
     index.commit(false).unwrap();
     let (ids, top) = ask(&index, "work", &shell());
@@ -240,14 +272,20 @@ fn an_exact_name_beats_a_longer_one() {
 fn recent_files_rank_above_old_ones() {
     let mut index = Index::in_memory().unwrap();
     index
-        .put(&file("/h/budget old.txt", Category::Text, NOW - 400 * DAY), None)
+        .put(
+            &file("/h/budget old.txt", Category::Text, NOW - 400 * DAY),
+            None,
+        )
         .unwrap();
     index
         .put(&file("/h/budget new.txt", Category::Text, NOW - DAY), None)
         .unwrap();
     index.commit(true).unwrap();
     let (ids, _) = ask(&index, "budget", &shell());
-    assert_eq!(ids, ["file:///h/budget new.txt", "file:///h/budget old.txt"]);
+    assert_eq!(
+        ids,
+        ["file:///h/budget new.txt", "file:///h/budget old.txt"]
+    );
 }
 
 #[test]
@@ -274,20 +312,32 @@ fn applications_see_files_and_their_own_items() {
         hidden: vec![Category::Application],
         ..Viewer::default()
     };
-    assert!(!ask(&index, "sett", &hiding).0.iter().any(|id| id.starts_with("application:")));
+    assert!(!ask(&index, "sett", &hiding)
+        .0
+        .iter()
+        .any(|id| id.starts_with("application:")));
 }
 
 #[test]
 fn removing_items_and_folders() {
     let mut index = home();
-    index.remove_inside(&PathBuf::from("/home/ana/Documents/Work")).unwrap();
-    index.remove("file:///home/ana/Documents/Camión rojo.txt").unwrap();
+    index
+        .remove_inside(&PathBuf::from("/home/ana/Documents/Work"))
+        .unwrap();
+    index
+        .remove("file:///home/ana/Documents/Camión rojo.txt")
+        .unwrap();
     index.commit(true).unwrap();
     assert!(ask(&index, "notes", &shell()).0.is_empty());
     assert!(ask(&index, "camion", &shell()).0.is_empty());
     // The folder itself stays.
-    assert_eq!(ask(&index, "work", &shell()).0, ["file:///home/ana/Documents/Work"]);
-    index.remove_source(&Source::Donated, Some("so.oxy.allo")).unwrap();
+    assert_eq!(
+        ask(&index, "work", &shell()).0,
+        ["file:///home/ana/Documents/Work"]
+    );
+    index
+        .remove_source(&Source::Donated, Some("so.oxy.allo"))
+        .unwrap();
     index.commit(true).unwrap();
     assert!(ask(&index, "ana", &shell()).0.is_empty());
     let files = index.files().unwrap();
@@ -302,7 +352,10 @@ fn snippets_are_around_the_first_word() {
         + &"Sed do eiusmod tempor incididunt ut labore. ".repeat(6);
     let parsed = query::parse("camion", &[], NOW);
     let snippet = crate::index::Searcher::snippet(&text, &parsed).unwrap();
-    assert!(snippet.starts_with('…') && snippet.ends_with('…'), "{snippet}");
+    assert!(
+        snippet.starts_with('…') && snippet.ends_with('…'),
+        "{snippet}"
+    );
     assert!(snippet.contains("The camión was red."), "{snippet}");
     assert!(snippet.chars().count() <= 165, "{snippet}");
 }

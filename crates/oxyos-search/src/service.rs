@@ -326,7 +326,10 @@ pub fn listed_records(listed: &[Listed]) -> (Vec<Record>, Vec<Record>) {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Vec<Declared>>(&bytes).ok())
         else {
-            eprintln!("[search] {} is not a list of searchable items", file.display());
+            eprintln!(
+                "[search] {} is not a list of searchable items",
+                file.display()
+            );
             continue;
         };
         let settings = application.id == SETTINGS_ID;
@@ -505,7 +508,8 @@ impl Service {
             "ask" => {
                 let client = body["client"].as_u64().unwrap_or(0) as u32;
                 let serial = body["serial"].as_u64().unwrap_or(0) as u32;
-                let asker: Asker = serde_json::from_value(body["asker"].clone()).unwrap_or_default();
+                let asker: Asker =
+                    serde_json::from_value(body["asker"].clone()).unwrap_or_default();
                 let text = body["text"].as_str().unwrap_or("");
                 let answer = match serde_json::from_str::<Ask>(text) {
                     Ok(ask) => self.ask(client, serial, &asker, ask),
@@ -524,7 +528,10 @@ impl Service {
         self.send(Command::Replace {
             source: Source::Application,
             owner: None,
-            records: applications.into_iter().map(|record| (record, None)).collect(),
+            records: applications
+                .into_iter()
+                .map(|record| (record, None))
+                .collect(),
             done: None,
         });
         self.send(Command::Replace {
@@ -759,10 +766,7 @@ impl Service {
             .language
             .or_else(|| self.languages.first().cloned())
             .unwrap_or_default();
-        let (found, top) = match self
-            .searcher
-            .search(&question, &viewer, &self.usage, now)
-        {
+        let (found, top) = match self.searcher.search(&question, &viewer, &self.usage, now) {
             Ok(answer) => answer,
             Err(error) => {
                 eprintln!("[search] a question failed: {error}");
@@ -804,7 +808,10 @@ impl Service {
                             .map(|id| json!(id)),
                     ),
                     ("icon", record.icon.as_ref().map(|icon| json!(icon))),
-                    ("contentType", record.media.as_ref().map(|media| json!(media))),
+                    (
+                        "contentType",
+                        record.media.as_ref().map(|media| json!(media)),
+                    ),
                     ("size", record.size.map(|size| json!(size))),
                     ("modified", record.modified.map(|time| json!(time))),
                     ("created", record.created.map(|time| json!(time))),
@@ -887,7 +894,7 @@ fn run() -> std::io::Result<()> {
     // It ends with the program that started it, whatever ends that.
     rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::TERM))?;
     let _ = rustix::thread::set_name(c"oxyos-search");
-    let control = UnixStream::from(OwnedFd::from(std::io::stdin().as_fd().try_clone_to_owned()?));
+    let control = UnixStream::from(std::io::stdin().as_fd().try_clone_to_owned()?);
     serve(control, Scope::for_user()?, None)
 }
 
@@ -915,7 +922,8 @@ pub fn serve(control: UnixStream, scope: Scope, paths: Option<Paths>) -> std::io
             if !fds[1].revents().is_empty() {
                 let mut bytes = [0u8; 256];
                 while matches!(std::io::Read::read(&mut &commits, &mut bytes), Ok(read) if read > 0)
-                {}
+                {
+                }
                 service.committed();
             }
             if fds[0].revents().is_empty() {

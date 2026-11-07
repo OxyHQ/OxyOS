@@ -63,7 +63,8 @@ impl Running {
             .name("search-serve".into())
             .spawn(move || serve(theirs, scope, Some(paths)))
             .unwrap();
-        ours.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        ours.set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
         Running {
             home,
             _dir: dir,
@@ -128,7 +129,10 @@ impl Running {
             if status["status"]["indexing"] == false {
                 return;
             }
-            assert!(start.elapsed() < Duration::from_secs(20), "never settled: {status}");
+            assert!(
+                start.elapsed() < Duration::from_secs(20),
+                "never settled: {status}"
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -172,7 +176,10 @@ fn the_index_follows_files_made_changed_renamed_and_deleted() {
         write(&home.join("Documents/.secret.txt"), "harbour");
         write(&home.join(".hidden/notes.txt"), "harbour");
         write(&home.join("code/node_modules/x/readme.md"), "harbour");
-        write(&home.join("code/target/CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55");
+        write(
+            &home.join("code/target/CACHEDIR.TAG"),
+            "Signature: 8a477f597d28d172789f06886806bc55",
+        );
         write(&home.join("code/target/debug.txt"), "harbour");
         write(&home.join("Old.noindex/a.txt"), "harbour");
     });
@@ -182,12 +189,19 @@ fn the_index_follows_files_made_changed_renamed_and_deleted() {
     assert_eq!(service.query("plan"), [plan.clone()]);
 
     // Made.
-    write(&service.home.join("Documents/lighthouse.txt"), "keeper of the harbour light");
+    write(
+        &service.home.join("Documents/lighthouse.txt"),
+        "keeper of the harbour light",
+    );
     let lighthouse = service.id("Documents/lighthouse.txt");
     service.until("keeper", |found| found == [lighthouse.clone()]);
 
     // Written again: its old words go, its new ones come.
-    std::fs::write(service.home.join("Documents/lighthouse.txt"), "a beacon by the sea").unwrap();
+    std::fs::write(
+        service.home.join("Documents/lighthouse.txt"),
+        "a beacon by the sea",
+    )
+    .unwrap();
     service.until("beacon", |found| found == [lighthouse.clone()]);
     assert!(service.query("keeper").is_empty());
 
@@ -252,7 +266,8 @@ fn files_unchanged_are_not_read_again() {
         let (ours, theirs) = UnixStream::pair().unwrap();
         let kept = paths.clone();
         let thread = std::thread::spawn(move || serve(theirs, scope, Some(kept)));
-        ours.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        ours.set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
         let mut running = Running {
             home: std::fs::canonicalize(&home).unwrap(),
             _dir: tempfile::tempdir().unwrap(),
@@ -321,11 +336,17 @@ fn applications_see_files_and_their_own_items_and_the_shell_sees_all() {
     // Titles in the asker's language.
     let answer = service.ask(json!({"query": {"text": "oscuro", "language": "es-ES"}}));
     assert_eq!(answer["results"]["items"][0]["title"], "Apariencia");
-    assert_eq!(answer["results"]["items"][0]["url"], "oxyos-settings://appearance");
+    assert_eq!(
+        answer["results"]["items"][0]["url"],
+        "oxyos-settings://appearance"
+    );
     assert_eq!(answer["results"]["items"][0]["category"], "settings");
     let answer = service.ask(json!({"query": {"text": "sett"}}));
     assert_eq!(answer["results"]["topHit"], "application:so.oxy.settings");
-    assert_eq!(answer["results"]["items"][0]["icon"], "file:///usr/lib/oxyos/apps/so.oxy.settings/icon.png");
+    assert_eq!(
+        answer["results"]["items"][0]["icon"],
+        "file:///usr/lib/oxyos/apps/so.oxy.settings/icon.png"
+    );
 
     // Donations: an application's own items, seen by it and by the shell alone.
     let done = service.ask_as(
@@ -341,21 +362,42 @@ fn applications_see_files_and_their_own_items_and_the_shell_sees_all() {
     let mut expected = vec![notes.clone(), "so.oxy.allo:ana".to_string()];
     expected.sort();
     assert_eq!(both(service.query("ana")), expected);
-    assert_eq!(both(service.query_as(application("so.oxy.allo"), "ana")), expected);
-    assert_eq!(service.query_as(application("so.oxy.dropsea"), "ana"), [notes.clone()]);
-    assert!(service.query_as(application("so.oxy.dropsea"), "finder").is_empty());
-    assert!(service.query_as(application("so.oxy.dropsea"), "router").is_empty());
+    assert_eq!(
+        both(service.query_as(application("so.oxy.allo"), "ana")),
+        expected
+    );
+    assert_eq!(
+        service.query_as(application("so.oxy.dropsea"), "ana"),
+        [notes.clone()]
+    );
+    assert!(service
+        .query_as(application("so.oxy.dropsea"), "finder")
+        .is_empty());
+    assert!(service
+        .query_as(application("so.oxy.dropsea"), "router")
+        .is_empty());
     // A client the session did not launch donates nothing and sees files alone.
-    let unlaunched = json!({"id": "so.oxy.allo", "launched": false, "shell": false, "settings": false});
+    let unlaunched =
+        json!({"id": "so.oxy.allo", "launched": false, "shell": false, "settings": false});
     assert_eq!(
         service.ask_as(3, unlaunched.clone(), json!({"donate": {"items": []}})),
         json!({"refused": {"reason": "notPermitted"}})
     );
     assert_eq!(service.query_as(unlaunched, "ana"), [notes.clone()]);
     // Another application cannot remove them.
-    assert_eq!(service.ask_as(4, application("so.oxy.dropsea"), json!({"remove": {"ids": ["ana"]}})), "done");
+    assert_eq!(
+        service.ask_as(
+            4,
+            application("so.oxy.dropsea"),
+            json!({"remove": {"ids": ["ana"]}})
+        ),
+        "done"
+    );
     assert_eq!(service.query("garcia"), ["so.oxy.allo:ana"]);
-    assert_eq!(service.ask_as(2, application("so.oxy.allo"), json!({"removeAll": {}})), "done");
+    assert_eq!(
+        service.ask_as(2, application("so.oxy.allo"), json!({"removeAll": {}})),
+        "done"
+    );
     assert!(service.query("garcia").is_empty());
 
     // Opened from a search: it rises.
@@ -385,7 +427,11 @@ fn settings_alone_keeps_folders_and_categories_out() {
         json!({"refused": {"reason": "notPermitted"}}),
         "the shell keeps nothing out"
     );
-    let kept = service.ask_as(5, settings(), json!({"setPreferences": {"excluded": [private], "categories": {"application": false}}}));
+    let kept = service.ask_as(
+        5,
+        settings(),
+        json!({"setPreferences": {"excluded": [private], "categories": {"application": false}}}),
+    );
     assert_eq!(kept["preferences"]["excluded"], json!([private]));
     assert_eq!(kept["preferences"]["categories"]["application"], false);
     assert_eq!(kept["preferences"]["categories"]["pdf"], true);
@@ -399,7 +445,11 @@ fn settings_alone_keeps_folders_and_categories_out() {
     std::thread::sleep(Duration::from_millis(800));
     assert_eq!(service.query("secret"), Vec::<String>::new());
     // Let back in: crawled.
-    service.ask_as(5, settings(), json!({"setPreferences": {"excluded": [], "categories": {"application": true}}}));
+    service.ask_as(
+        5,
+        settings(),
+        json!({"setPreferences": {"excluded": [], "categories": {"application": true}}}),
+    );
     service.until("dear", |found| found.len() == 3);
     assert_eq!(service.query("dropsea"), ["application:so.oxy.dropsea"]);
     let read = service.ask_as(5, settings(), json!({"preferences": {}}));

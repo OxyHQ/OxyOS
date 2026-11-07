@@ -28,8 +28,8 @@ use tantivy::query::{
     TermQuery,
 };
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST,
-    INDEXED, STORED, STRING,
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, INDEXED, STORED,
+    STRING,
 };
 use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, RawTokenizer, RemoveLongFilter, SimpleTokenizer, TextAnalyzer,
@@ -472,14 +472,13 @@ impl Index {
     /// Removes every item of `source` (and of `owner`, if given).
     pub fn remove_source(&mut self, source: &Source, owner: Option<&str>) -> tantivy::Result<()> {
         let fields = self.fields;
-        let mut clauses: Vec<(Occur, Box<dyn Query>)> = vec![(
-            Occur::Must,
-            term_query(fields.source, source.name()),
-        )];
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> =
+            vec![(Occur::Must, term_query(fields.source, source.name()))];
         if let Some(owner) = owner {
             clauses.push((Occur::Must, term_query(fields.owner, owner)));
         }
-        self.writer()?.delete_query(Box::new(BooleanQuery::new(clauses)))?;
+        self.writer()?
+            .delete_query(Box::new(BooleanQuery::new(clauses)))?;
         self.uncommitted += 1;
         Ok(())
     }
@@ -564,7 +563,9 @@ fn term_query(field: Field, text: &str) -> Box<dyn Query> {
 
 /// Every folder above `path`, the closest first.
 fn folders(path: &Path) -> impl Iterator<Item = &Path> {
-    path.ancestors().skip(1).filter(|folder| folder.parent().is_some())
+    path.ancestors()
+        .skip(1)
+        .filter(|folder| folder.parent().is_some())
 }
 
 fn document(fields: Fields, record: &Record, text: Option<&str>) -> TantivyDocument {
@@ -658,11 +659,7 @@ impl Searcher {
         self.fetch(&searcher, *address)
     }
 
-    fn fetch(
-        &self,
-        searcher: &tantivy::Searcher,
-        address: tantivy::DocAddress,
-    ) -> Option<Record> {
+    fn fetch(&self, searcher: &tantivy::Searcher, address: tantivy::DocAddress) -> Option<Record> {
         let document: TantivyDocument = searcher.doc(address).ok()?;
         let text = document.get_first(self.fields.record)?.as_str()?;
         serde_json::from_str(text).ok()
@@ -683,7 +680,11 @@ impl Searcher {
         }
         let fields = self.fields;
         let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
-        let words: Vec<String> = parsed.words.iter().flat_map(|word| fold_words(word)).collect();
+        let words: Vec<String> = parsed
+            .words
+            .iter()
+            .flat_map(|word| fold_words(word))
+            .collect();
         let last = words.len().checked_sub(1);
         for (at, word) in words.iter().enumerate() {
             let mut either: Vec<(Occur, Box<dyn Query>)> = vec![
@@ -694,8 +695,10 @@ impl Searcher {
             ];
             // The word being typed, a word's beginning in the text too.
             if Some(at) == last && word.chars().count() >= 2 {
-                let mut prefix =
-                    PhrasePrefixQuery::new_with_offset(vec![(0, Term::from_field_text(fields.content, word))]);
+                let mut prefix = PhrasePrefixQuery::new_with_offset(vec![(
+                    0,
+                    Term::from_field_text(fields.content, word),
+                )]);
                 prefix.set_max_expansions(64);
                 either.push((
                     Occur::Should,
@@ -766,7 +769,10 @@ impl Searcher {
             }
         }
         if !categories.is_empty() {
-            filters.push((Occur::Must, any_of(fields.category, categories.iter().map(|c| c.name()))));
+            filters.push((
+                Occur::Must,
+                any_of(fields.category, categories.iter().map(|c| c.name())),
+            ));
         }
         for category in &viewer.hidden {
             filters.push((Occur::MustNot, term_query(fields.category, category.name())));
@@ -789,10 +795,16 @@ impl Searcher {
                 .iter()
                 .map(|folder| folder.to_string_lossy().into_owned())
                 .collect();
-            filters.push((Occur::Must, any_of(fields.folder, inside.iter().map(String::as_str))));
+            filters.push((
+                Occur::Must,
+                any_of(fields.folder, inside.iter().map(String::as_str)),
+            ));
         }
         if !viewer.shell {
-            let mut seen = vec![(Occur::Should, term_query(fields.source, Source::File.name()))];
+            let mut seen = vec![(
+                Occur::Should,
+                term_query(fields.source, Source::File.name()),
+            )];
             if let Some(application) = &viewer.application {
                 seen.push((Occur::Should, term_query(fields.owner, application)));
             }
@@ -842,7 +854,11 @@ impl Searcher {
                 .collect();
             typed
                 .iter()
-                .all(|word| title_words.iter().any(|title| title.starts_with(word.as_str())))
+                .all(|word| {
+                    title_words
+                        .iter()
+                        .any(|title| title.starts_with(word.as_str()))
+                })
                 .then_some(0)
         });
         Ok((found, top))
@@ -866,7 +882,10 @@ impl Searcher {
         let mut hit = None;
         while stream.advance() {
             let token = stream.token();
-            if wanted.iter().any(|word| token.text.starts_with(word.as_str())) {
+            if wanted
+                .iter()
+                .any(|word| token.text.starts_with(word.as_str()))
+            {
                 hit = Some((token.offset_from, token.offset_to));
                 break;
             }
@@ -891,7 +910,10 @@ impl Searcher {
                 end = from + space;
             }
         }
-        let snippet: String = text[start..end].split_whitespace().collect::<Vec<_>>().join(" ");
+        let snippet: String = text[start..end]
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         Some(format!(
             "{}{}{}",
             if start > 0 { "…" } else { "" },

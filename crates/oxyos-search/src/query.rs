@@ -172,10 +172,17 @@ pub fn span(value: &str, now: i64) -> Option<Span> {
     use jiff::civil::Date;
     use jiff::{tz::TimeZone, Timestamp, ToSpan};
     let zone = TimeZone::system();
-    let now_zoned = Timestamp::from_millisecond(now).ok()?.to_zoned(zone.clone());
+    let now_zoned = Timestamp::from_millisecond(now)
+        .ok()?
+        .to_zoned(zone.clone());
     let today = now_zoned.date();
     let millis = |date: Date| -> Option<i64> {
-        Some(date.to_zoned(zone.clone()).ok()?.timestamp().as_millisecond())
+        Some(
+            date.to_zoned(zone.clone())
+                .ok()?
+                .timestamp()
+                .as_millisecond(),
+        )
     };
     let days_back = |days: i64| -> Option<Span> {
         Some(Span {
