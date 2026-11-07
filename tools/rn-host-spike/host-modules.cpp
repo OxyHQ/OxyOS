@@ -750,6 +750,12 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       return jsi::Value(services.shell.openFiles && services.shell.openFiles(args[0].asString(rt).utf8(rt), uris));
     });
+    // The desktop pressed (docs/adr/0047-finder-drags-and-the-desktop.mdx): the keyboard to the
+    // shell's background, citing that press.
+    module->method("focusDesktop", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      return jsi::Value(services.shell.focusDesktop && services.shell.focusDesktop());
+    });
     module->method("openUrl", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.openUrl: a URL");
@@ -1642,7 +1648,8 @@ std::shared_ptr<TurboModule> createHostModule(
       return resolved(rt, jsi::String::createFromUtf8(rt, "data:" + type + ";base64," + base64Encode(*bytes)));
     });
   } else if (name == "OxyOSFiles") {
-    // The user's files (files.h, docs/adr/0028-file-access.mdx), for an application's window, beneath
+    // The user's files (files.h, docs/adr/0028-file-access.mdx), for an application's window and the
+    // session's shell (its desktop, docs/adr/0047-finder-drags-and-the-desktop.mdx), beneath
     // expo-file-system and the Bloom adapter: `call(json, content?, as?)` answers at once,
     // `request(id, json, content?, as?)` with a promise, each `{json, bytes}` (`{json, text}` when
     // `as` is "text"); `OxyOSFilesEvent` says what watches saw and transfers' progress. Absent

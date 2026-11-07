@@ -35,6 +35,8 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
    - **Errors** are thrown as Android throws them, with its codes: `ERR_INVALID_PERMISSION` with the scope's reason, `ERR_DESTINATION_ALREADY_EXISTS`, `ERR_UNABLE_TO_DELETE`, and so on.
    - **Who has it.** Only an application's window has the module. The shell and the login screen do not.
 
+     **7 November 2026 ([ADR 0047](./0047-finder-drags-and-the-desktop), decision 2):** the session's shell has it too, for the desktop's files: `expo-file-system` and the adapter's `files`, with decision 2's scope, its own folders those of its package (`so.oxy.shell`, from the manifest beside its bundle, as its pipeline cache's). The login screen still has none.
+
 2. **What a path may name** (the platform's rule, from #162):
    - **Reached:** the person's home; the volumes mounted for them directly under `/media/USER` and `/run/media/USER` (from `/proc/self/mountinfo`, read once and again only when the kernel says it changed: the table kept open polls with `POLLPRI` after a mount or unmount, checked before each use); the application's own folders (decision 3); and its bundle's folder, which can be read and never changed.
    - **Refused,** with the reason:

@@ -8,6 +8,7 @@ import type {
   ShellControls,
   ShellInputMethod,
   ShellLock,
+  ShellMenu,
   ShellNotification,
   ShellNotifications,
   ShellScreenshots,
@@ -15,6 +16,7 @@ import type {
   ShellWallpaper,
 } from "./model";
 import { Wallpaper } from "./components/Wallpaper";
+import { Desktop, type DesktopCommand, type DesktopState } from "./components/Desktop";
 import { TopBar } from "./components/TopBar";
 import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
@@ -34,6 +36,7 @@ import { CandidateWindow } from "./components/CandidateWindow";
 import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
 import type { SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
+import type { ShellMessages } from "./messages";
 import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
@@ -75,6 +78,29 @@ const NO_LEVELS: ShellControls = { levels: {} };
     surface (and what the screen reader holds of it) stays from one list to the next. */
 const CANDIDATES_AREA = { position: "absolute", top: 0, left: 0 } as const;
 const NO_CANDIDATES = { width: 1, height: 1 } as const;
+const NO_DESKTOP: DesktopState = { keyboard: false, selection: false, items: false };
+
+/**
+ * The bar's menus while the desktop has the keyboard (docs/adr/0047-finder-drags-and-the-desktop.mdx):
+ * the shell's, with File (Open, Move to Trash) and Edit (Select All) after its first, as Finder's
+ * are while its desktop is active. Their chords are the desktop's own keys (Ctrl, the applications'
+ * ⌘ on OxyOS), shown as the bar shows an application's.
+ */
+function withDesktopMenus(menus: readonly ShellMenu[], state: DesktopState, messages: ShellMessages): ShellMenu[] {
+  const words = messages.desktop;
+  const desktop: ShellMenu[] = [
+    {
+      label: words.file,
+      items: [
+        { id: "desktop.open", label: words.open, enabled: state.selection, shortcut: "Ctrl+O" },
+        { kind: "separator", id: "desktop.file-separator" },
+        { id: "desktop.trash", label: words.moveToTrash, enabled: state.selection, shortcut: "Ctrl+Backspace" },
+      ],
+    },
+    { label: words.edit, items: [{ id: "desktop.select-all", label: words.selectAll, enabled: state.items, shortcut: "Ctrl+A" }] },
+  ];
+  return [...menus.slice(0, 1), ...desktop, ...menus.slice(1)];
+}
 
 /**
  * OxyOS shell presentation. Native application surfaces belong to the compositor beneath it.
@@ -510,6 +536,10 @@ export const Shell = memo(function Shell({
     [actions],
   );
   const launcherOpen = view === "launcher";
+  const desktopArea = useMemo(
+    () => ({ position: "absolute", top: TOP_BAR_HEIGHT, left: 0, right: 0, bottom: dock ? DOCK_HEIGHT : 0 }) as const,
+    [dock],
+  );
   const exposeArea = useMemo(
     () => ({ position: "absolute", top: 0, left: 0, right: 0, bottom: dock ? DOCK_HEIGHT : 0 }) as const,
     [dock],
@@ -527,8 +557,17 @@ export const Shell = memo(function Shell({
     [dock, launcherOpen],
   );
   const lockSession = lock?.lockSession;
+  // The desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx): what the bar's menus show of it,
+  // and what they ask of it.
+  const [desktop, setDesktop] = useState<DesktopState>(NO_DESKTOP);
+  const [desktopCommand, setDesktopCommand] = useState<DesktopCommand | undefined>(undefined);
   const menuCommand = useCallback(
     (id: string) => {
+      if (id === "desktop.open" || id === "desktop.trash" || id === "desktop.select-all") {
+        const action = id === "desktop.open" ? "open" : id === "desktop.trash" ? "trash" : "select-all";
+        setDesktopCommand((last) => ({ id: (last?.id ?? 0) + 1, action }));
+        return;
+      }
       if (id === "view.launcher" || id === "view.overview") setExposeApp(null);
       if (id === "view.launcher") setView("launcher");
       else if (id === "view.overview") setView("overview");
@@ -695,6 +734,10 @@ export const Shell = memo(function Shell({
     else AccessibilityInfo.announceForAccessibility(said);
   }, [inputSources]);
   const openSettings = useCallback(() => menuCommand("system.settings"), [menuCommand]);
+  const menus = useMemo(
+    () => (desktop.keyboard ? withDesktopMenus(snapshot.menus, desktop, messages) : snapshot.menus),
+    [desktop, snapshot.menus, messages],
+  );
   const setDoNotDisturb = notifications?.setDoNotDisturb;
   const doNotDisturbOn = !!notifications?.doNotDisturb;
   const doNotDisturb = useMemo(
@@ -726,6 +769,22 @@ export const Shell = memo(function Shell({
         <Box className="absolute inset-0">
           <Wallpaper wallpaper={wallpaper} />
         </Box>
+        {/* The desktop's files (docs/adr/0047-finder-drags-and-the-desktop.mdx): beneath every
+            window, between the top bar and the dock, on the display with the dock. */}
+        {dock && (
+          <Box pointerEvents="box-none" style={desktopArea}>
+            <Desktop
+              applications={snapshot.applications}
+              actions={actions}
+              keyboard={sheet ? undefined : keyboard}
+              focusDesktop={platform.focusDesktop}
+              useDesktopKeyboard={platform.useDesktopKeyboard}
+              announce={platform.announce}
+              command={desktopCommand}
+              onState={setDesktop}
+            />
+          </Box>
+        )}
         <Surface
           kind="panel"
           edge="top"
@@ -740,7 +799,7 @@ export const Shell = memo(function Shell({
             keyboardLost={barLost}
             onKeyboard={setBarKeyboard}
             returnKeyboard={actions.returnKeyboard}
-            menus={snapshot.menus}
+            menus={menus}
             now={now}
             overview={toggleOverview}
             launcher={toggleLauncher}

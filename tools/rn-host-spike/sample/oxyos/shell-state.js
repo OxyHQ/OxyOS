@@ -79,6 +79,11 @@
  * uris)` has it open the files with that application, citing the latest input: the drop on its icon
  * in the dock (protocol version 26; the session opens those its entry declares the types of).
  *
+ * The desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx): `focusDesktop()` asks for the
+ * keyboard for the shell's background, where the desktop is, citing the latest input (the press on
+ * it, the only input the compositor gives it for); whether the desktop has the keyboard is
+ * `useDesktopKeyboard()`'s, not the state's.
+ *
  * The candidate window (docs/adr/0041-input-methods.mdx): `candidates` is the page an input method
  * handed the system to show at the caret, { candidates: [text], aux, highlighted (-1: none),
  * previous, next, vertical } (a page before and after it, laid out down), or null while there is
@@ -191,6 +196,32 @@ export function useWindowSizes() {
   return React.useSyncExternalStore(subscribeSizes, readSizes);
 }
 
+// Whether the shell's desktop, its background, has the keyboard (docs/adr/0047-finder-drags-and-the-
+// desktop.mdx), apart from the state: only the desktop reads it, so its gaining or losing the
+// keyboard renders the desktop's selection and nothing else of the shell.
+let desktopKeyboard = false;
+const desktopListeners = new Set();
+DeviceEventEmitter.addListener('OxyOSShellDesktopKeyboard', ({ focused }) => {
+  if (!!focused === desktopKeyboard) return;
+  desktopKeyboard = !!focused;
+  for (const listener of desktopListeners) listener();
+});
+const subscribeDesktop = (listener) => {
+  desktopListeners.add(listener);
+  return () => desktopListeners.delete(listener);
+};
+const readDesktop = () => desktopKeyboard;
+
+/** Whether the shell's desktop has the keyboard now. */
+export function useDesktopKeyboard() {
+  return React.useSyncExternalStore(subscribeDesktop, readDesktop);
+}
+
+/** Asks the keyboard for the shell's desktop, citing the latest input (the press on it). */
+export function focusDesktop() {
+  return native?.focusDesktop?.() ?? false;
+}
+
 // The shell's actions on the compositor: intents, the same functions in every render, so that what
 // is given them is never new because of them.
 const actions = {
@@ -205,6 +236,7 @@ const actions = {
   emptyTrash: () => native?.emptyTrash() ?? false,
   trashFiles: (uris) => native?.trashFiles?.(uris) ?? false,
   openFiles: (application, uris) => native?.openFiles?.(application, [...uris]) ?? false,
+  focusDesktop,
   moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
   activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
   addWorkspace: () => native?.addWorkspace(),

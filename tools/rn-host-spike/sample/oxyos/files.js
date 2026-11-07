@@ -1,8 +1,9 @@
 /**
  * The host's file service (`OxyOSFiles`, files.h, docs/adr/0028-file-access.mdx) for
  * expo-file-system's module (expo-file-system.js) and the Bloom adapter's places and Trash
- * (platform-surface.js). Only an application's window has it: in the shell and the login screen
- * every operation fails, saying so.
+ * (platform-surface.js). An application's window has it, and the session's shell for its desktop
+ * (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 2): in the login screen every operation
+ * fails, saying so.
  *
  * An operation is answered at once (`callFiles`, what expo-file-system does synchronously) or by a
  * promise (`requestFiles`); its value, or a `FilesError` with the service's code and reason. What
@@ -28,7 +29,7 @@ export class FilesError extends Error {
 const unavailable = () =>
   new FilesError(
     'unavailable',
-    "files are reached from an application's window on OxyOS, not from the shell or the login screen",
+    "files are reached from an application's window or the session's shell on OxyOS, not from the login screen",
   );
 
 /** The service's answer `{json, bytes | text}` as its value and content, or its error thrown. */

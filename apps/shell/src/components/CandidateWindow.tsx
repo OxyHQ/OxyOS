@@ -1,8 +1,8 @@
 import React, { memo } from "react";
 import { Pressable } from "react-native";
 import { Text } from "@oxy.so/bloom/typography";
-import { APP_COLOR_PRESETS, BloomColorScope, useTheme, type AppColorName } from "@oxy.so/bloom/theme";
-import { usePlatformAppearanceState } from "@oxy.so/bloom/platform-surface";
+import { BloomColorScope, useTheme } from "@oxy.so/bloom/theme";
+import { useAccent } from "./accent";
 import { resolveSurfaceLevel } from "@oxy.so/bloom/styles";
 import { RiArrowLeftSLine } from "@oxy.so/bloom/icons/RiArrowLeftSLine";
 import { RiArrowRightSLine } from "@oxy.so/bloom/icons/RiArrowRightSLine";
@@ -41,12 +41,6 @@ const CHEVRON = 16;
  * the page changes. Its rows are the list's items, each said with its place and the count, the
  * highlighted one selected; the chevrons are buttons.
  */
-/** The person's accent, as the platform tells it, where Bloom has it; else OxyOS's own. */
-function useAccent(): AppColorName {
-  const accent = usePlatformAppearanceState()?.accent;
-  return accent && accent in APP_COLOR_PRESETS ? (accent as AppColorName) : "oxy";
-}
-
 /** The window in the person's accent, as a Mac highlights a candidate in its accent colour: the
     shell's own colour is its chrome's, not the highlight's. */
 export const CandidateWindow = memo(function CandidateWindow(props: {

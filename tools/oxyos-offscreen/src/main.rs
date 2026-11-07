@@ -228,10 +228,15 @@ impl Session {
         let listener = Listener::bind(&socket)?;
         listener.set_nonblocking(true)?;
         // zbus's reactor (async-io's driver thread, its epoll, eventfd and timerfd) is the
-        // process's, made at the first D-Bus connection and never closed: running before the
-        // count, as it is in a session, so the count is of what the session opens and closes
-        // (the networks', the input methods' connections).
-        zbus::block_on(async_io::Timer::after(std::time::Duration::from_millis(1)));
+        // process's, made at the first D-Bus connection and never closed: made before the count,
+        // as it is in a session, so the count is of what the session opens and closes (the
+        // networks', the input methods' connections). A source registered with it makes it
+        // whatever the machine's load; a timer would not, if it had already fired when first
+        // polled (a busy machine's thread preempted for its millisecond), and the reactor then
+        // made by the session's first connection read as three descriptors leaked.
+        drop(async_io::Async::new(
+            std::os::unix::net::UnixDatagram::unbound()?,
+        )?);
         let baseline_fds = open_descriptors()?;
 
         let own_uid = fs::metadata(&directory).map(|m| std::os::unix::fs::MetadataExt::uid(&m))?;

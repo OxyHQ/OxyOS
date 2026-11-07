@@ -27,10 +27,12 @@
 
 #include <condition_variable>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -50,7 +52,16 @@ struct Application {
 
   // As the launcher started it: its environment, and the bundle it runs (its config beside it).
   static Application launched(const std::string& bundlePath, const std::string& module);
+  // The package whose bundle is `bundleFile`, by the manifest beside it (ADR 0030): its id and
+  // directories, as the session's shell and login screen are known (they have no OXYOS_APP_ID).
+  // None for a bundle without a manifest (a probe run as a shell).
+  static Application package(const std::filesystem::path& bundleFile);
 };
+
+// The session's shell's package (docs/adr/0047-finder-drags-and-the-desktop.mdx, decision 2): of
+// the hosts run as a shell, it alone has the file service, for the desktop, its own folders this
+// id's. The login screen's has none.
+inline constexpr std::string_view kShellPackage = "so.oxy.shell";
 
 class AsyncStorage {
  public:
