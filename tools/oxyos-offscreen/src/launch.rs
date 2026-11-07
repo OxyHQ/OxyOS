@@ -4981,6 +4981,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.trash = Some(trash);
     }
     session.installed_fixture = launch.installed_fixture.clone();
+    // Search (docs/adr/0051-search.mdx): the index as the session runs it, this program's child
+    // (`--search-service`), started at the first ask rather than with the run; told the
+    // applications the shell lists, the fixture's installed ones among them.
+    {
+        let mut command = Command::new(std::env::current_exe()?);
+        command.arg("--search-service");
+        let mut search = oxyos_compositor::search::Search::new(command, false)?;
+        search.set_locale(&session.settings.locale());
+        search.list_applications(oxyos_apps::Listing::read(session.installed_fixture.clone()));
+        let waker = search.wake_fd()?;
+        session.search_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.search = Some(search);
+    }
     if let Some(folder) = &launch.screenshots {
         // Written as the session writes them, into the run's own folders; the shutter recorded
         // with the system's other sounds (`sounds`).

@@ -30,7 +30,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 30;
+pub const VERSION: u16 = 31;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -88,6 +88,9 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_PREFERENCE_BYTES: usize = 1200;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
+/// The most a SearchRequest or SearchText may hold, in bytes (docs/adr/0051-search.mdx): room for
+/// a page of results with their titles, paths and snippets.
+pub const MAX_SEARCH_TEXT_BYTES: usize = 256 * 1024;
 /// The most a ChooseFiles, AnswerFileChooser or FilesChosen may hold, in bytes (ADR 0029,
 /// decision 8): room for hundreds of chosen files' URIs.
 pub const MAX_CHOOSER_TEXT_BYTES: usize = 256 * 1024;

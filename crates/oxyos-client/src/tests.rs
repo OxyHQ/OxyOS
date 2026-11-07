@@ -1069,3 +1069,53 @@ fn the_shells_candidate_requests_are_sent_as_asked() {
         ]
     );
 }
+
+#[test]
+fn a_search_request_is_sent_in_chunks_and_never_to_a_compositor_of_version_29() {
+    let (client, server) = connected();
+    let text = format!(r#"{{"query":{{"text":"{}"}}}}"#, "ñ".repeat(60));
+    client.search_request(9, &text).unwrap();
+    let mut read = String::new();
+    let mut indices = Vec::new();
+    loop {
+        let Request::SearchRequest {
+            serial: 9,
+            index,
+            last,
+            text: chunk,
+        } = server.recv_request().unwrap().0
+        else {
+            panic!("a search request");
+        };
+        indices.push(index);
+        read.push_str(chunk.as_str());
+        if last {
+            break;
+        }
+    }
+    assert_eq!(read, text);
+    assert_eq!(indices, (0..indices.len() as u16).collect::<Vec<_>>());
+    assert!(client.search_request(1, "").is_err());
+    let long = "a".repeat(oxyos_protocol::MAX_SEARCH_TEXT_BYTES + 1);
+    assert!(client.search_request(1, &long).is_err());
+
+    let (client, server) = Connection::pair().unwrap();
+    let compositor = std::thread::spawn(move || {
+        server.recv_request().unwrap();
+        server
+            .send_event(&Event::Welcome { version: 29 }, None)
+            .unwrap();
+        server
+    });
+    let client = Client::handshake(client).unwrap();
+    let server = compositor.join().unwrap();
+    assert_eq!(
+        client
+            .search_request(1, r#"{"status":{}}"#)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::Unsupported
+    );
+    client.send(&Request::Goodbye {}).unwrap();
+    assert_eq!(server.recv_request().unwrap().0, Request::Goodbye {});
+}

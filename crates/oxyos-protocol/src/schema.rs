@@ -334,6 +334,11 @@ messages! {
         // `capability` 1 notifications, 2 files, 3 camera, 4 microphone, 5 location), citing a
         // user input; answered by CapabilityResult naming `serial`.
         162 => RequestCapability { serial: u32, input: u64, capability: u8 },
+        // Search (version 31, docs/adr/0051-search.mdx). Any client asks the session's search
+        // index one request of its vocabulary as JSON text in chunks (`index` 0 begins it, `last`
+        // completes it), at most MAX_SEARCH_TEXT_BYTES; the compositor hands it to the index with
+        // who asked, which only it knows, and the answers come as SearchText naming `serial`.
+        164 => SearchRequest { serial: u32, index: u16, last: bool, text: PreeditText },
         // GPU buffers (ADR 0031). A DMA-BUF's planes, one descriptor each, then the buffer: its
         // DRM format (premultiplied Argb8888, opaque Xrgb8888), modifier, size and plane count,
         // checked and imported before it is used (BufferFailed when a well-formed one cannot be).
@@ -761,6 +766,10 @@ messages! {
         162 => SheetDismissed { sheet: u32 },
         // To the application whose RequestCapability `serial` it answers.
         163 => CapabilityResult { serial: u32, granted: bool },
+        // To any client (version 31, docs/adr/0051-search.mdx): the search index's answer to its
+        // SearchRequest `serial`, JSON text in chunks; `serial` 0 is told unasked, when what the
+        // client asked to watch changed.
+        164 => SearchText { serial: u32, index: u16, last: bool, text: PreeditText },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.

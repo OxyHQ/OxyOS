@@ -145,6 +145,9 @@ class Window {
   bool systemRequest(uint32_t serial, uint64_t input, const std::string& text);
   void sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial);
   bool requestCapability(uint32_t serial, uint64_t input, uint8_t capability);
+  // Search (docs/adr/0051-search.mdx, protocol version 30): a request of the search index's
+  // vocabulary, answered by SEARCH_TEXT events naming `serial`. False if it could not be sent.
+  bool searchRequest(uint32_t serial, const std::string& text);
   // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): asks the session to let the
   // person choose files for the window, citing `input`; a FILES_CHOSEN with `serial` answers.
   // Withdraws it. The chooser the session started gives the person's answer. False if it could not

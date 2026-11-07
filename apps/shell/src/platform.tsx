@@ -119,6 +119,75 @@ export type ShellKeyboard = {
   subscribe(listener: (event: ShellKeyEvent) => boolean): () => void;
 };
 
+/** What a search result is (docs/adr/0051-search.mdx): its kind, as Spotlight groups results. */
+export type SearchCategory =
+  | "application"
+  | "settings"
+  | "folder"
+  | "document"
+  | "pdf"
+  | "text"
+  | "source"
+  | "presentation"
+  | "spreadsheet"
+  | "image"
+  | "movie"
+  | "music"
+  | "archive"
+  | "contact"
+  | "event"
+  | "mail"
+  | "message"
+  | "other";
+/** A search's token beyond its text: a kind, a tag, a time or a name. */
+export type SearchToken =
+  | { kind: "category"; value: SearchCategory }
+  | { kind: "tag"; value: string }
+  | { kind: "date"; value: "today" | "yesterday" | "week" | "month" | "year" }
+  | { kind: "name"; value: string };
+/**
+ * A result. Its id is a file's `file://` URI, `application:<id>`, `settings:<page>`, or
+ * `<application id>:<id>` for an item an application donated. Times are ms since the epoch.
+ */
+export type SearchItem = {
+  id: string;
+  category: SearchCategory;
+  title: string;
+  uri?: string;
+  url?: string;
+  application?: string;
+  icon?: string;
+  contentType?: string;
+  size?: number;
+  modified?: number;
+  created?: number;
+  lastUsed?: number;
+  tags?: readonly string[];
+  snippet?: string;
+  location?: string;
+};
+/** A search's answer: its items ranked, best first; the top hit (none when none is good enough);
+    and whether the index is still being built. */
+export type SearchResults = { items: readonly SearchItem[]; topHit: string | null; indexing: boolean };
+/**
+ * The system's search (docs/adr/0051-search.mdx), as Spotlight and the launcher ask it. The service
+ * applies Settings › Spotlight's categories and privacy to the shell's queries itself.
+ */
+export type ShellSearch = {
+  query(q: {
+    text: string;
+    tokens?: readonly SearchToken[];
+    within?: readonly string[];
+    categories?: readonly SearchCategory[];
+    limit?: number;
+    language?: string;
+  }): Promise<SearchResults>;
+  /** Calls `listener` whenever the index changed; returns the unsubscribe. */
+  watch(listener: () => void): () => void;
+  /** A result was opened: it ranks higher next time. */
+  used(id: string): void;
+};
+
 export type ShellPlatform = {
   Surface: ComponentType<ShellSurfaceProps>;
   /** Where the platform masks views; without it, what would be masked is drawn plainly. */
@@ -155,6 +224,9 @@ export type ShellPlatform = {
   /** Whether the desktop has the keyboard now, where the platform says: read by the desktop alone,
       whose selection is drawn in the accent's colour only then. */
   useDesktopKeyboard?: () => boolean;
+  /** The system's search (docs/adr/0051-search.mdx): Spotlight's and the launcher's. Without it,
+      Spotlight finds the snapshot's applications by name, and the launcher filters its own. */
+  search?: ShellSearch;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

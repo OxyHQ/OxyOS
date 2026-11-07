@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { launcherLayout, moveSelection, pageOf } from "../src/launcher.ts";
+import { launcherLayout, moveSelection, nameMatches, pageOf } from "../src/launcher.ts";
 import { shellMessages } from "../src/messages.ts";
 
 test("a computer's screen has Launchpad's seven columns and five rows, icons a little over half a column", () => {
@@ -70,4 +70,14 @@ test("a search's results are said by their number, one and none in their own wor
   assert.equal(es.results(3), "3 resultados");
   const en = shellMessages("en-US").launchpad;
   assert.deepEqual([en.results(0), en.results(1), en.results(3)], ["No Results", "1 result", "3 results"]);
+});
+
+test("a name is found by its words' beginnings, accents and case aside, as the search service finds it", () => {
+  assert.equal(nameMatches("Ajustes", "aj"), true);
+  assert.equal(nameMatches("System Settings", "sett"), true);
+  assert.equal(nameMatches("System Settings", "sys set"), true);
+  assert.equal(nameMatches("Cámara", "cam"), true);
+  assert.equal(nameMatches("Allo", "ll"), false);
+  assert.equal(nameMatches("Allo", ""), false);
+  assert.equal(nameMatches("Atlas", "atlas x"), false);
 });

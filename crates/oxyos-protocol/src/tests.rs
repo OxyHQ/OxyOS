@@ -419,6 +419,12 @@ fn requests() -> Vec<Request> {
             input: 42,
             capability: 1,
         },
+        Request::SearchRequest {
+            serial: 13,
+            index: 2,
+            last: true,
+            text: PreeditText::new(r#"{"query":{"text":"ma"}}"#).unwrap(),
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -900,6 +906,12 @@ fn events() -> Vec<Event> {
             serial: 12,
             granted: false,
         },
+        Event::SearchText {
+            serial: 13,
+            index: 1,
+            last: false,
+            text: PreeditText::new(r#"{"results":{"items":"#).unwrap(),
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -1350,7 +1362,12 @@ fn menu_kinds_fields_and_flags_are_closed_sets() {
 #[test]
 fn system_shortcuts_are_a_closed_set() {
     assert!(SystemShortcut::from_raw(0).is_none());
-    assert!(SystemShortcut::from_raw(14).is_none());
+    assert!(SystemShortcut::from_raw(16).is_none());
+    assert_eq!(
+        SystemShortcut::from_raw(14),
+        Some(SystemShortcut::Spotlight)
+    );
+    assert_eq!(SystemShortcut::from_raw(15), Some(SystemShortcut::Reveal));
     assert_eq!(
         SystemShortcut::from_raw(12),
         Some(SystemShortcut::MissionControl)
@@ -2945,4 +2962,83 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
         read_event_for(&mut Cursor::new(older), 25).unwrap(),
         entering(0, 0)
     );
+}
+
+#[test]
+fn version_31_search_is_only_version_31s() {
+    // A request of the index's vocabulary goes in chunks of whole characters, each a packet, and
+    // the chunks read back are the text sent.
+    let text = format!(r#"{{"query":{{"text":"{}"}}}}"#, "ñandú ".repeat(40));
+    let chunks = TextChunk::split(&text);
+    assert!(chunks.len() > 1);
+    let count = chunks.len();
+    let mut bytes = Vec::new();
+    for (index, chunk) in chunks.iter().enumerate() {
+        let request = Request::SearchRequest {
+            serial: 7,
+            index: index as u16,
+            last: index + 1 == count,
+            text: PreeditText::new(chunk.as_str()).unwrap(),
+        };
+        assert_eq!(request_since(&request), 31);
+        write_request(&mut bytes, &request).unwrap();
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut read = String::new();
+    loop {
+        let Request::SearchRequest {
+            serial, last, text, ..
+        } = read_request(&mut cursor).unwrap()
+        else {
+            panic!("a search request");
+        };
+        assert_eq!(serial, 7);
+        read.push_str(text.as_str());
+        if last {
+            break;
+        }
+    }
+    assert_eq!(read, text);
+    // The index's answer is never told a version 30 client, and a version 30 reader refuses it.
+    let answer = Event::SearchText {
+        serial: 7,
+        index: 0,
+        last: true,
+        text: PreeditText::new(r#"{"changed":{}}"#).unwrap(),
+    };
+    assert_eq!(event_since(&answer), 31);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &answer, 30).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &answer, 31).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 30).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 31).unwrap(), answer);
+    // Spotlight and Reveal are never told a version 30 shell, which would refuse them as values
+    // outside its set; the launcher's search still is.
+    for shortcut in [SystemShortcut::Spotlight, SystemShortcut::Reveal] {
+        let event = Event::SystemShortcut {
+            shortcut,
+            serial: 3,
+            output: 1,
+            intent: ShortcutIntent::Toggle,
+        };
+        assert_eq!(event_since(&event), 31);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 30).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 31).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 30).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 31).unwrap(), event);
+    }
+    let search = Event::SystemShortcut {
+        shortcut: SystemShortcut::Search,
+        serial: 3,
+        output: 1,
+        intent: ShortcutIntent::Toggle,
+    };
+    let mut old = Vec::new();
+    assert!(write_event_for(&mut old, &search, 30).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(old), 30).unwrap(), search);
 }

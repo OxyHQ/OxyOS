@@ -266,6 +266,15 @@ struct SystemService {
   std::function<bool(const std::string& capability)> allows;
 };
 
+// Search (docs/adr/0051-search.mdx): whether the compositor has the search index (protocol version
+// 30, known before JavaScript starts), and a request of the index's vocabulary (its serial, 0 if it
+// was not sent), answered by `OxyOSSearchText` events naming the serial. Any window has it, the
+// shell's included.
+struct SearchService {
+  bool available = false;
+  std::function<uint32_t(const std::string& text)> request;
+};
+
 // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8), for an application's window:
 // asking the session for files (the request's serial, 0 if it was not sent) and withdrawing it;
 // and, in an application the session started as the chooser, what it was asked to show
@@ -311,6 +320,7 @@ struct HostServices {
   SettingsService settings{};
   NotificationsService notifications{};
   SystemService system{};
+  SearchService search{};
   FileChooserService fileChooser{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};

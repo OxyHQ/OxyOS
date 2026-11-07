@@ -966,6 +966,17 @@ function useWallpaperModel(locale: string): {
   return { catalog, added, actions };
 }
 
+/** The system's folder chooser (docs/adr/0028-file-access.mdx), through expo-file-system's picker:
+    the folder's `file://` URI, or null when cancelled or refused. Settings › Spotlight's privacy. */
+async function chooseFolder(): Promise<string | null> {
+  try {
+    const picked = await Directory.pickDirectoryAsync();
+    return picked?.uri ?? null;
+  } catch {
+    return null;
+  }
+}
+
 type SessionHost = { snapshot(): unknown; subscribe(listener: () => void): () => void };
 const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/session-host')] as
   | SessionHost
@@ -1043,6 +1054,10 @@ export default function SettingsApp() {
     sound: sound.actions,
     power: power.actions,
     account: sessionHost ? accountActions : undefined,
+    chooseFolder,
+    // Settings › Spotlight (docs/adr/0051-search.mdx): the session's search index, which takes its
+    // preferences from Settings alone.
+    search: oxyosSurfaces.search,
     erase: sessionHost ? eraseActions : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.

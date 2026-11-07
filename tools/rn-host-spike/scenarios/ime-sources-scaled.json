@@ -1,5 +1,5 @@
 {
-  "about": "Input sources (ADR 0041) with the real engine: the layout, Pinyin – Simplified and Japanese – Romaji, switched with Super+Space (the source used before, and while Super is held each Space one further back, as a Mac's Control-Space), Super+Alt+Space (the next in the list, as a Mac's Control-Option-Space). A composition is committed as typed when its input method is left, as on a Mac; with the layout current keys type with no engine; the choice is kept as the person's preference. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it; with the session's shell drawing the candidates and the screen reader on in Spanish, on an output at 1.25 (1600×1000): each switch is said by the new source's name, politely, as VoiceOver says a Mac's, and Pinyin's window shows under the caret while it composes.",
+  "about": "Input sources (ADR 0041) with the real engine: the layout, Pinyin – Simplified and Japanese – Romaji, switched with Super+Alt+Space (the source used before, and while Super and Alt are held each Space one further back, as a Mac's Control-Space), Super+Alt+Shift+Space (the next in the list, as a Mac's Control-Option-Space); Super+Space is Spotlight's (ADR 0051). A composition is committed as typed when its input method is left, as on a Mac; with the layout current keys type with no engine; the choice is kept as the person's preference. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it; with the session's shell drawing the candidates and the screen reader on in Spanish, on an output at 1.25 (1600×1000): each switch is said by the new source's name, politely, as VoiceOver says a Mac's, and Pinyin's window shows under the caret while it composes.",
   "module": "ImeProbe",
   "window": [
     800,
@@ -130,12 +130,13 @@
       }
     },
     {
-      "name": "Super+Space: back to the layout, used before; ni committed as typed, no key reaching the field",
+      "name": "Super+Alt+Space: back to the layout, used before; ni committed as typed, no key reaching the field",
       "do": [
         "strokes",
         [
           [
             125,
+            56,
             57
           ]
         ]
@@ -221,12 +222,13 @@
       }
     },
     {
-      "name": "Super+Space again: Pinyin, used before the layout; nothing reaches the field",
+      "name": "Super+Alt+Space again: Pinyin, used before the layout; nothing reaches the field",
       "do": [
         "strokes",
         [
           [
             125,
+            56,
             57
           ]
         ]
@@ -353,11 +355,12 @@
       }
     },
     {
-      "name": "Super held: Space goes back to the layout, a second Space one further, to Japanese; ni committed",
+      "name": "Super and Alt held: Space goes back to the layout, a second Space one further, to Japanese; ni committed",
       "do": [
         "key_down",
         [
-          125
+          125,
+          56
         ]
       ],
       "allow_unchanged": true,
@@ -378,7 +381,7 @@
       }
     },
     {
-      "name": "the first Space while Super is held",
+      "name": "the first Space while Super and Alt are held",
       "do": [
         "key",
         [
@@ -425,7 +428,7 @@
       }
     },
     {
-      "name": "the second Space while Super is held",
+      "name": "the second Space while Super and Alt are held",
       "do": [
         "key",
         [
@@ -455,10 +458,11 @@
       }
     },
     {
-      "name": "Super released",
+      "name": "Alt and Super released",
       "do": [
         "key_up",
         [
+          56,
           125
         ]
       ],
@@ -538,13 +542,14 @@
       }
     },
     {
-      "name": "Super+Alt+Space: the next in the list after Japanese, the layout; か committed",
+      "name": "Super+Alt+Shift+Space: the next in the list after Japanese, the layout; か committed",
       "do": [
         "strokes",
         [
           [
             125,
             56,
+            42,
             57
           ]
         ]

@@ -1,0 +1,41 @@
+[package]
+name = "oxyos-search"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The full-text index: Quickwit's tantivy, a Lucene-class engine (BM25, phrase and prefix queries,
+# fast fields, segments merged in the background), rather than an index of our own
+# (docs/adr/0051-search.mdx). Memory-mapped segments; the stored fields compressed with LZ4.
+tantivy = { version = "0.27", default-features = false, features = ["mmap", "lz4-compression"] }
+# Office documents (OOXML and OpenDocument, EPUB) are ZIP archives of XML: the proven readers of
+# both formats, never a parser of our own.
+zip = { version = "9", default-features = false, features = ["deflate"] }
+quick-xml = "0.42"
+# The file system's own calls: inotify, poll, the user's id.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "event", "process", "thread", "pipe"] }
+# The scheduler's idle class for the indexing thread (SCHED_IDLE, IOPRIO_CLASS_IDLE), which rustix
+# does not expose.
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Local days for date filters (`date:today`), in the system's time zone.
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+# The person's places, the volumes mounted for them, their items' tags and media types: the file
+# service's own rules (docs/adr/0028-file-access.mdx, docs/adr/0049-file-tags.mdx), without its
+# network stack.
+oxyos-files = { path = "../oxyos-files", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

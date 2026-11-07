@@ -4511,6 +4511,8 @@ fn the_header_matches_the_system_shortcuts_abi() {
             OXYOS_SHORTCUT_MISSION_CONTROL,
         ),
         ("OXYOS_SHORTCUT_APP_EXPOSE", OXYOS_SHORTCUT_APP_EXPOSE),
+        ("OXYOS_SHORTCUT_SPOTLIGHT", OXYOS_SHORTCUT_SPOTLIGHT),
+        ("OXYOS_SHORTCUT_REVEAL", OXYOS_SHORTCUT_REVEAL),
         (
             "OXYOS_SHORTCUT_INTENT_TOGGLE",
             OXYOS_SHORTCUT_INTENT_TOGGLE.into(),
@@ -4570,6 +4572,8 @@ fn the_header_matches_the_system_shortcuts_abi() {
             OXYOS_SHORTCUT_MISSION_CONTROL,
         ),
         (SystemShortcut::AppExpose, OXYOS_SHORTCUT_APP_EXPOSE),
+        (SystemShortcut::Spotlight, OXYOS_SHORTCUT_SPOTLIGHT),
+        (SystemShortcut::Reveal, OXYOS_SHORTCUT_REVEAL),
     ] {
         let event = Event::SystemShortcut {
             shortcut,
@@ -7546,4 +7550,79 @@ fn an_items_volume_is_its_own_and_a_folder_drops_where_it_leads() {
     };
     assert_eq!(length, OXYOS_ERROR);
     std::fs::remove_dir_all(&here).unwrap();
+}
+
+#[test]
+fn a_search_request_and_its_answer_cross_the_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_SEARCH_TEXT"),
+        i64::from(OXYOS_EVENT_SEARCH_TEXT)
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char* text);"
+    ));
+    let answer = convert(&Event::SearchText {
+        serial: 5,
+        index: 3,
+        last: true,
+        text: PreeditText::new(r#"{"changed":{}}"#).unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (answer.kind, answer.code, answer.detail, answer.flag),
+        (OXYOS_EVENT_SEARCH_TEXT, 5, 3, 1)
+    );
+    assert_eq!(
+        CStr::from_bytes_until_nul(&answer.text).unwrap(),
+        c"{\"changed\":{}}"
+    );
+
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-search-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let text = format!(r#"{{"query":{{"text":"{}"}}}}"#, "a".repeat(40));
+    let chunks = TextChunk::split(&text).len();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..chunks)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let request = CString::new(text.clone()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the strings
+    // are NUL-terminated.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_search_request(client, 4, std::ptr::null()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_search_request(client, 4, c"".as_ptr()),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_client_search_request(client, 4, request.as_ptr()), 0);
+        let requests = compositor.join().unwrap();
+        let sent: String = requests
+            .iter()
+            .map(|request| match request {
+                Request::SearchRequest {
+                    serial: 4, text, ..
+                } => text.as_str().to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(sent, text);
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }

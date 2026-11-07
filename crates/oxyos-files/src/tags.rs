@@ -406,7 +406,7 @@ fn remove_attribute(path: &Path, name: &str) -> Result<(), Errno> {
 
 /// Whether the item at `path` (itself, not what a link leads to) has an attribute that may say
 /// tags: one cheap look the index takes at every item before it reads any.
-pub(crate) fn may_have_tags(path: &Path) -> bool {
+pub fn may_have_tags(path: &Path) -> bool {
     let list = loop {
         let Ok(size) = rustix::fs::llistxattr_query(path) else {
             return false;

@@ -326,6 +326,9 @@ pub struct Application {
     pub id: String,
     /// Its name in the session's language, else its own.
     pub name: String,
+    /// What else it may be searched by (`Keywords`, the specification's list, in the session's
+    /// language, else its own; docs/adr/0051-search.mdx): "mail" for an application named Inbox.
+    pub keywords: Vec<String>,
     /// Its icon's file, if it has one (`Icon`, absolute or relative to the entry).
     pub icon: Option<PathBuf>,
     pub launch: Launch,
@@ -583,6 +586,19 @@ pub fn parse(
         .or_else(|| keys.get("Name"))
         .ok_or_else(|| Error(format!("{id} has no Name")))?
         .clone();
+    // The list's items end with `;`, as `MimeType`'s.
+    let keywords = languages
+        .iter()
+        .find_map(|language| keys.get(&format!("Keywords[{language}]")))
+        .or_else(|| keys.get("Keywords"))
+        .map(|list| {
+            list.split(';')
+                .map(str::trim)
+                .filter(|keyword| !keyword.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
     let relative = |value: &str| {
         let path = Path::new(value);
         if path.is_absolute() {
@@ -615,6 +631,7 @@ pub fn parse(
     Ok(Some(Application {
         id: id.to_string(),
         name,
+        keywords,
         icon: keys.get("Icon").map(|icon| relative(icon)),
         launch,
         pinned,
@@ -976,6 +993,101 @@ pub fn sources(directories: &[PathBuf], policy: &Policy, installed: Option<&Path
     sources.extend(installed.map(Path::to_path_buf));
     sources.extend(directories.iter().cloned());
     sources
+}
+
+/// What the shell lists, and the session's search knows, as the session launches from it
+/// (docs/adr/0013-launching-applications.mdx): the image's system applications first, which no
+/// other source's entry can take the place of (docs/adr/0030-installing-applications.mdx, decision
+/// 7), the install service's entries for this account, then the development directories. What they
+/// may do is the session's to judge as it launches.
+pub struct Listing {
+    pub policy: Policy,
+    pub installed: Option<PathBuf>,
+    pub directories: Vec<PathBuf>,
+    /// In the development compositor alone, its fixture of the install service's state directory
+    /// (as a scenario wrote it), whose entries are taken as the service's. It changes only what is
+    /// listed: what is launched, and as what, is the session's to judge from its own source.
+    pub fixture: Option<PathBuf>,
+}
+
+impl Listing {
+    /// The session's sources as they are now, the install service's state directory being
+    /// `fixture` when the development compositor plays one.
+    pub fn read(fixture: Option<PathBuf>) -> Self {
+        let policy = Policy::system().unwrap_or_else(|error| {
+            eprintln!("[apps] system applications: {error}");
+            Policy::none()
+        });
+        let installed = session_user().map(|user| {
+            let root = fixture.clone().unwrap_or_else(|| PathBuf::from(INSTALLED));
+            installed_applications(&root, &user)
+        });
+        Self {
+            policy,
+            installed,
+            directories: directories(),
+            fixture,
+        }
+    }
+
+    /// Root's (the session's rule), or the development compositor's fixture's.
+    pub fn trusted(&self, path: &Path) -> bool {
+        self.fixture
+            .as_ref()
+            .is_some_and(|root| path.starts_with(root))
+            || administrator_written(path)
+    }
+
+    /// The applications, named in `languages` ([`registry`]); what was left out is said.
+    pub fn applications(&self, languages: &[String]) -> Vec<Application> {
+        let trusted = |path: &Path| self.trusted(path);
+        let (applications, skipped) = registry(
+            &self.directories,
+            languages,
+            &self.policy,
+            self.installed.as_deref(),
+            &trusted,
+        );
+        for line in skipped {
+            eprintln!("[apps] {line}");
+        }
+        applications
+    }
+
+    /// What to watch for the applications changing ([`Watch`]).
+    pub fn sources(&self) -> Vec<PathBuf> {
+        sources(&self.directories, &self.policy, self.installed.as_deref())
+    }
+}
+
+/// The languages an entry's localized names are looked up by (`Name[es_ES]`, then `Name[es]`) for
+/// a BCP 47 tag: `es-ES-u-hc-h23` as `es_ES`, `es`.
+pub fn languages_of_tag(tag: &str) -> Vec<String> {
+    let mut subtags = tag.split('-').take_while(|subtag| subtag.len() > 1);
+    let language = subtags.next().unwrap_or_default();
+    let region =
+        subtags.find(|subtag| subtag.len() == 2 && subtag.chars().all(|c| c.is_ascii_uppercase()));
+    let posix = match region {
+        Some(region) => format!("{language}_{region}"),
+        None => language.to_owned(),
+    };
+    languages_of(&posix)
+}
+
+/// The directory of a package's files when `application` runs a package's compiled bundle (its
+/// `index.hbc`, beside the package's `manifest.json`, docs/adr/0030-installing-applications.mdx),
+/// else None.
+pub fn package_directory(application: &Application) -> Option<&Path> {
+    let Launch::Bloom {
+        bundle: Some(bundle),
+        ..
+    } = &application.launch
+    else {
+        return None;
+    };
+    let directory = bundle.parent()?;
+    (bundle.file_name()? == "index.hbc" && directory.join("manifest.json").is_file())
+        .then_some(directory)
 }
 
 /// The application with `id` in `directories`, if any lists it.

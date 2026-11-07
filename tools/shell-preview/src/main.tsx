@@ -5,7 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BloomProvider } from "@oxy.so/bloom/provider";
 import { Shell, type ShellCommand } from "../../../apps/shell/src/Shell";
 import "./styles.css";
-import { previewBluetooth, previewNetworks, previewSnapshot, previewSound, previewWallpaper } from "./fixtures";
+import { previewBluetooth, previewNetworks, previewSearch, previewSnapshot, previewSound, previewWallpaper } from "./fixtures";
 import type {
   ShellActions,
   ShellControls,
@@ -15,6 +15,7 @@ import type { SoundState } from "../../../apps/shell/src/sound";
 import { bluetoothSummary, type BluetoothState } from "../../../apps/shell/src/bluetooth";
 import type { SheetText } from "../../../apps/shell/src/sheet";
 import { shellMessages } from "../../../apps/shell/src/messages";
+import { inPlace, type ShellPlatform } from "../../../apps/shell/src/platform";
 
 /**
  * The preview's locale (docs/adr/0040-language-and-region.mdx): the browser's, or the one `?lang=`
@@ -36,8 +37,13 @@ function previewLocale(): string {
   return new Intl.Locale("en", { region: chosen.region ?? "US" }).toString();
 }
 const locale = previewLocale();
+/** The preview's appearance: light, or dark with `?appearance=dark`. */
+const appearance = new URLSearchParams(window.location.search).get("appearance") === "dark" ? "dark" : "light";
 const messages = shellMessages(locale);
 document.documentElement.lang = locale;
+
+/** The preview's platform: every region in place, and a played search (fixtures.ts). */
+const platform: ShellPlatform = { ...inPlace, search: previewSearch(previewSnapshot(messages), messages.language) };
 
 function Preview() {
   const [snapshot, setSnapshot] = useState(() => previewSnapshot(messages));
@@ -81,6 +87,8 @@ function Preview() {
       ),
     menuCommand: (id) =>
       console.info("[shell preview] system command intent", id),
+    openFiles: (id, uris) => console.info("[shell preview] open files intent", id, uris),
+    openUrl: (url) => console.info("[shell preview] open URL intent", url),
   };
   // A played machine (docs/adr/0025-hardware-keys-and-control-center.mdx), so the Control
   // Center can be tried in the browser: its changes are the fixture's alone.
@@ -247,25 +255,31 @@ function Preview() {
           id: (previous?.id ?? 0) + 1,
           action: "dismiss",
         }));
-      if (event.ctrlKey && event.code === "Space") {
-        event.preventDefault();
-        setCommand((previous) => ({
-          id: (previous?.id ?? 0) + 1,
-          action: "launcher",
-        }));
-      }
+    };
+    // Ctrl+Space stands for Super+Space (Spotlight), Ctrl+Shift+Space for the launcher: system
+    // shortcuts, taken before the focused field as the compositor takes them.
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.code !== "Space") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCommand((previous) => ({
+        id: (previous?.id ?? 0) + 1,
+        action: event.shiftKey ? "launcher" : "spotlight",
+      }));
     };
     window.addEventListener("keydown", handleKey);
+    window.addEventListener("keydown", handleShortcut, true);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("keydown", handleShortcut, true);
     };
   }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <BloomProvider
-          mode="light"
+          mode={appearance}
           colorPreset="graphite"
           haptics={false}
           locale={locale}
@@ -278,6 +292,7 @@ function Preview() {
             command={command}
             controls={controls}
             sheet={shownSheet ?? undefined}
+            platform={platform}
           />
         </BloomProvider>
       </SafeAreaProvider>

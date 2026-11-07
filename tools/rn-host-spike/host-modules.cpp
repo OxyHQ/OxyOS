@@ -959,6 +959,18 @@ std::shared_ptr<TurboModule> createHostModule(
       return services.system.launch ? jsi::valueFromDynamic(rt, services.system.launch()) : jsi::Value::null();
     });
     module->listeners();
+  } else if (name == "OxyOSSearch") {
+    // Search (sample/oxyos/search.js, Bloom's PlatformSearch, docs/adr/0051-search.mdx): a request
+    // of the search index's vocabulary (JSON), its serial (0 if it was not sent), answered by
+    // `OxyOSSearchText`s naming it ({serial, text}; serial 0: what the window asked to watch
+    // changed). The compositor tells the index who asks; nothing here says it.
+    module->constants([&services] { return folly::dynamic::object("available", services.search.available); });
+    module->method("request", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSearch.request: the request's JSON");
+      if (!services.search.request) return jsi::Value(0);
+      return jsi::Value(static_cast<double>(services.search.request(args[0].asString(rt).utf8(rt))));
+    });
+    module->listeners();
   } else if (name == "OxyOSFileChooser") {
     // File choosers (sample/oxyos/file-chooser.js, docs/adr/0029-chromium-on-oxyos.mdx, decision
     // 8): files asked for this window, answered once by an `OxyOSFilesChosen` naming the request's

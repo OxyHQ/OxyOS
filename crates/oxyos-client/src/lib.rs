@@ -624,6 +624,36 @@ impl Client {
         Ok(())
     }
 
+    /// Asks the session's search index (docs/adr/0051-search.mdx) one request of its vocabulary,
+    /// `text` (JSON), in chunks; SearchText events naming `serial` answer, and SearchText with
+    /// serial 0 tells what this connection asked to watch changed. Any client may ask. Refused
+    /// here, sending nothing, to a compositor of a version before 31, which has no search.
+    pub fn search_request(&self, serial: u32, text: &str) -> io::Result<()> {
+        if self.version < 31 {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "the compositor's protocol version has no search",
+            ));
+        }
+        if text.is_empty() || text.len() > oxyos_protocol::MAX_SEARCH_TEXT_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a search request is 1 byte to MAX_SEARCH_TEXT_BYTES of text",
+            ));
+        }
+        let chunks = TextChunk::split(text);
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::SearchRequest {
+                serial,
+                index: index as u16,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        Ok(())
+    }
+
     /// Asks the session to let the person choose files for the toplevel `surface` (ADR 0029,
     /// decision 8): `text`, one request of the session's vocabulary as JSON, citing `input`, the
     /// serial of a press or a key this connection received lately; a `FilesChosen` with `serial`

@@ -1,0 +1,247 @@
+{
+ "about": "At 1.25, as dropsea-search.json at 1: Dropsea's search through the session's search service (docs/adr/0051-search.mdx, decision 11; OxyHQ/Dropsea#49), with the shell: typing in its toolbar's field searches the whole computer (This Computer, as Finder's This Mac) and lists what the service found from several folders; a word that names a kind offers it as a token (Kind: PDF) in the field's suggestions, ↓ and Return make it one, and the results narrow to PDFs; Spotlight's Super+Return shows a result in Dropsea, its folder opened with the item selected (dropsea://files?uri=…&select=…).",
+ "module": "Dropsea",
+ "window": [
+  1000,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Documents/Informe trimestral.pdf": "%PDF-1.4",
+   "Documents/informe de viaje.txt": "Sevilla en tren",
+   "Projects/": "",
+   "Projects/informe.md": "# Informe",
+   "Music/": "",
+   "notes.txt": "nothing here"
+  }
+ },
+ "steps": [
+  {
+   "name": "Dropsea opens at the home",
+   "do": [
+    "wait_named",
+    [
+     "Documents",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "a press in the search field gives it the keys",
+   "do": [
+    "press_named",
+    "Search"
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "typing searches the whole computer through the service",
+   "do": [
+    "type",
+    "inform"
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "the three reports, from three folders, This Computer chosen",
+   "do": [
+    "wait_named",
+    [
+     "informe.md",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search",
+    "texts": [
+     "This Computer"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Informe trimestral.pdf"
+      },
+      {
+       "role": "ListItem",
+       "name": "informe de viaje.txt"
+      },
+      {
+       "role": "ListItem",
+       "name": "informe.md"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "notes.txt"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "a word naming a kind is offered as a token",
+   "do": [
+    "type",
+    " pd"
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "the suggestion: Kind: PDF",
+   "do": [
+    "wait_named",
+    [
+     "Kind: PDF",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "↓ highlights it, the field keeping the keys",
+   "do": [
+    "key",
+    108
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "Return makes it a token: the results narrow to PDFs",
+   "do": [
+    "key",
+    28
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "the PDF alone",
+   "do": [
+    "wait",
+    1000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Informe trimestral.pdf"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "informe.md"
+      },
+      {
+       "role": "ListItem",
+       "name": "informe de viaje.txt"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Spotlight from anywhere: Super+Space",
+   "do": [
+    "key",
+    [
+     125,
+     57
+    ]
+   ],
+   "expect": {}
+  },
+  {
+   "name": "the trip's report",
+   "do": [
+    "keyboard",
+    "viaje"
+   ],
+   "expect": {}
+  },
+  {
+   "name": "found",
+   "do": [
+    "wait_named",
+    [
+     "informe de viaje.txt, Plain text, Documents",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Super+Return shows it in Dropsea: its folder, the item selected",
+   "do": [
+    "key",
+    [
+     125,
+     28
+    ]
+   ],
+   "expect": {
+    "urls_opened": [
+     {
+      "url": "dropsea://files?uri={home}%2FDocuments&select={home}%2FDocuments%2Finforme%2520de%2520viaje.txt",
+      "application": "so.oxy.dropsea"
+     }
+    ]
+   }
+  },
+  {
+   "name": "Dropsea shows it in a window at Documents, the report selected, as Finder's Show in Finder",
+   "do": [
+    "wait_named",
+    [
+     "informe de viaje.txt",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "launched": [
+      {
+       "role": "ListItem",
+       "name": "informe de viaje.txt",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "outputs": "1600x1000@1.25"
+}

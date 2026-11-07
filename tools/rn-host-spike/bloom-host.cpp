@@ -822,6 +822,8 @@ int main(int argc, char** argv) {
       // The system's interface sounds (docs/adr/0044-system-sounds.mdx): protocol version 23, an
       // application's window (the session plays the shell's dock's own).
       services.soundsAvailable = !shellMode && window->protocolVersion() >= 23;
+      // Search (docs/adr/0051-search.mdx): protocol version 31, every window and the shell.
+      services.search.available = window->protocolVersion() >= 30;
       // A file chooser the session started (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): what
       // it shows, known before JavaScript starts, so Bloom's adapter is the chooser's from the start.
       if (const char* request = shellMode ? nullptr : std::getenv("OXYOS_FILE_CHOOSER")) {
@@ -1519,6 +1521,15 @@ int main(int argc, char** argv) {
       bool chosen = answer.isObject() && answer.count("chosen") != 0;
       return window->answerFileChooser(chosen ? lastPress : 0, text);
     };
+    // Search (docs/adr/0051-search.mdx): the index's answers, assembled from chunks. A request
+    // cites no input (SearchRequest carries none); the compositor attaches who asks.
+    oxyos::ChunkTexts searchTexts;
+    uint32_t searchSerial = 0;
+    services.search.request = [&window, &searchSerial](const std::string& text) -> uint32_t {
+      // Serial 0 is the index's own (what is watched changed): a request never takes it.
+      searchSerial = searchSerial == UINT32_MAX ? 1 : searchSerial + 1;
+      return window->searchRequest(searchSerial, text) ? searchSerial : 0;
+    };
     services.system = {
         .request = [&window, &lastPress, &systemSerial](const std::string& text) -> uint32_t {
           ++systemSerial;
@@ -2094,7 +2105,7 @@ int main(int argc, char** argv) {
         std::vector<std::pair<OxyOSEvent, std::string>> screenshots;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
-        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen;
+        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
         std::vector<OxyOSEvent> sheetsGone, capabilityResults;
         bool responded = false;
         Part handling = diagnostics.enter(Part::Events);
@@ -2109,6 +2120,11 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_SYSTEM_TEXT) {
                 if (auto text = systemTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
                   systemAnswers.emplace_back(event.code, std::move(*text));
+                }
+              }
+              if (event.kind == OXYOS_EVENT_SEARCH_TEXT) {
+                if (auto text = searchTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
+                  searchAnswers.emplace_back(event.code, std::move(*text));
                 }
               }
               if (event.kind == OXYOS_EVENT_SHEET_TEXT) {
@@ -2405,6 +2421,15 @@ int main(int argc, char** argv) {
           oxyos::Report::get().input("system", oxyos::Window::kToplevel,
                                      folly::dynamic::object("serial", serial)("answer", answer));
         }
+        // Search (docs/adr/0051-search.mdx): the index's answers as it wrote them, JSON text the
+        // window's search client reads (sample/oxyos/search.js).
+        for (const auto& [serial, text] : searchAnswers) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSearchText",
+                                                               folly::dynamic::object("serial", serial)("text", text)));
+          oxyos::Report::get().input("search", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("serial", serial)("text", text));
+        }
         for (const auto& [sheet, text] : sheets) {
           auto described = folly::parseJson(text);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
@@ -2519,8 +2544,10 @@ int main(int argc, char** argv) {
                                           "status-menus",
                                           "notifications",
                                           "mission-control",
-                                          "app-expose"};
-          const char* action = shortcut.detail <= OXYOS_SHORTCUT_APP_EXPOSE ? actions[shortcut.detail] : "";
+                                          "app-expose",
+                                          "spotlight",
+                                          "reveal"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_REVEAL ? actions[shortcut.detail] : "";
           // What it asks of what it shows (docs/adr/0046-interactive-gestures.mdx): a key's toggle,
           // or a swipe's opening or closing it.
           const char* intent = shortcut.flag == OXYOS_SHORTCUT_INTENT_OPEN    ? "open"

@@ -33,8 +33,10 @@ import {
   RiMouseLine,
   RiNotification3Line,
   RiPaletteLine,
+  RiFolder3Line,
   RiRefreshLine,
   RiResetLeftLine,
+  RiSearchLine,
   RiShieldLine,
   RiUserLine,
   RiSubtractLine,
@@ -79,6 +81,9 @@ import {
   type HourCycle,
   type LanguagePreference,
   type NotificationPreviews,
+  type SearchCategory,
+  type SearchPreferences,
+  type SearchStatus,
   type SettingsActions,
   type SettingsSnapshot,
   type Side,
@@ -136,6 +141,16 @@ import {
 } from "./sound";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
 import { WallpaperPage } from "./WallpaperPage";
+import {
+  categoriesInOrder,
+  folderName,
+  folderPath,
+  selectedAfterRemoving as excludedAfterRemoving,
+  shown as categoryShown,
+  statusLine,
+  withExcluded,
+  withoutExcluded,
+} from "./spotlight";
 import { BluetoothPage } from "./BluetoothPage";
 import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
@@ -1690,6 +1705,207 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
 /** Privacy (decision 8): each installed application's capabilities asked at first use, as its
     account decided them, each a switch the install service keeps; it applies at the app's next
     launch. */
+/**
+ * Spotlight (docs/adr/0051-search.mdx), as a Mac's Spotlight settings: a switch for each kind of
+ * result, alphabetically as a Mac lists them, each kept by the search service at once; **Search
+ * Privacy…**, a sheet of the folders kept out of the index, a folder added with **+** from the
+ * system's folder chooser (docs/adr/0028-file-access.mdx) and the selected one removed with **−**,
+ * each change said once the service kept it; and the index's state in small text, asked again
+ * each time the service says the index changed (never on a clock: docs/performance.mdx's idle rule). Without the search service, it says Spotlight is not
+ * available here.
+ */
+function SpotlightPage({ actions, strings, locale }: PageProps) {
+  const words = strings.spotlight;
+  const theme = useTheme();
+  const service = actions.search;
+  const [preferences, setPreferences] = React.useState<SearchPreferences | null>(null);
+  const [status, setStatus] = React.useState<SearchStatus | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  const [privacy, setPrivacy] = React.useState(false);
+  const [selected, setSelected] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!service) return undefined;
+    let live = true;
+    service.preferences().then(
+      (kept) => {
+        if (live) setPreferences(kept);
+      },
+      (error: unknown) => {
+        console.warn("[settings] Spotlight's preferences could not be read:", error);
+        if (live) setFailed(true);
+      },
+    );
+    const ask = () =>
+      service.status().then(
+        (told) => {
+          if (live) setStatus(told);
+        },
+        (error: unknown) => console.warn("[settings] the index's state could not be read:", error),
+      );
+    ask();
+    const unwatch = service.watch(ask);
+    return () => {
+      live = false;
+      unwatch();
+    };
+  }, [service]);
+  if (!service || failed) {
+    return (
+      <GroupedSection>
+        <GroupedSectionItem title={service ? words.failed : words.unavailable} testID="spotlight-unavailable" />
+      </GroupedSection>
+    );
+  }
+  if (!preferences) return <Loading />;
+  // A change is the service's: shown at once, then as the service kept it.
+  const change = (next: Partial<SearchPreferences>, said?: string) => {
+    setPreferences((now) => (now ? { ...now, ...next } : now));
+    service.setPreferences(next).then(
+      (kept) => {
+        setPreferences(kept);
+        if (said) AccessibilityInfo.announceForAccessibility(said);
+      },
+      (error: unknown) => {
+        console.warn("[settings] Spotlight's preferences were not kept:", error);
+        service.preferences().then(setPreferences, () => setFailed(true));
+      },
+    );
+  };
+  const toggle = (category: SearchCategory, on: boolean) =>
+    change({ categories: { ...preferences.categories, [category]: on } });
+  const excluded = preferences.excluded;
+  const chosen = selected !== null && excluded.includes(selected) ? selected : (excluded[0] ?? null);
+  const add = async () => {
+    const uri = await actions.chooseFolder?.();
+    if (!uri) return;
+    const next = withExcluded(excluded, uri);
+    setSelected(next.find((one) => folderPath(one) === folderPath(uri)) ?? uri);
+    if (next.length !== excluded.length) change({ excluded: next }, words.added(folderName(uri)));
+  };
+  const remove = () => {
+    if (chosen === null) return;
+    setSelected(excludedAfterRemoving(excluded, chosen));
+    change({ excluded: withoutExcluded(excluded, chosen) }, words.removed(folderName(chosen)));
+  };
+  return (
+    <View style={PAGE}>
+      <GroupedSection title={words.results} footer={words.resultsFooter}>
+        {categoriesInOrder(words, locale).map((category) => (
+          <ToggleItem
+            key={category}
+            title={words.categories[category] ?? category}
+            value={categoryShown(preferences, category)}
+            onChange={(on) => toggle(category, on)}
+            testID={`spotlight-category-${category}`}
+          />
+        ))}
+      </GroupedSection>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <Button size="sm" appearance="outline" tone="neutral" onPress={() => setPrivacy(true)} testID="spotlight-privacy">
+          {words.privacy}
+        </Button>
+        {status ? (
+          <Text testID="spotlight-status" style={{ flex: 1, fontSize: 11, color: theme.colors.textSecondary, textAlign: "right" }}>
+            {statusLine(status, words)}
+          </Text>
+        ) : null}
+      </View>
+      <Dialog
+        open={privacy}
+        onClose={() => setPrivacy(false)}
+        title={words.privacyTitle}
+        description={words.privacyDescription}
+        actions={[{ label: words.done, color: "default", testID: "spotlight-privacy-done" }]}
+        testID="spotlight-privacy-sheet"
+      >
+        <View style={{ gap: 8 }}>
+          {excluded.length > 0 ? (
+            <ChoiceList<string>
+              label={words.excludedList}
+              value={chosen ?? undefined}
+              onValueChange={setSelected}
+              orientation="vertical"
+              style={{ gap: 2 }}
+              optionStyle={SOURCE_OPTION}
+              options={excluded.map((uri) => ({
+                value: uri,
+                label: `${folderName(uri)}, ${folderPath(uri)}`,
+                testID: `spotlight-excluded-${folderName(uri)}`,
+              }))}
+              renderContent={(option, { selected: isSelected }) => (
+                <ExcludedRow uri={option.value} selected={isSelected} />
+              )}
+              testID="spotlight-excluded"
+            />
+          ) : (
+            <Text style={{ fontSize: 13, color: theme.colors.textSecondary }} testID="spotlight-excluded-none">
+              {words.noExclusions}
+            </Text>
+          )}
+          <View style={{ flexDirection: "row", gap: 4 }}>
+            {actions.chooseFolder ? (
+              <Button
+                size="sm"
+                appearance="plain"
+                tone="neutral"
+                iconOnly
+                icon={RiAddLine}
+                accessibilityLabel={words.add}
+                onPress={() => void add()}
+                testID="spotlight-excluded-add"
+              />
+            ) : null}
+            <Button
+              size="sm"
+              appearance="plain"
+              tone="neutral"
+              iconOnly
+              icon={RiSubtractLine}
+              accessibilityLabel={chosen !== null ? words.removeFolder(folderName(chosen)) : words.remove}
+              disabled={chosen === null}
+              onPress={remove}
+              testID="spotlight-excluded-remove"
+            />
+          </View>
+          {actions.chooseFolder ? null : (
+            <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>{words.noChooser}</Text>
+          )}
+        </View>
+      </Dialog>
+    </View>
+  );
+}
+
+/** A folder kept out of the index, drawn: its icon, its name and, small, its path. Decorative: the
+    list's option is the control, named by its label. */
+function ExcludedRow({ uri, selected }: { uri: string; selected: boolean }) {
+  const theme = useTheme();
+  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 10,
+        backgroundColor: selected ? theme.colors.primary : "transparent",
+      }}
+    >
+      <RiFolder3Line size="sm" fill={ink} />
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={1} style={{ color: ink, fontSize: 14 }}>
+          {folderName(uri)}
+        </Text>
+        <Text numberOfLines={1} style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 11 }}>
+          {folderPath(uri)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function PrivacyPage({ snapshot, actions, strings }: PageProps) {
   const words = strings.privacy;
   const apps = snapshot.privacy;
@@ -2282,6 +2498,8 @@ export function Settings({
         { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
         // After Software Update, as a Mac's General lists Transfer or Reset.
         { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
+        // Just above Privacy, as a Mac's System Settings lists Spotlight.
+        { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
         { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
         { key: "about", label: words.about, icon: RiInformationLine, page: "about" },
       ],
@@ -2311,6 +2529,7 @@ export function Settings({
     about: { title: words.about, content: <AboutPage {...props} /> },
     "software-update": { title: words.softwareUpdate, content: <SoftwareUpdatePage {...props} /> },
     "transfer-reset": { title: words.transferReset, content: <TransferResetPage {...props} /> },
+    spotlight: { title: words.spotlight, content: <SpotlightPage {...props} /> },
     privacy: { title: words.privacy, content: <PrivacyPage {...props} /> },
     ...(snapshot.network === undefined
       ? {}

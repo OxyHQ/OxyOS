@@ -738,7 +738,7 @@
    }
   },
   {
-   "name": "Typing searches: the two items whose names have it",
+   "name": "Typing searches the computer through the session's search service (docs/adr/0051-search.mdx): the two items whose names have it, below the search's scope bar",
    "do": [
     "type",
     "packa"
@@ -767,11 +767,8 @@
   {
    "name": "A press on a row takes the keys back from the field and selects the row",
    "do": [
-    "press",
-    [
-     585,
-     95
-    ]
+    "press_named",
+    "package-lock.json"
    ],
    "expect": {
     "focus_input": null,

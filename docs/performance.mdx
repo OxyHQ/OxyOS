@@ -17,6 +17,7 @@ composing and the hosts drawing on it, are from 6 November 2026 ([below](#every-
 python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen \
   --runtimes WORK/runtimes --packages WORK/packages [--out DIR] [--runs 3] [--gpu-only] [--check] \
   [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
+python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen [--runs 3] [--check] search
 ```
 
 It runs regression scenarios through `regress.py` (every step's expected result is still checked)
@@ -573,6 +574,36 @@ An application holding a WebSocket open (`WebSocket open`: `sample/WebSocketProb
 
 The shell's peak is its wallpaper: a 5120 × 2880 JPEG decoded whole (56 MiB) and reduced to the
 output's size.
+
+### Search
+
+`perf.py search` ([ADR 0051](./adr/0051-search)) runs the search service as the session runs it
+(`oxyos-offscreen --search-service`, its standard input the control socket) on a generated home of
+3,000 files in nested folders: text, Markdown, Rust, Word documents and one-page PDFs (read by
+MuPDF), every tenth tagged. It asks as the shell and measures from the socket: the first crawl to
+the index settled, a mix of twelve typical questions ten times each (`h`, `har`, `quarterly rep`,
+a phrase, `kind:pdf`, `tag:work budget`, `date:week notes`, `name:invoice`, …), a file written
+until a question finds it, and, settled, five seconds of nothing. Three runs, medians (questions
+pooled), 7 November 2026, on this machine while two other gates ran:
+
+| files | items | indexed in | files/s | files/CPU s | index | question ms p50 / p95 / max | written to found | idle wakeups/s | idle CPU | memory, idle (anonymous), peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 3,000 | 3,893 | 1.41 s | 2,124 | 1,948 | 1.5 MiB (533 B a file) | 1.46 / 3.17 / 5.8 | 419 ms | 0 | 0.00 % | 24.0 MiB (11.4), 38.6 MiB |
+
+- **Questions** take a few milliseconds: BM25 over the fields, then the 400 best weighed by
+  category, recency and use, their records read from the store. The budget is 50 ms at the 95th
+  percentile (`SEARCH_BUDGETS`); the compositor's broker adds a socket hop each way.
+- **Throughput** is held per second of the service's own CPU, its crawler's and the PDF reader's
+  included (1,948 files): by the wall clock it depends on the machine, the crawler being in the
+  idle class. The budget is 300 files a CPU second.
+- **Written to found** is the 400 ms a changed path settles (a file written in many steps is read
+  once) and the commit.
+- **Idle:** none of the service's three threads wakes once the index settled: they wait on their
+  socket, their inotify descriptor and their channel with no deadline, and tantivy's writer and its
+  threads are closed with nothing to write (`crates/oxyos-search/tests/idle.rs` holds it too). Its
+  memory is then what it holds: the reader's segments, mapped, and the answering thread's state;
+  malloc's free memory is given back after each closing commit.
+- **The index** keeps words, not text: a result's snippet is read again from its file.
 
 ### Memory side by side
 

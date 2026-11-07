@@ -6,6 +6,8 @@ import type {
   ShellMenu,
 } from "../../../apps/shell/src/model";
 import type { NetworkState } from "../../../apps/shell/src/network";
+import type { SearchItem, SearchResults, ShellSearch } from "../../../apps/shell/src/platform";
+import settingsPanes from "../../../apps/settings/searchable.json";
 import type { BluetoothState } from "../../../apps/shell/src/bluetooth";
 import type { SoundState } from "../../../apps/shell/src/sound";
 import type { Language, ShellMessages } from "../../../apps/shell/src/messages";
@@ -26,6 +28,8 @@ import wallet from "../assets/apps/faircoin-wallet.png";
 import goway from "../assets/apps/goway.png";
 import commons from "../assets/apps/commons-app.png";
 import accounts from "../assets/apps/accounts.png";
+import settings from "../assets/apps/settings.png";
+import dropsea from "../assets/apps/dropsea.png";
 import astroThumbnail from "../assets/surfaces/astro.webp";
 import inboxThumbnail from "../assets/surfaces/inbox.png";
 import mentionThumbnail from "../assets/surfaces/mention.png";
@@ -137,11 +141,19 @@ function previewMenus(messages: ShellMessages): ShellMenu[] {
   ];
 }
 
+/** The system's applications, named in the preview's language as the registry names them. */
+function systemApplications(language: Language): ShellApplication[] {
+  return [
+    raster("so.oxy.settings", language === "es" ? "Ajustes" : "Settings", settings),
+    { ...raster("so.oxy.dropsea", "Dropsea", dropsea), opens: ["inode/directory"] },
+  ];
+}
+
 /** The fixture in the preview's language. */
 export function previewSnapshot(messages: ShellMessages): ShellSnapshot {
   const words = FIXTURE_WORDS[messages.language];
   return {
-    applications,
+    applications: [...applications, ...systemApplications(messages.language)],
     folders: [
       { id: "finance", name: words.finance, appIds: ["peable", "fairwallet"] },
     ],
@@ -242,6 +254,178 @@ export const previewNetworks: NetworkState = {
   joining: null,
 };
 
+const DAY = 24 * 60 * 60 * 1000;
+const HOME = "file:///home/ana";
+/** A played file in the person's home. */
+const file = (
+  path: string,
+  category: SearchItem["category"],
+  extra: Partial<SearchItem> = {},
+): SearchItem => {
+  const uri = `${HOME}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const parts = path.split("/");
+  return {
+    id: uri,
+    uri,
+    category,
+    title: parts[parts.length - 1],
+    location: parts.length > 1 ? parts[parts.length - 2] : "ana",
+    ...extra,
+  };
+};
+
+/** The played documents, folders and applications' items a person's index would hold. */
+function previewDocuments(now: number): SearchItem[] {
+  return [
+    file("Documents/Proyectos", "folder", { modified: now - 3 * DAY, created: now - 200 * DAY }),
+    file("Documents/Presupuesto 2026.pdf", "pdf", {
+      contentType: "application/pdf",
+      size: 482_133,
+      modified: now - 2 * DAY,
+      created: now - 40 * DAY,
+      lastUsed: now - DAY,
+      tags: ["Work"],
+      snippet: "Presupuesto anual del equipo de producto: infraestructura, diseño y lanzamiento de OxyOS.",
+    }),
+    file("Documents/Spotlight design review.pdf", "pdf", {
+      contentType: "application/pdf",
+      size: 2_301_442,
+      modified: now - 5 * DAY,
+      created: now - 6 * DAY,
+      snippet: "Spotlight: a floating panel, its field a fifth of the way down, results grouped by kind beside a preview.",
+    }),
+    file("Documents/Oxy Roadmap.docx", "document", {
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      size: 88_410,
+      modified: now - 9 * DAY,
+      created: now - 120 * DAY,
+    }),
+    file("Desktop/notas.txt", "text", {
+      contentType: "text/plain",
+      size: 1_204,
+      modified: now - 4 * 60 * 60 * 1000,
+      created: now - 30 * DAY,
+      snippet: "Comprar pan. Llamar a Marta. Revisar el diseño de Spotlight y los atajos de teclado.",
+    }),
+    file("Code/OxyOS/apps/shell/src/spotlight.ts", "source", {
+      contentType: "text/x-typescript",
+      size: 13_870,
+      modified: now - 60 * 60 * 1000,
+      created: now - DAY,
+    }),
+    file("Documents/Keynote launch.pptx", "presentation", {
+      contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 12_840_221,
+      modified: now - 12 * DAY,
+    }),
+    file("Documents/Gastos.xlsx", "spreadsheet", {
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      size: 40_112,
+      modified: now - 20 * DAY,
+    }),
+    file("Pictures/Astro.webp", "image", { contentType: "image/webp", size: 361_442, icon: astroThumbnail, modified: now - 7 * DAY }),
+    file("Pictures/Alia.png", "image", { contentType: "image/png", size: 1_093_002, icon: aliaThumbnail, modified: now - 8 * DAY }),
+    file("Movies/Demo OxyOS.mp4", "movie", { contentType: "video/mp4", size: 84_200_113, modified: now - 15 * DAY }),
+    file("Music/Allo theme.mp3", "music", { contentType: "audio/mpeg", size: 5_402_884, modified: now - 50 * DAY }),
+    file("Downloads/Backup.zip", "archive", { contentType: "application/zip", size: 230_118_222, modified: now - 60 * DAY }),
+    {
+      id: "inbox:message-1",
+      category: "mail",
+      title: "Re: Spotlight design review",
+      application: "inbox",
+      url: "inbox://message/1",
+      snippet: "The sections look right. Can the preview show the file's tags too?",
+      modified: now - 3 * 60 * 60 * 1000,
+    },
+    {
+      id: "schedio:event-1",
+      category: "event",
+      title: "Spotlight review",
+      application: "schedio",
+      url: "schedio://event/1",
+      location: "Schedio",
+      modified: now - DAY,
+    },
+  ];
+}
+
+const plain = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+/**
+ * A played search service (docs/adr/0051-search.mdx), so Spotlight and the launcher's search can be
+ * tried in the browser: the fixture's applications, Settings' declared pages (apps/settings/
+ * searchable.json, as the service reads each package's) and a few played documents, ranked as a
+ * person would expect (a title that begins with the text, a word of it that does, a title that
+ * holds it, a keyword, then what the item says), applications and settings first among equals,
+ * then what was opened last. Never imported by apps/shell or the OS session.
+ */
+export function previewSearch(snapshot: ShellSnapshot, language: Language): ShellSearch {
+  const used = new Map<string, number>();
+  const now = Date.now();
+  const items: (SearchItem & { keywords?: readonly string[] })[] = [
+    ...snapshot.applications.map((app) => ({
+      id: `application:${app.id}`,
+      category: "application" as const,
+      title: app.name,
+      application: app.id,
+    })),
+    ...settingsPanes.map((pane) => ({
+      id: pane.id,
+      category: "settings" as const,
+      title: pane.titles[language],
+      url: pane.url,
+      application: "so.oxy.settings",
+      keywords: pane.keywords[language],
+    })),
+    ...previewDocuments(now),
+  ];
+  const first = (category: SearchItem["category"]) => (category === "application" ? 0 : category === "settings" ? 1 : 2);
+  return {
+    query: ({ text, categories, limit = 50 }) => {
+      const wanted = plain(text);
+      const scored: { item: SearchItem; score: number }[] = [];
+      for (const { keywords, ...item } of items) {
+        if (categories && !categories.includes(item.category)) continue;
+        const title = plain(item.title);
+        const score = title.startsWith(wanted)
+          ? 0
+          : title.split(/[\s\-_.]+/).some((word) => word.startsWith(wanted))
+            ? 1
+            : title.includes(wanted)
+              ? 2
+              : keywords?.some((word) => plain(word).startsWith(wanted))
+                ? 3
+                : plain(item.snippet ?? "").includes(wanted)
+                  ? 4
+                  : -1;
+        if (wanted && score >= 0) scored.push({ item: { ...item, lastUsed: used.get(item.id) ?? item.lastUsed }, score });
+      }
+      scored.sort(
+        (a, b) =>
+          a.score - b.score ||
+          first(a.item.category) - first(b.item.category) ||
+          (b.item.lastUsed ?? 0) - (a.item.lastUsed ?? 0) ||
+          a.item.title.localeCompare(b.item.title),
+      );
+      const results: SearchResults = {
+        items: scored.slice(0, limit).map(({ item }) => item),
+        topHit: scored.length > 0 && scored[0].score <= 1 ? scored[0].item.id : null,
+        indexing: false,
+      };
+      return new Promise((resolve) => setTimeout(() => resolve(results), 30));
+    },
+    watch: () => () => {},
+    used: (id) => {
+      used.set(id, Date.now());
+      console.info("[shell preview] search used", id);
+    },
+  };
+}
 /** A played machine's sound (docs/adr/0056-sound-devices.mdx), so the Control Center's Sound view
     can be tried in the browser: the built-in speakers chosen, a display over HDMI, and AirPods. */
 export const previewSound: SoundState = {

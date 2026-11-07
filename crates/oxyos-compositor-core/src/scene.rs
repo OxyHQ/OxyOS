@@ -541,6 +541,8 @@ pub struct Scene {
     /// What the store, Settings and applications asked the session, and the shell's sheets
     /// (ADR 0030).
     system: system::System,
+    /// What clients asked the search index, and the askers gone (docs/adr/0051-search.mdx).
+    search: search::Search,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
     choosers: choosers::Choosers,
     /// The user's preferences as the program running the compositor told them, and the changes
@@ -1196,6 +1198,7 @@ impl Scene {
         self.forget_launches(client);
         self.forget_dock_client(client);
         self.forget_system_requests(client);
+        self.forget_searcher(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
@@ -1788,6 +1791,12 @@ impl Scene {
                 last,
                 text,
             } => self.system_request(client, serial, input, index, last, text),
+            Request::SearchRequest {
+                serial,
+                index,
+                last,
+                text,
+            } => self.search_request(client, serial, index, last, text),
             Request::ChooseFiles {
                 serial,
                 surface,
@@ -5096,6 +5105,9 @@ mod sounds;
 pub use sounds::{MAX_PENDING_SOUNDS, NOTIFICATION_SOUND_COALESCE};
 mod system;
 pub use system::{CapabilityRequest, SheetAnswered, SystemRequest};
+/// Search (docs/adr/0051-search.mdx).
+mod search;
+pub use search::{SearchAsk, MAX_SEARCH_ASKS, SEARCH_VERSION};
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 mod choosers;
 pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};

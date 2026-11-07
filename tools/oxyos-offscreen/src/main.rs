@@ -140,6 +140,11 @@ struct Session {
     installs_waker: Option<std::os::fd::RawFd>,
     /// The Trash follower's waker among the compositor's, given back as the session finishes.
     pub trash_waker: Option<std::os::fd::RawFd>,
+    /// The session's search (docs/adr/0051-search.mdx), its service this program's child started
+    /// at the first ask, so a run that never searches never starts it; and its waker among the
+    /// compositor's, given back as the session finishes.
+    pub search: Option<oxyos_compositor::search::Search>,
+    pub search_waker: Option<std::os::fd::RawFd>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
     controls: Option<oxyos_controls::Fake>,
@@ -298,6 +303,8 @@ impl Session {
             installs: None,
             installs_waker: None,
             trash_waker: None,
+            search: None,
+            search_waker: None,
             controls: None,
             networks: None,
             sound: None,
@@ -615,6 +622,12 @@ impl Session {
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
+        // Search's asks, after `serve_launches` named every client that asked by its launch
+        // record: who asked is told the index with each, as the session tells it.
+        if let Some(search) = self.search.as_mut() {
+            search.set_locale(&self.settings.locale());
+            search.serve(&mut self.compositor.scene);
+        }
         // Settings' sign out (docs/adr/0020-oxy-account-login.mdx), recorded rather than ending
         // the run, before the install service takes what is left.
         let login = self.compositor.login;
@@ -1021,6 +1034,12 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // The search service ended, its threads waited for and its waker given back.
+        self.search = None;
+        if let Some(waker) = self.search_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
         // The Trash's follower, its watcher's thread waited for and its waker given back.
         self.trash = None;
         if let Some(waker) = self.trash_waker.take() {
@@ -1258,6 +1277,17 @@ mod checks {
 }
 
 fn main() -> Result<()> {
+    // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
+    // child, its standard input the socket the compositor brokers questions over.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|flag| flag == "--search-service")
+    {
+        std::process::exit(match oxyos_search::service::main() {
+            std::process::ExitCode::SUCCESS => 0,
+            _ => 1,
+        });
+    }
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     match args.as_slice() {
         [] => run(Path::new("target/oxyos-offscreen")),

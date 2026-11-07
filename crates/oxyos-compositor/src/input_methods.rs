@@ -1,5 +1,5 @@
 //! Input methods for the program running the compositor (docs/adr/0041-input-methods.mdx): the
-//! person's input sources, Super+Space, emoji, and the session as fcitx5's frontend.
+//! person's input sources, Super+Alt+Space, emoji, and the session as fcitx5's frontend.
 //!
 //! The frontend is a client of the scene in the program's own process, holding `input_method`
 //! (ADR 0008): it is connected only while an input method is the current input source (or emoji
@@ -84,9 +84,9 @@ pub struct InputMethods {
     available: Vec<&'static str>,
     sources: Vec<String>,
     current: Option<String>,
-    /// Every source, the most recently used first: what Super+Space goes back through.
+    /// Every source, the most recently used first: what Super+Alt+Space goes back through.
     recent: Vec<String>,
-    /// The order a held Super+Space goes through, as it was when the hold began.
+    /// The order a held Super+Alt+Space goes through, as it was when the hold began.
     cycle: Vec<String>,
     layout: String,
     language: String,
@@ -322,7 +322,7 @@ impl InputMethods {
         let available = engine.available();
         let layout = layout_of(&compositor.scene);
         let (sources, current) = chosen(preferences, &available);
-        // The current source first (the one Super+Space goes back from), then the layout and the
+        // The current source first (the one Super+Alt+Space goes back from), then the layout and the
         // input methods in their order.
         let mut recent = vec![current.clone().unwrap_or_else(|| LAYOUT_SOURCE.to_owned())];
         for id in std::iter::once(LAYOUT_SOURCE.to_owned()).chain(sources.iter().cloned()) {

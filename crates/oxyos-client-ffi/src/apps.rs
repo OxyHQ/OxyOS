@@ -57,49 +57,10 @@ pub(crate) fn json_string(text: &str) -> String {
     out
 }
 
-/// What the shell lists from, as the session launches from it: the image's system applications
-/// first, which no other source's entry can take the place of (docs/adr/0030-installing-
-/// applications.mdx, decision 7), the install service's entries for this account, then the
-/// development directories. What they may do is the session's to judge as it launches.
-struct Session {
-    policy: oxyos_apps::Policy,
-    installed: Option<std::path::PathBuf>,
-    directories: Vec<std::path::PathBuf>,
-    /// In the development compositor alone, its fixture of the install service's state directory
-    /// (`OXYOS_INSTALLED_FIXTURE`, as a scenario wrote it), whose entries are taken as the
-    /// service's. It changes only what this shell lists: what is launched, and as what, is the
-    /// session's to judge from its own source.
-    fixture: Option<std::path::PathBuf>,
-}
-
-impl Session {
-    fn read() -> Self {
-        let policy = oxyos_apps::Policy::system().unwrap_or_else(|error| {
-            eprintln!("[apps] system applications: {error}");
-            oxyos_apps::Policy::none()
-        });
-        let fixture = std::env::var_os("OXYOS_INSTALLED_FIXTURE").map(std::path::PathBuf::from);
-        let installed = oxyos_apps::session_user().map(|user| {
-            let root = fixture
-                .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from(oxyos_apps::INSTALLED));
-            oxyos_apps::installed_applications(&root, &user)
-        });
-        Self {
-            policy,
-            installed,
-            directories: oxyos_apps::directories(),
-            fixture,
-        }
-    }
-
-    /// Root's (the session's rule), or the development compositor's fixture's.
-    fn trusted(&self, path: &std::path::Path) -> bool {
-        self.fixture
-            .as_ref()
-            .is_some_and(|root| path.starts_with(root))
-            || oxyos_apps::administrator_written(path)
-    }
+/// What the shell lists from (`oxyos_apps::Listing`): in the development compositor, its fixture of
+/// the install service's state directory (`OXYOS_INSTALLED_FIXTURE`, as a scenario wrote it).
+fn listing() -> oxyos_apps::Listing {
+    oxyos_apps::Listing::read(std::env::var_os("OXYOS_INSTALLED_FIXTURE").map(PathBuf::from))
 }
 
 /// A watch over what the shell lists from (`oxyos_apps::Watch`): readable when an application may
@@ -112,13 +73,7 @@ pub struct OxyOSApplicationsWatch {
 #[allow(unsafe_code)]
 #[no_mangle]
 pub extern "C" fn oxyos_applications_watch_new() -> *mut OxyOSApplicationsWatch {
-    let session = Session::read();
-    let sources = oxyos_apps::sources(
-        &session.directories,
-        &session.policy,
-        session.installed.as_deref(),
-    );
-    match oxyos_apps::Watch::new(sources) {
+    match oxyos_apps::Watch::new(listing().sources()) {
         Ok(watch) => Box::into_raw(Box::new(OxyOSApplicationsWatch { watch })),
         Err(error) => {
             fail(error);
@@ -183,18 +138,8 @@ pub unsafe extern "C" fn oxyos_applications_watch_changed(
 /// by name, in the session's language: `Intl`'s
 /// default locale, which the host keeps the session's (docs/adr/0040-language-and-region.mdx).
 pub fn applications_json() -> String {
-    let session = Session::read();
-    let trusted = |path: &std::path::Path| session.trusted(path);
-    let (applications, skipped) = oxyos_apps::registry(
-        &session.directories,
-        &languages_of_tag(&oxyos_intl::default_locale()),
-        &session.policy,
-        session.installed.as_deref(),
-        &trusted,
-    );
-    for line in skipped {
-        eprintln!("[apps] {line}");
-    }
+    let applications =
+        listing().applications(&oxyos_apps::languages_of_tag(&oxyos_intl::default_locale()));
     let items: Vec<String> = applications
         .iter()
         .map(|app| {
@@ -293,27 +238,16 @@ pub unsafe extern "C" fn oxyos_application_directory(
     i64::try_from(bytes.len()).unwrap_or(i64::MAX)
 }
 
-/// The languages an entry's localized names are looked up by (`Name[es_ES]`, then `Name[es]`) for
-/// a BCP 47 tag: `es-ES-u-hc-h23` as `es_ES`, `es`.
-fn languages_of_tag(tag: &str) -> Vec<String> {
-    let mut subtags = tag.split('-').take_while(|subtag| subtag.len() > 1);
-    let language = subtags.next().unwrap_or_default();
-    let region =
-        subtags.find(|subtag| subtag.len() == 2 && subtag.chars().all(|c| c.is_ascii_uppercase()));
-    let posix = match region {
-        Some(region) => format!("{language}_{region}"),
-        None => language.to_owned(),
-    };
-    oxyos_apps::languages_of(&posix)
-}
-
 #[cfg(test)]
 mod locale_tests {
     #[test]
     fn languages_of_a_tag() {
-        assert_eq!(super::languages_of_tag("es-ES-u-hc-h23"), ["es_ES", "es"]);
-        assert_eq!(super::languages_of_tag("en-US"), ["en_US", "en"]);
-        assert_eq!(super::languages_of_tag("sr-Latn-RS"), ["sr_RS", "sr"]);
-        assert_eq!(super::languages_of_tag("es"), ["es"]);
+        assert_eq!(
+            oxyos_apps::languages_of_tag("es-ES-u-hc-h23"),
+            ["es_ES", "es"]
+        );
+        assert_eq!(oxyos_apps::languages_of_tag("en-US"), ["en_US", "en"]);
+        assert_eq!(oxyos_apps::languages_of_tag("sr-Latn-RS"), ["sr_RS", "sr"]);
+        assert_eq!(oxyos_apps::languages_of_tag("es"), ["es"]);
     }
 }

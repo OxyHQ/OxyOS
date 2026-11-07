@@ -116,7 +116,7 @@ Four things were missing on OxyOS:
 ## Not in this decision
 
 - **One index for the session**, shared by every application's service (a Mac's Spotlight server). Each application that asks keeps its own index and watches.
-- **Searching names and contents** (Spotlight, Baloo's content index).
+- **Searching names and contents** (Spotlight, Baloo's content index). **8 November 2026:** [ADR 0051](./0051-search), whose index holds every item's tags and answers `tag:`.
 - **GNOME's own metadata** (GVfs's `metadata::` keys, kept in its database, not on the item): not read.
 - **Tags on Oxy Files' cloud items:** Dropsea's backend keeps those.
 - **Raising the system's inotify limits:** the image's sysctl defaults stand; a home past them is indexed in part, saying so.

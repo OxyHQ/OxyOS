@@ -1,7 +1,7 @@
 //! ADR 0041: the candidates an input method hands the system, drawn by the session's shell at
-//! the caret; the shell's presses passed back; and the input-source shortcuts: Super+Space,
-//! Super+Alt+Space, Control+Super+Space and the emoji key, with the launcher's search on Super
-//! pressed alone.
+//! the caret; the shell's presses passed back; and the input-source shortcuts: Super+Alt+Space,
+//! Super+Alt+Shift+Space, Control+Super+Space and the emoji key, with the launcher's search on
+//! Super pressed alone and Spotlight on Super+Space (docs/adr/0051-search.mdx).
 
 use super::*;
 use oxyos_protocol::{CANDIDATES_NEXT, NO_CANDIDATE};
@@ -9,6 +9,7 @@ use oxyos_protocol::{CANDIDATES_NEXT, NO_CANDIDATE};
 const SUPER: u32 = 125;
 const CTRL: u32 = 29;
 const ALT: u32 = 56;
+const SHIFT: u32 = 42;
 const SPACE: u32 = 57;
 const EMOJI_PICKER: u32 = 0x249;
 
@@ -265,7 +266,7 @@ fn only_a_shell_or_the_input_method_makes_a_candidates_surface_one_each() {
 }
 
 #[test]
-fn super_alone_is_the_search_and_super_space_the_input_sources() {
+fn super_alone_is_the_search_and_super_alt_space_the_input_sources() {
     let mut h = Harness::new();
     dock(&mut h);
     logged(&mut h);
@@ -291,18 +292,29 @@ fn super_alone_is_the_search_and_super_space_the_input_sources() {
     h.scene.pointer_button(272, false);
     h.scene.keyboard(SUPER, false, None);
     assert!(!searched(&logged(&mut h)));
-    // Super+Space was the first step back; held, each Space one further.
+    // Super+Alt+Space is the first step back; held, each Space one further. Alt released and
+    // pressed again with Super still held begins again from the one current then.
     h.scene.take_input_source_shortcuts();
     h.scene.keyboard(SUPER, true, None);
+    h.scene.keyboard(ALT, true, None);
     for _ in 0..3 {
         h.scene.keyboard(SPACE, true, None);
         h.scene.keyboard(SPACE, false, None);
     }
+    h.scene.keyboard(ALT, false, None);
+    h.scene.keyboard(ALT, true, None);
+    h.scene.keyboard(SPACE, true, None);
+    h.scene.keyboard(SPACE, false, None);
+    h.scene.keyboard(ALT, false, None);
     h.scene.keyboard(SUPER, false, None);
-    keys(&mut h, &[SUPER, SPACE]);
     keys(&mut h, &[SUPER, ALT, SPACE]);
+    keys(&mut h, &[SUPER, ALT, SHIFT, SPACE]);
     keys(&mut h, &[SUPER, CTRL, SPACE]);
     keys(&mut h, &[EMOJI_PICKER]);
+    // Super+Space is Spotlight's, Super+Shift+Space and Control+Super+Alt+Space nobody's.
+    keys(&mut h, &[SUPER, SPACE]);
+    keys(&mut h, &[SUPER, SHIFT, SPACE]);
+    keys(&mut h, &[SUPER, CTRL, ALT, SPACE]);
     assert_eq!(
         h.scene.take_input_source_shortcuts(),
         [
@@ -310,15 +322,29 @@ fn super_alone_is_the_search_and_super_space_the_input_sources() {
             InputSourceShortcut::Previous { step: 2 },
             InputSourceShortcut::Previous { step: 3 },
             InputSourceShortcut::Previous { step: 1 },
+            InputSourceShortcut::Previous { step: 1 },
             InputSourceShortcut::Next,
             InputSourceShortcut::Emoji,
             InputSourceShortcut::Emoji,
         ]
     );
-    // None reaches the application, the search none either.
+    // None reaches the application, the search none either; Spotlight opened once.
     let events = logged(&mut h);
     assert!(!searched(&events));
     assert!(to(&events, APP).is_empty());
+    let spotlights = to(&events, SHELL)
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                Event::SystemShortcut {
+                    shortcut: SystemShortcut::Spotlight,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(spotlights, 1);
 }
 
 #[test]
@@ -327,7 +353,7 @@ fn while_locked_no_input_source_shortcut_acts() {
     dock(&mut h);
     h.scene.lock();
     logged(&mut h);
-    keys(&mut h, &[SUPER, SPACE]);
+    keys(&mut h, &[SUPER, ALT, SPACE]);
     keys(&mut h, &[EMOJI_PICKER]);
     keys(&mut h, &[SUPER]);
     assert!(h.scene.take_input_source_shortcuts().is_empty());

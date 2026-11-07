@@ -184,6 +184,17 @@ fn online_check(
 }
 
 fn main() -> Result<()> {
+    // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
+    // child, its standard input the socket the compositor brokers questions over.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|flag| flag == "--search-service")
+    {
+        std::process::exit(match oxyos_search::service::main() {
+            std::process::ExitCode::SUCCESS => 0,
+            _ => 1,
+        });
+    }
     // Before any thread or child: nothing the session starts inherits the service manager's
     // socket.
     let notify = oxyos_seat::notify::Notify::take();
@@ -575,6 +586,20 @@ fn main() -> Result<()> {
         let networks = oxyos_compositor::networks::Networks::on_bus(None)?;
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
+    };
+    // Search (docs/adr/0051-search.mdx): the user's index, this program's child (`--search-service`,
+    // its standard input a socket only this program holds), started with the session after its
+    // shell and told the applications the shell's launcher lists. The login screen has none.
+    let mut search = if greeter {
+        None
+    } else {
+        let mut command = Command::new(std::env::current_exe()?);
+        command.arg("--search-service");
+        let mut search = oxyos_compositor::search::Search::new(command, true)?;
+        search.set_locale(&settings.locale());
+        search.list_applications(oxyos_apps::Listing::read(None));
+        compositor.wakers.push(search.wake_fd()?);
+        Some(search)
     };
     // Bluetooth (ADR 0055): the shell's and Settings' requests and the machine's pairing agent,
     // over the system's BlueZ, as the session's user. The login screen has none: a paired device
@@ -1017,6 +1042,12 @@ fn main() -> Result<()> {
                 },
             })
         });
+        // Search's asks, once every client that asked is named by its launch record: who asked is
+        // told the index with each.
+        if let Some(search) = search.as_mut() {
+            search.set_locale(&settings.locale());
+            search.serve(&mut compositor.scene);
+        }
         if let Some(status) = application
             .as_mut()
             .map(|application| application.try_wait())
@@ -1085,6 +1116,10 @@ fn main() -> Result<()> {
         if let Some(deadline) = displays.trial_deadline() {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
+        // An ask waiting for the search service to be started again.
+        if let Some(deadline) = search.as_ref().and_then(|search| search.deadline()) {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
         if let Some(since) = signed_in {
             wait = wait.min(SIGNED_IN_SPLASH.saturating_sub(since.elapsed()));
         }
@@ -1114,6 +1149,8 @@ fn main() -> Result<()> {
     }
     drop(power);
     launcher.end(Duration::from_secs(2));
+    // The search service ends as its standard input closes.
+    drop(search);
     for shell in shells.values_mut() {
         end(shell)?;
     }

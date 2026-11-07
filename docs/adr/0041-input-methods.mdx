@@ -1,12 +1,14 @@
 ---
 title: "ADR 0041: Input methods"
-description: Chinese, Japanese and Korean input and emoji on OxyOS with fcitx5 as the engine, run headless by the session as its frontend over D-Bus; candidates drawn by the shell; input sources chosen with Super+Space, shown in the top bar and set in Settings › Keyboard.
+description: Chinese, Japanese and Korean input and emoji on OxyOS with fcitx5 as the engine, run headless by the session as its frontend over D-Bus; candidates drawn by the shell; input sources chosen with Super+Alt+Space, shown in the top bar and set in Settings › Keyboard.
 order: 50
 ---
 
 # ADR 0041: Input methods
 
 Status: **accepted** (chosen with the platform's author); implemented, steps 1 to 5 below; what remains is listed at the end. Builds on [ADR 0008](./0008-input-method) (the field's state, transactions, the `input_method` role and the candidates surface, which this decision amends), [ADR 0037](./0037-text-editing) (whose first remaining item this is), [ADR 0024](./0024-system-shortcuts) (Super is the system's; amended for Super+Space), [ADR 0014](./0014-screen-reader) and [ADR 0039](./0039-keyboard-access) (the reader, live regions), [ADR 0019](./0019-settings) (preferences, Settings), [ADR 0040](./0040-language-and-region) (the session's language) and [ADR 0033](./0033-protocol-versions) (version 18).
+
+**8 November 2026 ([ADR 0051](./0051-search)):** Super+Space opens **Spotlight**, OxyOS's ⌘Space, at the owner's request, so the input sources move: **Super+Alt+Space** chooses the input source used before the current one, and each further Space while Super and Alt are held the one before that, by when each was last used (what Super+Space did, decision 6); **Super+Alt+Shift+Space** chooses the next in the list (what Super+Alt+Space did). The input sources keep a Mac's Control-Space habit on Super+Alt+Space: one hand holds the two keys beside the space bar, as Control and the space bar are held on a Mac. Control+Super+Space stays emoji, Super pressed and released alone stays the launcher's search, and Settings' hint says the new key. The rest stands as written; where it says Super+Space for the input sources, read Super+Alt+Space, and for the next, Super+Alt+Shift+Space.
 
 ## Problem
 

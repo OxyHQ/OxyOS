@@ -26,6 +26,7 @@ import { AppExpose, AppExposeBackdrop } from "./components/AppExpose";
 import { exposedWindows } from "./expose";
 import { dockPress } from "./dock";
 import { Launchpad, LaunchpadBackdrop } from "./components/Launchpad";
+import { Spotlight } from "./components/Spotlight";
 import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
 import { Bezel } from "./components/Bezel";
@@ -267,12 +268,17 @@ export const Shell = memo(function Shell({
   const [overviewKeys, setOverviewKeys] = useState(0);
   // App Exposé's: the window the keyboard's focus goes to, asked again with each request.
   const [exposeKeys, setExposeKeys] = useState<{ target: string; request: number } | null>(null);
+  // Spotlight (docs/adr/0051-search.mdx): whether it is open, each request for its field to take
+  // the keyboard, and each Super+Return that reveals its selected result.
+  const [spotlight, setSpotlight] = useState(false);
+  const [spotlightKeys, setSpotlightKeys] = useState(0);
+  const [revealRequest, setRevealRequest] = useState(0);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, spotlight });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, spotlight };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -402,6 +408,7 @@ export const Shell = memo(function Shell({
     let current = now.switcher;
     let view = now.view;
     let expose: string | null = null;
+    let spotted = now.spotlight;
     for (const next of pending) {
       switch (next.action) {
         case "dismiss":
@@ -449,6 +456,27 @@ export const Shell = memo(function Shell({
             view = "launcher";
             setSearchRequest((value) => value + 1);
           }
+          break;
+        // Super+Space, as a Mac's ⌘Space: Spotlight, its field taking what is typed; again, it
+        // closes, the keyboard going back to the window. Opening it closes what covers the desktop
+        // and the status panels, as a Mac's Spotlight closes Launchpad and Mission Control.
+        case "spotlight":
+          if (spotted) {
+            spotted = false;
+            now.actions.returnKeyboard?.();
+          } else {
+            spotted = true;
+            view = "desktop";
+            setControlCenter(null);
+            setCenter(false);
+            setDockKeys(null);
+            setStatusKeys(null);
+            setSpotlightKeys((value) => value + 1);
+          }
+          break;
+        // Super+Return while Spotlight is open, as a Mac's ⌘Return: its selected result in Dropsea.
+        case "reveal":
+          if (spotted) setRevealRequest((value) => value + 1);
           break;
         // Super+F2: the keyboard to the top bar's first menu; an overlay showing closes, as a
         // press on the bar closes it.
@@ -519,6 +547,7 @@ export const Shell = memo(function Shell({
       }
     }
     setSwitcher(current);
+    setSpotlight(spotted);
     if (view === "app-expose" && expose) {
       const shown = expose;
       setExposeApp(shown);
@@ -528,6 +557,16 @@ export const Shell = memo(function Shell({
     }
     setView(view);
   }, [command, commands]);
+  // What covers the desktop, a status panel or the lock closes Spotlight, as each takes its place.
+  useEffect(() => {
+    if (view !== "desktop" || controlCenter || center || lock?.locked) setSpotlight(false);
+  }, [view, controlCenter, center, lock?.locked]);
+  // Closed by Escape or by Super+Space, the keyboard goes back to the window; by what it opened, or
+  // by a press elsewhere, it is already where it goes.
+  const closeSpotlight = useCallback((dismissed: boolean) => {
+    setSpotlight(false);
+    if (dismissed) latest.current.actions.returnKeyboard?.();
+  }, []);
   // An application quit while the switcher is open leaves it.
   useEffect(() => {
     setSwitcher((current) => current && followSwitcher(current, snapshot));
@@ -937,8 +976,24 @@ export const Shell = memo(function Shell({
             launch={activateApp}
             dismiss={dismiss}
             keyboard={platform.keyboard}
+            search={platform.search}
           />
         </Surface>
+        {/* Spotlight (docs/adr/0051-search.mdx): a floating panel over the windows, its own
+            region of an overlay, with the keyboard while open. */}
+        {spotlight && !lock?.locked && (
+          <Spotlight
+            platform={platform}
+            applications={snapshot.applications}
+            actions={actions}
+            launch={activateApp}
+            close={closeSpotlight}
+            focusRequest={spotlightKeys}
+            revealRequest={revealRequest}
+            escapeRequest={escapeRequest}
+            keyboard={!sheet}
+          />
+        )}
         {switcher && (
           <Surface kind="overlay" style={SWITCHER_AREA}>
             <AppSwitcher

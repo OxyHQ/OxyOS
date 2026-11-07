@@ -198,11 +198,13 @@ wire_enum! {
     /// two since version 12 (ADR 0039); the Notification Center (Super+N, a Mac's Fn-N), since
     /// version 16; and Mission Control (Super+↑, a Mac's Control-↑, or three or four fingers
     /// swiped up on a touchpad) and App Exposé (Super+↓, a Mac's Control-↓, or the same fingers
-    /// swiped down), since version 24 (ADR 0045).
+    /// swiped down), since version 24 (ADR 0045); and Spotlight (Super+Space, a Mac's ⌘Space) and
+    /// what Spotlight has chosen revealed where it is (Super+Return, a Mac's ⌘Return), since
+    /// version 31 (docs/adr/0051-search.mdx).
     SystemShortcut: u8 {
         SwitcherNext = 1, SwitcherPrevious = 2, SwitcherQuit = 3, SwitcherHide = 4,
         SwitcherDone = 5, SwitcherCancel = 6, Search = 7, MenuBar = 8, Dock = 9, StatusMenus = 10,
-        Notifications = 11, MissionControl = 12, AppExpose = 13,
+        Notifications = 11, MissionControl = 12, AppExpose = 13, Spotlight = 14, Reveal = 15,
     }
 }
 wire_enum! {

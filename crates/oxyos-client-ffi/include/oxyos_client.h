@@ -91,6 +91,8 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_SHEET_TEXT 161
 #define OXYOS_EVENT_SHEET_DISMISSED 162
 #define OXYOS_EVENT_CAPABILITY_RESULT 163
+/* Search (docs/adr/0051-search.mdx, protocol version 31). */
+#define OXYOS_EVENT_SEARCH_TEXT 164
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -120,6 +122,10 @@ typedef struct OxyOSClient OxyOSClient;
  * Exposé (protocol version 24, docs/adr/0045-app-expose.mdx). */
 #define OXYOS_SHORTCUT_MISSION_CONTROL 12
 #define OXYOS_SHORTCUT_APP_EXPOSE 13
+/* Super+Space: Spotlight, as a Mac's Command-Space; Super+Return: what Spotlight has chosen
+ * revealed where it is, as a Mac's Command-Return (protocol version 31, docs/adr/0051-search.mdx). */
+#define OXYOS_SHORTCUT_SPOTLIGHT 14
+#define OXYOS_SHORTCUT_REVEAL 15
 /* What a SYSTEM_SHORTCUT asks, its flag (protocol version 25, docs/adr/0046-interactive-gestures.mdx):
  * a key's toggle, or a touchpad's swipe opening Mission Control or App Exposé as the fingers begin
  * to drive it, or closing it. */
@@ -403,7 +409,8 @@ typedef struct OxyOSClient OxyOSClient;
  *               a shortcut the compositor took from the keyboard for the shell to show. detail:
  *               OXYOS_SHORTCUT_* (the application switcher's moves, quit and hide of the
  *               application it chose, its end on Super's release or its cancel; the launcher's
- *               search; the keyboard to the top bar's menus, Super+F2); code: the output to show
+ *               search; the keyboard to the top bar's menus, Super+F2; Spotlight, Super+Space,
+ *               and what it has chosen revealed, Super+Return, version 31); code: the output to show
  *               it on; serial: a user input of the shell's,
  *               which oxyos_client_focus_shell_surface may cite.
  *   CAPTURE_MODE  to a shell with the `shortcuts` grant (docs/adr/0024-system-shortcuts.mdx,
@@ -521,6 +528,10 @@ typedef struct OxyOSClient OxyOSClient;
  *                      the last (then show it); `text` the chunk.
  *   SHEET_DISMISSED    to the shell: sheet `code` is no longer asked for.
  *   CAPABILITY_RESULT  the answer to oxyos_client_request_capability `code`: `flag` 1, granted.
+ *   SEARCH_TEXT        a chunk of the search index's answer to oxyos_client_search_request `code`
+ *                      (0: what the client asked to watch changed, unasked), `detail` its index,
+ *                      `flag` 1 on the last; `text` the chunk; JSON once whole
+ *                      (docs/adr/0051-search.mdx).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -909,6 +920,10 @@ int oxyos_client_set_preference(OxyOSClient* client, uint32_t serial, const char
 int oxyos_client_system_request(OxyOSClient* client, uint32_t serial, uint64_t input, const char* text);
 int oxyos_client_sheet_answer(OxyOSClient* client, uint32_t sheet, bool accepted, uint64_t serial);
 int oxyos_client_request_capability(OxyOSClient* client, uint32_t serial, uint64_t input, uint8_t capability);
+/* Search (docs/adr/0051-search.mdx): any client asks the session's search index one request of its
+ * vocabulary (JSON); SEARCH_TEXT events naming `serial` answer. An error, sending nothing, to a
+ * compositor of a version before 30. */
+int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char* text);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

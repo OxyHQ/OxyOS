@@ -112,3 +112,23 @@ export function pageOf(index: number, columns: number, rows: number): number {
   return Math.floor(index / (columns * rows));
 }
 
+
+/** Folds `text` as the search service folds words: lowercase, without accents. */
+function fold(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/**
+ * Whether an application named `name` answers `query` as the search service matches names
+ * (docs/adr/0051-search.mdx, decision 5): every word typed begins a word of the name, accents and
+ * case aside ("aj" finds Ajustes, "sett" finds System Settings). Launchpad shows these at once, and
+ * the service's own answer (which adds what its keywords find) when it comes.
+ */
+export function nameMatches(name: string, query: string): boolean {
+  const words = fold(name).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const typed = fold(query).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return typed.length > 0 && typed.every((part) => words.some((word) => word.startsWith(part)));
+}
