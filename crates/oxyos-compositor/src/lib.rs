@@ -45,6 +45,7 @@ pub mod installs;
 pub mod login;
 pub mod motion;
 pub mod networks;
+pub mod search;
 pub mod settings;
 pub mod sign_out;
 pub mod sounds;
