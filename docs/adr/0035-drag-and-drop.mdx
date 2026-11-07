@@ -14,6 +14,8 @@ Status: **accepted; implemented** (the protocol, the scene, the compositor, `oxy
 
 **6 November 2026: a drag may vanish, says its files' types, and the shell opens files with an application** (protocol version 26, [Vanishing drags, files' types and files opened with an application](#vanishing-drags-files-types-and-files-opened-with-an-application)): what the dock's drags need of the platform, as a Mac's Dock has it ([ADR 0034](./0034-the-dock)). A source may say its drag, dropped on nothing, vanishes in a poof where it is instead of sliding back (an icon dragged out of the dock); a drag of files says each file's media type, which a target is told before the drop, as a web page sees a dragged item's `type`; and the session's shell opens files dropped on an application's icon with that application. An application is dragged as `application/x-oxyos-application` (its id).
 
+**7 November 2026:** Finder's drags and the desktop's files are [ADR 0047](./0047-finder-drags-and-the-desktop): a drag of files says its files' volumes (protocol version 28) so a target moves on the same volume and copies onto another, a window learns a drag is over it, Bloom's `DropZone` takes a `folder`, and Dropsea's sidebar places and path bar take drops, with spring-loaded folders.
+
 **5 November 2026:** the drag's image is a Mac's (decisions 3, 7 and 10, amended; [The drag's image](#the-drags-image)): the dragged view itself as it looks, stacked with a red count badge for several items; the pointer badged for a copy or a link; and the image sliding back when nothing takes the drop. Two items of [Not in this decision](#not-in-this-decision) are done.
 
 ## Problem
@@ -234,7 +236,7 @@ Tests: the protocol's (the three requests and the event version 26's, `DragEnter
 ## Not in this decision
 
 - **Touch drags** (a long press then a drag, as iPadOS and Android do): the pointer's drag first; a touch drag needs the touch's own serial rule and is to come.
-- **Spring-loaded folders** (a folder opening under a drag held over it). The image sliding back and the copy and link badges came after ([The drag's image](#the-drags-image)).
+- ~~**Spring-loaded folders** (a folder opening under a drag held over it)~~: [ADR 0047](./0047-finder-drags-and-the-desktop), with the desktop's files and Finder's move-or-copy by volume. The image sliding back and the copy and link badges came after ([The drag's image](#the-drags-image)).
 - **A target changing the image** (a Mac's file dragged over a text field showing its name): the image is the source's throughout.
 - **Scrolling a target while dragging** with the wheel or two fingers; a target may scroll itself as the pointer nears its edge.
 - **Dragging the dock's icons** to reorder them and out to unkeep them (ADR 0034): the shell's, on what [Vanishing drags, files' types and files opened with an application](#vanishing-drags-files-types-and-files-opened-with-an-application) gives it.
