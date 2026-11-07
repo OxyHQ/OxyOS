@@ -1,0 +1,279 @@
+{
+  "about": "A name already taken, as Finder asks (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 15 and 17): Dropsea checks the names a drop would take before anything moves and asks about each clash, Keep Both, Stop or Replace. plan.txt dragged onto Documents, which holds a plan.txt, asks about the move; Replace puts Documents' plan.txt in the Trash first, then plan.txt takes its place. notes.txt dragged onto Documents with Option held asks about the copy; Keep Both copies it as “notes 2.txt”, the original kept. report.txt dragged onto Documents asks; Stop moves nothing. Edit › Undo (Ctrl+Z) then takes the copy back: “notes 2.txt” goes to the Trash. Every step checks the disk. At scale 1.25 (a 1600x900 display, 1280x720 logical); pixels are read at scale 1.",
+  "module": "Dropsea",
+  "window": [
+    640,
+    560
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/notes.txt": "old notes",
+      "Documents/plan.txt": "old plan",
+      "Documents/report.txt": "old report",
+      "notes.txt": "new notes",
+      "plan.txt": "new plan",
+      "report.txt": "new report"
+    }
+  },
+  "outputs": "1600x900@1.25",
+  "steps": [
+    {
+      "name": "the home: Documents, notes.txt and plan.txt on the first row, report.txt on the second",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Documents",
+          "notes.txt",
+          "plan.txt",
+          "report.txt",
+          "4 items"
+        ]
+      }
+    },
+    {
+      "name": "plan.txt dragged onto Documents: Finder's alert asks before anything moves",
+      "do": [
+        "drag_paced",
+        [
+          876,
+          180,
+          616,
+          180,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "An item named “plan.txt” already exists in this location. Do you want to replace it with the one you’re moving?",
+          "Keep Both",
+          "Stop",
+          "Replace"
+        ],
+        "home": {
+          "plan.txt": "new plan",
+          "Documents/plan.txt": "old plan",
+          "trash": []
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 2,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Replace: Documents' plan.txt goes to the Trash, and plan.txt takes its place",
+      "do": [
+        "press_named",
+        "Replace"
+      ],
+      "expect": {
+        "absent": [
+          "Keep Both"
+        ],
+        "home": {
+          "plan.txt": false,
+          "Documents/plan.txt": "new plan",
+          "trash": [
+            "plan.txt"
+          ],
+          ".local/share/Trash/files/plan.txt": "old plan"
+        }
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "notes.txt dragged onto Documents with Option held: the alert asks about the copy",
+      "do": [
+        "drag_paced",
+        [
+          746,
+          180,
+          616,
+          180,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "An item named “notes.txt” already exists in this location. Do you want to replace it with the one you’re copying?"
+        ],
+        "home": {
+          "notes.txt": "new notes",
+          "Documents/notes.txt": "old notes",
+          "Documents/notes 2.txt": false
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Keep Both: the copy goes as “notes 2.txt”, the original kept",
+      "do": [
+        "press_named",
+        "Keep Both"
+      ],
+      "expect": {
+        "absent": [
+          "Keep Both"
+        ],
+        "home": {
+          "notes.txt": "new notes",
+          "Documents/notes.txt": "old notes",
+          "Documents/notes 2.txt": "new notes",
+          "trash": [
+            "plan.txt"
+          ]
+        }
+      }
+    },
+    {
+      "name": "report.txt (in plan.txt's place now) dragged onto Documents: the alert asks",
+      "do": [
+        "drag_paced",
+        [
+          876,
+          180,
+          616,
+          180,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "An item named “report.txt” already exists in this location. Do you want to replace it with the one you’re moving?"
+        ],
+        "home": {
+          "report.txt": "new report",
+          "Documents/report.txt": "old report"
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Stop: nothing moves",
+      "do": [
+        "press_named",
+        "Stop"
+      ],
+      "expect": {
+        "absent": [
+          "Keep Both"
+        ],
+        "home": {
+          "report.txt": "new report",
+          "Documents/report.txt": "old report",
+          "Documents/report 2.txt": false,
+          "trash": [
+            "plan.txt"
+          ]
+        },
+        "menus": {
+          "Edit > Undo Copy of “notes 2.txt”": {
+            "disabled": false
+          }
+        }
+      }
+    },
+    {
+      "name": "Undo (Ctrl+Z, the Edit menu's Undo Copy of “notes 2.txt”): the copy goes to the Trash, in Documents, which the window does not show",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Documents/notes 2.txt": false,
+          "notes.txt": "new notes",
+          "trash": [
+            "notes 2.txt",
+            "plan.txt"
+          ]
+        },
+        "menus": {
+          "Edit > Redo Copy of “notes 2.txt”": {
+            "disabled": false
+          },
+          "Edit > Undo Move of “plan.txt”": {
+            "disabled": false
+          }
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

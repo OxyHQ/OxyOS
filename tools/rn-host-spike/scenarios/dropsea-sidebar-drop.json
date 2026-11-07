@@ -1,0 +1,252 @@
+{
+  "about": "Files dropped on Dropsea's sidebar, as on Finder's (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 11, 12 and 14): notes.txt dragged onto Documents in the sidebar moves into it; plan.txt held over Pictures in the sidebar lights the place, and held there opens it (spring-loading); let go there with Option held, it is copied into Pictures, the original kept, and the window stays in Pictures; todo.txt dragged onto the sidebar's Trash goes to the Trash with the Trash's sound. Every step checks the disk.",
+  "module": "Dropsea",
+  "window": [
+    640,
+    560
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "plan.txt": "p",
+      "todo.txt": "t"
+    }
+  },
+  "steps": [
+    {
+      "name": "the home: Documents, notes.txt and Pictures on the first row, plan.txt and todo.txt on the second",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Documents",
+          "notes.txt",
+          "Pictures",
+          "plan.txt",
+          "todo.txt",
+          "5 items"
+        ]
+      }
+    },
+    {
+      "name": "notes.txt dragged onto Documents in the sidebar: it moves into it",
+      "do": [
+        "drag_paced",
+        [
+          746,
+          180,
+          396,
+          242,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "notes.txt"
+        ],
+        "home": {
+          "Documents/notes.txt": "hello",
+          "notes.txt": false
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 2,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "plan.txt (in notes.txt's place now) dragged over Pictures in the sidebar and held: the place lit with the accent",
+      "do": [
+        "drag_hold",
+        [
+          876,
+          180,
+          395,
+          274,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "180,208": "#9422ae",
+          "180,176": "#f7ebf0"
+        },
+        "delivered": {
+          "1": {
+            "cancel": 1,
+            "drag.enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "held there for a second: Pictures blinks and opens in the window, the drag going on over it",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "0 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Pictures"
+            }
+          ]
+        },
+        "pixels": {
+          "180,208": "#9422ae"
+        }
+      }
+    },
+    {
+      "name": "Option held",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "let go on Pictures with Option held: plan.txt is copied into it, the original kept, and the window stays in Pictures",
+      "do": [
+        "release_output",
+        [
+          395,
+          274
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "plan.txt",
+          "1 item"
+        ],
+        "home": {
+          "Pictures/plan.txt": "p",
+          "plan.txt": "p"
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Pictures"
+            }
+          ]
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "drag.drop": 1,
+            "enter": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Option released",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "home pressed in the sidebar: the home, Pictures selected as the folder the window came from",
+      "do": [
+        "press",
+        [
+          66,
+          144
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "todo.txt",
+          "1 of 4 selected"
+        ]
+      }
+    },
+    {
+      "name": "todo.txt dragged onto the sidebar's Trash: it goes to the Trash, with its sound",
+      "do": [
+        "drag_paced",
+        [
+          616,
+          292,
+          387,
+          474,
+          30,
+          60
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "todo.txt"
+        ],
+        "home": {
+          "todo.txt": false,
+          "trash": [
+            "todo.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ],
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 1,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    }
+  ]
+}
