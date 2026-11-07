@@ -2501,34 +2501,42 @@ def check_input_delivery(summary, reports, failures):
 
     # Each host: what it received against what was routed to its process.
     received = collections.defaultdict(collections.Counter)
-    last_received = {}
     for name, lines in reports.items():
         for line in lines:
             if line["kind"] == "received":
                 received[line["pid"]][(line["surface"], line["event"], line["serial"])] += 1
-                last_received[line["pid"]] = max(last_received.get(line["pid"], 0), line["t"])
     # When each process's connection went, if it did.
     gone_at = {pid: t for t, client, pid, surface, kind, serial in deliveries if kind == "disconnected"}
     routed = collections.defaultdict(collections.Counter)
+    in_order = collections.defaultdict(list)
     for t, client, pid, surface, kind, serial in deliveries:
         # Not an event (a surface or client gone), or the input method's (not a Bloom host).
         if pid in received and kind not in HOST_UNSEEN:
             routed[pid][(surface, kind, serial)] += 1
+            in_order[pid].append((surface, kind, serial))
     end = bounds[-1]
     for pid, got in received.items():
         sent = routed.get(pid, collections.Counter())
         for item, count in (got - sent).items():
             failures.append(f"input delivery: the host of pid {pid} received {item[1]} {item[2]} on surface "
                             f"{item[0]} {count} more time(s) than it was routed")
+        # A host reads its connection in the order its events were routed: one that stopped reading
+        # received exactly the first of them, and what it left unread is all that came after. Judged
+        # by that order, never by comparing the host's clock of receiving one event with the
+        # compositor's of routing another: a chooser the session ends as its request ends (SIGTERM,
+        # its sheet's pointer leave and focus out routed a few microseconds before) can read the leave
+        # after the focus out was routed and die before reading that (file-chooser's step 13 at a
+        # load of 17, 7 November 2026).
+        stopped_reading = collections.Counter(in_order[pid][:sum(got.values())]) == got
         for item, count in (sent - got).items():
             # Routed as the run ended (a host closed with it unread) is not a loss.
             times = [t for t, client, p, surface, kind, serial in deliveries
                      if p == pid and (surface, kind, serial) == item]
             del times[:-count]
             # Routed to a client that had stopped reading and then went (an application closing as
-            # the menu that quit it gives it the keyboard back): never read, and never lost.
-            left_unread = (pid in gone_at and times and min(times) <= gone_at[pid]
-                           and last_received.get(pid, 0) < min(times))
+            # the menu that quit it gives it the keyboard back, a chooser the session ends): never
+            # read, and never lost.
+            left_unread = pid in gone_at and times and min(times) <= gone_at[pid] and stopped_reading
             if times and min(times) <= end and not left_unread:
                 failures.append(f"input delivery, {when(min(times))}: the host of pid {pid} never received "
                                 f"{item[1]} {item[2]} on surface {item[0]} ({count} routed)")
