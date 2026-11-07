@@ -169,6 +169,21 @@ const en = (f: Formats) => ({
     wifiConnected: "Connected",
     devices: (count: number) => f.plural(count, { one: "1 device", other: `${f.number(count)} devices` }),
   },
+  /** The battery's menu (docs/adr/0057-battery-and-energy.mdx). */
+  battery: {
+    title: "Battery",
+    sourceBattery: "Power Source: Battery",
+    sourceAdapter: "Power Source: Power Adapter",
+    remaining: (duration: string) => `${duration} remaining`,
+    untilFull: (duration: string) => `${duration} until full`,
+    calculating: "Calculating…",
+    fullyCharged: "Fully Charged",
+    notCharging: "Not Charging",
+    significant: "Using Significant Energy",
+    noSignificant: "No Apps Using Significant Energy",
+    settings: "Battery Settings…",
+    lowPower: "Low Power Mode",
+  },
   /** The Control Center's modules. */
   controlCenter: {
     wifiNetworks: "Wi-Fi Networks",
@@ -539,6 +554,20 @@ const es = (f: Formats): Catalogue => ({
     wifiConnectingTo: (ssid) => `Conectando a ${ssid}`,
     wifiConnected: "Conectada",
     devices: (count) => f.plural(count, { one: "1 dispositivo", other: `${f.number(count)} dispositivos` }),
+  },
+  battery: {
+    title: "Batería",
+    sourceBattery: "Fuente de alimentación: batería",
+    sourceAdapter: "Fuente de alimentación: adaptador de corriente",
+    remaining: (duration) => `Quedan ${duration}`,
+    untilFull: (duration) => `${duration} para cargarse`,
+    calculating: "Calculando…",
+    fullyCharged: "Cargada por completo",
+    notCharging: "Sin cargar",
+    significant: "Apps que consumen mucha energía",
+    noSignificant: "No hay apps que consuman mucha energía",
+    settings: "Ajustes de Batería…",
+    lowPower: "Modo de bajo consumo",
   },
   controlCenter: {
     wifiNetworks: "Redes Wi-Fi",

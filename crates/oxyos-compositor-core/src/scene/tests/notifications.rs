@@ -972,3 +972,46 @@ fn no_notification_sound_with_do_not_disturb_or_for_a_silenced_application() {
             }
         )));
 }
+
+#[test]
+fn the_sessions_own_notification_is_a_system_applications_and_replaces_by_identifier() {
+    let mut h = Harness::new();
+    h.clear_log();
+    // The battery running low (docs/adr/0057-battery-and-energy.mdx), as Settings.
+    let first = h
+        .scene
+        .post_system_notification(
+            "so.oxy.settings",
+            "low-battery",
+            "Low Battery",
+            "10% battery remaining.",
+            true,
+        )
+        .unwrap();
+    h.pump();
+    let shell = told(&to(&h.log, SHELL));
+    assert_eq!(
+        field(&shell[&first], NotificationField::Title, 0),
+        Some("Low Battery")
+    );
+    assert_eq!(banner(&shell[&first]), Some(true));
+    // At 5 % it replaces the one at 10 %.
+    h.clear_log();
+    let second = h
+        .scene
+        .post_system_notification(
+            "so.oxy.settings",
+            "low-battery",
+            "Low Battery",
+            "5% battery remaining.",
+            true,
+        )
+        .unwrap();
+    h.pump();
+    let shell = told(&to(&h.log, SHELL));
+    assert!(shell[&first].removed);
+    assert_eq!(
+        field(&shell[&second], NotificationField::Body, 0),
+        Some("5% battery remaining.")
+    );
+}

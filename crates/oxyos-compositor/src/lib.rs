@@ -46,6 +46,7 @@ pub mod installs;
 pub mod login;
 pub mod motion;
 pub mod networks;
+pub mod power;
 pub mod settings;
 pub mod sign_out;
 pub mod sound_devices;
@@ -698,6 +699,12 @@ pub struct Compositor {
     checking: Option<SurfaceKey>,
     /// The machine is about to sleep: it may once the lock is on screen.
     sleeping: bool,
+    /// The displays are off for want of input (docs/adr/0057-battery-and-energy.mdx, decision 6):
+    /// nothing is composed or shown, and no client is given a frame, until input comes.
+    displays_off: bool,
+    /// The idle timers say the machine should sleep: the power's part asks logind
+    /// (`take_sleep`).
+    sleep_asked: bool,
     /// What logind was last told of the lock.
     hinted_locked: bool,
     /// logind refused the session's idle hint (it takes one only from a graphical session
@@ -1162,6 +1169,8 @@ impl Compositor {
             signed_in: false,
             checking: None,
             sleeping: false,
+            displays_off: false,
+            sleep_asked: false,
             hinted_locked: false,
             idle_hint_refused: false,
             transitions: transitions::Transitions::default(),
@@ -1888,6 +1897,10 @@ impl Compositor {
     /// without one completes its frame at once. Each screen's frame presents the surfaces on it
     /// (`Scene::begin_frame_on`) and completes at its own flip.
     pub fn frame(&mut self) {
+        // The displays off for want of input: nothing to show, no frame to give (ADR 0057).
+        if self.displays_off {
+            return;
+        }
         self.follow_direct();
         // Captures asked for (ADR 0024, decision 10) are composed with this frame's layers; locked,
         // or at a login screen, none is.
@@ -3728,6 +3741,9 @@ impl Compositor {
                 }
                 oxyos_seat::Event::PrepareForSleep(false) => {
                     self.sleeping = false;
+                    // Awake: the display on, its timers from now (ADR 0057).
+                    let now = self.now();
+                    self.idle.woke(now);
                     if let Err(error) = seat.hold_sleep() {
                         eprintln!("[seat] holding sleep back: {error}");
                     }
@@ -4243,6 +4259,73 @@ impl Compositor {
                 self.idle_hint_refused = true;
             }
         }
+        // The display dims, turns off and the machine sleeps for want of input; input brings
+        // the display back as it was (ADR 0057, decision 6).
+        if let (Some(dim), Some(controls)) = (turn.dim, self.controls.as_mut()) {
+            controls.dim(&mut self.scene, dim);
+        }
+        if let Some(on) = turn.display {
+            eprintln!(
+                "[idle] {}",
+                if on {
+                    "the displays turn on"
+                } else {
+                    "no input: the displays turn off"
+                }
+            );
+            self.set_displays_on(on);
+        }
+        if turn.sleep {
+            eprintln!("[idle] no input: the machine sleeps");
+            self.sleep_asked = true;
+        }
+    }
+
+    /// Whether the displays are off for want of input (ADR 0057).
+    pub fn displays_off(&self) -> bool {
+        self.displays_off
+    }
+
+    /// Whether the machine is about to sleep (logind's `PrepareForSleep`).
+    pub fn sleeping(&self) -> bool {
+        self.sleeping
+    }
+
+    /// Whether the idle timers asked the machine to sleep since the last call: the power's part
+    /// asks logind (docs/adr/0057-battery-and-energy.mdx, decision 6).
+    pub fn take_sleep(&mut self) -> bool {
+        std::mem::take(&mut self.sleep_asked)
+    }
+
+    /// Turns every display off, or on again (ADR 0057, decision 6): off, a frame on its way is
+    /// completed unshown, each display's output is turned off (DPMS, its CRTC inactive) and
+    /// nothing is composed, so no client is given a frame and what animates stops; on, every
+    /// screen is composed anew and its display modeset to it with the next frame.
+    pub fn set_displays_on(&mut self, on: bool) {
+        if self.displays_off != on {
+            return;
+        }
+        self.displays_off = !on;
+        if on {
+            self.shown_again();
+            return;
+        }
+        let away = self.away;
+        let mut ended = Vec::new();
+        for screen in &mut self.screens {
+            if screen.pending_flip.take().is_some() && !std::mem::take(&mut screen.pointer_flip) {
+                ended.push(screen.id);
+            }
+            if let (Some(display), false) = (screen.display.as_mut(), away) {
+                if let Err(error) = display.turn_off() {
+                    eprintln!("[kms] turning output {} off: {error}", screen.id);
+                }
+            }
+        }
+        for id in ended {
+            self.scene.end_frame_on(id, 0, Clock::Synthetic);
+        }
+        self.retire();
     }
 
     /// How long a turn may wait: until the animated pointer's next step, the first connection
@@ -4612,6 +4695,7 @@ impl Compositor {
     pub fn lock_shown(&self) -> bool {
         self.scene.is_locked()
             && (self.away
+                || self.displays_off
                 || self.screens.iter().all(|screen| {
                     screen.display.is_none()
                         || (screen.shown_locked && screen.pending_flip.is_none())

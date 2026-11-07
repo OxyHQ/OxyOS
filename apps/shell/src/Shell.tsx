@@ -7,6 +7,7 @@ import type {
   ShellCommand,
   ShellControls,
   ShellInputMethod,
+  ShellBatteryMenu,
   ShellLock,
   ShellMenu,
   ShellNotification,
@@ -127,6 +128,7 @@ export const Shell = memo(function Shell({
   sheet,
   screenshots,
   inputMethod,
+  battery,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -179,6 +181,9 @@ export const Shell = memo(function Shell({
   /** Input methods, where the platform has them (docs/adr/0041-input-methods.mdx): the candidate
       window at the caret, and the top bar's input source item. */
   inputMethod?: ShellInputMethod;
+  /** The battery's menu, where the platform has the session's battery and energy
+      (docs/adr/0057-battery-and-energy.mdx). */
+  battery?: ShellBatteryMenu;
 }) {
   const { Surface } = platform;
   const messages = useShellMessages();
@@ -260,8 +265,8 @@ export const Shell = memo(function Shell({
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -461,7 +466,11 @@ export const Shell = memo(function Shell({
           setControlCenter(null);
           setCenter(false);
           setStatusKeys((keys) => ({
-            target: firstStatusItem(now.controls?.network, now.inputSources),
+            target: firstStatusItem(
+              now.controls?.network,
+              now.inputSources,
+              !!(now.battery && now.controls?.power && now.controls.power.battery !== "absent"),
+            ),
             request: (keys?.request ?? 0) + 1,
           }));
           break;
@@ -822,6 +831,7 @@ export const Shell = memo(function Shell({
             showEmoji={inputMethod?.showEmoji}
             openKeyboardSettings={inputMethod?.openKeyboardSettings}
             onInputMenuChange={inputMenuChanged}
+            batteryMenu={battery}
           />
         </Surface>
         {inputMethod && (

@@ -1,5 +1,6 @@
 import type { AccountActions, AccountSnapshot } from "./account";
 import type { BluetoothActions, BluetoothState } from "./bluetooth";
+import type { LowPowerMode, PowerActions, PowerState } from "./battery";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { SoundActions, SoundState } from "./sound";
@@ -58,6 +59,18 @@ export type Preferences = {
   inputSources: InputMethod[];
   /** The current input source: `layout`, or one of `inputSources`. */
   inputSource: string;
+  /** The battery's percentage beside its icon in the menu bar (docs/adr/0057-battery-and-energy.mdx). */
+  batteryPercentage: boolean;
+  /** When Low Power Mode is on. */
+  lowPowerMode: LowPowerMode;
+  /** Minutes with no input before the display turns off and the computer sleeps, on battery and
+      on the power adapter; 0 never. */
+  displayOffBattery: number;
+  displayOffAdapter: number;
+  sleepBattery: number;
+  sleepAdapter: number;
+  /** The display slightly dimmer on battery. */
+  dimOnBattery: boolean;
 };
 
 /** The system's settings and facts (systemd's timedated, localed and hostnamed; os-release). */
@@ -140,6 +153,9 @@ export type SettingsSnapshot = {
   sound?: SoundState | null;
   /** The chosen input's level (0 to 1), told only while Sound's Input tab meters it. */
   soundInputLevel?: number;
+  /** The battery and energy (docs/adr/0057-battery-and-energy.mdx), as the session tells them:
+      none where the platform tells none; null until it has. */
+  power?: PowerState | null;
   /** The input sources (docs/adr/0041-input-methods.mdx, decision 6) as the session tells them;
       null until it has. */
   inputSources?: InputSourcesState | null;
@@ -173,6 +189,13 @@ export const PREFERENCE_KEYS = {
   notificationSoundsOff: "notification_sounds_off",
   inputSources: "input_sources",
   inputSource: "input_source",
+  batteryPercentage: "battery_percentage",
+  lowPowerMode: "low_power_mode",
+  displayOffBattery: "display_off_battery",
+  displayOffAdapter: "display_off_adapter",
+  sleepBattery: "sleep_battery",
+  sleepAdapter: "sleep_adapter",
+  dimOnBattery: "dim_on_battery",
 } as const satisfies Record<keyof Preferences, string>;
 
 /**
@@ -199,6 +222,7 @@ export type SettingsActions = {
   bluetooth?: BluetoothActions;
   sound?: SoundActions;
   account?: AccountActions;
+  power?: PowerActions;
 };
 
 /**
@@ -354,6 +378,28 @@ export function notificationSoundsWith(off: readonly string[], id: string, on: b
   const rest = off.filter((silent) => silent !== id);
   return on ? rest : [...rest, id];
 }
+
+/** The energy preferences as the session's defaults have them (crates/oxyos-preferences): the
+    display off after 2 minutes on battery and 10 on the adapter, asleep after 10 on battery and
+    never on the adapter, dimmer on battery, no Low Power Mode, no percentage in the menu bar. */
+export const ENERGY_DEFAULTS = {
+  batteryPercentage: false,
+  lowPowerMode: "never",
+  displayOffBattery: 2,
+  displayOffAdapter: 10,
+  sleepBattery: 10,
+  sleepAdapter: 0,
+  dimOnBattery: true,
+} as const satisfies Pick<
+  Preferences,
+  | "batteryPercentage"
+  | "lowPowerMode"
+  | "displayOffBattery"
+  | "displayOffAdapter"
+  | "sleepBattery"
+  | "sleepAdapter"
+  | "dimOnBattery"
+>;
 
 /** The choices of how long before the session locks, in minutes (0: never). */
 export const LOCK_AFTER_CHOICES = [1, 2, 5, 10, 15, 30, 60, 0] as const;
