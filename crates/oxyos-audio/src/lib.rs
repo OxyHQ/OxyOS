@@ -40,14 +40,6 @@ impl Direction {
             Direction::Input => "audio.source",
         }
     }
-
-    /// PipeWire's media class of a node of this direction.
-    pub fn media_class(self) -> &'static str {
-        match self {
-            Direction::Output => "Audio/Sink",
-            Direction::Input => "Audio/Source",
-        }
-    }
 }
 
 /// What a device is to the person, as its icon and a built-in one's name say it.

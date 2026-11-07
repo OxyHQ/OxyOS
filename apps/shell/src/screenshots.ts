@@ -81,15 +81,6 @@ export function defaultSelection(width: number, height: number): Rect {
   };
 }
 
-/** The interface's state the compositor drives: its mode (Space switches the crosshair to picking
-    a window and back), and how many times Return was pressed in the toolbar. */
-export type CaptureInterface = {
-  serial: number;
-  mode: CaptureMode;
-  output: number;
-  confirm: number;
-};
-
 /** What a press in the interface picks: the crosshair's rectangle, or the window under it. */
 export type CapturePick =
   | { kind: "area"; rect: Rect }

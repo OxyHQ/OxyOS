@@ -228,7 +228,6 @@ pub const BACKDROP_FADES_OUT: Spring = Spring::critical(240);
 /// back out, whole at once.
 pub const DOCK: Spring = Spring::critical(380);
 pub const INTO_DOCK_FADES: Fade = Fade::after(Spring::critical(160), 180);
-pub const OUT_OF_DOCK_FADES: Fade = Fade::new(Spring::critical(120));
 /// A switch of workspace slides the windows by the output's width, as a Mac's spaces.
 pub const WORKSPACE: Spring = Spring::critical(380);
 /// A window's frame zooming to its new rectangle (and its corners squaring or rounding).
