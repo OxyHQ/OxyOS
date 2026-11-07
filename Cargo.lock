@@ -2001,6 +2001,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-audio"
+version = "0.1.0"
+dependencies = [
+ "pipewire",
+ "rustix",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oxyos-auth"
 version = "0.1.0"
 dependencies = [
