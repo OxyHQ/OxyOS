@@ -86,13 +86,13 @@ impl Recovery {
             return;
         }
         let _ = std::fs::create_dir_all(&self.esp);
-        // A converted machine's EFI system partition is its own GRUB's: read, never written.
-        let mut mount = Command::new("mount");
-        if layout.kind == Kind::Converted {
-            mount = mount.args(["-o", "ro"]);
-        }
+        // Read-write, an install's and a converted machine's alike: systemd-boot's entries are
+        // there, and Restart gives them their tries back.
         let mounted = layout.esp.mounted_at(ESP)
-            || self.host.run(&mount.args([&layout.esp.path, ESP])).is_ok();
+            || self
+                .host
+                .run(&Command::new("mount").args([&layout.esp.path, ESP]))
+                .is_ok();
         if mounted {
             eprintln!(
                 "oxyos-recovery: {:?} layout on {}: EFI {}, recovery {}, root {}",
@@ -191,12 +191,7 @@ impl Recovery {
                 }
                 "6" => {
                     // Back to OxyOS, with its tries given back, unless an erase is still to finish.
-                    // A converted machine's GRUB gives its tries back by itself.
-                    if self
-                        .layout
-                        .as_ref()
-                        .is_some_and(|l| l.kind == Kind::Installed)
-                        && matches!(request::read(&self.esp), Ok(Found::None))
+                    if self.layout.is_some() && matches!(request::read(&self.esp), Ok(Found::None))
                     {
                         let _ = Entries::new(&self.esp).rearm_all(TRIES);
                     }
