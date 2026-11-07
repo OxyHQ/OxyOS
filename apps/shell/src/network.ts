@@ -83,12 +83,17 @@ export function wifiSections(networks: readonly WifiNetwork[]): {
   return { known, other };
 }
 
-/** How many of the Wi-Fi icon's three arcs a signal fills: none for one barely heard. */
-export function signalArcs(signal: number): number {
+/**
+ * How many of the Wi-Fi glyph's three arcs a signal (0 to 100) fills, wherever it is drawn: the top
+ * bar, Control Center and Settings. 0 for none, else 1 to 3, as the session counts them
+ * (`oxyos_networks::arcs`), which tells a strength only when its arcs change: a rule of its own here
+ * would leave a network's arcs stale.
+ */
+export function signalArcs(signal: number): 0 | 1 | 2 | 3 {
+  if (signal <= 0) return 0;
   if (signal >= 67) return 3;
   if (signal >= 34) return 2;
-  if (signal >= 10) return 1;
-  return 0;
+  return 1;
 }
 
 /** Whether joining asks for something (a password, or what OxyOS does not support): a lock. */

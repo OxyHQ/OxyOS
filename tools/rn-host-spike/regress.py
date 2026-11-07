@@ -538,6 +538,11 @@ machine offline once the application's window first shows it: from then on the p
 everything, as a machine whose network went away. A step's `images` expectation is what the
 host's image loader reported in it ("fetch URI" and "cancelled URI" -> count, exactly).
 
+A step's `worklets` expectation is what worklets' UI runtime made in it (the first step's, from the
+launch), each worklet the first time it ran there: `ahead_min`, at least that many the runtime's
+framework compiled ahead (`framework/worklets.hbc`, sample/worklets.mjs); `from_source_max`, at most
+that many compiled from their text then.
+
 A scenario's `app.origin` and `app.capabilities` are what the session tells an application it
 launches (OXYOS_APP_ORIGIN, OXYOS_APP_CAPABILITIES, docs/adr/0030-installing-applications.mdx,
 decision 8): an installed version with only the capabilities its account granted.
@@ -3333,6 +3338,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["images"]:
             fail(f"the image loader reported {got}, expected exactly {expect['images']}")
+    if "worklets" in expect:
+        # The worklets worklets' UI runtime made in the step (the first step: the launch, from the
+        # process's start), each the first time it ran there (worklets-host.cpp): `ahead_min`, at
+        # least that many the framework compiled ahead; `from_source_max`, at most that many compiled
+        # from their text then (an application's own, which no framework has).
+        made = [line for line in report if line["kind"] == "worklet" and start <= line["t"] <= end]
+        ahead = sum(1 for line in made if line["ahead"])
+        from_source = sorted(line["url"] for line in made if not line["ahead"])
+        wanted = expect["worklets"]
+        if ahead < wanted.get("ahead_min", 0):
+            fail(f"worklets' UI runtime made {ahead} worklets compiled ahead, expected at least {wanted['ahead_min']}")
+        if len(from_source) > wanted.get("from_source_max", float("inf")):
+            fail(f"worklets' UI runtime compiled {len(from_source)} worklets from their text ({', '.join(from_source[:8])}"
+                 f"{', …' if len(from_source) > 8 else ''}), expected at most {wanted['from_source_max']}")
     if "image_layers" in expect:
         # What expo-image views drew in the step (images.h's `image_layers` lines, each time a view's
         # layers changed), by testID: "final", its layers at the step's end, bottom to top, each

@@ -295,6 +295,45 @@ fn the_socket_replaces_an_old_socket_never_another_file() {
 }
 
 #[test]
+fn the_socket_appears_only_listening() {
+    use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
+    let dir = TempDir::new("ipc-listening");
+    let socket = dir.path().join("socket");
+    let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
+    inotify::add_watch(
+        &watch,
+        dir.path(),
+        WatchFlags::CREATE | WatchFlags::MOVED_TO,
+    )
+    .unwrap();
+    // Made, then made again over the one a run before left: each time the name appears only by
+    // a rename of a socket already listening, never by its bind (a connection between a bind and
+    // its listen would be refused).
+    for _ in 0..2 {
+        let listener = Listener::bind(&socket).unwrap();
+        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
+        let mut reader = inotify::Reader::new(&watch, &mut buffer);
+        let mut named = Vec::new();
+        while let Ok(event) = reader.next() {
+            if event.file_name().map(|name| name.to_bytes()) == Some(b"socket".as_slice()) {
+                named.push(event.events());
+            }
+        }
+        assert_eq!(named, [ReadFlags::MOVED_TO]);
+        let connected = Connection::connect(&socket).unwrap();
+        let accepted = listener.accept().unwrap();
+        drop((connected, accepted));
+    }
+    // Nothing of the making is left beside it.
+    let left: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect();
+    assert_eq!(left, [std::ffi::OsString::from("socket")]);
+}
+
+#[test]
 fn the_wire_format_is_the_documented_one() {
     let request: Request = serde_json::from_str(
         r#"{"enroll":{"deviceId":"d","deviceSecret":"s","accountId":"a","password":"p"}}"#,
