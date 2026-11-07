@@ -27,6 +27,7 @@ import {
   arrowed,
   banded,
   cellOrigin,
+  copyName,
   DESKTOP_CELL,
   DESKTOP_ICON,
   DESKTOP_NAME_LINE,
@@ -523,6 +524,34 @@ function DesktopFolder({
     [messages, say],
   );
 
+  /** Copies of the desktop's own items made beside them (Option held), each named as Finder names
+      a copy and shown in the cell it was let go in. */
+  const duplicate = useCallback(
+    async (names: readonly string[], placed: ReadonlyMap<string, Cell>) => {
+      const desktop = new Directory(uri);
+      const taken = new Set(desktop.list().map((entry) => entry.name));
+      const made = new Map<string, Cell>();
+      for (const name of names) {
+        const item = latest.current.byName.get(name);
+        const cell = placed.get(name);
+        if (!item || !cell) continue;
+        const copy = copyName(name, item.folder, taken, messages.desktop.copy);
+        try {
+          if (item.folder) await new Directory(item.uri).copy(new Directory(desktop, copy));
+          else await new File(item.uri).copy(new File(desktop, copy));
+          taken.add(copy);
+          made.set(copy, cell);
+        } catch (error) {
+          console.warn("the desktop could not copy an item", { uri: item.uri, error });
+        }
+      }
+      if (made.size === 0) return;
+      setItems(listed(uri));
+      setKept((kept) => ({ ...kept, ...Object.fromEntries(made) }));
+    },
+    [uri, messages],
+  );
+
   const drop = useCallback(
     (event: DropTargetDropEvent) => {
       setTarget(null);
@@ -533,16 +562,19 @@ function DesktopFolder({
       const onFolder = folderAt(point);
       const folder = onFolder ? (now.byName.get(onFolder)?.uri ?? uri) : uri;
       // The desktop's own items let go on it (from the desktop, or from a window showing its
-      // folder): they move to where they were let go, no file moves. Gripped as the desktop's last
-      // drag of them was, else by the middle of the first one's picture.
+      // folder): they move to where they were let go, no file moves; with Option, copies of them
+      // are made there and they stay, as Finder's. Gripped as the desktop's last drag of them was,
+      // else by the middle of the first one's picture.
       const names = uris.map(nameOf);
       if (!onFolder && names.length > 0 && uris.every((each) => sameUri(parentOf(each), uri) && now.byName.has(nameOf(each)))) {
         const own = ownDrag.current;
         const same = own && own.names.length === names.length && own.names.every((name) => names.includes(name));
         const gripped = same ? own.gripped : names[0];
         const grip = same ? own.grip : { x: DESKTOP_CELL.width / 2, y: DESKTOP_PICTURE_BOX / 2 };
-        const moved = movedTo(names, gripped, point, grip, now.shown, now.width, now.grid);
-        setKept((kept) => ({ ...kept, ...Object.fromEntries(moved) }));
+        const copying = action === "copy";
+        const placed = movedTo(names, gripped, point, grip, now.shown, now.width, now.grid, copying);
+        if (copying) void duplicate(names, placed);
+        else setKept((kept) => ({ ...kept, ...Object.fromEntries(placed) }));
         return;
       }
       const decided = folderDrop(uris, folder, action, now.places);
@@ -572,7 +604,7 @@ function DesktopFolder({
         });
       });
     },
-    [uri, messages, say, transfer],
+    [uri, messages, say, transfer, duplicate],
   );
 
   const keysColor = hasKeys;
@@ -763,6 +795,7 @@ const Picture = memo(function Picture({ item, kind }: { item: DesktopItem; kind:
   if (kind === "image" && !failed) {
     return (
       <Image
+        testID={`desktop-picture-${item.name}`}
         source={{ uri: item.uri }}
         style={PICTURE}
         resizeMode="contain"

@@ -327,6 +327,8 @@ const en = (f: Formats) => ({
     intoItself: "An item can't be moved into itself",
     place: (name: string) => `“${name}” stays where it is`,
     taken: (name: string) => `An item named “${name}” is already there`,
+    /** What a copy made on the desktop is named with, as Finder names it (`notas copy.txt`). */
+    copy: "copy",
   },
   /** The system's sheets (sheet.ts). */
   sheet: {
@@ -625,6 +627,7 @@ const es = (f: Formats): Catalogue => ({
     intoItself: "Un ítem no se puede trasladar dentro de sí mismo",
     place: (name) => `“${name}” se queda donde está`,
     taken: (name) => `Ya hay un ítem llamado “${name}”`,
+    copy: "copia",
   },
   sheet: {
     install: (name) => `¿Instalar ${name}?`,

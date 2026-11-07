@@ -170,7 +170,8 @@ export function sameArrangement(a: Arrangement, b: Arrangement): boolean {
  * where its picture was let go, the others keeping their places around it; each that would land
  * off the grid or on another icon takes the free cell nearest. `drop` is the grip's point when let
  * go, `grip` where in its cell it was gripped (from the cell's top left). The new cells of the
- * dragged, by name.
+ * dragged, by name. With `originalsStay` (their copies, Option held) the cells they are in stay
+ * taken.
  */
 export function movedTo(
   dragged: readonly string[],
@@ -180,6 +181,7 @@ export function movedTo(
   shown: ReadonlyMap<string, Cell>,
   width: number,
   grid: Grid,
+  originalsStay = false,
 ): Map<string, Cell> {
   const from = shown.get(gripped);
   const moved = new Map<string, Cell>();
@@ -190,7 +192,7 @@ export function movedTo(
     grid,
   );
   const taken = new Set<string>();
-  for (const [name, cell] of shown) if (!dragged.includes(name)) taken.add(keyOf(cell));
+  for (const [name, cell] of shown) if (originalsStay || !dragged.includes(name)) taken.add(keyOf(cell));
   const order = [gripped, ...dragged.filter((name) => name !== gripped)];
   for (const name of order) {
     const cell = shown.get(name);
@@ -501,4 +503,25 @@ export function isSecondPress(last: LastPress, name: string, at: number): boolea
 export function pressTime(event: { timeStamp: number; nativeEvent: object }): number {
   const timestamp: unknown = Reflect.get(event.nativeEvent, "timestamp");
   return typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0 ? timestamp : event.timeStamp;
+}
+
+/**
+ * The name Finder gives a copy made in the folder its original is in (Option held as the desktop's
+ * own icons are let go on it): `notas copy.txt`, then `notas copy 2.txt`, and so on, `word` the
+ * session's language's ("copy", "copia"); a copy of a copy is numbered from its original's name.
+ * A folder's whole name is its stem, as is a file's whose only dot begins it.
+ */
+export function copyName(name: string, folder: boolean, taken: ReadonlySet<string>, word: string): string {
+  const dot = folder ? -1 : name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot) : "";
+  // A copy's own name (`notas copy`, `notas copy 2`) is its original's for the next.
+  const marker = ` ${word}`;
+  const at = stem.lastIndexOf(marker);
+  const rest = at > 0 ? stem.slice(at + marker.length) : null;
+  const root = rest !== null && (rest === "" || /^ \d+$/.test(rest)) ? stem.slice(0, at) : stem;
+  for (let number = 1; ; number++) {
+    const candidate = `${root} ${word}${number > 1 ? ` ${number}` : ""}${extension}`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }

@@ -1,5 +1,5 @@
 {
-  "about": "Files dragged to, from and on the desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 4, 6 and 7) at 1 (1280 × 720), Dropsea showing the run's home beside it: plan.txt dragged from Dropsea onto the desktop moves into ~/Desktop and takes the cell where it was let go (desktop.json); lista.txt dragged from Dropsea onto the desktop's folder Proyectos moves into it; notas.txt dragged from the desktop onto Documents in Dropsea moves there; informe.txt dragged from the desktop onto the dock's Trash goes to the Trash with its sound; foto.png dragged on the desktop keeps its new place in desktop.json and the file stays where it is; Proyectos dragged onto Pictures in Dropsea with Option held is copied, the original kept. Each step checks the disk and exactly what each client was delivered. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
+  "about": "Files dragged to, from and on the desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx, decisions 4, 6 and 7) at 1 (1280 × 720), Dropsea showing the run's home beside it: plan.txt dragged from Dropsea onto the desktop moves into ~/Desktop and takes the cell where it was let go (desktop.json); lista.txt dragged from Dropsea onto the desktop's folder Proyectos moves into it; notas.txt dragged from the desktop onto Documents in Dropsea moves there; informe.txt dragged from the desktop onto the dock's Trash goes to the Trash with its sound; foto.png dragged on the desktop keeps its new place in desktop.json and the file stays where it is; Proyectos dragged onto Pictures in Dropsea with Option held is copied, the original kept; foto.png dragged on the desktop with Option held is copied beside it, named as Finder names copies (“foto copia.png”, then “foto copia 2.png”), each copy in the cell where it was let go, the original where it was. Each step checks the disk and exactly what each client was delivered. At scale 1.25 (a 1600x1000 display, 1280x800 logical).",
   "locale": "es_ES.UTF-8",
   "module": "Dropsea",
   "window": [
@@ -50,7 +50,8 @@
             "notas.txt",
             "informe.txt",
             "foto.png"
-          ]
+          ],
+          "react": {}
         },
         "react": {
           "insetsChange@RNCSafeAreaProvider#6": 2,
@@ -80,18 +81,16 @@
         "in_shell": {
           "texts": [
             "plan.txt"
-          ]
-        },
-        "react": {
-          "touchStart@item-plan.txt": 1,
-          "touchMove@item-plan.txt": 1,
-          "touchCancel@item-plan.txt": 1,
-          "drag.dragEnter@OxyOSDropTargetView#606": 1,
-          "drag.dragOver@OxyOSDropTargetView#606": [
-            1,
-            40
           ],
-          "drag.dragLeave@OxyOSDropTargetView#606": 1
+          "react": {
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1,
+            "drag.drop@desktop": 1
+          }
         },
         "delivered": {
           "0": {
@@ -126,17 +125,6 @@
           "lista.txt": false,
           "Desktop/Proyectos/lista.txt": "l"
         },
-        "react": {
-          "touchStart@item-lista.txt": 1,
-          "touchMove@item-lista.txt": 1,
-          "touchCancel@item-lista.txt": 1,
-          "drag.dragEnter@OxyOSDropTargetView#606": 1,
-          "drag.dragOver@OxyOSDropTargetView#606": [
-            1,
-            40
-          ],
-          "drag.dragLeave@OxyOSDropTargetView#606": 1
-        },
         "delivered": {
           "0": {
             "drag.dropped": 1,
@@ -150,6 +138,17 @@
             "enter": 1,
             "leave": 1,
             "press": 1
+          }
+        },
+        "in_shell": {
+          "react": {
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1,
+            "drag.drop@desktop": 1
           }
         }
       }
@@ -173,16 +172,18 @@
         "in_shell": {
           "absent": [
             "notas.txt"
-          ]
-        },
-        "react": {
-          "drag.dragEnter@OxyOSDropTargetView#606": 1,
-          "drag.dragOver@OxyOSDropTargetView#606": [
-            1,
-            40
           ],
-          "drag.dragLeave@OxyOSDropTargetView#606": 1,
-          "drag.drop@OxyOSDropTargetView#606": 1
+          "react": {
+            "touchStart@desktop": 1,
+            "touchMove@desktop": 1,
+            "touchCancel@desktop": 1,
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1
+          }
         },
         "delivered": {
           "1": {
@@ -215,19 +216,37 @@
         "sounds": [
           "file-trash"
         ],
-        "react": {
-          "drag.dragEnter@OxyOSDropTargetView#606": 1,
-          "drag.dragOver@OxyOSDropTargetView#606": [
-            1,
-            40
-          ],
-          "drag.dragLeave@OxyOSDropTargetView#606": 1
-        },
         "delivered": {
           "1": {
             "drag.enter": 1,
             "drag.leave": 1,
             "leave": 1
+          }
+        },
+        "in_shell": {
+          "react": {
+            "touchStart@desktop": 1,
+            "touchMove@desktop": 1,
+            "touchCancel@desktop": 1,
+            "drag.dragEnter@desktop": [
+              1,
+              2
+            ],
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": [
+              1,
+              2
+            ],
+            "drag.dragEnter@dock-trash-drop": 1,
+            "drag.dragOver@dock-trash-drop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@dock-trash-drop": 1,
+            "drag.drop@dock-trash-drop": 1
           }
         }
       }
@@ -249,7 +268,21 @@
           ".local/share/oxyos/apps/so.oxy.shell/desktop.json": "{\n  \"cells\": {\n    \"Proyectos\": [\n      0,\n      3\n    ],\n    \"foto.png\": [\n      1,\n      4\n    ],\n    \"plan.txt\": [\n      2,\n      4\n    ]\n  }\n}\n"
         },
         "react": {},
-        "delivered": {}
+        "delivered": {},
+        "in_shell": {
+          "react": {
+            "touchStart@desktop": 1,
+            "touchMove@desktop": 1,
+            "touchCancel@desktop": 1,
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1,
+            "drag.drop@desktop": 1
+          }
+        }
       }
     },
     {
@@ -263,7 +296,13 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {}
+        "delivered": {},
+        "in_shell": {
+          "react": {
+            "touchStart@desktop": 1,
+            "touchEnd@desktop": 1
+          }
+        }
       }
     },
     {
@@ -277,7 +316,10 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "delivered": {}
+        "delivered": {},
+        "in_shell": {
+          "react": {}
+        }
       }
     },
     {
@@ -296,20 +338,131 @@
           "Desktop/Proyectos/lista.txt": "l",
           "Pictures/Proyectos/lista.txt": "l"
         },
-        "react": {
-          "drag.dragEnter@OxyOSDropTargetView#606": 1,
-          "drag.dragOver@OxyOSDropTargetView#606": [
-            1,
-            40
-          ],
-          "drag.dragLeave@OxyOSDropTargetView#606": 1,
-          "drag.drop@OxyOSDropTargetView#606": 1
-        },
         "delivered": {
           "1": {
             "drag.drop": 1,
             "drag.enter": 1,
             "enter": 1
+          }
+        },
+        "in_shell": {
+          "react": {
+            "touchStart@desktop": 1,
+            "touchMove@desktop": 1,
+            "touchCancel@desktop": 1,
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "foto.png dragged on the desktop with Option held: a copy, “foto copia.png”, where it was let go, the original where it was",
+      "do": [
+        "drag_paced_named",
+        [
+          "foto.png",
+          "@1120,330",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/foto.png": true,
+          "Desktop/foto copia.png": true,
+          ".local/share/oxyos/apps/so.oxy.shell/desktop.json": "{\n  \"cells\": {\n    \"Proyectos\": [\n      0,\n      3\n    ],\n    \"foto copia.png\": [\n      1,\n      2\n    ],\n    \"foto.png\": [\n      1,\n      4\n    ],\n    \"plan.txt\": [\n      2,\n      4\n    ]\n  }\n}\n"
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "foto copia.png",
+              "value": "Imagen"
+            },
+            {
+              "role": "Button",
+              "name": "foto.png"
+            }
+          ]
+        },
+        "in_shell": {
+          "react": {
+            "touchStart@desktop": 1,
+            "touchMove@desktop": 1,
+            "touchCancel@desktop": 1,
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1,
+            "drag.drop@desktop": 1,
+            "loadStart@desktop-picture-foto copia.png": 1,
+            "load@desktop-picture-foto copia.png": 1,
+            "loadEnd@desktop-picture-foto copia.png": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "again: the second copy is “foto copia 2.png”",
+      "do": [
+        "drag_paced_named",
+        [
+          "foto.png",
+          "@1120,220",
+          30,
+          30
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Desktop/foto.png": true,
+          "Desktop/foto copia.png": true,
+          "Desktop/foto copia 2.png": true,
+          ".local/share/oxyos/apps/so.oxy.shell/desktop.json": "{\n  \"cells\": {\n    \"Proyectos\": [\n      0,\n      3\n    ],\n    \"foto copia 2.png\": [\n      1,\n      1\n    ],\n    \"foto copia.png\": [\n      1,\n      2\n    ],\n    \"foto.png\": [\n      1,\n      4\n    ],\n    \"plan.txt\": [\n      2,\n      4\n    ]\n  }\n}\n"
+        },
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "foto copia 2.png",
+              "value": "Imagen"
+            },
+            {
+              "role": "Button",
+              "name": "foto.png"
+            }
+          ]
+        },
+        "in_shell": {
+          "react": {
+            "touchStart@desktop": 1,
+            "touchMove@desktop": 1,
+            "touchCancel@desktop": 1,
+            "drag.dragEnter@desktop": 1,
+            "drag.dragOver@desktop": [
+              1,
+              40
+            ],
+            "drag.dragLeave@desktop": 1,
+            "drag.drop@desktop": 1,
+            "loadStart@desktop-picture-foto copia 2.png": 1,
+            "load@desktop-picture-foto copia 2.png": 1,
+            "loadEnd@desktop-picture-foto copia 2.png": 1
           }
         }
       }
@@ -325,7 +478,10 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "delivered": {}
+        "delivered": {},
+        "in_shell": {
+          "react": {}
+        }
       }
     }
   ]

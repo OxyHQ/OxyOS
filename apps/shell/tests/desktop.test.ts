@@ -6,6 +6,7 @@ import {
   banded,
   cellNear,
   cellOrigin,
+  copyName,
   DESKTOP_CELL,
   DESKTOP_EDGE,
   droppedAt,
@@ -291,4 +292,31 @@ test("a double press: two presses on one icon within half a second, by their own
   assert.ok(!isSecondPress({ name: "a", at: 100 }, "b", 200));
   assert.equal(pressTime({ timeStamp: 5, nativeEvent: { timestamp: 42 } }), 42);
   assert.equal(pressTime({ timeStamp: 5, nativeEvent: {} }), 5);
+});
+
+test("copies made on the desktop are named as Finder names them", () => {
+  const none = new Set<string>();
+  assert.equal(copyName("notas.txt", false, none, "copy"), "notas copy.txt");
+  assert.equal(copyName("notas.txt", false, new Set(["notas copy.txt"]), "copy"), "notas copy 2.txt");
+  assert.equal(copyName("notas.txt", false, new Set(["notas copy.txt", "notas copy 2.txt"]), "copy"), "notas copy 3.txt");
+  // A copy of a copy is numbered from its original's name.
+  assert.equal(copyName("notas copy.txt", false, new Set(["notas copy.txt"]), "copy"), "notas copy 2.txt");
+  assert.equal(copyName("notas copy 2.txt", false, new Set(["notas copy.txt", "notas copy 2.txt"]), "copy"), "notas copy 3.txt");
+  // A folder's whole name, and a name whose only dot begins it.
+  assert.equal(copyName("Fotos v1.2", true, none, "copia"), "Fotos v1.2 copia");
+  assert.equal(copyName(".bashrc", false, none, "copy"), ".bashrc copy");
+  assert.equal(copyName("archive.tar.gz", false, none, "copia"), "archive.tar copia.gz");
+});
+
+test("copies let go on the desktop keep their originals' cells taken", () => {
+  const shown = new Map([
+    ["a", cell(0, 0)],
+    ["b", cell(0, 1)],
+  ]);
+  const grip = { x: 10, y: 10 };
+  // Let go where they are: the copies take the free cells nearest, the originals stay.
+  const origin = cellOrigin(cell(0, 0), WIDTH);
+  const copied = movedTo(["a", "b"], "a", { x: origin.x + grip.x, y: origin.y + grip.y }, grip, shown, WIDTH, GRID, true);
+  assert.deepEqual(copied.get("a"), cell(1, 0));
+  assert.deepEqual(copied.get("b"), cell(1, 1));
 });
