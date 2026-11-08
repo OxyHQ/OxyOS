@@ -14,7 +14,9 @@ use super::{ClientId, Scene};
 use oxyos_protocol::{ErrorCode, Event, PreeditText, TextChunk, MAX_SYSTEM_TEXT_BYTES};
 use std::collections::BTreeMap;
 
-/// Requests asked for and not yet taken.
+/// Requests a client asked for and the session has not taken yet: each client's own, so the
+/// clients asking together as they start (a shell on every display, each following the state it
+/// shows) never use up another's.
 const MAX_PENDING: usize = 32;
 /// Sheets shown and not yet answered.
 const MAX_SHEETS: usize = 8;
@@ -115,7 +117,13 @@ impl Scene {
             return Ok(());
         }
         let (text, _) = receiving.remove(&(client, serial)).expect("received");
-        if self.system.asked.len() >= MAX_PENDING {
+        let pending = self
+            .system
+            .asked
+            .iter()
+            .filter(|asked| asked.client == client)
+            .count();
+        if pending >= MAX_PENDING {
             return Err(ErrorCode::QuotaExceeded);
         }
         let with_input = input != 0 && self.recent_input(client, input);

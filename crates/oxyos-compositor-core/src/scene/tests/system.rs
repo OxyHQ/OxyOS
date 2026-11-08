@@ -436,3 +436,25 @@ fn a_sheet_asked_takes_the_keys_from_the_application_behind_it() {
     focus(&mut h, 62);
     assert_eq!(h.scene.focus(), Some(window));
 }
+
+#[test]
+fn each_client_has_its_own_requests_waiting() {
+    // Shells on six displays each ask for what they show as they start, before the session's
+    // turn takes any: none is refused for what the others asked.
+    let mut h = Harness::new();
+    h.scene.grant(APP, store()).unwrap();
+    for serial in 1..=32 {
+        ask(&mut h, SHELL, serial, 0, r#"{"backup":{}}"#).unwrap();
+    }
+    for serial in 1..=8 {
+        ask(&mut h, APP, serial, 0, r#"{"state":{}}"#).unwrap();
+    }
+    // A client asking more than its own share is refused that one.
+    assert_eq!(
+        ask(&mut h, SHELL, 33, 0, r#"{"backup":{}}"#),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    assert_eq!(h.scene.take_system_requests().len(), 40);
+    // Taken, it asks again.
+    ask(&mut h, SHELL, 34, 0, r#"{"backup":{}}"#).unwrap();
+}
