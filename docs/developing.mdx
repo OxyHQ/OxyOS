@@ -1,0 +1,163 @@
+---
+title: Developing OxyOS
+description: Setting up a machine from nothing, building, running a scenario, the scenario gate, deploying to a test machine, and the machine that runs the gate.
+order: 7
+---
+
+# Developing OxyOS
+
+This repository is all a machine needs. `tools/dev/bootstrap` fetches or builds everything else, at
+pinned versions checked by SHA-256 or by commit, into a cache in your home. Nothing is installed
+system-wide but the Debian packages below, and nothing is copied from another machine.
+
+## A machine from nothing
+
+A Debian trixie machine, amd64 or arm64 ([ADR 0032](./adr/0032-arm)), with about 40 GB free.
+
+```sh
+git clone https://github.com/OxyHQ/OxyOS.git && cd OxyOS
+sudo apt-get install --no-install-recommends $(grep -v '^#' tools/dev/packages)
+tools/dev/bootstrap
+```
+
+`tools/dev/packages` is the one list of Debian packages: compilers, Python's venv, the libraries the
+workspace links, Vulkan and Mesa, the fonts the scenarios draw, and the input methods' run-time
+libraries. `tools/dev/bootstrap` says which are missing and installs none itself.
+
+`tools/dev/bootstrap` is idempotent: run it again after a pull, and only what changed is fetched or
+built. The first run takes about half an hour (Skia and Hermes). Everything goes into
+`OXYOS_CACHE`, `~/.cache/oxyos` by default, never `/tmp`:
+
+| In the cache | What | Pinned by |
+| --- | --- | --- |
+| `node/`, `bun/` | Node and bun | `tools/dev/pins`: version and SHA-256 |
+| `~/.cargo`, `~/.rustup` | rustup, when the machine has none; it installs the Rust `rust-toolchain.toml` names | `tools/dev/pins`: version and SHA-256 |
+| `src/Bloom`, `src/Dropsea`, `src/Atlas` | the applications, with their packages installed (`bun install --frozen-lockfile`) | `tools/dev/pins`: commit; their lockfiles |
+| `toolchain/` | the Bloom host's toolchain (`tools/rn-host-spike/toolchain.sh`): Clang 19 and LLD from Debian's archive, cmake and ninja, FreeType's, HarfBuzz's and ICU's headers, Skia, and per React Native version its Hermes, third-party sources, codegen and text input; `cmake-vars.txt` names them for the host's CMake | Skia's commit (`SKIA_REVISION`), the Hermes tag React Native names, `toolchain-requirements.txt` and `third-party.sha256` (SHA-256), apt's signatures |
+| `input-methods/` | the input methods' engine (`tools/input-methods/build.sh`, [ADR 0041](./adr/0041-input-methods)) | Debian's source tarballs by SHA-256 |
+
+To use the same tools in a shell (Node, bun, cargo on `PATH`; `BLOOM_DIR` and the rest set):
+
+```sh
+. tools/dev/env.sh
+```
+
+### This machine's own values
+
+`tools/dev/local.conf`, ignored by git, holds what differs on a machine: another cache, the builds'
+parallelism, your own Bloom, Dropsea or Atlas checkout to test a change with OxyOS before it is
+pinned, and the deploy's test machine. Copy `tools/dev/local.conf.example`, which says what each is.
+It holds no secret: a deploy's key is in `~/.ssh` or your agent.
+
+### Bumping a pin
+
+A Bloom, Dropsea or Atlas commit, Node, bun or rustup is changed in `tools/dev/pins` in a pull request
+of its own, so the scenario gate runs it against this tree before main takes it. A React Native whose
+third-party sources are new adds their SHA-256 to `tools/rn-host-spike/third-party.sha256`; Skia's
+revision is `SKIA_REVISION` in `tools/rn-host-spike/toolchain.sh`.
+
+## Building and running a scenario
+
+The workspace's checks are in [Build and verify the native foundation](./native-foundation). The
+runtime, its framework and the packages are what the gate builds (below); to run one scenario after a
+gate run kept with `--out`:
+
+```sh
+. tools/dev/env.sh
+python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/sample.json \
+  --offscreen target/release/oxyos-offscreen --runtimes RUN/machine/runtimes \
+  --packages RUN/machine/packages --input-methods ~/.cache/oxyos/input-methods/prefix --out RUN/sample
+```
+
+`SCENARIOS="sample shell" tools/gate/run-scenarios.sh` builds everything and runs only those.
+
+## The scenario gate
+
+```sh
+tools/gate/run-scenarios.sh [--out DIR]
+```
+
+It runs `tools/dev/bootstrap`, builds this tree's runtime (the Bloom host with this tree's C ABI, in a
+build directory kept per checkout, installed as runtime 1, its framework) and every package against
+it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the tree:
+
+1. Every scenario but those below, `GATE_JOBS` (8) at a time.
+2. One at a time, alone on cores the machine reserves for the gate (where it has them, below): the
+   scenarios that hold a budget on time (`perf-*`, `refresh-*`), which beside siblings would measure
+   each other, then once more each scenario that failed. A scenario failing twice fails the gate.
+3. The scenarios through libinput on the kernel's virtual devices (`uinput`), one at a time.
+4. With a GPU (a render node and a Vulkan device that is not the CPU): the one-GPU checks
+   ([ADR 0031](./adr/0031-gpu-buffers), decision 14: the device chosen on fake sysfs trees, the
+   painter never opening a decoy driver, and, under `strace`, only the nodes of a GPU driving a
+   display opened), `gpu-client` with `tools/oxyos-gpu-client` as its client, and the session
+   composed on the GPU alone (`--gpu-only`). Without one this is said and skipped.
+
+Left out: `astro*` (an Astro engine, a deploy's `ASTRO_PACKAGE`), `terminal` (a real display) and
+`fidelity-thresholds` (settings, not a scenario). A failed scenario's record (its log, frames, a
+host's backtrace) is kept in the run's directory, `~/.cache/oxyos/runs/` unless `--out` names one;
+a run that passes leaves nothing there.
+
+The gate is the **Scenarios** check of every pull request and of the merge queue
+(`.github/workflows/scenarios.yml`), and main requires it: pull requests merged separately can no
+longer break main together, because the merge queue runs the gate on each one with main and the
+pull requests ahead of it. A fork's pull request runs it only in the merge queue, once a maintainer
+queues it, never on its own.
+
+## Deploying to a test machine
+
+```sh
+tools/deploy/deploy.sh --host USER@HOST    # or DEPLOY_HOST in tools/dev/local.conf
+tools/deploy/deploy.sh --stage-only        # build, test and stage; send nothing
+```
+
+What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
+is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
+`astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
+it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there,
+installs the runtime, the system applications, their entries and policy, the input methods, the
+sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
+(the one before kept as `.old`), Inbox and Allo as development packages in `~/oxyos-validation`,
+checks the one-GPU rule on the machine itself, and restarts the login screen only while nobody is
+signed in (or the development session, `probar.sh` on terminal 8). The test machine needs ssh by key,
+passwordless sudo and rustup's cargo.
+
+## The gate's machine
+
+The **Scenarios** check runs on a self-hosted runner (label `oxyos-gate`) on a machine that also does
+other work, which keeps its priority. `tools/gate/machine.sh`, run as root on a Debian trixie machine,
+prepares it, and running it again changes nothing that is already so:
+
+- the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
+- the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
+  `tools/dev/bootstrap` makes; the runner is in `/var/lib/oxyos-gate/actions-runner`;
+- `oxyosgate.slice`, where the runner and every gate run are: a CPU weight of 20 against the 100 of
+  `system.slice` (the machine's own work), at most 24 CPUs and 24 GB. (Its name has no dash: systemd
+  nests a slice under the part of its name before one.);
+- the GPU's render node (group `render`), KVM (`kvm`), and `/dev/uinput` with the event nodes of the
+  development compositor's own virtual devices (named `oxyos-offscreen …`, group `oxyos-uinput`), so
+  the `uinput` scenarios run without root;
+- `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
+  the first four physical cores and their SMT siblings for the gate alone while its timing
+  scenarios run, every other CPU for the rest of the machine; a reservation releases itself after
+  30 minutes, and one gate run at a time holds it (`/run/lock/oxyos-gate-timing.lock`).
+
+`machine.sh runner` registers the runner with a registration token on stdin, never written anywhere:
+
+```sh
+gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner
+```
+
+### Images on the gate's machine
+
+`tools/image/build.sh` needs a privileged container; on the gate's machine it is rootless Podman,
+whose container is privileged only in the user's own namespace, so the gate's user builds images
+with no root on the machine ([Base image configuration](./iso-build)). `machine.sh` gives its user
+subordinate ids and lingering (Podman's runtime files in `/run/user/<uid>`, never `/tmp`):
+
+```sh
+# as oxyos-ci, everything under its home (~/oxyos-build):
+tools/image/build.sh
+mkdir -p ~/.cache/tmp && TMPDIR=~/.cache/tmp python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-*-amd64.iso --out ~/oxyos-build/acceptance
+```
+
+No workflow builds an image (AGENTS.md); these run by hand.

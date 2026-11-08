@@ -2,16 +2,17 @@
 # Prepares a Debian trixie machine to run OxyOS's scenario gate (docs/developing.mdx) beside the
 # machine's own work, which keeps priority. Run as root; running it again changes nothing that is
 # already so.
-#   - the packages the gate builds and runs with (tools/gate/run-scenarios.sh), and the input
-#     methods' run-time packages (tools/input-methods/build.sh);
+#   - a developer's packages (tools/dev/packages), QEMU and its firmware, Podman;
 #   - the gate's user, oxyos-ci (GATE_USER), with no sudo but for oxyos-gate-cpus: its GitHub
 #     Actions runner and every run of the gate are its, in oxyosgate.slice;
-#   - oxyosgate.slice (no dash: systemd nests a slice under the part before one): a weight of 20 against system.slice's 100 (the owner's runners and VMs),
-#     at most GATE_CPU_QUOTA of CPU and GATE_MEMORY_MAX of memory;
-#   - the GPU's render node (group render), KVM (group kvm) for the image's QEMU acceptance runs,
-#     and uinput with the event nodes of the development compositor's own virtual devices (named
-#     "oxyos-offscreen ...") for the scenarios that go through libinput (group oxyos-uinput),
-#     instead of running those as root;
+#   - oxyosgate.slice (no dash: systemd nests a slice under the part of its name before one): a
+#     weight of 20 against system.slice's 100 (the machine's own work), at most GATE_CPU_QUOTA of
+#     CPU and GATE_MEMORY_MAX of memory;
+#   - the GPU's render node (group render), and uinput with the event nodes of the development
+#     compositor's own virtual devices (named "oxyos-offscreen ...") for the scenarios that go
+#     through libinput (group oxyos-uinput), instead of running those as root;
+#   - rootless Podman for the image's builds (subordinate ids, lingering), KVM (group kvm) for their
+#     QEMU acceptance runs;
 #   - /usr/local/libexec/oxyos-gate-cpus and /etc/oxyos-gate.conf: the cores the scenarios that
 #     hold a budget on time run on alone (the first four physical cores and their SMT siblings).
 # The runner itself is registered with `machine.sh runner` (a registration token on stdin).
@@ -80,13 +81,20 @@ fi
 # Packages: what a developer's machine needs (tools/dev/packages; tools/dev/bootstrap fetches the
 # rest into the user's cache), and QEMU with its firmware for the image's acceptance runs.
 apt-get install -y -q --no-install-recommends $(grep -v '^#' "$HERE/../dev/packages") \
-  qemu-system-x86 qemu-utils ovmf seabios swtpm >/dev/null
+  qemu-system-x86 qemu-utils ovmf seabios swtpm podman uidmap passt fuse-overlayfs >/dev/null
 
 groupadd -f --system oxyos-uinput
 getent passwd "$GATE_USER" >/dev/null ||
   useradd --system --create-home --home-dir "$GATE_HOME" --shell /bin/bash --user-group "$GATE_USER"
 usermod -aG render,kvm,oxyos-uinput "$GATE_USER"
 chmod 750 "$GATE_HOME"
+# Images (tools/image/build.sh) in rootless Podman: subordinate ids after the last range given, and
+# lingering, so Podman's runtime files are in /run/user/<uid>, never /tmp.
+if ! grep -q "^$GATE_USER:" /etc/subuid; then
+  first=$(awk -F: 'BEGIN { end = 100000 } { if ($2 + $3 > end && $2 < 1000000) end = $2 + $3 } END { print end }' /etc/subuid)
+  usermod --add-subuids "$first-$((first + 65535))" --add-subgids "$first-$((first + 65535))" "$GATE_USER"
+fi
+loginctl enable-linger "$GATE_USER"
 
 cat > /etc/systemd/system/oxyosgate.slice <<EOF
 # OxyOS's scenario gate (docs/developing.mdx), written by tools/gate/machine.sh: below the
