@@ -12,6 +12,8 @@
 import { launch, requestCapability } from './system';
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
+import { pasteboard } from '@oxyos/platform';
+
 
 installExpoGlobalPolyfill();
 
@@ -290,10 +292,10 @@ globalThis.expo.modules.ExpoAsset = {
   },
 };
 
-// expo-clipboard, on the OS clipboard (docs/adr/0007-clipboard.mdx). Reading and writing it use
-// the serial of the latest key or press the app received, so the compositor refuses both unless
-// the app has keyboard focus and acted just before: a read refused that way gives "".
-const clipboard = TurboModuleRegistry.getEnforcing('OxyOSClipboard');
+// expo-clipboard, over the platform's pasteboard (`@oxyos/platform`, docs/adr/0007-clipboard.mdx).
+// Reading and writing it cite the latest key or press the app received, so the compositor refuses
+// both unless the app has keyboard focus and acted just before: a read refused that way gives "",
+// a write refused answers false, as Expo's setStringAsync does.
 const isUrl = (text) => /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(text.trim());
 const noImages = async () => {
   throw new Error('Images on the clipboard are not supported on OxyOS yet');
@@ -301,21 +303,21 @@ const noImages = async () => {
 const ExpoClipboard = new globalThis.expo.EventEmitter();
 Object.assign(ExpoClipboard, {
   // Plain text only: HTML is offered as no other type on OxyOS yet.
-  getStringAsync: () => clipboard.getString(),
-  setStringAsync: (text) => clipboard.setString(String(text)),
-  hasStringAsync: () => clipboard.hasString(),
+  getStringAsync: () => pasteboard.readText(),
+  setStringAsync: (text) => pasteboard.writeText(String(text)).then(() => true, () => false),
+  hasStringAsync: () => pasteboard.hasText(),
   getUrlAsync: async () => {
-    const text = await clipboard.getString();
+    const text = await pasteboard.readText();
     return isUrl(text) ? text.trim() : null;
   },
-  setUrlAsync: (url) => clipboard.setString(String(url)),
-  hasUrlAsync: async () => isUrl(await clipboard.getString()),
+  setUrlAsync: (url) => pasteboard.writeText(String(url)).then(() => true, () => false),
+  hasUrlAsync: async () => isUrl(await pasteboard.readText()),
   getImageAsync: noImages,
   setImageAsync: noImages,
   hasImageAsync: noImages,
 });
-DeviceEventEmitter.addListener('OxyOSClipboardChanged', ({ text }) =>
-  ExpoClipboard.emit('onClipboardChanged', { contentTypes: text ? ['plain-text'] : [] }),
+pasteboard.onChange(({ hasText }) =>
+  ExpoClipboard.emit('onClipboardChanged', { contentTypes: hasText ? ['plain-text'] : [] }),
 );
 globalThis.expo.modules.ExpoClipboard = ExpoClipboard;
 

@@ -33,6 +33,8 @@ import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent
 import { answerChooser, chooserRequest } from './file-chooser';
 import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
 import { createSearch, searchAvailable } from './search';
+import { sounds as platformSounds } from '@oxyos/platform';
+
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -570,11 +572,11 @@ const drag = dragAvailable
 // The system's own sounds (docs/adr/0044-system-sounds.mdx, Bloom's usePlatformSounds): an
 // application asks by meaning and the session plays its sound theme's, as the person's settings
 // and the output allow, citing the latest input it received. The protocol's version 23 has them.
-const nativeSounds = TurboModuleRegistry.get('OxyOSSounds');
-const sounds = nativeSounds?.getConstants()?.available
+// The platform's `sounds` (`@oxyos/platform`); a sound not played (no input to cite) is silence.
+const sounds = platformSounds.available
   ? {
       play(sound) {
-        nativeSounds.play(String(sound));
+        platformSounds.play(String(sound)).catch(() => {});
       },
     }
   : undefined;
