@@ -125,6 +125,8 @@ const SIGNED_IN_SPLASH: Duration = Duration::from_millis(250);
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 /// The PAM service the lock checks passwords under (`/etc/pam.d/oxyos`).
 const PAM_SERVICE: &str = "oxyos";
+/// The PAM service the lock checks the account's PIN under (`/etc/pam.d/oxyos-pin`).
+const PAM_PIN_SERVICE: &str = "oxyos-pin";
 /// The longest a turn waits when nothing is due: the session wakes for its devices, its clients,
 /// its displays and its children exiting, and for what is due on a clock (the sun an automatic
 /// appearance follows, a shell started again); this only bounds a wait that something missed.
@@ -296,6 +298,9 @@ fn main() -> Result<()> {
             pam.user().to_string_lossy()
         );
         let user = pam.user().to_owned();
+        // The account's PIN for this computer (ADR 0020 decision 2): its own service, its own
+        // throttle, checked by the accounts' service offline and never online.
+        let pin = oxyos_auth::Authenticator::for_session(PAM_PIN_SERVICE)?;
         let socket = accountd_session_socket();
         // Registered with the accounts' service from here on: the shells, then each launch.
         match oxyos_account::session::RegistrarThread::spawn(socket.clone(), |said| {
@@ -308,6 +313,8 @@ fn main() -> Result<()> {
         }
         Box::new(Pam {
             checker: oxyos_auth::Checker::spawn_online(pam, Box::new(online_check(socket)))?,
+            pins: oxyos_auth::Checker::spawn(pin)?,
+            checking_pin: false,
             user,
         })
     };
@@ -1517,6 +1524,10 @@ fn spawn_reader(socket: &std::path::Path, program: &OsString) -> Result<std::pro
 /// for the session's own user.
 struct Pam {
     checker: oxyos_auth::Checker,
+    /// The PIN's (`PAM_PIN_SERVICE`): no online check, a throttle of its own.
+    pins: oxyos_auth::Checker,
+    /// Whether the check under way is a PIN's.
+    checking_pin: bool,
     user: std::ffi::CString,
 }
 
@@ -1524,6 +1535,7 @@ impl Authentication for Pam {
     fn attempt(
         &mut self,
         account: Option<&str>,
+        passcode: bool,
         mut secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)> {
         // The lock checks the session's own user's password, never another account's.
@@ -1532,7 +1544,16 @@ impl Authentication for Pam {
         }
         // The password's memory moves to PAM's side whole, and is overwritten there.
         let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
-        match self.checker.attempt(secret, Instant::now()) {
+        let checker = if passcode {
+            &mut self.pins
+        } else {
+            &mut self.checker
+        };
+        let attempt = checker.attempt(secret, Instant::now());
+        if let oxyos_auth::Attempt::Checking = attempt {
+            self.checking_pin = passcode;
+        }
+        match attempt {
             oxyos_auth::Attempt::Checking => None,
             oxyos_auth::Attempt::Busy => Some((AuthOutcome::Busy, 0)),
             oxyos_auth::Attempt::Throttled(wait) => {
@@ -1542,11 +1563,20 @@ impl Authentication for Pam {
     }
 
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.checker.as_fd()
+        if self.checking_pin {
+            self.pins.as_fd()
+        } else {
+            self.checker.as_fd()
+        }
     }
 
     fn answer(&mut self) -> Option<(AuthOutcome, u32)> {
-        let answer = self.checker.answer(Instant::now())?;
+        let checker = if self.checking_pin {
+            &mut self.pins
+        } else {
+            &mut self.checker
+        };
+        let answer = checker.answer(Instant::now())?;
         let outcome = match answer.outcome {
             oxyos_auth::Outcome::Accepted => AuthOutcome::Accepted,
             oxyos_auth::Outcome::Rejected => AuthOutcome::Rejected,

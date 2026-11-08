@@ -34,6 +34,9 @@ export type AccountActions = {
   /** Removes the account from this computer: its sessions end, its credential, verifier, user
       and home are forgotten. Asked only once the person confirmed. */
   remove: () => Promise<AccountOutcome>;
+  /** The account's sign-in on this computer: its PIN, and whether its password signs in
+      (docs/adr/0020-oxy-account-login.mdx decision 2); none where the platform offers none. */
+  local?: import("./local-sign-in").LocalSignInActions;
 };
 
 /** What the sidebar's account item and its page show, from the snapshot. */

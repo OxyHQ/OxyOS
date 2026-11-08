@@ -22,6 +22,7 @@
 use super::fail;
 use oxyos_account::erase::{ErasePreview, Erasing};
 use oxyos_account::ipc::{self, Connection};
+use oxyos_account::platform;
 pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
 use oxyos_account::session;
 use oxyos_account::Secret;
@@ -48,6 +49,9 @@ const ERASE_WAIT: Duration = Duration::from_secs(180);
 const PLATFORM_WAIT: Duration = Duration::from_secs(5);
 /// How long a setup's turn may take: a sign-in online and the user made.
 const ENROLL_WAIT: Duration = Duration::from_secs(180);
+/// How long a change to the local sign-in may take: a PIN's Argon2id, PAM's delay, or Oxy online
+/// when the password is turned on again.
+const LOCAL_WAIT: Duration = Duration::from_secs(60);
 
 /// The session socket: `OXYOS_ACCOUNTD_SESSION_SOCKET`, else the system's.
 fn session_socket() -> PathBuf {
@@ -192,6 +196,81 @@ pub fn erase_preview_at(socket: &Path) -> Result<ErasePreview, SessionError> {
     )? {
         session::Answer::ErasePreview(preview) if coherent_preview(&preview) => Ok(preview),
         _ => Err(failed(socket, "not what erasing would do")),
+    }
+}
+
+/// The asking application's account's local sign-in: its PIN and whether its password signs in
+/// (Settings and the shell's lock screen, as system applications, may ask).
+pub fn local_sign_in_at(socket: &Path) -> Result<platform::LocalView, SessionError> {
+    match ask(socket, &session::Request::LocalSignIn, LOCAL_WAIT)? {
+        session::Answer::LocalSignIn(view) => Ok(view),
+        _ => Err(failed(socket, "not a local sign-in")),
+    }
+}
+
+/// What a change to the local sign-in came to: the local sign-in after it, or refused (nothing
+/// changed), with its reason and when another attempt may be made.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalAnswer {
+    LocalSignIn(platform::LocalView),
+    Refused {
+        reason: String,
+        #[serde(rename = "retryAfter", skip_serializing_if = "Option::is_none")]
+        retry_after: Option<u64>,
+    },
+}
+
+/// Settings' change to its account's local sign-in: `change` is `setPin` (with `pin`),
+/// `removePin`, `passwordOn` or `passwordOff`; proved by `password` or `current_pin`. A refusal is
+/// an answer, not an error.
+pub fn change_local_at(
+    socket: &Path,
+    change: &str,
+    pin: Option<Secret>,
+    password: Option<Secret>,
+    current_pin: Option<Secret>,
+) -> Result<LocalAnswer, SessionError> {
+    let request = match (change, pin) {
+        ("setPin", Some(pin)) => session::Request::SetPin {
+            pin,
+            password,
+            current_pin,
+        },
+        ("removePin", None) => session::Request::RemovePin {
+            password: password.ok_or_else(|| {
+                SessionError::Failed("removing the PIN needs the password".into())
+            })?,
+        },
+        ("passwordOn" | "passwordOff", None) => session::Request::SetPasswordSignIn {
+            enabled: change == "passwordOn",
+            password,
+            current_pin,
+        },
+        _ => return Err(SessionError::Failed(format!("not a change: {change}"))),
+    };
+    let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
+    connection
+        .set_timeout(LOCAL_WAIT)
+        .map_err(|error| failed(socket, error))?;
+    connection
+        .send(&request)
+        .map_err(|error| failed(socket, error))?;
+    match connection.receive::<session::Answer>() {
+        Ok(Some(Some(session::Answer::LocalSignIn(view)))) => Ok(LocalAnswer::LocalSignIn(view)),
+        Ok(Some(Some(session::Answer::Refused {
+            reason,
+            retry_after,
+        }))) => Ok(LocalAnswer::Refused {
+            reason: reason_name(&reason),
+            retry_after: retry_after.filter(|_| reason == session::Reason::Throttled),
+        }),
+        Ok(Some(_)) => Err(failed(
+            socket,
+            "not an answer to a change of the local sign-in",
+        )),
+        Ok(None) => Err(failed(socket, "it closed the connection")),
+        Err(error) => Err(failed(socket, error)),
     }
 }
 
@@ -399,14 +478,16 @@ impl Enrollment {
         }
     }
 
-    /// Sends the setup: the device credential the SDK's sign-in obtained, the account it is for and
-    /// the account's password. The service's answer as JSON.
+    /// Sends the setup: the device credential the SDK's sign-in obtained, the account it is for,
+    /// the account's password (none: it has none) and the PIN chosen for this computer, if any.
+    /// The service's answer as JSON.
     pub fn enroll(
         &mut self,
         device_id: &str,
         device_secret: &Secret,
         account_id: &str,
-        password: &Secret,
+        password: Option<&Secret>,
+        pin: Option<&Secret>,
     ) -> Result<&str, SessionError> {
         if self.started {
             return Err(SessionError::Failed("the setup was sent already".into()));
@@ -416,7 +497,8 @@ impl Enrollment {
             device_id: device_id.to_owned(),
             device_secret: Secret::new(device_secret.expose()),
             account_id: account_id.to_owned(),
-            password: Secret::new(password.expose()),
+            password: password.map(|password| Secret::new(password.expose())),
+            pin: pin.map(|pin| Secret::new(pin.expose())),
         })
     }
 
@@ -613,6 +695,77 @@ pub unsafe extern "C" fn oxyos_account_session_erase_all(
     }
 }
 
+/// The account's local sign-in (docs/adr/0020-oxy-account-login.mdx decision 2): JSON {"pin":
+/// "none" | "set" | "locked", "password": bool}. Settings and the shell (system applications)
+/// may ask. Its length, or OXYOS_ERROR (`oxyos_last_error`).
+///
+/// # Safety
+/// `out` points to `capacity` writable bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_local_sign_in(
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    match local_sign_in_at(&session_socket()).and_then(|view| {
+        serde_json::to_string(&view).map_err(|error| SessionError::Failed(error.to_string()))
+    }) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
+/// Changes the account's local sign-in (Settings alone may): `change` is "setPin" (with `pin`, 4
+/// to 16 digits), "removePin", "passwordOn" or "passwordOff", proved by `password` or
+/// `current_pin` (one of them; null otherwise). Secrets are NUL-terminated UTF-8, copied into
+/// buffers this library overwrites. Blocks (a PIN's verifier, PAM, or Oxy online for
+/// "passwordOn"): call it off the interface's thread. The answer, JSON: {"localSignIn": {"pin",
+/// "password"}} or {"refused": {"reason", "retryAfter"?}}, nothing changed. Its length, or
+/// OXYOS_ERROR (`oxyos_last_error`).
+///
+/// # Safety
+/// `change` is NUL-terminated; each secret is null or NUL-terminated; `out` points to `capacity`
+/// writable bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_change_local(
+    change: *const c_char,
+    pin: *const c_char,
+    password: *const c_char,
+    current_pin: *const c_char,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let (change, pin, password, current_pin) = unsafe {
+        (
+            text_arg(change),
+            secret_arg(pin),
+            secret_arg(password),
+            secret_arg(current_pin),
+        )
+    };
+    let Some(change) = change else {
+        return i64::from(fail("a change of the local sign-in"));
+    };
+    match change_local_at(&session_socket(), change, pin, password, current_pin).and_then(
+        |answer| {
+            serde_json::to_string(&answer).map_err(|error| SessionError::Failed(error.to_string()))
+        },
+    ) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
 /// The session's snapshots as they change (see oxyos_account_session_subscription_next).
 pub struct OxyOSAccountSubscription(Subscription);
 
@@ -766,6 +919,7 @@ pub unsafe extern "C" fn oxyos_account_enrollment_enroll(
     device_secret: *const c_char,
     account_id: *const c_char,
     password: *const c_char,
+    pin: *const c_char,
     out: *mut c_char,
     capacity: usize,
 ) -> i64 {
@@ -773,24 +927,34 @@ pub unsafe extern "C" fn oxyos_account_enrollment_enroll(
         return i64::from(fail("null setup or buffer"));
     }
     // SAFETY: the caller's contract.
-    let (device_id, device_secret, account_id, password) = unsafe {
+    let (device_id, device_secret, account_id, password, pin) = unsafe {
         (
             text_arg(device_id),
             secret_arg(device_secret),
             text_arg(account_id),
             secret_arg(password),
+            secret_arg(pin),
         )
     };
-    let (Some(device_id), Some(device_secret), Some(account_id), Some(password)) =
-        (device_id, device_secret, account_id, password)
+    let (Some(device_id), Some(device_secret), Some(account_id)) =
+        (device_id, device_secret, account_id)
     else {
         return i64::from(fail(
-            "a setup needs a device id, its secret, an account id and a password",
+            "a setup needs a device id, its secret and an account id",
         ));
     };
+    if password.is_none() && pin.is_none() {
+        return i64::from(fail("a setup needs the password, a PIN, or both"));
+    }
     // SAFETY: the caller's contract.
     let enrollment = &mut unsafe { &mut *enrollment }.0;
-    let result = enrollment.enroll(device_id, &device_secret, account_id, &password);
+    let result = enrollment.enroll(
+        device_id,
+        &device_secret,
+        account_id,
+        password.as_ref(),
+        pin.as_ref(),
+    );
     // SAFETY: the caller's contract.
     unsafe { answered(result, out, capacity) }
 }

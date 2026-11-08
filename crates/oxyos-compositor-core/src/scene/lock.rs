@@ -5,10 +5,13 @@
 //!
 //! At a login screen (ADR 0020) the lock surface also names the account the password is for
 //! (`AuthenticateAccount`); the authentication path decides what it may check.
+//!
+//! A lock surface may say its next password is the account's PIN for this computer
+//! (`AuthenticatePasscode`, ADR 0020 decision 2): the authentication path checks it as a PIN.
 
 use super::{ClientId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{AuthOutcome, ErrorCode, Event, SecretChunk, MAX_SECRET_BYTES};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use zeroize::Zeroizing;
 
 /// A password, overwritten in memory when dropped. Its room is reserved whole when it begins,
@@ -22,6 +25,8 @@ pub struct Submitted {
     /// The account it is for, at a login screen (`AuthenticateAccount`); the session's own user
     /// without one.
     pub account: Option<String>,
+    /// The account's PIN (`AuthenticatePasscode`), not its password.
+    pub passcode: bool,
     pub secret: Secret,
 }
 
@@ -31,6 +36,8 @@ pub(super) struct Authentication {
     receiving: BTreeMap<SurfaceKey, Secret>,
     /// The account each lock surface's next password is for.
     accounts: BTreeMap<SurfaceKey, String>,
+    /// The lock surfaces whose next password is a PIN.
+    passcodes: BTreeSet<SurfaceKey>,
     /// A password submitted and not yet taken by the session.
     submitted: Option<Submitted>,
     /// The lock surface whose password the session is checking, until it answers.
@@ -82,6 +89,14 @@ impl Scene {
                 }
                 Ok(())
             }
+            Request::AuthenticatePasscode { surface } => {
+                self.lock_surface(key(surface))?;
+                // Said while unlocked, it is for no password.
+                if self.locked {
+                    self.authentication.passcodes.insert(key(surface));
+                }
+                Ok(())
+            }
             _ => unreachable!("not a lock request"),
         }
     }
@@ -119,8 +134,9 @@ impl Scene {
             .receiving
             .remove(&key)
             .unwrap_or_default();
-        // An account named is for this password alone.
+        // An account named, and a PIN said, are for this password alone.
         let account = self.authentication.accounts.remove(&key);
+        let passcode = self.authentication.passcodes.remove(&key);
         if !self.locked {
             return;
         }
@@ -133,6 +149,7 @@ impl Scene {
         self.authentication.submitted = Some(Submitted {
             surface: key,
             account,
+            passcode,
             secret,
         });
     }
@@ -188,6 +205,7 @@ impl Scene {
             Some(key) => {
                 self.authentication.receiving.remove(&key);
                 self.authentication.accounts.remove(&key);
+                self.authentication.passcodes.remove(&key);
                 if self
                     .authentication
                     .submitted
@@ -201,6 +219,7 @@ impl Scene {
             None => {
                 self.authentication.receiving.clear();
                 self.authentication.accounts.clear();
+                self.authentication.passcodes.clear();
                 if self.authentication.submitted.take().is_some() {
                     self.authentication.checking = None;
                 }

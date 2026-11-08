@@ -1314,9 +1314,10 @@ int main(int argc, char** argv) {
             ++launchSerial;
             return window->launch(launchSerial, id) ? launchSerial : 0;
           },
-          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account) {
+          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account,
+                                                    bool passcode) {
             auto surface = shellSurfaces.lockSurface();
-            return surface && window->authenticate(*surface, secret, account);
+            return surface && window->authenticate(*surface, secret, account, passcode);
           },
           .activateMenuItem = [&window](uint32_t target, uint32_t serial, uint32_t index) {
             window->activateMenuItem(target, serial, index);

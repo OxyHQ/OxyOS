@@ -33,6 +33,7 @@ mod id;
 pub mod ipc;
 pub mod keychain;
 pub mod pidfd;
+pub mod pin;
 pub mod platform;
 mod secret;
 pub mod session;
