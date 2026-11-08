@@ -36,6 +36,7 @@ import {
   files as platformFiles,
   search as platformSearch,
   sounds as platformSounds,
+  windows as platformWindows,
 } from '@oxyos/platform';
 
 // The file manager the session started as a file chooser: what it was asked to show (the platform's
@@ -122,42 +123,29 @@ function PopupSurface({
   );
 }
 
-// The application's own window; not the shell's (it has none), nor a host drawing offscreen.
-const nativeWindow = TurboModuleRegistry.get('OxyOSWindow');
-const windowConstants = nativeWindow?.getConstants();
-
+// The application's own window, the platform's `windows`; not the shell's (it has none), nor a host
+// drawing offscreen. Bloom's `PlatformWindow`: its state as a store (`getState`, `subscribe`).
 function createWindow() {
-  // One state object per change, so a store snapshot changes only when the window does.
-  let state = nativeWindow.getState();
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSWindowChanged', (next) => {
-    state = next;
-    for (const listener of listeners) listener();
-  });
+  const { state } = platformWindows;
   return {
     controls: 'bloom',
-    metrics: windowConstants.metrics,
-    getState: () => state,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    close: () => nativeWindow.close(),
-    minimize: () => nativeWindow.minimize(),
-    zoom: () => nativeWindow.zoom(),
+    metrics: platformWindows.metrics,
+    getState: () => state.current(),
+    subscribe: (listener) => state.subscribe(() => listener()),
+    close: () => platformWindows.close(),
+    minimize: () => platformWindows.minimize(),
+    zoom: () => platformWindows.zoom(),
     // While a press is being handled: the compositor moves the window until its buttons are up.
     startMove: () => {
-      nativeWindow.startMove();
+      platformWindows.startMove();
     },
     // The sizes the application's layout holds together at (`SetSizeLimits`): the compositor never
     // configures the window outside them, by its edges or by zoom.
-    setSizeLimits: ({ minWidth, minHeight, maxWidth, maxHeight }) => {
-      nativeWindow.setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
-    },
+    setSizeLimits: (limits) => platformWindows.setSizeLimits(limits),
   };
 }
 
-const window = windowConstants?.available && !chooserRequest ? createWindow() : undefined;
+const window = platformWindows.available && !chooserRequest ? createWindow() : undefined;
 
 // The protocol's kinds and flags, and its limits: menus past them are not sent (the compositor
 // would refuse the window's menus whole).
@@ -208,19 +196,11 @@ function flatten(menus) {
   return { entries, ids };
 }
 
-const nativeMenuBar = TurboModuleRegistry.get('OxyOSMenuBar');
-
+// Bloom's menus in the shell's bar, over the platform's `windows.menus`: the protocol's entries, and
+// each commit's ids by index (the compositor and the shell see indices alone), newest last.
 function createMenuBar() {
-  // Each commit's ids by index (the compositor and the shell see indices alone), newest last.
   const commits = [];
   let last = null;
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSMenuActivated', ({ serial, index }) => {
-    const commit = commits.find((kept) => kept.serial === serial);
-    const id = commit?.ids[index];
-    if (id == null) return;
-    for (const listener of [...listeners]) listener(id);
-  });
   return {
     setMenus(menus) {
       const { entries, ids } = flatten(menus ?? []);
@@ -228,62 +208,43 @@ function createMenuBar() {
       const described = JSON.stringify([entries, ids]);
       if (described === last) return;
       last = described;
-      const serial = nativeMenuBar.setMenus(entries);
+      const serial = platformWindows.menus.set(entries);
       if (!serial) return;
       commits.push({ serial, ids });
       if (commits.length > COMMITS_KEPT) commits.shift();
     },
     onActivate(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+      return platformWindows.menus.onChoose(({ serial, index }) => {
+        const id = commits.find((kept) => kept.serial === serial)?.ids[index];
+        if (id != null) listener(id);
+      });
     },
   };
 }
 
-const menuBar = nativeMenuBar?.getConstants()?.available && !chooserRequest ? createMenuBar() : undefined;
+const menuBar = platformWindows.menus.available && !chooserRequest ? createMenuBar() : undefined;
 
-const nativeKeyboard = TurboModuleRegistry.get('OxyOSKeyboard');
-
-function createKeyboard() {
-  const listeners = new Set();
-  // The host calls this with each key press before the focused view, and waits for the answer.
-  nativeKeyboard.setListener((event) => [...listeners].some((listener) => listener(event) === true));
-  return {
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-}
-
-const keyboard = nativeKeyboard?.getConstants()?.available ? createKeyboard() : undefined;
+// The window's keys before the focused view (the platform's `windows.keys`): a listener answering
+// true takes the key.
+const keyboard = platformWindows.keys.available
+  ? { subscribe: (listener) => platformWindows.keys.onKey(listener) }
+  : undefined;
 
 // The window's first responder for the Edit menu's standard actions (docs/adr/0021-menu-bar.mdx,
 // decision 3): the focused text input, whatever component draws it, as the host knows it. Bloom's
 // `MenubarItem action="copy"` is enabled exactly when it can copy and copies there, as a Mac's
-// Edit menu sends copy: to the first responder. One state object per change, so a store snapshot
-// changes only when the state does.
-const nativeEditing = TurboModuleRegistry.get('OxyOSEditing');
-
+// Edit menu sends copy: to the first responder. The platform's `windows.editing`.
 function createEditing() {
-  let state = nativeEditing.getState() ?? null;
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSEditingChanged', (next) => {
-    state = next ?? null;
-    for (const listener of [...listeners]) listener();
-  });
+  const { state } = platformWindows.editing;
   return {
-    getState: () => state,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    perform: (action) => nativeEditing.perform(action) === true,
+    getState: () => state.current() ?? null,
+    subscribe: (listener) => state.subscribe(() => listener()),
+    perform: (action) => platformWindows.editing.perform(action),
   };
 }
 
 // The file chooser's sheet has no menus of its own (the asking window's stand), so no Edit menu.
-const editing = nativeEditing?.getConstants()?.available && !chooserRequest ? createEditing() : undefined;
+const editing = platformWindows.editing.available && !chooserRequest ? createEditing() : undefined;
 
 // The session's appearance (docs/adr/0019-settings.mdx) beyond light and dark, which React Native's
 // own Appearance carries: the accent colour, which seeds Bloom's palette, and reduce transparency.

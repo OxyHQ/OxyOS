@@ -18,6 +18,13 @@ import { createPasteboard } from './pasteboard.ts';
 import { createSearch, type SearchModule } from './search.ts';
 import { createSession, type SystemModule } from './session.ts';
 import { createShell } from './shell.ts';
+import {
+  createWindows,
+  type EditingModule,
+  type KeyboardModule,
+  type MenuBarModule,
+  type WindowModule,
+} from './windows.ts';
 import { createSounds } from './sounds.ts';
 
 export type { AccessToken, Account, AccountState, TokenReason } from './account.ts';
@@ -38,6 +45,7 @@ export type {
   TrashedItem,
 } from './files.ts';
 export type { SystemSheet } from './shell.ts';
+export type { KeyEvent, MenuEntry } from './windows.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
 export {
   MAX_NOTIFICATION_ACTIONS,
@@ -106,5 +114,17 @@ export const search = createSearch(TurboModuleRegistry.get('OxyOSSearch') as Sea
 export const shell = createShell(
   session,
   system?.answerSheet ? (sheet, accepted) => system.answerSheet?.(sheet, accepted) : null,
+  DeviceEventEmitter,
+);
+
+/** The application's own window: its state and operations, its menus, its keys and its first
+    responder (docs/adr/0016-windows.mdx, docs/adr/0021-menu-bar.mdx). */
+export const windows = createWindows(
+  {
+    window: TurboModuleRegistry.get('OxyOSWindow') as WindowModule | null,
+    menuBar: TurboModuleRegistry.get('OxyOSMenuBar') as MenuBarModule | null,
+    keyboard: TurboModuleRegistry.get('OxyOSKeyboard') as KeyboardModule | null,
+    editing: TurboModuleRegistry.get('OxyOSEditing') as EditingModule | null,
+  },
   DeviceEventEmitter,
 );
