@@ -1,6 +1,6 @@
 // React Native's Modal (ModalHostView) as its Android window gives it: laid out at the window's
-// size from its first rendering, told it is shown (onShow), and asked to close (onRequestClose) by Escape, the desktop's
-// back. It is drawn over the window's content and takes its input (renderer.h, input.h). Its
+// size from its first rendering, told it is shown (onShow), and asked to close (onRequestClose) by
+// Escape, the desktop's back. It is drawn over the window's content and takes its input (renderer.h, input.h). Its
 // `animationType` animates its window in and out as Android's do (React Native's
 // `catalyst_slide_up`, `_slide_down`, `_fade_in` and `_fade_out`): for 200 ms, Android's
 // `config_shortAnimTime`, sliding up from below the window and back down, accelerating then
