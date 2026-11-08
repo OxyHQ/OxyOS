@@ -1502,6 +1502,7 @@ def serve_account_session(path, spec, log):
                         answer = {"localSignIn": dict(local_sign_in)}
                     record(application, asked, next(iter(answer)) if "localSignIn" in answer
                            else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
                 elif asked == "savePassword" and isinstance(message["savePassword"], dict):
                     # The password is never logged nor kept.
                     answer = save_password(application, message["savePassword"])
