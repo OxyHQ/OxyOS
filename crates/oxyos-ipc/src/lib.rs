@@ -16,10 +16,10 @@ use oxyos_protocol::{
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use rustix::fs::{FileType, MemfdFlags, OFlags, SealFlags};
 use rustix::net::{
-    AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags,
-    SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType,
+    AddressFamily, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix,
+    SocketFlags, SocketType,
 };
-use std::io::{self, Cursor, IoSlice, IoSliceMut};
+use std::io::{self, Cursor, IoSlice};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::time::Duration;
@@ -31,6 +31,10 @@ const FD_CAPACITY: usize = 4;
 
 fn invalid(reason: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, reason)
+}
+
+fn peer_closed() -> io::Error {
+    io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed")
 }
 
 /// Kernel-reported identity of the peer process at connect time.
@@ -141,36 +145,26 @@ impl Connection {
         Ok(())
     }
 
-    /// Receives one packet and every descriptor that came with it.
+    /// Receives one packet and every descriptor that came with it. The end of the connection is
+    /// the end only once `oxyos-seqpacket` has read twice: the kernel can report it with the
+    /// peer's last packet still queued.
     fn recv_packet(
         &self,
         storage: &mut [u8; PACKET_CAPACITY],
         flags: RecvFlags,
     ) -> io::Result<(usize, Vec<OwnedFd>)> {
-        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(FD_CAPACITY))];
-        let mut control = RecvAncillaryBuffer::new(&mut space);
-        let received = rustix::net::recvmsg(
-            &self.fd,
-            &mut [IoSliceMut::new(storage)],
-            &mut control,
-            RecvFlags::CMSG_CLOEXEC | flags,
-        )?;
-        let mut fds = Vec::new();
-        for message in control.drain() {
-            if let RecvAncillaryMessage::ScmRights(rights) = message {
-                fds.extend(rights);
-            }
+        let packet = oxyos_seqpacket::receive(self.fd.as_fd(), storage, true, flags)?
+            .ok_or_else(peer_closed)?;
+        if packet.length == 0 {
+            return Err(invalid("empty packet"));
         }
-        if received.bytes == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed"));
-        }
-        if received.flags.contains(ReturnFlags::TRUNC) || received.bytes > PACKET_CAPACITY - 1 {
+        if packet.truncated || packet.length > PACKET_CAPACITY - 1 {
             return Err(invalid("oversized packet"));
         }
-        if received.flags.contains(ReturnFlags::CTRUNC) {
+        if packet.descriptors_truncated || packet.descriptors.len() > FD_CAPACITY {
             return Err(invalid("too many descriptors"));
         }
-        Ok((received.bytes, fds))
+        Ok((packet.length, packet.descriptors))
     }
 
     pub fn send_request(&self, request: &Request, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {

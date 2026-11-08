@@ -23,6 +23,7 @@ local = ["dep:argon2", "dep:rand_core"]
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "password-hash", "rand", "zeroize"], optional = true }
 rand_core = { version = "0.6.4", features = ["getrandom"], optional = true }
 oxyos-keychain = { path = "../oxyos-keychain", optional = true }
+oxyos-seqpacket = { path = "../oxyos-seqpacket" }
 # Comparing the password the machine learned with the one Settings gives, in constant time.
 subtle = { version = "2", optional = true }
 # HTTP to Oxy's API with TLS in Rust (rustls, verified against the system's certificates), as

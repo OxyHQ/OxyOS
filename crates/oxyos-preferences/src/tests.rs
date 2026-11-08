@@ -55,7 +55,7 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
          reduce_motion = yes\n\
          lock_after = 99999\n\
          volume = 11\n\
-         wallpaper = horizon\n\
+         wallpaper = ocean\n\
          wallpaper.BOE-0A4B-00000001.2 = color:1f4fd8\n\
          no equals sign\n\
          screen_reader = true\n",
@@ -64,12 +64,37 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
     assert_eq!(preferences.accent, "ocean-blue");
     assert!(!preferences.reduce_motion, "`yes` is not a boolean here");
     assert_eq!(preferences.lock_after, 5, "more than a day is refused");
-    assert_eq!(preferences.wallpapers.default.text(), "horizon");
+    assert_eq!(preferences.wallpapers.default.text(), "ocean");
     assert_eq!(
         preferences.wallpapers.shown("BOE-0A4B-00000001", 2).text(),
         "color:1f4fd8"
     );
     assert!(preferences.screen_reader);
+}
+
+#[test]
+fn a_saved_horizon_is_solar_gradients_automatic_and_written_so_on_the_next_write() {
+    // Horizon was withdrawn (ADR 0048): the session reads it as Solar Gradients, follows the sun,
+    // tells Settings so, and writes it back so.
+    let preferences = Preferences::parse(
+        "wallpaper = horizon/night\n\
+         wallpaper.DEL-A0B4-7Y9K2N3 = horizon\n",
+    );
+    assert_eq!(
+        preferences.get("wallpaper").as_deref(),
+        Some("solar-gradients")
+    );
+    assert_eq!(
+        preferences.wallpapers.shown("DEL-A0B4-7Y9K2N3", 1).text(),
+        "solar-gradients"
+    );
+    let text = preferences.to_text();
+    assert!(text.contains("wallpaper = solar-gradients\n"), "{text}");
+    assert!(
+        text.contains("wallpaper.DEL-A0B4-7Y9K2N3 = solar-gradients\n"),
+        "{text}"
+    );
+    assert!(!text.contains("horizon"), "{text}");
 }
 
 #[test]
@@ -174,7 +199,7 @@ fn what_is_written_reads_back_the_same() {
         ("app_expose_swipe", "off"),
         ("desktops_swipe", "off"),
         ("launchpad_pinch", "false"),
-        ("wallpaper", "horizon/night"),
+        ("wallpaper", "solar-gradients/night"),
         ("wallpaper_all_desktops", "false"),
         ("lock_after", "15"),
         ("screen_reader", "true"),
@@ -183,6 +208,7 @@ fn what_is_written_reads_back_the_same() {
         ("hour_cycle", "h12"),
         ("do_not_disturb", "true"),
         ("notification_previews", "always"),
+        ("empty_trash_automatically", "true"),
     ] {
         preferences.set(key, value).unwrap();
         assert_eq!(preferences.get(key).as_deref(), Some(value));
@@ -467,6 +493,24 @@ fn interface_sound_effects_are_on_by_default_as_on_a_mac() {
     assert!(preferences.ui_sounds);
     preferences.set("ui_sounds", "false").unwrap();
     assert!(!Preferences::parse(&preferences.to_text()).ui_sounds);
+}
+
+#[test]
+fn the_trash_empties_itself_only_once_the_person_turns_it_on_as_on_a_mac() {
+    let mut preferences = Preferences::default();
+    assert!(!preferences.empty_trash_automatically);
+    assert_eq!(
+        preferences.get("empty_trash_automatically").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        preferences.set("empty_trash_automatically", "30"),
+        Err(Refused::BadValue)
+    );
+    preferences
+        .set("empty_trash_automatically", "true")
+        .unwrap();
+    assert!(Preferences::parse(&preferences.to_text()).empty_trash_automatically);
 }
 
 #[test]

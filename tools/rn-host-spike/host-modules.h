@@ -75,7 +75,8 @@ class HostModule : public TurboModule {
       std::string qualified = name_ + "." + method;
       this->method(method, [qualified](jsi::Runtime&, const jsi::Value*, size_t) {
         static std::set<std::string> reported;
-        if (reported.insert(qualified).second) std::cerr << "[host] unsupported on OxyOS: " << qualified << "\n";
+        // One write, so the line arrives whole among the session's other processes' lines.
+        if (reported.insert(qualified).second) std::cerr << ("[host] unsupported on OxyOS: " + qualified + "\n");
         return jsi::Value::undefined();
       });
     }
@@ -366,16 +367,19 @@ struct HostServices {
   // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
   // unset without a window.
   std::function<void()> blurFocusedInput;
-  // An application opens the platform's Settings at a page (`oxyos-settings://PAGE`,
-  // docs/adr/0019-settings.mdx), as a Mac's application opens `x-apple.systempreferences:`: the
-  // session is asked from its window, citing its latest press or key, and `done(opened, reason)`
-  // is called on the host's loop once it answers (`reason` empty when opened; said when the
-  // session refused, when there was no input to cite, or when its compositor is older than
-  // OXYOS_APPLICATION_OPENS_SETTINGS_VERSION and would close the connection). The caller checks
-  // the URL is Settings'; any other scheme closes the connection. Unset for the shell and the
-  // login screen.
+  // An application opens a URL (docs/adr/0058-the-platform-api.mdx, step 6): the platform's
+  // Settings at a page (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), as a Mac's
+  // application opens `x-apple.systempreferences:`, or another application's (`dropsea://trash`),
+  // which the session opens with the application whose entry declares the scheme, as a Mac's
+  // `NSWorkspace.open`. The session is asked from its window, citing its latest press or key, and
+  // `done(opened, reason)` is called on the host's loop once it answers (`reason` empty when
+  // opened; said when the session opened nothing, when there was no input to cite, or when its
+  // compositor is older than the URL needs, OXYOS_APPLICATION_OPENS_SETTINGS_VERSION for Settings'
+  // and OXYOS_APPLICATION_OPENS_URLS_VERSION for any other, and would close the connection). The
+  // caller checks the URL names a scheme other than `file`, which would close it too. Unset for
+  // the shell and the login screen.
   std::function<void(const std::string& url, std::function<void(bool opened, const std::string& reason)> done)>
-      openSettingsUrl;
+      openUrl;
   // An application locks the session (docs/adr/0010-lock-screen.mdx), as the person locks it from
   // the Oxy menu: only while one of its windows is the active one; false when it could not be
   // asked (no window, a compositor older than OXYOS_APPLICATION_LOCKS_VERSION, or its window not
