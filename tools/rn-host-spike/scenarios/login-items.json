@@ -208,14 +208,27 @@
       }
     },
     {
-      "name": "Down",
+      "name": "Down: the keyboard on Chat's window, checked (drawn so as the menu opened)",
       "do": [
         "key",
         108
       ],
       "expect": {
-        "react": {}
-      }
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Chat",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
     },
     {
       "name": "Down",
@@ -356,7 +369,17 @@
         "Allow Chat in the background"
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "background": {
+          "ended": [
+            "so.oxy.backgroundprobe"
+          ]
+        }
+      },
+      "until_named": [
+        "Not allowed in the background",
+        5000
+      ]
     },
     {
       "name": "Ended; Settings says it is not allowed",
@@ -420,14 +443,26 @@
       }
     },
     {
-      "name": "Down",
+      "name": "Down: the keyboard on Open (drawn so as the menu opened)",
       "do": [
         "key",
         108
       ],
       "expect": {
-        "react": {}
-      }
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Open",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
     },
     {
       "name": "Down: Options",
