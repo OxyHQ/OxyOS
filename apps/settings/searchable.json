@@ -162,6 +162,15 @@
     }
   },
   {
+    "id": "settings:storage",
+    "url": "oxyos-settings://storage",
+    "titles": { "en": "Storage", "es": "Almacenamiento" },
+    "keywords": {
+      "en": ["storage", "disk", "disk space", "free space", "space", "capacity", "full", "available", "empty trash automatically", "review files", "large files", "unused apps", "manage storage"],
+      "es": ["almacenamiento", "disco", "espacio en disco", "espacio libre", "espacio", "capacidad", "lleno", "disponible", "vaciar la papelera automáticamente", "revisar archivos", "archivos grandes", "apps sin usar", "gestionar almacenamiento"]
+    }
+  },
+  {
     "id": "settings:spotlight",
     "url": "oxyos-settings://spotlight",
     "titles": { "en": "Spotlight", "es": "Spotlight" },

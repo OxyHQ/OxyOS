@@ -54,6 +54,23 @@ export const session = {
   signOut: () => ask({ signOut: {} }),
 };
 
+/**
+ * Settings › Storage (docs/adr/0062-storage.mdx), with Settings' `settings` grant: the session's
+ * measurement of the volume, the system's image, the Trash and each application, asked as the
+ * page shows it (`{storage: {volume, system, trash, apps}}`, nothing followed); an item shown in
+ * the file manager, citing the press that asked (`{revealed: {}}`); and an application removed
+ * through the store's uninstall, confirmed in the shell's system sheet (`{uninstalled: {id}}` or
+ * `{cancelled: {}}`). A refusal is `{refused: {reason}}`.
+ */
+export const storage = {
+  measure: () => ask({ storage: {} }),
+  reveal: (uri) => ask({ reveal: { uri } }),
+  remove: (id) => ask({ uninstall: { id } }),
+  // Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx): the session confirms it in
+  // its sheet, quits the application and erases its own data (`{reset: {id}}`).
+  reset: (id) => ask({ resetApplication: { id } }),
+};
+
 /** The account's decisions on its applications' capabilities: `privacy` grant. */
 export const privacy = {
   list: () => ask({ privacy: {} }),

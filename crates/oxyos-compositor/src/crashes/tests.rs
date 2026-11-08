@@ -593,7 +593,7 @@ fn own_data_in(root: &Path) -> impl Fn(&str) -> Option<OwnData> {
     move |id| {
         oxyos_apps::valid_id(id).then(|| OwnData {
             data: root.join("data/oxyos/apps").join(id),
-            cache: root.join("cache/oxyos/apps").join(id),
+            caches: root.join("cache/oxyos/apps").join(id),
         })
     }
 }
@@ -790,7 +790,7 @@ fn a_reset_quits_the_application_then_erases_its_own_data_alone() {
     let mut crashes = Crashes::new(None, None).with_own_data(own_data_in(&scratch.0));
     let mention = own(MENTION).unwrap();
     let allo = own("so.oxy.allo").unwrap();
-    for directory in [&mention.data, &mention.cache, &allo.data] {
+    for directory in [&mention.data, &mention.caches, &allo.data] {
         std::fs::create_dir_all(directory).unwrap();
         std::fs::write(directory.join("async-storage.json"), "{corrupt").unwrap();
     }
@@ -876,7 +876,7 @@ fn a_reset_quits_the_application_then_erases_its_own_data_alone() {
             reset: vec![MENTION.into()],
         }
     );
-    assert!(!mention.data.exists() && !mention.cache.exists());
+    assert!(!mention.data.exists() && !mention.caches.exists());
     assert!(allo.data.join("async-storage.json").exists());
     assert_eq!(
         session.answers(SHELL),

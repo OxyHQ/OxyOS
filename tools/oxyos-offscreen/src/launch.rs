@@ -868,6 +868,10 @@ pub struct Launch {
     /// `--trash`: the user's Trashes followed for the dock as the session follows them
     /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
     pub trash: bool,
+    /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0062-storage.mdx),
+    /// on the run's own home, the volume's figures and the system's a played disk's (FILE, JSON:
+    /// `name`, `capacity`, `available`, `reserved`, `system`), never the developer's disk.
+    pub storage: Option<PathBuf>,
     /// `--runtimes DIR`: where the runtimes an application's entry names are
     /// (docs/adr/0030-installing-applications.mdx, decision 2): a scenario's, in place of the
     /// image's (`/usr/lib/oxyos/runtimes`).
@@ -933,7 +937,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1046,6 +1050,7 @@ impl Launch {
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
+        let mut storage = None;
         let mut runtimes = None;
         let mut installed_fixture = None;
         let mut screenshots = None;
@@ -1215,6 +1220,10 @@ impl Launch {
                 }
                 Some("--trash") => {
                     trash = true;
+                    continue;
+                }
+                Some("--storage") => {
+                    storage = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--grant-settings") => {
@@ -1811,6 +1820,7 @@ impl Launch {
                 grants,
                 installd,
                 trash,
+                storage,
                 runtimes,
                 installed_fixture,
                 screenshots,
@@ -4991,6 +5001,26 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.trash = Some(trash);
     }
     session.installed_fixture = launch.installed_fixture.clone();
+    // Settings › Storage (docs/adr/0062-storage.mdx), on the run's home and a played disk.
+    if let Some(file) = &launch.storage {
+        let text = std::fs::read_to_string(file)?;
+        let disk: oxyos_compositor::storage::PlayedDisk =
+            serde_json::from_str(&text).map_err(|error| format!("{}: {error}", file.display()))?;
+        let mut storage = oxyos_compositor::storage::Storage::new(
+            oxyos_files::Scope::for_user()?,
+            std::sync::Arc::new(disk),
+            launch
+                .installd
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("/nonexistent/oxyos-installd.socket")),
+        )?;
+        storage.set_locale(&session.settings.locale());
+        storage.list_applications(oxyos_apps::Listing::read(session.installed_fixture.clone()));
+        let waker = storage.wake_fd()?;
+        session.storage_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.storage = Some(storage);
+    }
     // Search (docs/adr/0051-search.mdx): the index as the session runs it, this program's child
     // (`--search-service`), started at the first ask rather than with the run; told the
     // applications the shell lists, the fixture's installed ones among them.

@@ -1,0 +1,200 @@
+{
+  "about": "Resetting an application from Settings › General › Storage (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 5; docs/adr/0062-storage.mdx): Settings granted `settings`, on the run's home and a played disk. Allo's sheet offers Reset…, which Settings asks the session for with its grant, citing the press; the session asks the person in the system's own sheet what is erased and what is kept, and nothing is erased before. Reset: Allo's data and cache directories are erased and nothing else of the home (the person's notes, another application's data); Settings is told and measures again, Allo's own data now nothing. Settings' own row offers no Reset… (the session never resets an application at its own request). With the session erasing before it asks, or more than Allo's own, the run fails.",
+  "module": "OxyOSSettings",
+  "locale": "en_US.UTF-8",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings"
+    ]
+  },
+  "storage": {
+    "name": "OxyOS",
+    "capacity": 256000000000,
+    "available": 100000000000,
+    "reserved": 12800000000,
+    "system": 9000000000
+  },
+  "home": {
+    "items": {
+      "Documents/notes.txt": "a few notes",
+      ".local/share/oxyos/apps/so.oxy.allo/messages.db": {
+        "bytes": 2097152
+      },
+      ".cache/oxyos/apps/so.oxy.allo/thumbnail.png": {
+        "bytes": 4096
+      },
+      ".local/share/oxyos/apps/so.oxy.inbox/kept.json": "{\"mine\": true}"
+    }
+  },
+  "steps": [
+    {
+      "name": "Settings opens",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Appearance"
+        ],
+        "keyboard_focus": null,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Storage, from the sidebar",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Storage"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "measured once the page shows",
+      "do": [
+        "wait_named",
+        [
+          "Review Files…",
+          30000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "delivered": {}
+      }
+    },
+    {
+      "name": "the applications",
+      "do": [
+        "scroll",
+        [
+          776,
+          500,
+          1000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Applications",
+          "Allo",
+          "Settings"
+        ],
+        "keyboard_focus": null,
+        "delivered": {
+          "1": {
+            "scroll": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Allo's sheet: its own data and caches, and Reset…",
+      "do": [
+        "press_named",
+        "Allo, 2.1 MB"
+      ],
+      "expect": {
+        "texts": [
+          "Allo",
+          "Documents & Data",
+          "2.1 MB",
+          "Caches",
+          "Reset…",
+          "Done"
+        ],
+        "keyboard_focus": null,
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Reset…: the session asks in the system's own sheet what is erased and what is kept; nothing is erased yet",
+      "do": [
+        "press_named",
+        "Reset…"
+      ],
+      "until_named": [
+        "Reset “Allo”?",
+        15000
+      ],
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Reset “Allo”?",
+            "Allo's data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.",
+            "Cancel",
+            "Reset"
+          ]
+        },
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.allo/messages.db": true,
+          ".cache/oxyos/apps/so.oxy.allo/thumbnail.png": true
+        },
+        "keyboard_focus": null,
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Reset: Allo's own data and cache erased and nothing else; Settings measures again, Allo's data now nothing",
+      "do": [
+        "press_named",
+        "Reset"
+      ],
+      "until_named": [
+        "Allo, 0 bytes",
+        15000
+      ],
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Reset “Allo”?"
+          ]
+        },
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.allo/messages.db": false,
+          ".cache/oxyos/apps/so.oxy.allo/thumbnail.png": false,
+          "Documents/notes.txt": "a few notes",
+          ".local/share/oxyos/apps/so.oxy.inbox/kept.json": "{\"mine\": true}",
+          ".local/share/oxyos/apps/.erasing": false
+        },
+        "keyboard_focus": null,
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    }
+  ]
+}

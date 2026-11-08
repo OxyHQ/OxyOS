@@ -179,6 +179,7 @@ fn what_is_written_reads_back_the_same() {
         ("hour_cycle", "h12"),
         ("do_not_disturb", "true"),
         ("notification_previews", "always"),
+        ("empty_trash_automatically", "true"),
     ] {
         preferences.set(key, value).unwrap();
         assert_eq!(preferences.get(key).as_deref(), Some(value));
@@ -463,6 +464,24 @@ fn interface_sound_effects_are_on_by_default_as_on_a_mac() {
     assert!(preferences.ui_sounds);
     preferences.set("ui_sounds", "false").unwrap();
     assert!(!Preferences::parse(&preferences.to_text()).ui_sounds);
+}
+
+#[test]
+fn the_trash_empties_itself_only_once_the_person_turns_it_on_as_on_a_mac() {
+    let mut preferences = Preferences::default();
+    assert!(!preferences.empty_trash_automatically);
+    assert_eq!(
+        preferences.get("empty_trash_automatically").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        preferences.set("empty_trash_automatically", "30"),
+        Err(Refused::BadValue)
+    );
+    preferences
+        .set("empty_trash_automatically", "true")
+        .unwrap();
+    assert!(Preferences::parse(&preferences.to_text()).empty_trash_automatically);
 }
 
 #[test]

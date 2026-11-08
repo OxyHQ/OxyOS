@@ -1,26 +1,19 @@
-//! An application's own data (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision
-//! 4): the one definition of what is an application's on the person's disk, which Reset erases,
-//! Settings' Storage counts and an uninstall removes (docs/adr/0030-installing-applications.mdx,
-//! decision 11).
-//!
-//! - **Its data directory**, `oxyos/apps/<id>` under `$XDG_DATA_HOME` ([`data_directory`]): Expo's
-//!   document directory, its AsyncStorage (`async-storage.json`, `oxyos-app-storage`), whatever it
-//!   keeps of its own.
-//! - **Its cache directory**, `oxyos/apps/<id>` under `$XDG_CACHE_HOME` ([`cache_directory`]).
-//!
-//! Nothing else is: the person's documents and files, their keychain, their decisions about the
-//! application (its capabilities, the dock, Open at Login, its notification sounds) and its crash
-//! reports are the person's, never the application's own.
+//! Erasing an application's own data (docs/adr/0061-crashes-and-resetting-an-application.mdx,
+//! decision 5). What is an application's own is defined once, [`OwnData`]
+//! (docs/adr/0062-storage.mdx, decision 3): its data directory and its cache directory, which Reset
+//! erases, Settings' Storage counts and an uninstall removes; nothing else of the person's (their
+//! documents and files, their keychain, their decisions about the application, its crash reports)
+//! is ever touched here.
 //!
 //! **Erasing** ([`OwnData::set_aside`]) renames each directory aside, into `.erasing` beside it (no
-//! id begins with a dot, so it is never an application's), the cache first and the data last: that
+//! id begins with a dot, so it is never an application's), the caches first and the data last: that
 //! rename is the moment the application is reset. A crash at any point leaves the application as it
 //! was or reset, never with half of its data; what was set aside is deleted afterwards
 //! ([`SetAside::delete`]), and whatever a crash left there is deleted at the next session's start
 //! ([`sweep`]). Nothing is followed: a link in an application's directory, or the directory itself
 //! a link, is removed as a link, so nothing outside it is ever touched.
 
-use crate::{cache_directory, data_directory};
+use crate::{cache_directory, data_directory, OwnData};
 use std::io;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
@@ -28,35 +21,15 @@ use std::path::{Path, PathBuf};
 /// The folder beside the applications' own directories that what is being erased is moved into.
 pub const ERASING: &str = ".erasing";
 
-/// Where an application's own data is: its directories, which may not exist yet.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OwnData {
-    pub data: PathBuf,
-    pub cache: PathBuf,
-}
-
 impl OwnData {
-    /// `id`'s own data in the session's base directories; none for an id that is not one, or
-    /// without a home.
-    pub fn of(id: &str) -> Option<Self> {
-        Some(Self {
-            data: data_directory(id)?,
-            cache: cache_directory(id)?,
-        })
-    }
-
-    /// Its directories, the cache first: the order they are set aside in, the data's last.
-    pub fn directories(&self) -> [&Path; 2] {
-        [&self.cache, &self.data]
-    }
-
     /// Moves each directory that is there aside, into `.erasing` beside it, renamed so that two
-    /// erasures never meet: the application has none of its data from then on. A directory that is
-    /// not there is nothing to erase. Fails, leaving the data where it is, if `.erasing` is not a
-    /// directory of its own (a link, a file) or a rename cannot be made (another file system).
+    /// erasures never meet: the application has none of its data from then on. The caches go first
+    /// and the data last, whose rename is the moment it is reset. A directory that is not there is
+    /// nothing to erase. Fails, leaving the data where it is, if `.erasing` is not a directory of
+    /// its own (a link, a file) or a rename cannot be made (another file system).
     pub fn set_aside(&self) -> io::Result<SetAside> {
         let mut moved = Vec::new();
-        for directory in self.directories() {
+        for directory in [&self.caches, &self.data] {
             let Some(parent) = directory.parent() else {
                 continue;
             };

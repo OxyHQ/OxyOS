@@ -69,6 +69,23 @@ fn the_vocabulary_is_read_strictly_by_grant_and_input() {
     assert!(!Ask::UpdateAll {}.allowed(&grants(false, false, true)));
     assert!(Ask::Privacy {}.allowed(&grants(false, false, true)));
     assert!(!Ask::Privacy {}.allowed(&grants(true, true, false)));
+    // Removing: the store's, and Settings' (Storage, docs/adr/0062-storage.mdx); confirmed in the
+    // same sheet, citing an input.
+    let uninstall = Ask::Uninstall { id: "x".into() };
+    assert!(uninstall.allowed(&grants(true, false, false)));
+    assert!(uninstall.allowed(&oxyos_compositor_core::Grants {
+        settings: true,
+        ..Default::default()
+    }));
+    assert!(!uninstall.allowed(&grants(false, true, true)));
+    assert!(uninstall.changes());
+    // Installing and opening stay the store's alone.
+    let settings_only = oxyos_compositor_core::Grants {
+        settings: true,
+        ..Default::default()
+    };
+    assert!(!install.allowed(&settings_only));
+    assert!(!Ask::Open { id: "x".into() }.allowed(&settings_only));
     assert!(install.changes() && Ask::Check {}.changes() && Ask::UpdateAll {}.changes());
     assert!(!Ask::State {}.changes() && !Ask::Privacy {}.changes());
     assert!(!Ask::Status {
@@ -265,6 +282,8 @@ fn removing_asks_the_sheet_then_removes_the_accounts_data_as_the_account() {
             entry: entry_path.clone(),
             capabilities: BTreeMap::new(),
             staged: None,
+            size: 4096,
+            last_used: None,
         }])],
         Request::Uninstall { id, .. } => vec![Answer::Uninstalled {
             id: id.clone(),
@@ -332,6 +351,7 @@ fn an_update_needing_consent_is_asked_and_only_consented_ones_switch() {
         version_code: Some(13),
         outcome: outcome.into(),
         reason: None,
+        needed: None,
     };
     let (socket, asked) = service("consent", move |request| match request {
         Request::UpdateAll { .. } => vec![Answer::Updated(vec![updated("awaitingConsent")])],

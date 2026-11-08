@@ -6,7 +6,7 @@ order: 39
 
 # ADR 0030: Installing applications (Atlas)
 
-Status: **accepted** (decisions 1 to 15, and every choice under [Decided with the platform's author](#decided-with-the-platforms-author), chosen with the platform's author on 2026-10-30; decision 16, one place for the OS's and the applications' updates, asked for by the author the same day; decision 17's Bloom in the framework, decided by the author the same day); steps to come. Builds on:
+Status: **accepted** (decisions 1 to 15, and every choice under [Decided with the platform's author](#decided-with-the-platforms-author), chosen with the platform's author on 2026-10-30; decision 16, one place for the OS's and the applications' updates, asked for by the author the same day; decision 17's Bloom in the framework, decided by the author the same day); steps to come. It is amended by [ADR 0062](./0062-storage) (8 November 2026): Settings (`settings`) may ask the store's `uninstall` too, confirmed in the same sheet (Storage's Remove Unused Apps); the install service checks, before it fetches anything, that the disk has room for a version (`noSpace`, with the bytes more it needs), notes when the account last used each application at its holds, and lists each one's size and last use. Builds on:
 - [ADR 0001](./0001-native-platform-boundaries): grants from the session authority.
 - [ADR 0013](./0013-launching-applications): the registry, launching and launch records.
 - [ADR 0015](./0015-application-model): one source, platform adapters.

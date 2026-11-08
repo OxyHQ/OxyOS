@@ -1197,6 +1197,42 @@ fn an_applications_directories_are_its_own_under_the_base_directories() {
     );
 }
 
+#[test]
+fn an_applications_own_data_is_its_data_and_cache_directories_and_nothing_else() {
+    // The one definition Storage measures, uninstalling removes and resetting clears.
+    if let Some(own) = OwnData::of("so.oxy.dropsea") {
+        assert_eq!(Some(own.data.clone()), data_directory("so.oxy.dropsea"));
+        assert_eq!(Some(own.caches.clone()), cache_directory("so.oxy.dropsea"));
+        assert_eq!(
+            own.directories(),
+            [own.data.as_path(), own.caches.as_path()]
+        );
+        assert_ne!(own.data, own.caches);
+    }
+    for id in ["", "..", "a/b", ".hidden"] {
+        assert_eq!(OwnData::of(id), None, "{id}");
+    }
+}
+
+#[test]
+fn an_item_is_revealed_selected_in_its_folder_by_the_file_managers_url() {
+    // As the shell's Spotlight writes it (`spotlight.ts`): encodeURIComponent's encoding.
+    assert_eq!(
+        reveal_url("file:///home/ana/Pictures/Beach%20Day.jpg"),
+        "dropsea://files?uri=file%3A%2F%2F%2Fhome%2Fana%2FPictures\
+         &select=file%3A%2F%2F%2Fhome%2Fana%2FPictures%2FBeach%2520Day.jpg"
+    );
+    // A folder is shown in the folder above it.
+    assert_eq!(
+        reveal_url("file:///home/ana/Old/"),
+        "dropsea://files?uri=file%3A%2F%2F%2Fhome%2Fana&select=file%3A%2F%2F%2Fhome%2Fana%2FOld%2F"
+    );
+    assert_eq!(
+        reveal_url("file:///etc"),
+        "dropsea://files?uri=file%3A%2F%2F%2F&select=file%3A%2F%2F%2Fetc"
+    );
+}
+
 // ---- runtimes and packages (docs/adr/0030-installing-applications.mdx, decisions 1 and 2) -----
 
 /// A runtime of `abi` in `runtimes`, as the image lays one out: its description, its host and its
@@ -1924,7 +1960,7 @@ fn an_exit_the_session_did_not_ask_for_and_that_failed_is_abnormal_with_its_repo
 fn own_data_in(root: &Path, id: &str) -> OwnData {
     OwnData {
         data: root.join("data/oxyos/apps").join(id),
-        cache: root.join("cache/oxyos/apps").join(id),
+        caches: root.join("cache/oxyos/apps").join(id),
     }
 }
 
@@ -1933,7 +1969,7 @@ fn erasing_sets_an_applications_own_directories_aside_and_nothing_else() {
     let dir = Directory::new("erase", &[]);
     let own = own_data_in(&dir.0, "so.oxy.mention");
     let other = own_data_in(&dir.0, "so.oxy.allo");
-    for directory in [&own.data, &own.cache, &other.data] {
+    for directory in [&own.data, &own.caches, &other.data] {
         std::fs::create_dir_all(directory.join("deep")).unwrap();
         std::fs::write(directory.join("deep/file"), "kept?").unwrap();
     }
@@ -1945,7 +1981,7 @@ fn erasing_sets_an_applications_own_directories_aside_and_nothing_else() {
     std::os::unix::fs::symlink(&documents, own.data.join("documents")).unwrap();
     let aside = own.set_aside().unwrap();
     // At once, the application has none of its data; the other's is as it was.
-    assert!(!own.data.exists() && !own.cache.exists());
+    assert!(!own.data.exists() && !own.caches.exists());
     assert_eq!(
         std::fs::read_to_string(other.data.join("deep/file")).unwrap(),
         "kept?"
@@ -2014,7 +2050,7 @@ fn an_applications_own_data_is_its_data_and_cache_directories() {
         data_directory("so.oxy.mention")
     );
     assert_eq!(
-        own.as_ref().map(|own| own.cache.clone()),
+        own.as_ref().map(|own| own.caches.clone()),
         cache_directory("so.oxy.mention")
     );
     assert_eq!(OwnData::of("../x"), None);

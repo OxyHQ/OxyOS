@@ -55,7 +55,17 @@ export type UpdatesSnapshot = {
 export type UpdateOutcome = {
   id: string;
   outcome: "switched" | "atNextLaunch" | "awaitingConsent" | "upToDate" | "failed" | string;
+  /** Failed for want of room: the bytes more the disk needs to download it (the install service
+      checks before it fetches anything, docs/adr/0062-storage.mdx). */
+  needed?: number;
 };
+
+/** The bytes more an outcome says the disk needs, if it failed for want of room. */
+export function spaceNeeded(outcome: UpdateOutcome | undefined): number | null {
+  return outcome?.outcome === "failed" && typeof outcome.needed === "number" && outcome.needed > 0
+    ? outcome.needed
+    : null;
+}
 
 /** An update asked for answers once it ended, with each application's outcome (none when the
     session refused it). */
