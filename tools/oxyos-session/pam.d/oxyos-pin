@@ -1,0 +1,7 @@
+# The OxyOS session's lock screen with a PIN (docs/adr/0010-lock-screen.mdx,
+# docs/adr/0020-oxy-account-login.mdx decision 2): the session's own user's PIN, checked by
+# oxyos-accountd against its verifier, offline, and throttled there (oxyos-pin-check, run as that
+# user, may check its own account's PIN alone). Never the password, and never online. Installed
+# as /etc/pam.d/oxyos-pin.
+auth required pam_exec.so quiet expose_authtok /usr/libexec/oxyos/oxyos-pin-check
+@include common-account

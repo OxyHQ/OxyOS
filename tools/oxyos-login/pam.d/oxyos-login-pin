@@ -1,0 +1,14 @@
+# The login program's sign-in with a PIN (docs/adr/0020-oxy-account-login.mdx, decision 2): an
+# enrolled Oxy account's PIN, checked by oxyos-accountd against its verifier, offline, and
+# throttled there (oxyos-pin-check), the account checked, and the person's session opened as
+# oxyos-login opens one. Never the password, and never online. Installed as
+# /etc/pam.d/oxyos-login-pin.
+auth required pam_exec.so quiet expose_authtok /usr/libexec/oxyos/oxyos-pin-check
+@include common-account
+session required pam_loginuid.so
+session optional pam_keyinit.so force revoke
+session required pam_limits.so
+session required pam_env.so readenv=1
+session required pam_env.so readenv=1 envfile=/etc/default/locale
+session required pam_unix.so
+session required pam_systemd.so
