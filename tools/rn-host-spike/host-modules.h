@@ -379,6 +379,11 @@ struct HostServices {
   } runtime{};
 };
 
+// A module's answer as a promise: resolved with `value`, or rejected with an Error carrying
+// `message`.
+jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value);
+jsi::Value rejected(jsi::Runtime& rt, const std::string& message);
+
 // React Native's Dimensions for a window of `display`'s size and scale: DeviceInfo's constant at
 // start, and `didUpdateDimensions`' payload each time it changes, as Android's DeviceInfoModule
 // emits it on a configuration change.

@@ -1,4 +1,5 @@
 #include "host-modules.h"
+#include "platform-modules.h"
 
 #include "files.h"
 #include "images.h"
@@ -42,17 +43,6 @@ jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& 
     callback.asObject(rt).asFunction(rt).call(rt, argument);
   }
   return jsi::Value::undefined();
-}
-
-// A promise resolved with `value`.
-jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
-  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
-}
-
-// A promise rejected with an Error carrying `message`.
-jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
-  auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
-  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
 }
 
 // The first line of a file, or "" (a file that is not there says nothing).
@@ -522,6 +512,17 @@ class ExpoImageRefHandle : public jsi::HostObject {
 };
 }  // namespace
 
+// A promise resolved with `value`.
+jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
+  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
+}
+
+// A promise rejected with an Error carrying `message`.
+jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
+  auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
+  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
+}
+
 folly::dynamic deviceDimensions(const Display& display) {
   folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
       "scale", display.scale)("fontScale", 1.0);
@@ -533,6 +534,8 @@ std::shared_ptr<TurboModule> createHostModule(
     const std::shared_ptr<CallInvoker>& invoker,
     const Display& display,
     HostServices& services) {
+  // A module of the platform API's is its spec's generated base (platform-modules.h).
+  if (auto module = createPlatformModule(name, invoker, services)) return module;
   auto module = std::make_shared<HostModule>(name, invoker);
 
   if (name == "PlatformConstants") {
@@ -1299,14 +1302,6 @@ std::shared_ptr<TurboModule> createHostModule(
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });
-  } else if (name == "OxyOSSounds") {
-    // The system's interface sounds (sample/oxyos/platform-surface.js, Bloom's usePlatformSounds;
-    // docs/adr/0044-system-sounds.mdx): an application asks by meaning, the session plays its own.
-    module->constants([&services] { return folly::dynamic::object("available", services.soundsAvailable); });
-    module->method("play", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSounds.play: a sound's name");
-      return jsi::Value(services.playSystemSound && services.playSystemSound(args[0].asString(rt).utf8(rt)));
-    });
   } else if (name == "OxyOSDrag") {
     // Dragging the application's content to another application (sample/oxyos/platform-surface.js,
     // Bloom's usePlatformDrag; docs/adr/0035-drag-and-drop.mdx): from the press it holds, the
@@ -1355,39 +1350,6 @@ std::shared_ptr<TurboModule> createHostModule(
               });
             };
             services.drag.start(data, actions, preview, items, options, std::move(done), std::move(cancelled));
-            return jsi::Value::undefined();
-          });
-      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
-    });
-    module->listeners();
-  } else if (name == "OxyOSClipboard") {
-    // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the
-    // latest key or press the app received: the compositor refuses it unless the app has keyboard
-    // focus and that input is one of its latest 16 (docs/adr/0007-clipboard.mdx).
-    auto ready = [&services](jsi::Runtime& rt) {
-      if (!services.clipboard.copy) throw jsi::JSError(rt, "OxyOSClipboard: the clipboard needs a window on OxyOS");
-    };
-    module->method("hasString", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      ready(rt);
-      return resolved(rt, jsi::Value(services.clipboard.hasText()));
-    });
-    module->method("setString", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      return resolved(rt, jsi::Value(services.clipboard.copy(count > 0 ? text(rt, args[0]) : "")));
-    });
-    // The text arrives later, from the clipboard's owner: the promise settles on the JavaScript
-    // thread, through the module's invoker. A refused paste reads nothing: "".
-    module->method("getString", [&services, ready, invoker](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      ready(rt);
-      auto start = jsi::Function::createFromHostFunction(
-          rt, jsi::PropNameID::forAscii(rt, "paste"), 2,
-          [&services, invoker](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
-            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
-            services.clipboard.paste([invoker, resolve](std::string pasted) {
-              invoker->invokeAsync([resolve, pasted = std::move(pasted)](jsi::Runtime& rt) {
-                resolve->asObject(rt).asFunction(rt).call(rt, jsi::String::createFromUtf8(rt, pasted));
-              });
-            });
             return jsi::Value::undefined();
           });
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);

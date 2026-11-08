@@ -49,6 +49,7 @@
     "../../apps/login/tests",
     "../../apps/settings/src",
     "../../apps/settings/tests",
+    "../rn-host-spike/sample/oxyos/platform/specs",
     "../rn-host-spike/sample/oxyos/platform/src",
     "../rn-host-spike/sample/oxyos/platform/tests"
   ]

@@ -1,13 +1,11 @@
 // `sounds` (docs/adr/0058-the-platform-api.mdx, decision 1; docs/adr/0044-system-sounds.mdx): the
 // system's interface sounds. An application asks by meaning and the session plays its own sound
 // theme's, as the person's settings and the output allow, citing the latest input it received.
+import type { Spec } from '../specs/NativeOxyOSSounds.ts';
 import { PlatformError } from './errors.ts';
 
-/** The host's module (OxyOSSounds). */
-export interface SoundsModule {
-  getConstants(): { available?: boolean };
-  play(name: string): boolean;
-}
+/** The host's module (OxyOSSounds), as its spec says it. */
+export type SoundsModule = Pick<Spec, 'getConstants' | 'play'>;
 
 /** The sounds an application may ask for, by meaning. */
 export const SYSTEM_SOUNDS = ['move-to-trash', 'empty-trash'] as const;

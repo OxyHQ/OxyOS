@@ -3,12 +3,14 @@
 // private business; only these exports are a contract.
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
+import NativeOxyOSClipboard from '../specs/NativeOxyOSClipboard.ts';
+import NativeOxyOSSounds from '../specs/NativeOxyOSSounds.ts';
 import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
 import { createFrameworks } from './frameworks.ts';
-import { createPasteboard, type ClipboardModule } from './pasteboard.ts';
+import { createPasteboard } from './pasteboard.ts';
 import { createSession, type SystemModule } from './session.ts';
-import { createSounds, type SoundsModule } from './sounds.ts';
+import { createSounds } from './sounds.ts';
 
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
@@ -29,13 +31,10 @@ const frameworks = createFrameworks(session);
 export const { network, bluetooth, power, audio, settings, store } = frameworks;
 
 /** Copying and pasting text (docs/adr/0007-clipboard.mdx). */
-export const pasteboard = createPasteboard(
-  TurboModuleRegistry.get('OxyOSClipboard') as ClipboardModule | null,
-  DeviceEventEmitter,
-);
+export const pasteboard = createPasteboard(NativeOxyOSClipboard, DeviceEventEmitter);
 
 /** The system's interface sounds (docs/adr/0044-system-sounds.mdx). */
-export const sounds = createSounds(TurboModuleRegistry.get('OxyOSSounds') as SoundsModule | null);
+export const sounds = createSounds(NativeOxyOSSounds);
 
 /** Dragging content to other applications, and drags over the window (docs/adr/0035-drag-and-drop.mdx). */
 export const drag = createDrag(TurboModuleRegistry.get('OxyOSDrag') as DragModule | null, DeviceEventEmitter);

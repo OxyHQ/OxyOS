@@ -2,17 +2,15 @@
 // copying and pasting plain text on the system's pasteboard. Every application may, citing an
 // input: the compositor takes a copy or gives a paste only to the application with the keyboard
 // focus that acted just before (one of its latest inputs).
+import type { Spec } from '../specs/NativeOxyOSClipboard.ts';
 import { PlatformError } from './errors.ts';
-import type { Events } from './session.ts';
 import type { CallOptions } from './frameworks.ts';
 import { hostCall } from './host.ts';
+import type { Events } from './session.ts';
 
-/** The host's module (OxyOSClipboard). Its calls throw where the application has no window. */
-export interface ClipboardModule {
-  hasString(): Promise<boolean>;
-  setString(text: string): Promise<boolean>;
-  getString(): Promise<string>;
-}
+/** The host's module (OxyOSClipboard), as its spec says it. Its calls throw where the application
+    has no window. */
+export type ClipboardModule = Pick<Spec, 'hasString' | 'setString' | 'getString'>;
 
 const unavailable = () => new PlatformError('pasteboard', 'unavailable');
 /** A host call of the pasteboard's (its calls throw at once where the application has no window). */
