@@ -186,9 +186,15 @@ pub fn event_since(event: &Event) -> u16 {
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one. A request an older version had, carrying a value that version lacks, is the newer
 /// version's: a node's hint (version 13), a column header (version 14) and a meter (version 15),
-/// which an older compositor would refuse; and that list (version 23).
+/// which an older compositor would refuse; that list (version 23); and Launchpad's surfaces said
+/// to be what a pinch drives (`GestureOverlay::Launchpad`, version 33,
+/// docs/adr/0046-interactive-gestures.mdx).
 pub fn request_since(request: &Request) -> u16 {
     match request {
+        Request::SetGestureOverlay {
+            overlay: crate::wire::GestureOverlay::Launchpad,
+            ..
+        } => 33,
         Request::AccessibleText {
             field: AccessibleField::Hint,
             ..

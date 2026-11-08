@@ -58,7 +58,11 @@ const setupActions: SetupActions | undefined =
     ? {
         platform: () => platformFrom(accountSession.platform()),
         SignIn: SetupSignIn,
-        enroll: async (password, pin) => enrollAnswerFrom(await accountSession.enroll(password, pin)),
+        enroll: async (password, pin) => {
+          // What the setup sends, for the log; never the secrets.
+          console.info(`[setup] enroll with ${password ? 'the password' : 'no password'} and ${pin ? 'a PIN' : 'no PIN'}`);
+          return enrollAnswerFrom(await accountSession.enroll(password, pin));
+        },
         secondFactor: async (code) => enrollAnswerFrom(await accountSession.secondFactor(code)),
         end: () => accountSession.endEnrollment(),
       }

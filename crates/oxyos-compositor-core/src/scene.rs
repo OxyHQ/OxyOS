@@ -443,6 +443,9 @@ pub struct Scene {
     swipe_gestures: u64,
     /// Where the compositor draws what swipes drive (`swipe_from`).
     swipe_rest: swipes::SwipeRest,
+    /// Which fingers make which of the trackpad's gestures, as the person chose
+    /// (`set_trackpad_gestures`).
+    trackpad_gestures: swipes::TrackpadGestures,
     /// The workspace drawn beside the active one while a swipe across slides them
     /// (`show_beside`).
     beside: Option<u32>,
@@ -4528,12 +4531,29 @@ impl Scene {
         );
     }
 
-    /// A touchpad pinch: it goes to the surface under the pointer when it began (as a scroll
-    /// does) until it ends, at the pointer, which a pinch does not move. `scale_65536` and
+    /// A touchpad pinch of `fingers`: it goes to the surface under the pointer when it began (as
+    /// a scroll does) until it ends, at the pointer, which a pinch does not move. `scale_65536` and
     /// `rotation_256` are as the Pinch event carries them. A pinch that began over no surface,
-    /// or whose surface went, reaches nothing.
-    pub fn pointer_pinch(&mut self, phase: GesturePhase, scale_65536: u32, rotation_256: i32) {
+    /// or whose surface went, reaches nothing. The thumb and three fingers pinched are the
+    /// system's, Launchpad's, unless the person turned that off (`Scene::launchpad_pinch`).
+    pub fn pointer_pinch(
+        &mut self,
+        phase: GesturePhase,
+        fingers: u8,
+        scale_65536: u32,
+        rotation_256: i32,
+    ) {
         self.user_input();
+        let launchpads = if phase == GesturePhase::Begin {
+            self.pinch_is_launchpads(fingers)
+        } else {
+            self.pinching_launchpad()
+        };
+        if launchpads {
+            self.pinch = None;
+            self.launchpad_pinch(phase, fingers, f64::from(scale_65536) / 65536.0);
+            return;
+        }
         if phase == GesturePhase::Begin {
             self.pinch = self.pointer_target();
         }
@@ -5165,7 +5185,7 @@ pub use controls::{
 };
 pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
-pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest};
+pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest, TrackpadGestures};
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

@@ -4591,6 +4591,10 @@ fn the_header_matches_the_system_shortcuts_abi() {
             OXYOS_GESTURE_OVERLAY_APP_EXPOSE.into(),
         ),
         (
+            "OXYOS_GESTURE_OVERLAY_LAUNCHPAD",
+            OXYOS_GESTURE_OVERLAY_LAUNCHPAD.into(),
+        ),
+        (
             "OXYOS_MANAGE_HIDE_APPLICATION",
             OXYOS_MANAGE_HIDE_APPLICATION.into(),
         ),
@@ -4830,7 +4834,7 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..6)
+        (0..7)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
@@ -4872,9 +4876,14 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         // App Exposé's windows moved into their views (ADR 0045), and its surface the one the
         // swipe down drives (ADR 0046); a value the protocol does not have is refused unsent.
         assert_eq!(oxyos_client_move_windows_to_views(client, 3, true), 0);
-        assert_eq!(oxyos_client_set_gesture_overlay(client, 3, 3), -1);
+        assert_eq!(oxyos_client_set_gesture_overlay(client, 3, 4), -1);
         assert_eq!(
             oxyos_client_set_gesture_overlay(client, 3, OXYOS_GESTURE_OVERLAY_APP_EXPOSE),
+            0
+        );
+        // Launchpad's, the pinch's (version 33).
+        assert_eq!(
+            oxyos_client_set_gesture_overlay(client, 4, OXYOS_GESTURE_OVERLAY_LAUNCHPAD),
             0
         );
         let requests = compositor.join().unwrap();
@@ -4906,6 +4915,10 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
                 Request::SetGestureOverlay {
                     surface: 3,
                     overlay: oxyos_protocol::GestureOverlay::AppExpose,
+                },
+                Request::SetGestureOverlay {
+                    surface: 4,
+                    overlay: oxyos_protocol::GestureOverlay::Launchpad,
                 },
             ]
         );
