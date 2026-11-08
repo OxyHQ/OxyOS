@@ -536,6 +536,66 @@ fn the_local_sign_in_is_read_and_changed_on_the_session_socket() {
 }
 
 #[test]
+fn settings_keychain_requests_go_rebuilt_and_only_settings_ones() {
+    let (socket, dir) = socket_path("session");
+    let shapes = [
+        json!({"keychainItems": [{"itemId": "i1", "type": "login", "title": "Example",
+            "username": "bea@example.com", "domains": ["example.com"], "hasCode": false,
+            "modifiedAt": "2026-11-08T10:00:00.000Z"}]}),
+        json!({"refused": {"reason": "throttled", "retryAfter": 30}}),
+        json!({"refused": {"reason": "wrongPassword", "retryAfter": 30}}),
+        // Not the keychain's: a token, a snapshot, AutoFill's credential.
+        json!({"token": null}),
+        json!({"autofillCredential": {"username": "bea@example.com", "password": "fixture-secret"}}),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |_| {
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let ask = |request: Value| {
+        keychain_at(&socket, &Secret::new(request.to_string()))
+            .map(|json| serde_json::from_slice::<Value>(&json).unwrap())
+    };
+    assert_eq!(
+        ask(json!({"keychainList": {}})),
+        Ok(
+            json!({"keychainItems": [{"itemId": "i1", "type": "login", "title": "Example",
+            "username": "bea@example.com", "domains": ["example.com"], "hasCode": false,
+            "modifiedAt": "2026-11-08T10:00:00.000Z"}]})
+        )
+    );
+    assert_eq!(
+        ask(json!({"keychainVerify": {"password": "fixture-password"}})),
+        Ok(json!({"refused": {"reason": "throttled", "retryAfter": 30}}))
+    );
+    // A wait is said only when throttled.
+    assert_eq!(
+        ask(json!({"keychainVerify": {"password": "fixture-password"}})),
+        Ok(json!({"refused": {"reason": "wrongPassword"}}))
+    );
+    for _ in 0..2 {
+        let failed = ask(json!({"keychainGenerate": {}})).unwrap_err();
+        assert!(!failed.to_string().contains("fixture-secret"));
+    }
+    served.join().unwrap();
+    // Never sent: the registrar's requests, any other, and what is no request at all.
+    for request in [
+        json!({"autofillGenerate": {}}),
+        json!({"autofillFill": {"desktopEntryId": "so.oxy.dropsea", "ref": "r", "field": "password"}}),
+        json!({"keychainLock": {}}),
+        json!({"eraseAll": {"password": "fixture-password"}}),
+        json!("snapshot"),
+        json!({"keychainVerify": {}}),
+    ] {
+        let refused = ask(request).unwrap_err();
+        assert!(matches!(refused, SessionError::Failed(_)), "{refused:?}");
+        assert!(!refused.to_string().contains("fixture-password"));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
     let (socket, dir) = socket_path("accountd");
     let served = service(&socket, 1, |message| {

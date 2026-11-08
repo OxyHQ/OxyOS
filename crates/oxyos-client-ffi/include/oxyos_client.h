@@ -2134,6 +2134,16 @@ int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
  * nothing changed. */
 int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
                                            const char* current_pin, char* out, size_t capacity);
+/* One of Settings' keychain requests (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8):
+ * `request` is its JSON as the accounts' service reads it ({"keychainList": {}}, {"keychainReveal":
+ * {"itemId"}} ...; secret: copied into a buffer this library overwrites; overwrite your own).
+ * Settings alone may ask (anyone else is refused notPermitted); the registrar's requests (AutoFill,
+ * the lock) and anything else are not sent. Blocks while the service answers, which may ask Oxy:
+ * call it off the interface's thread. Writes the answer as JSON, rebuilt: one of the keychain's
+ * answers, or {"refused": {"reason", "retryAfter"? (seconds, when throttled)}}. It may hold secrets
+ * (an item, a recovery key, a code): overwrite `out` once handed on. Give OXYOS_ACCOUNT_MESSAGE_MAX
+ * bytes. OXYOS_ERROR when it is not a request of Settings' or the service could not be asked. */
+int64_t oxyos_account_session_keychain(const char* request, char* out, size_t capacity);
 /* Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-
  * passkeys.mdx, decision 5): `username`, `password` (secret: copied into a buffer this library
  * overwrites; overwrite your own) and the website it is for (`domain`, a host name, or NULL). The

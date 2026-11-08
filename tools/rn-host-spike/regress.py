@@ -662,7 +662,10 @@ so); a wrong one is refused `wrongPassword`, and from the `account.erase.throttl
 on, `throttled` with `retryAfter` 30. A step's `account_session` expectation is what it was asked in
 the step, exactly, in any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused;
 `token boot: token`, `token preflight: no token`, `subscribe: snapshot`, `remove: removed`,
-`erasePreview: preview`, `eraseAll: erasing` or the reason it was refused).
+`erasePreview: preview`, `eraseAll: erasing` or the reason it was refused). `account.keychain` as an object
+plays the keychain Settings › Passwords asks (`PlayedKeychain`: its items, codes, strong passwords, recovery
+key, members and enrollments; recorded "keychainVerify: verified", "keychainList: items" ... or the
+reason it was refused, never a value).
 
 Saving a login (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): the development
 compositor (`autofill.saves`) takes the played service's save confirmations as the session takes
@@ -1331,6 +1334,182 @@ def played_token(application, reason):
     return "played." + base64.urlsafe_b64encode(claims).decode().rstrip("=")
 
 
+class PlayedKeychain:
+    """The accounts' service's keychain as Settings asks it (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+    step 2's Settings messages), played from a scenario's `account.keychain`: `state` ("member", "off",
+    ...), `vault` (whether the account has one at Oxy), `password` (the account's, which
+    `keychainVerify` takes; listing, reading, writing, auditing, a code, a strong password, removing a
+    member and approving need it first, as the service), `items` (each as `keychainReveal` gives it,
+    `itemId` and all), `codes` ({itemId: {code, period, remaining}}, what `keychainCode` answers),
+    `generated` (the strong passwords `keychainGenerate` answers, in turn), `recovery_key` (what
+    `keychainCreate` shows and `keychainConfirmRecoveryKey` and `keychainJoin` take, read as the
+    service reads one: case, hyphens and spaces ignored), `members` and `enrollments` (each as
+    Settings is told them; an enrollment's `code` is shown once it is approved by this machine).
+    A weak password is one shorter than 12 characters (the played service's stand-in for zxcvbn).
+    Every value is the scenario's own fixture; what is recorded is the request's name and the answer's
+    word, never a value."""
+
+    VERIFIED = {"keychainList", "keychainReveal", "keychainPut", "keychainDelete", "keychainAudit",
+                "keychainGenerate", "keychainCode", "keychainRemoveMember"}
+
+    def __init__(self, spec):
+        self.spec = spec
+        self.state = spec.get("state", "member")
+        self.vault = spec.get("vault", self.state == "member")
+        self.verified = bool(spec.get("verified", False))
+        self.items = {item["itemId"]: dict(item) for item in spec.get("items", [])}
+        self.members = [dict(member) for member in spec.get("members", [])]
+        self.enrollments = [dict(enrollment) for enrollment in spec.get("enrollments", [])]
+        self.generated = list(spec.get("generated", []))
+        self.made = 0
+        self.wrong = 0
+
+    @staticmethod
+    def refused(reason, **extra):
+        return {"refused": dict({"reason": reason}, **extra)}, reason
+
+    @staticmethod
+    def key_text(text):
+        return re.sub(r"[\s-]", "", str(text or "")).upper()
+
+    def status(self):
+        status = {"state": self.state, "vault": self.vault, "verified": self.verified}
+        if self.state == "member":
+            status["items"] = len(self.items)
+        return {"keychainStatus": status}
+
+    def summary(self, item):
+        kind = item["type"]
+        if kind == "login":
+            domains = [re.sub(r"^[a-z][a-z0-9+.-]*://", "", url).split("/")[0] for url in item.get("urls", [])]
+            title, username = item["title"], item.get("username") or None
+        elif kind == "passkey":
+            domains, title, username = [item["rpId"]], item["rpName"], item["userName"]
+        elif kind == "wifi":
+            domains, title, username = [], item["ssid"], None
+        elif kind == "totp":
+            domains, title, username = [], item["title"], item.get("account")
+        else:
+            domains, title, username = [], item["title"], None
+        summary = {"itemId": item["itemId"], "type": kind, "title": title, "domains": domains,
+                   "hasCode": bool(item.get("totp")) or kind == "totp", "modifiedAt": item["modifiedAt"]}
+        if username:
+            summary["username"] = username
+        return summary
+
+    def audit(self):
+        logins = [item for item in self.items.values() if item["type"] == "login"]
+        by_password = {}
+        for item in logins:
+            by_password.setdefault(item["password"], []).append(item["itemId"])
+        reused = [ids for ids in by_password.values() if len(ids) > 1]
+        weak = [item["itemId"] for item in logins if len(item["password"]) < 12]
+        return {"reusedCount": sum(len(ids) for ids in reused), "weakCount": len(weak),
+                "reused": reused, "weak": weak}
+
+    def answer(self, asked, body):
+        body = body if isinstance(body, dict) else {}
+        if asked == "keychainStatus":
+            return self.status(), self.state
+        if self.state == "locked":
+            return self.refused("locked")
+        if asked == "keychainVerify":
+            if self.spec.get("throttle_after") is not None and self.wrong >= self.spec["throttle_after"]:
+                return self.refused("throttled", retryAfter=30)
+            if body.get("password") != self.spec.get("password"):
+                self.wrong += 1
+                return self.refused("wrongPassword")
+            self.wrong = 0
+            self.verified = True
+            return "keychainVerified", "verified"
+        if asked in self.VERIFIED and not self.verified:
+            return self.refused("verificationRequired")
+        if asked == "keychainCreate":
+            if self.vault is True:
+                return self.refused("vaultExists")
+            self.state = "creating"
+            return {"keychainRecoveryKey": {"recoveryKey": self.spec["recovery_key"]}}, "recoveryKey"
+        if asked == "keychainConfirmRecoveryKey":
+            if self.state != "creating":
+                return self.refused("invalidRequest")
+            if self.key_text(body.get("recoveryKey")) != self.key_text(self.spec["recovery_key"]):
+                return self.refused("recoveryKeyMismatch")
+            self.state, self.vault = "member", True
+            return self.status(), "member"
+        if asked == "keychainJoin":
+            if body.get("method") == "recoveryKey":
+                if self.key_text(body.get("recoveryKey")) != self.key_text(self.spec["recovery_key"]):
+                    return self.refused("recoveryKeyMismatch")
+                self.state = "member"
+                return self.status(), "member"
+            self.state = "joining"
+            return {"keychainEnrollment": {"enrollmentId": "played-join", "status": "waiting"}}, "waiting"
+        if self.state != "member":
+            return self.refused("notMember")
+        if asked == "keychainList":
+            return {"keychainItems": [self.summary(item) for item in self.items.values()]}, "items"
+        if asked == "keychainReveal":
+            item = self.items.get(body.get("itemId"))
+            return ({"keychainItem": item}, "item") if item else self.refused("notFound")
+        if asked == "keychainCode":
+            code = self.spec.get("codes", {}).get(body.get("itemId"))
+            return ({"keychainCode": code}, "code") if code else self.refused("notFound")
+        if asked == "keychainGenerate":
+            if not self.generated:
+                return self.refused("failed")
+            password = self.generated.pop(0)
+            self.generated.append(password)
+            return {"generatedPassword": password}, "generated"
+        if asked == "keychainPut":
+            item = dict(body.get("item") or {})
+            item_id = item.pop("itemId", None)
+            now = "2026-11-08T12:00:00.000Z"
+            if item_id is None:
+                self.made += 1
+                item_id, created = f"played-item-{self.made}", now
+            elif item_id in self.items:
+                created = self.items[item_id]["createdAt"]
+            else:
+                return self.refused("notFound")
+            self.items[item_id] = dict(item, itemId=item_id, createdAt=created, modifiedAt=now)
+            return {"keychainSaved": {"itemId": item_id}}, "saved"
+        if asked == "keychainDelete":
+            if self.items.pop(body.get("itemId"), None) is None:
+                return self.refused("notFound")
+            return "keychainDeleted", "deleted"
+        if asked == "keychainAudit":
+            return {"keychainAudit": self.audit()}, "audit"
+        if asked == "keychainMembers":
+            return {"keychainMembers": self.members}, "members"
+        if asked == "keychainEnrollments":
+            return {"keychainEnrollments": self.enrollments}, "enrollments"
+        if asked == "keychainApprove":
+            enrollment = next((e for e in self.enrollments if e["enrollmentId"] == body.get("enrollmentId")), None)
+            if enrollment is None:
+                return self.refused("notFound")
+            if not body.get("confirm"):
+                enrollment["status"] = "code"
+                return {"keychainEnrollment": enrollment}, "code"
+            if not self.verified:
+                return self.refused("verificationRequired")
+            self.enrollments.remove(enrollment)
+            self.members.append({"memberId": f"played-member-{len(self.members) + 1}",
+                                 "name": enrollment.get("name", "Device"),
+                                 "platform": enrollment.get("platform", ""), "self": False, "orphaned": False})
+            return "keychainApproved", "approved"
+        if asked == "keychainDeny":
+            before = len(self.enrollments)
+            self.enrollments = [e for e in self.enrollments if e["enrollmentId"] != body.get("enrollmentId")]
+            return ("keychainDenied", "denied") if len(self.enrollments) < before else self.refused("notFound")
+        if asked == "keychainRemoveMember":
+            member = next((m for m in self.members if m["memberId"] == body.get("memberId")), None)
+            if member is None or member["self"]:
+                return self.refused("invalidRequest")
+            self.members.remove(member)
+            return "keychainMemberRemoved", "removed"
+        return self.refused("invalidRequest")
+
+
 def serve_account_session(path, spec, log):
     """The accounts' service's session socket (docs/adr/0020-oxy-account-login.mdx, decision 6:
     SOCK_SEQPACKET, one JSON message a packet) as applications ask it. The service knows a peer by
@@ -1358,6 +1537,7 @@ def serve_account_session(path, spec, log):
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
     pins_set = [spec.get("local_pin")]
+    keychain = PlayedKeychain(spec["keychain"]) if isinstance(spec.get("keychain"), dict) else None
     # Saving (ADR 0050, decision 5): the compositor's confirmations connection, the requests it
     # was asked and not yet answered (id -> [event, decision]), and what was saved.
     confirmer = {"connection": None, "next": 0}
@@ -1406,7 +1586,10 @@ def serve_account_session(path, spec, log):
         if not isinstance(username, str) or not username or not isinstance(asked.get("password"), str) \
                 or not asked["password"]:
             return {"refused": {"reason": "invalidRequest"}}
+        # `account.keychain`: its state, or the played keychain whose state it is.
         keychain = spec.get("keychain", "member")
+        if isinstance(keychain, dict):
+            keychain = keychain.get("state", "member")
         if keychain == "locked":
             return {"refused": {"reason": "locked"}}
         if keychain == "off":
@@ -1596,6 +1779,13 @@ def serve_account_session(path, spec, log):
                         answer = {"localSignIn": dict(local_sign_in)}
                     record(application, asked, next(iter(answer)) if "localSignIn" in answer
                            else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
+                elif keychain is not None and asked.startswith("keychain") and application == "so.oxy.settings":
+                    # Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, step 2's
+                    # Settings messages), played: `account.keychain`.
+                    with lock:
+                        answer, said = keychain.answer(asked, message[asked] if isinstance(message, dict) else None)
+                    record(application, asked, said)
                     connection.send(json.dumps(answer).encode())
                 elif asked == "savePassword" and isinstance(message["savePassword"], dict):
                     # The password is never logged nor kept.

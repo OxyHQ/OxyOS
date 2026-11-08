@@ -79,6 +79,10 @@ class AccountSession {
   // "passwordOff"), proved by the password or the current PIN (an empty one is none).
   void localSignIn(Done done);
   void changeLocal(std::string change, std::string pin, std::string password, std::string currentPin, Done done);
+  // One of Settings' keychain requests, its JSON (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+  // decision 8): it may hold a password or an item, and the answer an item, a recovery key or a
+  // code, so both are forgotten once handed on.
+  void keychain(std::string request, Done done);
   // The password is forgotten here once sent; `domain` may be empty (none).
   void savePassword(std::string username, std::string password, std::string domain, Done done);
   // The login screen's setup. The device credential the SDK's sign-in handed over is held here,
