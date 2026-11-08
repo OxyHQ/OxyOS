@@ -505,14 +505,16 @@ class Scenario:
                    "Accounts: Ada Lovelace, Bea Ramos" in shown, shown[-600:])
         started = time.monotonic()
         self.m.send_serial("erase\r")
-        needle, _ = self.m.wait_serial("The backup was restored", "Something went wrong", "didn't finish",
-                                       timeout=1800, after=at)
+        needle, end = self.m.wait_serial("The backup was restored", "Something went wrong", "didn't finish",
+                                         timeout=1800, after=at)
         done = needle.startswith("The backup was restored")
         self.check("Restore from Backup erases, installs OxyOS again and restores the backup", done,
                    "" if done else self.m.serial_text()[at:][-2000:])
         if not done:
             raise Failure("the restore failed")
         self.facts["restore_seconds"] = round(time.monotonic() - started, 1)
+        # The recovery's debug shell lives until its restart: the restored system's is the one after.
+        self.m.wait_serial("BdsDxe: starting", timeout=300, after=end)
         sh = self.erased_and_restored(len(self.m.debug_text()), started)
         return sh
 
@@ -526,7 +528,7 @@ class Scenario:
         groups = sh(f"getent group sudo {ada} {bea}")
         self.check("restored: the administrator is in sudo, the other is not",
                    ada in groups.splitlines()[0] and bea not in groups.splitlines()[0], groups)
-        locked = sh(f"passwd -S {ada} {bea} | awk '{{print $2}}'").split()
+        locked = sh(f"for user in {ada} {bea}; do passwd -S $user | awk '{{print $2}}'; done").split()
         self.check("restored: their passwords are locked until they are set up again online", locked == ["L", "L"], locked)
         for user, before in self.backed_up.items():
             after = sh(f"cd /home/{user} && find . -printf '%p %U:%G %m %s\\n' | sort && sha256sum Documents/large.raw")
