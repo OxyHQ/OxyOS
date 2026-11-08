@@ -149,12 +149,14 @@ void ShellSurfaceHost::tellFlags(Region& region, const OxyOSShellSurfaceProps& p
     region.moves = moves;
     Report::get().popup("shell.moves", region.surface, nullptr, folly::dynamic::object("moves", moves));
   }
-  // Mission Control's or App Exposé's (docs/adr/0046-interactive-gestures.mdx): a compositor of
-  // version 24 or older drives nothing by a swipe.
+  // Mission Control's, App Exposé's or Launchpad's (docs/adr/0046-interactive-gestures.mdx): a
+  // compositor of version 24 or older drives nothing by a swipe, and one of version 32 or older
+  // nothing by a pinch.
   uint8_t gesture = region.placed.kind == kLock || region.placed.kind == kCandidates || window_.protocolVersion() < 25
                         ? OXYOS_GESTURE_OVERLAY_NONE
                     : props.gesture == "mission-control" ? OXYOS_GESTURE_OVERLAY_MISSION_CONTROL
                     : props.gesture == "app-expose"      ? OXYOS_GESTURE_OVERLAY_APP_EXPOSE
+                    : props.gesture == "launchpad" && window_.protocolVersion() >= 33 ? OXYOS_GESTURE_OVERLAY_LAUNCHPAD
                                                          : OXYOS_GESTURE_OVERLAY_NONE;
   if (gesture != region.gesture) {
     window_.setGestureOverlay(region.surface, gesture);

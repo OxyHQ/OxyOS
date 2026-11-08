@@ -24,7 +24,7 @@ use super::launch::assemble;
 use super::{ClientId, Scene, SurfaceKey};
 use oxyos_protocol::{
     ApplicationListKind, ErrorCode, Event, PreeditText, TextChunk, MAX_APPLICATION_LIST_BYTES,
-    MAX_URL_BYTES, PLATFORM_SETTINGS_SCHEME,
+    MAX_URL_BYTES,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -93,6 +93,18 @@ fn chunks(text: &str) -> Vec<PreeditText> {
         .into_iter()
         .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
         .collect()
+}
+
+/// Whether a client with `grants` changes the list `kind` and is told it: the dock, the shell;
+/// Open at Login, the shell (the dock's menu) and Settings (Login Items & Extensions,
+/// docs/adr/0060-login-items-and-background-activity.mdx), one list either changes; whose
+/// notifications are silent, Settings (docs/adr/0044-system-sounds.mdx).
+fn list_holder(grants: &super::Grants, kind: ApplicationListKind) -> bool {
+    match kind {
+        ApplicationListKind::Dock => grants.shell,
+        ApplicationListKind::OpenAtLogin => grants.shell || grants.settings,
+        ApplicationListKind::NotificationSoundsOff => grants.settings,
+    }
 }
 
 impl Scene {
@@ -219,13 +231,11 @@ impl Scene {
         last: bool,
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
-        // The dock's lists are the shell's; whose notifications are silent, Settings'
+        // The dock is the shell's; Open at Login both the shell's (the dock's menu) and Settings'
+        // (Login Items & Extensions, docs/adr/0060-login-items-and-background-activity.mdx): one
+        // list, changed by either; whose notifications are silent, Settings'
         // (docs/adr/0044-system-sounds.mdx).
-        let grants = &self.clients[&client];
-        let allowed = match list {
-            ApplicationListKind::Dock | ApplicationListKind::OpenAtLogin => grants.shell,
-            ApplicationListKind::NotificationSoundsOff => grants.settings,
-        };
+        let allowed = list_holder(&self.clients[&client], list);
         if !allowed {
             return Err(ErrorCode::Unauthorized);
         }
@@ -271,14 +281,11 @@ impl Scene {
         }
     }
 
-    /// Who is told a list: the dock's, the shells; whose notifications are silent, Settings.
+    /// Who is told a list: those who may change it ([`list_holder`]).
     fn list_clients(&self, kind: ApplicationListKind) -> Vec<ClientId> {
         self.clients
             .iter()
-            .filter(|(_, grants)| match kind {
-                ApplicationListKind::Dock | ApplicationListKind::OpenAtLogin => grants.shell,
-                ApplicationListKind::NotificationSoundsOff => grants.settings,
-            })
+            .filter(|(_, grants)| list_holder(grants, kind))
             .map(|(client, _)| *client)
             .collect()
     }
@@ -332,12 +339,14 @@ impl Scene {
         last: bool,
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
-        // The shell opens any URL; an application only the platform's Settings at a page
-        // (`oxyos-settings:`, docs/adr/0019-settings.mdx), as a Mac's application opens
-        // `x-apple.systempreferences:`, and one at a time: its first chunk names the scheme, and
-        // beginning one drops whatever else it was sending.
+        // The shell opens any URL; an application one that names its scheme (the platform's
+        // Settings at a page, `oxyos-settings:`, docs/adr/0019-settings.mdx, or an application's,
+        // docs/adr/0058-the-platform-api.mdx, step 6), never a file (opened by its type, with its
+        // own rules), and one at a time: its first chunk names the scheme, and beginning one drops
+        // whatever else it was sending. The program opens it with the application whose entry
+        // declares the scheme, for the person's input, as a Mac's `NSWorkspace.open` does.
         if !self.clients[&client].shell && index == 0 {
-            if !opens_platform_settings(text.as_str()) {
+            if !opens_by_scheme(text.as_str()) {
                 return Err(ErrorCode::Unauthorized);
             }
             self.dock
@@ -367,6 +376,21 @@ impl Scene {
             with_input,
         });
         Ok(())
+    }
+
+    /// A URL the session's own notification opens, pressed in `shell` citing an input it received
+    /// (docs/adr/0060-login-items-and-background-activity.mdx): asked as the shell's own, with
+    /// serial 0, which answers no request of the shell's.
+    pub(super) fn open_url_for_shell(&mut self, shell: ClientId, url: String) {
+        if self.dock.urls.len() >= MAX_PENDING {
+            return;
+        }
+        self.dock.urls.push(UrlRequest {
+            client: shell,
+            serial: 0,
+            url,
+            with_input: true,
+        });
     }
 
     /// The URLs the shell (and applications, the platform's Settings) asked to open since the last
@@ -437,11 +461,17 @@ impl Scene {
     }
 }
 
-/// Whether `text` (a URL, or its first chunk) opens the platform's Settings: it begins with its
-/// scheme, `oxyos-settings`, in any case (RFC 3986), and `:`.
-pub(super) fn opens_platform_settings(text: &str) -> bool {
-    let scheme = PLATFORM_SETTINGS_SCHEME;
-    text.len() > scheme.len()
-        && text.as_bytes()[scheme.len()] == b':'
-        && text.as_bytes()[..scheme.len()].eq_ignore_ascii_case(scheme.as_bytes())
+/// Whether `text` (a URL, or its first chunk) is one an application may ask to open: it begins
+/// with a scheme (RFC 3986: a letter, then letters, digits, `+`, `-` and `.`) and `:`, and the
+/// scheme, in any case, is not `file`.
+pub(super) fn opens_by_scheme(text: &str) -> bool {
+    let Some((scheme, _)) = text.split_once(':') else {
+        return false;
+    };
+    let mut characters = scheme.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && characters.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        && !scheme.eq_ignore_ascii_case("file")
 }

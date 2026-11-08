@@ -5,6 +5,7 @@ import {
   diagonalInches,
   formatMemory,
   formatRefresh,
+  GESTURE_DEFAULTS,
   LOCK_AFTER_CHOICES,
   looksLike,
   notificationSoundsWith,
@@ -15,6 +16,9 @@ import {
   refreshRates,
   resolutions,
   sideOfKey,
+  SWIPE_FINGERS,
+  swipeFingersOf,
+  swipeItems,
   type Display,
 } from "../src/model.ts";
 import { messagesFor } from "../src/messages.ts";
@@ -22,22 +26,28 @@ import { messagesFor } from "../src/messages.ts";
 test("preferences are named as the session's file names them", () => {
   assert.deepEqual(Object.values(PREFERENCE_KEYS).sort(), [
     "accent",
+    "app_expose_swipe",
     "appearance",
     "battery_percentage",
     "caret_blink",
+    "desktops_swipe",
     "dim_on_battery",
     "display_off_adapter",
     "display_off_battery",
     "do_not_disturb",
+    "empty_trash_automatically",
     "hour_cycle",
     "input_source",
     "input_sources",
     "language",
+    "launchpad_pinch",
     "lock_after",
     "low_power_mode",
+    "mission_control_swipe",
     "mouse_natural_scrolling",
     "notification_previews",
     "notification_sounds_off",
+    "open_at_login",
     "reduce_motion",
     "reduce_transparency",
     "region",
@@ -245,4 +255,53 @@ test("natural scrolling is a Mac's switch on its Mouse and Trackpad pages, each 
     messagesFor("es").scrolling.naturalScrollingDescription,
     "El contenido sigue el movimiento de los dedos",
   );
+});
+
+test("Trackpad's More Gestures are a Mac's, each its own preference, three fingers by default", () => {
+  // docs/adr/0046-interactive-gestures.mdx: the session's four keys, as the file writes them.
+  assert.equal(PREFERENCE_KEYS.missionControlSwipe, "mission_control_swipe");
+  assert.equal(PREFERENCE_KEYS.appExposeSwipe, "app_expose_swipe");
+  assert.equal(PREFERENCE_KEYS.desktopsSwipe, "desktops_swipe");
+  assert.equal(PREFERENCE_KEYS.launchpadPinch, "launchpad_pinch");
+  assert.equal(preferenceText<"missionControlSwipe">("four"), "four");
+  assert.equal(preferenceText<"desktopsSwipe">("off"), "off");
+  assert.equal(preferenceText<"launchpadPinch">(false), "false");
+  assert.deepEqual(GESTURE_DEFAULTS, {
+    missionControlSwipe: "three",
+    appExposeSwipe: "three",
+    desktopsSwipe: "three",
+    launchpadPinch: true,
+  });
+  // Read from the file: three unless it says four or off.
+  assert.equal(swipeFingersOf("four"), "four");
+  assert.equal(swipeFingersOf("off"), "off");
+  assert.equal(swipeFingersOf("three"), "three");
+  assert.equal(swipeFingersOf(undefined), "three");
+  assert.equal(swipeFingersOf("five"), "three");
+  // Each swipe's menu, in a Mac's order and words.
+  assert.deepEqual(SWIPE_FINGERS, ["three", "four", "off"]);
+  const en = messagesFor("en").gestures;
+  assert.equal(en.title, "More Gestures");
+  assert.deepEqual(swipeItems(en.choices.missionControl), [
+    { value: "three", label: "Swipe up with three fingers" },
+    { value: "four", label: "Swipe up with four fingers" },
+    { value: "off", label: "Off" },
+  ]);
+  assert.deepEqual(
+    swipeItems(en.choices.desktops).map((item) => item.label),
+    ["Swipe left or right with three fingers", "Swipe left or right with four fingers", "Off"],
+  );
+  assert.deepEqual(
+    swipeItems(en.choices.appExpose).map((item) => item.label),
+    ["Swipe down with three fingers", "Swipe down with four fingers", "Off"],
+  );
+  assert.equal(en.launchpadDescription, "Pinch with thumb and three fingers");
+  const es = messagesFor("es").gestures;
+  assert.equal(es.title, "Más gestos");
+  assert.equal(es.desktops, "Pasar de un escritorio a otro");
+  assert.deepEqual(
+    swipeItems(es.choices.missionControl).map((item) => item.label),
+    ["Deslizar hacia arriba con tres dedos", "Deslizar hacia arriba con cuatro dedos", "Desactivado"],
+  );
+  assert.equal(es.launchpadDescription, "Pellizcar con el pulgar y tres dedos");
 });

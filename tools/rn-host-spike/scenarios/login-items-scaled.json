@@ -1,0 +1,521 @@
+{
+  "about": "Login Items & Extensions (docs/adr/0060-login-items-and-background-activity.mdx) in Spanish at scale 1.25 (the ThinkPad's panel), over a real oxyos-installd with the installed Chat probe kept in the dock: the same as login-items.json, from the session's side and Settings', and the parts the keyboard reaches: Chat adds itself to Open at Login (Settings' list shows it at once, the person told once), registers its background activity (told once more, the notification replaced), runs in the background once Super+W closes its window, is turned off by the person (the session ends it at once), and − removes it from Open at Login. + then opens the chooser of the registry's applications with the keyboard in it, and Escape gives the keyboard back to +.",
+  "locale": "es_ES.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "outputs": "1600x1000@1.25",
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "dock": "so.oxy.backgroundprobe"
+    }
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.backgroundprobe"
+    ],
+    "installed": [
+      "so.oxy.backgroundprobe"
+    ]
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.backgroundprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Ítems de inicio y extensiones, from the sidebar: nothing at login, nothing in the background",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Ítems de inicio y extensiones"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Abrir al iniciar sesión",
+          "Ningún ítem",
+          "Actividad de las apps en segundo plano",
+          "Ninguna app realiza tareas en segundo plano."
+        ],
+        "keyboard_focus": null,
+        "notifications": [],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "Chat, pressed in the dock: the session opens it",
+      "do": [
+        "press_named",
+        "Chat"
+      ],
+      "expect": {
+        "notifications": []
+      }
+    },
+    {
+      "name": "Chat asks how its items stand: neither registered",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Login item: notRegistered",
+            "Background: notRegistered"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Add Login Item",
+      "do": [
+        "press_named",
+        "Add Login Item"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Settings' list shows Chat at once; the person told once",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Login item: enabled"
+          ]
+        },
+        "texts": [
+          "Chat",
+          "Aplicación"
+        ],
+        "absent": [
+          "Ningún ítem"
+        ],
+        "in_shell": {
+          "texts": [
+            "Ítems en segundo plano añadidos",
+            "«Chat» ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
+          ]
+        },
+        "notifications": [
+          {
+            "number": 1,
+            "application": "so.oxy.settings",
+            "title": "Ítems en segundo plano añadidos"
+          }
+        ],
+        "preferences_file": {
+          "open_at_login": "so.oxy.backgroundprobe"
+        }
+      }
+    },
+    {
+      "name": "Run in Background",
+      "do": [
+        "press_named",
+        "Run in Background"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Settings lists it, allowed; told once more, the notification replaced",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Background: enabled"
+          ]
+        },
+        "texts": [
+          "Permitida en segundo plano"
+        ],
+        "notifications": [
+          {
+            "number": 2,
+            "application": "so.oxy.settings",
+            "title": "Ítems en segundo plano añadidos"
+          }
+        ]
+      }
+    },
+    {
+      "name": "The dock's menu of Chat, by a long press on its icon",
+      "do": [
+        "hold_named",
+        [
+          "Chat",
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Opciones"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Chat"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: the keyboard on Chat's window, checked (drawn so as the menu opened)",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Chat",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Right opens Options: Open at Login checked, as Settings shows it",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Mantener en el Dock",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Abrir al iniciar sesión",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes Options",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Escape closes the menu",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Super+W closes Chat's window",
+      "do": [
+        "key",
+        [
+          125,
+          17
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "It runs on in the background, which Settings says",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Ejecutándose en segundo plano"
+        ],
+        "background": {
+          "running": [
+            "so.oxy.backgroundprobe"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Turned off by the person: ended at once",
+      "do": [
+        "press_named",
+        "Permitir Chat en segundo plano"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "background": {
+          "ended": [
+            "so.oxy.backgroundprobe"
+          ]
+        }
+      },
+      "until_named": [
+        "No permitida en segundo plano",
+        5000
+      ]
+    },
+    {
+      "name": "Not allowed; nothing runs in the background",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "No permitida en segundo plano"
+        ],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "− removes Chat from Open at Login",
+      "do": [
+        "press_named",
+        "Quitar Chat de Abrir al iniciar sesión"
+      ],
+      "expect": {
+        "texts": [
+          "Ningún ítem"
+        ],
+        "preferences_file": {
+          "open_at_login": null
+        }
+      }
+    },
+    {
+      "name": "The dock's menu of Chat, by a long press on its icon",
+      "do": [
+        "hold_named",
+        [
+          "Chat",
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Opciones"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Chat"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: the keyboard on Abrir (drawn so as the menu opened)",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Abrir",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Right opens Options: Open at Login unchecked, as Settings shows it",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Mantener en el Dock",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Abrir al iniciar sesión",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes Options",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Escape closes the menu",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "+ opens the chooser of the registry's applications not opened at login",
+      "do": [
+        "press_named",
+        "Añadir una app que se abra al iniciar sesión"
+      ],
+      "expect": {
+        "texts": [
+          "Elige una app que se abra automáticamente al iniciar sesión."
+        ]
+      }
+    },
+    {
+      "name": "Escape closes it, nothing added; the keyboard back on +",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "Elige una app que se abra automáticamente al iniciar sesión."
+        ],
+        "texts": [
+          "Ningún ítem"
+        ],
+        "preferences_file": {
+          "open_at_login": null
+        }
+      }
+    }
+  ]
+}

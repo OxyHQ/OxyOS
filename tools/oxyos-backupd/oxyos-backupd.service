@@ -1,0 +1,68 @@
+# oxyos-backupd: backs the computer up every hour to a disk or a share, as Time Machine does
+# (docs/adr/0059-backups.mdx). It runs as root because it reads every account's home, mounts a
+# backup disk when it is connected with nobody signed in, and keeps the destinations' keys, root's
+# alone; it runs nothing but restic and rclone.
+#
+# Not installed by the image yet (ADR 0059, step 5 brings it with the session).
+
+[Unit]
+Description=OxyOS backups
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0059-backups.mdx
+After=local-fs.target systemd-udevd.service
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/oxyos-backupd
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+# Its own: /var/lib/oxyos/backup (the destinations, their records and keys, the manifest),
+# restic's cache, and the socket's and the disks' directory, /run/oxyos/backupd.
+StateDirectory=oxyos/backup
+StateDirectoryMode=0700
+CacheDirectory=oxyos/backup
+CacheDirectoryMode=0700
+RuntimeDirectory=oxyos/backupd
+RuntimeDirectoryMode=0755
+
+# Read-only but for its own directories; every home readable, none writable.
+ProtectSystem=strict
+ProtectHome=read-only
+
+# A backup disk is mounted in the service's own namespace, seen by nothing else.
+PrivateMounts=yes
+
+# Root, with what it needs and nothing more: reading every file (CAP_DAC_READ_SEARCH), mounting a
+# backup disk (CAP_SYS_ADMIN), and the owners of what restic writes on a disk (CAP_CHOWN,
+# CAP_FOWNER).
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER
+AmbientCapabilities=
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+
+# A share is reached over the network (rclone's SMB client); udev's monitor is a netlink socket.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# What a backup takes is what nothing else wants (ADR 0059, decision 2).
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+Nice=19
+
+PrivateTmp=yes
+PrivateIPC=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+LockPersonality=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @mount
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

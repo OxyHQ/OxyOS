@@ -11,7 +11,7 @@ input), so running it again writes the same bytes: the art is reviewed here, as 
 Each wallpaper is SVG, drawn by Skia at the display's size (no raster held larger than the
 display): a base linear gradient, soft glows (ellipses filled with radial gradients whose opacity
 falls off as a Gaussian, so no edge shows) and translucent ribbons, layered so a wide gradient is
-never one flat ramp of a few 8-bit steps. Only rect, ellipse, circle, path, linearGradient and
+never one flat ramp of a few 8-bit steps. Only rect, ellipse, path, linearGradient and
 radialGradient are used, every gradient in the drawing's coordinates (userSpaceOnUse): no filters,
 text, external references or embedded rasters.
 """
@@ -125,17 +125,6 @@ class Drawing:
         path = _smooth(top) + " L" + _smooth(list(reversed(bottom)))[1:] + " Z"
         self.body.append(f'<path d="{path}" fill="url(#{gid})"/>')
 
-    def land(self, points, stops, x1, y1, x2, y2):
-        """A smooth ridge from the left edge to the right, filled down to the bottom."""
-        gid = self.linear(stops, x1, y1, x2, y2)
-        path = _smooth(points) + f" L{WIDTH + 40} {HEIGHT + 40} L-40 {HEIGHT + 40} Z"
-        self.body.append(f'<path d="{path}" fill="url(#{gid})"/>')
-
-    def dot(self, x, y, r, colour, opacity):
-        self.body.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.2f}" fill="{colour}" fill-opacity="{opacity:.2f}"/>'
-        )
-
     def svg(self):
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {WIDTH} {HEIGHT}" '
@@ -222,69 +211,6 @@ def silk_palette(hue, dark, saturation=0.72, neutral=False, lean=28, shade=-18):
     }
 
 
-# Horizon: a sky through the day ------------------------------------------------------------------
-
-# Each moment: the sky from top to horizon, where the sun's light is (x, y as a share of the
-# canvas, its colour and strength), and the three ridges from far to near, each top and foot.
-HORIZON = [
-    ("night", {"en": "Night", "es": "Noche"}, (-30.0, 0.0), {
-        "sky": ["#05081a", "#0b1434", "#1a2552"], "sun": (0.70, 0.95, "#3a4f9a", 0.35),
-        "ridges": [("#151d3f", "#0e1530"), ("#0d1430", "#090e22"), ("#070b1c", "#04060f")],
-        "stars": 0.85, "haze": ("#2c3b78", 0.25)}),
-    ("dawn", {"en": "Dawn", "es": "Alba"}, (-12.0, 90.0), {
-        "sky": ["#121a44", "#3b3d7a", "#b06b8f"], "sun": (0.22, 1.02, "#f0a27a", 0.55),
-        "ridges": [("#45406f", "#2f2c56"), ("#2b2850", "#1d1b3c"), ("#17152d", "#0e0d1f")],
-        "stars": 0.35, "haze": ("#d7899c", 0.30)}),
-    ("sunrise", {"en": "Sunrise", "es": "Amanecer"}, (0.0, 90.0), {
-        "sky": ["#3c5aa6", "#d98a8a", "#ffc58a"], "sun": (0.22, 0.86, "#ffe2a8", 0.85),
-        "ridges": [("#8a6f9a", "#6b5683"), ("#5a4677", "#41325c"), ("#302543", "#1f182e")],
-        "stars": 0.0, "haze": ("#ffd2a0", 0.40)}),
-    ("morning", {"en": "Morning", "es": "Mañana"}, (15.0, 90.0), {
-        "sky": ["#4f8be0", "#8cb8ef", "#dcebf7"], "sun": (0.26, 0.50, "#fff6dc", 0.75),
-        "ridges": [("#8fa9d4", "#7894c4"), ("#5f7fb4", "#4a6aa0"), ("#3a5488", "#2a406c")],
-        "stars": 0.0, "haze": ("#eef5ff", 0.35)}),
-    ("day", {"en": "Day", "es": "Día"}, (60.0, 180.0), {
-        "sky": ["#2f73dc", "#5b9cf0", "#a9d1fb"], "sun": (0.55, 0.06, "#ffffff", 0.70),
-        "ridges": [("#7aa4e0", "#6290d4"), ("#4b78c4", "#3a63ad"), ("#2d4f93", "#213c75")],
-        "stars": 0.0, "haze": ("#d6ebff", 0.30)}),
-    ("afternoon", {"en": "Afternoon", "es": "Tarde"}, (15.0, 270.0), {
-        "sky": ["#3f74c9", "#9bb7e3", "#f3dcc0"], "sun": (0.76, 0.50, "#fff0d0", 0.75),
-        "ridges": [("#9aa6cf", "#8290bf"), ("#6a74a8", "#535d91"), ("#3f4675", "#2e335b")],
-        "stars": 0.0, "haze": ("#ffe8cf", 0.35)}),
-    ("sunset", {"en": "Sunset", "es": "Puesta de sol"}, (0.0, 270.0), {
-        "sky": ["#2d3a86", "#c25b7a", "#ff9f5a"], "sun": (0.78, 0.86, "#ffc77a", 0.90),
-        "ridges": [("#8b4f78", "#733f66"), ("#55325f", "#41264b"), ("#2a1a34", "#1b1124")],
-        "stars": 0.0, "haze": ("#ff9e72", 0.40)}),
-    ("dusk", {"en": "Dusk", "es": "Anochecer"}, (-12.0, 270.0), {
-        "sky": ["#0c1236", "#2c2a68", "#7a4f8a"], "sun": (0.80, 1.02, "#c77a9a", 0.50),
-        "ridges": [("#382f63", "#28224d"), ("#211c43", "#171433"), ("#110e24", "#0a0816")],
-        "stars": 0.45, "haze": ("#8f5c9c", 0.28)}),
-]
-
-
-def horizon(moment):
-    sky, sun, ridges = moment["sky"], moment["sun"], moment["ridges"]
-    d = Drawing()
-    d.background([(0, sky[0]), (0.55, sky[1]), (0.82, sky[2]), (1, sky[2])], angle=90)
-    if moment["stars"]:
-        rnd = random.Random(7)
-        for _ in range(140):
-            x, y = rnd.uniform(0, WIDTH), rnd.uniform(0, HEIGHT * 0.62) ** 1.0
-            fade = (1 - y / (HEIGHT * 0.62)) ** 1.5
-            d.dot(x, y, rnd.uniform(0.9, 2.4), "#ffffff", moment["stars"] * fade * rnd.uniform(0.25, 0.9))
-    sx, sy, colour, strength = sun
-    d.glow(WIDTH * sx, HEIGHT * sy, 1700, 1000, colour, strength * 0.65, falloff=2.6)
-    d.glow(WIDTH * sx, HEIGHT * sy, 520, 420, colour, strength, falloff=3.6)
-    haze, haze_opacity = moment["haze"]
-    d.glow(WIDTH * 0.5, HEIGHT * 0.80, 2200, 380, haze, haze_opacity, falloff=2.4)
-    # Three ridges from far to near, each a little darker toward its foot.
-    shapes = [(1060, 70, 1.1, 2400, 120), (1180, 95, 2.6, 2900, -80), (1330, 80, 4.2, 3300, 60)]
-    for (top, foot), (y, amplitude, phase, length, tilt) in zip(ridges, shapes):
-        d.land(wave(y, amplitude, phase, length, count=11, tilt=tilt), [(0, top), (1, foot)],
-               0, y - amplitude, 0, HEIGHT)
-    return d.svg()
-
-
 # The catalog -------------------------------------------------------------------------------------
 
 # Bloom's accent hues (@oxy.so/bloom's APP_COLOR_PRESETS): each gradient wallpaper is its preset's
@@ -339,18 +265,9 @@ def appearance_wallpaper(root, wallpaper_id, name, category, draw):
 
 def main():
     root = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else DESTINATION
-    # The default: OxyOS's blue, light and dark.
+    # OxyOS's blue, light and dark (the default is Solar Gradients, examples/make-solar-gradients.rs).
     appearance_wallpaper(root, "oxyos", {"en": "OxyOS", "es": "OxyOS"}, "dynamic",
                          lambda dark: silk(silk_palette(222, dark, saturation=0.74), seed=1))
-    # Horizon follows the sun (ADR 0012's rule over these anchors).
-    variants = []
-    for variant, variant_name, (elevation, azimuth), moment in HORIZON:
-        file = f"{variant}.svg"
-        write(root / "horizon" / file, horizon(moment))
-        variants.append({"id": variant, "name": variant_name, "file": file,
-                         "sun": {"elevation": elevation, "azimuth": azimuth}})
-    write(root / "horizon" / "wallpaper.json",
-          manifest({"en": "Horizon", "es": "Horizonte"}, "dynamic", "sun", "day", variants))
     for index, (wallpaper_id, name, accent, options) in enumerate(GRADIENTS):
         hue = hue_of(accent)
         appearance_wallpaper(root, wallpaper_id, name, "gradients",
@@ -358,7 +275,7 @@ def main():
                              silk(silk_palette(hue, dark, **options), seed=seed))
     catalog = {
         "version": 1,
-        "default": "oxyos",
+        "default": "solar-gradients",
         "categories": [
             {"id": "dynamic", "name": {"en": "Dynamic Wallpapers", "es": "Fondos dinámicos"}},
             {"id": "gradients", "name": {"en": "Gradients", "es": "Degradados"}},

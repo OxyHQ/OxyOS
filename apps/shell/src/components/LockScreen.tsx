@@ -48,19 +48,18 @@ export function LockBackdrop({
         style={{ backgroundColor: "rgba(0,0,0,0.28)" }}
       />
       {clock ? (
-        <>
-          <Box className="items-center" style={{ marginTop: "9%" }}>
-            <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
-          </Box>
-          <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: "11%" }}>
-            {children}
-          </Box>
-        </>
-      ) : (
-        <Box className="absolute items-center" style={{ left: 0, right: 0, top: "8%" }}>
-          {children}
+        <Box className="items-center" style={{ marginTop: "9%" }}>
+          <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
         </Box>
-      )}
+      ) : null}
+      {/* One place in the tree whether or not the clock shows: what the content holds (a setup
+          under way) is kept as the clock comes and goes. */}
+      <Box
+        className="absolute items-center"
+        style={clock ? { left: 0, right: 0, bottom: "11%" } : { left: 0, right: 0, top: "8%" }}
+      >
+        {children}
+      </Box>
     </Box>
   );
 }

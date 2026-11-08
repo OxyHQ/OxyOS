@@ -575,6 +575,11 @@ fn main() -> Result<()> {
         (!greeter).then(|| installd::Installd::start(PathBuf::from(oxyos_install::ipc::SOCKET)));
     // The store's, Settings' and applications' requests to install, update, remove and use
     // capabilities (ADR 0030): over the same service, each confirmed in the shell's sheet.
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the applications' own, decided by their launch records and their account's decisions. The
+    // login screen has none.
+    let mut background = (!greeter)
+        .then(|| oxyos_compositor::background::BackgroundActivity::new(installed.clone()));
     let mut installs = if greeter {
         None
     } else {
@@ -584,6 +589,30 @@ fn main() -> Result<()> {
         )?;
         compositor.wakers.push(installs.wake_fd()?);
         Some(installs)
+    };
+    // Settings › Storage (docs/adr/0062-storage.mdx): the volume, the system's, the Trash's and
+    // each application's, measured when Settings asks and never otherwise; an item shown in the
+    // file manager. The login screen has none.
+    let mut storage = if greeter {
+        None
+    } else {
+        match oxyos_files::Scope::for_user() {
+            Ok(scope) => {
+                let mut storage = oxyos_compositor::storage::Storage::new(
+                    scope,
+                    std::sync::Arc::new(oxyos_compositor::storage::MachineDisk),
+                    PathBuf::from(oxyos_install::ipc::SOCKET),
+                )?;
+                storage.set_locale(&settings.locale());
+                storage.list_applications(oxyos_apps::Listing::read(None));
+                compositor.wakers.push(storage.wake_fd()?);
+                Some(storage)
+            }
+            Err(error) => {
+                eprintln!("[session] Storage has no home to measure: {error}");
+                None
+            }
+        }
     };
     // Wi-Fi and networks (ADR 0038): the shell's and Settings' requests, over the system's
     // NetworkManager, as the session's user (polkit decides). The login screen has none yet.
@@ -726,6 +755,8 @@ fn main() -> Result<()> {
             }
         }
         if let Some(trash) = trash.as_mut() {
+            // Empty Trash Automatically, as the person has it (docs/adr/0062-storage.mdx).
+            trash.set_empty_automatically(settings.preferences().empty_trash_automatically);
             trash.serve(&mut compositor.scene);
             // Its sound now, not a turn later.
             compositor.play_sounds();
@@ -779,6 +810,30 @@ fn main() -> Result<()> {
                 compositor.controls.as_mut(),
             ) {
                 controls.bluetooth_is(&mut compositor.scene, status);
+            }
+        }
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the store, which takes the
+        // requests left: an item revealed opens the file manager as the shell's URLs do.
+        if let Some(storage) = storage.as_mut() {
+            storage.set_locale(&settings.locale());
+            for reveal in storage.serve(&mut compositor.scene) {
+                let opened = match launcher.open_url(&reveal.url) {
+                    Ok((id, pid)) => {
+                        eprintln!("[session] revealed in {id} ({pid}): {}", reveal.url);
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] {} not opened: {error}", reveal.url);
+                        false
+                    }
+                };
+                storage.revealed(&mut compositor.scene, &reveal, opened);
             }
         }
         if let Some(installs) = installs.as_mut() {
@@ -836,9 +891,10 @@ fn main() -> Result<()> {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
-        // The URLs the shell opens (docs/adr/0034-the-dock.mdx): the application whose entry
-        // declares the scheme, started with the URL; only for the person's own input, and none
-        // from the login screen.
+        // The URLs the shell and applications open (docs/adr/0034-the-dock.mdx,
+        // docs/adr/0058-the-platform-api.mdx step 6): the application whose entry declares the
+        // scheme, started with the URL; only for the person's own input, and none from the login
+        // screen.
         for request in compositor.scene.take_url_requests() {
             let opened = !greeter
                 && request.with_input
@@ -1049,6 +1105,20 @@ fn main() -> Result<()> {
                 },
             })
         });
+        // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx),
+        // after Settings' changes of Open at Login: each application's asks, and its process in the
+        // background ended when it loses the right.
+        if let Some(background) = background.as_mut() {
+            for pid in background.serve(
+                &mut compositor,
+                &mut settings,
+                &|pid| launcher.application_of(pid).cloned(),
+                installs.as_mut(),
+                settings::now(),
+            ) {
+                launcher.terminate(pid);
+            }
+        }
         // Search's asks, once every client that asked is named by its launch record: who asked is
         // told the index with each.
         if let Some(search) = search.as_mut() {
@@ -1126,6 +1196,13 @@ fn main() -> Result<()> {
         // An ask waiting for the search service to be started again.
         if let Some(deadline) = search.as_ref().and_then(|search| search.deadline()) {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
+        // The next item in the Trash reaching its 30 days, while the Trash empties itself.
+        if let Some(due) = trash.as_ref().and_then(|trash| trash.deadline()) {
+            wait = wait.min(
+                due.duration_since(std::time::SystemTime::now())
+                    .unwrap_or_default(),
+            );
         }
         if let Some(since) = signed_in {
             wait = wait.min(SIGNED_IN_SPLASH.saturating_sub(since.elapsed()));
