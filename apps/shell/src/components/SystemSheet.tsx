@@ -292,7 +292,7 @@ export const SystemSheet = memo(function SystemSheet({
                 testID={`system-sheet-choice-${index}`}
                 accessibilityRole="radio"
                 accessibilityLabel={`${row.title}, ${row.detail}`}
-                accessibilityState={{ checked: index === choice, selected: index === choice }}
+                accessibilityState={{ checked: index === choice }}
                 onPress={() => setChoice(index)}
                 style={{
                   height: CHOICE_HEIGHT - 2,
