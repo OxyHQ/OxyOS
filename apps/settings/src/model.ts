@@ -20,6 +20,9 @@ export type NotificationPreviews = "always" | "unlocked";
 export type LanguagePreference = "" | "en" | "es";
 /** Twelve or 24 hours: the region's (`auto`), or the person's choice. */
 export type HourCycle = "auto" | "h12" | "h23";
+/** How many fingers swipe for one of Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx),
+    or none: as a Mac's trackpad offers them, three or four fingers, or off. */
+export type SwipeFingers = "three" | "four" | "off";
 
 /** The user's preferences, as `crates/oxyos-preferences` keeps them. */
 export type Preferences = {
@@ -37,6 +40,17 @@ export type Preferences = {
   trackpadNaturalScrolling: boolean;
   /** Natural scrolling on a mouse's wheel and every other pointing device: off, as every mouse has. */
   mouseNaturalScrolling: boolean;
+  /** Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx), as a Mac's Trackpad settings
+      offers them, each three fingers by default. Mission Control: a swipe up. The session links it
+      to App Exposé as a Mac does: choosing three or four fingers for one chooses the same for the
+      other unless the other is off, and the next snapshot says both. */
+  missionControlSwipe: SwipeFingers;
+  /** App Exposé: a swipe down (docs/adr/0045-app-expose.mdx). */
+  appExposeSwipe: SwipeFingers;
+  /** A swipe left or right between desktops (ADR 0046, decision 4). */
+  desktopsSwipe: SwipeFingers;
+  /** Launchpad: a pinch with the thumb and three fingers. On, as a Mac's. */
+  launchpadPinch: boolean;
   /** The wallpaper where Settings' window is, as the session tells it (docs/adr/0048-wallpapers.mdx,
       decision 4): a choice's text (`src/wallpaper.ts`), empty for the catalog's default. */
   wallpaper: string;
@@ -55,6 +69,9 @@ export type Preferences = {
   notificationPreviews: NotificationPreviews;
   /** The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx), by id. */
   notificationSoundsOff: string[];
+  /** The applications the session opens at login, in order (Open at Login, the dock's menu's too,
+      docs/adr/0060-login-items-and-background-activity.mdx), by id. */
+  openAtLogin: string[];
   /** The input methods added after the keyboard layout, in order (docs/adr/0041-input-methods.mdx,
       decision 6). */
   inputSources: InputMethod[];
@@ -159,7 +176,8 @@ export type SettingsSnapshot = {
       null until it has. */
   inputSources?: InputSourcesState | null;
   /** The session's applications, by id and name (its registry): Notifications' sound for each
-      (docs/adr/0044-system-sounds.mdx). */
+      (docs/adr/0044-system-sounds.mdx), and what Open at Login's + offers
+      (docs/adr/0060-login-items-and-background-activity.mdx). */
   applications?: readonly { id: string; name: string }[];
   /** The machine's Oxy session (docs/adr/0020-oxy-account-login.mdx), as the platform tells every
       application: none outside a session, which shows no account item. */
@@ -176,6 +194,10 @@ export const PREFERENCE_KEYS = {
   uiSounds: "ui_sounds",
   trackpadNaturalScrolling: "trackpad_natural_scrolling",
   mouseNaturalScrolling: "mouse_natural_scrolling",
+  missionControlSwipe: "mission_control_swipe",
+  appExposeSwipe: "app_expose_swipe",
+  desktopsSwipe: "desktops_swipe",
+  launchpadPinch: "launchpad_pinch",
   wallpaper: "wallpaper",
   wallpaperAllDesktops: "wallpaper_all_desktops",
   lockAfter: "lock_after",
@@ -186,6 +208,7 @@ export const PREFERENCE_KEYS = {
   doNotDisturb: "do_not_disturb",
   notificationPreviews: "notification_previews",
   notificationSoundsOff: "notification_sounds_off",
+  openAtLogin: "open_at_login",
   inputSources: "input_sources",
   inputSource: "input_source",
   batteryPercentage: "battery_percentage",
@@ -453,6 +476,31 @@ export const ENERGY_DEFAULTS = {
   | "sleepAdapter"
   | "dimOnBattery"
 >;
+
+/** The choices a swipe of Trackpad's More Gestures offers, in a Mac's order: three fingers, four,
+    off. */
+export const SWIPE_FINGERS = ["three", "four", "off"] as const satisfies readonly SwipeFingers[];
+
+/** A swipe's menu: each choice in that order, named in a Mac's words for that swipe ("Swipe up
+    with three fingers"). */
+export function swipeItems(words: Record<SwipeFingers, string>): { value: SwipeFingers; label: string }[] {
+  return SWIPE_FINGERS.map((fingers) => ({ value: fingers, label: words[fingers] }));
+}
+
+/** A swipe's fingers as the session's file keeps them: three unless it says four or off, as the
+    session reads it (crates/oxyos-preferences). */
+export function swipeFingersOf(text: string | undefined): SwipeFingers {
+  return text === "four" || text === "off" ? text : "three";
+}
+
+/** Trackpad's More Gestures as the session's defaults have them (crates/oxyos-preferences), a Mac's:
+    three fingers for Mission Control, App Exposé and the desktops, and Launchpad's pinch on. */
+export const GESTURE_DEFAULTS = {
+  missionControlSwipe: "three",
+  appExposeSwipe: "three",
+  desktopsSwipe: "three",
+  launchpadPinch: true,
+} as const satisfies Pick<Preferences, "missionControlSwipe" | "appExposeSwipe" | "desktopsSwipe" | "launchpadPinch">;
 
 /** The choices of how long before the session locks, in minutes (0: never). */
 export const LOCK_AFTER_CHOICES = [1, 2, 5, 10, 15, 30, 60, 0] as const;

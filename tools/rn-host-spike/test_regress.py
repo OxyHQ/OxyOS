@@ -153,6 +153,19 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
 
 
+class DeliveredCounts(unittest.TestCase):
+    # What the compositor delivered is the step's exactly; a count may be a [least, most] (a pinch
+    # through libinput, as many updates as it recognized frames of the fingers).
+    def test_exact_counts_and_ranges(self):
+        got = {"1": {"pinch.begin": 1, "pinch.update": 22, "pinch.end": 1}}
+        self.assertTrue(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [10, 30], "pinch.end": 1}}))
+        self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [23, 30], "pinch.end": 1}}))
+        self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": 21, "pinch.end": 1}}))
+        # An event more, or a window more, is not what the step says.
+        self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [10, 30]}}))
+        self.assertFalse(regress.counts_match({**got, "2": {"focus.in": 1}}, {"1": got["1"]}))
+        self.assertTrue(regress.counts_match({}, {}))
+
 
 class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
     """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""

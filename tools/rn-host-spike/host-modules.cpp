@@ -576,10 +576,13 @@ std::shared_ptr<TurboModule> createHostModule(
         "localeIdentifier", androidLocale(intlTag(oxyos_intl_default_locale))));
     module->unsupported({"allowRTL", "forceRTL", "swapLeftAndRightInRTL"});
   } else if (name == "AppState") {
+    // `active` while it has its window; `background` once it runs on without it, its background
+    // activity (docs/adr/0060-login-items-and-background-activity.mdx), told by `appStateDidChange`
+    // as Android tells an activity's going.
     module->constants(folly::dynamic::object("initialAppState", "active"));
-    module->method("getCurrentAppState", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+    module->method("getCurrentAppState", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       jsi::Object state(rt);
-      state.setProperty(rt, "app_state", "active");
+      state.setProperty(rt, "app_state", jsi::String::createFromUtf8(rt, services.appState));
       return count > 0 ? call(rt, args[0], jsi::Value(rt, state)) : jsi::Value::undefined();
     });
     module->listeners();
@@ -1125,7 +1128,9 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::valueFromDynamic(rt, systemFacts());
     });
     // The session's applications (its registry, docs/adr/0013-launching-applications.mdx), by id
-    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx).
+    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx),
+    // Open at Login's (docs/adr/0060-login-items-and-background-activity.mdx). Read again when the
+    // host tells `OxyOSApplicationsChanged` (the registry or the language changed).
     module->method("getApplications", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       folly::dynamic applications = folly::dynamic::array();
       int64_t length = oxyos_applications(nullptr, 0);
@@ -1813,16 +1818,46 @@ std::shared_ptr<TurboModule> createHostModule(
     // (sample/oxyos/expo-adapter.js): its id (the registry entry's), whether the session started
     // it, its module, its embedded app config (expo-constants' manifest), its directories, and the
     // machine's name and version for expo-constants.
-    const auto& application = services.application;
-    auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
-    module->constants(folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
+    // Read when JavaScript first asks, once the host has connected (whether it can ask about its
+    // background items is the connection's).
+    module->constants([&services] {
+      const auto& application = services.application;
+      auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
+      return folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
         "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
                                                                        : folly::dynamic(nullptr))(
         "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
         "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
         // What the session started it to open (its launch record's: a file, or a URL of its own
         // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
-        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : "")));
+        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : ""))(
+        // Its login item and background activity can be asked about (protocol version 32).
+        "backgroundItems", static_cast<bool>(services.backgroundItems.ask));
+    });
+    // Login items and background activity (`@oxyos/platform`'s `application`,
+    // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or
+    // registering or unregistering it, by name (`loginItem`, `background`; `status`, `register`,
+    // `unregister`): its serial, 0 if it was not sent; `OxyOSBackgroundItemState` answers.
+    module->method("backgroundItem", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an action");
+      }
+      std::string kind = args[0].asString(rt).utf8(rt), action = args[1].asString(rt).utf8(rt);
+      uint8_t kindCode = kind == "loginItem"    ? OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+                         : kind == "background" ? OXYOS_BACKGROUND_ITEM_BACKGROUND
+                                                : 0;
+      uint8_t actionCode = action == "status"       ? OXYOS_BACKGROUND_ITEM_STATUS
+                           : action == "register"   ? OXYOS_BACKGROUND_ITEM_REGISTER
+                           : action == "unregister" ? OXYOS_BACKGROUND_ITEM_UNREGISTER
+                                                    : 0;
+      if (kindCode == 0 || actionCode == 0) {
+        throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an "
+                               "action ('status', 'register' or 'unregister')");
+      }
+      if (!services.backgroundItems.ask) return jsi::Value(0);
+      return jsi::Value(static_cast<double>(services.backgroundItems.ask(kindCode, actionCode)));
+    });
+    module->listeners();
   } else if (name == "IntentAndroid") {
     // React Native's Linking, as its Android module answers it. Its initial URL is what the
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's

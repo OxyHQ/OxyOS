@@ -440,3 +440,56 @@ fn oxys_api_is_reached_over_https_only() {
         assert!(HttpApi::new(base).is_err(), "{base}");
     }
 }
+
+#[test]
+fn a_qr_sign_in_is_redeemed_by_its_device_proof_alone_naming_the_platform() {
+    let (base, request) = server(
+        200,
+        "",
+        r#"{"sessionId":"s-1","deviceId":"device-1","expiresAt":"2026-11-06T00:00:00.000Z","accessToken":"token-2","deviceSecret":"platform-secret-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"}}"#,
+    );
+    let signed_in = api(&base)
+        .platform_device_sign_in(&credential(), &platform_client())
+        .unwrap();
+    assert_eq!(
+        signed_in,
+        SignedIn {
+            user_id: ACCOUNT.into(),
+            device_id: DEVICE.into(),
+            device_secret: Some(Secret::new("platform-secret-1")),
+        }
+    );
+    let request = request.join().unwrap();
+    assert_eq!(request.line, "POST /session/device/platform HTTP/1.1");
+    // Exactly the contract's keys: the proof and the platform, no password, no identifier.
+    assert_eq!(
+        request.body,
+        serde_json::json!({
+            "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+        })
+    );
+    assert_eq!(request.header("origin"), None);
+}
+
+#[test]
+fn a_proof_that_cannot_be_redeemed_is_one_refusal_and_a_limit_says_when() {
+    let (base, request) = server(
+        401,
+        "",
+        r#"{"error":"invalid_grant","message":"Invalid grant"}"#,
+    );
+    assert_eq!(
+        api(&base).platform_device_sign_in(&credential(), &platform_client()),
+        Err(ApiError::InvalidDeviceSecret)
+    );
+    request.join().unwrap();
+    let (base, request) = server(429, "Retry-After: 120\r\n", r#"{"error":"rate_limited"}"#);
+    assert_eq!(
+        api(&base).platform_device_sign_in(&credential(), &platform_client()),
+        Err(ApiError::Locked {
+            retry_after: Some(120)
+        })
+    );
+    request.join().unwrap();
+}

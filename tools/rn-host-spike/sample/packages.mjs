@@ -43,6 +43,7 @@ const icons = {
   'so.oxy.dropsea': 'tools/shell-preview/assets/apps/dropsea.png',
   'so.oxy.atlas': 'tools/shell-preview/assets/apps/atlas.png',
   'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
+  'so.oxy.backgroundprobe': 'tools/shell-preview/assets/apps/allo.png',
   'so.oxy.crashprobe': 'tools/shell-preview/assets/apps/inbox.png',
 };
 // Each application's declared searchable items (docs/adr/0051-search.mdx): `searchable.json` at its
@@ -61,6 +62,9 @@ const entries = {
   'so.oxy.allo': 'entries/allo.js',
   // A probe installed as an application of its own (the scenarios' install service publishes it).
   'so.oxy.permissionprobe': 'entries/permission.js',
+  // A probe with a login item and background activity
+  // (docs/adr/0060-login-items-and-background-activity.mdx).
+  'so.oxy.backgroundprobe': 'entries/background.js',
   // An application that quits unexpectedly while its data is corrupt (docs/adr/0061), installed by
   // the crash scenarios.
   'so.oxy.crashprobe': 'entries/crash.js',

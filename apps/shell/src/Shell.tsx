@@ -454,10 +454,15 @@ export const Shell = memo(function Shell({
           break;
         }
         // Super pressed alone (ADR 0041; Super+Space before it): the launcher, its search taking what is typed; again, it closes.
+        // The thumb and three fingers pinched open it as they begin to drive it, and close it if
+        // they let it go back; spread over it, they close it (docs/adr/0046-interactive-gestures.mdx,
+        // amended 8 November 2026).
         case "search":
-          if (view === "launcher") {
+          if (next.intent === "close") {
+            if (view === "launcher") view = "desktop";
+          } else if (view === "launcher" && next.intent !== "open") {
             view = "desktop";
-          } else {
+          } else if (view !== "launcher") {
             view = "launcher";
             setSearchRequest((value) => value + 1);
           }
@@ -967,11 +972,12 @@ export const Shell = memo(function Shell({
             backdrop is a surface of its own beneath its icons', so the compositor fades the one
             and settles the other (docs/adr/0011-transitions.mdx). It is built once, when the
             shell starts, and kept while hidden, as macOS keeps Launchpad: opening it shows what
-            is built. Hidden, it has no surfaces and takes no input. */}
-        <Surface kind="backdrop" style={launcherArea}>
+            is built. Hidden, it has no surfaces and takes no input. The thumb and three fingers
+            pinched drive both, as far as the fingers have it (docs/adr/0046-interactive-gestures.mdx). */}
+        <Surface kind="backdrop" style={launcherArea} gesture="launchpad">
           <LaunchpadBackdrop open={launcherOpen} wallpaper={wallpaper} />
         </Surface>
-        <Surface kind="overlay" style={launcherArea}>
+        <Surface kind="overlay" style={launcherArea} gesture="launchpad">
           <Launchpad
             open={launcherOpen}
             escapeRequest={escapeRequest}

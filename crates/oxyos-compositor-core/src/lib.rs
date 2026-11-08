@@ -11,12 +11,13 @@ pub use presentation::{Error, Extent, Frame, Presentation};
 pub use refusal::{BufferRefusal, Refusal};
 pub use scene::physical;
 pub use scene::{
-    AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BluetoothStatus, CaptureRequest,
-    ChooserAnswer, ClientId, ControlLevel, ControlRequest, DisplayChange, DisplayInfo,
-    DisplayRequest, DrawingPreferences, FileRequest, Grants, HardwareKey, InputSourceShortcut,
-    KeySymbol, LaunchRequest, ModeInfo, NetworkStatus, OpenFilesRequest, Output, OutputId,
-    PowerStatus, PreferenceChange, RenderItem, Role, Scene, SearchAsk, SessionActivation, Stats,
-    SurfaceDamage, SurfaceKey, TextInputState, TextTransaction, TrashRequest, WindowLook,
-    DRAG_VERSION, MAX_OPEN_DROPS, MAX_PENDING_KEYS, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS,
-    MAX_WORKSPACES, REPEAT_DELAY, REPEAT_INTERVAL, SHEET_TOP,
+    AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BackgroundItemRequest,
+    BluetoothStatus, CaptureRequest, ChooserAnswer, ClientId, ControlLevel, ControlRequest,
+    DisplayChange, DisplayInfo, DisplayRequest, DrawingPreferences, FileRequest, Grants,
+    HardwareKey, InputSourceShortcut, KeySymbol, LaunchRequest, ModeInfo, NetworkStatus,
+    OpenFilesRequest, Output, OutputId, PowerStatus, PreferenceChange, RenderItem, Role, Scene,
+    SearchAsk, SessionActivation, Stats, SurfaceDamage, SurfaceKey, TextInputState,
+    TextTransaction, TrashRequest, WindowLook, DRAG_VERSION, MAX_OPEN_DROPS, MAX_PENDING_KEYS,
+    MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS, MAX_WORKSPACES, REPEAT_DELAY, REPEAT_INTERVAL,
+    SHEET_TOP,
 };
