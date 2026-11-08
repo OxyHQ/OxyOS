@@ -4,10 +4,12 @@
 # already so.
 #   - a developer's packages (tools/dev/packages), QEMU and its firmware, Podman;
 #   - the gate's user, oxyos-ci (GATE_USER), with no sudo but for oxyos-gate-cpus: its GitHub
-#     Actions runner and every run of the gate are its, in oxyosgate.slice;
-#   - oxyosgate.slice (no dash: systemd nests a slice under the part of its name before one): a
-#     weight of 20 against system.slice's 100 (the machine's own work), at most GATE_CPU_QUOTA of
-#     CPU and GATE_MEMORY_MAX of memory;
+#     Actions runners and every run of the gate are its;
+#   - oxyosgate.slice: every gate's, a weight of 20 against system.slice's 100 (the machine's own
+#     work), at most GATE_CPU_QUOTA of CPU and GATE_MEMORY_MAX of memory in all; inside it each
+#     runner's slice, oxyosgate-N.slice, and a deploy's, oxyosgate-deploy.slice, sharing it evenly,
+#     each at most GATE_RUN_MEMORY_MAX (systemd nests a slice under the part of its name before a
+#     dash);
 #   - the GPU's render node (group render), and uinput with the event nodes of the development
 #     compositor's own virtual devices (named "oxyos-offscreen ...") for the scenarios that go
 #     through libinput (group oxyos-uinput), instead of running those as root;
@@ -15,26 +17,42 @@
 #     QEMU acceptance runs;
 #   - /usr/local/libexec/oxyos-gate-cpus and /etc/oxyos-gate.conf: the cores the scenarios that
 #     hold a budget on time run on alone (the first four physical cores and their SMT siblings).
-# The runner itself is registered with `machine.sh runner` (a registration token on stdin).
+# Each runner is registered with `machine.sh runner N` (a registration token on stdin): runner N
+# works in /var/lib/oxyos-gate/runner-N, with a cache of its own (~/.cache/oxyos-runner-N) and a /tmp
+# of its own, in oxyosgate-N.slice, so runs at once share no state.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "machine.sh: run as root" >&2; exit 1; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 GATE_USER=${GATE_USER:-oxyos-ci}
 GATE_HOME=/home/$GATE_USER
 GATE_CPU_QUOTA=${GATE_CPU_QUOTA:-2400%}
-GATE_MEMORY_HIGH=${GATE_MEMORY_HIGH:-20G}
-GATE_MEMORY_MAX=${GATE_MEMORY_MAX:-24G}
-RUNNER_NAME=${RUNNER_NAME:-$(hostname)-oxyos}
-# The runner's own directory, outside the user's home (which holds only what tools/dev/bootstrap makes).
-RUNNER_DIR=/var/lib/oxyos-gate/actions-runner
+GATE_MEMORY_HIGH=${GATE_MEMORY_HIGH:-28G}
+GATE_MEMORY_MAX=${GATE_MEMORY_MAX:-32G}
+GATE_RUN_MEMORY_MAX=${GATE_RUN_MEMORY_MAX:-16G}
 RUNNER_LABEL=oxyos-gate
 
+# gate_slice NAME DESCRIPTION: one gate's slice in oxyosgate.slice, an even share of it.
+gate_slice() {
+  cat > "/etc/systemd/system/$1" <<EOF
+# OxyOS's scenario gate (docs/developing.mdx), written by tools/gate/machine.sh: $2.
+[Unit]
+Description=OxyOS scenario gate, $2
+
+[Slice]
+MemoryMax=$GATE_RUN_MEMORY_MAX
+EOF
+}
+
 if [ "${1:-}" = runner ]; then
-  # The runner of OxyHQ/OxyOS, label oxyos-gate, as GATE_USER in oxyosgate.slice. The registration
+  # Runner N of OxyHQ/OxyOS, label oxyos-gate, as GATE_USER in oxyosgate-N.slice. The registration
   # token comes on stdin (gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token
-  # --jq .token | sudo sh machine.sh runner) and is never written anywhere.
+  # --jq .token | sudo sh machine.sh runner N) and is never written anywhere.
+  n=${2:?runner N}
+  case $n in *[!0-9]* | 0*) echo "machine.sh: runner N, a number" >&2; exit 2 ;; esac
   read -r token
-  R=$RUNNER_DIR
+  R=/var/lib/oxyos-gate/runner-$n
+  name=$(hostname)-oxyos-$n
+  install -d -m 755 /var/lib/oxyos-gate
   install -d -o "$GATE_USER" -g "$GATE_USER" -m 750 "$R"
   if [ ! -x "$R/config.sh" ]; then
     release=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest)
@@ -48,22 +66,23 @@ if [ "${1:-}" = runner ]; then
     rm -f "$R/$tarball"
   fi
   (cd "$R" && runuser -u "$GATE_USER" -- ./config.sh --unattended --replace --url https://github.com/OxyHQ/OxyOS \
-    --token "$token" --name "$RUNNER_NAME" --labels "$RUNNER_LABEL" --work _work >/dev/null)
+    --token "$token" --name "$name" --labels "$RUNNER_LABEL" --work _work >/dev/null)
   # The runner's service entry point, put in place as its own svc.sh does.
   runuser -u "$GATE_USER" -- cp "$R/bin/runsvc.sh" "$R/runsvc.sh"
-  unit=oxyos-gate-runner.service
-  cat > /etc/systemd/system/$unit <<EOF
-# OxyOS's scenario gate runner (docs/developing.mdx), written by tools/gate/machine.sh.
+  cat > /etc/systemd/system/oxyos-gate-runner@.service <<EOF
+# OxyOS's scenario gate runners (docs/developing.mdx), written by tools/gate/machine.sh: runner %i
+# in /var/lib/oxyos-gate/runner-%i, its slice, its cache and its /tmp its own.
 [Unit]
-Description=GitHub Actions runner for OxyHQ/OxyOS (label $RUNNER_LABEL)
+Description=GitHub Actions runner %i for OxyHQ/OxyOS (label $RUNNER_LABEL)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 User=$GATE_USER
-WorkingDirectory=$R
-ExecStart=$R/runsvc.sh
-Slice=oxyosgate.slice
+WorkingDirectory=/var/lib/oxyos-gate/runner-%i
+ExecStart=/var/lib/oxyos-gate/runner-%i/runsvc.sh
+Slice=oxyosgate-%i.slice
+Environment=OXYOS_CACHE=$GATE_HOME/.cache/oxyos-runner-%i
 # A /tmp of the runner's own, gone with it: nothing of a job's is left in the machine's.
 PrivateTmp=yes
 KillMode=process
@@ -75,8 +94,9 @@ RestartSec=30
 [Install]
 WantedBy=multi-user.target
 EOF
+  gate_slice "oxyosgate-$n.slice" "runner $n"
   systemctl daemon-reload
-  systemctl enable --now $unit
+  systemctl enable --now "oxyos-gate-runner@$n.service"
   exit 0
 fi
 
@@ -111,6 +131,7 @@ CPUQuota=$GATE_CPU_QUOTA
 MemoryHigh=$GATE_MEMORY_HIGH
 MemoryMax=$GATE_MEMORY_MAX
 EOF
+gate_slice oxyosgate-deploy.slice "a deploy's gate (tools/deploy/deploy.sh)"
 
 cat > /etc/udev/rules.d/70-oxyos-gate.rules <<'EOF'
 # OxyOS's scenario gate (docs/developing.mdx), written by tools/gate/machine.sh: uinput, and the
@@ -150,8 +171,10 @@ $GATE_USER ALL=(root) NOPASSWD: /usr/local/libexec/oxyos-gate-cpus reserve, /usr
 EOF
 chmod 440 /etc/sudoers.d/oxyos-gate
 visudo -cq -f /etc/sudoers.d/oxyos-gate
-# One gate's scenarios at a time, whoever runs it (the runner, a deploy).
-echo "f /run/lock/oxyos-gate.lock 0666 root root -" > /etc/tmpfiles.d/oxyos-gate.conf
+# The gates' locks (tools/gate/run-scenarios.sh): the reserved cores' and each fixed port's, for
+# every gate whoever runs it. Not sticky, so one user's lock file opens for another's run
+# (fs.protected_regular refuses that in a sticky directory).
+echo "d /run/lock/oxyos-gate 0777 root root -" > /etc/tmpfiles.d/oxyos-gate.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/oxyos-gate.conf
 systemctl daemon-reload
-echo "machine.sh: $GATE_USER, oxyosgate.slice, $(sed -n 's/^GATE_CPUS=//p' /etc/oxyos-gate.conf) reserved"
+echo "machine.sh: $GATE_USER, oxyosgate.slice, $(sed -n 's/^GATE_CPUS=//p' /etc/oxyos-gate.conf) reserved for one gate at a time"

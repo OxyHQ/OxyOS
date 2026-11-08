@@ -135,23 +135,30 @@ prepares it, and running it again changes nothing that is already so:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
-  `tools/dev/bootstrap` makes; the runner is in `/var/lib/oxyos-gate/actions-runner`;
-- `oxyosgate.slice`, where the runner and every gate run are: a CPU weight of 20 against the 100 of
-  `system.slice` (the machine's own work), at most 24 CPUs and 24 GB. (Its name has no dash: systemd
-  nests a slice under the part of its name before one.);
+  `tools/dev/bootstrap` makes for each runner;
+- `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
+  machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
+  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, sharing it evenly, each at most
+  16 GB. (No dash in the parent's name: systemd nests a slice under the part of its name before
+  one.);
+- several runners (`machine.sh runner N`), whose runs share nothing they change: each works in
+  `/var/lib/oxyos-gate/runner-N`, with a cache of its own (`~/.cache/oxyos-runner-N`) and a `/tmp` of
+  its own;
 - the GPU's render node (group `render`), KVM (`kvm`), and `/dev/uinput` with the event nodes of the
   development compositor's own virtual devices (named `oxyos-offscreen …`, group `oxyos-uinput`), so
   the `uinput` scenarios run without root;
 - `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
-  the first four physical cores and their SMT siblings for the gate alone while its timing
-  scenarios run, every other CPU for the rest of the machine; a reservation releases itself after
-  30 minutes. Only one gate's scenarios run at a time on the machine (`/run/lock/oxyos-gate.lock`):
-  a deploy's gate waits for the runner's, and the other way round. Their builds may overlap.
+  the first four physical cores and their SMT siblings for the calling gate's slice alone while its
+  timing scenarios run, every other CPU for the rest of the machine and the other gates; a reservation releases itself after
+  30 minutes. One gate at a time holds them (`/run/lock/oxyos-gate/timing`); the rest of every gate
+  runs at once beside the others, and a scenario that serves its probe on a fixed port waits for
+  that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
+  collides. Every run has a home of its own (`regress.py`), never the user's.
 
-`machine.sh runner` registers the runner with a registration token on stdin, never written anywhere:
+`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere:
 
 ```sh
-gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner
+gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner 1
 ```
 
 ### Images on the gate's machine

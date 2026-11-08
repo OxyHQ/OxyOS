@@ -5442,6 +5442,16 @@ def main():
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
+    else:
+        # Without one, a home of the run's own all the same, empty: never the developer's. A home
+        # with Desktop, Documents and Downloads in it (a machine that had a desktop) made the
+        # dock's zoom (dock-edges, window-zoom-scaled) leave the work area uncovered, and passed
+        # for a user whose home had none. The machine's GPU cache and drivers are named above.
+        empty = (out / "home").resolve()
+        shutil.rmtree(empty, ignore_errors=True)
+        (empty / ".config").mkdir(parents=True)
+        env["HOME"] = str(empty)
+        env["XDG_CONFIG_HOME"] = str(empty / ".config")
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
