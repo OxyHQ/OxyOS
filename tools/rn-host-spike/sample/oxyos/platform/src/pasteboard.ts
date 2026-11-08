@@ -5,6 +5,7 @@
 import { PlatformError } from './errors.ts';
 import type { Events } from './session.ts';
 import type { CallOptions } from './frameworks.ts';
+import { hostCall } from './host.ts';
 
 /** The host's module (OxyOSClipboard). Its calls throw where the application has no window. */
 export interface ClipboardModule {
@@ -14,34 +15,8 @@ export interface ClipboardModule {
 }
 
 const unavailable = () => new PlatformError('pasteboard', 'unavailable');
-const cancelled = () => new PlatformError('pasteboard', 'cancelled');
-
-/** A host call, its synchronous throw (no window) a rejection; aborted, a `cancelled` one. */
-async function call<T>(start: () => Promise<T>, options?: CallOptions): Promise<T> {
-  if (options?.signal?.aborted) throw cancelled();
-  let pending: Promise<T>;
-  try {
-    pending = start();
-  } catch {
-    throw unavailable();
-  }
-  const signal = options?.signal;
-  if (!signal) return pending;
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(cancelled());
-    signal.addEventListener('abort', abort, { once: true });
-    pending.then(
-      (value) => {
-        signal.removeEventListener('abort', abort);
-        resolve(value);
-      },
-      (error) => {
-        signal.removeEventListener('abort', abort);
-        reject(error);
-      },
-    );
-  });
-}
+/** A host call of the pasteboard's (its calls throw at once where the application has no window). */
+const call = <T>(start: () => Promise<T>, options?: CallOptions) => hostCall('pasteboard', start, options);
 
 export function createPasteboard(native: ClipboardModule | null | undefined, events: Events) {
   return {

@@ -33,8 +33,7 @@ import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent
 import { answerChooser, chooserRequest } from './file-chooser';
 import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
 import { createSearch, searchAvailable } from './search';
-import { sounds as platformSounds } from '@oxyos/platform';
-
+import { drag as platformDrag, sounds as platformSounds } from '@oxyos/platform';
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -408,11 +407,10 @@ const files = filesAvailable ? createFiles() : undefined;
 const search = searchAvailable ? createSearch() : undefined;
 
 // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): the drop target the host
-// answers the compositor for from its props (drag.h), and the application's own drags from the
-// press it holds. The protocol's version 10 has it; an older compositor none, and Bloom's DropZone
-// is then a view that takes nothing.
-const nativeDrag = TurboModuleRegistry.get('OxyOSDrag');
-const dragAvailable = Boolean(nativeDrag?.getConstants()?.available);
+// answers the compositor for from its props (drag.h), and the application's own drags, the
+// platform's `drag` (`@oxyos/platform`). The protocol's version 10 has it; an older compositor
+// none, and Bloom's DropZone is then a view that takes nothing.
+const dragAvailable = platformDrag.available;
 
 const OxyOSDropTargetView = NativeComponentRegistry.get('OxyOSDropTargetView', () => ({
   uiViewClassName: 'OxyOSDropTargetView',
@@ -530,42 +528,29 @@ function DropTarget({
   );
 }
 
-// The window's drag (Bloom's useWindowDrag): the host tells a drag coming over any of this
-// application's surfaces, and its leaving them all or ending, `dropped` when it was dropped on one
-// of them, once that drop's onDrop ran.
-const windowDragListeners = new Set();
-if (dragAvailable) {
-  DeviceEventEmitter.addListener('OxyOSWindowDrag', (event) => {
-    const told = event.type === 'exit' ? { type: 'exit', dropped: Boolean(event.dropped) } : { type: 'enter' };
-    for (const listener of [...windowDragListeners]) listener(told);
-  });
-}
-
+// Bloom's drag over the platform's: a drag that ended without a drop tells `onCancel` why, Bloom's
+// way (`not-accepted`; `refused` for one with no press to start from), before it resolves with
+// null. The window's drags (Bloom's useWindowDrag) are the platform's `onWindowDrag`.
+const BLOOM_END_REASONS = { escape: 'escape', notAccepted: 'not-accepted', cancelled: 'cancelled' };
 const drag = dragAvailable
   ? {
       // The dragged view itself is the image, as it looks (stacked and badged for several items).
       // `data.other` is offered by its media types after the kinds; `vanish` (protocol version 26)
       // has the image vanish in a poof where it is dropped on nothing, an item dragged out of the
       // dock.
-      // `onCancel` is told why a drag ended without a drop ('escape', 'not-accepted', 'refused',
-      // 'cancelled') before the promise settles with null.
-      start({ data, actions, previewRef, count, vanish, onCancel }) {
+      async start({ data, actions, previewRef, count, vanish, onCancel }) {
         const preview = previewRef?.current ? findNodeHandle(previewRef.current) : null;
-        return nativeDrag.start(
-          data,
-          [...actions],
-          preview ?? -1,
-          count ?? 1,
-          { vanish: Boolean(vanish) },
-          onCancel ? (reason) => onCancel(reason) : undefined,
-        );
+        try {
+          const outcome = await platformDrag.start({ data, actions: [...actions], preview, count, vanish });
+          if (outcome.action === null) onCancel?.(BLOOM_END_REASONS[outcome.reason]);
+          return outcome.action;
+        } catch {
+          // Refused (no press held), offering nothing, or no window: Bloom's `refused`.
+          onCancel?.('refused');
+          return null;
+        }
       },
-      watchWindow(listener) {
-        windowDragListeners.add(listener);
-        return () => {
-          windowDragListeners.delete(listener);
-        };
-      },
+      watchWindow: (listener) => platformDrag.onWindowDrag(listener),
     }
   : undefined;
 
