@@ -84,6 +84,8 @@ jobs:
       - run: python3 scripts/check-native-boundary.py
       # regress.py's own checks (the input-delivery invariant) on records written by hand.
       - run: python3 tools/rn-host-spike/test_regress.py
+      # The scenario gate's builds below every gate's scenarios (tools/gate/run-scenarios.sh).
+      - run: python3 tools/gate/test_run_scenarios.py
       - run: cargo run --locked -p oxyos-platform-probe
 
   # The tests that run the system's useradd, chpasswd and userdel on a root of their own need

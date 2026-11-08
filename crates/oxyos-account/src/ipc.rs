@@ -14,8 +14,10 @@
 //!   ```text
 //!   → {"enroll": {"deviceId", "deviceSecret", "accountId", "password"?, "pin"?,
 //!                 "appearance"?: "light" | "dark" | "auto"}}
-//!   ← {"progress": "securing" | "verifying" | "preparing" | "signingIn" | "finishing"}
-//!                                                                     as each step starts, then:
+//!   ← {"progress": "securing" | "verifying" | "preparing" | "signingIn" | "finishing" |
+//!                  "confirming"}                                     as each step starts, and
+//!   ← {"waiting": {"retryAfterSeconds"}}                               while Oxy asks it to wait,
+//!                                                                     then:
 //!   ← {"enrolled": {"accountId", "user", "uid", "profile"}}           and the connection ends
 //!   ← {"refused": {"reason", "retryAfterSeconds"?}}                     and the connection ends
 //!   ← {"failed": {"reason": "unreachable" | "localFailure"}}           the sign-in is kept:
@@ -40,16 +42,25 @@
 //!     verifier); what this setup did on it was undone. The sign-in is kept, and the platform
 //!     credential Oxy issued, if it did, too: `"retry"` sets the machine up with it without asking
 //!     Oxy again.
+//!   - `failed: unreachable` once the machine is set up: Oxy could not be reached to confirm the
+//!     platform credential (Oxy ADR 0058 R8). The setup is kept; `"retry"` only confirms again
+//!     (its one step `confirming`).
+//!   - `waiting` (not an answer): Oxy rate-limited the redemption (a 429) and the wait ends
+//!     within the QR's window: the service waits, asks again with the same key, and goes on. A
+//!     wait that would outlast the window is `refused: credentialRefused`.
 //!   - `refused: credentialRefused` (also `accountNotOnDevice`, `accountMismatch`): the sign-in no
-//!     longer holds (the QR's proof refused or already spent, its window passed): sign in again.
+//!     longer holds (the QR's proof refused or already spent, its window passed, its platform
+//!     credential expired before Oxy confirmed it, the machine's setup then undone): sign in
+//!     again.
 //!   - any other `refused` (`conflict`, `failed` when undoing failed too, `oxy`, `locked`, …):
 //!     the setup ends as it said.
 //!
 //!   A `"retry"` is answered only after a `failed` answer; anything else out of turn ends the
-//!   conversation, `invalidRequest`. Closing the connection abandons a setup: nothing of it is
-//!   kept, and a platform credential it was issued and never set up with is ended online, as it is
-//!   when the conversation's turn times out ([`IDLE`]) or a refusal ends it. `pin` (4 to 16
-//!   digits, never the password) becomes the account's PIN on this computer (`crate::pin`).
+//!   conversation, `invalidRequest`. Closing the connection abandons a setup, as the
+//!   conversation's turn timing out ([`IDLE`]) or a refusal ends it: nothing is ended online, since
+//!   a platform credential it was issued is pending at Oxy until confirmed and expires by itself
+//!   (R8), and a setup the machine took whose confirmation never came back stays as it is
+//!   (`crate::setup::Setup::abandon`). `pin` (4 to 16 digits, never the password) becomes the account's PIN on this computer (`crate::pin`).
 //!   Without `password` (a sign-in by the QR) the PIN is required (`pinRequired` without one) and
 //!   Oxy's device-proof route issues the platform credential (`crate::setup`). `appearance` seeds
 //!   the preferences of a home this setup makes (an account set up again keeps its own); any other
@@ -109,7 +120,7 @@ use crate::pin::{PinCheck, PinState};
 use crate::platform::{Checked, Local, Platform};
 use crate::secret::{self, Secret};
 use crate::setup::{
-    Appearance, Attempt, Enrolled, Request as SetupRequest, SetupError, Stage, Step,
+    Appearance, Attempt, Enrolled, Event, Request as SetupRequest, SetupError, Stage, Step,
 };
 use crate::store::State;
 use crate::users::Users;
@@ -276,6 +287,12 @@ pub enum Failure {
 pub enum Answer {
     /// A setup's step started; its answer follows.
     Progress(Stage),
+    /// Oxy asked the setup to wait this long (a 429 on the redemption): it asks again after, and
+    /// its steps and answer follow.
+    #[serde(rename_all = "camelCase")]
+    Waiting {
+        retry_after_seconds: u64,
+    },
     SecondFactorRequired,
     #[serde(rename_all = "camelCase")]
     Enrolled {
@@ -475,7 +492,7 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
     pub fn answer_with(
         &mut self,
         request: Option<Request>,
-        progress: &mut dyn FnMut(Stage),
+        progress: &mut dyn FnMut(Event),
     ) -> (Turn, Outcome) {
         let asked = self
             .attempt
@@ -957,8 +974,13 @@ pub fn serve<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static
             return connection.send(&Answer::Pin(answer));
         }
         // Each step of a setup is told as it starts; a client gone is found out by the answer.
-        let (turn, outcome) = conversation.answer_with(request, &mut |stage| {
-            let _ = connection.send(&Answer::Progress(stage));
+        let (turn, outcome) = conversation.answer_with(request, &mut |event| {
+            let _ = connection.send(&match event {
+                Event::Started(stage) => Answer::Progress(stage),
+                Event::Waiting(seconds) => Answer::Waiting {
+                    retry_after_seconds: seconds,
+                },
+            });
         });
         log(&peer, &outcome);
         match turn {
