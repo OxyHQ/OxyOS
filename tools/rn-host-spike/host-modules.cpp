@@ -1821,9 +1821,9 @@ std::shared_ptr<TurboModule> createHostModule(
     // Settings at a page, as a Mac's application opens `x-apple.systempreferences:`, or the
     // application whose entry declares the scheme, as `NSWorkspace.open`: asked of the session
     // from its window, citing the person's latest press or key, resolved once the session opened
-    // it. A file is opened by its type, never as a URL. Whether an application declares the scheme
-    // is the session's to say, as it opens it: `canOpenURL` says only whether the URL is one this
-    // window may ask to open.
+    // it. A file is opened by its type, never as a URL. `canOpenURL` says whether an application
+    // of the session's registry declares the scheme (its entry's `x-scheme-handler/SCHEME`, as
+    // Android's answers whether an activity handles the intent), read off the JavaScript thread.
     auto schemeOf = [](const std::string& url) {
       auto colon = url.find(':');
       std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
@@ -1839,8 +1839,43 @@ std::shared_ptr<TurboModule> createHostModule(
                                [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
       return services.openUrl && named && scheme != "file";
     };
-    module->method("canOpenURL", [opensByScheme](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      return resolved(rt, jsi::Value(count > 0 && args[0].isString() && opensByScheme(args[0].asString(rt).utf8(rt))));
+    module->method("canOpenURL", [opensByScheme, schemeOf, invoker](jsi::Runtime& rt, const jsi::Value* args,
+                                                                   size_t count) {
+      std::string url = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
+      if (!opensByScheme(url)) return resolved(rt, jsi::Value(false));
+      std::string scheme = schemeOf(url);
+      if (scheme == OXYOS_PLATFORM_SETTINGS_SCHEME) return resolved(rt, jsi::Value(true));
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "canOpenURL"), 2,
+          [invoker, scheme](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            std::thread([invoker, resolve, scheme] {
+              bool declared = false;
+              int64_t length = oxyos_applications(nullptr, 0);
+              if (length >= 0) {
+                std::string json(static_cast<size_t>(length) + 1, '\0');
+                oxyos_applications(json.data(), json.size());
+                json.resize(static_cast<size_t>(length));
+                const std::string handler = "x-scheme-handler/" + scheme;
+                try {
+                  for (const auto& app : folly::parseJson(json)) {
+                    const auto* opens = app.get_ptr("opens");
+                    if (!opens || !opens->isArray()) continue;
+                    declared = declared || std::any_of(opens->begin(), opens->end(), [&](const folly::dynamic& kind) {
+                                 return kind.isString() && kind.getString() == handler;
+                               });
+                  }
+                } catch (const std::exception&) {
+                  // A registry that cannot be read declares nothing.
+                }
+              }
+              invoker->invokeAsync([resolve, declared](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(declared));
+              });
+            }).detach();
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
     module->method("openURL", [&services, invoker, opensByScheme, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
                                                                            size_t count) {
