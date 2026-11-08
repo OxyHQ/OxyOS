@@ -40,7 +40,9 @@ async function attempt(say: Say, name: string, step: () => unknown) {
 }
 
 /** The part of a URI after the folder `marker` names, to show without the run's own paths. */
-const after = (uri: string, marker: string) => uri.slice(uri.indexOf(marker));
+// The path from the run's home's own folder on: the last marker, as the run's home may itself be under
+// a folder of that name (a gate run in ~/.cache/oxyos/runs).
+const after = (uri: string, marker: string) => uri.slice(uri.lastIndexOf(marker));
 
 async function files(say: Say) {
   await attempt(say, 'document', () => after(Paths.document.uri, '/.local/share/'));

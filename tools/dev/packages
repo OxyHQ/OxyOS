@@ -1,0 +1,16 @@
+# The Debian trixie packages a machine needs to build OxyOS and run its scenarios (docs/developing.mdx),
+# installed once with `sudo apt-get install --no-install-recommends $(grep -v '^#' tools/dev/packages)`;
+# tools/dev/bootstrap says which are missing. The rest (Clang, cmake, Skia, Hermes, Node, bun, the
+# input methods' engine) tools/dev/bootstrap fetches or builds into its cache, never system-wide.
+# The build: compilers, Python's venv (cmake and ninja), patch, pkg-config.
+build-essential git curl ca-certificates xz-utils unzip patch pkg-config python3 python3-venv
+# What the workspace links and its tests run (as .github/workflows/native-ci.yml installs them).
+libinput-dev libudev-dev libxkbcommon-dev xkb-data dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
+# Vulkan: the loader and Mesa's drivers (lavapipe on the CPU, the GPU's own where there is one).
+libvulkan1 mesa-vulkan-drivers vulkan-tools
+# The text the scenarios draw.
+fonts-noto-cjk fonts-noto-color-emoji
+# The input methods' engine at run time (tools/input-methods/build.sh, RUNTIME_PACKAGES).
+libjson-c5 libxkbcommon0 libuuid1 libexpat1 libsystemd0 libfmt10 libboost-iostreams1.83.0 libzstd1 libhangul1 libhangul-data libanthy1t64 anthy-common iso-codes
+# The one-GPU check (tools/gate/run-scenarios.sh) and a deploy's.
+strace
