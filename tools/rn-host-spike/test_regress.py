@@ -6,6 +6,8 @@ decides about an ordering is decided the same way every time, whatever the machi
 
 import importlib.util
 import pathlib
+import subprocess
+import sys
 import unittest
 
 _spec = importlib.util.spec_from_file_location("regress", pathlib.Path(__file__).with_name("regress.py"))
@@ -241,6 +243,60 @@ class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
             {"application": "so.oxy.allo", "contains": ["Mention"]},
             {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"},
         ]))
+
+# A run's processes as its /proc shows them: those whose command is `sleep 7.31` (a twin's).
+TWIN = """
+import os, subprocess, time
+twin = subprocess.Popen(["sleep", "7.31"])
+time.sleep(1.5)
+seen = 0
+for entry in os.listdir("/proc"):
+    try:
+        seen += open(f"/proc/{entry}/cmdline", "rb").read() == b"sleep\\x007.31\\x00"
+    except OSError:
+        pass
+twin.kill()
+print(seen)
+"""
+
+
+class ARunSeesOnlyItsOwnProcesses(unittest.TestCase):
+    """A scenario whose session lists the machine's processes (Activity Monitor's) runs in a PID
+    namespace of its own: two at once, one user's, never see each other's processes."""
+
+    @classmethod
+    def setUpClass(cls):
+        refused = regress.pid_namespace_refused()
+        if refused:
+            raise unittest.SkipTest(f"this machine gives no PID namespace of a run's own: {refused}")
+
+    def twins(self, isolated):
+        command = [sys.executable, "-c", TWIN]
+        runs = [subprocess.Popen(regress.pid_namespace_command(command) if isolated else command,
+                                 stdout=subprocess.PIPE, text=True) for _ in range(2)]
+        return [int(run.communicate(timeout=30)[0]) for run in runs]
+
+    def test_two_runs_at_once_each_see_only_their_own(self):
+        self.assertEqual(self.twins(isolated=False), [2, 2], "without namespaces each sees both")
+        self.assertEqual(self.twins(isolated=True), [1, 1])
+
+    def test_which_scenarios_list_processes(self):
+        self.assertTrue(regress.lists_processes({"processes": [{"name": "oxyos-test-idle"}]}))
+        self.assertTrue(regress.lists_processes({"grants": {"so.oxy.activitymonitor": ["activity"]}}))
+        self.assertFalse(regress.lists_processes({"grants": {"so.oxy.settings": ["settings"]}}))
+
+    def test_the_init_reaps_orphans_and_ends_with_its_child(self):
+        # An orphan left to the init, then the child's status 3: no zombie listed, 3 returned.
+        orphan = ("import os, subprocess, sys, time\n"
+                  "subprocess.Popen(['sh', '-c', 'sleep 0.2 & exit 0']).wait()\n"
+                  "time.sleep(1)\n"
+                  "zombies = [e for e in os.listdir('/proc') if e.isdigit() and"
+                  " open(f'/proc/{e}/stat').read().rsplit(')', 1)[1].split()[0] == 'Z']\n"
+                  "print(len(zombies)); sys.exit(3)")
+        run = subprocess.run(regress.pid_namespace_command([sys.executable, "-c", orphan]),
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual((run.returncode, run.stdout.strip()), (3, "0"), run.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

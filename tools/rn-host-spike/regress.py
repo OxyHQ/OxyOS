@@ -440,7 +440,12 @@ loads).
 A scenario's `processes` ([{"name", "busy"}]) are processes the run starts before the session
 and ends after it (`activity-process.py`, never by name): each named so (its `comm`), busy for that
 share of the time (0, or none, asleep), recording every signal it receives, so Activity Monitor's
-scenarios list processes they know and quit them (docs/adr/0063-activity-monitor.mdx).
+scenarios list processes they know and quit them (docs/adr/0063-activity-monitor.mdx). A scenario
+whose session lists the machine's processes (with `processes`, or an application granted
+`activity`) runs in a PID namespace of its own (`unshare`, an unprivileged user namespace mapping
+only the user's own id): every run of a gate is one user's, so beside another scenario at once its
+session saw that one's processes as the person's own, and quit them. Activity Monitor still lists
+every process its /proc shows, as a Mac's lists all of the user's; the run's /proc shows its own.
 
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
@@ -712,6 +717,7 @@ import json
 import math
 import re
 import shutil
+import signal
 import struct
 import zlib
 import urllib.parse
@@ -3319,6 +3325,77 @@ def check_input_delivery(summary, reports, failures):
     failures.extend(failed)
 
 
+# The marker of the init regress.py runs as in a scenario's PID namespace (own_pid_namespace).
+PID_NAMESPACE_INIT = "--pid-namespace-init"
+
+
+def lists_processes(scenario):
+    """Whether the scenario's session lists the machine's processes: its own `processes`, or an
+    application granted `activity` (docs/adr/0063-activity-monitor.mdx)."""
+    return bool(scenario.get("processes")) or any(
+        "activity" in grants for grants in scenario.get("grants", {}).values())
+
+
+def pid_namespace_command(argv):
+    """ARGV run as the child of an init (pid 1, this file) in a PID namespace of its own, with a
+    /proc of its own and no other privilege: an unprivileged user namespace mapping only the
+    caller's own id (files it makes are the caller's), the machine's network, files and devices.
+    When the command outside ends, however it ends, the init and everything in the namespace end
+    (`--kill-child`)."""
+    return ["unshare", "--user", "--map-current-user", "--pid", "--fork", "--mount-proc",
+            "--kill-child", sys.executable, str(pathlib.Path(__file__).resolve()), PID_NAMESPACE_INIT,
+            *argv]
+
+
+def pid_namespace_refused():
+    """Why this machine refuses a PID namespace of a run's own (None: it gives one)."""
+    try:
+        probe = subprocess.run(pid_namespace_command(["true"]), capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return str(error)
+    return None if probe.returncode == 0 else (probe.stderr.strip() or f"status {probe.returncode}")
+
+
+def pid_namespace_init(argv):
+    """Pid 1 of a run's namespace: runs ARGV, hands it the signals the run is sent, reaps every
+    process the namespace leaves to it (an orphan never lingers as a zombie a session would list),
+    and ends with ARGV's status, which ends the namespace."""
+    child = os.fork()
+    if child == 0:
+        try:
+            os.execvp(argv[0], argv)
+        finally:
+            os._exit(127)
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(number, lambda received, _frame: os.kill(child, received))
+    while True:
+        try:
+            pid, status = os.wait()
+        except ChildProcessError:
+            return 1
+        except InterruptedError:
+            continue
+        if pid == child:
+            return os.waitstatus_to_exitcode(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+
+
+def own_pid_namespace(scenario):
+    """A scenario whose session lists the machine's processes sees only its run's: this run is made
+    again in a PID namespace of its own and its status returned (None: it is in one already)."""
+    if os.environ.get("OXYOS_REGRESS_PID_NAMESPACE") == "1":
+        # regress.py, the init's only child, and the init its namespace's pid 1.
+        init = pathlib.Path("/proc/1/cmdline").read_bytes().split(b"\0")
+        if os.getppid() != 1 or PID_NAMESPACE_INIT.encode() not in init:
+            raise SystemExit("a run that lists the machine's processes is not alone in its PID namespace")
+        return None
+    refused = pid_namespace_refused()
+    if refused:
+        raise SystemExit("this scenario's session lists the machine's processes, so it runs in a PID "
+                         f"namespace of its own (unshare --user --pid), which this machine refuses: {refused}")
+    env = dict(os.environ, OXYOS_REGRESS_PID_NAMESPACE="1")
+    return subprocess.run(pid_namespace_command([sys.executable, *sys.orig_argv[1:]]), env=env).returncode
+
+
 class ProcessRecorder:
     """The scenario's `processes`, started before the session and ended after it by their own
     handles (never by name): each one's signals as it recorded them, and when it ended, seen by a
@@ -5489,6 +5566,8 @@ def install_arguments(scenario, out, machine=None, offscreen=None):
 
 
 def main():
+    if sys.argv[1:2] == [PID_NAMESPACE_INIT]:
+        return pid_namespace_init(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("scenario")
     parser.add_argument("--offscreen", required=True)
@@ -5546,6 +5625,10 @@ def main():
     SPEED_BUDGETS = options.speed_budgets and not COLLECT
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
+    if lists_processes(scenario):
+        status = own_pid_namespace(scenario)
+        if status is not None:
+            return status
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "host-report.jsonl"
