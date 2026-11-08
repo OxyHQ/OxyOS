@@ -6,7 +6,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test ../../apps/shell/tests/*.test.ts ../../apps/login/tests/*.test.ts ../../apps/settings/tests/*.test.ts ../rn-host-spike/sample/oxyos/platform/tests/*.test.ts",
+    "test": "node --test ../../apps/shell/tests/*.test.ts ../../apps/login/tests/*.test.ts ../../apps/settings/tests/*.test.ts ../rn-host-spike/sample/oxyos/platform/tests/*.test.ts platform-docs.test.mjs",
+    "docs:platform": "node platform-docs.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

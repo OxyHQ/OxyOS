@@ -98,10 +98,13 @@ export function createSearch(native: SearchModule | null | undefined, events: Ev
     used: (id: string) => tell({ used: { id } }),
     /** What this application gives the index of its own content, and takes back. */
     donate: (items: readonly Json[], options?: CallOptions) => done({ donate: { items } }, options),
+    /** Takes back what this application gave the index, by its ids. */
     remove: (ids: readonly string[], options?: CallOptions) => done({ remove: { ids } }, options),
+    /** Takes back everything this application gave the index. */
     removeAll: (options?: CallOptions) => done({ removeAll: {} }, options),
     /** The index's preferences (Settings alone changes them: `notPermitted` for any other). */
     preferences: (options?: CallOptions) => ask({ preferences: {} }, options),
+    /** Changes the index's preferences (Settings alone); resolves with them. */
     setPreferences: (preferences: Json, options?: CallOptions) => ask({ setPreferences: preferences }, options),
     /** What the index holds and is doing, once. */
     status: (options?: CallOptions) => ask({ status: {} }, options),

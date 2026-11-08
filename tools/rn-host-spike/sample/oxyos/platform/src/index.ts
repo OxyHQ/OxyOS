@@ -68,8 +68,9 @@ const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { a
 /** The API level this runtime gives (its `api`, ADR 0030, decision 2); 0 where it says none. */
 export const api: number = runtime?.getConstants().api ?? 0;
 
-/** The one connection to the session; the runtime's own (ADR 0058, decision 2), never a contract. */
 const system = TurboModuleRegistry.get('OxyOSSystem') as SystemModule | null;
+/** The one connection to the session; the runtime's own (ADR 0058, decision 2), never a contract.
+    @internal */
 export const session = createSession(system, DeviceEventEmitter);
 
 const frameworks = createFrameworks(session);
@@ -94,7 +95,7 @@ export const chooser = createChooser(
 export const notifications = createNotifications(NativeOxyOSNotifications, DeviceEventEmitter);
 
 /** The connection to the file service; the runtime's own (ADR 0058, decision 2), never a contract:
-    the framework below and expo-file-system's module are written over it. */
+    the framework below and expo-file-system's module are written over it. @internal */
 export const fileService = createFileService(
   TurboModuleRegistry.get('OxyOSFiles') as FilesModule | null,
   DeviceEventEmitter,
