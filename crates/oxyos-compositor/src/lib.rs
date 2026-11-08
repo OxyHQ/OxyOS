@@ -5357,6 +5357,27 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 }
 
 /// Removes the private socket directory on every exit, including errors and deadlines.
+/// A memory file holding `bytes`, sealed so that neither side can change or resize it: what a
+/// SystemData carries.
+fn sealed(bytes: &[u8]) -> Option<OwnedFd> {
+    use rustix::fs::{fcntl_add_seals, memfd_create, MemfdFlags, SealFlags};
+    use std::io::Write;
+    let file = memfd_create(
+        "oxyos-system-data",
+        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+    )
+    .ok()?;
+    let mut written = std::fs::File::from(file);
+    written.write_all(bytes).ok()?;
+    let file = OwnedFd::from(written);
+    fcntl_add_seals(
+        &file,
+        SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL,
+    )
+    .ok()?;
+    Some(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5982,25 +6003,4 @@ mod tests {
             }]
         );
     }
-}
-
-/// A memory file holding `bytes`, sealed so that neither side can change or resize it: what a
-/// SystemData carries.
-fn sealed(bytes: &[u8]) -> Option<OwnedFd> {
-    use rustix::fs::{fcntl_add_seals, memfd_create, MemfdFlags, SealFlags};
-    use std::io::Write;
-    let file = memfd_create(
-        "oxyos-system-data",
-        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
-    )
-    .ok()?;
-    let mut written = std::fs::File::from(file);
-    written.write_all(bytes).ok()?;
-    let file = OwnedFd::from(written);
-    fcntl_add_seals(
-        &file,
-        SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL,
-    )
-    .ok()?;
-    Some(file)
 }

@@ -417,9 +417,14 @@ fn addresses_are_read_as_the_kernel_writes_them() {
 
 // ---- Inspecting and quitting real processes: the test's own children ----
 
+/// A `sleep` of the test's own, reading a file of the test's own as its standard input (whatever
+/// the test's own descriptors are: a terminal, pipes, sockets).
 fn child() -> std::process::Child {
+    let input = std::env::temp_dir().join(format!("oxyos-activity-{}-input", std::process::id()));
+    std::fs::write(&input, "").unwrap();
     std::process::Command::new("sleep")
         .arg("30")
+        .stdin(std::fs::File::open(&input).unwrap())
         .spawn()
         .unwrap()
 }
@@ -451,7 +456,13 @@ fn a_process_of_the_persons_is_inspected_whole() {
     assert!(
         memory.resident > 0 && memory.unique > 0 && memory.footprint == memory.unique + memory.gpu
     );
-    assert!(inspected.files.unwrap().iter().any(|file| file.fd <= 2));
+    // Its standard input, the file the test gave it.
+    let input = std::env::temp_dir().join(format!("oxyos-activity-{}-input", std::process::id()));
+    assert!(inspected
+        .files
+        .unwrap()
+        .iter()
+        .any(|file| file.fd == 0 && std::path::Path::new(&file.path) == input));
     // As another user would see it: restricted.
     let restricted =
         inspect::inspect(&Procfs::system(), pid, started(pid), me() + 1, None).unwrap();
