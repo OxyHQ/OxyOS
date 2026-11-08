@@ -1,4 +1,4 @@
-import React, { memo, useEffect } from "react";
+import React, { memo, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
@@ -13,7 +13,7 @@ import { RiArrowRightSLine } from "@oxy.so/bloom/icons/RiArrowRightSLine";
 import { Box, PressArea } from "../primitives";
 import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
 import { batteryLabel, bluetoothLabel, wifiLabel, wifiOn } from "../controls";
-import type { ShellControl, ShellControls } from "../model";
+import type { ShellControl, ShellControls, ShellLevel } from "../model";
 import { hasWifiView } from "../network";
 import { hasSoundView, selectedOutput, soundDeviceName } from "../sound";
 import { bluetoothSummary, bluetoothSwitchable, hasBluetoothView } from "../bluetooth";
@@ -35,8 +35,8 @@ export const CONTROL_CENTER_WIDTH = 320;
     devices), a button of its own, whose value is the status shown. Each module is said once,
     as VoiceOver says a Mac's: its switch by its title, its state and `value` (what the status
     says beyond on or off: the network joined), and its status text, which says no more than
-    that, is not read again after it. */
-function Module({
+    that, is not read again after it. Memoized: a module renders when what it shows changes. */
+const Module = memo(function Module({
   icon,
   title,
   status,
@@ -120,28 +120,33 @@ function Module({
       )}
     </Box>
   );
-}
+});
 
 /** A level's slider in a card, its name above it. `more`: a chevron after the slider opens its
     view (the Sound card's outputs), a button of its own whose value is what it chose (the output
-    played to), as a Mac's Sound module. */
-function LevelCard({
+    played to), as a Mac's Sound module. Given its own level, it renders when that changes and no
+    other card does. */
+const LevelCard = memo(function LevelCard({
   control,
   title,
   icon,
-  controls,
+  level,
+  setLevel,
+  setMuted,
   mute,
   more,
 }: {
   control: ShellControl;
   title: string;
   icon: Icon;
-  controls: ShellControls;
+  level: ShellLevel | undefined;
+  setLevel: ShellControls["setLevel"];
+  setMuted: ShellControls["setMuted"];
   /** A volume: its icon mutes it and unmutes it. */
   mute?: boolean;
   more?: { label: string; value?: string; open: () => void };
 }) {
-  if (!controls.levels[control]?.available) return null;
+  if (!level?.available) return null;
   return (
     <Box style={card}>
       {/* The slider is named by it: the title is not read again as text. */}
@@ -152,7 +157,15 @@ function LevelCard({
       >
         {title}
       </Text>
-      <LevelSlider control={control} title={title} icon={icon} controls={controls} mute={mute}>
+      <LevelSlider
+        control={control}
+        title={title}
+        icon={icon}
+        level={level}
+        setLevel={setLevel}
+        setMuted={setMuted}
+        mute={mute}
+      >
         {more && (
           <PressArea
             testID={`control-${control}-more`}
@@ -169,7 +182,7 @@ function LevelCard({
       </LevelSlider>
     </Box>
   );
-}
+});
 
 /**
  * The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx), from the top bar's
@@ -224,6 +237,31 @@ export const ControlCenter = memo(function ControlCenter({
   const sound = controls.sound;
   const soundView = hasSoundView(sound) && !!showPage;
   const output = selectedOutput(sound);
+  const outputName = output && soundDeviceName(output, messages);
+  // What the modules and cards are given stays the same object while what it says does, so that
+  // each renders when what it shows changes: a volume dragged renders its slider alone.
+  const { setWifi, setBluetooth, setDark, setLevel, setMuted } = controls;
+  const wifiIsOn = wifiOn(controls.network);
+  const toggleWifi = useCallback(() => setWifi?.(!wifiIsOn), [setWifi, wifiIsOn]);
+  const bluetoothSwitches = bluetoothView && bluetoothSwitchable(devices) && !!setBluetooth;
+  const toggleBluetooth = useCallback(() => setBluetooth?.(!bluetoothOn), [setBluetooth, bluetoothOn]);
+  const toggleDark = useCallback(() => setDark?.(!dark), [setDark, dark]);
+  const setDoNotDisturb = doNotDisturb?.set;
+  const doNotDisturbOn = doNotDisturb?.on ?? false;
+  const toggleDoNotDisturb = useCallback(() => setDoNotDisturb?.(!doNotDisturbOn), [setDoNotDisturb, doNotDisturbOn]);
+  const wifiMore = useMemo(
+    () => (wifiView ? { label: words.wifiNetworks, open: () => showPage?.("wifi") } : undefined),
+    [wifiView, words, showPage],
+  );
+  const bluetoothMore = useMemo(
+    () => (bluetoothView ? { label: words.bluetoothDevices, open: () => showPage?.("bluetooth") } : undefined),
+    [bluetoothView, words, showPage],
+  );
+  const soundMore = useMemo(
+    () =>
+      soundView ? { label: words.outputDevices, value: outputName, open: () => showPage?.("sound") } : undefined,
+    [soundView, words, outputName, showPage],
+  );
   return (
     <Box className="absolute inset-0">
       <PressArea
@@ -264,12 +302,12 @@ export const ControlCenter = memo(function ControlCenter({
                   icon={RiWifiLine}
                   title="Wi-Fi"
                   status={wifi}
-                  on={wifiOn(controls.network)}
+                  on={wifiIsOn}
                   // The network joined is said by "Redes Wi-Fi" where it shows; else by the
                   // switch, while Wi-Fi is on (off, its state says it).
-                  value={!wifiView && wifiOn(controls.network) ? wifi : undefined}
-                  onPress={() => controls.setWifi?.(!wifiOn(controls.network))}
-                  more={wifiView ? { label: words.wifiNetworks, open: () => showPage?.("wifi") } : undefined}
+                  value={!wifiView && wifiIsOn ? wifi : undefined}
+                  onPress={toggleWifi}
+                  more={wifiMore}
                 />
               )}
               {bluetooth !== undefined && (
@@ -281,14 +319,8 @@ export const ControlCenter = memo(function ControlCenter({
                   on={bluetoothOn}
                   // A switch where the session told Bluetooth and it can move (not blocked by the
                   // machine's switch); its devices said by "Bluetooth Devices".
-                  onPress={
-                    bluetoothView && bluetoothSwitchable(devices) && controls.setBluetooth
-                      ? () => controls.setBluetooth?.(!bluetoothOn)
-                      : undefined
-                  }
-                  more={
-                    bluetoothView ? { label: words.bluetoothDevices, open: () => showPage?.("bluetooth") } : undefined
-                  }
+                  onPress={bluetoothSwitches ? toggleBluetooth : undefined}
+                  more={bluetoothMore}
                 />
               )}
               <Module
@@ -297,26 +329,34 @@ export const ControlCenter = memo(function ControlCenter({
                 title={words.darkMode}
                 status={dark ? messages.common.on : messages.common.off}
                 on={dark}
-                onPress={() => controls.setDark?.(!dark)}
+                onPress={toggleDark}
               />
             </Box>
-            <LevelCard control="display" title={words.display} icon={RiSunLine} controls={controls} />
-            <LevelCard control="keyboard" title={words.keyboard} icon={RiKeyboardLine} controls={controls} />
+            <LevelCard
+              control="display"
+              title={words.display}
+              icon={RiSunLine}
+              level={controls.levels.display}
+              setLevel={setLevel}
+              setMuted={setMuted}
+            />
+            <LevelCard
+              control="keyboard"
+              title={words.keyboard}
+              icon={RiKeyboardLine}
+              level={controls.levels.keyboard}
+              setLevel={setLevel}
+              setMuted={setMuted}
+            />
             <LevelCard
               control="output"
               title={words.sound}
               icon={RiVolumeUpLine}
-              controls={controls}
+              level={controls.levels.output}
+              setLevel={setLevel}
+              setMuted={setMuted}
               mute
-              more={
-                soundView
-                  ? {
-                      label: words.outputDevices,
-                      value: output && soundDeviceName(output, messages),
-                      open: () => showPage?.("sound"),
-                    }
-                  : undefined
-              }
+              more={soundMore}
             />
             {battery !== undefined && (
               <Box
@@ -341,9 +381,9 @@ export const ControlCenter = memo(function ControlCenter({
                   testID="control-do-not-disturb"
                   icon={RiNotificationOffFill}
                   title={messages.common.doNotDisturb}
-                  status={doNotDisturb.on ? messages.common.on : messages.common.off}
-                  on={doNotDisturb.on}
-                  onPress={() => doNotDisturb.set(!doNotDisturb.on)}
+                  status={doNotDisturbOn ? messages.common.on : messages.common.off}
+                  on={doNotDisturbOn}
+                  onPress={toggleDoNotDisturb}
                 />
               </Box>
             )}
