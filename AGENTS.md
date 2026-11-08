@@ -10,6 +10,8 @@ Bloom's application-layout compositor is distinct from the OS display compositor
 
 ## Checks
 
+Merging: `gh pr merge N --auto` puts a pull request in the merge queue once its fast checks pass; the queue's **Scenarios** run of the combined tree is the gate (`tools/gate/run-scenarios.sh`), and a failing run takes the pull request out with its failure (the `gate` label runs it on a pull request first). A machine from nothing, the gate, deploys (`tools/deploy/deploy.sh`) and the gate's machine: `docs/developing.mdx`. `tools/dev/bootstrap` fetches everything at `tools/dev/pins`; machine-specific values go in `tools/dev/local.conf` (git-ignored), never in the repo.
+
 Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxyos-platform-probe`; `oxyos-offscreen` is a CPU fixture, not DRM/KMS. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
 
 Image: `python3 scripts/check-image-config.py` (`config/` and workflows; the boundary script audits Cargo). Locally, never in CI: `tools/image/build.sh` builds the console base in a privileged Trixie container under `~/oxyos-build` (never `/tmp`) and runs `scripts/check-image-contents.py`, the built image's audit; `python3 tools/image/acceptance ISO [--firmware uefi|secureboot|bios]` boot-tests it in QEMU (`docs/iso-build.mdx`; `--recovery`: install, recovery and erase on a virtual disk). Installing: ADR 0023; recovery and erasing: ADR 0054. Destructive steps (install, erase) run only in QEMU disk images, never on a real disk.

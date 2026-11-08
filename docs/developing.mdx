@@ -1,0 +1,218 @@
+---
+title: Developing OxyOS
+description: Setting up a machine from nothing, building, running a scenario, the scenario gate, deploying to a test machine, and the machine that runs the gate.
+order: 7
+---
+
+# Developing OxyOS
+
+This repository is all a machine needs. `tools/dev/bootstrap` fetches or builds everything else, at
+pinned versions checked by SHA-256 or by commit, into a cache in your home. Nothing is installed
+system-wide but the Debian packages below, and nothing is copied from another machine.
+
+## A machine from nothing
+
+A Debian trixie machine, amd64 or arm64 ([ADR 0032](./adr/0032-arm)), with about 40 GB free.
+
+```sh
+git clone https://github.com/OxyHQ/OxyOS.git && cd OxyOS
+sudo apt-get install --no-install-recommends $(grep -v '^#' tools/dev/packages)
+tools/dev/bootstrap
+```
+
+`tools/dev/packages` is the one list of Debian packages: compilers, Python's venv, the libraries the
+workspace links, Vulkan and Mesa, the fonts the scenarios draw, and the input methods' run-time
+libraries. `tools/dev/bootstrap` says which are missing and installs none itself.
+
+`tools/dev/bootstrap` is idempotent: run it again after a pull, and only what changed is fetched or
+built. The first run takes about half an hour (Skia and Hermes). Everything goes into
+`OXYOS_CACHE`, `~/.cache/oxyos` by default, never `/tmp`:
+
+| In the cache | What | Pinned by |
+| --- | --- | --- |
+| `node/`, `bun/` | Node and bun | `tools/dev/pins`: version and SHA-256 |
+| `~/.cargo`, `~/.rustup` | rustup, when the machine has none; it installs the Rust `rust-toolchain.toml` names | `tools/dev/pins`: version and SHA-256 |
+| `src/Bloom`, `src/Dropsea`, `src/Atlas` | the applications, with their packages installed (`bun install --frozen-lockfile`) | `tools/dev/pins`: commit; their lockfiles |
+| `toolchain/` | the Bloom host's toolchain (`tools/rn-host-spike/toolchain.sh`): Clang 19 and LLD from Debian's archive, cmake and ninja, FreeType's, HarfBuzz's and ICU's headers, Skia, and per React Native version its Hermes, third-party sources, codegen and text input; `cmake-vars.txt` names them for the host's CMake | Skia's commit (`SKIA_REVISION`), the Hermes tag React Native names, `toolchain-requirements.txt` and `third-party.sha256` (SHA-256), apt's signatures |
+| `input-methods/` | the input methods' engine (`tools/input-methods/build.sh`, [ADR 0041](./adr/0041-input-methods)) | Debian's source tarballs by SHA-256 |
+
+To use the same tools in a shell (Node, bun, cargo on `PATH`; `BLOOM_DIR` and the rest set):
+
+```sh
+. tools/dev/env.sh
+```
+
+### This machine's own values
+
+`tools/dev/local.conf`, ignored by git, holds what differs on a machine: another cache, the builds'
+parallelism, your own Bloom, Dropsea or Atlas checkout to test a change with OxyOS before it is
+pinned, and the deploy's test machine. Copy `tools/dev/local.conf.example`, which says what each is.
+It holds no secret: a deploy's key is in `~/.ssh` or your agent.
+
+### Bumping a pin
+
+A Bloom, Dropsea or Atlas commit, Node, bun or rustup is changed in `tools/dev/pins` in a pull request
+of its own, so the scenario gate runs it against this tree before main takes it. A React Native whose
+third-party sources are new adds their SHA-256 to `tools/rn-host-spike/third-party.sha256`; Skia's
+revision is `SKIA_REVISION` in `tools/rn-host-spike/toolchain.sh`.
+
+## Building and running a scenario
+
+The workspace's checks are in [Build and verify the native foundation](./native-foundation). The
+runtime, its framework and the packages are what the gate builds (below); to run one scenario after a
+gate run kept with `--out`:
+
+```sh
+. tools/dev/env.sh
+python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/sample.json \
+  --offscreen target/release/oxyos-offscreen --runtimes RUN/machine/runtimes \
+  --packages RUN/machine/packages --input-methods ~/.cache/oxyos/input-methods/prefix --out RUN/sample
+```
+
+`SCENARIOS="sample shell" tools/gate/run-scenarios.sh` builds everything and runs only those.
+
+## The scenario gate
+
+```sh
+tools/gate/run-scenarios.sh [--out DIR]
+```
+
+It runs `tools/dev/bootstrap`, builds this tree's runtime (the Bloom host with this tree's C ABI, in a
+build directory kept per checkout, installed as runtime 1, its framework) and every package against
+it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the tree:
+
+1. Every scenario but those below, `GATE_JOBS` (8) at a time.
+2. One at a time, alone on cores the machine reserves for the gate (where it has them, below): the
+   scenarios that hold a budget on time (`perf-*`, `refresh-*`), which beside siblings would measure
+   each other, then once more each scenario that failed. A scenario failing twice fails the gate.
+3. The scenarios through libinput on the kernel's virtual devices (`uinput`), one at a time.
+4. With a GPU (a render node and a Vulkan device that is not the CPU): the one-GPU checks
+   ([ADR 0031](./adr/0031-gpu-buffers), decision 14: the device chosen on fake sysfs trees, the
+   painter never opening a decoy driver, and, under `strace`, only the nodes of a GPU driving a
+   display opened), `gpu-client` with `tools/oxyos-gpu-client` as its client, and the session
+   composed on the GPU alone (`--gpu-only`). Without one this is said and skipped.
+
+A scenario in `tools/gate/quarantine` (flaky on main under load, its issue open) still runs and is
+retried, but failing twice is reported, not counted; it leaves the quarantine with its fix.
+
+Left out: `astro*` (an Astro engine, a deploy's `ASTRO_PACKAGE`), `terminal` (a real display) and
+`fidelity-thresholds` (settings, not a scenario). A failed scenario's record (its log, frames, a
+host's backtrace) is kept in the run's directory, `~/.cache/oxyos/runs/` unless `--out` names one;
+a run that passes leaves nothing there.
+
+### Merging: the merge queue is the gate
+
+A pull request is merged by putting it in the merge queue: `gh pr merge N --auto` (or the merge
+button), once its fast checks pass: the **Native foundation** jobs (`verify` and `passwd-tools`, on
+x86-64 and AArch64, required). The queue then runs the gate, the **Scenarios** check
+(`.github/workflows/scenarios.yml`), on each entry's combined tree: main with the pull requests
+ahead of it and its own, so pull requests merged separately cannot break main together. A run that
+passes merges the entry (a merge commit); one that fails takes the pull request out of the queue, its
+failure in the run's log and its records on the gate's machine, and the pull request goes back in
+once fixed.
+
+On a pull request the gate runs only when asked: the `gate` label (each push then runs it again), or
+the workflow dispatched for a branch (`gh workflow run scenarios.yml --ref BRANCH`). Otherwise it is
+skipped, which lets the pull request join the queue. A fork's pull request never runs it on its own,
+only in the queue once a maintainer queues it.
+
+## Deploying to a test machine
+
+```sh
+tools/deploy/deploy.sh --host USER@HOST    # or DEPLOY_HOST in tools/dev/local.conf
+tools/deploy/deploy.sh --stage-only        # build, test and stage; send nothing
+```
+
+`tools/deploy/system-files.py` checks the manifest against the tree (the Scenarios check runs it too):
+each binary, unit, PAM service, sysusers and tmpfiles file of `tools/oxyos-session`, `tools/oxyos-login`
+and `tools/oxyos-accountd` must be in it, and each PAM file where its own header says it is installed,
+so a new one cannot be left out of a deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
+is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
+`astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
+it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there,
+installs the runtime, the system applications, their entries and policy, the input methods, the
+sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
+(the one before kept as `.old`), the login, accounts and PIN stack (every file of
+`tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
+units, PAM services, sysusers, tmpfiles and the ptrace scope), Inbox and Allo as development packages
+in `~/oxyos-validation`,
+checks the one-GPU rule on the machine itself, and restarts the login screen only while nobody is
+signed in (or the development session, `probar.sh` on terminal 8). The test machine needs ssh by key,
+passwordless sudo and rustup's cargo.
+
+## The gate's machine
+
+The **Scenarios** check runs on self-hosted runners on a machine that also does other work, which
+keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
+labelled `oxyos-merge` alone (two of them on seldon), so a merge never waits behind a pull request's
+run. `tools/gate/machine.sh`, run as root on a Debian trixie machine, prepares it, and running it
+again changes nothing that is already so:
+
+- the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
+- the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
+  `tools/dev/bootstrap` makes for each runner;
+- `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
+  machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
+  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, sharing it evenly, each at most
+  16 GB. (No dash in the parent's name: systemd nests a slice under the part of its name before
+  one.);
+- several runners (`machine.sh runner N`), whose runs share nothing they change: each works in
+  `/var/lib/oxyos-gate/runner-N`, with a cache of its own (`~/.cache/oxyos-runner-N`) and a `/tmp` of
+  its own;
+- the GPU's render node (group `render`), KVM (`kvm`), and `/dev/uinput` with the event nodes of the
+  development compositor's own virtual devices (named `oxyos-offscreen …`, group `oxyos-uinput`), so
+  the `uinput` scenarios run without root;
+- `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
+  the first four physical cores and their SMT siblings for the calling gate's slice alone while its
+  timing scenarios run, every other CPU for the rest of the machine and the other gates; a reservation releases itself after
+  30 minutes. One gate at a time holds them (`/run/lock/oxyos-gate-timing.lock`); the rest of every gate
+  runs at once beside the others, and a scenario that serves its probe on a fixed port waits for
+  that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
+  collides. Every run has a home of its own (`regress.py`), never the user's.
+
+`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere,
+with both labels; `machine.sh runner N merge` registers it with `oxyos-merge` alone. Seldon's are
+runners 1 to 3 with both and 4 and 5 for the merge queue alone:
+
+```sh
+token() { gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token; }
+for n in 1 2 3; do token | sudo sh tools/gate/machine.sh runner $n; done
+for n in 4 5; do token | sudo sh tools/gate/machine.sh runner $n merge; done
+```
+
+Registering a runner again (`--replace`) sets its labels to these, so a label changed by hand on
+GitHub does not outlive the next run of `machine.sh` (stop the runner first, below).
+
+### Runners stopped only when idle, and the watchdog
+
+A runner stopped, moved or registered again under a job leaves that job in progress on GitHub with
+nobody to end it: `timeout-minutes` ends a job its runner runs, not one no runner runs, and GitHub
+keeps counting the runner busy, so every queued job (the merge queue's among them) waits behind it.
+On 8 November 2026 four such jobs held the queue for hours.
+
+- A runner is restarted or stopped only once idle: `sudo sh tools/gate/restart-runner.sh N
+  [restart|stop]` waits until runner N has no job (no `Runner.Worker` in its service), then acts. Never
+  move a runner's directory or cache, or register it again, but after stopping it through this.
+- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, every ten minutes, on a
+  GitHub-hosted runner with that run's token: Actions on this repository alone, no secret on the
+  gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
+  one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
+  started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
+  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+  for any more (a group superseded when the queue changed: an entry removed or another put ahead),
+  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
+
+### Images on the gate's machine
+
+`tools/image/build.sh` needs a privileged container; on the gate's machine it is rootless Podman,
+whose container is privileged only in the user's own namespace, so the gate's user builds images
+with no root on the machine ([Base image configuration](./iso-build)). `machine.sh` gives its user
+subordinate ids and lingering (Podman's runtime files in `/run/user/<uid>`, never `/tmp`):
+
+```sh
+# as oxyos-ci, everything under its home (~/oxyos-build):
+tools/image/build.sh
+mkdir -p ~/.cache/tmp && TMPDIR=~/.cache/tmp python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-*-amd64.iso --out ~/oxyos-build/acceptance
+```
+
+No workflow builds an image (AGENTS.md); these run by hand.

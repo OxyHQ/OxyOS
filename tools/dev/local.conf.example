@@ -1,0 +1,19 @@
+# tools/dev/local.conf: this machine's own values, read by tools/dev/env.sh (and so by
+# tools/dev/bootstrap, the gate and the deploy). Copy this file to tools/dev/local.conf (ignored by
+# git) and set what differs here. Never a secret: a deploy's key is the ssh agent's or ~/.ssh's.
+
+# Where bootstrap fetches and builds (default ~/.cache/oxyos; never /tmp: several GB).
+#OXYOS_CACHE=$HOME/.cache/oxyos
+
+# Your own checkouts instead of the pinned ones bootstrap clones (their packages installed with
+# `bun install`): to test a Bloom, Dropsea or Atlas change with OxyOS before it is pinned.
+#BLOOM_DIR=$HOME/src/Bloom
+#DROPSEA_DIR=$HOME/src/Dropsea/packages/frontend
+#ATLAS_DIR=$HOME/src/Atlas/packages/frontend
+
+# The builds' parallelism and the scenarios run at once by the gate.
+#JOBS=12
+#GATE_JOBS=8
+
+# tools/deploy/deploy.sh's test machine (user@host), when --host is not given.
+#DEPLOY_HOST=user@192.0.2.10

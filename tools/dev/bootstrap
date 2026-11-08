@@ -1,0 +1,109 @@
+#!/bin/sh
+# Prepares this machine to build OxyOS and run its scenarios, from nothing but this checkout and the
+# Debian packages tools/dev/packages lists (docs/developing.mdx). Idempotent: run it again after a
+# pull, and only what changed is fetched or built. Everything goes into OXYOS_CACHE (tools/dev/env.sh,
+# ~/.cache/oxyos by default), nothing system-wide:
+#   node/, bun/           Node and bun at tools/dev/pins' versions, checked by SHA-256
+#   ~/.cargo, ~/.rustup   rustup, when the machine has no cargo (rust-toolchain.toml picks the Rust)
+#   src/Bloom, src/Dropsea, src/Atlas
+#                         the applications at tools/dev/pins' commits, their packages installed
+#                         (unless tools/dev/local.conf names checkouts of the developer's own)
+#   toolchain/            the Bloom host's toolchain (tools/rn-host-spike/toolchain.sh): Clang,
+#                         cmake, ninja, Skia, Hermes and what follows Bloom's React Native
+#   input-methods/        the input methods' engine (tools/input-methods/build.sh)
+# Usage: tools/dev/bootstrap
+set -eu
+OXYOS_TREE=$(cd "$(dirname "$0")/../.." && pwd)
+. "$OXYOS_TREE/tools/dev/env.sh"
+. "$OXYOS_TREE/tools/dev/pins"
+[ "$OXYOS_ARCH" != unsupported ] || { echo "bootstrap: OxyOS builds on amd64 and arm64 (docs/adr/0032-arm.mdx)" >&2; exit 1; }
+say() { echo "bootstrap: $*"; }
+mkdir -p "$OXYOS_CACHE/downloads" "$OXYOS_CACHE/.locks"
+D=$OXYOS_CACHE/downloads
+# One bootstrap at a time in a cache: two runs at once (a gate beside a deploy of the same user)
+# would check out and build into the same directories.
+exec 7>"$OXYOS_CACHE/.locks/bootstrap"
+flock -n 7 || { say "waiting for another bootstrap of $OXYOS_CACHE"; flock 7; }
+
+# The Debian packages: said, never installed here (that is the machine owner's, with sudo).
+missing=$(grep -v '^#' "$OXYOS_TREE/tools/dev/packages" | tr ' ' '\n' | grep . | while read -r p; do
+  dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" || echo "$p"; done | tr '\n' ' ')
+[ -z "$missing" ] || { say "this machine needs: sudo apt-get install --no-install-recommends $missing"; exit 1; }
+
+# fetch URL SHA256 FILE: a download checked before anything uses it.
+fetch() {
+  if ! echo "$2  $3" | sha256sum -c --quiet 2>/dev/null; then
+    curl -fsSL --retry 5 -o "$3.part" "$1"
+    echo "$2  $3.part" | sha256sum -c --quiet || { say "$1: not the SHA-256 tools/dev/pins names"; rm -f "$3.part"; exit 1; }
+    mv "$3.part" "$3"
+  fi
+}
+eval "node_sum=\$NODE_SHA256_$OXYOS_ARCH bun_sum=\$BUN_SHA256_$OXYOS_ARCH rustup_sum=\$RUSTUP_SHA256_$OXYOS_ARCH"
+node_arch=$(echo "$OXYOS_ARCH" | sed 's/amd64/x64/')
+if [ "$(node -v 2>/dev/null)" != "v$NODE_VERSION" ] || [ "$(command -v node)" != "$OXYOS_CACHE/node/bin/node" ]; then
+  fetch "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$node_arch.tar.xz" "$node_sum" "$D/node.tar.xz"
+  rm -rf "$OXYOS_CACHE/node" && mkdir -p "$OXYOS_CACHE/node"
+  tar xJf "$D/node.tar.xz" -C "$OXYOS_CACHE/node" --strip-components=1
+fi
+bun_arch=$(echo "$OXYOS_ARCH" | sed 's/amd64/x64/; s/arm64/aarch64/')
+if [ "$("$OXYOS_CACHE/bun/bin/bun" -v 2>/dev/null)" != "$BUN_VERSION" ]; then
+  fetch "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-$bun_arch.zip" "$bun_sum" "$D/bun.zip"
+  rm -rf "$OXYOS_CACHE/bun" && mkdir -p "$OXYOS_CACHE/bun/bin"
+  unzip -q -j -o "$D/bun.zip" "*/bun" -d "$OXYOS_CACHE/bun/bin"
+fi
+if ! command -v rustup >/dev/null; then
+  rustup_arch=$(echo "$OXYOS_ARCH" | sed 's/amd64/x86_64/; s/arm64/aarch64/')
+  fetch "https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/$rustup_arch-unknown-linux-gnu/rustup-init" "$rustup_sum" "$D/rustup-init"
+  chmod +x "$D/rustup-init"
+  "$D/rustup-init" -y -q --profile minimal --default-toolchain none --no-modify-path
+fi
+# The toolchain rust-toolchain.toml names, with its components.
+(cd "$OXYOS_TREE" && rustup toolchain install >/dev/null 2>&1)
+say "node $(node -v), bun $(bun -v), $(cd "$OXYOS_TREE" && cargo --version)"
+
+# The applications at their pins, each with its packages installed once per lockfile.
+checkout() { # NAME REPO COMMIT
+  dir=$OXYOS_CACHE/src/$1
+  [ -d "$dir/.git" ] || git init -q "$dir"
+  if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$3" ]; then
+    git -C "$dir" fetch -q --depth 1 "$2" "$3"
+    git -C "$dir" checkout -q --force --detach FETCH_HEAD
+    git -C "$dir" clean -q -ffd
+  fi
+  stamp=$(cat "$dir/bun.lock" "$dir/package.json" | sha256sum | cut -c1-64)
+  if [ "$(cat "$dir/node_modules/.oxyos-bootstrap" 2>/dev/null)" != "$stamp" ]; then
+    (cd "$dir" && bun install --frozen-lockfile > "$OXYOS_CACHE/src/$1.install.log" 2>&1) \
+      || { tail -20 "$OXYOS_CACHE/src/$1.install.log"; say "$1's packages did not install"; exit 1; }
+    echo "$stamp" > "$dir/node_modules/.oxyos-bootstrap"
+  fi
+  say "$1 $(git -C "$dir" rev-parse --short HEAD)"
+}
+[ "$BLOOM_DIR" != "$OXYOS_CACHE/src/Bloom" ] || checkout Bloom "$BLOOM_REPO" "$BLOOM_COMMIT"
+[ "$DROPSEA_DIR" != "$OXYOS_CACHE/src/Dropsea/packages/frontend" ] || checkout Dropsea "$DROPSEA_REPO" "$DROPSEA_COMMIT"
+[ "$ATLAS_DIR" != "$OXYOS_CACHE/src/Atlas/packages/frontend" ] || checkout Atlas "$ATLAS_REPO" "$ATLAS_COMMIT"
+for d in "$BLOOM_DIR/node_modules/react-native" "$DROPSEA_DIR" "$ATLAS_DIR"; do
+  [ -e "$d" ] || { say "$d is missing (a checkout named in tools/dev/local.conf needs bun install)"; exit 1; }
+done
+
+# The host's toolchain for this Bloom's React Native.
+mkdir -p "$OXYOS_TOOLCHAIN"
+"$OXYOS_TREE/tools/rn-host-spike/toolchain.sh" "$OXYOS_TOOLCHAIN" "$BLOOM_DIR" "$OXYOS_TOOLCHAIN/cmake-vars.txt" \
+  > "$OXYOS_TOOLCHAIN/toolchain.log" 2>&1 || { tail -30 "$OXYOS_TOOLCHAIN/toolchain.log"; say "the toolchain failed (log: $OXYOS_TOOLCHAIN/toolchain.log)"; exit 1; }
+say "$(tail -1 "$OXYOS_TOOLCHAIN/toolchain.log")"
+
+# The input methods' engine, rebuilt when its script or OxyOS's patches change, with the toolchain's
+# cmake (a lock keeps two runs from building it at once).
+IM=$OXYOS_INPUT_METHODS_WORK/prefix
+mkdir -p "$OXYOS_INPUT_METHODS_WORK"
+stamp=$(cd "$OXYOS_TREE" && cat tools/input-methods/build.sh $(ls tools/input-methods/patches/*.patch 2>/dev/null) | sha256sum | cut -c1-64)
+(
+  flock 9
+  if [ "$(cat "$IM/.oxyos-build" 2>/dev/null)" != "$stamp" ] || [ ! -x "$IM/bin/fcitx5" ]; then
+    say "building the input methods' engine"
+    PATH=$OXYOS_TOOLCHAIN/tools/bin:$PATH sh "$OXYOS_TREE/tools/input-methods/build.sh" "$OXYOS_INPUT_METHODS_WORK" "$IM" \
+      > "$OXYOS_INPUT_METHODS_WORK/build.log" 2>&1 || { tail -20 "$OXYOS_INPUT_METHODS_WORK/build.log"; exit 1; }
+    echo "$stamp" > "$IM/.oxyos-build"
+  fi
+) 9>"$OXYOS_INPUT_METHODS_WORK/.lock" || { say "the input methods' engine failed (log: $OXYOS_INPUT_METHODS_WORK/build.log)"; exit 1; }
+say "input methods: $IM"
+say "ready (cache: $OXYOS_CACHE)"

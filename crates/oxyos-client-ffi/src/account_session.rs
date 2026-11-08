@@ -25,9 +25,10 @@ use oxyos_account::ipc::{self, Connection};
 use oxyos_account::platform;
 pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
 use oxyos_account::session;
+use oxyos_account::setup::{Appearance, Stage};
 use oxyos_account::Secret;
 use serde::{Deserialize, Serialize};
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{c_char, c_int, c_void, CStr};
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -419,17 +420,35 @@ fn enroll_json(answer: &ipc::Answer) -> Option<(String, bool)> {
             serde_json::json!({"refused": {"reason": reason, "retryAfterSeconds": retry_after_seconds}}),
             *reason == ipc::Reason::SecondFactorInvalid,
         ),
+        // The sign-in is kept: `retry`, or at the second factor a code.
+        ipc::Answer::Failed { reason } => (serde_json::json!({"failed": {"reason": reason}}), true),
         _ => return None,
     };
     Some((json.to_string(), continues))
 }
 
-/// One setup: an `enroll`, then second factors while the service asks for one.
+/// A setup's step as the login screen is told of it.
+pub fn stage_name(stage: Stage) -> &'static CStr {
+    match stage {
+        Stage::Securing => c"securing",
+        Stage::Verifying => c"verifying",
+        Stage::Preparing => c"preparing",
+        Stage::SigningIn => c"signingIn",
+        Stage::Finishing => c"finishing",
+    }
+}
+
+/// One setup: an `enroll`, then second factors while the service asks for one, and `retry` after
+/// a failure that kept the sign-in.
 pub struct Enrollment {
     connection: Option<Connection>,
     socket: PathBuf,
     /// Whether `enroll` was sent.
     started: bool,
+    /// The appearance a new account's home starts with.
+    appearance: Option<Appearance>,
+    /// Told each step of the setup as the service starts it.
+    progress: Option<Box<dyn FnMut(Stage)>>,
     /// The last answer, as JSON, for a caller whose buffer was too small.
     answer: String,
 }
@@ -444,8 +463,21 @@ impl Enrollment {
             connection: Some(connection),
             socket: socket.to_owned(),
             started: false,
+            appearance: None,
+            progress: None,
             answer: String::new(),
         })
+    }
+
+    /// The appearance a new account's home starts with (an account set up again keeps its own).
+    pub fn set_appearance(&mut self, appearance: Appearance) {
+        self.appearance = Some(appearance);
+    }
+
+    /// `progress` is told each step of the setup as the service starts it, on the thread that
+    /// waits for its answer, before the answer is given.
+    pub fn on_progress(&mut self, progress: Box<dyn FnMut(Stage)>) {
+        self.progress = Some(progress);
     }
 
     fn turn(&mut self, request: &ipc::Request) -> Result<&str, SessionError> {
@@ -453,15 +485,25 @@ impl Enrollment {
             .connection
             .as_ref()
             .ok_or_else(|| SessionError::Failed("the setup has ended".into()))?;
+        let progress = &mut self.progress;
         let result = connection
             .send(request)
             .map_err(|error| failed(&self.socket, error))
-            .and_then(|()| match connection.receive::<ipc::Answer>() {
-                Ok(Some(Some(answer))) => enroll_json(&answer)
-                    .ok_or_else(|| failed(&self.socket, "not an answer to a setup")),
-                Ok(Some(None)) => Err(failed(&self.socket, "an answer that is not one")),
-                Ok(None) => Err(failed(&self.socket, "it closed the connection")),
-                Err(error) => Err(failed(&self.socket, error)),
+            .and_then(|()| loop {
+                match connection.receive::<ipc::Answer>() {
+                    Ok(Some(Some(ipc::Answer::Progress(stage)))) => {
+                        if let Some(progress) = progress.as_mut() {
+                            progress(stage);
+                        }
+                    }
+                    Ok(Some(Some(answer))) => {
+                        break enroll_json(&answer)
+                            .ok_or_else(|| failed(&self.socket, "not an answer to a setup"))
+                    }
+                    Ok(Some(None)) => break Err(failed(&self.socket, "an answer that is not one")),
+                    Ok(None) => break Err(failed(&self.socket, "it closed the connection")),
+                    Err(error) => break Err(failed(&self.socket, error)),
+                }
             });
         match result {
             Ok((json, continues)) => {
@@ -499,7 +541,16 @@ impl Enrollment {
             account_id: account_id.to_owned(),
             password: password.map(|password| Secret::new(password.expose())),
             pin: pin.map(|pin| Secret::new(pin.expose())),
+            appearance: self.appearance,
         })
+    }
+
+    /// The setup again, after a `failed` answer: the service still holds its sign-in.
+    pub fn retry(&mut self) -> Result<&str, SessionError> {
+        if !self.started {
+            return Err(SessionError::Failed("no setup was sent".into()));
+        }
+        self.turn(&ipc::Request::Retry)
     }
 
     /// Answers the second factor the service asked for.
@@ -902,8 +953,9 @@ unsafe fn answered(result: Result<&str, SessionError>, out: *mut c_char, capacit
 /// Sends the setup (`enroll`): the device credential the SDK's sign-in obtained, the account's
 /// id and its password, each NUL-terminated UTF-8; the service's answer as JSON:
 /// `{"enrolled": {"accountId", "user"}}`, `"secondFactorRequired"` (answer with
-/// `_second_factor`) or `{"refused": {"reason", "retryAfterSeconds"}}`. Blocks while the service
-/// signs in online. The secrets are copied into buffers this library overwrites; the caller
+/// `_second_factor`), `{"failed": {"reason": "unreachable" | "localFailure"}}` (the sign-in kept:
+/// `_retry`) or `{"refused": {"reason", "retryAfterSeconds"}}`. Blocks while the service sets the
+/// account up, telling its steps to `_on_progress`'s function. The secrets are copied into buffers this library overwrites; the caller
 /// overwrites its own. The answer's length (larger than `capacity`: `_answer` gives it again), or
 /// OXYOS_ERROR (`oxyos_last_error`): the setup has ended.
 ///
@@ -1005,6 +1057,90 @@ pub unsafe extern "C" fn oxyos_account_enrollment_answer(
     let answer = &unsafe { &*enrollment }.0.answer;
     // SAFETY: the caller's contract.
     unsafe { write_out(answer.as_bytes(), out, capacity) }
+}
+
+/// Tells a setup's steps as the service starts them: `progress(context, stage)`, `stage` one of
+/// "securing", "verifying", "preparing", "signingIn", "finishing" (a static NUL-terminated
+/// string), called on the thread blocked in `_enroll`, `_second_factor` or `_retry`, before that
+/// call returns. Null `progress` tells nothing.
+///
+/// # Safety
+/// `enrollment` is one `oxyos_account_enrollment_new` returned, not freed; `progress`, if not
+/// null, may be called with `context` from the thread that calls `_enroll`, `_second_factor` or
+/// `_retry` until the setup is freed.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_enrollment_on_progress(
+    enrollment: *mut OxyOSAccountEnrollment,
+    progress: OxyOSAccountEnrollmentProgressFn,
+    context: *mut c_void,
+) -> c_int {
+    if enrollment.is_null() {
+        return fail("null setup");
+    }
+    // SAFETY: the caller's contract.
+    let enrollment = &mut unsafe { &mut *enrollment }.0;
+    match progress {
+        Some(progress) => enrollment.on_progress(Box::new(move |stage| {
+            // SAFETY: the caller's contract: `progress` may be called with `context` here.
+            unsafe { progress(context, stage_name(stage).as_ptr()) }
+        })),
+        None => enrollment.progress = None,
+    }
+    0
+}
+
+/// A setup's step, told as the service starts it.
+pub type OxyOSAccountEnrollmentProgressFn =
+    Option<unsafe extern "C" fn(context: *mut c_void, stage: *const c_char)>;
+
+/// The appearance a new account's home starts with: "light", "dark" or "auto" (anything else:
+/// OXYOS_ERROR, nothing set). Before `_enroll`; an account set up again keeps its own.
+///
+/// # Safety
+/// `enrollment` is one `oxyos_account_enrollment_new` returned, not freed; `appearance` is
+/// NUL-terminated.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_enrollment_set_appearance(
+    enrollment: *mut OxyOSAccountEnrollment,
+    appearance: *const c_char,
+) -> c_int {
+    if enrollment.is_null() {
+        return fail("null setup");
+    }
+    // SAFETY: the caller's contract.
+    let appearance = match unsafe { text_arg(appearance) } {
+        Some("light") => Appearance::Light,
+        Some("dark") => Appearance::Dark,
+        Some("auto") => Appearance::Auto,
+        _ => return fail("an appearance is light, dark or auto"),
+    };
+    // SAFETY: the caller's contract.
+    unsafe { &mut *enrollment }.0.set_appearance(appearance);
+    0
+}
+
+/// The setup again after a `{"failed": {"reason"}}` answer, whose sign-in the service kept: the
+/// answer as `_enroll` gives it. Blocks as `_enroll` does.
+///
+/// # Safety
+/// As `oxyos_account_enrollment_enroll`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_enrollment_retry(
+    enrollment: *mut OxyOSAccountEnrollment,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if enrollment.is_null() || (out.is_null() && capacity != 0) {
+        return i64::from(fail("null setup or buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let enrollment = &mut unsafe { &mut *enrollment }.0;
+    let result = enrollment.retry();
+    // SAFETY: the caller's contract.
+    unsafe { answered(result, out, capacity) }
 }
 
 /// Ends a setup: closing its connection abandons whatever the service had not finished.

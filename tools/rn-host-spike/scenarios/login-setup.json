@@ -1,5 +1,5 @@
 {
-  "about": "Adding an Oxy account at the first boot (docs/adr/0020-oxy-account-login.mdx, decisions 2 and 4, step 2), against a played Oxy API and a played accounts' service (no credential of anyone's): online, the login screen runs the Oxy SDK's own sign-in (OxyProvider with OxyOS's client id from the service's `platform`, and a store that hands the credential to the host and keeps nothing); the account signs in with the code sent to its email; the person chooses a PIN for this computer, typed twice, then gives the account's password once more (a wrong one shakes the field and is said), and the accounts' service sets the account up with the credential, the password and the PIN, asking the authenticator's code on the same conversation (a wrong code said, then the right one). Enrolled, the new account is listed and chosen, its PIN's field focused, and its PIN signs in.",
+  "about": "Adding the computer's first Oxy account by the code its email is sent, through the setup assistant (docs/adr/0020-oxy-account-login.mdx, decisions 2 and 4 and the setup assistant's amendment), against a played Oxy API and a played accounts' service (no credential of anyone's): the welcome, Get Started, the SDK's own sign-in (OxyOS's client id from the accounts' service) in the SDK's frame; the username and the code; the account's sign-in methods read (it has a password), so its Oxy password is asked once, step 3 of 6; a PIN, optional, typed twice; the look. Continue: the accounts' service refuses the password, and the screen goes back to it, saying so, the PIN and look kept; the right one, and the service asks the authenticator's code, said wrong once; the right code, and the account is set up and signed in with the PIN just chosen.",
   "shell": "OxyOSLogin",
   "outputs": "1280x1000",
   "login": {
@@ -37,7 +37,35 @@
   },
   "steps": [
     {
-      "name": "online: the SDK's own chooser, OxyOS's client id from the accounts' service; its QR beside the form, the field focused",
+      "name": "first boot: the welcome",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Welcome to OxyOS",
+            "Get Started"
+          ],
+          "absent": [
+            "Back"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Started: online, the SDK's own chooser in the SDK's frame, step 2 of 5",
+      "do": [
+        "press_named",
+        "Get Started"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "its QR beside the form, the field focused",
       "do": [
         "wait",
         2500
@@ -46,13 +74,14 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Add an Oxy Account",
             "Sign in",
             "Email or username",
-            "Scan with Commons to sign in"
+            "Scan with Commons to sign in",
+            "Step 2 of 5",
+            "Back"
           ],
           "absent": [
-            "Adding an account needs an internet connection. Connect and try again."
+            "Connect to the Internet"
           ],
           "focus_input": "signin-identifier"
         }
@@ -120,7 +149,7 @@
       "expect": {}
     },
     {
-      "name": "signed in: a PIN for this computer asked, its field focused",
+      "name": "signed in by the code: its sign-in methods read, its Oxy password asked once, its field focused, step 3 of 6",
       "do": [
         "wait",
         2000
@@ -129,11 +158,33 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Choose a PIN for this computer",
-            "Not Now"
+            "Enter Ada Lovelace's Oxy Password",
+            "This computer signs you in with your Oxy password, even offline. Enter it once more.",
+            "Step 3 of 6"
           ],
           "absent": [
-            "Set a password"
+            "Set a password",
+            "Create a PIN"
+          ],
+          "focus_input": "login-setup-password"
+        }
+      }
+    },
+    {
+      "name": "a password typed (not the account's, as it turns out): a PIN, optional",
+      "do": [
+        "keyboard",
+        "not the password\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "in_shell": {
+          "texts": [
+            "Create a PIN",
+            "Unlock faster with a PIN, even offline. It stays on this computer: Oxy never sees it.",
+            "Not Now",
+            "Step 4 of 6"
           ],
           "focus_input": "login-setup-pin-password"
         }
@@ -153,7 +204,7 @@
         ],
         "in_shell": {
           "texts": [
-            "Enter the PIN again"
+            "Enter Your PIN Again"
           ],
           "focus_input": "login-setup-pin-again-password",
           "never": [
@@ -163,7 +214,7 @@
       }
     },
     {
-      "name": "typed again: the account's password asked once more, its field focused",
+      "name": "typed again: the look",
       "do": [
         "keyboard",
         "482916\n"
@@ -176,46 +227,71 @@
         ],
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
-          ],
-          "absent": [
-            "Choose a PIN for this computer"
+            "Choose Your Look",
+            "Light",
+            "Dark",
+            "Auto",
+            "Step 5 of 6"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Continue pressed",
+      "do": [
+        "press_named",
+        "Continue"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "enroll: refused"
+        ]
+      }
+    },
+    {
+      "name": "Continue: the accounts' service refuses the password; back to it, said, the PIN and the look kept",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Enter Ada Lovelace's Oxy Password",
+            "That isn't the password of this Oxy account. Try again."
           ],
           "focus_input": "login-setup-password"
         }
       }
     },
     {
-      "name": "a wrong one: refused, the field says so",
-      "do": [
-        "keyboard",
-        "not the password\n"
-      ],
-      "expect": {
-        "accounts_asked": [
-          "enroll: refused"
-        ],
-        "in_shell": {
-          "texts": [
-            "Incorrect password"
-          ]
-        }
-      }
-    },
-    {
-      "name": "the right one: the accounts' service asks the authenticator's code",
+      "name": "the right one: set up at once with the PIN and look kept; the accounts' service asks the authenticator's code",
       "do": [
         "keyboard",
         "played password 1\n"
       ],
+      "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
           "enroll: secondFactorRequired"
         ],
+        "never": [
+          "482916",
+          "oxyos.correcta",
+          "played password 1"
+        ],
         "in_shell": {
           "texts": [
-            "Enter the code from your authenticator app"
+            "Two-Factor Authentication",
+            "Enter the code from your authenticator app."
+          ],
+          "focus_input": "login-setup-code",
+          "never": [
+            "482916",
+            "oxyos.correcta",
+            "played password 1"
           ]
         }
       }
@@ -226,50 +302,30 @@
         "keyboard",
         "000000\n"
       ],
+      "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
           "secondFactor: refused"
         ],
         "in_shell": {
           "texts": [
-            "That code isn't right. Wait for a new one and try again."
-          ]
+            "That code isn't right. Wait for a new one, then try again."
+          ],
+          "focus_input": "login-setup-code"
         }
       }
     },
     {
-      "name": "the right code: enrolled, listed and chosen",
+      "name": "the right code: the account set up and signed in with the PIN just chosen, never asked again",
       "do": [
         "keyboard",
         "135790\n"
       ],
-      "expect": {
-        "accounts_asked": [
-          "secondFactor: enrolled"
-        ],
-        "in_shell": {
-          "texts": [
-            "Ada Lovelace",
-            "Add Account",
-            "Use Password"
-          ],
-          "absent": [
-            "Add an Oxy Account",
-            "Enter the code from your authenticator app"
-          ],
-          "focus_input": "login-pin-password"
-        }
-      }
-    },
-    {
-      "name": "its PIN signs it in",
-      "do": [
-        "keyboard",
-        "482916\n"
-      ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
+          "appearance: auto",
+          "secondFactor: enrolled",
           "verifyPin: accepted"
         ],
         "shell": {

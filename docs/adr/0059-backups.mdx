@@ -1,0 +1,148 @@
+---
+title: "ADR 0059: Backups"
+description: Time Machine on OxyOS. A system service backs the computer up every hour to a disk or a share on a NAS through restic (Debian's), deduplicated, compressed and encrypted, kept by the hour, the day and the week; automatic when its disk is connected, at the scheduler's idle class, held back in Low Power Mode, never waking an idle machine. Settings › General › Backups, the menu bar's backup item, Dropsea's versions of a file, and restoring a whole computer from the recovery or in setup.
+order: 68
+---
+
+# ADR 0059: Backups
+
+Status: **accepted** (decided on 8 November 2026 with the platform author's delegation); steps 1 and 3 implemented ([steps](#steps)). Builds on [ADR 0054](./0054-recovery-and-erasing) (the recovery, administrators), [ADR 0050](./0050-keychain-autofill-and-passkeys) (the keychain), [ADR 0057](./0057-battery-and-energy) (Low Power Mode, `Power::low_power()`), [ADR 0028](./0028-file-access) and [ADR 0051](./0051-search) (Dropsea, what an application reaches), [ADR 0020](./0020-oxy-account-login) (enrolled accounts, `signInAgain`), [ADR 0019](./0019-settings) and [ADR 0021](./0021-menu-bar).
+
+## Problem
+
+OxyOS keeps no backup. A disk that dies, a laptop that is stolen, a file overwritten or deleted, a machine erased (ADR 0054) loses what it held. A Mac has Time Machine:
+
+- **hourly backups for the past 24 hours, daily for the past month, weekly for all previous months**, the oldest deleted when the disk is full;
+- **automatic**: a backup disk connected is backed up; a backup missed while the Mac slept or the disk was away runs at the next chance; *Back Up Now* and *Skip This Backup*;
+- **encrypted**, with a password the person chooses;
+- **destinations**: an external disk, a share on a NAS or another Mac (SMB), several in turn;
+- **System Settings › General › Time Machine**: the destinations with their last and oldest backups, *Options…* (excluded items, back up on battery), *Back Up Now*, progress;
+- **the menu bar's Time Machine item**: its state, *Back Up Now*, *Browse Time Machine Backups*;
+- **restoring**: *Enter Time Machine* from the Finder, a file's or a folder's past versions, *Restore*; the whole Mac from macOS Recovery (*Restore from Time Machine*) or a new Mac in setup (*Migration Assistant*).
+
+What has to be decided: the engine, what is backed up and by whom, where to, its keys, when it runs and what it costs, how it is shown, and how each kind of restore works.
+
+## Options for the engine
+
+The owner's rule: a proven engine, never a backup format of OxyOS's own.
+
+| | restic 0.18 | Borg 1.4 | Kopia 0.20 |
+| --- | --- | --- | --- |
+| In Debian trixie | yes (`restic`, one static program, 24 MB) | yes (`borgbackup`, Python, C extensions) | no (its own apt repository) |
+| Encryption | always: AES-256-CTR and Poly1305, scrypt-wrapped master key, **several keys per repository** | optional modes, one passphrase (or keyfile) | always, one password |
+| Remote destinations | local, SFTP, REST, S3, B2, Azure, GCS, **rclone** (any of rclone's, SMB among them) | local and SSH only | local, SFTP, WebDAV, S3, B2, GCS, Azure, rclone |
+| Deduplication, compression | content-defined chunks, zstd (repository format 2) | chunks, lz4/zstd | chunks, zstd |
+| Several writers on one repository | yes (non-exclusive locks) | no | yes |
+| Machine-readable output | `--json` for backup progress, snapshots, ls, find, restore, forget | `--json` for most commands | `--json` |
+| Thinning | `forget --keep-within-hourly/daily, --keep-weekly unlimited` | `prune --keep-hourly …` | retention policy |
+| Verification | `check`, `--read-data-subset` | `check --verify-data` | `snapshot verify` |
+
+**Borg** reaches only SSH: a NAS's SMB share would need a kernel mount, and Borg 2 (its new format) is not released. **Kopia** is not in Debian, and the image takes Debian's packages only (no third-party repository, `iso-build`). **restic** is in Debian, encrypts always, keeps several keys per repository (the machine's and the person's, decision 5), reaches SMB in user space through rclone (decision 3), says its progress in JSON, and thins with exactly Time Machine's policy. rustic (a Rust re-implementation of restic's format) is younger and not in Debian.
+
+## Decision
+
+1. **restic is the engine**, Debian's, run as a program (`crates/oxyos-backup`, `engine`), from an argument vector with a clean environment, its JSON read; OxyOS never reads or writes a repository's files itself. `restic` and `rclone` join the image's manifest.
+
+2. **A system service backs the whole computer up, as Time Machine does: `oxyos-backupd`**, root, a socket of its own (`/run/oxyos/backupd/socket`) like `oxyos-accountd`'s and `oxyos-installd`'s.
+   - **Why the system's, not each session's.** A backup must read every account's home whether it is signed in or not, mount a backup disk when it is connected with nobody signed in, and be restorable by the recovery and in setup, where no account's keychain is open. Time Machine is the machine's, set by an administrator.
+   - **Root, sandboxed by its unit** (`oxyos-backupd.service`): `ProtectSystem=strict` with its own state and cache writable, `PrivateMounts=yes` (a disk it mounts is mounted in its namespace alone), `CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER` (read every home, mount, restore owners), no other privilege; it runs nothing but restic and rclone.
+   - **At the scheduler's idle class** (`CPUSchedulingPolicy=idle`, `IOSchedulingClass=idle`, `Nice=19`), as the search index's work (ADR 0051): a backup takes what nothing else wants.
+
+3. **Destinations: an external disk and a share; not the Oxy account (yet).**
+   - **A disk** is known by its file system's UUID, as Time Machine knows its disk. Offered: a file system udev identified, ext4, btrfs, XFS or exFAT (what the kernel writes safely and restic's files fit), on a disk that holds none of the mounted system (the root's disk, its EFI system partition and the recovery's are never offered), not a loop, device-mapper, optical or memory device. The service follows udev's monitor (libudev) and **mounts the disk itself, in its own namespace**, `nosuid,nodev,noexec`, at `/run/oxyos/backupd/volumes/<uuid>`, only while it reads or writes it: unmounted after, the disk can be taken away whenever no backup runs. Erasing a disk to prepare it (Time Machine's *Erase*) is Disk Utility's, not this decision's: a disk is used as it is, its backups in its folder **`OxyOS Backups`**, one repository per computer (`OxyOS Backups/<id>`), so one disk holds several computers' and what else the person keeps on it.
+   - **A share** on a NAS or another computer is reached over SMB by **rclone's own SMB client**, which restic starts as its `rclone:` backend, configured by environment variables alone (its password in rclone's obscured form, made by `rclone obscure`). **Nothing is mounted**: a kernel CIFS mount would need the service to manage mounts that, when the share goes away (a laptop leaving home mid-backup), leave processes waiting on it; in user space the backup fails with a network error and is tried again. The share's repository is `OxyOS Backups/<id>` in the share, as on a disk.
+   - **Several destinations take turns**: the next backup goes to the reachable destination whose last backup is the oldest, as Time Machine's do.
+   - **The Oxy account is not a destination now.** Oxy Files (oxy ADR 0043) is the person's file system: content-addressed, with renditions and a CDN, counted against the plan's storage (15 GB free, 2 TB *pro*, `storage.controller.ts`). A computer's backup is hundreds of gigabytes of opaque, encrypted 16 MiB packs, rewritten as backups are thinned: it would not fit the free plan, would turn Oxy Files' accounting and lifecycle into a block store's, and would cost Oxy storage and egress for data it can never read. Apple, for the same reasons, has never offered Time Machine to iCloud. When Oxy offers a backup store (an oxy ADR: an S3-compatible bucket per account, append-only credentials, counted against an Oxy One storage tier), restic's S3 or REST backend reaches it with no change to this design: a destination kind is added beside `disk` and `share`.
+
+4. **When, and what is kept: Time Machine's schedule and thinning, in restic's words.**
+   - **Every hour**, while *Back Up Automatically* is on (`automatic`, on by default): a destination's backup is due an hour after its last; one missed while the computer slept, was off or the disk away is due at once; a destination added is backed up at once.
+   - **No wakeups when idle.** One thread schedules, waiting on three descriptors and nothing else: a pipe a request writes to, udev's monitor and a `timerfd` on the wall clock (`CLOCK_REALTIME`, absolute, cancelled when the clock is set) armed at the next backup's time. An idle machine wakes the service once an hour, for the backup itself; a suspended one is not woken (no `_ALARM` clock), and its missed backup runs as it wakes.
+   - **Low Power Mode holds scheduled backups back** (ADR 0057, decision 4: background work obeys `LowPower`). The session holds them on its connection to the service while `Power::low_power()` is on (`{"hold":{"reason":"lowPower"}}`) and releases them when it goes off; a hold goes with its connection, as power-profiles-daemon's do. A scheduled backup running when a hold arrives stops, and resumes, deduplicated, once released. *Back Up Now* runs even in Low Power Mode: asked, it is done. On battery without Low Power Mode backups run, as a Mac's do by default.
+   - **Kept**: `restic forget --keep-within-hourly 24h --keep-within-daily 1m --keep-weekly unlimited` after each backup: every backup of the last 24 hours, the day's last for the past month, the week's last before that, counted from the newest backup (a computer off for a month loses nothing to the time it was off). What no snapshot needs any more is removed (`restic prune`) after thinning, at most once a day; a destination is checked weekly (`restic check --read-data-subset 5%`, every pack read back in about five months).
+   - **Full**: as Time Machine, the oldest backup goes (never the only one), its data is pruned, and the backup is tried again, up to three times; then it fails as `full`.
+   - **Failures** are tried again after 15 minutes, or at once when their disk is connected again; *Skip This Backup* tries again in an hour. A backup of a disk taken away mid-way is no failure: it runs again when the disk comes back.
+
+5. **Encrypted always, with two keys.** restic encrypts every repository; there is no unencrypted backup and no choice to make.
+   - **The person's backup password**, chosen when the destination is added (eight characters at least), is a key of the repository: it opens the backup on another computer, in the recovery and in setup. It is **never stored**, as a Mac's Time Machine password is the person's to remember.
+   - **The machine's key**, 32 random bytes, is the repository's second key (`restic key add`), which the service backs up with unattended. It is kept in a **key file protected as the account verifier is** (`/var/lib/oxyos/backup/keys/<destination>`: the service's directory, root's, mode 0700, each file mode 0600 with one link, opened without following a link, written whole, overwritten in memory once used), with a share's password.
+   - **Not the keychain** (ADR 0050): it is each account's, sealed under a key the account's password unwraps and open only while that account is signed in; the service backs up with nobody signed in, and the recovery and setup restore with no account at all. The keychain is where the person may keep the backup password for themselves.
+
+6. **What is backed up: what makes the computer the person's, not what OxyOS installs again.**
+   - **Read**: every home (`/home`), the accounts' pictures (`/var/lib/oxyos/pictures`), the computer's Wi-Fi networks (`/etc/NetworkManager/system-connections`) and the machine's manifest (`/var/lib/oxyos/backup/manifest/machine.json`: the computer's name, the enrolled accounts by account, user, uid and name, and which were administrators), which the service writes before each backup.
+   - **Left out**: the system, which the recovery writes again from its verified image (ADR 0054); caches (`~/.cache`, where the search index is) and every folder marked as one (`CACHEDIR.TAG`, `--exclude-caches`); the Trash; other file systems mounted below a home (`--one-file-system`); and the items the person excluded (*Options…*, absolute paths, matched exactly). **Never backed up**: credentials, verifiers and keychains (`/var/lib/oxyos/accounts`, `/var/lib/oxyos/keychain`): a device credential is the machine's own and must never appear on another computer, and a keychain comes back from Oxy (ADR 0050). A restored account is set up again online, as one Oxy signed out (ADR 0020, `signInAgain`).
+   - **ext4, not a snapshot.** Every OxyOS root is ext4 (ADR 0054, decision 7; the converted ThinkPad's too), which has no snapshots; restic reads the live tree, each file once, as Time Machine read HFS+ before APFS. A file changed while it was read is read again at the next hourly backup, which reads only what changed (restic compares each file's size, time of change and inode with the last snapshot's). When a published layout puts the data on btrfs (ADR 0023, decision 6), a read-only snapshot of its subvolume taken before each backup gives a single moment, with the same engine.
+
+7. **Restoring.**
+   - **A file or a folder, from Dropsea** (decision 10): a person sees the versions of an item of their own home and what a folder held in each backup, and gets one back: the service streams it (`restic dump`: a file's bytes, a folder as a tar archive) through a pipe it hands over, and the person's own process writes it, so the service never writes into a home as root (no link in a home can redirect it). Restored beside the item (*Keep Both*), or in its place once the person chose *Replace*.
+   - **The whole computer, from the recovery** (ADR 0054, decision 5, *Restore from Backup*): the disk or the share, the backup password, the computer and the backup (by date); the recovery erases and reinstalls as *Erase and Reinstall OxyOS* does, then restores the homes, pictures and Wi-Fi networks into the new root (`restic restore`, owners and modes as they were), makes the manifest's users again with their uids, their groups and the administrators, and their accounts as `signInAgain`; the computer restarts into setup, which lists them. On a converted machine (ADR 0054, decision 9), which the recovery never erases, it is not offered.
+   - **A new computer, in setup** (*Migrate from a Backup*): the same restore, on a machine with no enrolled account yet, by the login screen through the service (the login program's user may ask it, and only while nothing is enrolled), into the running system.
+
+8. **Who may ask the service what**, its socket's peers by their credentials (`SO_PEERCRED`):
+   - anyone: the state and its changes (`status`, `watch`), *Back Up Now*, *Skip This Backup* (`stop`), holding scheduled backups (`hold`, `release`);
+   - an **administrator** (root, or a member of `sudo`, ADR 0054 decision 8): the disks that can be added, adding and removing destinations, excluded items, *Back Up Automatically*;
+   - a person, **only what was in their own home**: the versions of an item, what a folder held, retrieving one.
+   The vocabulary and its refusals are `crates/oxyos-backup/src/ipc.rs`'s.
+
+9. **Settings › General › Backups** (*Copias de seguridad*), for an administrator, as a Mac's Time Machine pane: the destinations, each with its last and oldest backup, the space it takes and what is free; *Add Backup Disk…* (the disks connected, or *Network Share…*: the computer, the share, the user, its password), then the backup password, typed twice; *Options…*: the excluded items (added through the system's open panel), *Back Up Automatically*; *Back Up Now* and the progress (the bytes copied of the total, the time left). Someone who is not an administrator sees the state and *Back Up Now*. The session's side speaks the session's vocabulary over `SystemRequest` (`backup`, `backupNow`, `backupStop`, `backupDisks`, `backupAddDisk`, `backupAddShare`, `backupRemove`, `backupExcluded`, `backupAutomatic`), the state told unasked to the shell and Settings as it changes.
+
+10. **The menu bar and Dropsea.**
+    - **The menu bar's backup item** (a status item of the bar, ADR 0021), shown once a destination exists and while the person's preference `backup_in_menu_bar` is on (on by default, *Show Backups in menu bar*): its icon (the clock with an arrow turning back), moving only while a backup runs; its menu says *Backing Up…* and how far, or *Latest Backup to “Disk”* and when, or why the last failed; *Back Up Now* or *Skip This Backup*; *Browse Backups*, which opens Dropsea's; *Open Backups Settings…* (`oxyos-settings://backups`).
+    - **Dropsea** (OxyHQ/Dropsea), through the platform API's `files` (ADR 0058): an item's *Browse Versions…* lists its versions by date, each previewed, and *Restore* or *Restore to…*; *Browse Backups* shows a folder as it was at a chosen backup, a timeline beside it, as *Enter Time Machine* does. Where there are no backups (the web, phones, a machine with no destination) Dropsea shows neither.
+
+## Steps
+
+1. **The engine and the service** (`crates/oxyos-backup`, `tools/oxyos-backupd`, its unit; `restic` and `rclone` in the manifest). *Done* ([results](#results)).
+2. **The session, the menu bar and Settings**: `oxyos_compositor::backups` (the vocabulary, the state followed on one connection, Low Power Mode's hold), the shell's backup item, Settings › General › Backups, their scenarios at 1 and 1.25 over the development service (`oxyos-backupd --development`).
+3. **Dropsea**: the platform's versions in the files service and the host, Bloom's adapter, Dropsea's *Browse Versions…* and *Browse Backups*. *Done* ([results](#step-3-dropsea)).
+4. **The recovery and setup**: *Restore from Backup* in the recovery, *Migrate from a Backup* in setup, the machine's restore in `crates/oxyos-backup`.
+5. **In the image** with the session (ADR 0023, step 5): `oxyos-backupd` packaged and enabled, as the install service will be.
+
+### Results
+
+- **`crates/oxyos-backup`**: `engine` (restic: init with two keys, backup with its progress, snapshots, forget by the policy and by id, prune, check, stats, find, ls, dump, restore, unlock; its exit statuses and words read as reasons), `share` (rclone's SMB remote from the environment, `rclone obscure`), `disks` (udev's disks, the system's disks below every mounted file system, mounting in the service's namespace; `Played` folders for development and tests), `store` (the configuration, the records, the key files), `policy` (due, next, turns, thinning, full, prune and check intervals, what is read), `machine` (the manifest), `ipc` (the vocabulary), `service` (the schedule, the backups, the destinations, the conversations).
+- **`tools/oxyos-backupd`**: the service, its `--development` mode on folders, `--client` for trying it by hand, and `oxyos-backupd.service`.
+- **Tests** over Debian's restic on the tests' own directories: a home with nested folders, a link, an empty file, names in other scripts, a 3 MiB file and a private one backed up, then restored elsewhere with the same items, bytes, links and modes; either key opens it and no other; two versions of a file found and each read back; a folder as an archive and as a listing; `check` reading everything back; 119 backups over a hundred days thinned to every hour of the last day, a backup a day for the month before and a backup a week beyond; a backup stopped leaving no snapshot and no lock; the service: a disk added backed up at once, then an hour later, not while taken away, and at once when connected again; a file's two versions browsed and the older retrieved through the pipe, a folder's contents and archive, and nothing outside the asker's scope; Low Power Mode's hold keeping the schedule back but not *Back Up Now*, and going with its connection; only an administrator configuring; and the service's scheduler idle (one test in a binary of its own: no wakeups over two seconds with a destination configured and its backup not yet due).
+- **Over SMB** (`a_share_is_backed_up_through_rclone_and_restored`): samba (Debian's `smbd`) on a port of the test's own, a share backed up through rclone and restored, a wrong share password refused as `shareRefused`, and a share that is not there as `unreachable`. In CI, Debian trixie's job installs restic, rclone and samba and requires them (`OXYOS_BACKUP_ENGINE=required`).
+
+### Step 3: Dropsea
+
+**The files service asks the backup service, as the person** (`crates/oxyos-files`, `backups` and `restore`). The application's own process connects to the service's socket (`/run/oxyos/backupd/socket`, or the one `OXYOS_BACKUPD_SOCKET` names, a developer's), so the service knows the person by the socket's peer credentials and answers only about their own home (decision 8); the files service checks the scope first (ADR 0028, decision 2), so nothing outside what the application reaches is asked. It speaks the client's half of the vocabulary itself, so an application's process links neither udev nor the engine. Its operations, each answered from a thread of its own, never holding the requests behind them:
+
+| Operation | What |
+| --- | --- |
+| `backups` | where backups are kept (each destination's name, kind, whether it is reachable, its newest and oldest backup), the newest backup, whether one is running; none where the service is not running |
+| `watchBackups` | that state followed on one connection asking `watch`, only while something watches it, its changes said only when what an application is told changes (a backup's percentage is not); while the service is not there, the folder its socket appears in is watched (inotify), so nothing wakes until it starts |
+| `versions` | an item's versions newest first, by the path a backup holds it at (its folders' links resolved, the item itself not followed) |
+| `versionContents` | what a folder held in a backup, each item under the folder's URI as asked |
+| `restoreVersion` | an item written back (below), its progress said as a transfer's (`{transfer, progress: {bytesWritten, totalBytes}}`) and cancelled as one (`cancelTransfer`) |
+
+**Restoring writes as the person** (decision 7): the service streams the item through the pipe it hands over and the files service writes it, inside the scope.
+- **Staged, then put in place**: what comes is written beside where it goes under a hidden name of its own (`.oxyos-restore-PID-N`), a file synced, a folder's file system synced once (`syncfs`), and put in place only once the service said all of it was written (`retrieved`). A restore that fails or is cancelled half way leaves nothing.
+- **Keep Both, the Mac's convention**: where an item of the same name is there, the restored item goes beside it as Time Machine names the item it restores beside the original, `notes (original).txt` (a file's extension kept last; a folder `Taxes 2026 (original)`), then `notes (original 2).txt` and on, never longer than 255 bytes; the item there now is untouched. *original* reads the same in English and Spanish.
+- **Replace**, only when asked: the restored item is exchanged with the one there in one step (`RENAME_EXCHANGE`, as ADR 0028 decision 4's `overwrite`), which is then deleted. The home's standard folders, a volume's root and the application's folders are never replaced (`Scope::entry`).
+- **Restore to…**: `to` names a folder of the scope the item goes into, with the same two rules.
+- **A folder's archive is read strictly** with the `tar` crate (its own extraction is not used): every item must be inside the folder asked for (no absolute path, no `..`, nothing outside its path, else the whole restore is refused), nothing is written through a link or over an item (each file made with `O_EXCL`, each folder made or found as a folder), a link is restored only when it leads to something inside the item restored (relative, never above its top), and links leading out, devices, pipes and sockets are left out and counted (`skipped`). Each file and folder gets its permission bits back (never set-id) and its time of change; a file restored alone gets the time of change its backup holds (`retrieving` now says it, `modified`).
+
+**Who may.** Only an application granted `files` (ADR 0030, decision 8; ADR 0058, decision 4): the host decides it once (`LaunchCapabilities`) and makes the service without the backups (`OXYOS_FILES_NO_BACKUPS`), which then answers `not-permitted` before anything is asked, and tells JavaScript (`OxyOSFiles`' constant `backups`), so the adapter has no `files.backups`. An application run from its checkout (development) has it.
+
+**Bloom 17.21.0** (`PlatformFiles.backups`, `PlatformFileBackups`: `state`, `watch`, `versions`, `contents`, `restore` with `to`, `replace`, `onProgress` and an abortable `signal`; errors by `code`), the adapter's `files.backups` in `sample/oxyos/platform-surface.js`, and **Dropsea**'s *Browse Versions…* and *Browse Backups* ([OxyHQ/Dropsea#53](https://github.com/OxyHQ/Dropsea/pull/53)).
+
+**Changed in the service** (step 1's): a folder has a version in every backup (what it holds may have changed though its own time of change did not), the timeline *Browse Backups* shows; `retrieving` says the item's time of change.
+
+**Tests.** `crates/oxyos-files/src/backup_tests.rs`, against the backup service itself on a socket of the test's own, as `oxyos-backupd --development` runs it, over Debian's restic (skipped, saying so, without it; required in CI's Debian job): the state; a file's two versions; the older restored beside it (`notes (original).txt`, then `(original 2)`), with its time of change; Replace; a file deleted since, back under its own name; a folder's contents at a backup; a folder restored elsewhere with its nested items, its link inside kept, its link leading out left out and its modes back, and beside itself; a 24 MiB file's progress, and one cancelled at its first progress leaving nothing; the scope's refusals (outside the home, `to` outside, a volume's item, a backup that is not one, a standard folder replaced) and everything refused without `files`; the state followed, the service starting after the watch began in a folder that did not exist yet, a destination and a backup heard. The C ABI (`oxyos-client-ffi`): the flag in the header, and over a backup service played on a socket, the state, a version and a restore beside, with its progress, and a service without `files` refused. `regress.py`'s `backups` backs a scenario's home up before the run with a real `oxyos-backupd --development`; Dropsea's scenarios over it (`dropsea-versions.json` and `-scaled.json`, at 1 and 1.25: *Browse Versions…*, *Restore* with *Keep Both*, *Browse Backups* and a deleted file restored) come with the pull request that pins the Dropsea that has them (`tools/dev/pins`), since the scenario gate builds the pinned one.
+
+## What to verify on the ThinkPad
+
+With step 2 deployed, `restic` and `rclone` installed (`apt install restic rclone`), and `oxyos-backupd` installed as root with its unit:
+
+1. A USB disk (ext4 or exFAT) connected: Settings › General › Backups lists it; added with a password, a backup starts at once (`journalctl -u oxyos-backupd`), the menu bar's item says how far; `sudo restic -r '/run/oxyos/backupd/volumes/<uuid>/OxyOS Backups/<id>' snapshots` (from the service's namespace: `sudo nsenter -t $(systemctl show -p MainPID --value oxyos-backupd) -m`) lists it, opened by the backup password.
+2. Disconnected after the backup: nothing is mounted (`findmnt` in the service's namespace), nothing fails; an hour later, connected: backed up at once.
+3. Idle: `perf.py session` shows nothing new; the service's thread waits in `poll` (`/proc/PID/task/*/wchan`).
+4. Low Power Mode on: no scheduled backup; *Back Up Now* runs.
+
+## Not in this decision
+
+- Erasing a disk for backups; encrypted (LUKS) backup disks, which need unlocking first; destinations over SFTP, WebDAV or S3 (restic reaches them, nothing offers them yet); the Oxy account (decision 3).
+- Backing up applications: they are installed again from the store; their data is in the homes.
+- *Restore* of an older version of the system: the system is the image's (ADR 0054).
+- Local snapshots on the computer's own disk while the backup disk is away (APFS's): ext4 has none (decision 6).

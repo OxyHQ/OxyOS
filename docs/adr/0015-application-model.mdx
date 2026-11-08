@@ -8,6 +8,8 @@ order: 24
 
 Status: **accepted** (decisions 1 to 4, chosen with the platform's author). Each capability below is specified, and implemented, by a decision of its own: windows by [ADR 0016](./0016-windows), the menu bar and more than one window by later ones. Builds on [ADR 0001](./0001-native-platform-boundaries) (Bloom never learns the display protocol) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
 
+**8 November 2026:** an application never draws what the platform says of its own failure ([ADR 0061](./0061-crashes-and-resetting-an-application)): a fatal JavaScript error ends it on OxyOS as a release build of React Native ends on Android and iOS, and the platform tells the person (a notification, then the system's sheet) and offers Reopen, Reset and its report, as a Mac's crash reporter does. An application written for every platform needs nothing for it.
+
 ## Problem
 
 An Oxy application is built once and runs in three places: in a browser (the web build), as a native application (Expo on phones and tablets, and on desktops), and on OxyOS (the Bloom host). They differ in what a window is:

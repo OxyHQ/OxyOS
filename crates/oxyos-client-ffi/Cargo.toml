@@ -42,6 +42,8 @@ tungstenite = { version = "0.30", default-features = false, features = ["handsha
 png = "0.18"
 oxyos-ipc = { path = "../oxyos-ipc" }
 oxyos-dmabuf = { path = "../oxyos-dmabuf" }
+# A backup service played on a socket for the files' test (its SOCK_SEQPACKET and SCM_RIGHTS).
+oxyos-install = { path = "../oxyos-install" }
 
 # The workspace forbids `unsafe`. A C ABI needs it, so this crate denies it instead and allows it
 # item by item; every unsafe block states why it is sound.

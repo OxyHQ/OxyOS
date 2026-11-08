@@ -10,6 +10,8 @@ publish.workspace = true
 libc = "0.2"
 # Overwrites a password in memory once PAM has it.
 zeroize = "1"
+# One message a packet on the greeter's socket, its last never lost to its end.
+oxyos-seqpacket = { path = "../oxyos-seqpacket" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process", "pipe", "net", "fs"] }
 
 [dev-dependencies]

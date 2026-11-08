@@ -50,6 +50,15 @@
    }
   },
   {
+   "name": "The sheet takes the keyboard: what is pressed next is the sheet's",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
    "name": "↓ chooses the second account",
    "do": [
     "key",
@@ -123,6 +132,15 @@
    "expect": {}
   },
   {
+   "name": "The sheet takes the keyboard: what is pressed next is the sheet's",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
    "name": "The Oxy account's password typed",
    "do": [
     "type",
@@ -166,6 +184,15 @@
      ]
     }
    }
+  },
+  {
+   "name": "The sheet takes the keyboard: what is pressed next is the sheet's",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {}
   },
   {
    "name": "The password typed",
@@ -212,6 +239,15 @@
      ]
     }
    }
+  },
+  {
+   "name": "The sheet takes the keyboard: what is pressed next is the sheet's",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {}
   },
   {
    "name": "Escape closes it: a cancel",

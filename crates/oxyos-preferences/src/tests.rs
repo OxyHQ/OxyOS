@@ -55,7 +55,7 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
          reduce_motion = yes\n\
          lock_after = 99999\n\
          volume = 11\n\
-         wallpaper = horizon\n\
+         wallpaper = ocean\n\
          wallpaper.BOE-0A4B-00000001.2 = color:1f4fd8\n\
          no equals sign\n\
          screen_reader = true\n",
@@ -64,12 +64,37 @@ fn the_file_is_read_line_by_line_and_bad_lines_keep_their_default() {
     assert_eq!(preferences.accent, "ocean-blue");
     assert!(!preferences.reduce_motion, "`yes` is not a boolean here");
     assert_eq!(preferences.lock_after, 5, "more than a day is refused");
-    assert_eq!(preferences.wallpapers.default.text(), "horizon");
+    assert_eq!(preferences.wallpapers.default.text(), "ocean");
     assert_eq!(
         preferences.wallpapers.shown("BOE-0A4B-00000001", 2).text(),
         "color:1f4fd8"
     );
     assert!(preferences.screen_reader);
+}
+
+#[test]
+fn a_saved_horizon_is_solar_gradients_automatic_and_written_so_on_the_next_write() {
+    // Horizon was withdrawn (ADR 0048): the session reads it as Solar Gradients, follows the sun,
+    // tells Settings so, and writes it back so.
+    let preferences = Preferences::parse(
+        "wallpaper = horizon/night\n\
+         wallpaper.DEL-A0B4-7Y9K2N3 = horizon\n",
+    );
+    assert_eq!(
+        preferences.get("wallpaper").as_deref(),
+        Some("solar-gradients")
+    );
+    assert_eq!(
+        preferences.wallpapers.shown("DEL-A0B4-7Y9K2N3", 1).text(),
+        "solar-gradients"
+    );
+    let text = preferences.to_text();
+    assert!(text.contains("wallpaper = solar-gradients\n"), "{text}");
+    assert!(
+        text.contains("wallpaper.DEL-A0B4-7Y9K2N3 = solar-gradients\n"),
+        "{text}"
+    );
+    assert!(!text.contains("horizon"), "{text}");
 }
 
 #[test]
@@ -170,7 +195,11 @@ fn what_is_written_reads_back_the_same() {
         ("ui_sounds", "false"),
         ("trackpad_natural_scrolling", "false"),
         ("mouse_natural_scrolling", "true"),
-        ("wallpaper", "horizon/night"),
+        ("mission_control_swipe", "four"),
+        ("app_expose_swipe", "off"),
+        ("desktops_swipe", "off"),
+        ("launchpad_pinch", "false"),
+        ("wallpaper", "solar-gradients/night"),
         ("wallpaper_all_desktops", "false"),
         ("lock_after", "15"),
         ("screen_reader", "true"),
@@ -179,6 +208,7 @@ fn what_is_written_reads_back_the_same() {
         ("hour_cycle", "h12"),
         ("do_not_disturb", "true"),
         ("notification_previews", "always"),
+        ("empty_trash_automatically", "true"),
     ] {
         preferences.set(key, value).unwrap();
         assert_eq!(preferences.get(key).as_deref(), Some(value));
@@ -466,6 +496,24 @@ fn interface_sound_effects_are_on_by_default_as_on_a_mac() {
 }
 
 #[test]
+fn the_trash_empties_itself_only_once_the_person_turns_it_on_as_on_a_mac() {
+    let mut preferences = Preferences::default();
+    assert!(!preferences.empty_trash_automatically);
+    assert_eq!(
+        preferences.get("empty_trash_automatically").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        preferences.set("empty_trash_automatically", "30"),
+        Err(Refused::BadValue)
+    );
+    preferences
+        .set("empty_trash_automatically", "true")
+        .unwrap();
+    assert!(Preferences::parse(&preferences.to_text()).empty_trash_automatically);
+}
+
+#[test]
 fn natural_scrolling_is_on_for_a_trackpad_and_off_for_a_mouse_by_default() {
     let mut preferences = Preferences::default();
     // A Mac's trackpad ships with it; a wheel turned toward the person scrolls down.
@@ -499,6 +547,73 @@ fn natural_scrolling_is_on_for_a_trackpad_and_off_for_a_mouse_by_default() {
     let bad =
         Preferences::parse("trackpad_natural_scrolling = no\nmouse_natural_scrolling = yes\n");
     assert!(bad.trackpad_natural_scrolling && !bad.mouse_natural_scrolling);
+}
+
+#[test]
+fn the_trackpads_gestures_are_a_macs_and_mission_control_and_app_expose_share_their_fingers() {
+    let mut preferences = Preferences::default();
+    // Three fingers up, down and across, and the pinch, as a Mac's trackpad ships them.
+    for (key, value) in [
+        ("mission_control_swipe", "three"),
+        ("app_expose_swipe", "three"),
+        ("desktops_swipe", "three"),
+        ("launchpad_pinch", "true"),
+    ] {
+        assert_eq!(preferences.get(key).as_deref(), Some(value), "{key}");
+    }
+    // Three, four or off; anything else refused with nothing changed.
+    for key in [
+        "mission_control_swipe",
+        "app_expose_swipe",
+        "desktops_swipe",
+    ] {
+        for bad in ["3", "two", "", "Four", "true"] {
+            assert_eq!(preferences.set(key, bad), Err(Refused::BadValue), "{key}");
+        }
+    }
+    assert_eq!(
+        preferences.set("launchpad_pinch", "on"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(preferences, Preferences::default());
+    // Four for Mission Control is four for App Exposé too, as a Mac's popups go together; the
+    // desktops' fingers are their own.
+    preferences.set("mission_control_swipe", "four").unwrap();
+    assert_eq!(preferences.get("app_expose_swipe").as_deref(), Some("four"));
+    assert_eq!(preferences.get("desktops_swipe").as_deref(), Some("three"));
+    // App Exposé off leaves Mission Control; turned on again with three, both are three.
+    preferences.set("app_expose_swipe", "off").unwrap();
+    assert_eq!(
+        preferences.get("mission_control_swipe").as_deref(),
+        Some("four")
+    );
+    assert!(!preferences.trackpad_gestures.app_expose);
+    // Mission Control's fingers changed while App Exposé is off leave it off.
+    preferences.set("mission_control_swipe", "three").unwrap();
+    assert_eq!(preferences.get("app_expose_swipe").as_deref(), Some("off"));
+    preferences.set("app_expose_swipe", "four").unwrap();
+    assert_eq!(
+        preferences.get("mission_control_swipe").as_deref(),
+        Some("four")
+    );
+    preferences.set("desktops_swipe", "off").unwrap();
+    preferences.set("launchpad_pinch", "false").unwrap();
+    assert_eq!(
+        preferences.trackpad_gestures,
+        TrackpadGestures {
+            vertical: SwipeFingers::Four,
+            mission_control: true,
+            app_expose: true,
+            desktops: None,
+            launchpad: false,
+        }
+    );
+    // Kept in the file and read back; a bad line keeps the default.
+    assert_eq!(Preferences::parse(&preferences.to_text()), preferences);
+    let bad = Preferences::parse("desktops_swipe = 4\nlaunchpad_pinch = no\n");
+    assert_eq!(bad.trackpad_gestures, TrackpadGestures::default());
+    assert_eq!(SwipeFingers::Three.fewest(), 3);
+    assert_eq!(SwipeFingers::Four.fewest(), 4);
 }
 
 #[test]

@@ -38,7 +38,7 @@ import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
 import { AutofillWindow } from "./components/AutofillWindow";
 import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
-import type { SheetText } from "./sheet";
+import type { SheetAction, SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
 import type { ShellMessages } from "./messages";
 import { hasWifiView } from "./network";
@@ -182,6 +182,11 @@ export const Shell = memo(function Shell({
         chosen and the Oxy account's password, to the session alone. Without it such a sheet
         cannot be answered but by Cancel. */
     answerPasskey?: (choice: number | undefined, password: string) => void;
+    /** What else a sheet offers, pressed (an application that quit: Reset…, which asks the session
+        to reset it, docs/adr/0061-crashes-and-resetting-an-application.mdx). */
+    act?: (action: SheetAction) => void;
+    /** Puts a report's text on the clipboard, at the person's press. */
+    copy?: (text: string) => Promise<boolean> | boolean | void;
   };
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
@@ -453,10 +458,15 @@ export const Shell = memo(function Shell({
           break;
         }
         // Super pressed alone (ADR 0041; Super+Space before it): the launcher, its search taking what is typed; again, it closes.
+        // The thumb and three fingers pinched open it as they begin to drive it, and close it if
+        // they let it go back; spread over it, they close it (docs/adr/0046-interactive-gestures.mdx,
+        // amended 8 November 2026).
         case "search":
-          if (view === "launcher") {
+          if (next.intent === "close") {
+            if (view === "launcher") view = "desktop";
+          } else if (view === "launcher" && next.intent !== "open") {
             view = "desktop";
-          } else {
+          } else if (view !== "launcher") {
             view = "launcher";
             setSearchRequest((value) => value + 1);
           }
@@ -856,6 +866,7 @@ export const Shell = memo(function Shell({
           onKeyboardLost={keyboardLost}
         >
           <TopBar
+            safeMode={snapshot.safeMode}
             keyboardRequest={barRequest}
             keyboardLost={barLost}
             onKeyboard={setBarKeyboard}
@@ -966,11 +977,12 @@ export const Shell = memo(function Shell({
             backdrop is a surface of its own beneath its icons', so the compositor fades the one
             and settles the other (docs/adr/0011-transitions.mdx). It is built once, when the
             shell starts, and kept while hidden, as macOS keeps Launchpad: opening it shows what
-            is built. Hidden, it has no surfaces and takes no input. */}
-        <Surface kind="backdrop" style={launcherArea}>
+            is built. Hidden, it has no surfaces and takes no input. The thumb and three fingers
+            pinched drive both, as far as the fingers have it (docs/adr/0046-interactive-gestures.mdx). */}
+        <Surface kind="backdrop" style={launcherArea} gesture="launchpad">
           <LaunchpadBackdrop open={launcherOpen} wallpaper={wallpaper} />
         </Surface>
-        <Surface kind="overlay" style={launcherArea}>
+        <Surface kind="overlay" style={launcherArea} gesture="launchpad">
           <Launchpad
             open={launcherOpen}
             escapeRequest={escapeRequest}
@@ -1114,6 +1126,7 @@ export const Shell = memo(function Shell({
               notifications={notifications}
               applications={snapshot.applications}
               announce={platform.announce}
+              safeMode={snapshot.safeMode}
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />
@@ -1122,8 +1135,14 @@ export const Shell = memo(function Shell({
         {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question
             to the person; only the shell's press answers it. It is modal, and has the keyboard as
             a Mac's alert does: nothing typed while it asks reaches the application behind it. */}
+        {/* An application that quit (docs/adr/0061) starts on Reopen, its default button. */}
         {sheet && !lock?.locked && (
-          <Surface kind="overlay" style={WHOLE} keyboard>
+          <Surface
+            kind="overlay"
+            style={WHOLE}
+            keyboard
+            focusTarget={sheet.text.kind === "crash" && sheet.text.show === "notice" ? "system-sheet-accept" : undefined}
+          >
             <SystemSheet
               key={sheet.id}
               text={sheet.text}
@@ -1132,6 +1151,8 @@ export const Shell = memo(function Shell({
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
               answerPasskey={sheet.answerPasskey}
+              act={sheet.act}
+              copy={sheet.copy}
               keyboard={platform.keyboard}
             />
           </Surface>
