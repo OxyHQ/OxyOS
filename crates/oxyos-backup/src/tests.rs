@@ -897,6 +897,10 @@ impl Samba {
 
 impl Drop for Samba {
     fn drop(&mut self) {
+        // smbd and the children it forked for each connection: its group.
+        if let Some(group) = rustix::process::Pid::from_raw(self.child.id() as i32) {
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
