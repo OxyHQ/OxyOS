@@ -23,7 +23,7 @@ mod users;
 
 use crate::api::{
     ApiError, AppToken, Attestation, DeviceCredential, OxyApi, PlatformClient, Profile,
-    RedemptionKey, SignInStep, SignedIn,
+    RedemptionKey, SignInStep, SignedIn, Windows,
 };
 use crate::users::{UnixUser, Users, UsersError};
 use crate::{AccountId, Secret, UserName};
@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 pub(crate) const ACCOUNT: &str = "0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e";
 pub(crate) const OTHER_ACCOUNT: &str = "64f7c2a1b8e9d3f4a1c2b3d4";
@@ -164,8 +165,11 @@ pub(crate) struct FakeApi {
     pub(crate) pending: Mutex<Vec<(String, Option<String>)>>,
     /// What goes wrong with each next confirmation, in order.
     pub(crate) confirm_hiccups: Mutex<std::collections::VecDeque<Hiccup>>,
-    /// The next redemptions are rate-limited, each with this `Retry-After`.
-    pub(crate) limited: Mutex<std::collections::VecDeque<Option<u64>>>,
+    /// The next redemptions are rate-limited, each with this `Retry-After` and, once the proof is
+    /// known (the account's budget, R9), the window left.
+    pub(crate) limited: Mutex<std::collections::VecDeque<(Option<u64>, Option<Duration>)>>,
+    /// The windows a redemption's answer tells (R9), counted from the answer; none: told nothing.
+    pub(crate) windows_told: Mutex<(Option<Duration>, Option<Duration>)>,
 }
 
 impl Default for FakeApi {
@@ -191,6 +195,7 @@ impl Default for FakeApi {
             pending: Mutex::new(Vec::new()),
             confirm_hiccups: Mutex::new(std::collections::VecDeque::new()),
             limited: Mutex::new(std::collections::VecDeque::new()),
+            windows_told: Mutex::new((None, None)),
         }
     }
 }
@@ -273,6 +278,7 @@ impl FakeApi {
             user_id: ACCOUNT.into(),
             device_id: DEVICE.into(),
             device_secret: Some(Secret::new(issued)),
+            windows: self.told(),
         })
     }
 
@@ -285,6 +291,16 @@ impl FakeApi {
             user_id: user.into(),
             device_id: device_id.into(),
             device_secret: Some(Secret::new(issued)),
+            windows: self.told(),
+        }
+    }
+
+    /// The windows a redemption's answer tells, counted from now.
+    fn told(&self) -> Windows {
+        let (redemption, confirm) = *self.windows_told.lock().unwrap();
+        Windows {
+            redemption: redemption.map(told_end),
+            confirm: confirm.map(told_end),
         }
     }
 
@@ -325,8 +341,14 @@ impl FakeApi {
             user_id: user.into(),
             device_id: device_id.into(),
             device_secret: Some(Secret::new(issued)),
+            windows: Windows::default(),
         }
     }
+}
+
+/// A window Oxy tells with `left` to go, as this machine measures it from now.
+pub(crate) fn told_end(left: Duration) -> std::time::Instant {
+    crate::api::window_end(std::time::Instant::now(), left.as_secs())
 }
 
 impl OxyApi for FakeApi {
@@ -374,6 +396,7 @@ impl OxyApi for FakeApi {
         if self.locked {
             return Err(ApiError::Locked {
                 retry_after: Some(900),
+                window: None,
             });
         }
         if identifier != USERNAME || password.expose() != self.password {
@@ -410,8 +433,11 @@ impl OxyApi for FakeApi {
     ) -> Result<SignedIn, ApiError> {
         self.call(Call::PlatformDevice)?;
         self.keys.lock().unwrap().push(key.expose().into());
-        if let Some(retry_after) = self.limited.lock().unwrap().pop_front() {
-            return Err(ApiError::Locked { retry_after });
+        if let Some((retry_after, window)) = self.limited.lock().unwrap().pop_front() {
+            return Err(ApiError::Locked {
+                retry_after,
+                window: window.map(told_end),
+            });
         }
         let hiccup = self.hiccups.lock().unwrap().pop_front();
         match hiccup {
@@ -430,6 +456,7 @@ impl OxyApi for FakeApi {
         if self.locked {
             return Err(ApiError::Locked {
                 retry_after: Some(900),
+                window: None,
             });
         }
         // Redeemable once (the proof is the handed-over secret, still live), or again with the
