@@ -6,7 +6,7 @@ order: 42
 
 # ADR 0033: Protocol versions and compatibility
 
-Status: **accepted; implemented** (versions 2 to 28). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
+Status: **accepted; implemented** (versions 2 to 38). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
 
 ## Problem
 
@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 30). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 38). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -73,6 +73,7 @@ A platform cannot break installed applications on every change of its protocol. 
    | 33 | Launchpad pinched ([ADR 0046](./0046-interactive-gestures), amended 8 November 2026): `GestureOverlay::Launchpad` (3), the shell's Launchpad surfaces said to be what the thumb and three fingers pinched drive (`SetGestureOverlay`, request 95). A value a compositor of version 32 or older would refuse, closing the connection: the client library refuses it to one (`oxyos_client_set_gesture_overlay` fails, sending nothing), and the Bloom host does not send it there. The pinch itself tells the shell `SystemShortcut::Search` with version 25's intents, which every shell of version 25 reads. In the C ABI, `OXYOS_GESTURE_OVERLAY_LAUNCHPAD`. And login items and background activity ([ADR 0060](./0060-login-items-and-background-activity)): `BackgroundItem` (request 165), an application asking how its login item or background activity stands, registering or unregistering it, which the client library refuses to a compositor of version 32 or older; and `BackgroundItemState` (event 165), the session's answers and the person's changes (serial 0), never sent to a client of version 32 or older. In the C ABI, `oxyos_client_background_item`, `OXYOS_BACKGROUND_*` and `OXYOS_EVENT_BACKGROUND_ITEM_STATE`. |
    | 34 | An application opens a URL of any scheme but `file` ([ADR 0058](./0058-the-platform-api), step 6): `OpenUrl` (request 233), taken from an application since version 27 only for the platform's Settings, is taken for any other scheme too, and the session opens it with the application whose entry declares the scheme, only for an input the application received (`APPLICATION_OPENS_URLS_VERSION`). No message changes, only who may send what: a compositor of version 33 or older refuses it as unauthorized, closing the connection, so the client library asks it only of this version or newer. |
    | 36 | Safe Mode ([ADR 0054](./0054-recovery-and-erasing), decision 10): `SafeMode` (event 166), told by the program running the compositor to the shell and the login screen (a client with the `shell` or the `lock` grant) as each connects, only in a start the person chose Safe Mode for; it carries nothing, and is never sent to a client of version 35 or older, whose reader would refuse it. In the C ABI, `OXYOS_EVENT_SAFE_MODE`. |
+   | 38 | The session asking applications to quit before it ends ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)): `QuitRequested` (event 168, its reason the `SessionEnd` wire enum: log out, restart, shut down), sent to each application as the person logs out, restarts or shuts down, and its answer `QuitReply` (request 168: quit, or cancel the whole end), as a Mac's `applicationShouldTerminate:`. Never sent to a client of version 37 or older, whose windows are each sent `CloseRequested` instead and which cannot refuse; the client library refuses the answer to a compositor of version 37 or older (`QUIT_REQUESTS_VERSION`). In the C ABI, `OXYOS_EVENT_QUIT_REQUESTED`, `OXYOS_SESSION_END_*`, `oxyos_client_reply_to_quit` and `OXYOS_QUIT_REQUESTS_VERSION`. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

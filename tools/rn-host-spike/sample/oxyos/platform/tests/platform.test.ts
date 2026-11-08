@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createApplication } from '../src/application.ts';
+import { answerQuit, createApplication } from '../src/application.ts';
 import { codeOf, errorOf, isPlatformError, PlatformError } from '../src/errors.ts';
 import { followed } from '../src/followed.ts';
 import { createFrameworks } from '../src/frameworks.ts';
@@ -265,6 +265,7 @@ function playedApplication({ available = true, sends = true } = {}) {
   let listener: ((event: { serial: number; kind: string; status: string }) => void) | undefined;
   const events: Events = {
     addListener(name, handler) {
+      if (name === 'OxyOSQuitRequested') return { remove() {} };
       assert.equal(name, 'OxyOSBackgroundItemState');
       listener = handler;
       return { remove() {} };
@@ -359,4 +360,107 @@ test("the account's applications are followed as Settings asks for them and as t
     told.map((apps) => (apps as { runningInBackground: boolean }[])[0].runningInBackground),
     [false, true],
   );
+});
+
+/** A played OxyOSApplication that asks to quit: what JavaScript said it handles, and its answers. */
+function playedQuit({ quitRequests = true } = {}) {
+  const handles: boolean[] = [];
+  const replies: { serial: number; quit: boolean }[] = [];
+  let ask: ((event: { serial: number; reason: string }) => void) | undefined;
+  const events: Events = {
+    addListener(name, handler) {
+      if (name === 'OxyOSQuitRequested') ask = handler;
+      return { remove() {} };
+    },
+  };
+  const native = {
+    getConstants: () => ({ backgroundItems: false, quitRequests }),
+    backgroundItem: () => 0,
+    handlesQuit: (handling: boolean) => void handles.push(handling),
+    replyToQuit: (serial: number, quit: boolean) => {
+      replies.push({ serial, quit });
+      return true;
+    },
+  };
+  return {
+    application: createApplication(native, events),
+    handles,
+    replies,
+    ask: (serial: number, reason: string) => ask?.({ serial, reason }),
+  };
+}
+
+test('the session asks an application to quit, and any handler may cancel (ADR 0064)', async () => {
+  const { application, handles, replies, ask } = playedQuit();
+  assert.equal(application.quitRequests, true);
+  // Told the host it handles the question with the first handler, and no more with the last gone.
+  const reasons: string[] = [];
+  let dirty = true;
+  const stopFirst = application.onQuitRequest((reason) => {
+    reasons.push(reason);
+    return dirty ? 'cancel' : 'quit';
+  });
+  const stopSecond = application.onQuitRequest(async (): Promise<'quit'> => 'quit');
+  assert.deepEqual(handles, [true]);
+  // An unsaved document cancels the restart.
+  ask(7, 'restart');
+  await settle();
+  assert.deepEqual(replies, [{ serial: 7, quit: false }]);
+  assert.deepEqual(reasons, ['restart']);
+  // Saved: every handler quits, and the application answers quit.
+  dirty = false;
+  ask(8, 'shutDown');
+  await settle();
+  assert.deepEqual(replies.at(-1), { serial: 8, quit: true });
+  // An unknown reason is no request.
+  ask(9, 'sideways');
+  await settle();
+  assert.equal(replies.length, 2);
+  stopFirst();
+  stopFirst();
+  assert.deepEqual(handles, [true]);
+  stopSecond();
+  assert.deepEqual(handles, [true, false]);
+});
+
+test('a handler that throws or rejects cancels: nothing unsaved is lost to a bug', async () => {
+  assert.equal(await answerQuit([], 'logOut'), 'quit');
+  assert.equal(await answerQuit([() => 'quit'], 'logOut'), 'quit');
+  assert.equal(
+    await answerQuit(
+      [
+        () => {
+          throw new Error('boom');
+        },
+      ],
+      'logOut',
+    ),
+    'cancel',
+  );
+  assert.equal(await answerQuit([async () => Promise.reject(new Error('boom'))], 'restart'), 'cancel');
+  // Asked in order: the first cancel ends the asking.
+  const asked: string[] = [];
+  const answer = await answerQuit(
+    [
+      () => {
+        asked.push('first');
+        return 'cancel';
+      },
+      () => {
+        asked.push('second');
+        return 'quit';
+      },
+    ],
+    'shutDown',
+  );
+  assert.equal(answer, 'cancel');
+  assert.deepEqual(asked, ['first']);
+});
+
+test('where the session never asks, a handler is kept and the host is told nothing', () => {
+  const { application, handles } = playedQuit({ quitRequests: false });
+  assert.equal(application.quitRequests, false);
+  const stop = application.onQuitRequest(() => 'quit');
+  stop();
+  assert.deepEqual(handles, []);
 });

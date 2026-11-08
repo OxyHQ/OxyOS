@@ -2,6 +2,7 @@ import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
+import { Checkbox } from "@oxy.so/bloom/checkbox";
 import { Box, Scroll, focusForAccessibility } from "../primitives";
 import type { ShellKeyboard } from "../platform";
 import {
@@ -70,6 +71,15 @@ const CODE_SPACING = 8;
  * its own) and Report…, which shows the report in the sheet itself: its text, which Copy puts on
  * the clipboard at the person's press, and Done, back to what it said (or away, when it opened at
  * the report); Escape is Done there.
+ *
+ * The session's question to restart, shut down or log out
+ * (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx) is a Mac's: its default button (Restart,
+ * Shut Down, Log Out) has the keyboard and Return presses it, Escape is Cancel, the checkbox
+ * Reopen windows when logging back in is told to the session as it is toggled, and what happens by
+ * itself is counted down each second, its words said once with the sheet, never again as they
+ * change. The power key's choice adds Restart and Sleep at its foot's start. What kept an end from
+ * happening (an application that canceled it or did not quit, the system refusing) is told with
+ * OK, its default button.
  */
 export const SystemSheet = memo(function SystemSheet({
   text,
@@ -79,6 +89,7 @@ export const SystemSheet = memo(function SystemSheet({
   answerCode,
   act,
   copy,
+  toggle,
   keyboard,
 }: {
   text: SheetText;
@@ -93,6 +104,9 @@ export const SystemSheet = memo(function SystemSheet({
   act?: (action: SheetAction) => void;
   /** Puts a report's text on the clipboard, where the platform offers it. */
   copy?: (text: string) => Promise<boolean> | boolean | void;
+  /** Its checkbox toggled (Reopen windows when logging back in): told to the session, which keeps
+      the person's choice. */
+  toggle?: (checked: boolean) => void;
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
 }) {
@@ -131,15 +145,49 @@ export const SystemSheet = memo(function SystemSheet({
   latestAnswer.current = answer;
   const latestEscape = useRef(() => latestAnswer.current(false));
   latestEscape.current = reading ? closeReport : () => latestAnswer.current(false);
+  // Return presses a default button, as a Mac's alert (the session's question to shut down);
+  // answered once, as the session takes the sheet away.
+  const latestReturn = useRef<(() => void) | null>(null);
+  latestReturn.current =
+    view.defaultAnswer && view.accept && !reading
+      ? () => {
+          if (answered.current) return;
+          answered.current = true;
+          latestAnswer.current(true);
+        }
+      : null;
   useEffect(() => {
     if (!keyboard) return undefined;
     return keyboard.subscribe((event) => {
       const chord = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
-      if (event.key !== "Escape" || chord) return false;
+      if (chord) return false;
+      if (event.key === "Enter" && latestReturn.current) {
+        latestReturn.current();
+        return true;
+      }
+      if (event.key !== "Escape") return false;
       latestEscape.current();
       return true;
     });
   }, [keyboard]);
+  // Reopen windows, as the session told it, then as the person toggles it.
+  const [checked, setChecked] = useState(view.checkbox?.checked ?? false);
+  // The countdown: the seconds left, counted down each second from what the session said. The
+  // session keeps the deadline and takes the sheet away at it; this only says it. Nothing moves:
+  // its words change, which Reduce Motion leaves as they are.
+  const countdownFrom = view.countdown?.seconds;
+  const [left, setLeft] = useState(countdownFrom ?? 0);
+  useEffect(() => {
+    if (countdownFrom === undefined) return undefined;
+    const started = Date.now();
+    setLeft(countdownFrom);
+    const timer = setInterval(() => {
+      const passed = Math.floor((Date.now() - started) / 1000);
+      setLeft(Math.max(0, countdownFrom - passed));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [countdownFrom]);
+  const body = view.countdown ? view.countdown.text(left) : view.body;
   const wide = !!view.actions?.length;
   if (reading && view.report) {
     const report = view.report;
@@ -199,7 +247,12 @@ export const SystemSheet = memo(function SystemSheet({
         // Said as it appears, once, by the screen reader: its title, then what went wrong and what
         // it says, as VoiceOver reads an alert's message after its title.
         accessibilityHint={
-          [view.error, view.body, view.code ? messages.sheet.bluetoothCodeSaid(spokenCode(view.code)) : ""]
+          [
+            view.error,
+            body,
+            view.code ? messages.sheet.bluetoothCodeSaid(spokenCode(view.code)) : "",
+            view.checkbox ? (checked ? view.checkbox.on : view.checkbox.off) : "",
+          ]
             .filter(Boolean)
             .join(". ") || undefined
         }
@@ -223,7 +276,25 @@ export const SystemSheet = memo(function SystemSheet({
             {view.error}
           </Text>
         ) : null}
-        {view.body ? <Text style={{ fontSize: 13, color: QUIET }}>{view.body}</Text> : null}
+        {/* A countdown's words are said with the sheet as it appears, never again each second: no
+            live region. */}
+        {body ? (
+          <Text testID={view.countdown ? "system-sheet-countdown" : undefined} style={{ fontSize: 13, color: QUIET }}>
+            {body}
+          </Text>
+        ) : null}
+        {view.checkbox ? (
+          <Checkbox
+            testID="system-sheet-checkbox"
+            label={view.checkbox.label}
+            checked={checked}
+            onCheckedChange={(next) => {
+              setChecked(next);
+              toggle?.(next);
+            }}
+            disabled={!toggle}
+          />
+        ) : null}
         {view.password ? (
           <TextField>
             <TextFieldInput
@@ -306,7 +377,13 @@ export const SystemSheet = memo(function SystemSheet({
                   testID={`system-sheet-${action.id}`}
                   appearance="plain"
                   tone="neutral"
-                  onPress={() => (action.id === "report" ? setReading(true) : act?.(action.id))}
+                  onPress={() => {
+                    if (action.id === "report") return setReading(true);
+                    // The power key's Restart and Sleep answer the sheet as its Shut Down does.
+                    if (answered.current) return;
+                    if (action.id === "restart" || action.id === "sleep") answered.current = true;
+                    act?.(action.id);
+                  }}
                   disabled={action.id !== "report" && !act}
                 >
                   {action.label}
@@ -335,7 +412,16 @@ export const SystemSheet = memo(function SystemSheet({
                       ? !answerCode || !validBluetoothCode(code, codeKind)
                       : false
                 }
-                onPress={() => (view.password ? submit(password) : codeKind ? submitCode(code) : answer(true))}
+                onPress={() => {
+                  if (view.password) return submit(password);
+                  if (codeKind) return submitCode(code);
+                  if (view.defaultAnswer) {
+                    // Pressed once: Return after it sends nothing more.
+                    if (answered.current) return;
+                    answered.current = true;
+                  }
+                  answer(true);
+                }}
               >
                 {view.accept}
               </Button>

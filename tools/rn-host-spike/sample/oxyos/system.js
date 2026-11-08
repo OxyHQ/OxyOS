@@ -52,6 +52,13 @@ export const updates = {
  */
 export const session = {
   signOut: () => ask({ signOut: {} }),
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+  // the shell's Oxy menu and the login screen's buttons, with the `shell` grant, citing the press
+  // or key that asked. The session decides: it asks its own question (`confirm`), every
+  // application, then logind. Answered `{confirming}`, `{ending: {action}}`, `{sleeping}` or
+  // `{refused: {reason}}`.
+  endSession: (action, confirm) => ask({ endSession: { action, confirm } }),
+  sleep: () => ask({ sleep: {} }),
 };
 
 /**
@@ -305,5 +312,17 @@ export function useSystemSheets() {
     void connection.request({ resetApplication: { id, reopen: true } });
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword, answerCode, resetApplication };
+  // The power key's sheet (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 7): its
+  // Restart and Sleep answer it, citing the press, the session taking them only for the power
+  // key's sheet it shows.
+  const choosePowerKey = React.useCallback((sheet, choice) => {
+    void connection.request({ powerKeyChoice: { sheet, choice } });
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  // Reopen windows when logging back in, toggled in the session's question: the person's
+  // `reopen_windows`, which the session keeps.
+  const reopenWindows = React.useCallback((enabled) => {
+    void connection.request({ reopenWindows: { enabled } });
+  }, []);
+  return { sheets, answer, answerPassword, answerCode, resetApplication, choosePowerKey, reopenWindows };
 }

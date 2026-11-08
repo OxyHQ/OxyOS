@@ -2414,7 +2414,8 @@ fn settle(
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
         }
-        if let Some(status) = children.0[0].try_wait()? {
+        // Asked to quit as the session ends (ADR 0064), its exit is its answer.
+        if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
             return Err(
                 format!("the application exited ({status}) waiting for {waiting_for}").into(),
             );
@@ -4023,7 +4024,7 @@ fn switch_terminal(
             if Instant::now() > deadline {
                 return Err(format!("deadline exceeded waiting for {what}").into());
             }
-            if let Some(status) = children.0[0].try_wait()? {
+            if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
                 return Err(format!("the application exited ({status}) waiting for {what}").into());
             }
             session.compositor.serve(&session.listener)?;
@@ -5315,6 +5316,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             ));
             session.controls = Some(fake);
         }
+        // The session's ending asks the same played logind, never the machine's (ADR 0064).
+        session.ending_logind = oxyos_compositor::session_end::Logind::Bus(address.clone());
         let power = oxyos_compositor::power::Power::new(
             Some(address.clone()),
             Some(session.directory().join("battery-history")),
@@ -6070,6 +6073,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
         };
+        // No input: the time passes for the session's question and its applications too (ADR 0064).
+        if let (Step::Idle(seconds), Some(ending)) = (step, session.ending.as_mut()) {
+            ending.pass(Duration::from_secs(*seconds));
+        }
         // Super+F5 typed: the reader started or stopped before the step settles, as the session
         // switches it on its next turn.
         toggle_reader(&mut session, &mut screen_reader, reader_named, &speech)?;
@@ -6116,13 +6123,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let logged_out = std::mem::take(&mut session.logged_out);
         let background = background_json(&mut session);
         let notifications = notifications_json(&session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"logged_out\":{logged_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

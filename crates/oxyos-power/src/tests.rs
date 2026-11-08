@@ -737,6 +737,90 @@ fn the_machine_sleeps_through_logind_unless_it_may_not() {
 }
 
 #[test]
+fn the_machine_restarts_and_shuts_down_through_logind_only_when_it_says_yes() {
+    use crate::ending::{self, End, PowerKey};
+    let directory = scratch("ending");
+    let (address, _bus) = private_bus(&directory);
+    let played = Played::serve(&address, thinkpad(&directory)).unwrap();
+    let bus = connect(Some(&address)).unwrap();
+    assert_eq!(ending::can(&bus, End::Restart), Ok(()));
+    ending::end(&bus, End::Restart).unwrap();
+    ending::end(&bus, End::ShutDown).unwrap();
+    let told = played.describe();
+    assert_eq!(told["reboots"], 1);
+    assert_eq!(told["power_offs"], 1);
+    // Never interactive: polkit decides without a prompt.
+    assert_eq!(
+        told["calls"],
+        serde_json::json!(["Reboot false", "PowerOff false"])
+    );
+    // logind's default for the power key, and its inhibitor held while its descriptor is open.
+    assert_eq!(ending::handle_power_key(&bus).unwrap(), "poweroff");
+    let held = ending::hold_power_key(&bus).unwrap();
+    assert_eq!(
+        played.describe()["inhibitors"],
+        serde_json::json!(["handle-power-key"])
+    );
+    drop(held);
+    until(|| played.describe()["inhibitors"] == serde_json::json!([]));
+    drop(played);
+    // Another person's session open: `challenge`, refused without calling, as `no` and `na` are.
+    for (can, failure) in [
+        ("challenge", Failure::NotPermitted),
+        ("no", Failure::NotPermitted),
+        ("na", Failure::Unsupported),
+    ] {
+        let directory = scratch(&format!("ending-{can}"));
+        let (address, _bus) = private_bus(&directory);
+        let mut machine = thinkpad(&directory);
+        machine.can_power_off = can.into();
+        machine.can_reboot = can.into();
+        machine.handle_power_key = "suspend".into();
+        let played = Played::serve(&address, machine).unwrap();
+        let bus = connect(Some(&address)).unwrap();
+        assert_eq!(ending::end(&bus, End::ShutDown), Err(failure));
+        assert_eq!(ending::end(&bus, End::Restart), Err(failure));
+        assert_eq!(played.describe()["calls"], serde_json::json!([]));
+        assert_eq!(
+            PowerKey::of(&ending::handle_power_key(&bus).unwrap()),
+            PowerKey::Sleep
+        );
+    }
+    // polkit refusing the user is said the same way.
+    let directory = scratch("ending-denied");
+    let (address, _bus) = private_bus(&directory);
+    let mut machine = thinkpad(&directory);
+    machine.deny = vec!["power_off".into()];
+    let _played = Played::serve(&address, machine).unwrap();
+    let bus = connect(Some(&address)).unwrap();
+    assert_eq!(ending::end(&bus, End::ShutDown), Err(Failure::NotPermitted));
+    // Nobody there: unavailable.
+    let directory = scratch("ending-nobody");
+    let (address, _bus) = private_bus(&directory);
+    let bus = connect(Some(&address)).unwrap();
+    assert_eq!(ending::end(&bus, End::ShutDown), Err(Failure::Unavailable));
+}
+
+#[test]
+fn the_power_key_follows_loginds_policy_never_an_abrupt_power_off() {
+    use crate::ending::PowerKey;
+    for policy in ["poweroff", "reboot", "halt", "kexec", "factory-reset", ""] {
+        assert_eq!(PowerKey::of(policy), PowerKey::Ask, "{policy}");
+    }
+    for policy in [
+        "suspend",
+        "hibernate",
+        "hybrid-sleep",
+        "suspend-then-hibernate",
+        "sleep",
+    ] {
+        assert_eq!(PowerKey::of(policy), PowerKey::Sleep, "{policy}");
+    }
+    assert_eq!(PowerKey::of("lock"), PowerKey::Lock);
+    assert_eq!(PowerKey::of("ignore"), PowerKey::Ignore);
+}
+
+#[test]
 fn the_played_machine_changes_and_upower_says_so() {
     let directory = scratch("act");
     let (address, _bus) = private_bus(&directory);

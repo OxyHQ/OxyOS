@@ -665,3 +665,16 @@ fn low_power_mode_follows_the_power_source() {
         [(false, false), (true, true), (true, false), (false, true)]
     );
 }
+
+#[test]
+fn windows_reopen_at_login_until_the_person_unchecks_it_as_on_a_mac() {
+    let mut preferences = Preferences::default();
+    assert!(preferences.reopen_windows);
+    assert_eq!(preferences.get("reopen_windows").as_deref(), Some("true"));
+    assert_eq!(
+        preferences.set("reopen_windows", "no"),
+        Err(Refused::BadValue)
+    );
+    preferences.set("reopen_windows", "false").unwrap();
+    assert!(!Preferences::parse(&preferences.to_text()).reopen_windows);
+}

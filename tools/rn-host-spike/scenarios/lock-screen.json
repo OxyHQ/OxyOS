@@ -65,11 +65,8 @@
     {
       "name": "Bloquear pantalla locks at once: only the lock screen shows, its password field focused, the window gone from the screen",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "expect": {
         "shell": {
@@ -429,11 +426,8 @@
     {
       "name": "Bloquear pantalla locks again",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "expect": {
         "shell": {

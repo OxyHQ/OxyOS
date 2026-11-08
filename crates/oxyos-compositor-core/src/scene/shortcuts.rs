@@ -299,6 +299,13 @@ impl Scene {
             self.input_source_shortcuts.push(shortcut);
             return;
         }
+        // Log out, as a Mac's ⇧⌘Q (asked) and ⌥⇧⌘Q (at once): the session decides
+        // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). A menu open closes first.
+        if key == Q && shift && !ctrl && !self.capturing() {
+            self.dismiss_grab(DismissReason::OutsidePress);
+            self.session_key(super::SessionKey::LogOut { confirm: !alt });
+            return;
+        }
         if alt {
             return;
         }

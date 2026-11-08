@@ -38,11 +38,8 @@
     {
       "name": "Bloquear pantalla locks: the lock screen offers the PIN first, its field focused",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -145,11 +142,8 @@
     {
       "name": "locked again: the PIN first",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "allow_unchanged": true,
       "expect": {

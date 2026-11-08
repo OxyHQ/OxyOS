@@ -637,6 +637,10 @@ bool Window::backgroundItem(uint32_t serial, uint8_t kind, uint8_t action) {
   return oxyos_client_background_item(client_, serial, kind, action) == 0;
 }
 
+bool Window::replyToQuit(uint32_t serial, bool quit) {
+  return oxyos_client_reply_to_quit(client_, serial, quit ? 1 : 0) == 0;
+}
+
 void Window::closeToplevel() {
   if (toplevelClosed_) return;
   toplevelClosed_ = true;

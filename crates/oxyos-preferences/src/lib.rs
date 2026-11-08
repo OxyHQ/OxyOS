@@ -297,6 +297,10 @@ pub struct Preferences {
     /// *Empty Trash Automatically* (docs/adr/0062-storage.mdx): the session erases what has been
     /// in the Trash for more than 30 days. Off, as a Mac ships.
     pub empty_trash_automatically: bool,
+    /// *Reopen windows when logging back in* (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+    /// the applications running as the person logs out, restarts or shuts down are opened again
+    /// at the next login. The checkbox keeps its state, as a Mac's; on, as a Mac ships.
+    pub reopen_windows: bool,
     /// Each display's mode and scale, by its identity, the one changed last at the end.
     pub displays: Vec<(String, DisplaySettings)>,
     /// Each set of displays' arrangement, by the set's key, the one changed last at the end.
@@ -339,6 +343,7 @@ impl Default for Preferences {
             do_not_disturb: false,
             notification_previews: Previews::default(),
             empty_trash_automatically: false,
+            reopen_windows: true,
             displays: Vec::new(),
             arrangements: Vec::new(),
             dock: None,
@@ -454,6 +459,7 @@ pub const KEYS: &[&str] = &[
     "do_not_disturb",
     "notification_previews",
     "empty_trash_automatically",
+    "reopen_windows",
     "input_sources",
     "input_source",
 ];
@@ -555,6 +561,7 @@ impl Preferences {
                 }
             }
             "empty_trash_automatically" => self.empty_trash_automatically = boolean(value)?,
+            "reopen_windows" => self.reopen_windows = boolean(value)?,
             "input_sources" => {
                 let mut sources: Vec<String> = Vec::new();
                 for id in value.split(',').filter(|id| !id.is_empty()) {
@@ -621,6 +628,7 @@ impl Preferences {
             "do_not_disturb" => self.do_not_disturb.to_string(),
             "notification_previews" => self.notification_previews.name().to_owned(),
             "empty_trash_automatically" => self.empty_trash_automatically.to_string(),
+            "reopen_windows" => self.reopen_windows.to_string(),
             "input_sources" => self.input_sources.join(","),
             "input_source" => self
                 .input_source

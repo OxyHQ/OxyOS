@@ -20,11 +20,36 @@ import { useOxyOSShell } from './oxyos/shell-state';
 import { LoginScreen, type LoginActions, type SetupActions, type SetupProgress } from '../../../apps/login/src/LoginScreen';
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
 import { enrollAnswerFrom, platformFrom, stageFrom } from '../../../apps/login/src/setup';
+import { isPowerKey, loginPowerRequest } from '../../../apps/login/src/power';
 import { SetupAssistantFrame } from './SetupAssistant';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useSessionLocale } from './oxyos/locale';
 import { useShellWallpaper } from './oxyos/wallpaper';
+
+/** The session's vocabulary (the host's `OxyOSSystem`): the login screen's Sleep, Restart and Shut
+    Down, answered by `OxyOSSystemAnswer` naming the request's serial. */
+const system = TurboModuleRegistry.get<{ request(json: string): number }>('OxyOSSystem');
+
+/** One request of the session's vocabulary, citing the latest press; its answer, or a failure. */
+function askSession(request: Record<string, unknown>): Promise<unknown> {
+  if (!system) return Promise.resolve({ failed: { reason: 'unavailable' } });
+  return new Promise((resolve) => {
+    const serial = system.request(JSON.stringify(request));
+    if (!serial) {
+      resolve({ failed: { reason: 'notSent' } });
+      return;
+    }
+    const subscription = DeviceEventEmitter.addListener(
+      'OxyOSSystemAnswer',
+      ({ serial: answered, answer }: { serial: number; answer: unknown }) => {
+        if (answered !== serial) return;
+        subscription.remove();
+        resolve(answer);
+      },
+    );
+  });
+}
 
 /** How long the network may take to answer before setup says it needs it. */
 const REACH_MS = 5000;
@@ -114,6 +139,19 @@ export default function LoginSession() {
   React.useEffect(() => {
     if (answer?.outcome === 'rejected') setAccounts(accountsFrom(shell.accounts()));
   }, [answer?.id]);
+  // The power key, pressed at the login screen (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
+  // decision 8): the session tells it unasked, and the login screen shows its choice.
+  const [powerKey, setPowerKey] = React.useState(0);
+  React.useEffect(() => {
+    if (!system) return undefined;
+    const subscription = DeviceEventEmitter.addListener(
+      'OxyOSSystemAnswer',
+      ({ serial, answer: told }: { serial: number; answer: unknown }) => {
+        if (serial === 0 && isPowerKey(told)) setPowerKey((count) => count + 1);
+      },
+    );
+    return () => subscription.remove();
+  }, []);
   // The catalog's default, as the login screen's session tells it (docs/adr/0048-wallpapers.mdx).
   const wallpaper = useShellWallpaper(state?.wallpaper);
   const actions: LoginActions = {
@@ -125,6 +163,9 @@ export default function LoginSession() {
     setup: setupActions,
     reloadAccounts: () => setAccounts(accountsFrom(shell.accounts())),
     announce: (text, polite) => shell.announce(text, polite),
+    // Sleep, Restart and Shut Down at the foot, at once (nobody is signed in), citing the press.
+    power: system ? (action) => askSession(loginPowerRequest(action)) : undefined,
+    powerKey,
   };
   const { Surface, Masked } = oxyosShell;
   return (
@@ -141,6 +182,7 @@ export default function LoginSession() {
                 now={now}
                 Masked={Masked}
                 safeMode={state?.safeMode === true}
+                keyboard={oxyosShell.keyboard}
               />
             </Surface>
           )}

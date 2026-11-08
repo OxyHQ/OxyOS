@@ -553,6 +553,9 @@ pub struct Scene {
     /// What applications asked of their login items and background activity
     /// (docs/adr/0060-login-items-and-background-activity.mdx).
     background: background::Background,
+    /// The session's keys and the applications asked to quit before it ends
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+    session_ending: session_end::SessionEnding,
     /// The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
     safe_mode: bool,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
@@ -1215,6 +1218,7 @@ impl Scene {
         self.forget_system_requests(client);
         self.forget_searcher(client);
         self.forget_background_items(client);
+        self.forget_session_end_client(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
@@ -1826,6 +1830,10 @@ impl Scene {
                 kind,
                 action,
             } => self.background_item_request(client, serial, kind, action),
+            Request::QuitReply { serial, quit } => {
+                self.quit_reply(client, serial, quit);
+                Ok(())
+            }
             Request::ChooseFiles {
                 serial,
                 surface,
@@ -5169,6 +5177,9 @@ pub use search::{SearchAsk, MAX_SEARCH_ASKS, SEARCH_VERSION};
 /// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
 mod background;
 pub use background::{BackgroundItemRequest, BACKGROUND_VERSION};
+/// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+mod session_end;
+pub use session_end::{QuitReplied, SessionKey, KEY_POWER};
 /// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
 mod safe_mode;
 pub use safe_mode::SAFE_MODE_VERSION;

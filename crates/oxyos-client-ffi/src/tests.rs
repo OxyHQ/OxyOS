@@ -7580,3 +7580,78 @@ fn safe_mode_crosses_the_abi() {
     let told = convert(&Event::SafeMode {}).unwrap();
     assert_eq!(told.kind, OXYOS_EVENT_SAFE_MODE);
 }
+
+#[test]
+fn a_request_to_quit_and_its_answer_cross_the_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_QUIT_REQUESTED",
+            i64::from(OXYOS_EVENT_QUIT_REQUESTED),
+        ),
+        (
+            "OXYOS_SESSION_END_LOG_OUT",
+            i64::from(OXYOS_SESSION_END_LOG_OUT),
+        ),
+        (
+            "OXYOS_SESSION_END_RESTART",
+            i64::from(OXYOS_SESSION_END_RESTART),
+        ),
+        (
+            "OXYOS_SESSION_END_SHUT_DOWN",
+            i64::from(OXYOS_SESSION_END_SHUT_DOWN),
+        ),
+        (
+            "OXYOS_QUIT_REQUESTS_VERSION",
+            i64::from(OXYOS_QUIT_REQUESTS_VERSION),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    assert_eq!(
+        oxyos_protocol::SessionEnd::Restart as u32,
+        OXYOS_SESSION_END_RESTART
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);"
+    ));
+    let told = convert(&Event::QuitRequested {
+        serial: 7,
+        reason: oxyos_protocol::SessionEnd::ShutDown,
+    })
+    .unwrap();
+    assert_eq!(
+        (told.kind, told.code, told.detail),
+        (OXYOS_EVENT_QUIT_REQUESTED, 7, OXYOS_SESSION_END_SHUT_DOWN)
+    );
+
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-quit-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        server.recv_request().unwrap().0
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_reply_to_quit(client, 7, 0), 0);
+        assert_eq!(
+            compositor.join().unwrap(),
+            Request::QuitReply {
+                serial: 7,
+                quit: false
+            }
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

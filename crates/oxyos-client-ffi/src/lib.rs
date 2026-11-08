@@ -468,6 +468,16 @@ pub const OXYOS_EVENT_BACKGROUND_ITEM_STATE: u32 = 165;
 /// To the shell and the login screen (protocol version 36, docs/adr/0054-recovery-and-erasing.mdx,
 /// decision 10): the session started in Safe Mode; told once, as it connects.
 pub const OXYOS_EVENT_SAFE_MODE: u32 = 166;
+/// To an application (protocol version 38, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+/// the session ends and asks it to quit first; `code` the serial its answer names
+/// (`oxyos_client_reply_to_quit`), `detail` why (OXYOS_SESSION_END_*).
+pub const OXYOS_EVENT_QUIT_REQUESTED: u32 = 168;
+/// Why the session asks an application to quit: the person logs out, restarts or shuts down.
+pub const OXYOS_SESSION_END_LOG_OUT: u32 = 1;
+pub const OXYOS_SESSION_END_RESTART: u32 = 2;
+pub const OXYOS_SESSION_END_SHUT_DOWN: u32 = 3;
+/// The first version whose compositor asks applications to quit and takes their answer.
+pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSION as u32;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -1966,6 +1976,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::QuitRequested { serial, reason } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_QUIT_REQUESTED,
+                code: serial,
+                detail: u32::from(reason as u8),
+                ..out
+            }
+        }
         Event::BackgroundItemState {
             serial,
             kind,
@@ -2982,6 +3000,32 @@ pub unsafe extern "C" fn oxyos_client_background_item(
                 serial,
                 kind,
                 action,
+            },
+        )
+    }
+}
+
+/// An application's answer to the session's request to quit (a QUIT_REQUESTED's `code`,
+/// docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `quit` non-zero, it quits and ends its
+/// own process; 0, the person's log out, restart or shut down is cancelled. 0 on success; an
+/// error, sending nothing, to a compositor of a version before 38.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_reply_to_quit(
+    client: *mut OxyOSClient,
+    serial: u32,
+    quit: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::QuitReply {
+                serial,
+                quit: quit != 0,
             },
         )
     }

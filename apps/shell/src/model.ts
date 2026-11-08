@@ -141,6 +141,16 @@ export type ShellActions = {
   openUrl?: (url: string) => void;
 };
 /**
+ * Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx),
+ * owned by the platform's session: the shell only asks, citing the person's press, and the session
+ * decides, asks its question (a system sheet) and every application before anything ends.
+ */
+export type ShellPowerActions = {
+  sleep: () => void;
+  /** `confirm` false: Option's alternate, at once and with no question. */
+  endSession: (action: "restart" | "shutDown" | "logOut", confirm: boolean) => void;
+};
+/**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is
  * locked, whom it is locked for, and how the lock screen asks. Only the session unlocks.
  */

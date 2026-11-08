@@ -1847,7 +1847,29 @@ std::shared_ptr<TurboModule> createHostModule(
         // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
         "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : ""))(
         // Its login item and background activity can be asked about (protocol version 32).
-        "backgroundItems", static_cast<bool>(services.backgroundItems.ask));
+        "backgroundItems", static_cast<bool>(services.backgroundItems.ask))(
+        // The session asks it to quit before an end of the session (protocol version 38,
+        // docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5).
+        "quitRequests", services.quit.available);
+    });
+    // Whether JavaScript answers the session's requests to quit (`@oxyos/platform`'s
+    // `application.onQuitRequest`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): while it
+    // does, `OxyOSQuitRequested` ({serial, reason}) tells it; while it does not, the host answers
+    // quit at once.
+    module->method("handlesQuit", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isBool()) throw jsi::JSError(rt, "OxyOSApplication.handlesQuit: whether it does");
+      if (services.quit.handles) services.quit.handles(args[0].getBool());
+      return jsi::Value::undefined();
+    });
+    // (serial, quit): the application's answer to the request `serial`; whether it was sent.
+    // Answering quit ends the host, as a close request does, background activity or not.
+    module->method("replyToQuit", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+        throw jsi::JSError(rt, "OxyOSApplication.replyToQuit: a request's serial and whether it quits");
+      }
+      double serial = args[0].asNumber();
+      if (!services.quit.reply || serial < 1 || serial > 4294967295.0) return jsi::Value(false);
+      return jsi::Value(services.quit.reply(static_cast<uint32_t>(serial), args[1].getBool()));
     });
     // Login items and background activity (`@oxyos/platform`'s `application`,
     // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or

@@ -124,6 +124,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
+- logged_out: whether the session logged out in the step (Log Out, Shift+Super+Q or Alt+Shift+Super+Q,
+  once every application quit, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the session
+  would end there, back to the login screen; the development compositor records it and goes on. A
+  step that logs out and does not say so fails. Restarting and shutting down are the played logind's
+  (`power`: "reboots", "power_offs", "calls"), never the machine's;
 - screenshots: with the scenario's `screenshots` (files written as the session writes them, in the
   run's own Desktop and Documents, docs/adr/0024-system-shortcuts.mdx), the files saved in the
   step, exactly and in order ("saved": each its "name" as a regular expression, "folder", "output",
@@ -151,7 +156,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the run's own for the machine it describes, oxyos_power::played, docs/adr/0057-battery-and-
   energy.mdx), what they hold once the step settled ("on_ac", "battery" with its "percent",
   "state" and "charge_limit", "sysfs" with the battery's "start" and "end" thresholds as UPower
-  wrote them, "active_profile", "holds", "suspends", "calls"), each key given matching;
+  wrote them, "active_profile", "holds", "suspends", "calls"; and logind's "power_offs",
+  "reboots" and "inhibitors" held, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, its
+  `PowerOff`, `Reboot` and `Suspend` in "calls"), each key given matching;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -4837,6 +4844,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"notifications kept: {kept}, expected {expect['notifications']}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
+    # Logged out in the step (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the session's
+    # own end, its applications asked to quit first; the step's own, not each of its trees'.
+    if not step.get("within") and bool(result.get("logged_out")) != bool(expect.get("logged_out", False)):
+        fail(f"logged out: {bool(result.get('logged_out'))}, expected {bool(expect.get('logged_out', False))}")
     # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,
     # each {"name": the file's name, "application"}; a step that opens one and does not say so fails.
     # The step's own, not each of its trees' (`in_shell`).

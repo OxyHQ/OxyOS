@@ -1,0 +1,476 @@
+{
+  "outputs": "1600x1000@1.25",
+  "about": "session-end at 1.25, on the ThinkPad's display (1600x1000): the same steps, the same answers. Sleep, restart, shut down and log out as a Mac's (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), in English, with the session's shell and an application with a document whose changes are unsaved (sample/QuitProbe.tsx, launched as Allo), over logind played on the run's own bus (never the machine's: the session holds its handle-power-key inhibitor there). The Oxy menu has Sleep, Restart…, Shut Down…, Lock Screen and Log Out *name*…. Restart… asks, the keyboard on Restart, its countdown running; Return restarts: the application is asked to quit once and refuses, its changes unsaved, so the session says “Allo” canceled restart. and logind is asked nothing. The power key asks with Restart, Sleep, Cancel and Shut Down; its Sleep is logind's Suspend, not interactive, once. Shift+Super+Q asks to log out and Escape cancels, asking no application; Alt+Shift+Super+Q asks nothing and goes straight to the application, which cancels again. With Alt held in the open menu Restart, Shut Down and Log Out lose their ellipsis. Saved, Shut Down… is left alone: nothing happens before its 60 seconds, and at them the session withdraws the question and asks the application, which quits, and logind's PowerOff is called once, not interactive. With the session asking no application, or going on with one that refused, the run fails.",
+  "module": "QuitProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "power": {
+    "on_ac": true
+  },
+  "steps": [
+    {
+      "name": "the Oxy menu: Sleep, Restart…, Shut Down…, Lock Screen and Log Out name…; the application not asked anything, the power key's inhibitor held",
+      "do": [
+        "press_named",
+        "Oxy Menu"
+      ],
+      "expect": {
+        "texts": [
+          "Unsaved changes: yes",
+          "Quit requests: 0",
+          "Asked by the session: yes"
+        ],
+        "in_shell": {
+          "texts": [
+            "Sleep",
+            "Restart…",
+            "Shut Down…",
+            "Lock Screen"
+          ],
+          "texts_matching": [
+            "^Log Out .*…$"
+          ]
+        },
+        "power": {
+          "calls": [],
+          "power_offs": 0,
+          "reboots": 0,
+          "inhibitors": [
+            "handle-power-key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Restart…: the session's question, its checkbox and countdown, the keyboard on Restart; nothing asked yet",
+      "do": [
+        "press_named",
+        "Restart…"
+      ],
+      "until_named": [
+        "Are you sure you want to restart your computer now?",
+        15000
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 0"
+        ],
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to restart your computer now?",
+            "Reopen windows when logging back in",
+            "Cancel",
+            "Restart"
+          ],
+          "texts_matching": [
+            "^If you do nothing, the computer will restart automatically in \\d+ seconds?\\.$"
+          ],
+          "keyboard_focus": {
+            "target": "system-sheet-accept"
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "name": "Are you sure you want to restart your computer now?"
+            }
+          ]
+        },
+        "power": {
+          "calls": [],
+          "reboots": 0
+        }
+      }
+    },
+    {
+      "name": "Return restarts: the application is asked to quit, once, and refuses with unsaved changes; the session says so and asks logind nothing",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "until_named": [
+        "“Allo” canceled restart.",
+        15000
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 1",
+          "Last reason: restart",
+          "Unsaved changes: yes"
+        ],
+        "in_shell": {
+          "texts": [
+            "“Allo” canceled restart.",
+            "OK"
+          ],
+          "absent": [
+            "Are you sure you want to restart your computer now?"
+          ]
+        },
+        "power": {
+          "calls": [],
+          "reboots": 0
+        }
+      }
+    },
+    {
+      "name": "OK: the notice goes",
+      "do": [
+        "press_named",
+        "OK"
+      ],
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "“Allo” canceled restart."
+          ]
+        },
+        "texts": [
+          "Quit requests: 1"
+        ]
+      }
+    },
+    {
+      "name": "the power key: the choice, Restart, Sleep, Cancel and Shut Down, the keyboard on Shut Down; never a power-off",
+      "do": [
+        "key",
+        [
+          116
+        ]
+      ],
+      "until_named": [
+        "Are you sure you want to shut down your computer now?",
+        15000
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 1"
+        ],
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to shut down your computer now?",
+            "Reopen windows when logging back in",
+            "Restart",
+            "Sleep",
+            "Cancel",
+            "Shut Down"
+          ],
+          "keyboard_focus": {
+            "target": "system-sheet-accept"
+          }
+        },
+        "power": {
+          "calls": [],
+          "power_offs": 0,
+          "suspends": 0
+        }
+      }
+    },
+    {
+      "name": "its Sleep: logind's Suspend, not interactive, once; no application asked",
+      "do": [
+        "press_named",
+        "Sleep"
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 1"
+        ],
+        "in_shell": {
+          "absent": [
+            "Are you sure you want to shut down your computer now?"
+          ]
+        },
+        "power": {
+          "calls": [
+            "Suspend false"
+          ],
+          "suspends": 1,
+          "power_offs": 0
+        }
+      }
+    },
+    {
+      "name": "Shift+Super+Q: the question to log out, its countdown; the application hears nothing of the keys",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          16
+        ]
+      ],
+      "until_named": [
+        "Are you sure you want to quit all applications and log out now?",
+        15000
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 1"
+        ],
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to quit all applications and log out now?",
+            "Reopen windows when logging back in",
+            "Cancel",
+            "Log Out"
+          ],
+          "texts_matching": [
+            "^If you do nothing, you will be logged out automatically in \\d+ seconds?\\.$"
+          ],
+          "keyboard_focus": {
+            "target": "system-sheet-accept"
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape cancels: no application asked, nobody logged out",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 1"
+        ],
+        "in_shell": {
+          "absent": [
+            "Are you sure you want to quit all applications and log out now?"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Alt+Shift+Super+Q logs out without asking: no question, the application asked at once, and it cancels",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          42,
+          16
+        ]
+      ],
+      "until_named": [
+        "“Allo” canceled log out.",
+        15000
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 2",
+          "Last reason: logOut"
+        ],
+        "in_shell": {
+          "texts": [
+            "“Allo” canceled log out."
+          ],
+          "absent": [
+            "Are you sure you want to quit all applications and log out now?"
+          ]
+        },
+        "power": {
+          "calls": [
+            "Suspend false"
+          ],
+          "power_offs": 0,
+          "reboots": 0
+        }
+      }
+    },
+    {
+      "name": "OK",
+      "do": [
+        "press_named",
+        "OK"
+      ],
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "“Allo” canceled log out."
+          ]
+        }
+      }
+    },
+    {
+      "name": "Save: the document has no unsaved changes",
+      "do": [
+        "press_named",
+        "Save"
+      ],
+      "expect": {
+        "texts": [
+          "Unsaved changes: no",
+          "Quit requests: 2"
+        ]
+      }
+    },
+    {
+      "name": "the Oxy menu again",
+      "do": [
+        "press_named",
+        "Oxy Menu"
+      ],
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Restart…",
+            "Shut Down…"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Alt held in the open menu: Restart, Shut Down and Log Out name lose their ellipsis, as a Mac's alternates",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Restart",
+            "Shut Down",
+            "Sleep"
+          ],
+          "absent": [
+            "Restart…",
+            "Shut Down…"
+          ],
+          "texts_matching": [
+            "^Log Out [^…]*$"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Alt let go: their ellipses again",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Restart…",
+            "Shut Down…"
+          ],
+          "texts_matching": [
+            "^Log Out .*…$"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shut Down…: the question and its countdown",
+      "do": [
+        "press_named",
+        "Shut Down…"
+      ],
+      "until_named": [
+        "Are you sure you want to shut down your computer now?",
+        15000
+      ],
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to shut down your computer now?",
+            "Reopen windows when logging back in",
+            "Cancel",
+            "Shut Down"
+          ],
+          "texts_matching": [
+            "^If you do nothing, the computer will shut down automatically in \\d+ seconds?\\.$"
+          ],
+          "keyboard_focus": {
+            "target": "system-sheet-accept"
+          }
+        },
+        "power": {
+          "calls": [
+            "Suspend false"
+          ],
+          "power_offs": 0
+        }
+      }
+    },
+    {
+      "name": "50 seconds with nothing done: still asked, nothing ends before its time",
+      "do": [
+        "idle",
+        50
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Quit requests: 2"
+        ],
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to shut down your computer now?"
+          ]
+        },
+        "power": {
+          "calls": [
+            "Suspend false"
+          ],
+          "power_offs": 0
+        }
+      }
+    },
+    {
+      "name": "past its 60 seconds: the session withdraws the question and asks the application, which quits",
+      "do": [
+        "idle",
+        15
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Are you sure you want to shut down your computer now?"
+          ]
+        }
+      }
+    },
+    {
+      "name": "every application gone: logind's PowerOff, not interactive, once; nobody logged out",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Are you sure you want to shut down your computer now?"
+          ]
+        },
+        "power": {
+          "calls": [
+            "Suspend false",
+            "PowerOff false"
+          ],
+          "power_offs": 1,
+          "reboots": 0,
+          "suspends": 1
+        }
+      }
+    }
+  ]
+}
