@@ -68,7 +68,8 @@ checkout() { # NAME REPO COMMIT
   fi
   stamp=$(cat "$dir/bun.lock" "$dir/package.json" | sha256sum | cut -c1-64)
   if [ "$(cat "$dir/node_modules/.oxyos-bootstrap" 2>/dev/null)" != "$stamp" ]; then
-    (cd "$dir" && bun install --frozen-lockfile >/dev/null)
+    (cd "$dir" && bun install --frozen-lockfile > "$OXYOS_CACHE/src/$1.install.log" 2>&1) \
+      || { tail -20 "$OXYOS_CACHE/src/$1.install.log"; say "$1's packages did not install"; exit 1; }
     echo "$stamp" > "$dir/node_modules/.oxyos-bootstrap"
   fi
   say "$1 $(git -C "$dir" rev-parse --short HEAD)"
