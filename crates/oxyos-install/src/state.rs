@@ -223,6 +223,10 @@ pub struct UserInstall {
     /// Releases (by version code) the account rolled back: never offered to it again.
     pub bad: Vec<u64>,
     pub capabilities: BTreeMap<String, Decision>,
+    /// When the account last opened it (a session's hold), or installed it if never since,
+    /// in seconds since 1970 (docs/adr/0062-storage.mdx). A record from before has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used: Option<i64>,
 }
 
 pub const FORMAT: u32 = 1;

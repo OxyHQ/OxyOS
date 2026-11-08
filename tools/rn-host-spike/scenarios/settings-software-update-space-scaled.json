@@ -1,0 +1,130 @@
+{
+  "module": "OxyOSSettings",
+  "locale": "en_US.UTF-8",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "about": "Software Update when the disk has no room (docs/adr/0062-storage.mdx, decision 8), on a real oxyos-installd whose disk is played with nothing free: Inbox 1 is installed and the store publishes 2; Check for Updates lists Inbox 2; Update All is refused by the install service before it fetches anything, and Inbox's row says how much more space is needed to download the update (what it fetches and room for its bytecode), Inbox staying at version 1, Update All offered again. At 1.25 on the ThinkPad's display (1600x1000).",
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ],
+    "installed": [
+      "so.oxy.inbox"
+    ],
+    "later": [
+      {
+        "id": "so.oxy.inbox",
+        "versionCode": 2
+      }
+    ],
+    "available": 0
+  },
+  "installd_final": {
+    "packages": {
+      "so.oxy.inbox": [
+        1
+      ]
+    },
+    "store_reads": 1
+  },
+  "steps": [
+    {
+      "name": "Software Update: the OS's row, and nothing checked yet",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Software Update"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "This development install updates with apt.",
+          "Not checked yet",
+          "Check for Updates"
+        ],
+        "absent": [
+          "Your apps are up to date."
+        ]
+      }
+    },
+    {
+      "name": "Check for Updates",
+      "do": [
+        "press",
+        [
+          792,
+          275
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The update listed: Inbox 2, what it fetches, Update All, waited for until the store's answer shows, however long reading it takes",
+      "do": [
+        "wait_named",
+        [
+          "Update Inbox",
+          60000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Inbox",
+          "Version 0.2.0 · 0 bytes",
+          "Update All"
+        ]
+      }
+    },
+    {
+      "name": "Update All",
+      "do": [
+        "press",
+        [
+          820,
+          340
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Refused for want of room before anything is fetched: the row says how much more is needed, Inbox stays at 1, Update All offered again",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Inbox",
+          "Update All"
+        ],
+        "texts_matching": [
+          "[0-9.]+ (bytes|KB|MB|GB) more is needed to download this update\\."
+        ],
+        "absent": [
+          "Your apps are up to date.",
+          "Updated"
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

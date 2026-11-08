@@ -27,6 +27,7 @@ import {
   RiNotification3Line,
   RiPaletteLine,
   RiFolder3Line,
+  RiHardDrive2Line,
   RiRefreshLine,
   RiResetLeftLine,
   RiSearchLine,
@@ -138,12 +139,14 @@ import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { StoragePage } from "./StoragePage";
 import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
   privacyRows,
   progressOf,
+  spaceNeeded,
   updatable,
   updateRows,
   type UpdateOutcome,
@@ -1539,6 +1542,9 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
   const language = messagesLanguage(locale);
   const updates = snapshot.updates;
   const [progress, setProgress] = React.useState<Record<string, { state: UpdateProgress; row: UpdateRow }>>({});
+  // The updates the disk had no room for, by id: the bytes more each needs (the install service
+  // checks before it downloads anything, docs/adr/0062-storage.mdx).
+  const [noRoom, setNoRoom] = React.useState<Record<string, number>>({});
   // The rows as last shown, in order: a row the service's list dropped keeps its place.
   const shownOrder = React.useRef<string[]>([]);
   // Under way, as the requests are: a second press never asks again.
@@ -1578,11 +1584,16 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
     void ask().then((outcomes) => {
       const said: string[] = [];
       const ended: Record<string, { state: UpdateProgress; row: UpdateRow } | null> = {};
+      const short: Record<string, number | null> = {};
       for (const row of starting) {
         underWay.current.delete(row.id);
-        const how = progressOf(outcomes.find((outcome) => outcome.id === row.id)?.outcome);
+        const outcome = outcomes.find((one) => one.id === row.id);
+        const how = progressOf(outcome?.outcome);
+        const needed = spaceNeeded(outcome);
+        short[row.id] = needed;
         if (how === "updated") said.push(words.updatedLabel(row.name));
         else if (how === "atNextLaunch") said.push(words.atNextLaunchLabel(row.name));
+        else if (needed !== null) said.push(words.noSpaceLabel(row.name, formatBytes(needed, language)));
         else if (how === "failed") said.push(words.failedLabel(row.name));
         // Declined in the consent sheet (it was answered) or failed: the row is the service's again.
         ended[row.id] = how === "updated" || how === "atNextLaunch" ? { state: how, row } : null;
@@ -1591,6 +1602,14 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
         const next = { ...current };
         for (const [id, how] of Object.entries(ended)) {
           if (how) next[id] = how;
+          else delete next[id];
+        }
+        return next;
+      });
+      setNoRoom((current) => {
+        const next = { ...current };
+        for (const [id, needed] of Object.entries(short)) {
+          if (needed !== null) next[id] = needed;
           else delete next[id];
         }
         return next;
@@ -1639,6 +1658,9 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
               description={[
                 words.version(row.version, formatBytes(row.size, language)),
                 how ? "" : row.needsConsent ? words.needsConsent : row.atNextLaunch ? words.atNextLaunch : "",
+                how === undefined && noRoom[row.id] !== undefined
+                  ? words.noSpace(formatBytes(noRoom[row.id], language))
+                  : "",
                 row.notes,
               ]
                 .filter(Boolean)
@@ -2316,7 +2338,9 @@ export function Settings({
           // and its time (docs/adr/0060-login-items-and-background-activity.mdx).
           { key: "login-items", label: words.loginItems, icon: RiLoginBoxLine, page: "login-items" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
-          // After Software Update, as a Mac's General lists Transfer or Reset.
+          // After Software Update, as a Mac's General lists Storage (docs/adr/0062-storage.mdx).
+          { key: "storage", label: words.storage, icon: RiHardDrive2Line, page: "storage" },
+          // After Storage, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
           // Just above Privacy, as a Mac's System Settings lists Spotlight.
           { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
@@ -2345,6 +2369,7 @@ export function Settings({
       "date-time": { title: words.dateTime, content: <WithPageProps render={DateTimePage} /> },
       about: { title: words.about, content: <WithPageProps render={AboutPage} /> },
       "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
+      storage: { title: words.storage, content: <WithPageProps render={StoragePage} /> },
       "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
       "login-items": { title: words.loginItems, content: <WithPageProps render={LoginItemsPage} /> },
       spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },
