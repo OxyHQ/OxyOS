@@ -152,8 +152,11 @@ again changes nothing that is already so:
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
   `tools/dev/bootstrap` makes for each runner;
 - `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
-  machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
-  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, each at most 16 GB. Their CPU
+  machine's own work), at most 24 CPUs and 40 GB in all, reclaimed from 36 GB on (`GATE_MEMORY_MAX`,
+  `GATE_MEMORY_HIGH`: of seldon's 60 GB, the rest is its owner's VMs and builds'). Past 36 GB every
+  gate's processes are slowed together, whichever gate's build passed it: a 28 GB high was passed
+  hundreds of thousands of times with several gates at once. Inside it each runner has a slice of
+  its own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, each at most 16 GB. Their CPU
   they share task by task (no CPU controller below `oxyosgate.slice`), so every gate's builds run at
   the least priority (`nice 19`, `tools/gate/run-scenarios.sh`), below every gate's scenarios: a
   build at full priority took the CPU of another gate's running scenarios, which failed late and

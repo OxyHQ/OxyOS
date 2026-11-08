@@ -2206,14 +2206,25 @@ int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment
 int64_t oxyos_account_enrollment_retry(OxyOSAccountEnrollment* enrollment, char* out, size_t capacity);
 /* A setup's step, as the service starts it: "securing" (the PIN's verifier), "verifying" (Oxy checks
  * the sign-in), "preparing" (the account's user and home), "signingIn" (Oxy issues this computer's
- * credential), "finishing" (the account's file, its verifier), in that order, any of them skipped
- * where it has nothing to do (a retry with a kept credential: "preparing", "finishing"). `stage` is
+ * credential), "finishing" (the account's file, its verifier), "confirming" (Oxy confirms this
+ * computer's credential), in that order, any of them skipped where it has nothing to do (a retry
+ * with a kept credential: "preparing", "finishing", "confirming"; one after Oxy could not confirm:
+ * "confirming"). `stage` is
  * a static string; nothing secret is told. */
 typedef void (*OxyOSAccountEnrollmentProgressFn)(void* context, const char* stage);
 /* `progress` (null: none) is called with `context` on the thread blocked in _enroll,
  * _second_factor or _retry, before that call returns. 0, or OXYOS_ERROR. */
 int oxyos_account_enrollment_on_progress(OxyOSAccountEnrollment* enrollment,
                                          OxyOSAccountEnrollmentProgressFn progress, void* context);
+/* A wait Oxy asks of a setup: it rate-limited the QR's redemption, and the wait ends within the
+ * QR's window. The service waits `retry_after_seconds`, asks again with the same sign-in and goes
+ * on; nothing secret is told. */
+typedef void (*OxyOSAccountEnrollmentWaitingFn)(void* context, uint64_t retry_after_seconds);
+/* `waiting` (null: none) is called with `context` on the thread blocked in _enroll, _second_factor
+ * or _retry, which goes on blocking through the wait and the rest of the setup (its answer is
+ * waited for that much longer). 0, or OXYOS_ERROR. */
+int oxyos_account_enrollment_on_waiting(OxyOSAccountEnrollment* enrollment,
+                                        OxyOSAccountEnrollmentWaitingFn waiting, void* context);
 /* The appearance a new account's home starts with, "light", "dark" or "auto", before _enroll: 0, or
  * OXYOS_ERROR for anything else (nothing set). An account set up again keeps its own. */
 int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);

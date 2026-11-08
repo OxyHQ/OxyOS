@@ -7,7 +7,8 @@
 //!   A password the machine accepts is accepted at once and asked of Oxy afterwards, never delaying
 //!   the session: refused, the account is flagged `passwordChanged`, and while flagged and online
 //!   a locally accepted password waits for Oxy (the old one works only offline). Each online
-//!   check is the platform's own sign-in, which rotates the platform credential: the new one
+//!   check is the platform's own sign-in, which rotates the platform credential: the new one,
+//!   once Oxy confirms it (ADR 0058 R8; until then it is pending and the old one works),
 //!   replaces the old in the account's file, written whole.
 //! - **Revocation.** Oxy answering that the device's session is gone (a mint refused with
 //!   `invalid_device_secret`, `no_active_session` or `account_not_on_device`, R4) signs the account
@@ -981,6 +982,20 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 return Online::Failed("an answer outside the contract".into());
             }
         };
+        // The rotated credential is pending until Oxy confirms it (ADR 0058 R8), and the one it
+        // replaces works until then: unconfirmed, it expires by itself and the machine keeps the
+        // one it has. Confirmed, it is the one the machine keeps.
+        let rotated = match api.confirm_platform_credential(&rotated) {
+            Ok(()) => Some(rotated),
+            Err(error) => {
+                eprintln!(
+                    "oxyos-accountd: {}: the rotated credential could not be confirmed ({error}): \
+                     kept the one it had",
+                    enrollment.user
+                );
+                None
+            }
+        };
         if set_verifier {
             if let Err(error) = self.setup.users().set_verifier(&enrollment.user, password) {
                 // The password is right, and the credential was rotated all the same: kept.
@@ -988,11 +1003,15 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                     "oxyos-accountd: {}: the new password could not become the verifier: {error}",
                     enrollment.user
                 );
-                self.rotate(&enrollment, credential, rotated);
+                if let Some(rotated) = rotated {
+                    self.rotate(&enrollment, credential, rotated);
+                }
                 return Online::Failed(error.to_string());
             }
         }
-        self.rotate(&enrollment, credential, rotated);
+        if let Some(rotated) = rotated {
+            self.rotate(&enrollment, credential, rotated);
+        }
         Online::Accepted
     }
 
