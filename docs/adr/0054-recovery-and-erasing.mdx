@@ -98,7 +98,7 @@ What building and running found, fixed here:
 - live-boot asks to remove the medium at every shutdown of the recovery, and live-config made its live user there: the recovery's entry says `noeject` and `live-config.nocomponents`.
 - OVMF's PS/2 driver gives systemd-boot no keys from QEMU: the tests' machine has a USB keyboard, as a laptop's firmware presents its own.
 
-**The startup picker and converted machines (8 November 2026),** the image of commit `78da315fc2f2`: `--recovery` 52 of 52 with UEFI and 52 of 52 with Secure Boot again, the picker now checked to list OxyOS, OxyOS Recovery and *Reboot Into Firmware Interface* and nothing else. In QEMU, holding Space or Super+R shows it; Alt alone does not (decision 2).
+**The startup picker and converted machines (8 November 2026),** the image of commit `78da315fc2f2`: `--recovery` 52 of 52 with UEFI and 52 of 52 with Secure Boot again, the picker now checked to list OxyOS, OxyOS Recovery and *Reboot Into Firmware Interface* and nothing else. In QEMU, holding Space or Super+R shows it; Alt alone does not (decision 2). The image with this branch's last change (`a977567621be`, rebased on the main of the day: an 831 MiB squashfs) passes the same 52 of 52 with UEFI and with Secure Boot, and is the one on the ThinkPad's recovery partition.
 
 **The ThinkPad, converted (decision 9),** remotely, with a person's session on its seat checked before every restart and its game servers kept running:
 - Its partition table, EFI system partition and GRUB configuration saved first (`~/oxyos-conversion-backup/{recovery,systemd-boot}-2026-11-08/`, with how to restore each, also kept off the machine); its root and its EFI system partition's existing files untouched by the partitioning.
