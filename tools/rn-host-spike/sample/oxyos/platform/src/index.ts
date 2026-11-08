@@ -1,13 +1,20 @@
 // `@oxyos/platform` (docs/adr/0058-the-platform-api.mdx): OxyOS's platform API, in the runtime's
 // framework. Its frameworks, each one domain, over the host's modules, which are the runtime's
 // private business; only these exports are a contract.
-import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
+import { AccessibilityInfo, Appearance, DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 import NativeOxyOSApplication from '../specs/NativeOxyOSApplication.ts';
 import NativeOxyOSClipboard from '../specs/NativeOxyOSClipboard.ts';
 import NativeOxyOSNotifications from '../specs/NativeOxyOSNotifications.ts';
 import NativeOxyOSSounds from '../specs/NativeOxyOSSounds.ts';
 import { createAccount, type AccountModule } from './account.ts';
+import {
+  createAppearance,
+  type ColorSchemes,
+  type LocaleModule,
+  type MotionPreferences,
+  type PreferencesModule,
+} from './appearance.ts';
 import { createApplication } from './application.ts';
 import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
@@ -28,6 +35,7 @@ import {
 import { createSounds } from './sounds.ts';
 
 export type { AccessToken, Account, AccountState, TokenReason } from './account.ts';
+export type { Drawing } from './appearance.ts';
 export type { Capability, Permission } from './application.ts';
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
@@ -125,6 +133,18 @@ export const windows = createWindows(
     menuBar: TurboModuleRegistry.get('OxyOSMenuBar') as MenuBarModule | null,
     keyboard: TurboModuleRegistry.get('OxyOSKeyboard') as KeyboardModule | null,
     editing: TurboModuleRegistry.get('OxyOSEditing') as EditingModule | null,
+  },
+  DeviceEventEmitter,
+);
+
+/** What every application draws by: light or dark, the accent, reduce transparency, reduced motion
+    and the session's locale, followed. */
+export const appearance = createAppearance(
+  {
+    preferences: TurboModuleRegistry.get('OxyOSPreferences') as PreferencesModule | null,
+    locale: TurboModuleRegistry.get('OxyOSLocale') as LocaleModule | null,
+    colorSchemes: Appearance as unknown as ColorSchemes,
+    motion: AccessibilityInfo as unknown as MotionPreferences,
   },
   DeviceEventEmitter,
 );

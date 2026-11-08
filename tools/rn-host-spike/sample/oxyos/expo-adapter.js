@@ -4,14 +4,21 @@
  * expo-localization, expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity,
  * expo-blur's views and expo-image's view and module). expo-modules-core's own global polyfill
  * provides the module classes; the native work is done by the platform API (`@oxyos/platform`:
- * the pasteboard, notifications), the host's TurboModules (OxyOSFontRegistry, OxyOSApplication,
- * OxyOSCrypto, OxyOSLocale, OxyOSExpoImage) and host components (expo-blur.h, expo-image.h).
+ * the application, its appearance and locale, the pasteboard, notifications), the host's
+ * TurboModules (OxyOSFontRegistry, OxyOSCrypto, OxyOSExpoImage) and host components (expo-blur.h,
+ * expo-image.h).
  * Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
-import { application as platformApplication, isPlatformError, notifications, pasteboard } from '@oxyos/platform';
+import {
+  appearance as platformAppearance,
+  application as platformApplication,
+  isPlatformError,
+  notifications,
+  pasteboard,
+} from '@oxyos/platform';
 
 installExpoGlobalPolyfill();
 
@@ -178,14 +185,15 @@ globalThis.expo.modules.ExpoSecureStore = {
 };
 
 // expo-localization (docs/adr/0040-language-and-region.mdx, decision 4), as its Android module
-// answers: one locale and one calendar, the session's (the host's OxyOSLocale: the tag the session
-// last told, `es-MX-u-hc-h12`, else the environment's), read at each call; on a change, both of its
-// events, as Android's configuration change sends them, so useLocales() and useCalendars() render
-// again. Separators are the host's Intl's (CLDR's, through ICU4X); the measurement system, the
-// temperature unit and the first day of the week are CLDR's by region (below). No currency: OxyOS
-// has no region-to-currency data yet, and null says so rather than a guess.
-const localeModule = TurboModuleRegistry.get('OxyOSLocale');
-const sessionLocale = () => localeModule?.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale;
+// answers: one locale and one calendar, the session's (the platform's `appearance.locale`: the tag
+// the session last told, `es-MX-u-hc-h12`, else the environment's), read at each call; on a change,
+// both of its events, as Android's configuration change sends them, so useLocales() and
+// useCalendars() render again. Separators are the host's Intl's (CLDR's, through ICU4X); the
+// measurement system, the temperature unit and the first day of the week are CLDR's by region
+// (below). No currency: OxyOS has no region-to-currency data yet, and null says so rather than a
+// guess.
+const sessionLocale = () =>
+  platformAppearance.locale.current() || Intl.DateTimeFormat().resolvedOptions().locale;
 // A tag's language, script and region: those before its first singleton (`-u-`, `-x-`).
 const subtagsOf = (tag) => {
   const found = { language: null, script: null, region: null };
@@ -261,7 +269,7 @@ Object.assign(ExpoLocalization, {
     ];
   },
 });
-DeviceEventEmitter.addListener('OxyOSLocaleChanged', () => {
+platformAppearance.locale.subscribe(() => {
   ExpoLocalization.emit('onLocaleSettingsChanged');
   ExpoLocalization.emit('onCalendarSettingsChanged');
 });
