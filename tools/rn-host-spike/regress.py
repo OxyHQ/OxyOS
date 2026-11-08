@@ -1423,7 +1423,7 @@ def account_later(changes, report_path):
 def played_oxy(spec, log):
     """Oxy's API as the login screen's setup reaches it (`login.oxy`): the SDK's own sign-in and the
     calls around it, answered in the API's shapes for the one account the scenario plays
-    (`identifier`, `password`, `id`, `username`, `has_password`) and the device credential its
+    (`identifier`, `password`, `id`, `username`, `has_password`, `has_email`) and the device credential its
     sign-in commits (`device`: {deviceId, deviceSecret}, the run's own, no credential of anyone's).
     Every request is logged by its method and path, never its body; one not played is answered 404
     and logged so. Returns its base URL and the server.
@@ -1615,7 +1615,7 @@ def played_oxy(spec, log):
                 if not self.signed_in(f"GET {path}"):
                     pass
                 elif path == "/users/me/sign-in-methods":
-                    self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
+                    self.reply(200, {"hasEmail": spec.get("has_email", True), "hasPassword": state["has_password"], "totpEnabled": False,
                                      "backupCodesRemaining": 0})
                 elif path == "/users/me":
                     self.reply(200, self.user())
