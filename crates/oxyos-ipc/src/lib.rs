@@ -33,6 +33,10 @@ fn invalid(reason: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, reason)
 }
 
+fn peer_closed() -> io::Error {
+    io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed")
+}
+
 /// Kernel-reported identity of the peer process at connect time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Credentials {
@@ -142,11 +146,34 @@ impl Connection {
     }
 
     /// Receives one packet and every descriptor that came with it.
+    ///
+    /// The end of the connection is believed only when a second read finds nothing either. Linux
+    /// looks at a SEQPACKET socket's queue, then at whether the peer is gone, and the two looks are
+    /// not one (`__unix_dgram_recvmsg`, `__skb_wait_for_more_packets`): a peer that sends its last
+    /// packet and closes between them is reported gone with that packet still queued, blocking or
+    /// not. Once the end has been seen, everything the peer sent is in the queue.
     fn recv_packet(
         &self,
         storage: &mut [u8; PACKET_CAPACITY],
         flags: RecvFlags,
     ) -> io::Result<(usize, Vec<OwnedFd>)> {
+        if let Some(packet) = self.recv_one(storage, flags)? {
+            return Ok(packet);
+        }
+        match self.recv_one(storage, RecvFlags::DONTWAIT) {
+            Ok(Some(packet)) => Ok(packet),
+            Ok(None) => Err(peer_closed()),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Err(peer_closed()),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One `recvmsg`: a packet with its descriptors, or `None` at the end of the connection.
+    fn recv_one(
+        &self,
+        storage: &mut [u8; PACKET_CAPACITY],
+        flags: RecvFlags,
+    ) -> io::Result<Option<(usize, Vec<OwnedFd>)>> {
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(FD_CAPACITY))];
         let mut control = RecvAncillaryBuffer::new(&mut space);
         let received = rustix::net::recvmsg(
@@ -162,7 +189,7 @@ impl Connection {
             }
         }
         if received.bytes == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed"));
+            return Ok(None);
         }
         if received.flags.contains(ReturnFlags::TRUNC) || received.bytes > PACKET_CAPACITY - 1 {
             return Err(invalid("oversized packet"));
@@ -170,7 +197,7 @@ impl Connection {
         if received.flags.contains(ReturnFlags::CTRUNC) {
             return Err(invalid("too many descriptors"));
         }
-        Ok((received.bytes, fds))
+        Ok(Some((received.bytes, fds)))
     }
 
     pub fn send_request(&self, request: &Request, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {
