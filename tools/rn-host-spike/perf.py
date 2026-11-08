@@ -120,6 +120,10 @@ INTERACTIONS = [
      "the overview opening, Allo's window drawn live in its card (ADR 0022)"),
     ("Settings scroll", "perf-settings-scroll.json", [1, 2],
      "Settings' sidebar scrolled 240 px down and back at a touchpad's 60 Hz"),
+    ("glass", "perf-glass.json", [2],
+     "MaterialProbe's lock-screen clock turning a digit over its blurred material, each frame blurring its target"),
+    ("glass, reduced", "perf-glass-reduced.json", [2],
+     "the same with Reduce transparency on: its blur views their tint alone, the glyphs plain"),
 ]
 
 # The display's rate (docs/adr/0018-several-displays.mdx): windows and animations at 120 and at 60 Hz.
