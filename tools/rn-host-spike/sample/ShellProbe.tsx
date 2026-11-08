@@ -677,8 +677,17 @@ function SessionShell() {
       network: told?.network ?? undefined,
       bluetooth: told?.bluetooth ?? undefined,
       bezel,
-      setLevel: shell.setControlLevel,
-      setMuted: shell.setControlMuted,
+      // The sound's volume and mute have one owner, the platform's `audio` (docs/adr/0058-the-platform-api.mdx,
+      // decision 7), which the session hands to the same controls as the keys; the display's and
+      // the keyboard's brightness are the shell's own.
+      setLevel: (control, level) =>
+        control === 'output' || control === 'input'
+          ? void audio.setVolume(control, level).catch(() => {})
+          : shell.setControlLevel(control, level),
+      setMuted: (control, muted) =>
+        control === 'output' || control === 'input'
+          ? void audio.setMuted(control, muted).catch(() => {})
+          : shell.setControlMuted(control, muted),
       setWifi: shell.setWifiEnabled,
       setDark: shell.setAppearance,
       refresh: shell.refreshControls,
