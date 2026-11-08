@@ -821,6 +821,11 @@ int main(int argc, char** argv) {
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
       services.applicationWindow = !shellMode;
       if (!shellMode || shellFiles) services.files = &files;
+      // A file the session started it to open (its launch record's) is the person's to give.
+      if (const char* opened = std::getenv("OXYOS_LAUNCH_URL"); !shellMode && opened &&
+                                                                std::string_view(opened).starts_with("file:")) {
+        files.give(opened);
+      }
       services.shellWindow = shellMode;
       // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): protocol version 10.
       services.drag.available = window->protocolVersion() >= 10;
@@ -975,6 +980,7 @@ int main(int argc, char** argv) {
     // The window's drag (Bloom's useWindowDrag, the adapter's drag.watchWindow): a drag coming over
     // this client's surfaces and leaving them, told as a device event.
     dragDrop.watchWindow([&services](const folly::dynamic& event) { services.emit("OxyOSWindowDrag", event); });
+    dragDrop.givesFiles([&files](const std::string& uri) { files.give(uri); });
     // While a popup is open, the pointer over the surface it hangs from reaches only the views it
     // tracks: a menu bar's titles (popup.h).
     pointer.admitsHover([&](uint32_t surface, facebook::react::Tag view) { return popups.tracks(surface, view); });
@@ -2442,6 +2448,12 @@ int main(int argc, char** argv) {
         // File choosers (ADR 0029, decision 8): each request's answer, once.
         for (const auto& [serial, text] : filesChosen) {
           auto answer = folly::parseJson(text);
+          // What the person chose is theirs to give: the application reaches it without `files`.
+          if (auto chosen = answer.get_ptr("chosen"); chosen && chosen->isArray()) {
+            for (const auto& uri : *chosen) {
+              if (uri.isString()) files.give(uri.getString());
+            }
+          }
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSFilesChosen",
                                                                folly::dynamic::object("serial", serial)("answer", answer)));
@@ -2457,7 +2469,10 @@ int main(int argc, char** argv) {
           auto asked = askedCapabilities.find(result.code);
           std::string capability = asked == askedCapabilities.end() ? "" : asked->second;
           if (asked != askedCapabilities.end()) askedCapabilities.erase(asked);
-          if (result.flag != 0 && !capability.empty()) launchCapabilities.grant(capability);
+          if (result.flag != 0 && !capability.empty()) {
+            launchCapabilities.grant(capability);
+            if (capability == "files") files.grantThePersonsFiles();
+          }
           folly::dynamic told = folly::dynamic::object("serial", result.code)("granted", result.flag != 0)("capability", capability);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSCapabilityResult", told));

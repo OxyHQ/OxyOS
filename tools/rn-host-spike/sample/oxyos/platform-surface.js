@@ -317,11 +317,16 @@ const appearance = createAppearance();
 // Every URI is file://, as expo-file-system takes them. Only an application's window has it.
 const PLATFORM_ERRORS = new Set(['not-found', 'exists', 'refused', 'denied']);
 
-/** What came of one item, as Bloom's `PlatformFileOutcome` says it. */
+/** What came of one item, as Bloom's `PlatformFileOutcome` says it: the person's files not granted
+    to the application is a denial. */
 const outcome = (item) =>
   item.ok
     ? { uri: item.uri, ok: true, result: item.result }
-    : { uri: item.uri, ok: false, error: PLATFORM_ERRORS.has(item.error) ? item.error : 'io' };
+    : {
+        uri: item.uri,
+        ok: false,
+        error: item.error === 'not-granted' ? 'denied' : PLATFORM_ERRORS.has(item.error) ? item.error : 'io',
+      };
 
 /** A folder's own name, from its URI. */
 const named = (uri) => decodeURIComponent(uri.replace(/\/+$/, '').split('/').pop());

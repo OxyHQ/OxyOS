@@ -28,8 +28,12 @@ bool Files::started() {
   if (!tried_) {
     tried_ = true;
     // Its downloads and uploads reach the network as its own requests do: only with `network`
-    // (docs/adr/0030-installing-applications.mdx, decision 8), which the service then refuses.
-    uint32_t flags = LaunchCapabilities::current().allows("network") ? 0 : OXYOS_FILES_NO_NETWORK;
+    // (docs/adr/0030-installing-applications.mdx, decision 8), which the service then refuses; and
+    // the person's files (the home and their volumes) only with `files`, asked at first use, or
+    // the items the person gives it.
+    const auto& launch = LaunchCapabilities::current();
+    uint32_t flags = (launch.allows("network") ? 0 : OXYOS_FILES_NO_NETWORK) |
+                     (launch.allows("files") ? 0 : OXYOS_FILES_NO_PERSONS_FILES);
     files_ = oxyos_files_new_with(appId_.empty() ? nullptr : appId_.data(), appId_.size(),
                                   bundleDirectory_.empty() ? nullptr : bundleDirectory_.data(),
                                   bundleDirectory_.size(), flags);
@@ -39,6 +43,18 @@ bool Files::started() {
     }
   }
   return files_ != nullptr;
+}
+
+void Files::grantThePersonsFiles() {
+  // A service not started yet starts with them: the launch's capabilities have `files` now.
+  if (files_) oxyos_files_grant_the_persons_files(files_);
+}
+
+void Files::give(const std::string& uri) {
+  if (!started()) return;
+  if (oxyos_files_give(files_, uri.data(), uri.size()) != 0) {
+    std::cerr << "[host] " << uri << " was not given: " << oxyos_last_error() << "\n";
+  }
 }
 
 std::string Files::failed(const std::string& message) const {

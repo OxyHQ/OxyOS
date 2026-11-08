@@ -125,6 +125,9 @@ class DragDrop {
   // JavaScript ran the events queued before it (the loop's beat and drain): a drop it was given is
   // delivered, and the window's drag that ended with it can be told.
   void ranJavaScript();
+  // Who is given the files dropped on a target of the application's (`file://` URIs): the person
+  // gave them to it (docs/adr/0030-installing-applications.mdx, decision 8), before its onDrop.
+  void givesFiles(std::function<void(const std::string& uri)> give) { giveFiles_ = std::move(give); }
   // Who is told the window's drag: {"type": "enter"} and {"type": "exit", "dropped": bool}.
   void watchWindow(std::function<void(const folly::dynamic&)> tell) { tellWindow_ = std::move(tell); }
 
@@ -254,6 +257,7 @@ class DragDrop {
   enum class Presence { Outside, Over, Dropped, Delivered };
   Presence presence_ = Presence::Outside;
   std::function<void(const folly::dynamic&)> tellWindow_;
+  std::function<void(const std::string& uri)> giveFiles_;
 };
 
 }  // namespace oxyos

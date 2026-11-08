@@ -1,5 +1,5 @@
 {
-  "about": "An installed application without the network (docs/adr/0030-installing-applications.mdx, decision 8; docs/adr/0058-the-platform-api.mdx, step 1): sample/FileSystemProbe.tsx launched as an installed version whose account granted it nothing (OXYOS_APP_ORIGIN installed, no capabilities, as the session launches it). Its expo-file-system downloads and uploads fail as Android's do without the INTERNET permission (ERR_UNABLE_TO_DOWNLOAD, ERR_UNABLE_TO_UPLOAD, saying it was not granted the network), refused by the files service before anything is asked of the server (the service is made without the network for it, oxyos_files_new_with's OXYOS_FILES_NO_NETWORK), as its own requests are by the host, so neither a download nor a request reaches the network: the download of a missing file is refused rather than answered 404, nothing is written, and the form's fetch fails as every request of an application without the network does. No server is run for it (the probe's address, 127.0.0.1:18652, is file-system.json's, which may run beside it): nothing is asked of one.",
+  "about": "An installed application without the network (docs/adr/0030-installing-applications.mdx, decision 8; docs/adr/0058-the-platform-api.mdx, step 1): sample/FileSystemProbe.tsx launched as an installed version whose account granted it nothing (OXYOS_APP_ORIGIN installed, no capabilities, as the session launches it). Its expo-file-system downloads and uploads fail as Android's do without the INTERNET permission (ERR_UNABLE_TO_DOWNLOAD, ERR_UNABLE_TO_UPLOAD, saying it was not granted the network), refused by the files service before anything is asked of the server (the service is made without the network for it, oxyos_files_new_with's OXYOS_FILES_NO_NETWORK), as its own requests are by the host, so neither a download nor a request reaches the network: the download of a missing file is refused rather than answered 404, nothing is written, and the form's fetch fails as every request of an application without the network does. Nor was it granted the person's files (step 5): its own folders are its as before, and the home's report is refused as Android's storage is without its permission (ERR_INVALID_PERMISSION), the files service made with them withheld (OXYOS_FILES_NO_PERSONS_FILES). No server is run for it (the probe's address, 127.0.0.1:18652, is file-system.json's, which may run beside it): nothing is asked of one.",
   "module": "FileSystemProbe",
   "window": [
     1000,
@@ -27,7 +27,9 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "create: Hola, món"
+          "create: Hola, món",
+          "home file: threw ERR_INVALID_PERMISSION",
+          "files: done"
         ]
       }
     },

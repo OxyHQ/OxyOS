@@ -9,8 +9,16 @@
  * promise (`requestFiles`); its value, or a `FilesError` with the service's code and reason. What
  * watches see and transfers' progress come as events, to the handler registered for their watch or
  * transfer.
+ *
+ * The person's files (the home and their volumes) are an installed version's only once its account
+ * granted `files`, or the items the person gave it (chose for it, dropped on it, opened with it):
+ * the service refuses the rest as `not-granted`. Asked at first use
+ * (docs/adr/0030-installing-applications.mdx, decision 8): an asynchronous request so refused asks
+ * the person once, in the system's sheet, and is made again if they grant it; a synchronous one
+ * cannot wait for them, and fails.
  */
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
+import { requestCapability } from './system';
 
 const native = TurboModuleRegistry.get('OxyOSFiles');
 
@@ -49,13 +57,32 @@ export function callFiles(op, args = {}, content = undefined, as = undefined) {
 }
 
 let nextRequest = 0;
+// The person's answer to `files` while it is asked: requests refused meanwhile wait for the same
+// one. The session keeps the account's decision, and asks only for a request that follows an input
+// of the person's in this application (a press, a key), so asking again costs no second sheet.
+let askingForFiles = null;
+const askForFiles = () => {
+  askingForFiles ??= requestCapability('files').finally(() => {
+    askingForFiles = null;
+  });
+  return askingForFiles;
+};
 
 /** Runs `op` on the service's thread; its id (a transfer's) is given to `started` first. */
 export async function requestFiles(op, args = {}, content = undefined, as = undefined, started = undefined) {
   if (!native) throw unavailable();
-  const id = ++nextRequest;
-  started?.(id);
-  return settle(await native.request(id, JSON.stringify({ ...args, op }), content, as));
+  const once = async () => {
+    const id = ++nextRequest;
+    started?.(id);
+    return settle(await native.request(id, JSON.stringify({ ...args, op }), content, as));
+  };
+  try {
+    return await once();
+  } catch (error) {
+    if (!(error instanceof FilesError) || error.code !== 'not-granted') throw error;
+    if (!(await askForFiles())) throw error;
+    return once();
+  }
 }
 
 // Handlers of events, by watch and by transfer.

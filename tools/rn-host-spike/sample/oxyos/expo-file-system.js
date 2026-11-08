@@ -50,6 +50,10 @@ function expoError(error, what, uri) {
   switch (error.code) {
     case 'refused':
       return codedError('ERR_INVALID_PERMISSION', `OxyOS does not let an application reach ${uri}: ${reason}`);
+    case 'not-granted':
+      // The person's files, not granted (docs/adr/0030-installing-applications.mdx, decision 8), as
+      // Android's storage without its permission.
+      return codedError('ERR_INVALID_PERMISSION', `Unable to ${what} '${uri}': ${reason}`);
     case 'not-found':
       return what === 'delete'
         ? codedError('ERR_UNABLE_TO_DELETE', `Unable to delete file or directory: uri '${uri}' does not exist`)

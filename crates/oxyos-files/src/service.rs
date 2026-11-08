@@ -149,6 +149,8 @@ struct Context {
 impl Context {
     /// The index of tagged items, started the first time it is wanted.
     fn tag_index(&self) -> Result<Arc<TagIndex>, Error> {
+        // The index crawls every one of the person's files, never only items given.
+        self.scope.reaches_the_persons_files()?;
         let mut index = self.tag_index.lock().expect("lock");
         if let Some(index) = index.as_ref() {
             return Ok(index.clone());
@@ -282,6 +284,18 @@ impl Service {
         if let Some(requests) = &self.requests {
             let _ = requests.send((id, request.to_string(), bytes));
         }
+    }
+
+    /// The person's files, granted to the application: its account granted `files` at first use
+    /// (docs/adr/0030-installing-applications.mdx, decision 8). Holds for every request after.
+    pub fn grant_the_persons_files(&self) {
+        self.context.scope.grant_the_persons_files();
+    }
+
+    /// The item `uri` (a `file://` URI) of the person's files, given to the application by the
+    /// person: chosen for it in the system's panel, dropped on it, opened with it.
+    pub fn give(&self, uri: &str) -> Result<(), Error> {
+        self.context.scope.give(Path::new(&uri::path_of(uri)?))
     }
 
     /// A file the scope allows opened for reading, at once: a request's body (`Networking`'s
@@ -583,6 +597,14 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
             overwrite: flag(request, "overwrite"),
         })
     };
+    // What lists or changes the person's files as a whole (their places, the Trash) needs them
+    // all, never only items the person gave the application.
+    if matches!(
+        op,
+        "places" | "watchPlaces" | "trashed" | "watchTrash" | "restore" | "erase" | "emptyTrash"
+    ) {
+        scope.reaches_the_persons_files()?;
+    }
     match op {
         "paths" => value(access::paths(scope)),
         "diskSpace" => value(access::disk_space(scope)?),

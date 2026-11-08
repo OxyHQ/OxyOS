@@ -80,6 +80,13 @@ unsafe fn slice<'a>(bytes: *const u8, length: usize) -> &'a [u8] {
 /// so its downloads and uploads fail as the network's would, before anything is asked.
 pub const OXYOS_FILES_NO_NETWORK: u32 = 1;
 
+/// `oxyos_files_new_with`'s flag: the person's files (the home and their volumes) are withheld (an
+/// installed version whose account has not granted `files`, docs/adr/0030-installing-applications.mdx,
+/// decision 8): only the application's own folders, its bundle and the items given it
+/// (`oxyos_files_give`) are reached, the rest refused as `not-granted` until
+/// `oxyos_files_grant_the_persons_files`.
+pub const OXYOS_FILES_NO_PERSONS_FILES: u32 = 2;
+
 /// The service for the user running the process (`Scope::for_user`), for the application
 /// `app_id` (`app_id_length` bytes), the id the session gave an application it started (NULL for
 /// none or a claimed id: no folders of its own; its folders are `oxyos_apps::data_directory` and
@@ -100,7 +107,8 @@ pub unsafe extern "C" fn oxyos_files_new(
     unsafe { oxyos_files_new_with(app_id, app_id_length, bundle, bundle_length, 0) }
 }
 
-/// `oxyos_files_new`, with `flags` (`OXYOS_FILES_NO_NETWORK`); other bits are ignored.
+/// `oxyos_files_new`, with `flags` (`OXYOS_FILES_NO_NETWORK`, `OXYOS_FILES_NO_PERSONS_FILES`);
+/// other bits are ignored.
 ///
 /// # Safety
 /// `app_id` and `bundle` are NULL or point to their lengths' readable bytes.
@@ -143,6 +151,13 @@ pub unsafe extern "C" fn oxyos_files_new_with(
     let scope = scope.and_then(|scope| match bundle {
         Some(bundle) => scope.with_bundle(Path::new(bundle)),
         None => Ok(scope),
+    });
+    let scope = scope.map(|scope| {
+        if flags & OXYOS_FILES_NO_PERSONS_FILES != 0 {
+            scope.withholding_the_persons_files()
+        } else {
+            scope
+        }
     });
     match scope.and_then(|scope| Service::new(scope, network)) {
         Ok(service) => Box::into_raw(Box::new(OxyOSFiles { service })),
@@ -242,6 +257,48 @@ pub unsafe extern "C" fn oxyos_files_request(
             0
         }
         _ => fail("the request is not UTF-8"),
+    }
+}
+
+/// The person's files, granted to the application (its account granted `files` at first use):
+/// every request after reaches them. NULL is ignored.
+///
+/// # Safety
+/// `files` is NULL or a live pointer from `oxyos_files_new`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_grant_the_persons_files(files: *mut OxyOSFiles) {
+    // SAFETY: forwarded caller contract.
+    if let Some(files) = unsafe { self::files(files) } {
+        files.service.grant_the_persons_files();
+    }
+}
+
+/// Gives the application the item `uri` (`length` bytes, a `file://` URI) of the person's files,
+/// as the person did: chosen for it in the system's panel, dropped on it, opened with it; a folder
+/// with what it holds. 0, or OXYOS_ERROR for an item that is not there or not among the person's
+/// files.
+///
+/// # Safety
+/// `files` is a live pointer from `oxyos_files_new`; `uri` points to `length` readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_give(
+    files: *mut OxyOSFiles,
+    uri: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(files) = (unsafe { self::files(files) }) else {
+        return fail("null files");
+    };
+    // SAFETY: forwarded caller contract.
+    match unsafe { utf8(uri, length) } {
+        Ok(Some(uri)) => match files.service.give(uri) {
+            Ok(()) => 0,
+            Err(error) => fail(error),
+        },
+        _ => fail("the item's URI is not UTF-8"),
     }
 }
 

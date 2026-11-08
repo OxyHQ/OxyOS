@@ -5,7 +5,7 @@ use crate::access::{self, Encoding, Handles, Mode, Relocation};
 use crate::service::{NetworkAccess, Reply, Service, NOT_GRANTED_THE_NETWORK};
 use crate::tests::{scope_in, text, Place};
 use crate::watch::{Change, Event, Kind, Watcher};
-use crate::{mime, uri, Access, Error, Root, Scope};
+use crate::{mime, uri, Access, Error, Root, Scope, NOT_GRANTED_FILES};
 use serde_json::{json, Value};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -1483,6 +1483,62 @@ fn an_application_without_the_network_transfers_nothing() {
     // The rest of the service is the application's as before.
     let (paths, _) = call(&service, json!({"op": "paths"}), &[]);
     assert_eq!(paths["ok"], true);
+}
+
+#[test]
+fn an_application_without_files_reaches_its_own_folders_and_what_the_person_gave_it() {
+    // An installed version whose account has not granted `files` (ADR 0030, decision 8): the
+    // person's files are refused as `not-granted`, which the platform asks the person about at
+    // first use; its own folders are its as before; an item the person gave it (chose for it,
+    // dropped on it, opened with it) is its, a folder with what it holds; what lists or changes
+    // the person's files as a whole stays refused until `files` is granted, and then all is.
+    let place = Place::new("service-no-files");
+    let scope = application(&place).withholding_the_persons_files();
+    let home = scope.home().to_path_buf();
+    let documents = scope.application().expect("app").documents.clone();
+    std::fs::write(documents.join("notes.txt"), "Hola").expect("notes");
+    let pictures = place.dir("home/ada/Pictures");
+    std::fs::write(pictures.join("a.png"), "png").expect("a.png");
+    std::fs::write(home.join("b.txt"), "b").expect("b.txt");
+    let service = Service::new(scope, NetworkAccess::Granted).expect("service");
+    let said = |answer: &Value| {
+        (
+            answer["ok"].clone(),
+            answer["error"].clone(),
+            answer["message"].clone(),
+        )
+    };
+    let not_granted: (Value, Value, Value) =
+        (false.into(), "not-granted".into(), NOT_GRANTED_FILES.into());
+    let read = |path: &Path| call(&service, json!({"op": "read", "uri": u(path)}), &[]).0;
+    assert_eq!(said(&read(&home.join("b.txt"))), not_granted);
+    assert_eq!(
+        said(&call(&service, json!({"op": "list", "uri": d(&home)}), &[]).0),
+        not_granted
+    );
+    assert_eq!(read(&documents.join("notes.txt"))["ok"], true);
+    // A folder given, and what it holds; nothing beside it.
+    service.give(&d(&pictures)).expect("given");
+    assert_eq!(read(&pictures.join("a.png"))["ok"], true);
+    assert_eq!(said(&read(&home.join("b.txt"))), not_granted);
+    // The application's own folders are not the person's files to give.
+    assert!(matches!(
+        service.give(&u(&documents.join("notes.txt"))),
+        Err(Error::Refused(_))
+    ));
+    for op in ["places", "trashed", "emptyTrash", "watchTrash"] {
+        assert_eq!(
+            said(&call(&service, json!({ "op": op }), &[]).0),
+            not_granted,
+            "{op}"
+        );
+    }
+    let (names, _) = ask(&service, 1, json!({"op": "tagNames"}), Vec::new());
+    assert_eq!(said(&names), not_granted);
+    // Granted at first use: every one of them, at once.
+    service.grant_the_persons_files();
+    assert_eq!(read(&home.join("b.txt"))["ok"], true);
+    assert_eq!(call(&service, json!({"op": "places"}), &[]).0["ok"], true);
 }
 
 #[test]

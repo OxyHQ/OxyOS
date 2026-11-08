@@ -5558,6 +5558,10 @@ fn the_header_matches_the_files_abi() {
         define("OXYOS_FILES_NO_NETWORK"),
         i64::from(OXYOS_FILES_NO_NETWORK)
     );
+    assert_eq!(
+        define("OXYOS_FILES_NO_PERSONS_FILES"),
+        i64::from(OXYOS_FILES_NO_PERSONS_FILES)
+    );
     type New = unsafe extern "C" fn(*const c_char, usize, *const c_char, usize) -> *mut OxyOSFiles;
     type NewWith =
         unsafe extern "C" fn(*const c_char, usize, *const c_char, usize, u32) -> *mut OxyOSFiles;
@@ -5576,6 +5580,7 @@ fn the_header_matches_the_files_abi() {
     type Json = unsafe extern "C" fn(*const OxyOSFilesReply, *mut usize) -> *const c_char;
     type Bytes = unsafe extern "C" fn(*const OxyOSFilesReply, *mut usize) -> *const u8;
     type Open = unsafe extern "C" fn(*mut OxyOSFiles, *const c_char, usize, *mut u64) -> i32;
+    type Give = unsafe extern "C" fn(*mut OxyOSFiles, *const c_char, usize) -> i32;
     for (name, rust) in [
         ("oxyos_files_new", type_of(oxyos_files_new as New)),
         (
@@ -5602,10 +5607,12 @@ fn the_header_matches_the_files_abi() {
             "oxyos_files_open_read",
             type_of(oxyos_files_open_read as Open),
         ),
+        ("oxyos_files_give", type_of(oxyos_files_give as Give)),
     ] {
         assert_eq!(declaration(name), rust, "{name}");
     }
     assert!(HEADER.contains("void oxyos_files_free(OxyOSFiles* files);"));
+    assert!(HEADER.contains("void oxyos_files_grant_the_persons_files(OxyOSFiles* files);"));
     assert!(HEADER.contains("void oxyos_files_reply_free(OxyOSFilesReply* reply);"));
 }
 
