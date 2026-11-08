@@ -50,7 +50,11 @@ cd "$WORK"
 # cmake and ninja, at the versions and wheels toolchain-requirements.txt pins.
 if ! cmp -s "$HERE/toolchain-requirements.txt" tools/.requirements 2>/dev/null; then
   [ -x tools/bin/pip ] || python3 -m venv tools
-  tools/bin/pip install -q --only-binary=:all: --require-hashes -r "$HERE/toolchain-requirements.txt"
+  # Three tries: a connection dropped mid-download is pip's error, not a retry of its own.
+  for try in 1 2 3; do
+    tools/bin/pip install -q --only-binary=:all: --require-hashes -r "$HERE/toolchain-requirements.txt" && break
+    [ "$try" = 3 ] && exit 1; sleep 10
+  done
   cp "$HERE/toolchain-requirements.txt" tools/.requirements
 fi
 PATH="$WORK/tools/bin:$PATH"
