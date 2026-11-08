@@ -642,3 +642,79 @@ fn the_setups_c_abi_takes_a_progress_function_an_appearance_and_a_retry() {
         );
     }
 }
+
+#[test]
+fn a_wait_oxy_asks_of_a_setup_is_told_and_its_answer_waited_for() {
+    let (socket, dir) = socket_path("accountd");
+    let served = service(&socket, 1, |_| {
+        vec![
+            json!({"progress": "signingIn"}),
+            json!({"waiting": {"retryAfterSeconds": 2}}),
+            json!({"progress": "finishing"}),
+            json!({"progress": "confirming"}),
+            json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "uid": 1001,
+            "profile": {"id": "a1", "username": "nate", "displayName": null, "avatar": null}}}),
+        ]
+    });
+    let mut enrollment = Enrollment::connect(&socket).unwrap();
+    let told = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let stages = told.clone();
+        enrollment.on_progress(Box::new(move |stage| {
+            stages
+                .borrow_mut()
+                .push(stage_name(stage).to_str().unwrap().to_owned())
+        }));
+        let waits = told.clone();
+        enrollment.on_waiting(Box::new(move |seconds| {
+            waits.borrow_mut().push(format!("waiting {seconds}"))
+        }));
+    }
+    let enrolled = enrollment
+        .enroll(
+            "d",
+            &Secret::new("s"),
+            "a",
+            None,
+            Some(&Secret::new("4829")),
+        )
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        serde_json::from_str::<Value>(&enrolled).unwrap(),
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+    );
+    assert_eq!(
+        *told.borrow(),
+        ["signingIn", "waiting 2", "finishing", "confirming"]
+    );
+    served.join().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn the_setups_c_abi_takes_a_waiting_function() {
+    let header: String = include_str!("../../include/oxyos_client.h")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for declared in [
+        "typedef void (*OxyOSAccountEnrollmentWaitingFn)(void* context, uint64_t retry_after_seconds);",
+        "int oxyos_account_enrollment_on_waiting(OxyOSAccountEnrollment* enrollment, OxyOSAccountEnrollmentWaitingFn waiting, void* context);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(
+        *mut OxyOSAccountEnrollment,
+        OxyOSAccountEnrollmentWaitingFn,
+        *mut c_void,
+    ) -> c_int = oxyos_account_enrollment_on_waiting;
+    // SAFETY: null is the case under test.
+    unsafe {
+        assert_eq!(
+            oxyos_account_enrollment_on_waiting(std::ptr::null_mut(), None, std::ptr::null_mut()),
+            crate::OXYOS_ERROR
+        );
+    }
+}
