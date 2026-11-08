@@ -1,8 +1,8 @@
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
-import { Box } from "../primitives";
+import { Box, Scroll, focusForAccessibility } from "../primitives";
 import type { ShellKeyboard } from "../platform";
 import {
   bluetoothCodeTyped,
@@ -10,16 +10,34 @@ import {
   spokenCode,
   validBluetoothCode,
   validWifiPassword,
+  type SheetAction,
   type SheetText,
 } from "../sheet";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 export const SHEET_WIDTH = 380;
 /** Every sheet is this tall, its words scrolling within it, and its buttons are this wide at its
     foot: Cancel and the answer are always in the same place, whatever the sheet says. */
 export const SHEET_HEIGHT = 220;
 export const SHEET_BUTTON_WIDTH = 120;
+/** A sheet that offers more than its answer (an application that quit: Reset…, Report…) is this
+    wide, its other buttons at its foot's start; showing a report, it is this tall. */
+export const WIDE_SHEET_WIDTH = 520;
+export const REPORT_SHEET_HEIGHT = 420;
 const INK = "#1d2430";
+const BACKDROP = {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "#00000033",
+  alignItems: "center",
+  justifyContent: "center",
+} as const;
+const CARD = { borderRadius: 18, padding: 20, gap: 12 } as const;
 const QUIET = "#5b6472";
 const ERROR = "#d93025";
 /** The space after each digit of a code shown. */
@@ -45,6 +63,13 @@ const CODE_SPACING = 8;
  * Pair (enabled once it can be one) or Return, and goes to the session alone. A code shown to type
  * on a device has Cancel alone, in the answer's place: the session takes the sheet away once the
  * device is paired.
+ *
+ * An application that quit unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx)
+ * is told with Reopen, the answer the keyboard starts on (the platform's region puts its focus
+ * there), Ignore, and at the foot's start Reset… (`act`, which the session confirms in a sheet of
+ * its own) and Report…, which shows the report in the sheet itself: its text, which Copy puts on
+ * the clipboard at the person's press, and Done, back to what it said (or away, when it opened at
+ * the report); Escape is Done there.
  */
 export const SystemSheet = memo(function SystemSheet({
   text,
@@ -52,6 +77,8 @@ export const SystemSheet = memo(function SystemSheet({
   answer,
   answerPassword,
   answerCode,
+  act,
+  copy,
   keyboard,
 }: {
   text: SheetText;
@@ -62,9 +89,14 @@ export const SystemSheet = memo(function SystemSheet({
   answerPassword?: (password: string) => void;
   /** A Bluetooth pairing code's answer: the passkey or PIN typed. */
   answerCode?: (code: string) => void;
+  /** What else the sheet offers was pressed (Reset…): the sheet goes, as answered no. */
+  act?: (action: SheetAction) => void;
+  /** Puts a report's text on the clipboard, where the platform offers it. */
+  copy?: (text: string) => Promise<boolean> | boolean | void;
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const view = sheetView(text, messages, names);
   const [password, setPassword] = useState("");
@@ -84,31 +116,81 @@ export const SystemSheet = memo(function SystemSheet({
     setCode("");
     answerCode(typed);
   };
+  // A report shown in the sheet itself, and whether its text was just copied.
+  const [reading, setReading] = useState(view.report?.first ?? false);
+  const [copied, setCopied] = useState(false);
+  const done = useRef<React.ComponentRef<typeof Button>>(null);
+  useLayoutEffect(() => {
+    if (reading && !view.report?.first) focusForAccessibility(done.current as never);
+  }, [reading, view.report?.first]);
+  const closeReport = () => {
+    if (view.report?.first) answer(false);
+    else setReading(false);
+  };
   const latestAnswer = useRef(answer);
   latestAnswer.current = answer;
+  const latestEscape = useRef(() => latestAnswer.current(false));
+  latestEscape.current = reading ? closeReport : () => latestAnswer.current(false);
   useEffect(() => {
     if (!keyboard) return undefined;
     return keyboard.subscribe((event) => {
       const chord = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
       if (event.key !== "Escape" || chord) return false;
-      latestAnswer.current(false);
+      latestEscape.current();
       return true;
     });
   }, [keyboard]);
+  const wide = !!view.actions?.length;
+  if (reading && view.report) {
+    const report = view.report;
+    return (
+      <Box testID="system-sheet-backdrop" style={BACKDROP}>
+        <Box
+          testID="system-sheet"
+          accessibilityViewIsModal
+          accessibilityRole="alertdialog"
+          accessibilityLabel={report.title}
+          style={[
+            CARD,
+            { width: WIDE_SHEET_WIDTH, height: REPORT_SHEET_HEIGHT, backgroundColor: glass("#ffffffee", reduced) },
+          ]}
+        >
+          <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 17, fontWeight: "600", color: INK }}>
+            {report.title}
+          </Text>
+          <Scroll
+            testID="system-sheet-report"
+            style={{ flex: 1, backgroundColor: "#f3f4f6", borderRadius: 8 }}
+            contentContainerStyle={{ padding: 10 }}
+          >
+            <Text selectable className="font-mono" style={{ fontSize: 11, lineHeight: 16, color: INK }}>
+              {report.text}
+            </Text>
+          </Scroll>
+          <Box style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+            <Box style={{ width: SHEET_BUTTON_WIDTH }}>
+              <Button
+                testID="system-sheet-copy"
+                appearance="outline"
+                tone="neutral"
+                disabled={!copy}
+                onPress={async () => setCopied((await copy?.(report.text)) !== false)}
+              >
+                {copied ? report.copied : report.copy}
+              </Button>
+            </Box>
+            <Box style={{ width: SHEET_BUTTON_WIDTH }}>
+              <Button ref={done} testID="system-sheet-done" appearance="solid" tone="accent" onPress={closeReport}>
+                {report.done}
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    );
+  }
   return (
-    <Box
-      testID="system-sheet-backdrop"
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "#00000033",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
+    <Box testID="system-sheet-backdrop" style={BACKDROP}>
       <Box
         testID="system-sheet"
         accessibilityViewIsModal
@@ -121,14 +203,10 @@ export const SystemSheet = memo(function SystemSheet({
             .filter(Boolean)
             .join(". ") || undefined
         }
-        style={{
-          width: SHEET_WIDTH,
-          height: SHEET_HEIGHT,
-          backgroundColor: "#ffffffee",
-          borderRadius: 18,
-          padding: 20,
-          gap: 12,
-        }}
+        style={[
+          CARD,
+          { width: wide ? WIDE_SHEET_WIDTH : SHEET_WIDTH, height: SHEET_HEIGHT, backgroundColor: glass("#ffffffee", reduced) },
+        ]}
       >
         <Box style={{ flex: 1, gap: 12, overflow: "hidden" }}>
         {/* The sheet is named by its title: the title is not read again as text. */}
@@ -218,6 +296,24 @@ export const SystemSheet = memo(function SystemSheet({
         ))}
         </Box>
         <Box style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+          {/* What else it offers, at the foot's start: Reset… asks the session, Report… shows the
+              report here. */}
+          {view.actions?.length ? (
+            <Box style={{ flexDirection: "row", gap: 4, marginRight: "auto" }}>
+              {view.actions.map((action) => (
+                <Button
+                  key={action.id}
+                  testID={`system-sheet-${action.id}`}
+                  appearance="plain"
+                  tone="neutral"
+                  onPress={() => (action.id === "report" ? setReading(true) : act?.(action.id))}
+                  disabled={action.id !== "report" && !act}
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </Box>
+          ) : null}
           {view.refuse ? (
             <Box style={{ width: SHEET_BUTTON_WIDTH }}>
               <Button testID="system-sheet-refuse" appearance="outline" tone="neutral" onPress={() => answer(false)}>

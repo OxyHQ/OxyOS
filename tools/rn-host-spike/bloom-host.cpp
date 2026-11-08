@@ -34,6 +34,7 @@
 #include "shell-surface.h"
 #include "svg.h"
 #include "memory.h"
+#include "crash-report.h"
 #include "report.h"
 #include "skia-gpu.h"
 #include "renderer.h"
@@ -330,38 +331,44 @@ class Mounter : public SchedulerDelegate {
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
-// A fatal signal's report in the session's log: the signal and, for a bad access, the address it
-// touched; the thread it hit (by name: the JavaScript thread is the main one, Hermes' collector
-// is `hades`); the registers at the fault, which tell a bad pointer from a bad index; and the
-// stack, its frames' offsets to symbolise against the build's unstripped objects.
+// A fatal signal's report in the session's log, and in the report file the session gave
+// (crash-report.h): the signal and, for a bad access, the address it touched; the thread it hit (by
+// name: the JavaScript thread is the main one, Hermes' collector is `hades`); the registers at the
+// fault, which tell a bad pointer from a bad index; and the stack, its frames' offsets to symbolise
+// against the build's unstripped objects. Only async-signal-safe calls, into descriptors already
+// open.
 void crashed(int signal, siginfo_t* info, void* context) {
   void* frames[64];
   int count = backtrace(frames, 64);
   char thread[17] = {};
   prctl(PR_GET_NAME, thread, 0, 0, 0);
-  // A fault the kernel raised has an address (si_code > 0); a signal sent by a process, abort()'s
-  // among them, has its sender in the same storage instead.
-  if (info->si_code > 0 && signal != SIGABRT) {
-    dprintf(2, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
-            info->si_addr, static_cast<int>(gettid()), thread);
-  } else {
-    dprintf(2, "[host] fatal signal %d (code %d) sent by process %d, on thread %d '%s'\n", signal, info->si_code,
-            static_cast<int>(info->si_pid), static_cast<int>(gettid()), thread);
-  }
   const auto& machine = static_cast<const ucontext_t*>(context)->uc_mcontext;
+  for (int fd : {2, oxyos::crashReportFd()}) {
+    if (fd < 0) continue;
+    // A fault the kernel raised has an address (si_code > 0); a signal sent by a process, abort()'s
+    // among them, has its sender in the same storage instead.
+    if (info->si_code > 0 && signal != SIGABRT) {
+      dprintf(fd, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
+              info->si_addr, static_cast<int>(gettid()), thread);
+    } else {
+      dprintf(fd, "[host] fatal signal %d (code %d) sent by process %d, on thread %d '%s'\n", signal,
+              info->si_code, static_cast<int>(info->si_pid), static_cast<int>(gettid()), thread);
+    }
 #if defined(__x86_64__)
-  const auto* r = machine.gregs;
-  dprintf(2,
-          "[host] rip %llx rsp %llx rbp %llx rax %llx rbx %llx rcx %llx rdx %llx rsi %llx rdi %llx r8 %llx r9 %llx "
-          "r10 %llx r11 %llx r12 %llx r13 %llx r14 %llx r15 %llx\n",
-          r[REG_RIP], r[REG_RSP], r[REG_RBP], r[REG_RAX], r[REG_RBX], r[REG_RCX], r[REG_RDX], r[REG_RSI], r[REG_RDI],
-          r[REG_R8], r[REG_R9], r[REG_R10], r[REG_R11], r[REG_R12], r[REG_R13], r[REG_R14], r[REG_R15]);
+    const auto* r = machine.gregs;
+    dprintf(fd,
+            "[host] rip %llx rsp %llx rbp %llx rax %llx rbx %llx rcx %llx rdx %llx rsi %llx rdi %llx r8 %llx r9 %llx "
+            "r10 %llx r11 %llx r12 %llx r13 %llx r14 %llx r15 %llx\n",
+            r[REG_RIP], r[REG_RSP], r[REG_RBP], r[REG_RAX], r[REG_RBX], r[REG_RCX], r[REG_RDX], r[REG_RSI],
+            r[REG_RDI], r[REG_R8], r[REG_R9], r[REG_R10], r[REG_R11], r[REG_R12], r[REG_R13], r[REG_R14],
+            r[REG_R15]);
 #elif defined(__aarch64__)
-  dprintf(2, "[host] pc %llx sp %llx", machine.pc, machine.sp);
-  for (int i = 0; i < 31; ++i) dprintf(2, " x%d %llx", i, machine.regs[i]);
-  dprintf(2, "\n");
+    dprintf(fd, "[host] pc %llx sp %llx", machine.pc, machine.sp);
+    for (int i = 0; i < 31; ++i) dprintf(fd, " x%d %llx", i, machine.regs[i]);
+    dprintf(fd, "\n");
 #endif
-  backtrace_symbols_fd(frames, count, 2);
+    backtrace_symbols_fd(frames, count, fd);
+  }
   _exit(128 + signal);
 }
 
@@ -481,6 +488,8 @@ int main(int argc, char** argv) {
                  "            output's background, its OxyOSShellSurface regions panels and overlays\n";
     return 2;
   }
+  // The session's report file first, so that a fault from here on is said in it (crash-report.h).
+  oxyos::openCrashReport();
   reportFatalSignals();
   // The application this process runs, as its report and the session's log name it: the id the
   // session launched it with, else its module (the shell's always: an id in its environment is
@@ -594,11 +603,15 @@ int main(int argc, char** argv) {
       std::move(runtime), loop, std::move(ownedTimerManager),
       [&](jsi::Runtime&, const JsErrorHandler::ProcessedError& error) noexcept {
         ++jsErrors;
-        std::cerr << "JS error: " << error.message << "\n";
+        std::ostringstream said;
+        said << error.message << "\n";
         for (const auto& frame : error.stack) {
-          std::cerr << "    at " << frame.methodName << " (" << frame.file.value_or("?") << ":"
-                    << frame.lineNumber.value_or(0) << ")\n";
+          said << "    at " << frame.methodName << " (" << frame.file.value_or("?") << ":"
+               << frame.lineNumber.value_or(0) << ")\n";
         }
+        // A fatal one ends the application, as React Native's release builds do (crash-report.h).
+        if (error.isFatal) oxyos::endForFatalJavaScriptError(said.str());
+        std::cerr << "JS error: " << said.str();
       });
   stage("instance created");
   timerManager.setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
@@ -1195,6 +1208,8 @@ int main(int argc, char** argv) {
     folly::dynamic toldShellState = nullptr;
     // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
+    // Reduce transparency as the session told it at connect: expo-blur's views blur nothing.
+    if (window) oxyos::setReducedTransparency(window->drawing().reduceTransparency);
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
     // The session's locale as JavaScript was last told it (docs/adr/0040-language-and-region.mdx):
@@ -2474,6 +2489,14 @@ int main(int argc, char** argv) {
             dirty = true;
           }
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
+          // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
+          // again), every one of them, though none of their props changed: the window is drawn
+          // again whole, as when the painter changes.
+          if (now.reduceTransparency != toldDrawing->reduceTransparency) {
+            oxyos::setReducedTransparency(now.reduceTransparency);
+            painterChanged = true;
+            dirty = true;
+          }
           emit("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;
@@ -3232,7 +3255,8 @@ int main(int argc, char** argv) {
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
-                           editing.nextBlink(), oxyos::Memory::get().nextDeadline()}) {
+                           editing.nextBlink(), oxyos::Memory::get().nextDeadline(),
+                           services.accountSession ? services.accountSession->nextDeadline() : std::nullopt}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;

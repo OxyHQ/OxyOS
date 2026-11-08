@@ -786,6 +786,10 @@ messages! {
         // is told unasked when the person changed it (removed it from Open at Login, turned its
         // background activity off or on).
         165 => BackgroundItemState { serial: u32, kind: BackgroundItemKind, status: BackgroundStatus },
+        // To the shell and the login screen (version 36, docs/adr/0054-recovery-and-erasing.mdx,
+        // decision 10): the session started in Safe Mode, told as they connect and only then. They
+        // show it until the session ends.
+        166 => SafeMode {},
         // To a client the session answers in its vocabulary (version 35,
         // docs/adr/0063-activity-monitor.mdx): an answer to its SystemRequest `serial` (0: told
         // unasked) too long for SystemText's chunks, as one sealed memory file of `size` bytes of

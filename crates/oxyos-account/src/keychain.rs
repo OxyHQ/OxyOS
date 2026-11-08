@@ -49,6 +49,7 @@ use std::time::Duration;
 
 #[cfg(feature = "keychain")]
 pub mod api;
+pub mod passkey;
 #[cfg(feature = "keychain")]
 pub mod service;
 
@@ -314,8 +315,26 @@ pub trait Keychains: Send + Sync {
     fn registrar(&self, uid: u32, user: &str, request: Request) -> Answer;
     /// A request of `uid`'s Settings.
     fn settings(&self, uid: u32, user: &str, request: Request) -> Answer;
+    /// A passkey ceremony (`passkeyCreate`, `passkeyGet`) of `uid`'s application `asker`.
+    fn passkey(&self, uid: u32, user: &str, asker: &Asker<'_>, request: Request) -> Answer;
+    /// Serves `uid`'s session's prompts connection (`passkeyPrompts`) until it closes: answers
+    /// `passkeyPromptsOpen` once its sheets are shown there.
+    fn serve_prompts(&self, uid: u32, user: &str, connection: &Connection) -> io::Result<()>;
     /// `user`'s account was removed from the machine: its keychain is locked and erased.
     fn forget(&self, uid: u32, user: &str);
+}
+
+/// The application asking for a passkey, as its registration says.
+pub struct Asker<'a> {
+    pub desktop_entry_id: &'a str,
+    pub pid: i32,
+    /// Whether it went away: its connection closed, its process ended.
+    pub gone: &'a (dyn Fn() -> bool + Sync),
+}
+
+/// Whether a session request is a passkey ceremony (any registered application's).
+pub fn is_passkey_request(request: &Request) -> bool {
+    matches!(request, Request::PasskeyCreate(_) | Request::PasskeyGet(_))
 }
 
 /// Whether a session request is the keychain's.

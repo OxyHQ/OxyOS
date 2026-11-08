@@ -346,6 +346,14 @@ void Window::usePainter(StartedPaint started) {
   std::cerr << "[window] drawing on the CPU: " << started.why << "\n";
 }
 
+// A request the compositor did not take: nothing when the compositor is gone (the session ends, and
+// the loop ends the host as it reads the hangup), as Android ignores calls on a window whose
+// session went; anything else is the host's fault, said.
+void Window::refused(const std::string& what) const {
+  if (disconnected()) return;
+  failed(what);
+}
+
 bool Window::disconnected() const {
   pollfd fd{oxyos_client_fd(client_), 0, 0};
   return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
@@ -423,36 +431,36 @@ std::optional<std::pair<float, float>> Window::extent(uint32_t id) const {
 void Window::openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial,
                        bool tracking) {
   if (closedSurface(parent)) return;
-  if (oxyos_client_create_popup(client_, id, parent, &positioner) != 0) failed("cannot open a popup");
+  if (oxyos_client_create_popup(client_, id, parent, &positioner) != 0) refused("cannot open a popup");
   surfaces_[id] = Surface{};
   // A compositor older than protocol version 9 refuses it, and the bar then switches menus by press.
   if (tracking && serial != 0) oxyos_client_track_pointer(client_, id);
-  if (serial != 0 && oxyos_client_grab_popup(client_, id, serial) != 0) failed("cannot grab the popup");
+  if (serial != 0 && oxyos_client_grab_popup(client_, id, serial) != 0) refused("cannot grab the popup");
 }
 
 void Window::openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t width, uint32_t height,
                               uint32_t exclusive) {
   if (!shell_) failed("only the shell has shell surfaces");
   if (oxyos_client_create_shell_surface(client_, id, kind, edge, shell_->output, width, height, exclusive) != 0) {
-    failed("cannot open a shell surface");
+    refused("cannot open a shell surface");
   }
   surfaces_[id] = Surface{};
 }
 
 void Window::openLockSurface(uint32_t id) {
   if (!shell_) failed("only the shell has lock surfaces");
-  if (oxyos_client_create_lock_surface(client_, id, shell_->output) != 0) failed("cannot open a lock surface");
+  if (oxyos_client_create_lock_surface(client_, id, shell_->output) != 0) refused("cannot open a lock surface");
   surfaces_[id] = Surface{};
 }
 
 void Window::openCandidates(uint32_t id, uint32_t width, uint32_t height) {
   if (!shell_) failed("only the shell draws the candidates handed to the system");
-  if (oxyos_client_create_input_candidates(client_, id, width, height) != 0) failed("cannot open the candidates");
+  if (oxyos_client_create_input_candidates(client_, id, width, height) != 0) refused("cannot open the candidates");
   surfaces_[id] = Surface{};
 }
 
 void Window::resizeCandidates(uint32_t id, uint32_t width, uint32_t height) {
-  if (oxyos_client_resize_input_candidates(client_, id, width, height) != 0) failed("cannot resize the candidates");
+  if (oxyos_client_resize_input_candidates(client_, id, width, height) != 0) refused("cannot resize the candidates");
 }
 
 bool Window::chooseCandidate(uint8_t index) { return oxyos_client_choose_input_candidate(client_, index) == 0; }
@@ -510,7 +518,7 @@ bool Window::trashFiles(uint64_t input, const std::string& uris) {
 
 void Window::createDragIcon(uint32_t id, uint32_t width, uint32_t height, int32_t hotspotX, int32_t hotspotY) {
   if (oxyos_client_create_drag_icon(client_, id, width, height, hotspotX, hotspotY) != 0) {
-    failed("cannot make a drag icon");
+    refused("cannot make a drag icon");
   }
   surfaces_[id] = Surface{};
 }
@@ -558,7 +566,7 @@ void Window::finishDrop(uint32_t offer) { oxyos_client_finish_drop(client_, offe
 uint16_t Window::protocolVersion() const { return oxyos_client_protocol_version(client_); }
 
 void Window::lockSession() {
-  if (oxyos_client_lock_session(client_) != 0) failed("cannot lock the session");
+  if (oxyos_client_lock_session(client_) != 0) refused("cannot lock the session");
 }
 
 bool Window::setControlLevel(uint8_t control, uint32_t level) {
@@ -587,16 +595,16 @@ void Window::nameWindow(const std::string& title, const std::string& appId) {
   if (closedSurface(kToplevel)) return;
   if (oxyos_client_name_window(client_, kToplevel, 0, title.data(), title.size()) != 0 ||
       oxyos_client_name_window(client_, kToplevel, 1, appId.data(), appId.size()) != 0) {
-    failed("cannot name the window");
+    refused("cannot name the window");
   }
 }
 
 void Window::focusShellSurface(uint32_t id, uint64_t serial) {
-  if (oxyos_client_focus_shell_surface(client_, id, serial) != 0) failed("cannot focus a shell surface");
+  if (oxyos_client_focus_shell_surface(client_, id, serial) != 0) refused("cannot focus a shell surface");
 }
 
 void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
-  if (oxyos_client_manage(client_, action, window, workspace) != 0) failed("cannot manage a window");
+  if (oxyos_client_manage(client_, action, window, workspace) != 0) refused("cannot manage a window");
 }
 
 bool Window::setPreference(uint32_t serial, const std::string& key, const std::string& value) {
@@ -625,7 +633,7 @@ bool Window::systemRequest(uint32_t serial, uint64_t input, const std::string& t
 }
 
 void Window::sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial) {
-  if (oxyos_client_sheet_answer(client_, sheet, accepted, serial) != 0) failed("cannot answer a sheet");
+  if (oxyos_client_sheet_answer(client_, sheet, accepted, serial) != 0) refused("cannot answer a sheet");
 }
 
 bool Window::requestCapability(uint32_t serial, uint64_t input, uint8_t capability) {
@@ -641,7 +649,7 @@ void Window::closeToplevel() {
   toplevelClosed_ = true;
   secureRegions_.erase(kToplevel);
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, kToplevel);
-  if (oxyos_client_destroy_surface(client_, kToplevel) != 0) failed("cannot close the window");
+  if (oxyos_client_destroy_surface(client_, kToplevel) != 0) refused("cannot close the window");
   // Its state stays for what reads its last size; with no configure it is never ready, and with
   // nothing presented for one there is nothing to answer.
   auto& toplevel = surfaces_.at(kToplevel);
@@ -688,78 +696,78 @@ bool Window::confirmDisplays(uint32_t serial, bool keep) { return oxyos_client_c
 
 void Window::beginMove(uint64_t serial) {
   if (closedSurface(kToplevel)) return;
-  if (oxyos_client_begin_move(client_, kToplevel, serial) != 0) failed("cannot move the window");
+  if (oxyos_client_begin_move(client_, kToplevel, serial) != 0) refused("cannot move the window");
 }
 
 void Window::setMaximized(bool enabled) {
   if (closedSurface(kToplevel)) return;
-  if (oxyos_client_set_maximized(client_, kToplevel, enabled) != 0) failed("cannot zoom the window");
+  if (oxyos_client_set_maximized(client_, kToplevel, enabled) != 0) refused("cannot zoom the window");
 }
 
 void Window::minimize() {
   if (closedSurface(kToplevel)) return;
-  if (oxyos_client_minimize(client_, kToplevel) != 0) failed("cannot minimize the window");
+  if (oxyos_client_minimize(client_, kToplevel) != 0) refused("cannot minimize the window");
 }
 
 void Window::setSizeLimits(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight) {
   if (closedSurface(kToplevel)) return;
   if (oxyos_client_set_size_limits(client_, kToplevel, minWidth, minHeight, maxWidth, maxHeight) != 0) {
-    failed("cannot set the window's sizes");
+    refused("cannot set the window's sizes");
   }
 }
 
 void Window::setPointerShape(uint32_t id, uint8_t shape) {
   if (closedSurface(id)) return;
-  if (oxyos_client_set_pointer_shape(client_, id, shape) != 0) failed("cannot set the pointer's shape");
+  if (oxyos_client_set_pointer_shape(client_, id, shape) != 0) refused("cannot set the pointer's shape");
 }
 
 void Window::setInputRegion(uint32_t id, const OxyOSRect& region) {
   if (closedSurface(id)) return;
   if (oxyos_client_set_input_region(client_, id, region.x, region.y, region.width, region.height) != 0) {
-    failed("cannot set an input region");
+    refused("cannot set an input region");
   }
 }
 
 void Window::showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views) {
   if (oxyos_client_show_windows(client_, id, views.data(), views.size()) != 0) {
-    failed("cannot show windows live");
+    refused("cannot show windows live");
   }
 }
 
 void Window::setMinimizeTargets(uint32_t id, const std::vector<OxyOSMinimizeTarget>& targets) {
   if (oxyos_client_set_minimize_targets(client_, id, targets.data(), targets.size()) != 0) {
-    failed("cannot say where windows minimize into");
+    refused("cannot say where windows minimize into");
   }
 }
 
 void Window::reposition(uint32_t id, const OxyOSPositioner& positioner) {
   // A popup never opened (asked of a window closed to run in the background) is nothing to move.
   if (surfaces_.find(id) == surfaces_.end()) return;
-  if (oxyos_client_reposition(client_, id, &positioner) != 0) failed("cannot reposition a popup");
+  if (oxyos_client_reposition(client_, id, &positioner) != 0) refused("cannot reposition a popup");
 }
 
 void Window::publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes,
                                   const std::vector<OxyOSAccessibleDetail>& details) {
   if (closedSurface(id)) return;
   if (oxyos_client_publish_accessibility_detailed(client_, id, nodes.data(), details.data(), nodes.size()) != 0) {
-    failed("cannot publish accessibility");
+    refused("cannot publish accessibility");
   }
 }
 
 void Window::setMenus(uint32_t serial, const std::vector<OxyOSMenuItem>& items) {
   if (closedSurface(kToplevel)) return;
   if (oxyos_client_set_menus(client_, kToplevel, serial, items.data(), items.size()) != 0) {
-    failed("cannot set the window's menus");
+    refused("cannot set the window's menus");
   }
 }
 
 void Window::activateMenuItem(uint32_t window, uint32_t serial, uint32_t index) {
-  if (oxyos_client_activate_menu_item(client_, window, serial, index) != 0) failed("cannot choose a menu item");
+  if (oxyos_client_activate_menu_item(client_, window, serial, index) != 0) refused("cannot choose a menu item");
 }
 
 void Window::announce(uint32_t id, uint8_t politeness, const std::string& text) {
   if (closedSurface(id)) return;
-  if (oxyos_client_announce(client_, id, politeness, text.data(), text.size()) != 0) failed("cannot announce");
+  if (oxyos_client_announce(client_, id, politeness, text.data(), text.size()) != 0) refused("cannot announce");
 }
 
 bool Window::setDoNotDisturb(uint32_t serial, bool enabled) {
@@ -771,19 +779,22 @@ bool Window::postNotification(uint32_t serial, const OxyOSNotification& notifica
 }
 
 void Window::withdrawNotification(uint32_t notification) {
-  if (oxyos_client_withdraw_notification(client_, notification) != 0) failed("cannot withdraw a notification");
+  if (oxyos_client_withdraw_notification(client_, notification) != 0) refused("cannot withdraw a notification");
 }
 
 void Window::activateNotification(uint32_t notification, uint8_t action, uint64_t serial, const std::string& reply) {
   if (oxyos_client_activate_notification(client_, notification, action, serial, reply.data(), reply.size()) != 0) {
-    failed("cannot activate a notification");
+    refused("cannot activate a notification");
   }
 }
 
 uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField) {
   if (closedSurface(surface)) return 0;
   int64_t serial = oxyos_client_text_input(client_, surface, field, newField ? 1 : 0);
-  if (serial < 0) failed("cannot tell the text field");
+  if (serial < 0) {
+    refused("cannot tell the text field");
+    return 0;
+  }
   return static_cast<uint32_t>(serial);
 }
 
@@ -792,7 +803,10 @@ uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool n
   if (closedSurface(surface)) return 0;
   int64_t serial =
       oxyos_client_text_input_with_content(client_, surface, field, newField ? 1 : 0, content, paired ? 1 : 0);
-  if (serial < 0) failed("cannot tell the text field");
+  if (serial < 0) {
+    refused("cannot tell the text field");
+    return 0;
+  }
   return static_cast<uint32_t>(serial);
 }
 
@@ -834,15 +848,15 @@ bool Window::endCapture(uint64_t serial) { return oxyos_client_end_capture(clien
 
 void Window::excludeFromCapture(uint32_t id, bool excluded) {
   if (closedSurface(id)) return;
-  if (oxyos_client_exclude_from_capture(client_, id, excluded) != 0) failed("cannot leave a surface out of captures");
+  if (oxyos_client_exclude_from_capture(client_, id, excluded) != 0) refused("cannot leave a surface out of captures");
 }
 
 void Window::moveWindowsToViews(uint32_t id, bool moved) {
-  if (oxyos_client_move_windows_to_views(client_, id, moved) != 0) failed("cannot move windows into their views");
+  if (oxyos_client_move_windows_to_views(client_, id, moved) != 0) refused("cannot move windows into their views");
 }
 
 void Window::setGestureOverlay(uint32_t id, uint8_t overlay) {
-  if (oxyos_client_set_gesture_overlay(client_, id, overlay) != 0) failed("cannot say which view a gesture drives");
+  if (oxyos_client_set_gesture_overlay(client_, id, overlay) != 0) refused("cannot say which view a gesture drives");
 }
 
 bool Window::openScreenshot(uint32_t screenshot, uint64_t serial) {
@@ -853,7 +867,7 @@ void Window::destroy(uint32_t id) {
   secureRegions_.erase(id);
   if (surfaces_.erase(id) == 0) return;
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, id);
-  if (oxyos_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");
+  if (oxyos_client_destroy_surface(client_, id) != 0) refused("cannot destroy a popup");
 }
 
 uint64_t Window::trimBuffers() {

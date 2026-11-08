@@ -108,6 +108,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- crash_reports: the reports the session wrote of applications that quit unexpectedly
+  (docs/adr/0061-crashes-and-resetting-an-application.mdx), in the run's home
+  (`.local/state/oxyos/crash-reports`) once the step settled, exactly and oldest first: each
+  {"application": its id, "contains": [TEXT]} (each text in the report);
 - background: the applications' background activity (docs/adr/0060-login-items-and-background-
   activity.mdx): "ended", the processes the session ended in the step, by their application's id,
   exactly and in order (a step that ends one and does not say so fails); "running", given, the
@@ -472,6 +476,11 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
+A scenario with `safe_mode` true runs the session as a start in Safe Mode
+(docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
+as oxyos-session reads `oxyos.safe-mode=1` on the kernel's command line): nothing opened at login,
+no background activity but the system applications', and the shell told it.
+
 Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
@@ -529,7 +538,15 @@ exists (true) or not (false), a file's text, and `trash` the names in the home's
 `files/`), each with a `.trashinfo` naming where it was; with a `shell`, the dock's Trash follows
 that home's Trash (ADR 0034). Its `xattrs` ({PATH: {NAME: VALUE | false}}) checks an item's `user.`
 attributes: a value as above, or false for none. The home's attributes are read only in a scenario
-that sets or checks some. Every scenario runs in one fixed language, never the machine's
+that sets or checks some.
+
+A scenario with `home` and `backups` has that home backed up before the run (docs/adr/0059-backups.mdx)
+by a real `oxyos-backupd --development` (beside oxyos-offscreen, on a played disk named
+`backups.disk`, "Backup Disk" by default, over the machine's restic), which the application's files
+service asks (`OXYOS_BACKUPD_SOCKET`): `backups.states` is a list of the home's states, each
+{"items": {...}, "remove": [PATH, ...], "modified": SECONDS} changed from the one before (items as
+`home.items`, the first applied to `home.items`), each backed up in turn, a second or more apart;
+`backups.after` the change made once the last was taken. The service is stopped when the run ends. Every scenario runs in one fixed language, never the machine's
 (docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
 scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
 and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`), else
@@ -648,7 +665,10 @@ points at a socket of its own, so none asks the machine's): the application ids 
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
-application's window first shows TEXT). A token it mints names the application it is for and is no
+application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
+service restarting as a package upgrade restarts it: every subscription closed under its
+application, then every process refused `notPermitted` for MS, as the real service refuses one until
+the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
 credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
@@ -1145,29 +1165,52 @@ def serve_accounts(path, accounts, login=None, log=None):
             with open(log, "a") as out:
                 out.write(json.dumps({"t": time.monotonic_ns(), "asked": asked, "answered": answered}) + "\n")
 
+    def progress(connection, stages):
+        """The steps the real service tells as it starts each (`{"progress": ...}`), a moment apart
+        (`login.enroll.stage_ms`, 250 by default) so a screen can show each."""
+        for stage in stages:
+            connection.send(json.dumps({"progress": stage}).encode())
+            time.sleep(login.get("enroll", {}).get("stage_ms", 250) / 1000)
+
     def enroll(connection, message):
         played = login.get("enroll")
         request = message["enroll"]
         pin = request.get("pin")
-        if not played or request.get("deviceId") != played["device"]["deviceId"] \
+        appearance = request.get("appearance")
+        by_device = request.get("password") is None
+        if appearance is not None and appearance not in ("light", "dark", "auto"):
+            answer = {"refused": {"reason": "invalidRequest"}}
+        elif not played or request.get("deviceId") != played["device"]["deviceId"] \
                 or request.get("deviceSecret") != played["device"]["deviceSecret"]:
             answer = {"refused": {"reason": "credentialRefused"}}
         elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
             answer = {"refused": {"reason": "unusablePin"}}
-        elif request.get("password") is None and pin is None:
+        elif by_device and pin is None:
             answer = {"refused": {"reason": "pinRequired"}}
-        elif request.get("password") is None:
+        elif by_device:
             # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
             # (the real service's; played here as its answer), and the PIN is the local credential.
+            progress(connection, (["securing"] if pin else []) + ["verifying", "preparing", "signingIn"])
             answer = None
         elif request.get("password") != played["password"]:
+            progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn"])
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
+            progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn"])
             answer = "secondFactorRequired"
         else:
+            progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn", "preparing"])
             answer = None
+        # `login.enroll.fail_first`: the first setup that would succeed fails so (`unreachable`: Oxy
+        # could not be reached; `localFailure`: the machine could not be set up), the sign-in kept
+        # for a `"retry"`, as the real service keeps it.
+        failing = played.get("fail_first") if played else None
         while True:
-            if answer is None:
+            if answer is None and failing:
+                answer = {"failed": {"reason": failing}}
+                failing = None
+            elif answer is None:
+                progress(connection, ["finishing"])
                 listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
@@ -1175,20 +1218,41 @@ def serve_accounts(path, accounts, login=None, log=None):
                 listed["pin"] = "set" if listed["user"] in pins else "none"
                 accounts[:] = [account for account in accounts if account["user"] != listed["user"]]
                 accounts.append(listed)
+                if appearance:
+                    # What a new home's preferences start with: told, for a scenario to check.
+                    record("appearance", appearance)
                 answer = {"enrolled": {"accountId": listed["accountId"], "user": listed["user"], "uid": 1001,
                                        "profile": {"id": listed["accountId"], "username": listed["name"],
                                                    "displayName": None, "avatar": None}}}
-            record("secondFactor" if record.turn else "enroll",
-                   answer if isinstance(answer, str) else next(iter(answer)))
-            record.turn += 1
+            record(record.asked, answer if isinstance(answer, str) else
+                   f"{next(iter(answer))} {answer['failed']['reason']}" if "failed" in answer else next(iter(answer)))
             connection.send(json.dumps(answer).encode())
-            if answer != "secondFactorRequired" and answer != {"refused": {"reason": "secondFactorInvalid"}}:
+            kept = isinstance(answer, dict) and "failed" in answer
+            if answer != "secondFactorRequired" and answer != {"refused": {"reason": "secondFactorInvalid"}} \
+                    and not kept:
                 return
             packet = connection.recv(16384)
             if not packet:
                 return
-            code = json.loads(packet).get("secondFactor", {}).get("code")
-            answer = None if code == played["code"] else {"refused": {"reason": "secondFactorInvalid"}}
+            turn = json.loads(packet)
+            if kept and turn == "retry":
+                # What the service kept is set up again: the machine, and Oxy only if it was not
+                # reached.
+                record.asked = "retry"
+                progress(connection, ["preparing", "signingIn"] if answer["failed"]["reason"] == "unreachable"
+                         else ["preparing"])
+                answer = None
+                continue
+            if kept or not isinstance(turn, dict) or "secondFactor" not in turn:
+                connection.send(json.dumps({"refused": {"reason": "invalidRequest"}}).encode())
+                return
+            record.asked = "secondFactor"
+            code = turn["secondFactor"].get("code")
+            if code == played["code"]:
+                progress(connection, ["signingIn", "preparing"])
+                answer = None
+            else:
+                answer = {"refused": {"reason": "secondFactorInvalid"}}
 
     def serve():
         while True:
@@ -1207,7 +1271,7 @@ def serve_accounts(path, accounts, login=None, log=None):
                         connection.send(json.dumps({"platform": platform} if platform
                                                    else {"refused": {"reason": "notConfigured"}}).encode())
                     elif isinstance(message, dict) and "enroll" in message:
-                        record.turn = 0
+                        record.asked = "enroll"
                         enroll(connection, message)
                     elif isinstance(message, dict) and "verifyPin" in message:
                         # oxyos-pin-check's, for PAM: the PIN checked here, a wrong one counted.
@@ -1230,7 +1294,7 @@ def serve_accounts(path, accounts, login=None, log=None):
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
 
-    record.turn = 0
+    record.asked = "enroll"
     threading.Thread(target=serve, daemon=True).start()
     return listener
 
@@ -1284,6 +1348,8 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # Until when the played service is restarting (`account.later`'s `restart`): it refuses everyone.
+    restarting = [0.0]
     # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
@@ -1324,8 +1390,28 @@ def serve_account_session(path, spec, log):
 
     ACCOUNT["push"] = push
 
+    def restart(refuse_for):
+        with lock:
+            restarting[0] = time.monotonic() + refuse_for / 1000
+            for connection in subscribers:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            subscribers.clear()
+
+    ACCOUNT["restart"] = restart
+
     def converse(connection):
         application = application_of(connection)
+        if time.monotonic() < restarting[0]:
+            with connection:
+                try:
+                    connection.recv(16384)
+                    connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
+                except OSError:
+                    pass
+            return
         with connection:
             while True:
                 try:
@@ -1449,7 +1535,7 @@ def serve_account_session(path, spec, log):
 def account_later(changes, report_path):
     """The played service's snapshot changing while the run goes on (`account.later`): each
     [{"when_shown": TEXT, "snapshot": {...}}] once the application's window first shows TEXT, the
-    revision one past the last."""
+    revision one past the last; {"when_shown": TEXT, "restart": {"refuse_for": MS}} restarts it."""
     started = time.monotonic_ns()
 
     def watch():
@@ -1463,10 +1549,14 @@ def account_later(changes, report_path):
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
+                # Every change waiting for what this frame shows, in order.
+                while waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
                         and entry.get("t", 0) >= started \
                         and any(waiting[0]["when_shown"] in shown for shown in entry.get("texts", [])):
                     change = waiting.pop(0)
+                    if "restart" in change:
+                        ACCOUNT["restart"](change["restart"].get("refuse_for", 0))
+                        continue
                     current = ACCOUNT["snapshot"]
                     ACCOUNT["push"](dict(current, **change["snapshot"], revision=current["revision"] + 1))
             seen = len(lines)
@@ -1491,11 +1581,13 @@ def played_oxy(spec, log):
     answer them. `qr.token_refused_at` ("METHOD PATH") plays what production did on 2026-11-08: the
     first QR sign-in's token refused when it first reaches that request (the API task that approved
     the request held the session as it was before the claim bound it, OxyHQ/oxy#2224), and never
-    taken again."""
+    taken again. `qr.stall_after_claim_ms` plays what the owner's network did on 2026-11-08: the
+    link stalls the moment the first QR claim is answered, and every answer the API gives in that
+    time (each one quick, as production's were) reaches the screen only once it comes back."""
     import secrets as _secrets
 
     state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
-             "on_device": False, "revision": 0, "qr_claims": 0}
+             "on_device": False, "revision": 0, "qr_claims": 0, "stalled_until": 0}
     lock = threading.Lock()
 
     class Oxy(BaseHTTPRequestHandler):
@@ -1505,6 +1597,11 @@ def played_oxy(spec, log):
             pass
 
         def reply(self, status, body):
+            # A link that stalls (`qr.stall_after_claim_ms`): the answer waits for it to come back.
+            with lock:
+                stalled = state["stalled_until"] - time.monotonic()
+            if stalled > 0:
+                time.sleep(stalled)
             data = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -1755,6 +1852,10 @@ def played_oxy(spec, log):
                         first = state["qr_claims"] == 1
                     refused_at = spec.get("qr", {}).get("token_refused_at") if first else None
                     self.reply(200, dict(self.session(refused_at), user=self.user()))
+                    stall = spec.get("qr", {}).get("stall_after_claim_ms", 0) if first else 0
+                    if stall:
+                        with lock:
+                            state["stalled_until"] = time.monotonic() + stall / 1000
                 else:
                     self.reply(400, {"error": "invalid_request", "message": "Invalid or expired session"})
             elif path == "/users/me/reauth/email":
@@ -2341,6 +2442,27 @@ def check_home(state, wanted, fail):
                 fail(f"{relative} {'is missing' if want else 'is still there'}")
         elif state.get(relative) != want:
             fail(f"{relative} does not hold {want!r}")
+
+
+CRASH_REPORTS = ".local/state/oxyos/crash-reports/"
+
+
+def check_crash_reports(state, wanted, fail):
+    """A step's `crash_reports` (docs/adr/0061): the reports in the home, exactly, oldest first
+    (`<id>_<YYYY-MM-DD-HHMMSS>[-N].crash`, by when, then by name), each of the application wanted
+    and holding each text wanted."""
+    names = [path[len(CRASH_REPORTS):] for path in state
+             if path.startswith(CRASH_REPORTS) and path.endswith(".crash") and "/" not in path[len(CRASH_REPORTS):]]
+    names.sort(key=lambda name: (name[:-len(".crash")].rsplit("_", 1)[1], name))
+    got = [name[:-len(".crash")].rsplit("_", 1)[0] for name in names]
+    if got != [want["application"] for want in wanted]:
+        fail(f"the crash reports are of {got}, expected {[want['application'] for want in wanted]}")
+        return
+    for name, want in zip(names, wanted):
+        text = state[CRASH_REPORTS + name]
+        for needed in want.get("contains", []):
+            if not isinstance(text, str) or needed not in text:
+                fail(f"the crash report {name} does not say {needed!r}: {text!r:.400}")
 
 
 def latest_frames(report, until, closed_before):
@@ -3484,6 +3606,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
+    if "crash_reports" in expect:
+        check_crash_reports(home_root.at(end) if home_root else HomeState(), expect["crash_reports"], fail)
     if "react_hover" in expect:
         got = {}
         for line in report:
@@ -4876,6 +5000,80 @@ def install_service(spec, machine, offscreen):
     return base / "i", state
 
 
+def backup_service(spec, home_root, out, offscreen):
+    """A real oxyos-backupd for a scenario (`backups`, the module's docstring), in its development
+    mode (unprivileged, serving this user alone), backing the run's home up to a played disk: each
+    of `states` applied to the home and backed up in turn, then `after`. Its socket, and how to stop
+    it."""
+    import socket as sockets
+    import tempfile
+    backupd = pathlib.Path(offscreen).resolve().parent / "oxyos-backupd"
+    # A Unix socket's path is at most 107 bytes: a short directory of the run's own.
+    base = pathlib.Path(tempfile.mkdtemp(prefix="oxb", dir="/tmp"))
+    disk = base / "volumes" / "1234-ABCD"
+    disk.mkdir(parents=True)
+    (disk / ".oxyos-label").write_text(spec.get("disk", "Backup Disk"))
+    log = open(out / "backupd.log", "w")
+    process = subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
+                                "--volumes", str(base / "volumes"), "--cache", str(base / "cache"),
+                                "--source", str(home_root), "--socket", str(base / "s")],
+                               stdout=log, stderr=log)
+
+    def stop():
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        log.close()
+        shutil.rmtree(base, ignore_errors=True)
+
+    def ask(request):
+        with sockets.socket(sockets.AF_UNIX, sockets.SOCK_SEQPACKET) as connection:
+            connection.settimeout(60)
+            connection.connect(str(base / "s"))
+            connection.send(json.dumps(request).encode())
+            return json.loads(connection.recv(65536))
+
+    def backups():
+        status = ask("status")["status"]
+        destination = (status["destinations"] or [{}])[0]
+        return destination.get("backups", 0) if status["running"] is None else -1
+
+    def change(state):
+        write_items(home_root, state.get("items", {}), state.get("modified", 1767348000))
+        for relative in state.get("remove", []):
+            path = home_root / relative.rstrip("/")
+            shutil.rmtree(path) if path.is_dir() and not path.is_symlink() else path.unlink()
+
+    try:
+        wait_for(base / "s")
+        for index, state in enumerate(spec["states"]):
+            if index:
+                # A backup's time is restic's, in seconds: each its own.
+                time.sleep(1.1)
+            change(state)
+            if index == 0:
+                # Added: backed up at once. The disk is seen as the service starts.
+                deadline = time.monotonic() + 30
+                while "added" not in (answer := ask({"addDisk": {"uuid": "1234-ABCD", "password": "scenario backups"}})):
+                    if time.monotonic() > deadline:
+                        raise RuntimeError(f"the backup disk was not added: {answer}")
+                    time.sleep(0.1)
+            elif ask({"backUpNow": {}}) != "started":
+                raise RuntimeError("the backup service did not start a backup")
+            deadline = time.monotonic() + 120
+            while backups() < index + 1:
+                if time.monotonic() > deadline:
+                    raise RuntimeError(f"backup {index + 1} never ended; see {out / 'backupd.log'}")
+                time.sleep(0.1)
+        change(spec.get("after", {}))
+    except Exception:
+        stop()
+        raise
+    return base / "s", stop
+
+
 # The run's install service (`install_service`): its state and log, for the final checks.
 INSTALLD = {}
 # The run's store (`store_fixture`): its directory (the images it answered) and whether the machine
@@ -5411,6 +5609,10 @@ def main():
         # follows the user's (ADR 0034); never the developer's.
         if "home" in scenario:
             command += ["--trash"]
+    # Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): the session started in it, as
+    # oxyos-session reads oxyos.safe-mode=1 on the kernel's command line.
+    if scenario.get("safe_mode"):
+        command += ["--safe-mode"]
     if scenario.get("companion"):
         # A second application started once the first's window is shown (ADR 0035): the other side
         # of a drag between applications, its report the application's with ".companion".
@@ -5590,10 +5792,12 @@ def main():
             [path for path in env.get("VK_ADD_DRIVER_FILES", "").split(os.pathsep) if path]
             + vulkan_driver_folders(env))
     # What applications keep (their data and cache directories, application.h) is the run's own,
-    # never the user's; a scenario's `app_data` is there before the application starts.
-    for kept in ("xdg-data", "xdg-cache"):
+    # never the user's; a scenario's `app_data` is there before the application starts. So is the
+    # session's state (the crash reports it writes, docs/adr/0061).
+    for kept in ("xdg-data", "xdg-cache", "xdg-state"):
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
+    env["XDG_STATE_HOME"] = str(out / "xdg-state")
     env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache else out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
@@ -5674,6 +5878,7 @@ def main():
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
+        env["XDG_STATE_HOME"] = str(home_root / ".local/state")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
     else:
@@ -5687,6 +5892,12 @@ def main():
         (empty / ".config").mkdir(parents=True)
         env["HOME"] = str(empty)
         env["XDG_CONFIG_HOME"] = str(empty / ".config")
+    stop_backups = None
+    env.pop("OXYOS_BACKUPD_SOCKET", None)
+    if "backups" in scenario:
+        # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
+        backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
+        env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
@@ -5731,6 +5942,8 @@ def main():
             stop_bluetooth()
         if stop_power is not None:
             stop_power()
+        if stop_backups is not None:
+            stop_backups()
     if recorder is not None:
         recorder.stop()
     (out / "director.log").write_text(run.stdout + run.stderr)

@@ -84,7 +84,6 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Add an Oxy Account",
             "Sign in",
             "Email or username",
             "Scan with Commons to sign in",
@@ -108,14 +107,13 @@
       "expect": {
         "accounts_asked": [],
         "oxy_requests": [
-          "POST /auth/session/claim 200",
-          "GET /users/me/sign-in-methods 200"
+          "POST /auth/session/claim 200"
         ],
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Choose a PIN for this computer",
-            "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it."
+            "Create a PIN",
+            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it."
           ],
           "absent": [
             "Email or username",
@@ -141,7 +139,7 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Choose a PIN for this computer",
+            "Create a PIN",
             "A PIN is 4 to 16 digits, and not your password."
           ],
           "focus_input": "login-setup-pin-password"
@@ -160,7 +158,7 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Enter the PIN again"
+            "Enter Your PIN Again"
           ],
           "focus_input": "login-setup-pin-again-password"
         }
@@ -178,8 +176,8 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Choose a PIN for this computer",
-            "The PINs don't match. Choose it again."
+            "Create a PIN",
+            "Those PINs don't match. Create it again."
           ],
           "focus_input": "login-setup-pin-password"
         }
@@ -199,7 +197,7 @@
         ],
         "in_shell": {
           "texts": [
-            "Enter the PIN again"
+            "Enter Your PIN Again"
           ],
           "focus_input": "login-setup-pin-again-password",
           "never": [
@@ -209,90 +207,73 @@
       }
     },
     {
-      "name": "typed again the same: the account set up with its PIN alone, never asked its password; listed and chosen, its PIN's field focused",
+      "name": "typed again: the look's page",
       "do": [
         "keyboard",
         "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
-        "accounts_asked": [
-          "enroll: enrolled"
-        ],
+        "accounts_asked": [],
         "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Continue"
+          ]
+        },
         "never": [
           "482916",
           "played password 1"
-        ],
+        ]
+      }
+    },
+    {
+      "name": "Light chosen",
+      "do": [
+        "press_named",
+        "Light"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
         "in_shell": {
           "texts": [
-            "Bea Ramos",
-            "Ada Lovelace",
-            "Add Account"
-          ],
-          "absent": [
-            "Add an Oxy Account",
-            "Enter Ada Lovelace's password",
-            "Use Password"
-          ],
-          "focus_input": "login-pin-password",
-          "never": [
-            "played password 1",
-            "482916"
+            "Choose Your Look"
           ]
         }
       }
     },
     {
-      "name": "a wrong PIN: checked by the accounts' service, never online, and said",
+      "name": "Continue pressed",
       "do": [
-        "keyboard",
-        "000000\n"
+        "press_named",
+        "Continue"
       ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
-          "verifyPin: rejected"
-        ],
-        "delivered": {},
-        "shell": {
-          "locked": true,
-          "signed_in": false
-        },
-        "in_shell": {
-          "texts": [
-            "Incorrect PIN"
-          ],
-          "focus_input": "login-pin-password"
-        }
+          "appearance: light",
+          "enroll: enrolled",
+          "verifyPin: accepted"
+        ]
       }
     },
     {
-      "name": "its PIN signs it in",
+      "name": "Continue: the account set up with what was chosen, its stages shown, and signed in with it at once, never asked again",
       "do": [
-        "keyboard",
-        "482916\n"
+        "wait",
+        2500
       ],
       "allow_unchanged": true,
       "expect": {
-        "accounts_asked": [
-          "verifyPin: accepted"
-        ],
         "shell": {
           "locked": true,
           "signed_in": true
         },
-        "never": [
-          "482916",
-          "played password 1",
-          "oxyos.correcta"
-        ],
-        "in_shell": {
-          "never": [
-            "482916",
-            "played password 1",
-            "oxyos.correcta"
-          ]
+        "in_shell": {},
+        "oxy_requests_times": {
+          "POST /auth/session/create 200": 0
         }
       }
     }

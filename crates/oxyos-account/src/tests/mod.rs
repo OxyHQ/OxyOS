@@ -13,14 +13,17 @@ mod keychain;
 #[cfg(feature = "local")]
 mod pin;
 mod platform;
+#[cfg(feature = "local")]
+mod qr;
+mod restart;
 mod session;
 mod setup;
 mod store;
 mod users;
 
 use crate::api::{
-    ApiError, AppToken, Attestation, DeviceCredential, OxyApi, PlatformClient, Profile, SignInStep,
-    SignedIn,
+    ApiError, AppToken, Attestation, DeviceCredential, OxyApi, PlatformClient, Profile,
+    RedemptionKey, SignInStep, SignedIn,
 };
 use crate::users::{UnixUser, Users, UsersError};
 use crate::{AccountId, Secret, UserName};
@@ -101,6 +104,26 @@ pub(crate) enum Call {
     SignOut,
 }
 
+/// What goes wrong with the next redemption on its way to Oxy or back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Hiccup {
+    /// It never reaches Oxy.
+    Unreachable,
+    /// Oxy fails for a moment (503) before redeeming anything.
+    Unavailable,
+    /// Oxy redeems it, and its answer is lost on the way back.
+    AnswerLost,
+}
+
+/// A redemption Oxy made (ADR 0058 R7): the proof it spent, the key it was made with, and the
+/// platform credential it issued last.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Redemption {
+    pub(crate) proof: String,
+    pub(crate) key: String,
+    pub(crate) issued: String,
+}
+
 /// Oxy, as its contracts describe it, for one account on one device.
 pub(crate) struct FakeApi {
     /// From this call on, Oxy cannot be reached.
@@ -129,6 +152,12 @@ pub(crate) struct FakeApi {
     pub(crate) minted: Mutex<Vec<Attestation>>,
     /// The platform clients sign-ins named.
     pub(crate) platforms: Mutex<Vec<Option<PlatformClient>>>,
+    /// What goes wrong with each next redemption, in order.
+    pub(crate) hiccups: Mutex<std::collections::VecDeque<Hiccup>>,
+    /// The redemptions made, each repeatable with its key.
+    pub(crate) redemptions: Mutex<Vec<Redemption>>,
+    /// The keys redemptions were asked with, in order.
+    pub(crate) keys: Mutex<Vec<String>>,
 }
 
 impl Default for FakeApi {
@@ -148,6 +177,9 @@ impl Default for FakeApi {
             token_life: 300,
             minted: Mutex::new(Vec::new()),
             platforms: Mutex::new(Vec::new()),
+            hiccups: Mutex::new(std::collections::VecDeque::new()),
+            redemptions: Mutex::new(Vec::new()),
+            keys: Mutex::new(Vec::new()),
         }
     }
 }
@@ -178,6 +210,54 @@ impl FakeApi {
                 .unwrap()
                 .iter()
                 .any(|secret| secret == device.device_secret.expose())
+    }
+
+    /// The device's live holder secrets.
+    pub(crate) fn live(&self) -> Vec<String> {
+        self.secrets.lock().unwrap().clone()
+    }
+
+    /// The next redemptions go wrong so, in order.
+    pub(crate) fn hiccup(&self, hiccups: &[Hiccup]) {
+        self.hiccups.lock().unwrap().extend(hiccups.iter().copied());
+    }
+
+    /// The proof redeemed for `platform`, or redeemed again with the key it was redeemed with:
+    /// the platform credential it issues, the one a redemption before issued revoked.
+    fn redeem(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+        key: &RedemptionKey,
+    ) -> Option<SignedIn> {
+        if !self.on_device.contains(&ACCOUNT) {
+            return None;
+        }
+        if self.proven(device) {
+            let signed_in = self.signed_in(device, Some(platform));
+            self.redemptions.lock().unwrap().push(Redemption {
+                proof: device.device_secret.expose().into(),
+                key: key.expose().into(),
+                issued: signed_in.device_secret.as_ref()?.expose().into(),
+            });
+            return Some(signed_in);
+        }
+        let mut redemptions = self.redemptions.lock().unwrap();
+        let redemption = redemptions.iter_mut().find(|redemption| {
+            device.device_id == DEVICE
+                && redemption.proof == device.device_secret.expose()
+                && redemption.key == key.expose()
+        })?;
+        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
+        let mut secrets = self.secrets.lock().unwrap();
+        secrets.retain(|secret| *secret != redemption.issued);
+        secrets.push(issued.clone());
+        redemption.issued = issued.clone();
+        Some(SignedIn {
+            user_id: ACCOUNT.into(),
+            device_id: DEVICE.into(),
+            device_secret: Some(Secret::new(issued)),
+        })
     }
 
     pub(crate) fn revoke(&self) {
@@ -280,19 +360,38 @@ impl OxyApi for FakeApi {
         &self,
         device: &DeviceCredential,
         platform: &PlatformClient,
+        key: &RedemptionKey,
     ) -> Result<SignedIn, ApiError> {
         self.call(Call::PlatformDevice)?;
+        self.keys.lock().unwrap().push(key.expose().into());
+        let hiccup = self.hiccups.lock().unwrap().pop_front();
+        match hiccup {
+            Some(Hiccup::Unreachable) => {
+                return Err(ApiError::Offline("connection timed out".into()))
+            }
+            Some(Hiccup::Unavailable) => {
+                return Err(ApiError::Refused {
+                    status: 503,
+                    code: None,
+                })
+            }
+            _ => {}
+        }
         self.platforms.lock().unwrap().push(Some(platform.clone()));
         if self.locked {
             return Err(ApiError::Locked {
                 retry_after: Some(900),
             });
         }
-        // Redeemable once: the proof is the handed-over secret, still live.
-        if !self.proven(device) || !self.on_device.contains(&ACCOUNT) {
-            return Err(ApiError::InvalidDeviceSecret);
+        // Redeemable once (the proof is the handed-over secret, still live), or again with the
+        // key it was redeemed with.
+        let signed_in = self
+            .redeem(device, platform, key)
+            .ok_or(ApiError::InvalidDeviceSecret)?;
+        match hiccup {
+            Some(Hiccup::AnswerLost) => Err(ApiError::Offline("connection reset".into())),
+            _ => Ok(signed_in),
         }
-        Ok(self.signed_in(device, Some(platform)))
     }
 
     fn mint_app_token(
@@ -347,6 +446,7 @@ pub(crate) enum UserStep {
     Lock,
     EndSessions,
     MakeAdministrator,
+    SeedHome,
 }
 
 /// The machine's users, in memory: each user's entry and verifier (the password itself, as a
@@ -362,6 +462,8 @@ pub(crate) struct FakeUsers {
     /// The administrators' group's members.
     pub(crate) administrators: Mutex<BTreeSet<String>>,
     pub(crate) steps: Mutex<Vec<UserStep>>,
+    /// The files written into homes, by path.
+    pub(crate) seeded: Mutex<BTreeMap<PathBuf, String>>,
 }
 
 impl FakeUsers {
@@ -454,8 +556,13 @@ impl Users for FakeUsers {
 
     fn remove(&self, name: &UserName) -> Result<(), UsersError> {
         self.step(UserStep::Remove)?;
-        // userdel takes the user out of its groups.
+        // userdel takes the user out of its groups, and its home with it.
         self.administrators.lock().unwrap().remove(name.as_str());
+        let home = PathBuf::from(format!("/home/{name}"));
+        self.seeded
+            .lock()
+            .unwrap()
+            .retain(|path, _| !path.starts_with(&home));
         match self.users.lock().unwrap().remove(name.as_str()) {
             Some(_) => Ok(()),
             None => Err(UsersError::Missing),
@@ -490,6 +597,24 @@ impl Users for FakeUsers {
             .lock()
             .unwrap()
             .insert(name.as_str().into());
+        Ok(())
+    }
+
+    fn seed_home(&self, user: &UnixUser, file: &Path, contents: &[u8]) -> Result<(), UsersError> {
+        self.step(UserStep::SeedHome)?;
+        if !self
+            .users
+            .lock()
+            .unwrap()
+            .values()
+            .any(|(made, _)| made == user)
+        {
+            return Err(UsersError::Missing);
+        }
+        self.seeded.lock().unwrap().insert(
+            user.home.join(file),
+            String::from_utf8(contents.to_vec()).unwrap(),
+        );
         Ok(())
     }
 }

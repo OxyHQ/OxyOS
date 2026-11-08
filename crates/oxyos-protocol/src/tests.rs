@@ -927,6 +927,7 @@ fn events() -> Vec<Event> {
             serial: 0,
             size: 61_440,
         },
+        Event::SafeMode {},
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -1913,7 +1914,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         output: 1,
         index: 0,
         last: true,
-        text: PreeditText::new("horizon").unwrap(),
+        text: PreeditText::new("ocean").unwrap(),
     };
     assert_eq!(event_since(&wallpaper), 29);
     assert!(!write_event_for(&mut nothing, &wallpaper, 28).unwrap());
@@ -3155,4 +3156,17 @@ fn background_items_kinds_actions_and_statuses_are_closed_sets() {
         BackgroundStatus::from_raw(4),
         Some(BackgroundStatus::NotPermitted)
     );
+}
+
+#[test]
+fn version_36_safe_mode_is_only_version_36s() {
+    let event = Event::SafeMode {};
+    assert_eq!(event_since(&event), 36);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &event, 35).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &event, 36).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 35).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 36).unwrap(), event);
 }

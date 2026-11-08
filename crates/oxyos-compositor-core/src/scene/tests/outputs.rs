@@ -369,7 +369,7 @@ fn the_shell_is_told_what_each_output_shows_and_where_settings_is() {
         [
             (1, String::new()),
             (2, long.clone()),
-            (9, "horizon".to_owned()),
+            (9, "ocean".to_owned()),
         ]
         .into(),
     );

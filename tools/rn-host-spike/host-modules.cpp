@@ -1,7 +1,10 @@
 #include "host-modules.h"
 
+#include "crash-report.h"
+
 #include "files.h"
 #include "images.h"
+#include "system.h"
 #include "text.h"
 #include "websocket.h"
 
@@ -624,30 +627,45 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->unsupported({"setAccessibilityFocus"});
   } else if (name == "ExceptionsManager") {
-    auto report = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count > 0 && args[0].isObject()) {
-        auto data = args[0].asObject(rt);
-        std::cerr << "[js exception] " << text(rt, data.getProperty(rt, "message")) << "\n";
-        auto stack = data.getProperty(rt, "stack");
-        if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
-          auto frames = stack.asObject(rt).asArray(rt);
-          for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
-            auto frame = frames.getValueAtIndex(rt, i);
-            if (!frame.isObject()) continue;
-            auto f = frame.asObject(rt);
-            std::cerr << "    at " << text(rt, f.getProperty(rt, "methodName")) << " ("
-                      << text(rt, f.getProperty(rt, "file")) << ":" << text(rt, f.getProperty(rt, "lineNumber"))
-                      << ")\n";
-          }
+    // An exception React Native reports: said in the log; a fatal one (React Native's `isFatal`,
+    // or `reportFatalException`) ends the application with its report (crash-report.h), as a
+    // release build of React Native ends on Android and iOS.
+    auto said = [](jsi::Runtime& rt, const jsi::Value& message, const jsi::Value& stack) {
+      std::string text_ = text(rt, message) + "\n";
+      if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
+        auto frames = stack.asObject(rt).asArray(rt);
+        for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
+          auto frame = frames.getValueAtIndex(rt, i);
+          if (!frame.isObject()) continue;
+          auto f = frame.asObject(rt);
+          text_ += "    at " + text(rt, f.getProperty(rt, "methodName")) + " (" + text(rt, f.getProperty(rt, "file")) +
+                   ":" + text(rt, f.getProperty(rt, "lineNumber")) + ")\n";
         }
-      } else if (count > 0) {
-        std::cerr << "[js exception] " << text(rt, args[0]) << "\n";
       }
-      return jsi::Value::undefined();
+      return text_;
     };
-    module->method("reportException", report);
-    module->method("reportFatalException", report);
-    module->method("reportSoftException", report);
+    auto report = [said](bool fatal) {
+      return [said, fatal](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        std::string text_;
+        bool isFatal = fatal;
+        if (count > 0 && args[0].isObject()) {
+          // reportException(data): its message, stack and isFatal.
+          auto data = args[0].asObject(rt);
+          text_ = said(rt, data.getProperty(rt, "message"), data.getProperty(rt, "stack"));
+          auto fatalData = data.getProperty(rt, "isFatal");
+          isFatal = isFatal || (fatalData.isBool() && fatalData.getBool());
+        } else if (count > 0) {
+          // reportFatalException(message, stack, id) and reportSoftException's.
+          text_ = count > 1 ? said(rt, args[0], args[1]) : said(rt, args[0], jsi::Value::undefined());
+        }
+        if (isFatal) oxyos::endForFatalJavaScriptError(text_);
+        std::cerr << "[js exception] " << text_;
+        return jsi::Value::undefined();
+      };
+    };
+    module->method("reportException", report(false));
+    module->method("reportFatalException", report(true));
+    module->method("reportSoftException", report(false));
     module->unsupported({"updateExceptionMessage", "dismissRedbox"});
   } else if (name == "DeviceEventManager") {
     module->unsupported({"invokeDefaultBackPressHandler"});
@@ -1763,6 +1781,9 @@ std::shared_ptr<TurboModule> createHostModule(
     // `as` is "text"); `OxyOSFilesEvent` says what watches saw and transfers' progress. Absent
     // elsewhere, so a call fails visibly.
     if (!services.files) return nullptr;
+    // Whether the person's backups may be asked (docs/adr/0059-backups.mdx): the adapter's
+    // `files.backups` is present only then.
+    module->constants(folly::dynamic::object("backups", LaunchCapabilities::current().allows("files")));
     auto asText = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
       return count > at && args[at].isString() && args[at].asString(rt).utf8(rt) == "text";
     };
@@ -1964,11 +1985,13 @@ std::shared_ptr<TurboModule> createHostModule(
     //   for the SDK's sign-in, while the application's window is the active one.
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
     //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
-    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
-    //   person gives the password again (null: the account has none) and chooses a PIN for this
-    //   computer (`enroll(password, pin)`; null for none), then `secondFactor(code)` while asked,
-    //   each a promise of the service's answer ({failed} when it could not be asked);
-    //   `endEnrollment()` forgets it all. The secrets go to the service and are forgotten here;
+    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password, pin,
+    //   appearance)` with the password (null: none), the PIN chosen for this computer (null: none)
+    //   and the new account's appearance, then `secondFactor(code)` while asked and
+    //   `retryEnrollment()` after a {failed} answer (the sign-in the service kept), each a promise
+    //   of the service's answer ({failed} when it could not be asked), its stages told as
+    //   `OxyOSAccountSetupStage` events as the service reaches them; `endEnrollment()` forgets it
+    //   all. The secrets go to the service and are forgotten here;
     //   nothing of them is logged.
     // - The account's local sign-in (docs/adr/0020-oxy-account-login.mdx decision 2):
     //   `localSignIn()`, a promise of {pin: "none" | "set" | "locked", password} (Settings, and the
@@ -2103,7 +2126,17 @@ std::shared_ptr<TurboModule> createHostModule(
                                args[2].asString(rt).utf8(rt));
       return jsi::Value(true);
     });
-    module->method("enroll", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+    // A setup's stages as the service starts them, told as `OxyOSAccountSetupStage` ({stage}):
+    // the login screen's progress; nothing secret.
+    auto stages = [&services]() -> AccountSession::Stage {
+      return [&services](const std::string& stage) {
+        if (services.emit) services.emit("OxyOSAccountSetupStage", folly::dynamic::object("stage", stage));
+      };
+    };
+    // `enroll(password, pin, appearance)`: one of the password and the PIN at least (null: none),
+    // and the new account's appearance ("light", "dark", "auto"; null: none).
+    module->method("enroll", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value* args,
+                                                                       size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: only the login screen sets accounts up");
       bool hasPassword = count > 0 && args[0].isString();
       bool hasPin = count > 1 && args[1].isString();
@@ -2112,18 +2145,28 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       std::string password = hasPassword ? args[0].asString(rt).utf8(rt) : "";
       std::string pin = hasPin ? args[1].asString(rt).utf8(rt) : "";
-      return promise(rt, [session, settle, password = std::move(password),
-                          pin = std::move(pin)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().enroll(std::move(password), std::move(pin), settle(resolve, "setup", false));
+      std::string appearance = count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : "";
+      return promise(rt, [session, settle, stages, password = std::move(password), pin = std::move(pin),
+                          appearance = std::move(appearance)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().enroll(std::move(password), std::move(pin), std::move(appearance), stages(),
+                         settle(resolve, "setup", false));
       });
     });
-    module->method("secondFactor", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
-                                                                     size_t count) {
+    module->method("secondFactor", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value* args,
+                                                                             size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: only the login screen sets accounts up");
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: a code");
       std::string code = args[0].asString(rt).utf8(rt);
-      return promise(rt, [session, settle, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().secondFactor(std::move(code), settle(resolve, "setup", false));
+      return promise(rt, [session, settle, stages, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().secondFactor(std::move(code), stages(), settle(resolve, "setup", false));
+      });
+    });
+    // The setup again after a {failed} answer, with what the service kept: never a new sign-in.
+    module->method("retryEnrollment", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value*,
+                                                                                size_t) {
+      if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.retryEnrollment: only the login screen sets accounts up");
+      return promise(rt, [session, settle, stages](std::shared_ptr<jsi::Value> resolve) {
+        session().retry(stages(), settle(resolve, "setup", false));
       });
     });
     module->method("endEnrollment", [setup, session](jsi::Runtime&, const jsi::Value*, size_t) {
