@@ -103,11 +103,29 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi's page",
+   "do": [
+    "wait_named",
+    [
+     "Details of “LukeSkyRouter”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
     "texts": [
      "Known Networks",
      "LukeSkyRouter",
      "Oficina"
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -117,7 +135,12 @@
     "More for “Oficina”"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-known-Oficina-more": 1,
+     "touchEnd@wifi-known-Oficina-more": 1
+    }
+   }
   },
   {
    "name": "Forget This Network…",
@@ -126,7 +149,13 @@
     "Forget This Network…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-forget-Oficina": 1,
+     "touchEnd@wifi-forget-Oficina": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "Confirmed, saying its password goes",
@@ -142,7 +171,8 @@
     "texts": [
      "Forget Wi-Fi network “Oficina”?",
      "Your computer will no longer join this network, and its saved password will be removed."
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -152,7 +182,13 @@
     "Forget"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "polkit refuses it: said, and the daemon still has it with its password",
@@ -178,7 +214,8 @@
        "psk": "office pass"
       }
      ]
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -188,7 +225,12 @@
     "OK"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1
+    }
+   }
   },
   {
    "name": "The network joined, this person's own: its sheet",
@@ -197,7 +239,13 @@
     "Details of “LukeSkyRouter”"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-details": 1,
+     "touchEnd@wifi-details": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "Forget This Network… in the sheet",
@@ -209,7 +257,9 @@
     ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {}
+   }
   },
   {
    "name": "Forget This Network…",
@@ -218,7 +268,13 @@
     "Forget This Network…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-details-forget": 1,
+     "touchEnd@wifi-details-forget": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "Confirmed",
@@ -233,7 +289,8 @@
    "expect": {
     "texts": [
      "Forget Wi-Fi network “LukeSkyRouter”?"
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -243,7 +300,13 @@
     "Cancel"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "The sheet again",
@@ -266,7 +329,8 @@
        "ssid": "Oficina"
       }
      ]
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -276,7 +340,13 @@
     "Forget This Network…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-details-forget": 1,
+     "touchEnd@wifi-details-forget": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "Confirmed",
@@ -288,7 +358,9 @@
     ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {}
+   }
   },
   {
    "name": "Forget",
@@ -297,7 +369,12 @@
     "Forget"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1
+    }
+   }
   },
   {
    "name": "Forgotten: the daemon no longer has it nor its password, and the computer left it",
@@ -320,7 +397,8 @@
        "psk": "office pass"
       }
      ]
-    }
+    },
+    "react": {}
    }
   }
  ]

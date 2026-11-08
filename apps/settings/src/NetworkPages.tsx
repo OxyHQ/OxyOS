@@ -220,10 +220,11 @@ function NetworkSheet({
                   label={words.privateAddress}
                   value={chosen ?? ""}
                   items={PRIVATE_ADDRESS_CHOICES.map((mode) => ({ value: mode, label: words.privateModes[mode] }))}
-                  disabled={setting !== null}
+                  // Never disabled while the session sets it, so the keyboard comes back to it as
+                  // its choices close; a choice made meanwhile waits for none.
                   onChange={(value) => {
                     const mode = PRIVATE_ADDRESS_CHOICES.find((choice) => choice === value);
-                    if (mode && mode !== chosen) onChoose(known, mode);
+                    if (mode && mode !== chosen && setting === null) onChoose(known, mode);
                   }}
                   testID="wifi-private-address"
                 />

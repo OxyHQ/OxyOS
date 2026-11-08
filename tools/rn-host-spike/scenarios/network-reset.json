@@ -126,10 +126,28 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "react": {
+     "touchStart@settings-nav-network": 1,
+     "touchEnd@settings-nav-network": 1
+    }
+   }
+  },
+  {
+   "name": "Network's page",
+   "do": [
+    "wait_named",
+    [
+     "Reset Network Settings…",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
     "texts": [
      "Ethernet",
      "Reset Network Settings…"
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -139,7 +157,13 @@
     "Reset Network Settings…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@network-reset": 1,
+     "touchEnd@network-reset": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "The confirmation lists what goes, with their passwords, and what is kept and why",
@@ -184,7 +208,8 @@
        "name": "Wired connection 1"
       }
      ]
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -194,7 +219,12 @@
     "Cancel"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1
+    }
+   }
   },
   {
    "name": "Nothing removed",
@@ -226,7 +256,8 @@
       }
      ],
      "active": "LukeSkyRouter"
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -236,7 +267,13 @@
     "Reset Network Settings…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@network-reset": 1,
+     "touchEnd@network-reset": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "The confirmation",
@@ -248,7 +285,9 @@
     ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {}
+   }
   },
   {
    "name": "Reset",
@@ -257,7 +296,13 @@
     "Reset"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "Reset: said; the daemon keeps only the administrator's network, Ethernet's configuration and its own, no password of the person's; the computer left the network",
@@ -284,7 +329,8 @@
       }
      ],
      "active": null
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -294,10 +340,15 @@
     "OK"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1
+    }
+   }
   },
   {
-   "name": "Wi-Fi: Oficina alone is known",
+   "name": "Wi-Fi",
    "do": [
     "press",
     [
@@ -307,10 +358,38 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Oficina alone is known",
+   "do": [
+    "wait_named",
+    [
+     "More for “Oficina”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
     "texts": [
      "Known Networks",
      "Oficina"
-    ]
+    ],
+    "at_absent": {
+     "window": [
+      {
+       "name": "More for “Vecinos”"
+      },
+      {
+       "name": "More for “LukeSkyRouter”"
+      }
+     ]
+    },
+    "react": {}
    }
   }
  ]

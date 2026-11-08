@@ -95,10 +95,28 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi's page",
+   "do": [
+    "wait_named",
+    [
+     "Details of “LukeSkyRouter”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
     "texts": [
      "Known Networks",
      "Wi-Fi Diagnostics…"
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -112,7 +130,8 @@
     "network": {
      "probes": [],
      "connectivity_checks": 0
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -122,33 +141,34 @@
     "Wi-Fi Diagnostics…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-diagnostics": 1,
+     "touchEnd@wifi-diagnostics": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
    "name": "Run once as it opens: the link as the daemon has it, the router answering its three echoes, the internet not checked (no connectivity check set up), oxy.so resolved; each probe once",
    "do": [
-    "wait_named",
-    [
-     "DNS servers",
-     5000
-    ]
+    "wait",
+    2500
    ],
    "allow_unchanged": true,
    "expect": {
     "texts": [
-     "Connection",
      "LukeSkyRouter",
      "Good · 73%",
-     "36 · 5 GHz, 80 MHz",
-     "866 Mb/s",
-     "WPA2 Personal",
-     "A0:B1:C2:D3:E4:F5",
-     "F4:A4:75:12:34:56",
+     "Channel 36, 5 GHz, 80 MHz · 866 Mb/s · WPA2 Personal",
+     "Access point A0:B1:C2:D3:E4:F5 · Wi-Fi address F4:A4:75:12:34:56",
+     "Router 192.168.8.1",
      "Answers",
-     "3 of 3 answered · 1.2 ms",
-     "Not checked: no connectivity check is set up on this computer",
-     "Resolved oxy.so in 14 ms",
-     "192.168.8.1"
+     "3 of 3 answered in 1.2 ms",
+     "Not checked",
+     "No connectivity check is set up on this computer.",
+     "Resolved",
+     "oxy.so in 14 ms · Servers 192.168.8.1"
     ],
     "network": {
      "probes": [
@@ -156,7 +176,8 @@
       "resolve oxy.so"
      ],
      "connectivity_checks": 0
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -172,11 +193,12 @@
       "ping 192.168.8.1",
       "resolve oxy.so"
      ]
-    }
+    },
+    "react": {}
    }
   },
   {
-   "name": "The router stops answering echoes, still answering ARP; the resolver fails; a connectivity check set up finds a sign-in page",
+   "name": "The router stops answering echoes, still answering ARP",
    "do": [
     "network",
     {
@@ -187,10 +209,12 @@
     }
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {}
+   }
   },
   {
-   "name": "The resolver",
+   "name": "The resolver fails",
    "do": [
     "network",
     {
@@ -201,10 +225,12 @@
     }
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {}
+   }
   },
   {
-   "name": "The check",
+   "name": "A connectivity check set up finds a sign-in page",
    "do": [
     "network",
     {
@@ -215,7 +241,9 @@
     }
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {}
+   }
   },
   {
    "name": "Check Again",
@@ -224,28 +252,32 @@
     "Check Again"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-diagnostics-again": 1,
+     "touchEnd@wifi-diagnostics-again": 1
+    }
+   }
   },
   {
-   "name": "Said as measured: the router there but silent, a sign-in page, oxy.so not resolved; each probe once more",
+   "name": "Said as measured: the router there but silent, a sign-in page, oxy.so not resolved, no time made up; each probe once more, the neighbour table asked as no echo came back",
    "do": [
-    "wait_named",
-    [
-     "DNS servers",
-     5000
-    ]
+    "wait",
+    2500
    ],
    "allow_unchanged": true,
    "expect": {
     "texts": [
-     "Connected, but doesn't answer pings",
-     "0 of 3 answered",
-     "Couldn't resolve oxy.so",
-     "A sign-in page blocks the internet"
+     "Doesn't answer pings",
+     "0 of 3 answered · It answers for its address, but not to pings.",
+     "Sign-in required",
+     "A sign-in page blocks the internet.",
+     "Failed",
+     "oxy.so couldn't be resolved"
     ],
     "absent": [
      "1.2 ms",
-     "Resolved oxy.so"
+     "Resolved"
     ],
     "network": {
      "probes": [
@@ -256,7 +288,8 @@
       "resolve oxy.so"
      ],
      "connectivity_checks": 1
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -266,7 +299,12 @@
     "Done"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-diagnostics-done": 1,
+     "touchEnd@wifi-diagnostics-done": 1
+    }
+   }
   },
   {
    "name": "Closed: nothing runs",
@@ -288,7 +326,8 @@
       "resolve oxy.so"
      ],
      "connectivity_checks": 1
-    }
+    },
+    "react": {}
    }
   }
  ]

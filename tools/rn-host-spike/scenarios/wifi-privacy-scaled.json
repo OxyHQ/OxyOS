@@ -102,11 +102,29 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi's page",
+   "do": [
+    "wait_named",
+    [
+     "Details of “LukeSkyRouter”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
     "texts": [
      "Known Networks",
      "LukeSkyRouter",
      "Vecinos"
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -116,10 +134,16 @@
     "Details of “LukeSkyRouter”"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-details": 1,
+     "touchEnd@wifi-details": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
-   "name": "Its Private Wi-Fi address, Off (the daemon's default for a network saved before), the address in use (the card's own), that changing it rejoins, its addresses and Forget This Network…",
+   "name": "Its Wi-Fi part: the Private Wi-Fi address, Off (the daemon's default for a network saved before), the address in use (the card's own), that changing it rejoins, and Forget This Network…",
    "do": [
     "wait_named",
     [
@@ -135,50 +159,115 @@
      "Wi-Fi address",
      "F4:A4:75:12:34:56",
      "Changing it rejoins “LukeSkyRouter”.",
-     "192.168.8.133",
      "Forget This Network…"
     ],
     "network": {
      "address": "F4:A4:75:12:34:56",
      "attempts": []
-    }
+    },
+    "react": {}
    }
   },
   {
-   "name": "The private address's choices",
+   "name": "Tab: the sheet's parts, its Wi-Fi part chosen",
    "do": [
-    "press_named",
-    "Private Wi-Fi address"
-   ],
-   "allow_unchanged": true,
-   "expect": {}
-  },
-  {
-   "name": "Off, Fixed and Rotating",
-   "do": [
-    "wait_named",
+    "key",
     [
-     "Rotating",
-     5000
+     15
     ]
    ],
    "allow_unchanged": true,
    "expect": {
-    "texts": [
-     "Off",
-     "Fixed",
-     "Rotating"
-    ]
+    "keyboard_focus": {
+     "target": "wifi-details-tab-wifi",
+     "ring": true
+    },
+    "react": {
+     "focus@wifi-details-tab-wifi": 1
+    }
    }
   },
   {
-   "name": "Fixed chosen",
+   "name": "Tab: the private address",
    "do": [
-    "press_named",
-    "Fixed"
+    "key",
+    [
+     15
+    ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "blur@wifi-details-tab-wifi": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
+  },
+  {
+   "name": "Space: its choices",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Off",
+     "ring": true
+    },
+    "react": {
+     "click@Private Wi-Fi address": 1,
+     "blur@Private Wi-Fi address": 1,
+     "focus@Off": 1,
+     "show@wifi-private": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Fixed",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Fixed",
+     "ring": true
+    },
+    "react": {
+     "blur@Off": 1,
+     "focus@Fixed": 1
+    }
+   }
+  },
+  {
+   "name": "Space: Fixed chosen, the keyboard back on the private address",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "click@Fixed": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
   },
   {
    "name": "Set (`stable`, its password kept) and joined again once with an address of the daemon's making, shown",
@@ -212,38 +301,91 @@
        "address": "62:37:67:8C:C4:FA"
       }
      ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Space: the choices again",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Off",
+     "ring": true
+    },
+    "react": {
+     "click@Private Wi-Fi address": 1,
+     "blur@Private Wi-Fi address": 1,
+     "focus@Off": 1,
+     "show@wifi-private": 1
     }
    }
   },
   {
-   "name": "The choices again",
+   "name": "Tab: Fixed",
    "do": [
-    "press_named",
-    "Private Wi-Fi address"
-   ],
-   "allow_unchanged": true,
-   "expect": {}
-  },
-  {
-   "name": "Rotating",
-   "do": [
-    "wait_named",
+    "key",
     [
-     "Rotating",
-     5000
+     15
     ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "keyboard_focus": {
+     "target": "Fixed",
+     "ring": true
+    },
+    "react": {
+     "blur@Off": 1,
+     "focus@Fixed": 1
+    }
+   }
   },
   {
-   "name": "Rotating chosen",
+   "name": "Tab: Rotating",
    "do": [
-    "press_named",
-    "Rotating"
+    "key",
+    [
+     15
+    ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "keyboard_focus": {
+     "target": "Rotating",
+     "ring": true
+    },
+    "react": {
+     "blur@Fixed": 1,
+     "focus@Rotating": 1
+    }
+   }
+  },
+  {
+   "name": "Space: Rotating chosen",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "click@Rotating": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
   },
   {
    "name": "Set (its stable-id the connection and the boot) and joined again once with another address",
@@ -283,6 +425,26 @@
        "address": "42:38:C4:B9:53:66"
       }
      ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "TCP/IP: its addresses",
+   "do": [
+    "press_named",
+    "TCP/IP"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "192.168.8.133",
+     "255.255.255.0"
+    ],
+    "react": {
+     "blur@Private Wi-Fi address": 1,
+     "touchStart@wifi-details-tab-tcpip": 1,
+     "touchEnd@wifi-details-tab-tcpip": 1
     }
    }
   },
@@ -293,7 +455,12 @@
     "OK"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-details-ok": 1,
+     "touchEnd@wifi-details-ok": 1
+    }
+   }
   },
   {
    "name": "Closed",
@@ -305,7 +472,8 @@
    "expect": {
     "absent": [
      "Private Wi-Fi address"
-    ]
+    ],
+    "react": {}
    }
   },
   {
@@ -315,7 +483,12 @@
     "More for “Vecinos”"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-known-Vecinos-more": 1,
+     "touchEnd@wifi-known-Vecinos-more": 1
+    }
+   }
   },
   {
    "name": "Network Settings…",
@@ -324,10 +497,16 @@
     "Network Settings…"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "touchStart@wifi-settings-Vecinos": 1,
+     "touchEnd@wifi-settings-Vecinos": 1,
+     "show@settings-page": 1
+    }
+   }
   },
   {
-   "name": "Its sheet: Fixed, as set; not joined, so no address in use and nothing said of rejoining",
+   "name": "Its sheet: Fixed, as set; not joined, so no tabs, no address in use and nothing said of rejoining",
    "do": [
     "wait_named",
     [
@@ -343,39 +522,72 @@
     ],
     "absent": [
      "Changing it rejoins",
-     "Wi-Fi address"
-    ]
+     "42:38:C4:B9:53:66",
+     "TCP/IP"
+    ],
+    "react": {}
    }
   },
   {
-   "name": "The choices",
+   "name": "Tab: the private address",
    "do": [
-    "press_named",
-    "Private Wi-Fi address"
-   ],
-   "allow_unchanged": true,
-   "expect": {}
-  },
-  {
-   "name": "Off",
-   "do": [
-    "wait_named",
+    "key",
     [
-     "Off",
-     5000
+     15
     ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "focus@Private Wi-Fi address": 1
+    }
+   }
   },
   {
-   "name": "Off chosen",
+   "name": "Space: its choices",
    "do": [
-    "press_named",
-    "Off"
+    "key",
+    [
+     57
+    ]
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "keyboard_focus": {
+     "target": "Off",
+     "ring": true
+    },
+    "react": {
+     "click@Private Wi-Fi address": 1,
+     "blur@Private Wi-Fi address": 1,
+     "focus@Off": 1,
+     "show@wifi-private": 1
+    }
+   }
+  },
+  {
+   "name": "Space: Off chosen",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "click@Off": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
   },
   {
    "name": "Set (`permanent`) and nothing joined: the network joined keeps its address",
@@ -407,7 +619,8 @@
        "ssid": "LukeSkyRouter"
       }
      ]
-    }
+    },
+    "react": {}
    }
   },
   {
@@ -417,7 +630,13 @@
     "OK"
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "react": {
+     "blur@Private Wi-Fi address": 1,
+     "touchStart@wifi-details-ok": 1,
+     "touchEnd@wifi-details-ok": 1
+    }
+   }
   }
  ]
 }
