@@ -208,6 +208,15 @@ pub trait OxyApi {
         device: &DeviceCredential,
         platform: Option<&PlatformClient>,
     ) -> Result<SignedIn, ApiError>;
+    /// The platform's own sign-in from the device's proof alone (Oxy ADR 0058, the setup's QR
+    /// route): the holder credential a QR's claim issued the setup client, redeemed once, within
+    /// ten minutes of the claim, for the platform credential, the proof retired in the same
+    /// transaction. Every proof that cannot be redeemed is one refusal, `InvalidDeviceSecret`.
+    fn platform_device_sign_in(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+    ) -> Result<SignedIn, ApiError>;
     /// A short token for one application, minted with the platform credential, pinned to
     /// `account`.
     fn mint_app_token(

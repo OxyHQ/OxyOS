@@ -95,6 +95,18 @@ fn chunks(text: &str) -> Vec<PreeditText> {
         .collect()
 }
 
+/// Whether a client with `grants` changes the list `kind` and is told it: the dock, the shell;
+/// Open at Login, the shell (the dock's menu) and Settings (Login Items & Extensions,
+/// docs/adr/0060-login-items-and-background-activity.mdx), one list either changes; whose
+/// notifications are silent, Settings (docs/adr/0044-system-sounds.mdx).
+fn list_holder(grants: &super::Grants, kind: ApplicationListKind) -> bool {
+    match kind {
+        ApplicationListKind::Dock => grants.shell,
+        ApplicationListKind::OpenAtLogin => grants.shell || grants.settings,
+        ApplicationListKind::NotificationSoundsOff => grants.settings,
+    }
+}
+
 impl Scene {
     /// The protocol version `client` speaks (ADR 0033): only a client of version 8 or newer is
     /// sent a Ping, and so only one can be not responding.
@@ -219,13 +231,11 @@ impl Scene {
         last: bool,
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
-        // The dock's lists are the shell's; whose notifications are silent, Settings'
+        // The dock is the shell's; Open at Login both the shell's (the dock's menu) and Settings'
+        // (Login Items & Extensions, docs/adr/0060-login-items-and-background-activity.mdx): one
+        // list, changed by either; whose notifications are silent, Settings'
         // (docs/adr/0044-system-sounds.mdx).
-        let grants = &self.clients[&client];
-        let allowed = match list {
-            ApplicationListKind::Dock | ApplicationListKind::OpenAtLogin => grants.shell,
-            ApplicationListKind::NotificationSoundsOff => grants.settings,
-        };
+        let allowed = list_holder(&self.clients[&client], list);
         if !allowed {
             return Err(ErrorCode::Unauthorized);
         }
@@ -271,14 +281,11 @@ impl Scene {
         }
     }
 
-    /// Who is told a list: the dock's, the shells; whose notifications are silent, Settings.
+    /// Who is told a list: those who may change it ([`list_holder`]).
     fn list_clients(&self, kind: ApplicationListKind) -> Vec<ClientId> {
         self.clients
             .iter()
-            .filter(|(_, grants)| match kind {
-                ApplicationListKind::Dock | ApplicationListKind::OpenAtLogin => grants.shell,
-                ApplicationListKind::NotificationSoundsOff => grants.settings,
-            })
+            .filter(|(_, grants)| list_holder(grants, kind))
             .map(|(client, _)| *client)
             .collect()
     }
@@ -369,6 +376,21 @@ impl Scene {
             with_input,
         });
         Ok(())
+    }
+
+    /// A URL the session's own notification opens, pressed in `shell` citing an input it received
+    /// (docs/adr/0060-login-items-and-background-activity.mdx): asked as the shell's own, with
+    /// serial 0, which answers no request of the shell's.
+    pub(super) fn open_url_for_shell(&mut self, shell: ClientId, url: String) {
+        if self.dock.urls.len() >= MAX_PENDING {
+            return;
+        }
+        self.dock.urls.push(UrlRequest {
+            client: shell,
+            serial: 0,
+            url,
+            with_input: true,
+        });
     }
 
     /// The URLs the shell (and applications, the platform's Settings) asked to open since the last

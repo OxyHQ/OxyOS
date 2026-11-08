@@ -170,6 +170,10 @@ fn what_is_written_reads_back_the_same() {
         ("ui_sounds", "false"),
         ("trackpad_natural_scrolling", "false"),
         ("mouse_natural_scrolling", "true"),
+        ("mission_control_swipe", "four"),
+        ("app_expose_swipe", "off"),
+        ("desktops_swipe", "off"),
+        ("launchpad_pinch", "false"),
         ("wallpaper", "horizon/night"),
         ("wallpaper_all_desktops", "false"),
         ("lock_after", "15"),
@@ -499,6 +503,73 @@ fn natural_scrolling_is_on_for_a_trackpad_and_off_for_a_mouse_by_default() {
     let bad =
         Preferences::parse("trackpad_natural_scrolling = no\nmouse_natural_scrolling = yes\n");
     assert!(bad.trackpad_natural_scrolling && !bad.mouse_natural_scrolling);
+}
+
+#[test]
+fn the_trackpads_gestures_are_a_macs_and_mission_control_and_app_expose_share_their_fingers() {
+    let mut preferences = Preferences::default();
+    // Three fingers up, down and across, and the pinch, as a Mac's trackpad ships them.
+    for (key, value) in [
+        ("mission_control_swipe", "three"),
+        ("app_expose_swipe", "three"),
+        ("desktops_swipe", "three"),
+        ("launchpad_pinch", "true"),
+    ] {
+        assert_eq!(preferences.get(key).as_deref(), Some(value), "{key}");
+    }
+    // Three, four or off; anything else refused with nothing changed.
+    for key in [
+        "mission_control_swipe",
+        "app_expose_swipe",
+        "desktops_swipe",
+    ] {
+        for bad in ["3", "two", "", "Four", "true"] {
+            assert_eq!(preferences.set(key, bad), Err(Refused::BadValue), "{key}");
+        }
+    }
+    assert_eq!(
+        preferences.set("launchpad_pinch", "on"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(preferences, Preferences::default());
+    // Four for Mission Control is four for App Exposé too, as a Mac's popups go together; the
+    // desktops' fingers are their own.
+    preferences.set("mission_control_swipe", "four").unwrap();
+    assert_eq!(preferences.get("app_expose_swipe").as_deref(), Some("four"));
+    assert_eq!(preferences.get("desktops_swipe").as_deref(), Some("three"));
+    // App Exposé off leaves Mission Control; turned on again with three, both are three.
+    preferences.set("app_expose_swipe", "off").unwrap();
+    assert_eq!(
+        preferences.get("mission_control_swipe").as_deref(),
+        Some("four")
+    );
+    assert!(!preferences.trackpad_gestures.app_expose);
+    // Mission Control's fingers changed while App Exposé is off leave it off.
+    preferences.set("mission_control_swipe", "three").unwrap();
+    assert_eq!(preferences.get("app_expose_swipe").as_deref(), Some("off"));
+    preferences.set("app_expose_swipe", "four").unwrap();
+    assert_eq!(
+        preferences.get("mission_control_swipe").as_deref(),
+        Some("four")
+    );
+    preferences.set("desktops_swipe", "off").unwrap();
+    preferences.set("launchpad_pinch", "false").unwrap();
+    assert_eq!(
+        preferences.trackpad_gestures,
+        TrackpadGestures {
+            vertical: SwipeFingers::Four,
+            mission_control: true,
+            app_expose: true,
+            desktops: None,
+            launchpad: false,
+        }
+    );
+    // Kept in the file and read back; a bad line keeps the default.
+    assert_eq!(Preferences::parse(&preferences.to_text()), preferences);
+    let bad = Preferences::parse("desktops_swipe = 4\nlaunchpad_pinch = no\n");
+    assert_eq!(bad.trackpad_gestures, TrackpadGestures::default());
+    assert_eq!(SwipeFingers::Three.fewest(), 3);
+    assert_eq!(SwipeFingers::Four.fewest(), 4);
 }
 
 #[test]

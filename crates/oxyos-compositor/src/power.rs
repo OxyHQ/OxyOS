@@ -9,7 +9,9 @@
 //!   compositor does them. Each is recorded in the history as it changes, and an application's use
 //!   is sampled with it. Nothing here wakes on a clock.
 //! - **What it asks of the system,** on a thread of its own with a connection of its own (every
-//!   call may wait): UPower's details and its charge threshold, power-profiles-daemon's hold of
+//!   call may wait): UPower's details and its charge threshold (kept in effect as the session
+//!   starts and each time the machine wakes: where UPower says it is on and the battery has
+//!   forgotten it, UPower is asked to write its own choice again, `upower::keep_charge_limit`), power-profiles-daemon's hold of
 //!   `power-saver`, logind's sleep, and the applications' processes in `/proc`. A second thread
 //!   follows power-profiles-daemon, so a hold lost with it is taken again.
 //! - **Who may ask** (`SystemRequest`, the session's vocabulary): the shell (`shell`) and Settings
@@ -73,6 +75,9 @@ fn ours(text: &str) -> bool {
 enum Job {
     /// UPower's details, its critical action and whether power-profiles-daemon is there.
     Details,
+    /// The same, UPower's charge limit kept in effect first (the session starting, the machine
+    /// awake again).
+    KeepAndDetails,
     ChargeLimit {
         client: ClientId,
         serial: u32,
@@ -190,6 +195,22 @@ impl Worker {
     fn run(&mut self, job: Job, back: &Back) {
         match job {
             Job::Details => back.send(self.details()),
+            Job::KeepAndDetails => {
+                if let Some(bus) = self.bus() {
+                    match upower::keep_charge_limit(bus) {
+                        Ok(true) => eprintln!(
+                            "[power] the battery had forgotten the charge limit: UPower wrote it again"
+                        ),
+                        Ok(false) => {}
+                        // Said as it is: the limit is not in effect, and the state says so.
+                        Err(failure) => eprintln!(
+                            "[power] the battery forgot the charge limit and UPower could not write it again: {}",
+                            failure.name()
+                        ),
+                    }
+                }
+                back.send(self.details());
+            }
             Job::ChargeLimit {
                 client,
                 serial,
@@ -473,7 +494,7 @@ impl Power {
             self.started = true;
             self.history.record(now, Event::Session(true));
             self.history.record(now, Event::Display(true));
-            self.send(Job::Details);
+            self.send(Job::KeepAndDetails);
         }
         self.spanish = oxyos_preferences::session_locale(
             preferences,
@@ -499,6 +520,11 @@ impl Power {
             self.history.record(now, Event::Asleep(self.sleeping));
             if !self.sleeping && !self.displays_off {
                 self.history.record(now, Event::Display(true));
+            }
+            // Awake: UPower writes nothing as the machine wakes, and firmware may have forgotten
+            // the thresholds while it slept.
+            if !self.sleeping {
+                self.send(Job::KeepAndDetails);
             }
         }
         if compositor.take_sleep() {

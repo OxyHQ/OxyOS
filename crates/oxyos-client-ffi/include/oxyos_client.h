@@ -93,6 +93,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CAPABILITY_RESULT 163
 /* Search (docs/adr/0051-search.mdx, protocol version 31). */
 #define OXYOS_EVENT_SEARCH_TEXT 164
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33). */
+#define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -132,10 +135,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_INTENT_TOGGLE 0
 #define OXYOS_SHORTCUT_INTENT_OPEN 1
 #define OXYOS_SHORTCUT_INTENT_CLOSE 2
-/* Which view a touchpad's vertical swipe drives a shell surface is (oxyos_client_set_gesture_overlay). */
+/* Which view a touchpad's gesture drives a shell surface is (oxyos_client_set_gesture_overlay):
+ * Mission Control's and App Exposé's (swiped up and down), Launchpad's (pinched, version 33). */
 #define OXYOS_GESTURE_OVERLAY_NONE 0
 #define OXYOS_GESTURE_OVERLAY_MISSION_CONTROL 1
 #define OXYOS_GESTURE_OVERLAY_APP_EXPOSE 2
+#define OXYOS_GESTURE_OVERLAY_LAUNCHPAD 3
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
@@ -152,6 +157,18 @@ typedef struct OxyOSClient OxyOSClient;
 /* Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
  * changed by it; a compositor of version 23 or later. */
 #define OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF 3
+/* An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33), as a Mac's SMAppService: itself opened at login, or its process kept
+ * running once its window closes; what it asks of one; and how one stands. */
+#define OXYOS_BACKGROUND_ITEM_LOGIN_ITEM 1
+#define OXYOS_BACKGROUND_ITEM_BACKGROUND 2
+#define OXYOS_BACKGROUND_ITEM_STATUS 1
+#define OXYOS_BACKGROUND_ITEM_REGISTER 2
+#define OXYOS_BACKGROUND_ITEM_UNREGISTER 3
+#define OXYOS_BACKGROUND_NOT_REGISTERED 1
+#define OXYOS_BACKGROUND_ENABLED 2
+#define OXYOS_BACKGROUND_REQUIRES_APPROVAL 3
+#define OXYOS_BACKGROUND_NOT_PERMITTED 4
 /* The system's interface sounds an application asks for (oxyos_client_play_system_sound). */
 #define OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH 1
 #define OXYOS_SYSTEM_SOUND_EMPTY_TRASH 2
@@ -532,6 +549,10 @@ typedef struct OxyOSClient OxyOSClient;
  *                      (0: what the client asked to watch changed, unasked), `detail` its index,
  *                      `flag` 1 on the last; `text` the chunk; JSON once whole
  *                      (docs/adr/0051-search.mdx).
+ *   BACKGROUND_ITEM_STATE  how one of the application's background items stands, answering
+ *                      oxyos_client_background_item `code` (0: the person changed it, unasked);
+ *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
+ *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -799,10 +820,11 @@ int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, boo
  * shown, flying from where they are as it arrives and back as it goes; or copies again. Said
  * before its first frame. -1 to a compositor of version 23 or older. */
 int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);
-/* Which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
- * (OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, backdrop and overlay alike, or
- * none (docs/adr/0046-interactive-gestures.mdx): the swipe drives it as far as the fingers go. Said
- * before its first frame. -1 for another value, or to a compositor of version 24 or older. */
+/* Which view a touchpad's gesture drives one of the shell's own shell surfaces is
+ * (OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, backdrop and overlay
+ * alike, or none (docs/adr/0046-interactive-gestures.mdx): the gesture drives it as far as the
+ * fingers go. Said before its first frame. -1 for another value, or to a compositor of version 24
+ * or older (32 or older for Launchpad's). */
 int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
@@ -905,7 +927,7 @@ int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t
  * or newer: an older one, and a file's URL, closes the connection as unauthorized. */
 #define OXYOS_PLATFORM_SETTINGS_SCHEME "oxyos-settings"
 #define OXYOS_APPLICATION_OPENS_SETTINGS_VERSION 27
-#define OXYOS_APPLICATION_OPENS_URLS_VERSION 33
+#define OXYOS_APPLICATION_OPENS_URLS_VERSION 34
 /* An application locks the session (`oxyos_client_lock_session`) only while one of its windows is
  * the active one, and only of a compositor of this version or newer: an older one closes the
  * connection as unauthorized. A request while its window is not the active one is ignored. */
@@ -927,6 +949,12 @@ int oxyos_client_request_capability(OxyOSClient* client, uint32_t serial, uint64
  * vocabulary (JSON); SEARCH_TEXT events naming `serial` answer. An error, sending nothing, to a
  * compositor of a version before 30. */
 int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char* text);
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+ * application asks how one of its background items stands (`kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+ * or _BACKGROUND), or registers or unregisters it (`action` OXYOS_BACKGROUND_ITEM_STATUS,
+ * _REGISTER, _UNREGISTER); a BACKGROUND_ITEM_STATE naming `serial` answers. An error, sending
+ * nothing, to a compositor of a version before 33. */
+int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),
@@ -2123,7 +2151,7 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
  * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
  * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}} ("passwordRequired": an account without a password cannot be set up yet;
+ * "retryAfterSeconds"}} ("pinRequired": a setup without a password, by the QR, needs a PIN;
  * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,

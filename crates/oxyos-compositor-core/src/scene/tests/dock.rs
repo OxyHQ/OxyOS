@@ -279,7 +279,7 @@ fn a_url_is_handed_to_the_program_with_whether_it_cited_an_input() {
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].url, "dropsea://trash");
     assert!(!asked[0].with_input);
-    // An application's too (protocol version 33): the program opens it, for the person's input.
+    // An application's too (protocol version 34): the program opens it, for the person's input.
     h.request(
         APP,
         Request::OpenUrl {
