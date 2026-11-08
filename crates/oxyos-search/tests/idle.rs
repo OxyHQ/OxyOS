@@ -66,7 +66,8 @@ fn nothing_wakes_while_nothing_happens() {
     let mut writer = ours.try_clone().unwrap();
     let mut reader = BufReader::new(ours);
     let mut ask = |serial: u32, ask: Value| -> Value {
-        let line = json!({"ask": {"client": 1, "serial": serial, "asker": {"shell": true}, "text": ask.to_string()}});
+        // Settings' asker: Storage's questions are its alone (docs/adr/0059-storage.mdx).
+        let line = json!({"ask": {"client": 1, "serial": serial, "asker": {"shell": true, "settings": true}, "text": ask.to_string()}});
         writer.write_all(format!("{line}\n").as_bytes()).unwrap();
         loop {
             let mut line = String::new();
@@ -92,6 +93,18 @@ fn nothing_wakes_while_nothing_happens() {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+    // Settings › Storage asks what the files occupy and the largest of them: answered from the
+    // index's columns, and nothing goes on after the answers.
+    let storage = ask(serial + 1, json!({"storage": {}}));
+    assert_eq!(
+        storage["storage"]["kinds"]["text"]["files"], 200,
+        "{storage}"
+    );
+    let largest = ask(serial + 2, json!({"largest": {"limit": 5}}));
+    assert_eq!(
+        largest["results"]["items"].as_array().map(Vec::len),
+        Some(5)
+    );
     std::thread::sleep(Duration::from_millis(300));
     let before = switches();
     std::thread::sleep(Duration::from_secs(4));

@@ -479,7 +479,8 @@ is kept as the `input_source` preference, and the emoji picker asked for is coun
 A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
 inside it, never the developer's. `home.items` maps each path in it to what it is: a folder ("/" at the end), a file's
-text, or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour), or for a
+text ("{days_ago:N}" in it the local time N days before the run, as a Trash's `.trashinfo` writes a
+DeletionDate: an item put in the Trash then, docs/adr/0059-storage.mdx), or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour), or for a
 folder {"tree": [FOLDERS, FILES]} (FOLDERS folders in it, FILES empty files in each: a
 `node_modules` of thousands of files, made without listing each); each
 modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so dates read the same
@@ -506,6 +507,14 @@ What applications keep (their data and cache directories by id, application.h) i
 own XDG_DATA_HOME and XDG_CACHE_HOME. A scenario's `app_data` ({ID: {FILE: JSON}}) is written to an
 application's data directory before it starts; the `final` `app_data` expectation checks each such
 file holds that JSON once the run ended.
+
+A scenario with `storage` ({"name", "capacity", "available", "reserved", "system"}, bytes) has the
+development compositor serve Settings › Storage as the session does (docs/adr/0059-storage.mdx,
+`--storage`): the volume's and the system's figures are that played disk's, never the developer's;
+the Trash, the files the search index holds and the applications' own data are the run's home's.
+Its `installd` may say `available` (the install service's played disk has that many bytes free: a
+download it has no room for is refused before anything is fetched) and `last_used_days_ago` ({ID:
+DAYS}: the account last opened it that long ago, as its record keeps it).
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
@@ -1873,7 +1882,7 @@ def write_items(root, items, modified):
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(what, str):
-                path.write_text(what)
+                path.write_text(days_ago(what))
             elif "bytes" in what:
                 path.write_bytes(bytes(what["bytes"]))
             else:
@@ -1881,6 +1890,15 @@ def write_items(root, items, modified):
         made.append(path)
     for path in sorted(made, key=lambda p: -len(p.parts)):
         os.utime(path, (modified, modified))
+
+
+def days_ago(text):
+    """`text` with each "{days_ago:N}" the local time N days before now, as the Trash
+    specification writes a DeletionDate (docs/adr/0059-storage.mdx: an item put in the Trash then)."""
+    import datetime
+    return re.sub(r"\{days_ago:(\d+)\}",
+                  lambda match: (datetime.datetime.now() - datetime.timedelta(days=int(match.group(1))))
+                  .strftime("%Y-%m-%dT%H:%M:%S"), text)
 
 
 def change_home_later(home_root, home, report_path):
@@ -4402,15 +4420,25 @@ def install_service(spec, machine, offscreen):
                                    f"file://{repository}", "--socket", str(base / "f")],
                                   stdout=logs, stderr=logs)]
     wait_for(base / "f")
+    # A disk with this many bytes free (`available`), played: a download it has no room for is
+    # refused before anything is fetched (docs/adr/0059-storage.mdx).
+    available = ["--available", str(spec["available"])] if "available" in spec else []
     processes.append(subprocess.Popen([str(installd), "--development", "--state", str(state), "--anchor",
                                        str(repository / "metadata/1.root.json"), "--runtimes",
                                        str(machine.runtimes), "--socket", str(base / "i"), "--fetcher",
-                                       str(base / "f"), "--passwd", str(base / "passwd")],
+                                       str(base / "f"), "--passwd", str(base / "passwd")] + available,
                                       stdout=logs, stderr=logs))
     wait_for(base / "i")
     # Installed before the run, as an account that installed it earlier has it.
     for id in spec.get("installed", []):
         installd_ask(base / "i", [{"prepare": {"id": id}}, "commit"])
+    # Last opened that many days ago (`last_used_days_ago`: {ID: DAYS}), as the account's record
+    # keeps it once a session held it then (docs/adr/0059-storage.mdx): an application unused.
+    for id, days in spec.get("last_used_days_ago", {}).items():
+        record = state / "users" / me.pw_name / f"{id}.json"
+        kept = json.loads(record.read_text())
+        kept["lastUsed"] = int(time.time()) - int(days) * 86400
+        record.write_text(json.dumps(kept, indent=2) + "\n")
     # Versions the store publishes afterwards: the same package's files, its manifest's
     # versionCode, version and capabilities changed, packed and signed with the same key.
     for later in spec.get("later", []):
@@ -5013,6 +5041,14 @@ def main():
         controls.write_text("".join(f"{key} = {str(value).lower() if isinstance(value, bool) else value}\n"
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
+    if "storage" in scenario:
+        # Settings › Storage as the session serves it (docs/adr/0059-storage.mdx), the volume's and
+        # the system's figures a played disk's ({"name", "capacity", "available", "reserved",
+        # "system"}), never the developer's disk; the Trash, the files and the applications' data
+        # the run's home's.
+        storage = out / "storage.json"
+        storage.write_text(json.dumps(scenario["storage"]))
+        command += ["--storage", str(storage)]
     if "sound" in scenario:
         # The machine's outputs and inputs (ADR 0056), played in the development compositor as the
         # scenario describes them.

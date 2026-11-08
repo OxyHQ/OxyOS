@@ -59,7 +59,8 @@ pub enum Ask {
         #[serde(default)]
         listing: Option<String>,
     },
-    /// `store`, with an input: remove, and the account's data, after the person confirms.
+    /// `store` (or `settings`: Storage), with an input: remove, and the account's data, after the
+    /// person confirms.
     Uninstall { id: String },
     /// `store`, with an input: open an installed application.
     Open { id: String },
@@ -85,9 +86,10 @@ impl Ask {
     /// Whether `grants` may ask it.
     fn allowed(&self, grants: &oxyos_compositor_core::Grants) -> bool {
         match self {
-            Ask::Status { .. } | Ask::Install { .. } | Ask::Uninstall { .. } | Ask::Open { .. } => {
-                grants.store
-            }
+            Ask::Status { .. } | Ask::Install { .. } | Ask::Open { .. } => grants.store,
+            // Settings › Storage removes an application the person has not used in a while, as
+            // the store does, confirmed in the same sheet (docs/adr/0059-storage.mdx, decision 6).
+            Ask::Uninstall { .. } => grants.store || grants.settings,
             Ask::State {} | Ask::Check {} | Ask::Update { .. } | Ask::UpdateAll {} => {
                 grants.store || grants.updates
             }

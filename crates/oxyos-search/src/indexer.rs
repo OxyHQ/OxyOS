@@ -605,6 +605,7 @@ fn record(path: &Path, metadata: &std::fs::Metadata, id: String, changed: i64) -
         icon: None,
         media,
         size: (!directory).then_some(metadata.len()),
+        allocated: (!directory).then_some(metadata.blocks().saturating_mul(512)),
         modified: millis(metadata.modified()),
         created: millis(metadata.created()),
         changed: Some(changed),

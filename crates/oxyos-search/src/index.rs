@@ -7,8 +7,11 @@
 //!   `rep` find `Report` as it is typed, as search-as-you-type engines index them), its whole
 //!   title folded (an exact match), its keywords and tags likewise, its tags as filters, its text
 //!   as words with positions (phrases), every folder above a file (`within`, and a folder's items
-//!   removed in one step), its dates and size. Words are folded: lowercase, accents and other marks
-//!   removed (`camion` finds `Camión`).
+//!   removed in one step), its dates, its size and the blocks it occupies. Words are folded:
+//!   lowercase, accents and other marks removed (`camion` finds `Camión`).
+//! - **What the files occupy** (docs/adr/0059-storage.mdx): each file's blocks and category are
+//!   fast fields, so Settings › Storage's sums by kind and its largest files are read from the
+//!   index's columns, never by walking the disk.
 //! - **The text is not stored:** a file's text is read again from the file for a result's snippet,
 //!   so the index holds the words alone and stays small.
 //! - **Ranking:** BM25 over the fields, the title weighing most, then keywords and tags, then the
@@ -35,10 +38,11 @@ use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, RawTokenizer, RemoveLongFilter, SimpleTokenizer, TextAnalyzer,
     Token, TokenFilter, TokenStream, Tokenizer,
 };
-use tantivy::{IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
+use tantivy::{IndexReader, IndexWriter, Order, ReloadPolicy, TantivyDocument, Term};
 
-/// The index's layout: a change makes a new index beside the old, which is removed.
-pub const VERSION: u32 = 1;
+/// The index's layout: a change makes a new index beside the old, which is removed. Version 2
+/// keeps each file's blocks and its category as fast fields (docs/adr/0059-storage.mdx).
+pub const VERSION: u32 = 2;
 /// What the writer may hold before it writes a segment (tantivy's least).
 const WRITER_BUDGET: usize = 15_000_000;
 /// The longest word kept; longer runs (hashes, base64) are no words.
@@ -102,6 +106,9 @@ pub struct Record {
     pub media: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// A file's blocks on the disk, in bytes (`st_blocks` × 512, as `du -B1` counts them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocated: Option<u64>,
     /// Milliseconds since the epoch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modified: Option<i64>,
@@ -179,6 +186,7 @@ struct Fields {
     modified: Field,
     changed: Field,
     size: Field,
+    allocated: Field,
     record: Field,
 }
 
@@ -201,7 +209,7 @@ fn schema() -> (Schema, Fields) {
         id: builder.add_text_field("id", STRING | FAST),
         source: builder.add_text_field("source", STRING),
         owner: builder.add_text_field("owner", STRING),
-        category: builder.add_text_field("category", STRING),
+        category: builder.add_text_field("category", STRING | FAST),
         title: builder.add_text_field("title", text(WORDS, positions)),
         title_prefix: builder.add_text_field("title_prefix", text(PREFIXES, freqs)),
         exact: builder.add_text_field("exact", text(EXACT, IndexRecordOption::Basic)),
@@ -213,6 +221,7 @@ fn schema() -> (Schema, Fields) {
         modified: builder.add_i64_field("modified", INDEXED | FAST),
         changed: builder.add_i64_field("changed", FAST),
         size: builder.add_u64_field("size", FAST),
+        allocated: builder.add_u64_field("allocated", FAST),
         record: builder.add_text_field("record", STORED),
     };
     (builder.build(), fields)
@@ -574,6 +583,7 @@ fn document(fields: Fields, record: &Record, text: Option<&str>) -> TantivyDocum
     document.add_i64(fields.modified, record.modified.unwrap_or(0));
     document.add_i64(fields.changed, record.changed.unwrap_or(0));
     document.add_u64(fields.size, record.size.unwrap_or(0));
+    document.add_u64(fields.allocated, record.allocated.unwrap_or(0));
     document.add_text(
         fields.record,
         serde_json::to_string(record).expect("a record is JSON"),
@@ -646,6 +656,86 @@ impl Searcher {
             })?;
         }
         Ok(files)
+    }
+
+    /// What the files inside `within` occupy, by category (docs/adr/0059-storage.mdx): each
+    /// category's files and their blocks, from the index's columns. Folders are not files.
+    pub fn occupied(&self, within: &Path) -> tantivy::Result<BTreeMap<Category, (u64, u64)>> {
+        let searcher = self.reader.searcher();
+        let query = self.files_within(within);
+        let weight = query.weight(tantivy::query::EnableScoring::disabled_from_searcher(
+            &searcher,
+        ))?;
+        let mut sums: BTreeMap<Category, (u64, u64)> = BTreeMap::new();
+        for segment in searcher.segment_readers() {
+            let fast = segment.fast_fields();
+            let Some(categories) = fast.str("category")? else {
+                continue;
+            };
+            let allocated = fast.u64("allocated")?;
+            // A segment's categories by ordinal, read once.
+            let mut names: HashMap<u64, Option<Category>> = HashMap::new();
+            let mut text = String::new();
+            let alive = segment.alive_bitset();
+            weight.for_each_no_score(segment, &mut |documents| {
+                for &document in documents {
+                    if alive.is_some_and(|alive| !alive.is_alive(document)) {
+                        continue;
+                    }
+                    let Some(ordinal) = categories.term_ords(document).next() else {
+                        continue;
+                    };
+                    let category = *names.entry(ordinal).or_insert_with(|| {
+                        text.clear();
+                        categories
+                            .ord_to_str(ordinal, &mut text)
+                            .ok()
+                            .filter(|found| *found)
+                            .and_then(|_| Category::parse(&text))
+                    });
+                    let Some(category) = category else {
+                        continue;
+                    };
+                    let sum = sums.entry(category).or_default();
+                    sum.0 += 1;
+                    sum.1 += allocated.first(document).unwrap_or(0);
+                }
+            })?;
+        }
+        Ok(sums)
+    }
+
+    /// The `limit` largest files inside `within`, the largest first (Settings › Storage's Review
+    /// Files), by the index's size column.
+    pub fn largest(&self, within: &Path, limit: usize) -> tantivy::Result<Vec<Record>> {
+        let searcher = self.reader.searcher();
+        let query = self.files_within(within);
+        let found: Vec<(Option<u64>, tantivy::DocAddress)> = searcher.search(
+            &query,
+            &TopDocs::with_limit(limit.max(1)).order_by_fast_field("size", Order::Desc),
+        )?;
+        Ok(found
+            .into_iter()
+            .filter_map(|(_, address)| self.fetch(&searcher, address))
+            .collect())
+    }
+
+    /// Every file (not a folder) inside `within`.
+    fn files_within(&self, within: &Path) -> BooleanQuery {
+        BooleanQuery::new(vec![
+            (
+                Occur::Must,
+                term_query(self.fields.source, Source::File.name()),
+            ),
+            (
+                Occur::Must,
+                term_query(self.fields.folder, &within.to_string_lossy()),
+            ),
+            (
+                Occur::MustNot,
+                term_query(self.fields.category, Category::Folder.name()),
+            ),
+        ])
     }
 
     /// The record of `id`.

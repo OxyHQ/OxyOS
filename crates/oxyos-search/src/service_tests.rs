@@ -502,3 +502,58 @@ fn watchers_are_told_of_changes() {
     service.say(json!({"gone": {"client": 7}}));
     service.stop();
 }
+
+#[test]
+fn settings_alone_is_told_what_the_homes_files_occupy_and_its_largest_files() {
+    let mut service = Running::start(|home| {
+        std::fs::create_dir_all(home.join("Pictures")).unwrap();
+        std::fs::write(home.join("Pictures/beach.jpg"), vec![7u8; 300_000]).unwrap();
+        std::fs::write(home.join("Pictures/trip.mp4"), vec![8u8; 900_000]).unwrap();
+        write(&home.join("Documents/notes.txt"), "a few words");
+        // Hidden: no one's to count here (an application's data, a cache).
+        std::fs::create_dir_all(home.join(".cache/big")).unwrap();
+        std::fs::write(home.join(".cache/big/blob"), vec![9u8; 2_000_000]).unwrap();
+    });
+    service.settled();
+    let blocks = |path: &Path| {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).unwrap().blocks() * 512
+    };
+    let answer = service.ask_as(1, settings(), json!({"storage": {}}));
+    let storage = &answer["storage"];
+    assert_eq!(storage["home"], uri::of(&service.home, true));
+    assert_eq!(storage["indexing"], false);
+    assert_eq!(
+        storage["kinds"],
+        json!({
+            "image": {"files": 1, "bytes": blocks(&service.home.join("Pictures/beach.jpg"))},
+            "movie": {"files": 1, "bytes": blocks(&service.home.join("Pictures/trip.mp4"))},
+            "text": {"files": 1, "bytes": blocks(&service.home.join("Documents/notes.txt"))},
+        })
+    );
+    let largest = service.ask_as(1, settings(), json!({"largest": {"limit": 2}}));
+    let items = largest["results"]["items"].as_array().unwrap();
+    let titles: Vec<&str> = items.iter().map(|i| i["title"].as_str().unwrap()).collect();
+    assert_eq!(titles, ["trip.mp4", "beach.jpg"]);
+    assert_eq!(items[0]["size"], 900_000);
+    assert_eq!(items[0]["location"], "Pictures");
+    assert_eq!(items[0]["uri"], service.id("Pictures/trip.mp4"));
+    // A file deleted leaves both, once the index follows.
+    std::fs::remove_file(service.home.join("Pictures/trip.mp4")).unwrap();
+    service.until("trip", <[String]>::is_empty);
+    let answer = service.ask_as(1, settings(), json!({"storage": {}}));
+    assert!(
+        answer["storage"]["kinds"].get("movie").is_none(),
+        "{answer}"
+    );
+    // Nobody else is told: not an application, not the shell.
+    for asker in [application("so.oxy.allo"), shell()] {
+        for ask in [json!({"storage": {}}), json!({"largest": {}})] {
+            assert_eq!(
+                service.ask_as(2, asker.clone(), ask),
+                json!({"refused": {"reason": "notPermitted"}})
+            );
+        }
+    }
+    service.stop();
+}

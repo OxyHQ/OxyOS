@@ -1,0 +1,255 @@
+{
+ "about": "Settings › General › Storage, as a Mac's (docs/adr/0059-storage.mdx), Settings granted `settings`, on the run's home and a played 256 GB disk (100 GB free, 12.8 GB the administrator's reserve, 9 GB the system's packages): the volume's bar and its legend, every category's bytes adding up to what is used (Photos the home's images and movies the search index holds, Documents its other files, Trash what the Trash holds, Apps each application's own data); Review Files lists the home's largest files from the index, the largest first, and one is moved to the Trash once confirmed; Empty Trash Automatically, once confirmed, is the session's preference, and the session erases at once what has been in the Trash for more than 30 days, keeping the rest; Show in Dropsea opens the file manager at the file's folder, the file selected.",
+ "module": "OxyOSSettings",
+ "locale": "en_US.UTF-8",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings"
+  ]
+ },
+ "storage": {
+  "name": "OxyOS",
+  "capacity": 256000000000,
+  "available": 100000000000,
+  "reserved": 12800000000,
+  "system": 9000000000
+ },
+ "home": {
+  "items": {
+   "Pictures/beach.jpg": {
+    "bytes": 3145728
+   },
+   "Movies/trip.mp4": {
+    "bytes": 8388608
+   },
+   "Downloads/backup.iso": {
+    "bytes": 5242880
+   },
+   "Documents/notes.txt": "a few notes",
+   ".local/share/oxyos/apps/so.oxy.allo/messages.db": {
+    "bytes": 2097152
+   },
+   ".local/share/Trash/files/old.txt": "old",
+   ".local/share/Trash/info/old.txt.trashinfo": "[Trash Info]\nPath=/old.txt\nDeletionDate={days_ago:40}\n",
+   ".local/share/Trash/files/recent.txt": "recent",
+   ".local/share/Trash/info/recent.txt.trashinfo": "[Trash Info]\nPath=/recent.txt\nDeletionDate={days_ago:5}\n"
+  }
+ },
+ "steps": [
+  {
+   "name": "Settings opens",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Appearance"
+    ]
+   }
+  },
+  {
+   "name": "Storage, from the sidebar, after Software Update: measured once the page shows",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Storage"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the volume's bar and legend, the recommendations and the applications, the largest first",
+   "do": [
+    "wait_named",
+    [
+     "Review Files…",
+     30000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "OxyOS",
+     "Apps",
+     "Documents",
+     "System",
+     "Photos",
+     "Trash",
+     "Other",
+     "Available",
+     "100 GB",
+     "22 GB",
+     "Recommendations",
+     "Empty Trash Automatically",
+     "Review Files",
+     "Applications",
+     "Allo",
+     "2.1 MB"
+    ]
+   }
+  },
+  {
+   "name": "Review Files: the home's largest files, the largest first, the first chosen",
+   "do": [
+    "press_named",
+    "Review Files…"
+   ],
+   "expect": {
+    "texts": [
+     "Large Files",
+     "trip.mp4",
+     "backup.iso",
+     "beach.jpg",
+     "notes.txt",
+     "Show in Dropsea",
+     "Delete…"
+    ]
+   }
+  },
+  {
+   "name": "backup.iso chosen",
+   "do": [
+    "press_named",
+    "backup.iso, 5.2 MB"
+   ],
+   "expect": {}
+  },
+  {
+   "name": "Delete…: the sheet asks before it moves anything",
+   "do": [
+    "press_named",
+    "Delete…"
+   ],
+   "expect": {
+    "texts": [
+     "Move “backup.iso” to the Trash?",
+     "Move to Trash",
+     "Cancel"
+    ],
+    "home": {
+     "Downloads/backup.iso": true
+    }
+   }
+  },
+  {
+   "name": "Move to Trash: in the Trash, out of the list",
+   "do": [
+    "press_named",
+    "Move to Trash"
+   ],
+   "expect": {
+    "texts": [
+     "Large Files",
+     "trip.mp4",
+     "beach.jpg"
+    ],
+    "absent": [
+     "backup.iso"
+    ],
+    "home": {
+     "Downloads/backup.iso": false,
+     "trash": [
+      "backup.iso",
+      "old.txt",
+      "recent.txt"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Done",
+   "do": [
+    "press_named",
+    "Done"
+   ],
+   "expect": {
+    "absent": [
+     "Large Files"
+    ]
+   }
+  },
+  {
+   "name": "Empty Trash Automatically: asked first",
+   "do": [
+    "press_named",
+    "Empty Trash Automatically"
+   ],
+   "expect": {
+    "texts": [
+     "Turn on Empty Trash Automatically?",
+     "Turn On",
+     "Cancel"
+    ]
+   }
+  },
+  {
+   "name": "Turn On: the session's preference, and what has been in the Trash 30 days erased at once",
+   "do": [
+    "press_named",
+    "Turn On"
+   ],
+   "expect": {
+    "preferences_file": {
+     "empty_trash_automatically": "true"
+    }
+   }
+  },
+  {
+   "name": "the Trash keeps what has been there less than 30 days",
+   "do": [
+    "wait",
+    1000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "home": {
+     "trash": [
+      "backup.iso",
+      "recent.txt"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Review Files again: Show in Dropsea opens the file manager at trip.mp4's folder, trip.mp4 selected",
+   "do": [
+    "press_named",
+    "Review Files…"
+   ],
+   "expect": {
+    "texts": [
+     "trip.mp4"
+    ]
+   }
+  },
+  {
+   "name": "Show in Dropsea",
+   "do": [
+    "press_named",
+    "Show in Dropsea"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "urls_opened": [
+     {
+      "url": "dropsea://files?uri={home}%2FMovies&select={home}%2FMovies%2Ftrip.mp4",
+      "application": "so.oxy.dropsea"
+     }
+    ]
+   }
+  }
+ ]
+}

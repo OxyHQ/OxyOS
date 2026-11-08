@@ -142,7 +142,8 @@ fn an_account_installs_lists_and_removes_its_own_only() {
         ),
         Answer::Refused {
             reason: Reason::NotInstalled,
-            detail: Some("not installed for this account".into())
+            detail: Some("not installed for this account".into()),
+            needed: None,
         }
     );
     // An update staged while held; the connection closing releases the hold, and it is switched.

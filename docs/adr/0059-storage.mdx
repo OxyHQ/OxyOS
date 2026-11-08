@@ -1,0 +1,91 @@
+---
+title: "ADR 0059: Storage"
+description: Settings › General › Storage as a Mac's — the volume's bar of what occupies it (Apps, Documents, System, Photos, Trash, Other and what is free), each category defined and the whole adding up to the volume's own figures; Empty Trash Automatically; Review Files from the search index; Remove Unused Apps through the store's uninstall; each application's size, its package and its own data; and Software Update refusing, in the service that downloads, an update the disk has no room for.
+order: 68
+---
+
+# ADR 0059: Storage
+
+Status: **accepted; implemented** (the platform's side, Settings › Storage, Software Update's room, scenarios). Amends [ADR 0019](./0019-settings) (a page and a preference), [ADR 0030](./0030-installing-applications) (removing from Settings, room before a download, sizes and last use in `list`) and [ADR 0051](./0051-search) (each file's blocks in the index, version 2, and two questions of Settings'). Builds on [ADR 0028](./0028-file-access) (the person's places, the Trash), [ADR 0047](./0047-finder-drags-and-the-desktop) (Dropsea's `files` URL) and [ADR 0058](./0058-the-platform-api) (one owner for each thing).
+
+## Problem
+
+A Mac's System Settings › General › Storage shows the startup disk as one bar: how much each kind of thing occupies (Applications, Documents, Photos, macOS, System Data, Trash…) and what is free, with recommendations that make space (*Empty Trash Automatically*, *Review Files*, removing what is unused) and every application with its size. Software Update says how much more space an update needs before it starts.
+
+OxyOS showed nothing of its disk. A person whose disk filled had no way to learn what filled it, and an application update could fetch until the disk was full.
+
+## Decision
+
+1. **The page** is General's **Storage**, after Software Update, as a Mac's General lists it (`oxyos-settings://storage`, declared in Settings' `searchable.json`). It shows, top to bottom:
+   - **The volume holding the person's home:** its name (its file system's label; "Internal Storage" without one), Bloom's `UsageCard` (a stacked bar, used of capacity, and a legend of each category with its bytes and share, and what is available);
+   - **Recommendations:** *Empty Trash Automatically* (decision 5), *Review Files* (decision 7), and *Remove Unused Apps* when there are any (decision 6);
+   - **Applications:** each with what it occupies (decision 3), the largest first, and when it was last opened; pressed, a sheet with its parts and what can be done to it.
+
+   Its figures are asked when the page is shown and after each of its own changes; nothing is followed but the search index while it is still being built (decision 4).
+
+2. **The bar is the volume, and its categories add up to it.** The volume's figures are `statvfs`'s for the home: its capacity (`f_blocks`), what is free for the person (`f_bavail`, *Available*), what is written (`f_blocks − f_bfree`) and the administrator's reserve (`f_bfree − f_bavail`, ext4's 5 %, which keeps the system working on a full disk). Every category counts **blocks** (`st_blocks` × 512, as `du -B1` counts), never lengths, so a sparse file counts what it holds and the categories are of the same measure as the volume's figures:
+   - **Apps:** each application's package and its own data (decision 3).
+   - **Documents:** the home's files the search index holds that are not Photos.
+   - **Photos:** the home's files the index classes as images or movies. OxyOS has no photo library of its own: a person's pictures are files, which Dropsea shows where they are, so the index's kinds are their owner here, as a Mac counts its Photos library.
+   - **Trash:** what the home's volume's Trashes hold.
+   - **System:** the system's image on this volume (the packages dpkg records as installed, their `Installed-Size`, and the initramfs images made from them in `/boot`, when `/usr` is on this volume; on a published install, whose `/usr` is a volume of its own, ADR 0023 decision 6, nothing) and the administrator's reserve.
+   - **Other:** the rest of what is written: everything no category names (hidden files and caches that are no application's, folders kept out of the index, other accounts' homes, the system's logs and `/var`, a developer's `/opt`).
+
+   *Other* is what is left, so the categories always add up to what is written and the reserve, and with *Available* to the capacity. What is measured is taken in the order it is most surely measured (the Trash, the applications, the files, the system's own estimate), each up to what is left: on a volume whose files share blocks (hard links, copies made by reference), what is measured could exceed what is written, and the bar never says more than the volume holds.
+
+3. **An application's own data has one definition**: `oxyos_apps::OwnData` (`OwnData::of(id)`), its data directory (`$XDG_DATA_HOME/oxyos/apps/ID`: its documents, its AsyncStorage) and its cache directory (`$XDG_CACHE_HOME/oxyos/apps/ID`), and nothing else of the account's. Storage measures it (`oxyos_compositor::storage::data_size`, blocks of each, `oxyos_files::usage::allocated`), uninstalling removes it, and resetting an application clears it. An application's row is its **package** (its version's files as its manifest lists them and its bytecode, from the install service's `list`, when the account has one; a system application's image is the system's, a development entry's bundle the developer's) plus its **data** and its **caches**. Its sheet lists the three and the actions there are for it, each one of the sheet's actions: *Delete App…* for one the person installed.
+
+4. **Who measures what, and when.**
+   - **The session** (`oxyos_compositor::storage`), asked by Settings alone (the `settings` grant) in the session's vocabulary: `{"storage": {}}` answered `{"storage": {name, capacity, available, used, reserved, system, trash, apps}}`. It is measured on a thread of its own when asked, at the normal class, since the person is waiting for it (as a question to the index is answered, ADR 0051 decision 13); an ask while one runs joins it, and a measurement whose askers have all gone is stopped. The walks are bounded by what they measure: each application's own data, and the Trash's folders, whose sizes are kept in the Trash's own cache (decision 5).
+   - **The search index** answers what the home's files occupy, by kind (`storage`), and the home's largest files (`largest`), from its columns (decision 9): never a walk of the disk.
+   - **Nothing runs while the page is not shown.** No watch, no clock, no cache to keep current: the session's part does nothing until asked, and its thread ends with its answer. While the index is still being built (its first crawl), the page follows it (`watch`) and asks its sums again at each change, so Documents and Photos grow as it goes, as a Mac's do; once built, nothing is followed.
+
+5. **Empty Trash Automatically** is a preference, `empty_trash_automatically` (off, as a Mac ships), changed by Settings as any is: turned on, a sheet asks first, since what it erases cannot be brought back; turned off, at once.
+   - **Who erases:** the session's Trash follower (`oxyos_compositor::trash`, which already follows the user's Trashes for the dock). While on, it erases every item whose `.trashinfo` says it was deleted more than 30 days ago (`oxyos_files::trash::erase_older`, `KEPT_FOR_MS`); one whose info gives no date is kept, since nothing says how long it has been there. It is silent, as a Mac's is; the dock's Trash is told what is left.
+   - **When:** when the session starts, when the person turns it on, when the Trash changes (its watch, which the dock already holds), and when the earliest item left reaches its 30 days: the session's turn waits no longer than that (`Trash::deadline`). Never on a clock.
+   - **What the Trash occupies** is each item's blocks; a folder's are kept in the freedesktop.org Trash specification's own directory size cache (`directorysizes`: `SIZE MTIME NAME`, the size as `du -B1`, the time its `.trashinfo` was written), valid while that info is unchanged, since nothing changes a folder once it is in the Trash, and shared with other desktops' file managers. A folder trashed is walked once.
+
+6. **Remove Unused Apps.** The applications the person may remove (installed for the account, never a system application, even one the store updates) that they have not opened in 90 days, the largest first, each removed through **the store's own uninstall** (ADR 0030, decision 11): the session's `{"uninstall": {id}}`, which the `settings` grant may now ask besides `store`, confirmed in the same system sheet the shell draws (*Delete Inbox and its data?*), citing the press that asked. When it was last opened is the install service's: it notes the time in the account's record at each `hold` (each launch of an installed version holds it, ADR 0030 decision 10), and at install; `list` says it (`lastUsed`, with each version's `size`). Only the record is written (its entry, which the registry follows, is not). An application whose last use nothing records (a development entry) is never called unused.
+
+7. **Review Files**: the home's largest files from the search index (`largest`, 50), the largest first, each with where it is, its size and when it changed; the chosen one:
+   - **Shown in Dropsea:** Settings asks the session (`{"reveal": {uri}}`, the `settings` grant, citing the press), which checks the item is one of the person's and there, and opens the file manager's URL that shows it selected in its folder (`oxyos_apps::reveal_url`: `dropsea://files?uri=FOLDER&select=ITEM`, as Spotlight's Super+Return writes it, ADR 0051 decision 10) as it opens the shell's URLs. The session, not Settings, knows the file manager's URL: Finder's *Show in Finder* is the system's.
+   - **Deleted:** moved to the Trash through the file service (Bloom's `PlatformFiles.trash`, the one owner of moving to the Trash for an application, ADR 0058 decision 7), once the sheet asks *Move “NAME” to the Trash?* and the person confirms; the list and the bar follow.
+
+8. **Room first.** The install service checks, before it fetches anything, that the disk has room for what a version fetches (only the objects the machine lacks) and for the bytecode compiled from its entry (as much again as the entry), against what is free without the administrator's reserve (`f_bavail` of its staging directory). Without room nothing is fetched, and the refusal says how many bytes more are needed: `InstallError::NoSpace { needed }`, `{"refused": {"reason": "noSpace", "needed"}}` for an install, and `needed` in an update's outcome. Software Update says it on the update's row, *2.1 GB more is needed to download this update.*, and to the screen reader. The check is the service's that downloads, for installs, updates and the automatic updates alike; the page only says what it was told.
+
+9. **The index keeps what files occupy** (ADR 0051 amended). Each file's blocks (`allocated`) are a fast field and so is its category; the index's version is 2, so an index of version 1 is made again once (it is a cache). Settings alone (`settings`) may ask:
+   - `{"storage": {}}` ← `{"storage": {home, kinds: {KIND: {files, bytes}}, indexing, partial}}`: the files inside the home by kind, summed from the columns (folders are not files);
+   - `{"largest": {limit?, language?}}` ← `{"results": {items}}`: the home's largest files, ordered by the size column, as a question's items.
+
+   A volume mounted inside the home is crawled with it (ADR 0051): its files are counted as the home's, the one case where Documents is not the home's volume alone.
+
+## Steps
+
+1. **The platform.** *Done.*
+   - `oxyos-files`: `usage::allocated` (blocks, each inode once, never through a link or into another file system, stoppable), `trash::occupied` with the directory size cache, `trash::erase_older`.
+   - `oxyos-apps`: `OwnData`, `reveal_url`.
+   - `oxyos-preferences`: `empty_trash_automatically`.
+   - `oxyos-compositor`: the Trash follower empties itself (`set_empty_automatically`, `deadline`); `storage` (`Storage`, `Disk` with `MachineDisk` and the development compositor's `PlayedDisk`, `data_size`); `installs` takes `uninstall` from `settings` too. `oxyos-session` serves it before the store; the development compositor plays a disk with `--storage FILE`.
+   - `oxyos-install`: the room checked before an install or an update fetches (`with_space` for the tests and the development service's `--available BYTES`), `last_used` kept at each hold, `size` and `last_used` in `list`.
+   - `oxyos-search`: `allocated` and the category as fast fields (version 2), `Searcher::occupied`, `Searcher::largest`, the `storage` and `largest` asks.
+
+   Tests:
+   - a tree's blocks, each inode once, never through a link, a sparse file's holes nothing, a walk stopped;
+   - the Trash: only what has been in it 30 days erased, an undated item kept, the next one due said; its size, a folder's from the cache while its info is unchanged and measured again when it changed, an item gone leaving the cache;
+   - the Trash follower: off, nothing goes; turned on, the old item erased at the next turn, silently, the shell told, the deadline the next item's 30 days; nothing read again while nothing changes; off again, nothing due;
+   - Storage: dpkg's installed packages only; the system counted on its volume and nowhere else; a label unescaped; the volume's figures adding up; each application its package and own data, the largest first, a system application the store updates never removable; Settings alone told the volume, two asks one measurement, nothing measured while nothing is asked, the thread gone after the answer; a measurement whose asker went stopped and answering no one; an item revealed only for Settings, citing an input, one of the person's and there;
+   - the install service: a version with no room never fetched, the refusal's bytes more, exactly enough room installing, an update with no room failing with its `needed` and the account keeping its version; the list's size and last use, a hold's noted without writing the entry, a record from before reading as none;
+   - the index: the files' blocks by kind and the largest first from the columns, a file removed leaving both; through the service, Settings alone told them, a file deleted leaving them; `tests/idle.rs`, the service asked both and then waking **0** times in 4 s;
+   - `uninstall` allowed to `settings`, installing and opening still the store's alone; the preference read and written.
+2. **Settings › Storage and Software Update's room.** *Done.* `apps/settings/src/storage.ts` (the bar, unused applications, the index's items, the session's answers read strictly), `StoragePage.tsx`, Software Update's row, the strings in English and Spanish, `searchable.json`; `sample/SettingsApp.tsx` asks the session (`system.js`'s `storage`), the index (`search.js`'s `storage`, `largest`, `watch`) and the file service, a fixture of the reference ThinkPad's disk outside a session. Tests (`apps/settings/tests/storage.test.ts`): the categories adding up to what is written and the reserve and, with what is available, to the capacity; what is measured never more than the volume holds; unused applications at 90 days, never a system application nor one of unknown use; Review Files' items; the answers read strictly; an update's bytes more; both languages.
+3. **Scenarios.** *Done.* Each at 1 and 1.25:
+   - `storage`: the page from the sidebar on a played 256 GB disk and the run's home; the legend's figures; Review Files' largest files, one moved to the Trash once confirmed; Empty Trash Automatically confirmed, kept in the preferences file, the item 40 days in the Trash erased at once and the one 5 days in kept; Show in Dropsea opening Dropsea at `dropsea://files?uri=…&select=…`.
+   - `settings-software-update-space`: a real install service on a played disk with no room: Update All refused before anything is fetched, the row saying how much more is needed, the account keeping its version.
+
+## Not in this decision
+
+- **Other volumes.** A Mac's Storage lists each volume; this page shows the one holding the home. A removable volume's own Trash is counted with it, not here.
+- **iCloud's Store in iCloud and Optimize Storage**: OxyOS has no cloud storage that would hold a file's bytes for the person yet.
+- **A breakdown of Other and System** (a Mac's System Data's details), and per-account figures for a machine with several accounts: each account sees its own home; another's is Other.
+- **Resetting an application's data** (keeping the application): its own decision, as another action of the application's sheet, over `OwnData`.
+- **The OS's own updates** (ADR 0023, decision 6): their room is checked by the image updater when it exists, as this decision checks the applications'.

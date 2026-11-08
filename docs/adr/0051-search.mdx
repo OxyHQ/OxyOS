@@ -6,7 +6,7 @@ order: 60
 
 # ADR 0051: Search
 
-Status: **accepted; implemented** (steps 1 to 7): the platform, the shell, Settings, Bloom and Dropsea. Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 31) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+Status: **accepted; implemented** (steps 1 to 7): the platform, the shell, Settings, Bloom and Dropsea. Amended by [ADR 0059](./0059-storage) (8 November 2026), decision 9: each file's blocks and its category are fast fields (the index's version 2, made again once), and Settings asks what the home's files occupy by kind (`storage`) and its largest files (`largest`). Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 31) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
 
 ## Problem
 
@@ -116,7 +116,8 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
      - `watch` and `unwatch` (the client's first listener and its last), `used`;
      - `donate`, `remove` and `removeAll` (answered once the index holds them);
      - `preferences` and `setPreferences`;
-     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`, `read`).
+     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`, `read`);
+     - `storage` ← `storage` (`home`, `kinds`, each kind's `files` and `bytes`, `indexing`, `partial`) and `largest` (`limit`, `language`) ← `results`: Settings' alone, Settings › Storage's ([ADR 0059](./0059-storage), decision 9).
 
      Every answer is one object of one key (`{"done": {}}`, `{"results": {…}}`); a refusal is `{"refused": {"reason"}}`: `notPermitted`, `invalid`, and from the compositor `unavailable` (no service) or `busy` (more than 64 asks waiting in the scene, 256 in the broker).
    - **An item:** `id`, `category`, `title` (in the language asked), `uri` for a file (a folder's ending in `/`), `url`, `application`, `icon`, `contentType`, `size`, `modified`, `created`, `lastUsed`, `tags`, `snippet` (of a text, source or office document among the first ten, about 160 characters around the first word found) and `location` (its folder from the home, `Documents › Work`).

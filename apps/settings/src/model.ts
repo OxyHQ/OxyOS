@@ -5,6 +5,7 @@ import type { EraseActions } from "./erase";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
 import type { SoundActions, SoundState } from "./sound";
+import type { StorageActions } from "./storage";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
 import type { AddedWallpaper, WallpaperCatalog } from "./wallpaper";
 
@@ -72,6 +73,9 @@ export type Preferences = {
   sleepAdapter: number;
   /** The display slightly dimmer on battery. */
   dimOnBattery: boolean;
+  /** *Empty Trash Automatically* (docs/adr/0059-storage.mdx): the session erases what has been in
+      the Trash for more than 30 days. Off, as a Mac ships. */
+  emptyTrashAutomatically: boolean;
 };
 
 /** The system's settings and facts (systemd's timedated, localed and hostnamed; os-release). */
@@ -195,6 +199,7 @@ export const PREFERENCE_KEYS = {
   sleepBattery: "sleep_battery",
   sleepAdapter: "sleep_adapter",
   dimOnBattery: "dim_on_battery",
+  emptyTrashAutomatically: "empty_trash_automatically",
 } as const satisfies Record<keyof Preferences, string>;
 
 /**
@@ -228,6 +233,9 @@ export type SettingsActions = {
   erase?: EraseActions;
   /** Settings › Spotlight's platform (docs/adr/0051-search.mdx). */
   search?: SettingsSearch;
+  /** Settings › Storage's platform (docs/adr/0059-storage.mdx): none where the session measures
+      nothing (no `settings` grant), which shows Storage is not available here. */
+  storage?: StorageActions;
   /** The system's folder chooser (docs/adr/0028-file-access.mdx): the folder chosen, as a
       `file://` URI, or null when cancelled. Without it, nothing asks for a folder. */
   chooseFolder?: () => Promise<string | null>;

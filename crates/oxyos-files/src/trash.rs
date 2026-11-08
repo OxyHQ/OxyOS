@@ -15,13 +15,25 @@
 //!   operations reach it ([`Scope`] refuses it everywhere else).
 //! - **Restoring** moves it back to where it was, never over an item there, and removes its info.
 //!   **Removing** it, or emptying the Trash, deletes it for good: the only deletion there is.
+//! - **What it occupies** (docs/adr/0059-storage.mdx): each item's blocks, as `du -B1` counts them;
+//!   a folder's kept in the specification's directory size cache (`directorysizes`, beside
+//!   `files/`), valid while its info is the one it was measured with, since nothing changes a
+//!   folder once it is in the Trash. Other desktops' file managers read and write the same cache.
+//! - **Erasing what has been in it too long** (*Empty Trash Automatically*, docs/adr/0059-storage.mdx):
+//!   the items deleted more than [`KEPT_FOR_MS`] ago, by their info's deletion date, go for good;
+//!   one whose info gives no date is kept, since nothing says how long it has been there.
 
 use crate::entries::{self, Entry};
 use crate::scope::Access;
 use crate::{Error, Scope};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+
+/// How long an item stays in the Trash before *Empty Trash Automatically* erases it: 30 days, as
+/// a Mac keeps it.
+pub const KEPT_FOR_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// A Trash directory: `files/` and `info/` inside it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -243,6 +255,120 @@ pub fn count(scope: &Scope) -> usize {
         .filter_map(|trash| std::fs::read_dir(trash.files()).ok())
         .map(|items| items.count())
         .sum()
+}
+
+/// What one sweep of [`erase_older`] did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Swept {
+    /// Items erased for good.
+    pub erased: usize,
+    /// When the earliest of the items left was put in the Trash (milliseconds since 1970): the
+    /// next one due. None when no item left has a date.
+    pub next: Option<i64>,
+}
+
+/// Erases, from every Trash, the items put in it before `before` (milliseconds since 1970, their
+/// info's deletion date), and says when the earliest of the rest was put in. An item whose info
+/// gives no date is kept. An item that cannot be erased is said and kept, and the others go.
+pub fn erase_older(scope: &Scope, before: i64) -> Result<Swept, Error> {
+    let mut swept = Swept::default();
+    for trash in trashes(scope) {
+        let Ok(items) = std::fs::read_dir(trash.files()) else {
+            continue;
+        };
+        for item in items.flatten() {
+            let Some(name) = item.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let (_, deleted) = read_info(&trash, &name);
+            match deleted {
+                Some(deleted) if deleted < before => match remove_item(&trash, &name) {
+                    Ok(()) => swept.erased += 1,
+                    Err(error) => eprintln!("[trash] {name} not erased: {error:?}"),
+                },
+                Some(deleted) => swept.next = Some(swept.next.map_or(deleted, |n| n.min(deleted))),
+                None => {}
+            }
+        }
+    }
+    Ok(swept)
+}
+
+/// The directory size cache's name in a Trash (the specification's `directorysizes`).
+const DIRECTORY_SIZES: &str = "directorysizes";
+
+/// What `trash` occupies on the disk: each item's blocks, a folder's from the directory size cache
+/// while its info is unchanged, else measured and kept there; or the measuring's interruption when
+/// `stop` said so.
+pub fn occupied(trash: &TrashDir, stop: &dyn Fn() -> bool) -> std::io::Result<u64> {
+    let cache_path = trash.dir.join(DIRECTORY_SIZES);
+    let cached = read_directory_sizes(&cache_path);
+    let mut kept: BTreeMap<String, (u64, i64)> = BTreeMap::new();
+    let mut total = 0;
+    let items = match std::fs::read_dir(trash.files()) {
+        Ok(items) => items,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    for item in items.flatten() {
+        let Some(name) = item.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Ok(metadata) = item.metadata() else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            total += crate::usage::blocks(&metadata);
+            continue;
+        }
+        // The cache's key: when the folder's info was written, in seconds.
+        let info_time = std::fs::metadata(trash.info_of(&name))
+            .ok()
+            .map(|info| info.mtime());
+        let size = match (info_time, cached.get(&name)) {
+            (Some(time), Some(&(size, at))) if at == time => size,
+            _ => crate::usage::allocated(&item.path(), stop)?,
+        };
+        if let Some(time) = info_time {
+            kept.insert(name, (size, time));
+        }
+        total += size;
+    }
+    if kept != cached {
+        if let Err(error) = write_directory_sizes(&trash.dir, &kept) {
+            eprintln!("[trash] {} not kept: {error}", cache_path.display());
+        }
+    }
+    Ok(total)
+}
+
+/// The directory size cache: each line `SIZE MTIME NAME`, the name percent-encoded; a line that is
+/// not one is passed over.
+fn read_directory_sizes(path: &Path) -> BTreeMap<String, (u64, i64)> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return BTreeMap::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, ' ');
+            let size = parts.next()?.parse().ok()?;
+            let time = parts.next()?.parse().ok()?;
+            let name = decode(parts.next()?);
+            (!name.is_empty() && !name.contains('/')).then_some((name, (size, time)))
+        })
+        .collect()
+}
+
+/// Writes the directory size cache whole, through a temporary file renamed over it, as the
+/// specification asks.
+fn write_directory_sizes(dir: &Path, sizes: &BTreeMap<String, (u64, i64)>) -> std::io::Result<()> {
+    let mut text = String::new();
+    for (name, (size, time)) in sizes {
+        text.push_str(&format!("{size} {time} {}\n", encode(name)));
+    }
+    let staged = dir.join(format!(".{DIRECTORY_SIZES}.{}", std::process::id()));
+    std::fs::write(&staged, text)?;
+    std::fs::rename(&staged, dir.join(DIRECTORY_SIZES))
 }
 
 /// What the info of `name` in `trash` says: where it was, and when it was deleted.
