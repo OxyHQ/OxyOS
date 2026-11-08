@@ -2485,7 +2485,6 @@ export function Settings({
   // then Battery (Energy on a computer without one, docs/adr/0057-battery-and-energy.mdx), once the
   // session has told it.
   const networked = snapshot.network !== undefined;
-  const keychain = actions.keychain !== undefined;
   const bluetooth = snapshot.bluetooth !== undefined;
   const power = snapshot.power;
   // The sidebar's Battery or Energy item, once the session told the power; its page's title, also
@@ -2496,6 +2495,9 @@ export function Settings({
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
   const accountKind = account?.kind;
+  // Passwords where the platform keeps an account's keychain: with an account session, once it told
+  // the account (docs/adr/0050-keychain-autofill-and-passkeys.mdx: the keychain is the account's).
+  const keychain = actions.keychain !== undefined && accountKind !== undefined;
   const accountName = account?.kind === "signed_in" ? account.name : null;
   const accountPicture = account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : "";
   const AccountIcon = React.useMemo(() => {
