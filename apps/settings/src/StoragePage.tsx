@@ -161,7 +161,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
     const outcome = await storage.reset(target.id);
     if (outcome === "reset") {
       AccessibilityInfo.announceForAccessibility(words.resetDone(target.name));
-      setAwaitingIndex(true);
+      // Its own data is no file the index holds: only the session's figures change.
       void measure();
     } else if (outcome === "failed") {
       setFailure(words.resetFailed(target.name));
