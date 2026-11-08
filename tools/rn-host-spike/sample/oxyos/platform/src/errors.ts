@@ -24,8 +24,10 @@ export type PlatformDomain =
   | 'audio'
   | 'bluetooth'
   | 'network'
+  | 'pasteboard'
   | 'power'
   | 'settings'
+  | 'sounds'
   | 'store';
 
 export class PlatformError extends Error {

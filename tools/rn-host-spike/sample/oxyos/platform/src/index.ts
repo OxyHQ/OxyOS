@@ -4,12 +4,15 @@
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 import { createFrameworks } from './frameworks.ts';
+import { createPasteboard, type ClipboardModule } from './pasteboard.ts';
 import { createSession, type SystemModule } from './session.ts';
+import { createSounds, type SoundsModule } from './sounds.ts';
 
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export { SYSTEM_SOUNDS, type SystemSound } from './sounds.ts';
 
 const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { api: number } } | null;
 /** The API level this runtime gives (its `api`, ADR 0030, decision 2); 0 where it says none. */
@@ -20,3 +23,12 @@ export const session = createSession(TurboModuleRegistry.get('OxyOSSystem') as S
 
 const frameworks = createFrameworks(session);
 export const { network, bluetooth, power, audio, settings, store } = frameworks;
+
+/** Copying and pasting text (docs/adr/0007-clipboard.mdx). */
+export const pasteboard = createPasteboard(
+  TurboModuleRegistry.get('OxyOSClipboard') as ClipboardModule | null,
+  DeviceEventEmitter,
+);
+
+/** The system's interface sounds (docs/adr/0044-system-sounds.mdx). */
+export const sounds = createSounds(TurboModuleRegistry.get('OxyOSSounds') as SoundsModule | null);
