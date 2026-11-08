@@ -1980,8 +1980,21 @@ std::shared_ptr<TurboModule> createHostModule(
     bool available = services.application.recorded && !services.shellWindow;
     bool setup = services.shellWindow;
     module->constants(folly::dynamic::object("available", available)("setup", setup));
-    auto session = [&services]() -> AccountSession& {
-      if (!services.accountSession) services.accountSession = std::make_unique<AccountSession>();
+    auto session = [&services, setup]() -> AccountSession& {
+      if (!services.accountSession) {
+        services.accountSession = std::make_unique<AccountSession>();
+        // A wait Oxy asked of the service (a 429 on the redemption, oxy ADR 0058 R8), told as
+        // `OxyOSAccountSetupWaiting` ({retryAfterSeconds}): the login screen says it calmly, and the
+        // setup goes on by itself. Only the login screen sets accounts up.
+        if (setup) {
+          services.accountSession->onWaiting([&services](uint64_t seconds) {
+            if (services.emit) {
+              services.emit("OxyOSAccountSetupWaiting",
+                            folly::dynamic::object("retryAfterSeconds", static_cast<int64_t>(seconds)));
+            }
+          });
+        }
+      }
       return *services.accountSession;
     };
     // A promise settled on the JavaScript thread by `start(resolve)`.

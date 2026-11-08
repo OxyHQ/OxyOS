@@ -14,7 +14,7 @@ import { SetupAssistant, type SetupActions } from "./SetupAssistant";
 import { useLoginMessages } from "./useLoginMessages";
 
 export type { LoginAccount, Accounts } from "./model";
-export type { SetupActions, SetupAssistantFrameProps, AssistantPage, EnrollRequest } from "./SetupAssistant";
+export type { SetupActions, SetupAssistantFrameProps, AssistantPage, EnrollRequest, SetupProgress } from "./SetupAssistant";
 
 /** What the login screen asks of its platform. It holds no authority over who signs in. */
 export type LoginActions = {

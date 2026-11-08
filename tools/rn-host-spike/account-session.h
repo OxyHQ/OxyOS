@@ -44,6 +44,9 @@ class AccountSession {
   // A setup's stage as the service starts it ("securing", "verifying", ...), on the JavaScript
   // thread, before the call's answer.
   using Stage = std::function<void(const std::string& stage)>;
+  // Oxy asked the service to wait `seconds` before asking again (a 429 on the redemption, oxy ADR
+  // 0058 R8), on the JavaScript thread; the call it interrupts goes on by itself after it.
+  using Waiting = std::function<void(uint64_t seconds)>;
 
   AccountSession();
   ~AccountSession();
@@ -79,6 +82,8 @@ class AccountSession {
   // The setup again after it failed with the sign-in kept (`failed`): what the service kept.
   void retry(Stage stage, Done done);
   void endEnrollment();
+  // Told of every setup call's waits from now on (set once, when the module is made).
+  void onWaiting(Waiting waiting) { waiting_ = std::move(waiting); }
   static std::optional<std::string> platform();
 
   // Each turn: hands answers and snapshots to JavaScript. True if it did.
@@ -93,9 +98,11 @@ class AccountSession {
   // The worker's: `stage` told to JavaScript, as an answer is, while the call it reports blocks.
   void reportStages(Stage stage);
   static void reported(void* context, const char* stage);
+  static void waited(void* context, uint64_t seconds);
   void post(Answer answer, Done done);
 
   int wake_ = -1;
+  Waiting waiting_;
   std::mutex mutex_;
   std::condition_variable pending_;
   std::deque<std::pair<std::function<Answer()>, Done>> jobs_;
