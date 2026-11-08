@@ -83,8 +83,8 @@ macOS gives an application one set of frameworks, each owning one domain (Founda
    | What | Its owner | What goes |
    | --- | --- | --- |
    | Moving to the Trash, emptying it | `files.trash`, `files.emptyTrash` for an application. The dock's Trash stays the session's (`shell.trashDropped`, `shell.emptyTrash`): files dropped on it are another application's, moved citing the drop (ADR 0035, decision 12), and emptying it is confirmed in the system's sheet | nothing: two doors, each named for whose it is |
-   | Wi-Fi on and off | `network.setWifi` | `OxyOSShell.setWifiEnabled` |
-   | The output volume and mute | `audio.setVolume`, `audio.setMuted` | `OxyOSShell.setControlLevel('output'/'input')`, `setControlMuted` |
+   | Wi-Fi on and off | `network.setWifi` (*done*: the shell's Control Center calls it, and the daemon carries it out) | `OxyOSShell.setWifiEnabled` (unused; goes in step 9) |
+   | The output volume and mute | `audio.setVolume`, `audio.setMuted` (*done*: the shell's Control Center calls them; the session hands `{soundVolume}` and `{soundMuted}` to the same controls as the keys, so the bezel and the top bar follow) | `OxyOSShell.setControlLevel('output'/'input')`, `setControlMuted` (kept for the display's and the keyboard's brightness, which no framework owns) |
    | Do Not Disturb, the appearance | `settings.setPreference` | `OxyOSShell.setDoNotDisturb`, `setAppearance` |
    | Locking | `account.lock` | `OxyOSShell.lockSession` beside `OxyOSAccountSession.lockSession` |
    | Opening a URL or a file elsewhere | `application.open` | `OxyOSShell.openUrl`, `IntentAndroid`'s own rule |

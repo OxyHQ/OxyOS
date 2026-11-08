@@ -674,9 +674,19 @@ function SessionShell() {
       network: told?.network ?? undefined,
       bluetooth: told?.bluetooth ?? undefined,
       bezel,
-      setLevel: shell.setControlLevel,
-      setMuted: shell.setControlMuted,
-      setWifi: shell.setWifiEnabled,
+      // Each thing done twice has one owner (docs/adr/0058-the-platform-api.mdx, decision 7): the
+      // sound's volume and mute are the platform's `audio`, which the session hands to the same
+      // controls as the keys, so the bezel and the top bar follow; Wi-Fi is `network`'s. The
+      // display's and the keyboard's brightness are the shell's own.
+      setLevel: (control, level) =>
+        control === 'output' || control === 'input'
+          ? void audio.setVolume(control, level).catch(() => {})
+          : shell.setControlLevel(control, level),
+      setMuted: (control, muted) =>
+        control === 'output' || control === 'input'
+          ? void audio.setMuted(control, muted).catch(() => {})
+          : shell.setControlMuted(control, muted),
+      setWifi: (enabled) => void network.setWifi(enabled).catch(() => {}),
       setDark: shell.setAppearance,
       refresh: shell.refreshControls,
       // Wi-Fi's networks (ADR 0038): the session scans and joins, asking a password or saying what
