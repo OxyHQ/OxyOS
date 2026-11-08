@@ -60,9 +60,15 @@
 //!   it issued before revoked. Still failing: [`SetupError::Offline`], try again. Oxy refusing the
 //!   proof, or a repetition (`invalid_grant`): [`SetupError::CredentialRefused`], sign in again.
 //! - **Oxy asking the redemption to wait** (a 429, its `Retry-After`) is waited and told
-//!   ([`Event::Waiting`]) when the wait ends within the QR's window counted from the setup's start
-//!   ([`REDEMPTION_WINDOW`]), then asked again with the same key; a wait that would outlast it is
-//!   [`SetupError::CredentialRefused`].
+//!   ([`Event::Waiting`]), then asked again with the same key, unless the wait would outlast the
+//!   QR's window as Oxy last told it (ADR 0058 R9: `redemptionWindow`, its seconds measured on
+//!   this machine's monotonic clock from the answer's arrival, less a margin for the way back,
+//!   [`crate::api::Windows`]); then it is [`SetupError::CredentialRefused`]. Before any answer
+//!   told a window, no window decides: the wait is waited (at most [`MAX_WAITS`] of them). The
+//!   setup never counts the window from its own start, which is later than the claim.
+//! - The confirmation is asked again only while the window Oxy told for it (`confirmWindow`)
+//!   lasts; a retry of the person's asks once more all the same (a credential confirmed, its
+//!   answer lost, is confirmed whatever the hour).
 //! - A platform credential the machine then cannot take (its file, its verifier, its
 //!   administrator, a new home's preferences) is kept by the [`Attempt`], in memory alone, and
 //!   [`Setup::advance`] sets the machine up with it again without asking Oxy.
@@ -97,7 +103,7 @@
 
 use crate::api::{
     ApiError, DeviceCredential, OxyApi, PlatformClient, Profile, RedemptionKey, SignInStep,
-    SignedIn,
+    SignedIn, Windows,
 };
 use crate::id::{AccountId, InvalidAccountId, UserName};
 use crate::pin::{usable_pin, LocalSignIn, PinRecord};
@@ -163,16 +169,11 @@ pub enum Event {
     Waiting(u64),
 }
 
-/// How long after the QR's claim its proof may be redeemed, and its credential confirmed (Oxy
-/// ADR 0058 R6, R8). The setup counts it from its own start, which is later than the claim: a
-/// wait it allows may still outlast the real window, and the redemption then refuses.
-pub const REDEMPTION_WINDOW: Duration = Duration::from_secs(10 * 60);
-
 /// How long a redemption Oxy rate-limited waits when Oxy did not say.
 pub const DEFAULT_WAIT: Duration = Duration::from_secs(30);
 
-/// The most waits a redemption makes before it gives up (the window bounds them anyway).
-const MAX_WAITS: usize = 10;
+/// The most waits a redemption makes before it gives up (Oxy's window bounds them too, once told).
+pub const MAX_WAITS: usize = 10;
 
 /// How long a setup waits before asking Oxy's redemption again after a failure on the way: the
 /// redemption is asked once and then once after each of these.
@@ -212,8 +213,8 @@ pub struct Attempt {
     held: Option<DeviceCredential>,
     /// The machine set up with its platform credential, which Oxy has not confirmed yet.
     committed: Option<Box<Committed>>,
-    /// When the setup started: the QR's window is counted from it.
-    started: Instant,
+    /// The QR's windows as Oxy last told them (ADR 0058 R9): none until an answer did.
+    windows: Windows,
 }
 
 /// A setup the machine took, waiting for Oxy to confirm its platform credential: what undoes it
@@ -371,7 +372,7 @@ impl From<ApiError> for SetupError {
             ApiError::AccountNotOnDevice => SetupError::AccountNotOnDevice,
             ApiError::InvalidCredentials => SetupError::WrongPassword,
             ApiError::SecondFactorInvalid => SetupError::SecondFactorInvalid,
-            ApiError::Locked { retry_after } => SetupError::Locked { retry_after },
+            ApiError::Locked { retry_after, .. } => SetupError::Locked { retry_after },
             // Oxy failing for a moment is no answer about the account: as unreachable.
             ApiError::Refused {
                 status: 500..=599, ..
@@ -526,7 +527,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             challenge: None,
             held: None,
             committed: None,
-            started: Instant::now(),
+            windows: Windows::default(),
         })
     }
 
@@ -643,7 +644,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
     /// as good as refused.
     fn redeem(
         &self,
-        attempt: &Attempt,
+        attempt: &mut Attempt,
         platform: &PlatformClient,
         progress: &mut dyn FnMut(Event),
     ) -> Result<SignedIn, ApiError> {
@@ -658,17 +659,36 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                     Some(delay) => (self.sleep)(*delay),
                     None => return Err(error),
                 },
-                Err(ApiError::Locked { retry_after }) => {
+                Err(ApiError::Locked {
+                    retry_after,
+                    window,
+                }) => {
+                    if window.is_some() {
+                        attempt.windows.redemption = window;
+                    }
                     let wait = retry_after
                         .map(Duration::from_secs)
                         .unwrap_or(DEFAULT_WAIT)
                         .max(Duration::from_secs(1));
                     waits += 1;
-                    if waits > MAX_WAITS || attempt.started.elapsed() + wait >= REDEMPTION_WINDOW {
+                    // Only the window Oxy told decides: before one was told, the wait is waited.
+                    let outlasts = attempt
+                        .windows
+                        .redemption
+                        .is_some_and(|end| Instant::now() + wait >= end);
+                    if waits > MAX_WAITS || outlasts {
                         return Err(ApiError::InvalidDeviceSecret);
                     }
                     progress(Event::Waiting(wait.as_secs()));
                     (self.sleep)(wait);
+                }
+                Ok(signed_in) => {
+                    let told = signed_in.windows;
+                    attempt.windows = Windows {
+                        redemption: told.redemption.or(attempt.windows.redemption),
+                        confirm: told.confirm.or(attempt.windows.confirm),
+                    };
+                    return Ok(signed_in);
                 }
                 answered => return answered,
             }
@@ -764,10 +784,17 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         };
         progress(Event::Started(Stage::Confirming));
         let mut delays = self.retry_delays.iter();
+        let confirm_by = attempt.windows.confirm;
         let confirmed = loop {
             match self.api.confirm_platform_credential(&committed.credential) {
                 Err(error) if on_the_way(&error) || matches!(error, ApiError::Locked { .. }) => {
-                    match delays.next() {
+                    // Asked again only while the confirmation's window Oxy told lasts; a retry
+                    // of the person's asks once more all the same, since a credential confirmed
+                    // (its answer lost) is confirmed whatever the hour.
+                    let delay = delays.next().filter(|delay| {
+                        confirm_by.is_none_or(|end| Instant::now() + **delay < end)
+                    });
+                    match delay {
                         Some(delay) => (self.sleep)(*delay),
                         None => break Err(error),
                     }
