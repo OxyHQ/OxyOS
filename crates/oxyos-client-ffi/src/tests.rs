@@ -105,6 +105,10 @@ fn the_header_names_the_platforms_settings_as_the_protocol_does() {
         i64::from(oxyos_protocol::APPLICATION_OPENS_SETTINGS_VERSION)
     );
     assert_eq!(
+        define("OXYOS_APPLICATION_OPENS_URLS_VERSION"),
+        i64::from(oxyos_protocol::APPLICATION_OPENS_URLS_VERSION)
+    );
+    assert_eq!(
         define("OXYOS_APPLICATION_LOCKS_VERSION"),
         i64::from(oxyos_protocol::APPLICATION_LOCKS_VERSION)
     );

@@ -2966,6 +2966,12 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
 }
 
 #[test]
+fn version_33_an_application_opens_a_url_of_any_scheme() {
+    // No message of its own: the rule for an application's OpenUrl is wider from it.
+    assert_eq!(crate::APPLICATION_OPENS_URLS_VERSION, 33);
+}
+
+#[test]
 fn version_32_a_pin_is_only_version_32s() {
     let request = Request::AuthenticatePasscode { surface: 3 };
     assert_eq!(request_since(&request), crate::PASSCODE_VERSION);
