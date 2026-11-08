@@ -1,0 +1,29 @@
+[package]
+name = "oxyos-backup"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The service's socket (SOCK_SEQPACKET, one JSON message per packet, the peer's credentials from
+# the kernel, a descriptor handed over with a message), as the install service's.
+oxyos-install = { path = "../oxyos-install" }
+# The enrolled accounts and the administrators, for the manifest and who may change settings.
+oxyos-account = { path = "../oxyos-account", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = { version = "1", features = ["serde"] }
+# Mounting a backup disk in the service's own mount namespace, the clock the schedule waits on
+# (timerfd), waiting on descriptors, signals to restic, the machine key's random bytes.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "mount", "time", "event", "process", "pipe", "rand", "net"] }
+# The disks: udev's database and its hotplug monitor (libudev), as the input devices'.
+udev = "0.9"
+# The dates restic writes (RFC 3339) as seconds.
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
