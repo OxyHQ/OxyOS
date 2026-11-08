@@ -51,16 +51,20 @@ export interface Session {
   state: SessionState;
 }
 
-/** Each followed state, by its key, and the request that asks for it. */
+/**
+ * Each followed state asked for as it is first followed, by its key, and the request that asks
+ * for it. The account's updates are not: asking for them asks the install service, which the
+ * store's installer follows as it starts, and an install would wait behind it; they are asked by
+ * the page that shows them (`settings.checkUpdates`, or `{state}` through system.js).
+ */
 const ASKED_BY = {
-  updateState: { state: {} },
   network: { networks: {} },
   bluetooth: { bluetooth: {} },
   inputSources: { inputSources: {} },
   sound: { sound: {} },
   power: { power: {} },
 } as const;
-const FOLLOWED_KEYS = Object.keys(ASKED_BY) as (keyof typeof ASKED_BY)[];
+const FOLLOWED_KEYS = ['updateState', ...Object.keys(ASKED_BY)] as ('updateState' | keyof typeof ASKED_BY)[];
 
 export function createSession(native: SystemModule | null | undefined, events: Events): Session {
   const waiting = new Map<number, { resolve: (answer: unknown) => void; onProgress?: (progress: unknown) => void }>();
@@ -68,7 +72,7 @@ export function createSession(native: SystemModule | null | undefined, events: E
   let request: (body: Json, options?: RequestOptions) => Promise<unknown>;
   const asked = (key: keyof typeof ASKED_BY) => followed<Json>({ start: () => void request(ASKED_BY[key]) });
   const state: SessionState = {
-    updateState: asked('updateState'),
+    updateState: followed(),
     network: asked('network'),
     bluetooth: asked('bluetooth'),
     power: asked('power'),

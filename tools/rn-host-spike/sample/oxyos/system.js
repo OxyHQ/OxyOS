@@ -204,7 +204,11 @@ export function followInputLevel(listener) {
 
 /** The update state as it changes, for a page: asked once, then followed. */
 export function useUpdateState() {
-  return useFollowed(updates);
+  const state = useFollowed(updates);
+  React.useEffect(() => {
+    updates.state();
+  }, []);
+  return state;
 }
 
 /** What this launch may use: `{origin, capabilities, narrowed}` (an installed version is narrowed
