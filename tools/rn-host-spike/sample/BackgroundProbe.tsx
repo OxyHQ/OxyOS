@@ -2,14 +2,16 @@
  * An installed application with a login item and background activity
  * (docs/adr/0060-login-items-and-background-activity.mdx), as a chat application keeps its
  * connection: it adds itself to Open at Login and asks to run on in the background once its window
- * closes, through the platform's `loginItem` and `backgroundActivity` (oxyos/background-items.js),
+ * closes, through the platform's `application.loginItem` and `application.backgroundActivity`
+ * (`@oxyos/platform`),
  * and shows how each stands as the session tells it, the person's changes included.
  */
 import * as React from 'react';
 import { AppState, Pressable, Text, View } from 'react-native';
-import { backgroundActivity, loginItem } from './oxyos/background-items';
+import { application, type BackgroundItem } from '@oxyos/platform';
+import { useFollowed } from '@oxyos/platform/react';
 
-type Item = typeof loginItem;
+const { loginItem, backgroundActivity } = application;
 
 function Button({ label, testID, y, onPress }: { label: string; testID: string; y: number; onPress: () => void }) {
   return (
@@ -25,8 +27,8 @@ function Button({ label, testID, y, onPress }: { label: string; testID: string; 
 }
 
 /** How an item stands, as the session last told it. */
-function useStatus(item: Item): string | null {
-  return React.useSyncExternalStore(item.subscribe, item.current);
+function useStatus(item: BackgroundItem): string | null {
+  return useFollowed(item);
 }
 
 export default function BackgroundProbe() {

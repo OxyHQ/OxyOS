@@ -1810,7 +1810,7 @@ std::shared_ptr<TurboModule> createHostModule(
         // Its login item and background activity can be asked about (protocol version 32).
         "backgroundItems", static_cast<bool>(services.backgroundItems.ask));
     });
-    // Login items and background activity (sample/oxyos/background-items.js,
+    // Login items and background activity (`@oxyos/platform`'s `application`,
     // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or
     // registering or unregistering it, by name (`loginItem`, `background`; `status`, `register`,
     // `unregister`): its serial, 0 if it was not sent; `OxyOSBackgroundItemState` answers.

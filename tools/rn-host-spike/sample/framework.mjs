@@ -112,10 +112,12 @@ const css = [
 ];
 // The runtime's own start, Bloom's platform adapter for OxyOS, the session's locale for an
 // application's root (oxyos/locale.js), the store's installer the runtime registers in an
-// application the policy gives `store` (oxyos/store-installer.js), and an application's login item
-// and background activity (oxyos/background-items.js, docs/adr/0060-login-items-and-background-activity.mdx).
+// application the policy gives `store` (oxyos/store-installer.js), and the platform API.
+// OxyOS's platform API (docs/adr/0058-the-platform-api.mdx), each export of its package.
+const platformPackage = JSON.parse(fs.readFileSync(path.join(here, 'oxyos', 'platform', 'package.json'), 'utf8'));
 const own = ['./oxyos/framework-init', './oxyos/platform-surface', './oxyos/locale', './oxyos/store-installer',
-  './oxyos/background-items', 'react-native/Libraries/Core/InitializeCore'];
+  'react-native/Libraries/Core/InitializeCore',
+  ...Object.keys(platformPackage.exports).map((subpath) => `@oxyos/platform${subpath.slice(1)}`)];
 
 const provided = [...core, ...native, ...css, ...bloomExports, ...own];
 const generated = path.join(here, 'generated');
