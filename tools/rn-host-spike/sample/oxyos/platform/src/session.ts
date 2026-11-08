@@ -36,12 +36,17 @@ export interface SessionState {
   power: Told<Json>;
   inputSources: Told<Json>;
   sound: Told<Json>;
+  /** The account's applications and their capabilities' decisions, and which run in the
+      background now (`privacy`; ADR 0030, decision 8; docs/adr/0060-login-items-and-background-
+      activity.mdx): told by the answers to `{privacy}` and again, unasked, when it changed
+      elsewhere. Asked by the page that shows it, as the updates are. */
+  privacy: Told<Json[]>;
   /** AutoFill's list the session tells the shell to draw, null for none (told only unasked). */
   autofill: Told<Json | null>;
   /** The chosen input's level (0 to 1): metered from the first follower until the last stops, so
       nothing listens to the input while nothing shows its level (ADR 0056, decision 7). */
   inputLevel: Told<number>;
-  /** Activity Monitor's samples (the `activity` grant, docs/adr/0060-activity-monitor.mdx), of the
+  /** Activity Monitor's samples (the `activity` grant, docs/adr/0063-activity-monitor.mdx), of the
       view `activityView` chose: followed from the first follower until the last stops, and sampled
       by the session only while the follower's window is shown. */
   activity: Told<Json>;
@@ -90,6 +95,7 @@ export function createSession(native: SystemModule | null | undefined, events: E
     power: asked('power'),
     inputSources: asked('inputSources'),
     sound: asked('sound'),
+    privacy: followed(),
     autofill: followed(),
     inputLevel: followed({
       start: () => void request({ soundMeter: { on: true } }),
@@ -113,12 +119,13 @@ export function createSession(native: SystemModule | null | undefined, events: E
     for (const key of FOLLOWED_KEYS) {
       if (told[key]) state[key].tell(told[key] as Json);
     }
+    if (Array.isArray(told.privacy)) state.privacy.tell(told.privacy as Json[]);
   };
 
   if (native) {
     events.addListener('OxyOSSystemAnswer', (event: { serial: number; answer?: unknown; text?: string }) => {
       const { serial } = event;
-      // A long answer (SystemData, docs/adr/0060-activity-monitor.mdx) comes as the session's
+      // A long answer (SystemData, docs/adr/0063-activity-monitor.mdx) comes as the session's
       // text, which JSON.parse reads far faster than the host could build its values.
       let answer = event.answer;
       if (typeof event.text === 'string') {

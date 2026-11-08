@@ -1,6 +1,6 @@
 //! One process's details, as a Mac's *Inspect* sheet shows them: its parent, user and times; its
 //! memory counted page by page (`smaps_rollup`, which costs too much to read for every process
-//! every two seconds, docs/adr/0060-activity-monitor.mdx, decision 4); the files it has open and
+//! every two seconds, docs/adr/0063-activity-monitor.mdx, decision 4); the files it has open and
 //! its sockets (`/proc/PID/fd`, each socket found in its network namespace's tables); and its
 //! control group. Read once, when asked. What only the process's own user may read (its files,
 //! sockets, path, arguments and memory) is left out of another user's, which says so

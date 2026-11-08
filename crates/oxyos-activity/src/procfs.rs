@@ -1,6 +1,6 @@
 //! What `/proc` says of one process, each file read whole in one call and parsed here: the reads
 //! Activity Monitor makes of every process every two seconds are its whole cost, so each is the
-//! cheapest file that says what a column needs (docs/adr/0060-activity-monitor.mdx, decision 3).
+//! cheapest file that says what a column needs (docs/adr/0063-activity-monitor.mdx, decision 3).
 
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
@@ -176,7 +176,7 @@ pub fn io(procfs: &Procfs, pid: u32, buffer: &mut String) -> Option<(u64, u64)> 
 
 /// How many times the process's threads were run on a processor since they started: each one's
 /// `schedstat` third field (`pcount`). A thread that sleeps and wakes is run once per waking, so
-/// its rate is the process's wakeups (docs/adr/0060-activity-monitor.mdx, decision 3).
+/// its rate is the process's wakeups (docs/adr/0063-activity-monitor.mdx, decision 3).
 pub fn runs(procfs: &Procfs, pid: u32, buffer: &mut String) -> Option<u64> {
     let tasks = std::fs::read_dir(procfs.of(pid, "task")).ok()?;
     let mut runs = 0;

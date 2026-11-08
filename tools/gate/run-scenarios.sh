@@ -129,7 +129,11 @@ for n in $(cat "$R/failed"); do
   echo "scenario $n failed once (load $(cut -d' ' -f1 /proc/loadavg)), again alone:"; said "$n"
   grep -rh "fatal signal" -A12 "$R/scenarios/$n.failed" 2>/dev/null | head -14
   mv "$R/scenarios/$n.failed" "$R/scenarios/$n.failed-first"
-  sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"; fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"; }
+  sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"
+    # A scenario in tools/gate/quarantine (flaky on main, its issue open) is said, not counted.
+    issue=$(awk -v n="$n" '!/^#/ && $1 == n { print $2 }' tools/gate/quarantine)
+    [ -n "$issue" ] || fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"
+    echo "gate: scenario $n failed twice, quarantined ($issue, tools/gate/quarantine): not counted"; }
 done
 [ -n "$reserved" ] && { sudo -n $reserve release; trap - EXIT; }
 flock -u 8

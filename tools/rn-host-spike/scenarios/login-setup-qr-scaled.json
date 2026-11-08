@@ -1,5 +1,5 @@
 {
-  "about": "Adding an Oxy account with the QR (docs/adr/0020-oxy-account-login.mdx, decision 4), at 1.25, against a played Oxy API and a played accounts' service (no credential of anyone's): \"Add Account\" pressed beside an enrolled account, online, the login screen shows the Oxy SDK's own account chooser, the one an app's account dialog shows, on its card: on a computer, as in a browser, its split card with the Commons QR a phone scans beside the form, the card grown to the width the chooser asks, the email or username field focused. The screen joins Oxy's Socket.IO `/auth-session` namespace over React Native's WebSocket (the host's WebSocketModule) and a phone approves the request then (the played API's stand-in): told on the socket, the screen claims the session at once, once (one approval: the account on the device, its token taken by every request after; no device picker ever shown), not at its status check twelve seconds on, the credential goes to the host, and the person leaves the PIN for later (\"Not Now\", docs/adr/0020-oxy-account-login.mdx decision 2's amendment; login-setup-pin chooses one) and gives the account's password once more, in the login screen's own field, focused. The accounts' service sets the account up with the credential and the password; enrolled, the new account is chosen and its password signs it in.",
+  "about": "Adding an Oxy account with the QR (docs/adr/0020-oxy-account-login.mdx, decision 4), at 1.25, against a played Oxy API and a played accounts' service (no credential of anyone's): \"Add Account\" pressed beside an enrolled account, online, the login screen shows the Oxy SDK's own account chooser, the one an app's account dialog shows, on its card: on a computer, as in a browser, its split card with the Commons QR a phone scans beside the form, the card grown to the width the chooser asks, the email or username field focused. The screen joins Oxy's Socket.IO `/auth-session` namespace over React Native's WebSocket (the host's WebSocketModule) and a phone approves the request then (the played API's stand-in): told on the socket, the screen claims the session at once, once (one approval: the account on the device, its token taken by every request after; no device picker ever shown), not at its status check twelve seconds on, the credential goes to the host, and the person sets a PIN, typed twice, and is never asked for or offered a password (a sign-in by the QR, docs/adr/0020-oxy-account-login.mdx decision 2 as amended), in the login screen's own field, focused. The accounts' service sets the account up with the credential and the password; enrolled, the new account is chosen and its password signs it in.",
   "shell": "OxyOSLogin",
   "outputs": "1600x1000@1.25",
   "login": {
@@ -101,7 +101,7 @@
       }
     },
     {
-      "name": "a phone approves the QR: the session claimed, a PIN for this computer asked, its field focused",
+      "name": "a phone approves the QR: the session claimed, a PIN for this computer asked, its field focused, no password asked or offered",
       "do": [
         "wait",
         4000
@@ -121,14 +121,17 @@
         "in_shell": {
           "texts": [
             "Choose a PIN for this computer",
-            "Not Now"
+            "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it."
           ],
           "absent": [
-            "Scan with Commons to sign in",
-            "Email or username",
             "Choose an account",
-            "Use another account",
-            "Enter Ada Lovelace's password"
+            "Email or username",
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password",
+            "Use another account"
           ],
           "focus_input": "login-setup-pin-password"
         },
@@ -139,32 +142,40 @@
       }
     },
     {
-      "name": "Not Now: the PIN left for later, the account's password asked once more, its field focused",
+      "name": "the PIN chosen: typed again, its field focused",
       "do": [
-        "press_named",
-        "Not Now"
+        "keyboard",
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [],
         "delivered": {},
+        "never": [
+          "482916"
+        ],
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+            "Enter the PIN again"
           ],
           "absent": [
-            "Choose a PIN for this computer"
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Set a password",
+            "Send code"
           ],
-          "focus_input": "login-setup-password"
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
         }
       }
     },
     {
-      "name": "the password: the account set up with the credential the QR's sign-in handed over",
+      "name": "typed again: the account set up with its PIN alone, by the credential the QR's sign-in handed over; listed and chosen, its PIN's field focused",
       "do": [
         "keyboard",
-        "played password 1\n"
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -173,7 +184,7 @@
         ],
         "delivered": {},
         "never": [
-          "played password 1"
+          "482916"
         ],
         "in_shell": {
           "texts": [
@@ -183,11 +194,13 @@
           ],
           "absent": [
             "Add an Oxy Account",
-            "Enter Ada Lovelace's password"
+            "Enter Ada Lovelace's password",
+            "Use Password"
           ],
           "never": [
-            "played password 1"
-          ]
+            "482916"
+          ],
+          "focus_input": "login-pin-password"
         },
         "oxy_requests_times": {
           "POST /auth/session/claim 200": 0,
@@ -196,25 +209,26 @@
       }
     },
     {
-      "name": "its password signs it in",
+      "name": "its PIN signs it in",
       "do": [
         "keyboard",
-        "oxyos.correcta\n"
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
+        "accounts_asked": [
+          "verifyPin: accepted"
+        ],
         "shell": {
           "locked": true,
           "signed_in": true
         },
         "never": [
-          "oxyos.correcta",
-          "played password 1"
+          "482916"
         ],
         "in_shell": {
           "never": [
-            "oxyos.correcta",
-            "played password 1"
+            "482916"
           ]
         }
       }

@@ -16,21 +16,21 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
-    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
-    DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase, Gravity, MenuField,
-    MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind,
-    PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect,
-    ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
-    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
+    BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
+    CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
+    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind,
+    ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints,
+    TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 33;
+pub const VERSION: u16 = 35;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -92,7 +92,7 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_PREFERENCE_BYTES: usize = 1200;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
-/// The most a SystemData may hold, in bytes (version 33, docs/adr/0060-activity-monitor.mdx):
+/// The most a SystemData may hold, in bytes (version 35, docs/adr/0063-activity-monitor.mdx):
 /// what the session tells in one piece that would take thousands of SystemText chunks.
 pub const MAX_SYSTEM_DATA_BYTES: usize = 4 * 1024 * 1024;
 /// The most a SearchRequest or SearchText may hold, in bytes (docs/adr/0051-search.mdx): room for

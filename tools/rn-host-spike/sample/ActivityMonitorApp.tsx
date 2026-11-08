@@ -1,5 +1,5 @@
 /**
- * OxyOS's Activity Monitor (apps/activity-monitor, docs/adr/0060-activity-monitor.mdx) in the Bloom
+ * OxyOS's Activity Monitor (apps/activity-monitor, docs/adr/0063-activity-monitor.mdx) in the Bloom
  * host. Its source is the platform API's `activity` (`@oxyos/platform`, docs/adr/0058-the-platform-api.mdx),
  * which only the client the session granted `activity` (`so.oxy.activitymonitor`) may use: the
  * samples it follows while mounted (the session samples only while its window is shown), the view

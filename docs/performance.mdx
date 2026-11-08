@@ -566,7 +566,7 @@ An application holding a WebSocket open (`WebSocket open`: `sample/WebSocketProb
 
 ### Activity Monitor
 
-[ADR 0060](./adr/0060-activity-monitor): the session samples every two seconds only while Activity Monitor's window is shown. Hidden (minimized, another desktop, locked, the displays off), its sampling thread waits on its jobs alone. `activity/tests.rs` holds it to no wakeup in five seconds hidden, and the scenarios' last step to no sample taken or sent and no wakeup of the thread in six. What a sample costs, measured on 8 November 2026 in the development compositor on the development machine (WSL2, 32 cores, about 485 processes and 2,400 threads, at a load of 130 to 150, so every figure is inflated by contention), the sampling thread's CPU time per sample by view:
+[ADR 0063](./adr/0063-activity-monitor): the session samples every two seconds only while Activity Monitor's window is shown. Hidden (minimized, another desktop, locked, the displays off), its sampling thread waits on its jobs alone. `activity/tests.rs` holds it to no wakeup in five seconds hidden, and the scenarios' last step to no sample taken or sent and no wakeup of the thread in six. What a sample costs, measured on 8 November 2026 in the development compositor on the development machine (WSL2, 32 cores, about 485 processes and 2,400 threads, at a load of 130 to 150, so every figure is inflated by contention), the sampling thread's CPU time per sample by view:
 
 | view | what it reads beyond every process's `stat` | CPU per sample |
 |---|---|---|

@@ -1,4 +1,4 @@
-//! Quitting one of the person's processes (docs/adr/0060-activity-monitor.mdx, decision 6): the
+//! Quitting one of the person's processes (docs/adr/0063-activity-monitor.mdx, decision 6): the
 //! process named by its pid and its start, signalled through a pidfd opened on it and checked to
 //! be it, so a pid the kernel gave another since the person chose is never signalled. Only the
 //! session's user's processes (its real, effective and saved user), never the session itself nor

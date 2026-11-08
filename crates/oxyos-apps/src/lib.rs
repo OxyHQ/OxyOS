@@ -43,7 +43,7 @@ pub struct Grants {
     /// (Settings; docs/adr/0055-bluetooth.mdx).
     pub bluetooth: bool,
     /// `activity`: it follows the machine's use and every process's, inspects them and quits the
-    /// person's own (Activity Monitor; docs/adr/0060-activity-monitor.mdx).
+    /// person's own (Activity Monitor; docs/adr/0063-activity-monitor.mdx).
     pub activity: bool,
 }
 

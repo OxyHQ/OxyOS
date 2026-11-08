@@ -1,5 +1,5 @@
 //! A long answer of the session's vocabulary through real sockets (SystemData, protocol version
-//! 32, docs/adr/0060-activity-monitor.mdx): one event carrying a sealed memory file, which the
+//! 35, docs/adr/0063-activity-monitor.mdx): one event carrying a sealed memory file, which the
 //! client library reads whole, where SystemText's 32-byte chunks would be thousands of events and
 //! a client that did not read them at once would be dropped.
 

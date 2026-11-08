@@ -24,7 +24,7 @@ pub const SIGNIFICANT: f64 = 0.2;
 /// The shortest window a use is averaged over, but since an application started.
 pub const WINDOW: Duration = Duration::from_secs(60);
 /// The samples kept per application: a minute's at Activity Monitor's pace of one every two seconds
-/// (docs/adr/0060-activity-monitor.mdx), and more.
+/// (docs/adr/0063-activity-monitor.mdx), and more.
 const KEPT: usize = 64;
 /// The span an application's average energy covers, as a Mac's *12 hr Power*.
 pub const AVERAGE: Duration = Duration::from_secs(12 * 60 * 60);
@@ -147,7 +147,7 @@ impl Proc<'_> {
     /// `/proc/PID/fdinfo/FD` of each descriptor of a DRM device): their engines' busy time and the
     /// memory they hold, each client once (`seen`: `drm-pdev` and `drm-client-id`) however many
     /// descriptors name it. Activity Monitor's GPU columns read it too, so the GPU is counted one
-    /// way (docs/adr/0060-activity-monitor.mdx).
+    /// way (docs/adr/0063-activity-monitor.mdx).
     pub fn drm(&self, pid: u32, seen: &mut HashSet<(String, String)>) -> Drm {
         let directory = self.root.join(pid.to_string());
         let mut drm = Drm::default();

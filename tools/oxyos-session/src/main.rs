@@ -575,6 +575,11 @@ fn main() -> Result<()> {
         (!greeter).then(|| installd::Installd::start(PathBuf::from(oxyos_install::ipc::SOCKET)));
     // The store's, Settings' and applications' requests to install, update, remove and use
     // capabilities (ADR 0030): over the same service, each confirmed in the shell's sheet.
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the applications' own, decided by their launch records and their account's decisions. The
+    // login screen has none.
+    let mut background = (!greeter)
+        .then(|| oxyos_compositor::background::BackgroundActivity::new(installed.clone()));
     let mut installs = if greeter {
         None
     } else {
@@ -630,7 +635,7 @@ fn main() -> Result<()> {
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
     };
-    // Activity Monitor (docs/adr/0060-activity-monitor.mdx): the machine's use and every process's,
+    // Activity Monitor (docs/adr/0063-activity-monitor.mdx): the machine's use and every process's,
     // sampled only while its window is shown. The login screen has none.
     let mut activity = if greeter {
         None
@@ -755,7 +760,7 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
-        // Battery and energy (ADR 0057) and Activity Monitor (ADR 0060), before the store, which
+        // Battery and energy (ADR 0057) and Activity Monitor (ADR 0063), before the store, which
         // takes the requests left.
         let running: Vec<oxyos_power::energy::Running> = launcher
             .running()
@@ -1063,6 +1068,20 @@ fn main() -> Result<()> {
                 },
             })
         });
+        // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx),
+        // after Settings' changes of Open at Login: each application's asks, and its process in the
+        // background ended when it loses the right.
+        if let Some(background) = background.as_mut() {
+            for pid in background.serve(
+                &mut compositor,
+                &mut settings,
+                &|pid| launcher.application_of(pid).cloned(),
+                installs.as_mut(),
+                settings::now(),
+            ) {
+                launcher.terminate(pid);
+            }
+        }
         // Search's asks, once every client that asked is named by its launch record: who asked is
         // told the index with each.
         if let Some(search) = search.as_mut() {

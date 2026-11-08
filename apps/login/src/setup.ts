@@ -3,10 +3,10 @@
  * step 2): online only. The SDK's own sign-in (the platform's, with OxyOS's client id from the
  * accounts' service) obtains a device credential, which the platform takes over at once and holds.
  * An account with a password gives it once more, then chooses a PIN for this computer (or not, for
- * now); an account without one chooses a PIN, and is never asked to make an Oxy password. The
- * accounts' service sets the account up with them, asking a second factor on the same
- * conversation when Oxy does. An account without a password cannot be set up yet (the service
- * says `passwordRequired`): Oxy issues the platform's credential only to its password sign-in.
+ * now); an account without one chooses a PIN, and is never asked to make an Oxy password. A
+ * sign-in by the QR sets a PIN alone, and a password typed in the sign-in is taken as it was typed
+ * (`SignedInAccount`). The accounts' service sets the account up with them, asking a second factor
+ * on the same conversation when Oxy does; a PIN alone is redeemed by Oxy's device-proof route.
  * What came of each answer, apart from how it is shown: nothing here decides who may sign in.
  */
 
@@ -22,8 +22,25 @@ export function platformFrom(told: unknown): SetupPlatform | null {
   return { api, clientId };
 }
 
-/** The account the SDK's sign-in signed in: who the password is for, and whether it has one. */
-export type SignedInAccount = { id: string; name: string; hasPassword: boolean };
+/**
+ * The account the SDK's sign-in signed in, and how (docs/adr/0020-oxy-account-login.mdx, decision 2
+ * as amended): `qr`, the QR approved on a phone (a Commons approval: no password involved, the PIN
+ * alone); `password`, the account's password typed in the sign-in, which the setup takes and never
+ * asks again (the PIN optional); `other`, the email's code or a new account, where a password the
+ * account has is asked once (the PIN optional) and an account without one sets a PIN.
+ */
+export type SignedInAccount = { id: string; name: string; hasPassword: boolean; via: "qr" | "password" | "other" };
+
+/** Whether the setup asks for the account's password once: only a sign-in that typed none, of an
+    account that has one. */
+export function asksPassword(account: SignedInAccount): boolean {
+  return account.via === "other" && account.hasPassword;
+}
+
+/** Whether the PIN may be left for later: only where a password becomes the local credential. */
+export function pinOptional(account: SignedInAccount): boolean {
+  return account.via === "password" || asksPassword(account);
+}
 
 /** Whether `pin` can be a PIN: 4 to 16 digits, as the accounts' service takes one. */
 export function usablePin(pin: string): boolean {
@@ -49,8 +66,6 @@ export type SetupStep =
   /** A PIN for this computer; `first`: the one typed, to be typed again; `problem`: why the last
       was not taken. */
   | { step: "pin"; account: SignedInAccount; first?: string; problem?: "mismatch" | "unusable" }
-  /** An account without a password, which Oxy cannot set up yet: nothing was changed. */
-  | { step: "noPassword"; account: SignedInAccount }
   | { step: "secondFactor"; account: SignedInAccount; invalid: boolean };
 
 /** What a password's or a code's answer leads to. */
@@ -61,8 +76,6 @@ export type AfterEnroll =
   | { next: "password"; problem: "incorrect" | "throttled" | "unusable" | "failed"; wait: number }
   /** The PIN again: not one the service takes (not digits, or the password itself). */
   | { next: "pin" }
-  /** The account has no password: it cannot be set up yet. */
-  | { next: "noPassword" }
   /** The sign-in no longer holds (its credential refused, another account's): sign in again. */
   | { next: "signIn" }
   | { next: "offline" };
@@ -84,8 +97,8 @@ export function afterEnroll(answer: EnrollAnswer, _at?: "password" | "secondFact
       return { next: "password", problem: "unusable", wait: 0 };
     case "unusablePin":
       return { next: "pin" };
-    case "passwordRequired":
-      return { next: "noPassword" };
+    case "pinRequired":
+      return { next: "pin" };
     case "offline":
       return { next: "offline" };
     case "credentialRefused":

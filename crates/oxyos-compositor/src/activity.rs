@@ -1,4 +1,4 @@
-//! Activity Monitor for the program running the compositor (docs/adr/0060-activity-monitor.mdx),
+//! Activity Monitor for the program running the compositor (docs/adr/0063-activity-monitor.mdx),
 //! the session authority: what Activity Monitor (the `activity` grant) is told of the machine's
 //! use and every process's, and what it may ask: a process's details, a process of the person's
 //! quit, an application quit.

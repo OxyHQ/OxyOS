@@ -233,7 +233,7 @@ impl Scene {
 
     /// Tells `client` the answer to its request `serial` (0: unasked) whole, `size` bytes the
     /// program running the compositor sends in a sealed file with the event (SystemData,
-    /// docs/adr/0060-activity-monitor.mdx), if it still holds a grant that asks. Whether it was.
+    /// docs/adr/0063-activity-monitor.mdx), if it still holds a grant that asks. Whether it was.
     pub fn system_data(&mut self, client: ClientId, serial: u32, size: u32) -> bool {
         let Some(grants) = self.clients.get(&client) else {
             return false;
@@ -250,6 +250,17 @@ impl Scene {
         self.clients
             .iter()
             .filter(|(_, grants)| grants.store || grants.updates)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
+    /// The clients told the account's applications' capabilities unasked as they change (serial
+    /// 0): those with the `privacy` grant, Settings (its Privacy page and Login Items &
+    /// Extensions, docs/adr/0060-login-items-and-background-activity.mdx).
+    pub fn privacy_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.privacy)
             .map(|(client, _)| *client)
             .collect()
     }

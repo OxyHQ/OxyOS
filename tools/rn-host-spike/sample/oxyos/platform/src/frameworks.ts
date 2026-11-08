@@ -118,7 +118,7 @@ export function createFrameworks(session: Session) {
   };
 
   /**
-   * The machine's use and every process's (docs/adr/0060-activity-monitor.mdx): the `activity`
+   * The machine's use and every process's (docs/adr/0063-activity-monitor.mdx): the `activity`
    * grant (Activity Monitor). `sample` is followed: its first follower begins the session's
    * sampling of `setView`'s view, every two seconds while the follower's window is shown, and its
    * last ends it. A process is named by its pid and its start (`started`, as a sample gives it).

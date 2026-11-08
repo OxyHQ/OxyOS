@@ -34,6 +34,11 @@ systemd-cryptsetup
 cryptsetup-initramfs
 shim-signed
 efibootmgr
+# Backups (docs/adr/0059-backups.mdx): restic is the engine (deduplicated, encrypted snapshots,
+# thinned and checked by itself), and rclone the SMB client restic starts for a share on a NAS;
+# the recovery restores a computer with them.
+restic
+rclone
 # The live medium's own boot loader, GRUB through shim (live-build's), in the image rather than
 # installed into the build's chroot and purged after: purging GRUB there runs systemd-boot's
 # trigger, which fails where there is no EFI system partition. The installer purges GRUB from an

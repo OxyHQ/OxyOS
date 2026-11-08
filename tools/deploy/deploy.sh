@@ -133,7 +133,7 @@ if [ -d $D/apps/so.oxy.atlas ]; then
   policy="$policy,"' "so.oxy.atlas": { "entry": "/usr/share/oxyos/applications/so.oxy.atlas.desktop", "bloom": { "host": "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/apps/so.oxy.atlas/index.hbc" }, "grants": ["store", "updates"] }'
 fi
 if [ -d $D/apps/so.oxy.activitymonitor ]; then
-  # Activity Monitor (docs/adr/0060-activity-monitor.mdx), not in the dock, with the policy's
+  # Activity Monitor (docs/adr/0063-activity-monitor.mdx), not in the dock, with the policy's
   # `activity`: the machine's use and every process's, and quitting the person's own.
   entry so.oxy.activitymonitor "Activity Monitor" "Monitor de Actividad" OxyOSActivityMonitor
   policy="$policy,"' "so.oxy.activitymonitor": { "entry": "/usr/share/oxyos/applications/so.oxy.activitymonitor.desktop", "bloom": { "host": "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/apps/so.oxy.activitymonitor/index.hbc" }, "grants": ["activity"] }'

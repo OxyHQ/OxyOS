@@ -517,7 +517,7 @@ fn the_shell_is_told_each_output_a_zoomed_or_full_screen_window_covers() {
 
 #[test]
 fn a_client_is_shown_while_a_window_of_its_can_be_seen() {
-    // Activity Monitor samples only while it is (docs/adr/0060-activity-monitor.mdx).
+    // Activity Monitor samples only while it is (docs/adr/0063-activity-monitor.mdx).
     let mut h = Harness::new();
     assert!(!h.scene.client_shown(APP));
     let window = h.toplevel(APP, 1, 400, 300);

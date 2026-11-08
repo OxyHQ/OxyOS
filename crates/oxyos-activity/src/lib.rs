@@ -1,4 +1,4 @@
-//! Activity Monitor's samplers (docs/adr/0060-activity-monitor.mdx): the machine's use and every
+//! Activity Monitor's samplers (docs/adr/0063-activity-monitor.mdx): the machine's use and every
 //! process's, read from `/proc` as the session's user, two samples making rates. The session asks
 //! for a sample every two seconds while Activity Monitor's window is shown and never otherwise
 //! (`oxyos_compositor::activity`); nothing here keeps a clock or a thread.

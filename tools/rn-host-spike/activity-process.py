@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A process Activity Monitor's scenarios know (docs/adr/0060-activity-monitor.mdx): named NAME (its
+"""A process Activity Monitor's scenarios know (docs/adr/0063-activity-monitor.mdx): named NAME (its
 `comm`, what the kernel and Activity Monitor call it), busy for a share BUSY of the time (0: asleep
 until a signal comes), and recording each signal it receives, with when it received it on the
 monotonic clock the scenarios' steps use, in RECORD:

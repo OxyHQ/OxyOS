@@ -71,8 +71,10 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// search (`SearchRequest`, `SearchText`, docs/adr/0051-search.mdx), both ways, asked by any
 /// client, the index's changes sent unasked to a client that asked to watch them; version 32, a
 /// lock surface's PIN (`AuthenticatePasscode`, docs/adr/0020-oxy-account-login.mdx decision 2),
-/// asked by a lock surface; version 33, a system answer as one sealed memory file (`SystemData`,
-/// docs/adr/0060-activity-monitor.mdx), sent only to a client of this version or newer.
+/// asked by a lock surface; version 33, login items and background activity (`BackgroundItem`,
+/// `BackgroundItemState`, docs/adr/0060-login-items-and-background-activity.mdx), both ways,
+/// asked by an application, a change the person made sent unasked; version 35, a system answer as one sealed memory file (`SystemData`,
+/// docs/adr/0063-activity-monitor.mdx), sent only to a client of this version or newer.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -93,6 +95,7 @@ const EVENTS_ADDED: Added = &[
     (30, 65..=65),
     (31, 164..=164),
     (33, 165..=165),
+    (35, 167..=167),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -114,6 +117,7 @@ const REQUESTS_ADDED: Added = &[
     (30, 69..=69),
     (31, 164..=164),
     (32, 101..=101),
+    (33, 165..=165),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -181,9 +185,15 @@ pub fn event_since(event: &Event) -> u16 {
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one. A request an older version had, carrying a value that version lacks, is the newer
 /// version's: a node's hint (version 13), a column header (version 14) and a meter (version 15),
-/// which an older compositor would refuse; and that list (version 23).
+/// which an older compositor would refuse; that list (version 23); and Launchpad's surfaces said
+/// to be what a pinch drives (`GestureOverlay::Launchpad`, version 33,
+/// docs/adr/0046-interactive-gestures.mdx).
 pub fn request_since(request: &Request) -> u16 {
     match request {
+        Request::SetGestureOverlay {
+            overlay: crate::wire::GestureOverlay::Launchpad,
+            ..
+        } => 33,
         Request::AccessibleText {
             field: AccessibleField::Hint,
             ..
