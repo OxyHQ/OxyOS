@@ -2376,9 +2376,6 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
           testID="oxy-account-sign-out"
         />
       </GroupedSection>
-      {view.kind === "signed_in" && account?.local ? (
-        <LocalSignInSection actions={account.local} strings={strings} />
-      ) : null}
       <GroupedSection>
         <GroupedSectionItem
           title={words.remove}
@@ -2390,6 +2387,9 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
           testID="oxy-account-remove"
         />
       </GroupedSection>
+      {view.kind === "signed_in" && account?.local ? (
+        <LocalSignInSection actions={account.local} strings={strings} />
+      ) : null}
       <AlertDialog
         open={confirming === "sign-out"}
         onOpenChange={(open) => {

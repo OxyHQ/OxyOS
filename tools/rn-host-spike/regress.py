@@ -510,7 +510,9 @@ file holds that JSON once the run ended.
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM), and with `lock_pin` with that PIN, said as one
 (docs/adr/0020-oxy-account-login.mdx decision 2). The played session socket's `account.local`
-({"pin", "password"}) is the account's local sign-in it tells the shell's lock screen and Settings.
+({"pin", "password"}) is the account's local sign-in it tells the shell's lock screen and Settings,
+which changes it (`setPin`, `removePin`, `setPasswordSignIn`) proved by `account.local_password` or
+`account.local_pin`.
 
 A scenario with `store` runs offline but for a store of its own (docs/adr/0030-installing-applications.mdx,
 decision 14): the machine reaches Oxy's API (`api.oxy.so`) only through a proxy of the run's own
@@ -1227,6 +1229,10 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
+    # changes them; the secrets are the run's own and never logged.
+    local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
+    pins_set = [spec.get("local_pin")]
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1333,9 +1339,40 @@ def serve_account_session(path, spec, log):
                 elif message == "localSignIn" and application in ("so.oxy.shell", "so.oxy.settings"):
                     # The account's PIN and password on this computer (ADR 0020 decision 2),
                     # `account.local`: what the lock screen and Settings are told.
-                    local = dict({"pin": "none", "password": True}, **spec.get("local", {}))
-                    record(application, asked, f"pin {local['pin']}")
-                    connection.send(json.dumps({"localSignIn": local}).encode())
+                    record(application, asked, f"pin {local_sign_in['pin']}")
+                    connection.send(json.dumps({"localSignIn": local_sign_in}).encode())
+                elif asked in ("setPin", "removePin", "setPasswordSignIn") and application == "so.oxy.settings":
+                    # Settings' changes, proved by the password (`account.local_password`) or the
+                    # current PIN (`account.local_pin`), as the real service checks them.
+                    change = message[asked]
+                    password_ok = local_sign_in["password"] and change.get("password") is not None \
+                        and change.get("password") == spec.get("local_password")
+                    pin_ok = change.get("currentPin") is not None and change.get("currentPin") == pins_set[0]
+                    if asked == "setPasswordSignIn" and change.get("enabled"):
+                        proved = change.get("password") == spec.get("local_password")
+                    else:
+                        proved = password_ok or pin_ok
+                    if not proved:
+                        answer = {"refused": {"reason": "wrongPin" if "currentPin" in change else "wrongPassword"}}
+                    elif asked == "setPin" and not re.fullmatch(r"[0-9]{4,16}", change.get("pin", "")):
+                        answer = {"refused": {"reason": "unusablePin"}}
+                    elif asked == "removePin" and not local_sign_in["password"]:
+                        answer = {"refused": {"reason": "passwordSignInOff"}}
+                    elif asked == "setPasswordSignIn" and not change.get("enabled") and local_sign_in["pin"] == "none":
+                        answer = {"refused": {"reason": "noPin"}}
+                    else:
+                        if asked == "setPin":
+                            pins_set[0] = change["pin"]
+                            local_sign_in["pin"] = "set"
+                        elif asked == "removePin":
+                            pins_set[0] = None
+                            local_sign_in["pin"] = "none"
+                        else:
+                            local_sign_in["password"] = bool(change.get("enabled"))
+                        answer = {"localSignIn": dict(local_sign_in)}
+                    record(application, asked, next(iter(answer)) if "localSignIn" in answer
+                           else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
                     # The real service then ends the account's sessions, this one with them.

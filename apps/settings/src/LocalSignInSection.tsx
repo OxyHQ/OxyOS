@@ -32,6 +32,9 @@ export function LocalSignInSection({ actions, strings }: { actions: LocalSignInA
   const [fields, setFields] = React.useState<Fields>(EMPTY);
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(false);
+  // Each opening is a sheet of its own: one opened while the last still closes is never closed by
+  // that one's end (the sheet tells its host it closed once it has settled).
+  const [opened, setOpened] = React.useState(0);
   React.useEffect(() => {
     let current = true;
     actions
@@ -44,6 +47,7 @@ export function LocalSignInSection({ actions, strings }: { actions: LocalSignInA
   }, [actions]);
   if (!local) return null;
   const open = (next: LocalChange) => {
+    setOpened((count) => count + 1);
     setFields(EMPTY);
     setError(null);
     setChange(next);
@@ -163,6 +167,14 @@ export function LocalSignInSection({ actions, strings }: { actions: LocalSignInA
           description={local.pin === "none" ? words.passwordNeedsPin : words.passwordDescription}
           descriptionLines={0}
           testID="local-sign-in-password"
+          // The row is the switch's, as a Mac's settings rows are: pressing either asks the same.
+          onPress={
+            local.pin === "none" && local.password
+              ? undefined
+              : () => open(local.password ? "passwordOff" : "passwordOn")
+          }
+          showChevron={false}
+          accessibilityRole="button"
           rightElement={
             <Switch
               checked={local.password}
@@ -175,6 +187,7 @@ export function LocalSignInSection({ actions, strings }: { actions: LocalSignInA
         />
       </GroupedSection>
       <Dialog
+        key={opened}
         open={change !== null}
         onClose={close}
         title={title}
