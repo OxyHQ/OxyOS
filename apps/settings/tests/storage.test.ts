@@ -6,6 +6,8 @@ import {
   largeFiles,
   measuredOf,
   removeOutcomeOf,
+  resetOutcomeOf,
+  SETTINGS_ID,
   STORAGE_CATEGORIES,
   storageBar,
   unusedApps,
@@ -177,4 +179,20 @@ test("Storage speaks English and Spanish, and Empty Trash Automatically is the s
     "2 apps que no has abierto en 3 meses ocupan 3 GB.",
   );
   assert.equal(messagesFor("en").storage.fileLine("Movies", "8.6 GB", ""), "Movies · 8.6 GB");
+});
+
+test("a reset's answer: done, cancelled in the system's sheet, or failed; never Settings' own", () => {
+  // docs/adr/0061-crashes-and-resetting-an-application.mdx: the session's vocabulary.
+  assert.equal(resetOutcomeOf({ reset: { id: "so.oxy.crashprobe" } }), "reset");
+  assert.equal(resetOutcomeOf({ refused: { reason: "cancelled" } }), "cancelled");
+  assert.equal(resetOutcomeOf({ refused: { reason: "notPermitted" } }), "failed");
+  assert.equal(resetOutcomeOf({ failed: { reason: "it has no data directory" } }), "failed");
+  assert.equal(resetOutcomeOf(null), "failed");
+  assert.equal(SETTINGS_ID, "so.oxy.settings");
+  const en = messagesFor("en").storage;
+  const es = messagesFor("es").storage;
+  assert.equal(en.resetApp, "Reset…");
+  assert.equal(es.resetApp, "Restablecer…");
+  assert.equal(en.resetFailed("Mention"), "Mention couldn't be reset.");
+  assert.equal(es.resetDone("Mention"), "Mention restablecida");
 });
