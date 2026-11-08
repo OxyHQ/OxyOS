@@ -43,6 +43,7 @@ fn request(password: &str) -> Request {
         account: ACCOUNT.into(),
         password: Some(Secret::new(password)),
         pin: None,
+        appearance: None,
     }
 }
 
@@ -137,13 +138,13 @@ fn offline_at_the_second_factor_leaves_nothing() {
         offline_from: Some(Call::SecondFactor),
         ..FakeApi::default()
     });
-    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+    let Ok(Progress::SecondFactor(mut pending)) = machine.setup.enroll(request(PASSWORD)) else {
         panic!("a second factor is asked for");
     };
     assert_eq!(
         machine
             .setup
-            .second_factor(&pending, &Secret::new(CODE))
+            .second_factor(&mut pending, &Secret::new(CODE))
             .unwrap_err(),
         SetupError::Offline
     );
@@ -243,7 +244,7 @@ fn an_authenticator_is_asked_for_and_a_wrong_code_may_be_followed_by_the_right_o
         authenticator: true,
         ..FakeApi::default()
     });
-    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+    let Ok(Progress::SecondFactor(mut pending)) = machine.setup.enroll(request(PASSWORD)) else {
         panic!("a second factor is asked for");
     };
     // Nothing on the machine yet.
@@ -251,14 +252,14 @@ fn an_authenticator_is_asked_for_and_a_wrong_code_may_be_followed_by_the_right_o
     assert_eq!(
         machine
             .setup
-            .second_factor(&pending, &Secret::new("000000"))
+            .second_factor(&mut pending, &Secret::new("000000"))
             .unwrap_err(),
         SetupError::SecondFactorInvalid
     );
     nothing_left(&machine);
     let enrolled = machine
         .setup
-        .second_factor(&pending, &Secret::new(CODE))
+        .second_factor(&mut pending, &Secret::new(CODE))
         .unwrap();
     assert_eq!(enrolled.account, account());
     assert_eq!(
@@ -599,6 +600,7 @@ fn unusable_requests_never_reach_oxy() {
                 account: account.into(),
                 password: Some(Secret::new(password)),
                 pin: None,
+                appearance: None,
             })
             .unwrap_err();
         assert!(
@@ -755,12 +757,12 @@ fn the_second_factor_names_the_platform_too() {
         authenticator: true,
         ..FakeApi::default()
     });
-    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+    let Ok(Progress::SecondFactor(mut pending)) = machine.setup.enroll(request(PASSWORD)) else {
         panic!("a second factor");
     };
     machine
         .setup
-        .second_factor(&pending, &Secret::new(CODE))
+        .second_factor(&mut pending, &Secret::new(CODE))
         .unwrap();
     assert_eq!(
         *machine.api().platforms.lock().unwrap(),

@@ -2,12 +2,13 @@
 //! service's side served on a thread, the setup's seams fakes.
 
 use super::*;
+use crate::ipc::Failure;
 use crate::ipc::{
     list, serve, Answer, Connection, Conversation, Enrollers, Listener, Outcome, Reason, Request,
     Turn,
 };
 use crate::platform::Platform;
-use crate::setup::{Progress, Setup};
+use crate::setup::{Progress, Setup, Stage};
 use crate::store::Store;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -26,6 +27,7 @@ fn enroll(password: &str) -> Request {
         account_id: ACCOUNT.into(),
         password: Some(Secret::new(password)),
         pin: None,
+        appearance: None,
     }
 }
 
@@ -83,8 +85,20 @@ impl Service {
     }
 }
 
+/// The next answer that is not a step's progress.
 fn answer(connection: &Connection) -> Answer {
-    connection.receive::<Answer>().unwrap().unwrap().unwrap()
+    stages_and_answer(connection).1
+}
+
+/// The steps told, then the answer.
+fn stages_and_answer(connection: &Connection) -> (Vec<Stage>, Answer) {
+    let mut stages = Vec::new();
+    loop {
+        match connection.receive::<Answer>().unwrap().unwrap().unwrap() {
+            Answer::Progress(stage) => stages.push(stage),
+            answer => return (stages, answer),
+        }
+    }
 }
 
 #[test]
@@ -206,7 +220,14 @@ fn an_offline_setup_is_refused_on_the_socket_and_leaves_nothing() {
     );
     let client = service.connect();
     client.send(&enroll(PASSWORD)).unwrap();
-    assert_eq!(answer(&client), Answer::refused(Reason::Offline));
+    assert_eq!(
+        answer(&client),
+        Answer::Failed {
+            reason: Failure::Unreachable
+        },
+        "the sign-in is kept: the setup may try again"
+    );
+    drop(client);
     let platform = service.platform.clone();
     let setup = platform.setup();
     service.finish();
@@ -525,6 +546,7 @@ fn a_pin_is_checked_for_its_own_account_alone() {
             account: ACCOUNT.into(),
             password: Some(Secret::new(PASSWORD)),
             pin: Some(Secret::new("482916")),
+            appearance: None,
         })
         .unwrap()
     {
@@ -603,6 +625,7 @@ fn the_pin_wire_format_is_the_documented_one() {
         account_id: "a".into(),
         password: None,
         pin: Some(Secret::new("1234")),
+        appearance: None,
     };
     assert_eq!(
         serde_json::to_string(&enroll).unwrap(),
@@ -666,4 +689,119 @@ fn the_last_message_before_the_end_is_read_before_the_end() {
         sender.join().unwrap();
         assert!(polled(|| client.receive::<u32>()).is_none());
     }
+}
+
+/// A setup by the QR, as the login screen sends it: its PIN, no password.
+#[cfg(feature = "local")]
+fn enroll_by_qr(appearance: Option<crate::setup::Appearance>) -> Request {
+    Request::Enroll {
+        device_id: DEVICE.into(),
+        device_secret: Secret::new(DEVICE_SECRET),
+        account_id: ACCOUNT.into(),
+        password: None,
+        pin: Some(Secret::new("482916")),
+        appearance,
+    }
+}
+
+#[cfg(feature = "local")]
+#[test]
+fn a_setup_tells_its_steps_before_its_answer() {
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 1);
+    let client = service.connect();
+    client
+        .send(&enroll_by_qr(Some(crate::setup::Appearance::Dark)))
+        .unwrap();
+    let (stages, answer) = stages_and_answer(&client);
+    assert_eq!(
+        stages,
+        [
+            Stage::Securing,
+            Stage::Verifying,
+            Stage::Preparing,
+            Stage::SigningIn,
+            Stage::Finishing
+        ]
+    );
+    assert!(matches!(answer, Answer::Enrolled { .. }), "{answer:?}");
+    let platform = service.platform.clone();
+    let setup = platform.setup();
+    service.finish();
+    assert_eq!(setup.users().seeded.lock().unwrap().len(), 1);
+}
+
+#[cfg(feature = "local")]
+#[test]
+fn a_failed_setup_keeps_its_sign_in_and_a_retry_finishes_it() {
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 1);
+    let platform = service.platform.clone();
+    let setup = platform.setup();
+    setup.users().fail(UserStep::MakeAdministrator);
+    let client = service.connect();
+    client.send(&enroll_by_qr(None)).unwrap();
+    assert_eq!(
+        answer(&client),
+        Answer::Failed {
+            reason: Failure::LocalFailure
+        }
+    );
+    setup.users().failing.lock().unwrap().clear();
+    client.send(&Request::Retry).unwrap();
+    let (stages, answer) = stages_and_answer(&client);
+    assert_eq!(stages, [Stage::Preparing, Stage::Finishing]);
+    assert!(matches!(answer, Answer::Enrolled { .. }), "{answer:?}");
+    let log = service.finish();
+    // One redemption, and nothing ended online.
+    let calls = setup.api().calls();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| **call == Call::PlatformDevice)
+            .count(),
+        1
+    );
+    assert!(!calls.contains(&Call::SignOut));
+    assert!(log[0].contains("Interrupted"));
+    assert!(log[1].contains("Enrolled"));
+    let log = log.join("\n");
+    for secret in [DEVICE_SECRET, "482916", &platform_secret(1)] {
+        assert!(!log.contains(secret), "{log}");
+    }
+}
+
+#[cfg(feature = "local")]
+#[test]
+fn a_client_that_goes_away_after_a_failure_ends_the_credential_kept() {
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 1);
+    let platform = service.platform.clone();
+    let setup = platform.setup();
+    setup.users().fail(UserStep::MakeAdministrator);
+    let client = service.connect();
+    client.send(&enroll_by_qr(None)).unwrap();
+    assert!(matches!(answer(&client), Answer::Failed { .. }));
+    drop(client);
+    service.finish();
+    let calls = setup.api().calls();
+    assert_eq!(calls[calls.len() - 2..], [Call::Mint, Call::SignOut]);
+    assert!(setup.users().names().is_empty());
+    assert!(setup.store().users().unwrap().is_empty());
+}
+
+#[test]
+fn a_retry_out_of_turn_and_an_unknown_appearance_are_not_requests() {
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 2);
+    let client = service.connect();
+    client.send(&Request::Retry).unwrap();
+    assert_eq!(answer(&client), Answer::refused(Reason::InvalidRequest));
+    let client = service.connect();
+    let mut message = serde_json::to_value(enroll(PASSWORD)).unwrap();
+    message["enroll"]["appearance"] = serde_json::json!("sepia");
+    client
+        .send(&serde_json::from_value::<serde_json::Value>(message).unwrap())
+        .unwrap();
+    assert_eq!(answer(&client), Answer::refused(Reason::InvalidRequest));
+    let platform = service.platform.clone();
+    let setup = platform.setup();
+    service.finish();
+    assert!(setup.api().calls().is_empty());
 }
