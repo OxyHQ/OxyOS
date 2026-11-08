@@ -1726,7 +1726,8 @@ def login_program(out, offscreen, login):
     # (tools/oxyos-login/pam.d/oxyos-login-pin), oxyos-pin-check asking the accounts' stand-in.
     pin_check = pathlib.Path(offscreen).resolve().parent / "oxyos-pin-check"
     (pam / "oxyos-login-pin").write_text(
-        f"auth required pam_exec.so quiet expose_authtok {pin_check} --socket {accountd}\n"
+        f"auth [success=1 default=ignore] pam_exec.so quiet expose_authtok {pin_check} --socket {accountd}\n"
+        "auth requisite pam_deny.so\nauth required pam_permit.so\n"
         "account required pam_permit.so\nsession required pam_permit.so\n")
     record.unlink(missing_ok=True)
     # Online, Oxy's API is played (`login.oxy`) and the accounts' service names it, with a client id.
