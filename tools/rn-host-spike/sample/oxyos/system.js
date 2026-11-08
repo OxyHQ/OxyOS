@@ -45,6 +45,9 @@ const powerState = followed();
 const inputSourcesState = followed();
 /** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx). */
 const soundState = followed();
+/** The account's applications and their capabilities' decisions (ADR 0030, decision 8), and which
+    run in the background now (docs/adr/0060-login-items-and-background-activity.mdx). */
+const privacyState = followed();
 /** AutoFill's list the session last told the shell to draw (docs/adr/0050-keychain-autofill-and-passkeys.mdx),
     null for none. */
 const autofillState = followed();
@@ -60,6 +63,7 @@ function tellAll(answer) {
   if (answer.inputSources) inputSourcesState.tell(answer.inputSources);
   if (answer.sound) soundState.tell(answer.sound);
   if (answer.power) powerState.tell(answer.power);
+  if (Array.isArray(answer.privacy)) privacyState.tell(answer.privacy);
 }
 
 if (native) {
@@ -137,10 +141,15 @@ export const session = {
   signOut: () => ask({ signOut: {} }),
 };
 
-/** The account's decisions on its applications' capabilities: `privacy` grant. */
+/** The account's decisions on its applications' capabilities: `privacy` grant. The list is told
+    again, unasked, when what it says changed elsewhere: an application granted a capability as it
+    registered its login item or background activity, or one running in the background, or no
+    longer (docs/adr/0060-login-items-and-background-activity.mdx). */
 export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
+  current: privacyState.current,
+  subscribe: privacyState.subscribe,
 };
 
 /**

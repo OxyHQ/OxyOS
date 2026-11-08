@@ -111,10 +111,11 @@ const css = [
   'react-native-css/components/react-native-safe-area-context', 'react-native-css/utilities',
 ];
 // The runtime's own start, Bloom's platform adapter for OxyOS, the session's locale for an
-// application's root (oxyos/locale.js), and the store's installer the runtime registers in an
-// application the policy gives `store` (oxyos/store-installer.js).
+// application's root (oxyos/locale.js), the store's installer the runtime registers in an
+// application the policy gives `store` (oxyos/store-installer.js), and an application's login item
+// and background activity (oxyos/background-items.js, docs/adr/0060-login-items-and-background-activity.mdx).
 const own = ['./oxyos/framework-init', './oxyos/platform-surface', './oxyos/locale', './oxyos/store-installer',
-  'react-native/Libraries/Core/InitializeCore'];
+  './oxyos/background-items', 'react-native/Libraries/Core/InitializeCore'];
 
 const provided = [...core, ...native, ...css, ...bloomExports, ...own];
 const generated = path.join(here, 'generated');

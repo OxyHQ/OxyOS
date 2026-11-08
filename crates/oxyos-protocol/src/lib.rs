@@ -16,21 +16,21 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
-    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
-    DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase, Gravity, MenuField,
-    MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind,
-    PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect,
-    ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
-    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
+    BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
+    CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
+    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind,
+    ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints,
+    TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 31;
+pub const VERSION: u16 = 32;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.

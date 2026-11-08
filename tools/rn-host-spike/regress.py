@@ -108,6 +108,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- background: the applications' background activity (docs/adr/0060-login-items-and-background-
+  activity.mdx): "ended", the processes the session ended in the step, by their application's id,
+  exactly and in order (a step that ends one and does not say so fails); "running", given, the
+  applications with a process running in the background once the step settled, exactly;
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
@@ -4118,6 +4122,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                    for url in expect.get("urls_opened", [])]
     if urls != wanted_urls:
         fail(f"URLs opened: {urls}, expected {wanted_urls}")
+    # Background activity (docs/adr/0060-login-items-and-background-activity.mdx): the processes the
+    # session ended in the step, by application, exactly (a step that ends one and does not say so
+    # fails), and, given, the applications with a process running in the background once it settled.
+    background = result.get("background") or {"running": [], "ended": []}
+    if not step.get("within"):
+        wanted_background = expect.get("background", {})
+        if background["ended"] != wanted_background.get("ended", []):
+            fail(f"background processes ended: {background['ended']}, expected {wanted_background.get('ended', [])}")
+        if "running" in wanted_background and background["running"] != wanted_background["running"]:
+            fail(f"running in the background: {background['running']}, expected {wanted_background['running']}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
     # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,

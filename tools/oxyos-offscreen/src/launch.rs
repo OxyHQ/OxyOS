@@ -2365,6 +2365,7 @@ fn settle(
         session.compositor.serve(&session.listener)?;
         session.serve_launches();
         session.serve_installs();
+        session.serve_background();
         session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
@@ -2885,6 +2886,29 @@ fn urls_json(session: &mut Session) -> String {
         })
         .collect();
     format!("[{}]", opened.join(","))
+}
+
+/// The applications' background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+/// those with a process running in the background once the step settled, and the processes the
+/// session ended in the step (each its application's id, in order).
+fn background_json(session: &mut Session) -> String {
+    let running: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| background.in_background().into_iter().collect())
+        .unwrap_or_default();
+    let ended = std::mem::take(&mut session.background_ended);
+    let list = |ids: &[String]| {
+        ids.iter()
+            .map(|id| json_string(id))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    format!(
+        "{{\"running\":[{}],\"ended\":[{}]}}",
+        list(&running),
+        list(&ended)
+    )
 }
 
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
@@ -5178,6 +5202,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 launcher.with_installed_fixture(oxyos_apps::installed_applications(root, &user))
             });
         }
+        // The applications' login items and background activity
+        // (docs/adr/0060-login-items-and-background-activity.mdx), their installed applications'
+        // decisions read beside the fixture's entries, as the session reads the service's.
+        session.background = Some(oxyos_compositor::background::BackgroundActivity::new(
+            launch.installed_fixture.as_ref().map(|root| {
+                oxyos_apps::installed_applications(
+                    root,
+                    &oxyos_apps::session_user().unwrap_or_default(),
+                )
+            }),
+        ));
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
         // starts them.
         let open_at_login = session.settings.preferences().open_at_login.clone();
@@ -5613,6 +5648,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     }
                     session.serve_launches();
                     session.serve_installs();
+                    session.serve_background();
                     session.serve_preferences();
                     session.reader.absorb(&mut session.compositor);
                 }
@@ -5864,11 +5900,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let background = background_json(&mut session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

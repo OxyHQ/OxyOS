@@ -1,0 +1,19 @@
+{
+  "id": "so.oxy.backgroundprobe",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "Chat",
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "BackgroundProbe"
+  },
+  "architectures": [
+    "any"
+  ],
+  "capabilities": [
+    { "name": "login-item", "purpose": { "en": "To open when you log in.", "es": "Para abrirse al iniciar sesión." } },
+    { "name": "background", "purpose": { "en": "To keep your conversations up to date.", "es": "Para mantener tus conversaciones al día." } }
+  ]
+}

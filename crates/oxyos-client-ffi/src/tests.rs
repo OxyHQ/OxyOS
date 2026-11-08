@@ -7626,3 +7626,122 @@ fn a_search_request_and_its_answer_cross_the_abi() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn a_background_item_and_its_state_cross_the_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_BACKGROUND_ITEM_STATE",
+            i64::from(OXYOS_EVENT_BACKGROUND_ITEM_STATE),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_LOGIN_ITEM",
+            i64::from(OXYOS_BACKGROUND_ITEM_LOGIN_ITEM),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_BACKGROUND",
+            i64::from(OXYOS_BACKGROUND_ITEM_BACKGROUND),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_STATUS",
+            i64::from(OXYOS_BACKGROUND_ITEM_STATUS),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_REGISTER",
+            i64::from(OXYOS_BACKGROUND_ITEM_REGISTER),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_UNREGISTER",
+            i64::from(OXYOS_BACKGROUND_ITEM_UNREGISTER),
+        ),
+        (
+            "OXYOS_BACKGROUND_NOT_REGISTERED",
+            i64::from(OXYOS_BACKGROUND_NOT_REGISTERED),
+        ),
+        (
+            "OXYOS_BACKGROUND_ENABLED",
+            i64::from(OXYOS_BACKGROUND_ENABLED),
+        ),
+        (
+            "OXYOS_BACKGROUND_REQUIRES_APPROVAL",
+            i64::from(OXYOS_BACKGROUND_REQUIRES_APPROVAL),
+        ),
+        (
+            "OXYOS_BACKGROUND_NOT_PERMITTED",
+            i64::from(OXYOS_BACKGROUND_NOT_PERMITTED),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    assert_eq!(
+        oxyos_protocol::BackgroundItemKind::Background as u8,
+        OXYOS_BACKGROUND_ITEM_BACKGROUND
+    );
+    assert_eq!(
+        oxyos_protocol::BackgroundStatus::RequiresApproval as u8,
+        OXYOS_BACKGROUND_REQUIRES_APPROVAL
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);"
+    ));
+    let state = convert(&Event::BackgroundItemState {
+        serial: 0,
+        kind: oxyos_protocol::BackgroundItemKind::Background,
+        status: oxyos_protocol::BackgroundStatus::RequiresApproval,
+    })
+    .unwrap();
+    assert_eq!(
+        (state.kind, state.code, state.detail, state.flag),
+        (
+            OXYOS_EVENT_BACKGROUND_ITEM_STATE,
+            0,
+            u32::from(OXYOS_BACKGROUND_ITEM_BACKGROUND),
+            OXYOS_BACKGROUND_REQUIRES_APPROVAL
+        )
+    );
+
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-background-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        server.recv_request().unwrap().0
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // An unknown kind or action sends nothing.
+        assert_eq!(oxyos_client_background_item(client, 6, 3, 2), OXYOS_ERROR);
+        assert_eq!(oxyos_client_background_item(client, 6, 1, 4), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_background_item(
+                client,
+                6,
+                OXYOS_BACKGROUND_ITEM_LOGIN_ITEM,
+                OXYOS_BACKGROUND_ITEM_REGISTER
+            ),
+            0
+        );
+        assert_eq!(
+            compositor.join().unwrap(),
+            Request::BackgroundItem {
+                serial: 6,
+                kind: oxyos_protocol::BackgroundItemKind::LoginItem,
+                action: oxyos_protocol::BackgroundItemAction::Register,
+            }
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

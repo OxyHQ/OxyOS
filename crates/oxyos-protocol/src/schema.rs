@@ -3,13 +3,13 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
-    ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, CaptureDestination,
-    CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason,
-    ErrorCode, Format, GestureOverlay, GesturePhase, MenuField, MenuFlags, MenuKind,
-    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
-    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
-    SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk,
-    TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind, BackgroundStatus,
+    BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock, Control,
+    DismissReason, DragActions, DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase,
+    MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
+    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
+    Rect, ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
+    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -339,6 +339,13 @@ messages! {
         // completes it), at most MAX_SEARCH_TEXT_BYTES; the compositor hands it to the index with
         // who asked, which only it knows, and the answers come as SearchText naming `serial`.
         164 => SearchRequest { serial: u32, index: u16, last: bool, text: PreeditText },
+        // Login items and background activity (version 32,
+        // docs/adr/0060-login-items-and-background-activity.mdx). An application asks the session
+        // how one of its background items stands, or registers or unregisters it, as a Mac's
+        // `SMAppService`; answered by BackgroundItemState naming `serial`. Only a process the
+        // session launched has any: the session decides by its launch record and its account's
+        // decisions, never by the client's claim.
+        165 => BackgroundItem { serial: u32, kind: BackgroundItemKind, action: BackgroundItemAction },
         // GPU buffers (ADR 0031). A DMA-BUF's planes, one descriptor each, then the buffer: its
         // DRM format (premultiplied Argb8888, opaque Xrgb8888), modifier, size and plane count,
         // checked and imported before it is used (BufferFailed when a well-formed one cannot be).
@@ -770,6 +777,11 @@ messages! {
         // SearchRequest `serial`, JSON text in chunks; `serial` 0 is told unasked, when what the
         // client asked to watch changed.
         164 => SearchText { serial: u32, index: u16, last: bool, text: PreeditText },
+        // To an application (version 32, docs/adr/0060-login-items-and-background-activity.mdx):
+        // how one of its background items stands, answering its BackgroundItem `serial`; `serial` 0
+        // is told unasked when the person changed it (removed it from Open at Login, turned its
+        // background activity off or on).
+        165 => BackgroundItemState { serial: u32, kind: BackgroundItemKind, status: BackgroundStatus },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.

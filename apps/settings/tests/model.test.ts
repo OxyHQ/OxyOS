@@ -38,6 +38,7 @@ test("preferences are named as the session's file names them", () => {
     "mouse_natural_scrolling",
     "notification_previews",
     "notification_sounds_off",
+    "open_at_login",
     "reduce_motion",
     "reduce_transparency",
     "region",

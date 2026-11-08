@@ -1497,6 +1497,11 @@ int main(int argc, char** argv) {
     oxyos::ChunkTexts screenshotPaths;
     uint32_t systemSerial = 0;
     std::map<uint32_t, std::string> askedCapabilities;
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the asks' serials, and whether this process may run on in the background once its window
+    // closes, as the session last said (an answer, or a change the person made), and whether it is.
+    uint32_t backgroundSerial = 0;
+    bool backgroundEnabled = false;
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
     // requests, assembled from chunks. A request and an answer cite the latest press or key, as
     // the session requires.
@@ -1557,6 +1562,17 @@ int main(int argc, char** argv) {
           return launchCapabilities.allows(capability);
         },
     };
+    // An application's window of a compositor that has them (protocol version 32) asks about its
+    // login item and background activity; the session decides, by its launch record.
+    if (!shellMode && window && window->protocolVersion() >= 32) {
+      services.backgroundItems.ask = [&window, &backgroundSerial](uint8_t kind, uint8_t action) -> uint32_t {
+        backgroundSerial = backgroundSerial == UINT32_MAX ? 1 : backgroundSerial + 1;
+        bool sent = window->backgroundItem(backgroundSerial, kind, action);
+        oxyos::Report::get().input("background.ask", 0,
+                                   folly::dynamic::object("kind", kind)("action", action)("sent", sent));
+        return sent ? backgroundSerial : 0;
+      };
+    }
     window->onClipboardChanged([&instance, &window] {
       instance->callFunctionOnModule(
           "RCTDeviceEventEmitter", "emit",
@@ -2106,7 +2122,7 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
         std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
-        std::vector<OxyOSEvent> sheetsGone, capabilityResults;
+        std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates;
         bool responded = false;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {
@@ -2140,6 +2156,7 @@ int main(int argc, char** argv) {
                 }
               }
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
+              if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
@@ -2361,7 +2378,20 @@ int main(int argc, char** argv) {
         }
         if (closeRequested || closeAsked) {
           if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
-          break;
+          // Its background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+          // application the session allows runs on without its window, its JavaScript going on (a
+          // chat's connection, a sync), as a Mac's application with no window open keeps running;
+          // the session ends it when the person turns that off or another of its processes is
+          // already there. Any other ends with its window, as an Android activity finishes.
+          if (!backgroundEnabled || window->toplevelClosed()) break;
+          closeAsked = false;
+          window->closeToplevel();
+          services.appState = "background";
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("appStateDidChange", folly::dynamic::object("app_state", "background")));
+          oxyos::Report::get().input("background.entered", 0, folly::dynamic::object());
+          std::cerr << "[host] " << applicationName << " runs on in the background\n";
         }
         // The session's preferences (docs/adr/0019-settings.mdx), as React Native's own modules tell
         // a change on Android: the appearance (a configuration change), reduce motion; the rest to
@@ -2451,6 +2481,22 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSheetDismissed",
                                                                folly::dynamic::object("sheet", gone.code)));
+        }
+        // How its login item and background activity stand (docs/adr/0060-login-items-and-background-activity.mdx):
+        // an answer, or a change the person made (serial 0), to JavaScript; and whether it may run
+        // on without its window, which its close below follows.
+        for (const auto& state : backgroundStates) {
+          bool background = state.detail == OXYOS_BACKGROUND_ITEM_BACKGROUND;
+          if (background) backgroundEnabled = state.flag == OXYOS_BACKGROUND_ENABLED;
+          const char* status = state.flag == OXYOS_BACKGROUND_ENABLED             ? "enabled"
+                               : state.flag == OXYOS_BACKGROUND_REQUIRES_APPROVAL ? "requiresApproval"
+                               : state.flag == OXYOS_BACKGROUND_NOT_PERMITTED     ? "notPermitted"
+                                                                                  : "notRegistered";
+          folly::dynamic told = folly::dynamic::object("serial", state.code)(
+              "kind", background ? "background" : "loginItem")("status", status);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSBackgroundItemState", told));
+          oxyos::Report::get().input("background.state", 0, told);
         }
         for (const auto& result : capabilityResults) {
           auto asked = askedCapabilities.find(result.code);

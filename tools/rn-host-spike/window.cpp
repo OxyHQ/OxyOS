@@ -102,6 +102,9 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     Report::get().received(event);
     Report::Handling handling(event);
     Surface* target = surface(event.surface);
+    // A configure of the window it closed to run in the background, sent before the compositor
+    // read its going, configures nothing: it is never presented again.
+    if (toplevelClosed_ && event.surface == kToplevel) target = nullptr;
     if (event.kind == OXYOS_EVENT_CONFIGURE && target) {
       float scale = event.scale_120 / 120.0f;
       if (event.width != target->width || event.height != target->height || scale != target->scale) {
@@ -147,22 +150,30 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         receiving_.clear();
         input(event);
       }
-    } else if (event.kind == OXYOS_EVENT_APPLICATION_LIST && event.code == OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF) {
-      // Whose notifications play no sound (docs/adr/0044-system-sounds.mdx), told to Settings alone:
-      // kept among its preferences as the file keeps it, its ids joined by commas.
-      if (event.detail == 0) receivingSoundsOff_.clear();
-      receivingSoundsOff_.append(event.text, strnlen(event.text, sizeof(event.text)));
+    } else if (event.kind == OXYOS_EVENT_APPLICATION_LIST &&
+               (event.code == OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF ||
+                (event.code == OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN && settingsGranted()))) {
+      // Lists Settings keeps among its preferences, as the file keeps them, their ids joined by
+      // commas: whose notifications play no sound (docs/adr/0044-system-sounds.mdx), told to
+      // Settings alone; and the applications opened at login, told to the shell too, whose own
+      // state takes them as any shell's does
+      // (docs/adr/0060-login-items-and-background-activity.mdx). Settings is told its preferences
+      // before any list, so a client told none is the shell.
+      std::string& receiving = receivingLists_[event.code];
+      if (event.detail == 0) receiving.clear();
+      receiving.append(event.text, strnlen(event.text, sizeof(event.text)));
       if (event.flag & OXYOS_LIST_LAST) {
         std::string ids;
         size_t start = 0;
-        while (start < receivingSoundsOff_.size()) {
-          size_t end = receivingSoundsOff_.find('\n', start);
-          if (end == std::string::npos) end = receivingSoundsOff_.size();
-          if (end > start) ids += (ids.empty() ? "" : ",") + receivingSoundsOff_.substr(start, end - start);
+        while (start < receiving.size()) {
+          size_t end = receiving.find('\n', start);
+          if (end == std::string::npos) end = receiving.size();
+          if (end > start) ids += (ids.empty() ? "" : ",") + receiving.substr(start, end - start);
           start = end + 1;
         }
-        preferences_[kNotificationSoundsOff] = std::move(ids);
-        receivingSoundsOff_.clear();
+        preferences_[event.code == OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN ? kOpenAtLogin : kNotificationSoundsOff] =
+            std::move(ids);
+        receiving.clear();
         input(event);
       }
     } else if (event.kind == OXYOS_EVENT_LOCALE) {
@@ -579,9 +590,10 @@ void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
 }
 
 bool Window::setPreference(uint32_t serial, const std::string& key, const std::string& value) {
-  // Whose notifications play no sound is a list of applications, as the dock's are
-  // (docs/adr/0044-system-sounds.mdx): its ids one a line, answered as a preference.
-  if (key == kNotificationSoundsOff) {
+  // Whose notifications play no sound (docs/adr/0044-system-sounds.mdx) and what opens at login
+  // (docs/adr/0060-login-items-and-background-activity.mdx) are lists of applications, as the
+  // dock's are: their ids one a line, answered as a preference.
+  if (key == kNotificationSoundsOff || key == kOpenAtLogin) {
     std::string ids;
     size_t start = 0;
     while (start < value.size()) {
@@ -590,7 +602,10 @@ bool Window::setPreference(uint32_t serial, const std::string& key, const std::s
       if (end > start) ids += (ids.empty() ? "" : "\n") + value.substr(start, end - start);
       start = end + 1;
     }
-    return setApplicationList(serial, OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF, ids);
+    return setApplicationList(serial,
+                              key == kOpenAtLogin ? OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN
+                                                  : OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF,
+                              ids);
   }
   return oxyos_client_set_preference(client_, serial, key.c_str(), value.c_str()) == 0;
 }
@@ -605,6 +620,26 @@ void Window::sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial) {
 
 bool Window::requestCapability(uint32_t serial, uint64_t input, uint8_t capability) {
   return oxyos_client_request_capability(client_, serial, input, capability) == 0;
+}
+
+bool Window::backgroundItem(uint32_t serial, uint8_t kind, uint8_t action) {
+  return oxyos_client_background_item(client_, serial, kind, action) == 0;
+}
+
+void Window::closeToplevel() {
+  if (toplevelClosed_) return;
+  toplevelClosed_ = true;
+  secureRegions_.erase(kToplevel);
+  if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, kToplevel);
+  if (oxyos_client_destroy_surface(client_, kToplevel) != 0) failed("cannot close the window");
+  // Its state stays for what reads its last size; with no configure it is never ready, and with
+  // nothing presented for one there is nothing to answer.
+  auto& toplevel = surfaces_.at(kToplevel);
+  toplevel.configure = 0;
+  toplevel.inFlight = 0;
+  toplevel.presentedFor = 0;
+  toplevel.resized = false;
+  active_ = false;
 }
 
 bool Window::searchRequest(uint32_t serial, const std::string& text) {
