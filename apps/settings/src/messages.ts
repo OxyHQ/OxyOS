@@ -382,6 +382,33 @@ const en = {
     naturalScrolling: "Natural scrolling",
     naturalScrollingDescription: "Content tracks finger movement",
   },
+  /** Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx), in macOS's words: each
+      swipe's row and the choices of its menu, and Launchpad's switch. */
+  gestures: {
+    title: "More Gestures",
+    desktops: "Swipe between desktops",
+    missionControl: "Mission Control",
+    appExpose: "App Exposé",
+    launchpad: "Launchpad",
+    launchpadDescription: "Pinch with thumb and three fingers",
+    choices: {
+      desktops: {
+        three: "Swipe left or right with three fingers",
+        four: "Swipe left or right with four fingers",
+        off: "Off",
+      },
+      missionControl: {
+        three: "Swipe up with three fingers",
+        four: "Swipe up with four fingers",
+        off: "Off",
+      },
+      appExpose: {
+        three: "Swipe down with three fingers",
+        four: "Swipe down with four fingers",
+        off: "Off",
+      },
+    },
+  },
   accessibility: {
     vision: "Vision",
     display: "Display",
@@ -1110,6 +1137,31 @@ const es: Messages = {
   scrolling: {
     naturalScrolling: "Desplazamiento natural",
     naturalScrollingDescription: "El contenido sigue el movimiento de los dedos",
+  },
+  gestures: {
+    title: "Más gestos",
+    desktops: "Pasar de un escritorio a otro",
+    missionControl: "Mission Control",
+    appExpose: "App Exposé",
+    launchpad: "Launchpad",
+    launchpadDescription: "Pellizcar con el pulgar y tres dedos",
+    choices: {
+      desktops: {
+        three: "Deslizar a la izquierda o a la derecha con tres dedos",
+        four: "Deslizar a la izquierda o a la derecha con cuatro dedos",
+        off: "Desactivado",
+      },
+      missionControl: {
+        three: "Deslizar hacia arriba con tres dedos",
+        four: "Deslizar hacia arriba con cuatro dedos",
+        off: "Desactivado",
+      },
+      appExpose: {
+        three: "Deslizar hacia abajo con tres dedos",
+        four: "Deslizar hacia abajo con cuatro dedos",
+        off: "Desactivado",
+      },
+    },
   },
   accessibility: {
     vision: "Visión",

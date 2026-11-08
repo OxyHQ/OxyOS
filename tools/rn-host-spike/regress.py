@@ -391,7 +391,13 @@ drag goes on into the steps after it, each step's frame showing it midway (`move
 pointer there and releases it, dropping it or ending it over nothing.
 
 A `swipe` step ([fingers, dx, dy, steps]) is three or four fingers swiped on the touchpad, the
-system's (Mission Control up, App Exposé down, ADR 0045); a `scroll_named` step ([name, dy] a
+system's (Mission Control up, App Exposé down, ADR 0045; which fingers the person chose,
+docs/adr/0046-interactive-gestures.mdx); through the virtual devices, the fingers on the virtual
+touchpad, which libinput recognizes and counts, resting before they lift so nothing is flicked. A
+`pinch` step ([x, y, percent, degrees] or [x, y, percent, degrees, fingers]) pinches at a point of
+the window, two fingers unless it says (the thumb and three fingers: Launchpad's); a step's
+`delivered` count may be a [least, most] (a pinch through libinput, as many updates as it
+recognized frames of the fingers). A `scroll_named` step ([name, dy] a
 wheel's notch, [name, dy, events] a touchpad's two fingers in that many events, then lifted)
 scrolls on the node of that accessible name (a dock icon), and a `scroll_output` step ([x, y, dy]
 or [x, y, dy, events]) at a point of the output.
@@ -598,9 +604,9 @@ for the one account it plays, committing the device credential `oxy.device`; eve
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
-lists `enroll.account` once enrolled; `enroll.password` null plays an account without one, refused
-`passwordRequired` as the service refuses it, and a `pin` given with the setup becomes the account's
-PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
+lists `enroll.account` once enrolled; a setup without a password and with a PIN is a sign-in by the
+QR, which the real service redeems through Oxy's device-proof route (played as its answer: enrolled,
+its password not signing in), and a `pin` given with the setup becomes the account's PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
 listed `pin: set`; `login.pin_failures`: {USER: N} wrong ones before the run) is checked by `oxyos-pin-check`, which the login program's PIN service runs
 (`oxyos-login-pin`, pam_exec, as the real one is), asking the stand-in's `verifyPin`: the tenth
 wrong one in a row locks it out (listed `locked`). A step's `accounts_asked` is what the setup asked the service
@@ -920,7 +926,8 @@ def director_args(step, out):
         return args + ["--scroll-output", f"{value[0]},{value[1]},{value[2]},{events}"]
     if kind == "swipe":
         # Fingers swiped on the touchpad and lifted (Mission Control, App Exposé, the desktops, ADR
-        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz].
+        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz]; through the
+        # virtual devices, on the virtual touchpad.
         return args + ["--swipe", ",".join(map(str, value))]
     if kind == "swipe_begin":
         # The same, the fingers left down for the steps after it: a swipe partway.
@@ -932,6 +939,7 @@ def director_args(step, out):
         # The fingers left down lifted, this many milliseconds after their last motion.
         return args + ["--swipe-end", str(value)]
     if kind == "pinch":
+        # [x, y, percent, degrees] two fingers, or [x, y, percent, degrees, fingers].
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
@@ -1121,9 +1129,12 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = {"refused": {"reason": "credentialRefused"}}
         elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
             answer = {"refused": {"reason": "unusablePin"}}
+        elif request.get("password") is None and pin is None:
+            answer = {"refused": {"reason": "pinRequired"}}
         elif request.get("password") is None:
-            # The platform credential is issued only to the platform's password sign-in.
-            answer = {"refused": {"reason": "passwordRequired"}}
+            # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
+            # (the real service's; played here as its answer), and the PIN is the local credential.
+            answer = None
         elif request.get("password") != played["password"]:
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
@@ -1132,7 +1143,7 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = None
         while True:
             if answer is None:
-                listed = dict(played["account"], password=True)
+                listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
                     failures.pop(listed["user"], None)
@@ -3820,7 +3831,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         companion = delivered.pop("companion", {})
         shell_drags = delivered.pop("shell_drags", {})
         wanted = dict(expect["delivered"])
-        if "companion" in wanted and companion != wanted.pop("companion"):
+        if "companion" in wanted and not counts_match(companion, wanted.pop("companion")):
             fail(f"the companion was delivered {companion}, expected exactly {expect['delivered']['companion']}")
         if "shell_drags" in wanted and shell_drags != wanted.pop("shell_drags"):
             fail(f"the shell was delivered drag events {shell_drags}, expected exactly {expect['delivered']['shell_drags']}")
@@ -3836,7 +3847,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"the file chooser was delivered {chooser}, expected exactly {expect['delivered']['chooser']}")
         if leaked:
             fail(f"{leaked} input events reached another client")
-        if delivered != wanted:
+        if not counts_match(delivered, wanted):
             fail(f"compositor delivered {delivered}, expected exactly {wanted}")
     elif result.get("delivered", {}).get("leaked"):
         # Whatever a step says, no input reaches a client that is neither the application, its
@@ -4988,6 +4999,18 @@ def wait_for(path, seconds=10):
         if time.monotonic() > deadline:
             raise RuntimeError(f"{path} did not appear")
         time.sleep(0.05)
+
+
+def counts_match(got, wanted):
+    """Whether what the compositor delivered (`got`: by window, each event's count) is `wanted`
+    exactly: the same windows and events, each count the same, or within the [least, most] a step
+    gives for it (a pinch through libinput, which reports as many updates as it recognized frames
+    of the fingers)."""
+    if isinstance(wanted, list) and len(wanted) == 2 and isinstance(got, int):
+        return wanted[0] <= got <= wanted[1]
+    if isinstance(wanted, dict) and isinstance(got, dict):
+        return wanted.keys() == got.keys() and all(counts_match(got[key], wanted[key]) for key in wanted)
+    return got == wanted
 
 
 def matches_within(wanted, got, where):
