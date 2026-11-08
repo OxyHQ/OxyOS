@@ -192,6 +192,10 @@ fn offline_there_is_no_token_and_the_snapshot_still_says_signed_in() {
     assert_eq!(account.id, ACCOUNT);
     assert_eq!(account.handle, USERNAME);
     assert_eq!(account.display_name.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(
+        account.languages,
+        Some(vec!["en-GB".to_owned(), "es-ES".to_owned()])
+    );
 }
 
 #[test]
@@ -216,6 +220,7 @@ fn the_snapshot_is_the_sdks_and_its_revision_changes_only_with_its_account() {
                 "handle": USERNAME,
                 "displayName": "Ada Lovelace",
                 "avatar": "avatar-file-1",
+                "languages": ["en-GB", "es-ES"],
             },
             "online": true,
         })

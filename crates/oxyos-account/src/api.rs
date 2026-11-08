@@ -101,6 +101,10 @@ pub struct Profile {
     pub username: Option<String>,
     pub display_name: Option<String>,
     pub avatar: Option<String>,
+    /// The account's languages, primary first, as locale strings (Oxy's `languages`); none when
+    /// it names none. Files kept before the platform read them have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub languages: Option<Vec<String>>,
 }
 
 /// A sign-in Oxy completed: who signed in, on which device, and the holder secret it issued (the

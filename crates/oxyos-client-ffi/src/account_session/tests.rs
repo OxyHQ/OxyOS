@@ -44,7 +44,8 @@ fn service(
 
 fn signed_in(revision: u64) -> Value {
     json!({"snapshot": {"status": "signed_in", "revision": revision, "online": true,
-        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}}})
+        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+            "languages": ["es-ES", "en-GB"]}}})
 }
 
 #[test]
@@ -66,7 +67,8 @@ fn a_snapshot_is_the_services_rebuilt_and_strict() {
     assert_eq!(
         serde_json::to_value(&snapshot).unwrap(),
         json!({"status": "signed_in", "revision": 3, "online": true,
-            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}})
+            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+                "languages": ["es-ES", "en-GB"]}})
     );
     assert!(snapshot_at(&socket).is_err(), "signed in names an account");
     assert!(
