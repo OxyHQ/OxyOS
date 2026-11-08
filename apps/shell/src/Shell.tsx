@@ -877,6 +877,7 @@ export const Shell = memo(function Shell({
             openKeyboardSettings={inputMethod?.openKeyboardSettings}
             onInputMenuChange={inputMenuChanged}
             batteryMenu={battery}
+            safeMode={snapshot.safeMode}
           />
         </Surface>
         {(inputMethod || autofill) && (
@@ -1110,6 +1111,7 @@ export const Shell = memo(function Shell({
               notifications={notifications}
               applications={snapshot.applications}
               announce={platform.announce}
+              safeMode={snapshot.safeMode}
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />

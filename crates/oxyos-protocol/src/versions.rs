@@ -73,7 +73,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// lock surface's PIN (`AuthenticatePasscode`, docs/adr/0020-oxy-account-login.mdx decision 2),
 /// asked by a lock surface; version 33, login items and background activity (`BackgroundItem`,
 /// `BackgroundItemState`, docs/adr/0060-login-items-and-background-activity.mdx), both ways,
-/// asked by an application, a change the person made sent unasked.
+/// asked by an application, a change the person made sent unasked; version 34, Safe Mode
+/// (`SafeMode`, docs/adr/0054-recovery-and-erasing.mdx, decision 10), told to the shell and the
+/// login screen.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -94,6 +96,7 @@ const EVENTS_ADDED: Added = &[
     (30, 65..=65),
     (31, 164..=164),
     (33, 165..=165),
+    (34, 166..=166),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

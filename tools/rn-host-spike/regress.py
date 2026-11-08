@@ -451,6 +451,11 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
+A scenario with `safe_mode` true runs the session as a start in Safe Mode
+(docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
+as oxyos-session reads `oxyos.safe-mode=1` on the kernel's command line): nothing opened at login,
+no background activity but the system applications', and the shell told it.
+
 Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
@@ -5231,6 +5236,10 @@ def main():
         # follows the user's (ADR 0034); never the developer's.
         if "home" in scenario:
             command += ["--trash"]
+    # Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): the session started in it, as
+    # oxyos-session reads oxyos.safe-mode=1 on the kernel's command line.
+    if scenario.get("safe_mode"):
+        command += ["--safe-mode"]
     if scenario.get("companion"):
         # A second application started once the first's window is shown (ADR 0035): the other side
         # of a drag between applications, its report the application's with ".companion".

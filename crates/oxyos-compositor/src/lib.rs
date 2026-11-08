@@ -49,6 +49,7 @@ pub mod login;
 pub mod motion;
 pub mod networks;
 pub mod power;
+pub mod safe_mode;
 pub mod search;
 pub mod settings;
 pub mod sign_out;

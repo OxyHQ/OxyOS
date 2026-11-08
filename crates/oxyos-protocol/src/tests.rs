@@ -923,6 +923,7 @@ fn events() -> Vec<Event> {
             kind: BackgroundItemKind::LoginItem,
             status: BackgroundStatus::RequiresApproval,
         },
+        Event::SafeMode {},
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -3119,4 +3120,17 @@ fn background_items_kinds_actions_and_statuses_are_closed_sets() {
         BackgroundStatus::from_raw(4),
         Some(BackgroundStatus::NotPermitted)
     );
+}
+
+#[test]
+fn version_34_safe_mode_is_only_version_34s() {
+    let event = Event::SafeMode {};
+    assert_eq!(event_since(&event), 34);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &event, 33).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &event, 34).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 33).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 34).unwrap(), event);
 }

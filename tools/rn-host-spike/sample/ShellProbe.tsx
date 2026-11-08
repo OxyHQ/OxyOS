@@ -502,6 +502,8 @@ function SessionShell() {
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
   const openAtLogin = lists?.openAtLogin ?? undefined;
   const trashItems: number | null = state?.trashItems ?? null;
+  // Safe Mode, as the session told it (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+  const safeMode = state?.safeMode === true;
   const trash = React.useMemo(() => (trashItems === null ? undefined : { items: trashItems }), [trashItems]);
   const workspaceCount: number = state?.workspaces ?? 0;
   const workspaces = React.useMemo(() => workspaceNames(workspaceCount, messages), [workspaceCount, messages]);
@@ -528,8 +530,9 @@ function SessionShell() {
       menus,
       openAtLogin,
       trash,
+      safeMode,
     }),
-    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash],
+    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash, safeMode],
   );
   // The actions read the state when they act, so they are made once (and again once the session
   // told the person's lists, which a session of an older protocol never does).

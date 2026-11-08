@@ -8204,6 +8204,8 @@ mod menus;
 /// Where each window minimizes into (ADR 0011's genie).
 mod minimize_targets;
 mod notifications;
+/// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+mod safe_mode;
 mod screenshots;
 /// Search (docs/adr/0051-search.mdx).
 mod search;

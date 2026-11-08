@@ -94,6 +94,9 @@ const en = (f: Formats) => ({
     /** The clock's hint: what pressing it does, which its name (the date and time) does not say. */
     clockHint: "Opens Notification Center",
   },
+  /** The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10), as a
+      Mac's menu bar says "Safe Boot". */
+  safeMode: "Safe Mode",
   /** The input sources (docs/adr/0041-input-methods.mdx): the top bar's item, its menu, and what
       is said of a switch. */
   inputSources: {
@@ -574,6 +577,7 @@ const es = (f: Formats): Catalogue => ({
     connected: "Conectado",
     clockHint: "Abre el centro de notificaciones",
   },
+  safeMode: "Modo seguro",
   inputSources: {
     item: "Fuente de entrada",
     pinyin: "Pinyin – Simplificado",

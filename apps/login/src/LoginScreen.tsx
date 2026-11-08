@@ -471,12 +471,16 @@ export function LoginScreen({
   wallpaper,
   now,
   Masked,
+  safeMode = false,
 }: {
   accounts: Accounts;
   actions: LoginActions;
   wallpaper: ShellWallpaper;
   now: Date;
   Masked?: ComponentType<MaskedProps>;
+  /** The machine started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): said
+      at the top right, in red, as a Mac's login window says "Safe Boot". */
+  safeMode?: boolean;
 }) {
   const words = useLoginMessages();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -588,7 +592,14 @@ export function LoginScreen({
     );
   }
   return (
-    <LockBackdrop testID="login" wallpaper={wallpaper} now={now} Masked={Masked} clock={shown?.step !== "signIn"}>
+    <LockBackdrop
+      testID="login"
+      wallpaper={wallpaper}
+      now={now}
+      Masked={Masked}
+      clock={shown?.step !== "signIn"}
+      safeMode={safeMode}
+    >
       {content}
     </LockBackdrop>
   );
