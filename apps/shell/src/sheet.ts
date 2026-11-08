@@ -21,6 +21,11 @@
  * asks for the code the device shows or its PIN (`bluetooth-code`) and says a connection failed
  * (`bluetooth-failed`). The code typed goes to the session alone, as a password does.
  *
+ * An application asking to save a login it has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 5), the session asks the person (`save-password`): the application, by its id (named
+ * as the registry names it), the username and the website it names, never the password. Save
+ * saves it in the account's keychain; Not Now, Escape or the application going saves nothing.
+ *
  * An application creating or using a passkey (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
  * decision 7), the session asks the person to verify (`passkey`): "Use your passkey for
  * github.com?" or "Create a passkey for …", the application asking (by its id, named as the
@@ -64,6 +69,9 @@ export type SheetText =
   | { kind: "bluetooth-display"; name: string; device: BluetoothKind; code: string }
   | { kind: "bluetooth-code"; name: string; device: BluetoothKind; code: BluetoothCodeKind }
   | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string }
+  // AutoFill's "ask to save" (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): `id`
+  // the asking application's desktop entry id.
+  | { kind: "save-password"; id: string; username: string; domain?: string }
   // An application that quit unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx):
   // `times` in the last ten minutes, its report and where the session keeps it, shown at the notice
   // or at the report (the notification's Report…).
@@ -415,6 +423,15 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
     }
     case "passkey":
       return passkeyView(sheet, messages, names);
+    case "save-password":
+      return {
+        title: w.savePassword(names[sheet.id] ?? sheet.id),
+        body: sheet.domain ? `${sheet.username} · ${sheet.domain}` : sheet.username,
+        lines: [{ label: w.savePasswordNote }],
+        accept: w.save,
+        refuse: w.notNow,
+        destructive: false,
+      };
     case "crash": {
       const again = sheet.times > 1;
       return {

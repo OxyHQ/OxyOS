@@ -193,6 +193,8 @@ struct Session {
     /// decision 7) asked by the fixture accounts' service (passkeys.rs), and the director's handle.
     passkeys: Option<oxyos_compositor::passkeys::Passkeys>,
     passkey_service: Option<std::rc::Rc<std::cell::RefCell<passkeys::FixtureService>>>,
+    /// The save confirmations' waker among the compositor's (`--autofill-saves`).
+    pub autofill_saves_waker: Option<std::os::fd::RawFd>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -349,6 +351,7 @@ impl Session {
             autofill_keychain: None,
             passkeys: None,
             passkey_service: None,
+            autofill_saves_waker: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
@@ -1180,6 +1183,13 @@ impl Session {
         // The Trash's follower, its watcher's thread waited for and its waker given back.
         self.trash = None;
         if let Some(waker) = self.trash_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // AutoFill's save confirmations, their thread waited for (its connection to the accounts'
+        // service closed) and their waker given back.
+        self.autofill = None;
+        if let Some(waker) = self.autofill_saves_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
