@@ -1,5 +1,5 @@
 {
-  "about": "Adding an Oxy account that has a password with the QR, and a PIN for this computer (docs/adr/0020-oxy-account-login.mdx, decision 2), against a played Oxy API and a played accounts' service: \"Add Account\", the SDK's chooser with its QR, a phone's approval, and the screen asks for a PIN, its field focused (something that is no PIN said and asked again; typed again different, chosen again), then the account's password once, in its own focused field. The accounts' service sets the account up with the credential, the password and the PIN in one setup; enrolled, the new account is chosen and its PIN's field focused (the password a press away). A wrong PIN is checked by the accounts' service (oxyos-pin-check under the login program's PIN service, never Oxy) and said; the right one signs it in. Neither the PIN nor the password reaches any report.",
+  "about": "Adding an Oxy account that has a password, by its QR, with a PIN for this computer (docs/adr/0020-oxy-account-login.mdx, decision 2 as amended): \"Add Account\", the SDK's chooser with its QR, a phone's approval, and the screen asks for a PIN, its field focused, required, and never asks for or offers the account's password (a sign-in by the QR involves none, as Oxy's own Commons model); something that is no PIN is said and asked again; typed again different, chosen again. The accounts' service sets the account up with the credential and the PIN alone; enrolled, the new account is chosen and its PIN's field focused, with no password offered. A wrong PIN is checked by the accounts' service (oxyos-pin-check under the login program's PIN service, never Oxy) and said; the right one signs it in.",
   "shell": "OxyOSLogin",
   "outputs": "1280x800",
   "login": {
@@ -115,13 +115,15 @@
         "in_shell": {
           "texts": [
             "Choose a PIN for this computer",
-            "Use a PIN to unlock faster, even offline. It stays on this computer: Oxy never sees it.",
-            "Not Now"
+            "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it."
           ],
           "absent": [
-            "Scan with Commons to sign in",
             "Email or username",
-            "Enter Ada Lovelace's password"
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password"
           ],
           "focus_input": "login-setup-pin-password"
         }
@@ -207,32 +209,10 @@
       }
     },
     {
-      "name": "chosen and typed again the same: the account's password asked once, its field focused",
+      "name": "typed again the same: the account set up with its PIN alone, never asked its password; listed and chosen, its PIN's field focused",
       "do": [
         "keyboard",
         "482916\n"
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "accounts_asked": [],
-        "delivered": {},
-        "in_shell": {
-          "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
-          ],
-          "absent": [
-            "Choose a PIN for this computer"
-          ],
-          "focus_input": "login-setup-password"
-        }
-      }
-    },
-    {
-      "name": "the password: the account set up with it and the PIN, once; the new account chosen, its PIN asked",
-      "do": [
-        "keyboard",
-        "played password 1\n"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -241,19 +221,19 @@
         ],
         "delivered": {},
         "never": [
-          "played password 1",
-          "482916"
+          "482916",
+          "played password 1"
         ],
         "in_shell": {
           "texts": [
             "Bea Ramos",
             "Ada Lovelace",
-            "Add Account",
-            "Use Password"
+            "Add Account"
           ],
           "absent": [
             "Add an Oxy Account",
-            "Enter Ada Lovelace's password"
+            "Enter Ada Lovelace's password",
+            "Use Password"
           ],
           "focus_input": "login-pin-password",
           "never": [
