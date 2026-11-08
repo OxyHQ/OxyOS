@@ -157,6 +157,7 @@ import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -2375,6 +2376,9 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
           testID="oxy-account-sign-out"
         />
       </GroupedSection>
+      {view.kind === "signed_in" && account?.local ? (
+        <LocalSignInSection actions={account.local} strings={strings} />
+      ) : null}
       <GroupedSection>
         <GroupedSectionItem
           title={words.remove}
