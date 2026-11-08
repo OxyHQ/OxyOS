@@ -827,7 +827,7 @@ impl Samba {
             format!(
                 "[global]\n\
                  smb ports = {port}\n\
-                 interfaces = lo\n\
+                 interfaces = 127.0.0.1/8\n\
                  bind interfaces only = yes\n\
                  server role = standalone server\n\
                  disable netbios = yes\n\
@@ -868,17 +868,31 @@ impl Samba {
         // A process group of its own: smbd signals its group as it ends or fails, which must
         // never reach the tests' runner.
         use std::os::unix::process::CommandExt;
-        let child = std::process::Command::new(smbd)
+        let output = fs::File::create(root.join("smbd.out")).unwrap();
+        let mut child = std::process::Command::new(smbd)
             .process_group(0)
-            .args(["--foreground", "--no-process-group", "--configfile"])
+            .args([
+                "--foreground",
+                "--no-process-group",
+                "--debug-stdout",
+                "--configfile",
+            ])
             .arg(&configuration)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(output.try_clone().unwrap())
+            .stderr(output)
             .spawn()
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(20);
         while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-            assert!(Instant::now() < deadline, "smbd never listened");
+            let said = || fs::read_to_string(root.join("smbd.out")).unwrap_or_default();
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("smbd ended ({status}):\n{}", said());
+            }
+            assert!(
+                Instant::now() < deadline,
+                "smbd never listened:\n{}",
+                said()
+            );
             std::thread::sleep(Duration::from_millis(50));
         }
         Some(Self { child, port, share })
