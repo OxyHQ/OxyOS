@@ -93,7 +93,9 @@ struct Shared {
     options: Options,
     store: Store,
     state: Mutex<State>,
-    watchers: Mutex<Vec<mpsc::Sender<()>>>,
+    /// Each watching conversation's channel, by a number of its own.
+    watchers: Mutex<Vec<(u64, mpsc::Sender<()>)>>,
+    next_watcher: std::sync::atomic::AtomicU64,
     wake_read: OwnedFd,
     wake_write: OwnedFd,
     shutdown: AtomicBool,
@@ -146,6 +148,7 @@ impl Service {
                     ..State::default()
                 }),
                 watchers: Mutex::new(Vec::new()),
+                next_watcher: std::sync::atomic::AtomicU64::new(0),
                 wake_read,
                 wake_write,
                 shutdown: AtomicBool::new(false),
@@ -173,7 +176,7 @@ impl Service {
     }
 
     fn notify(&self) {
-        lock(&self.shared.watchers).retain(|watcher| watcher.send(()).is_ok());
+        lock(&self.shared.watchers).retain(|(_, watcher)| watcher.send(()).is_ok());
     }
 
     // The schedule.
@@ -775,6 +778,7 @@ impl Service {
         let peer = connection.peer()?;
         let mut holding = false;
         let mut watching: Option<std::thread::JoinHandle<()>> = None;
+        let mut watcher: Option<u64> = None;
         let result = loop {
             let request = match connection.receive::<Request>() {
                 Ok(Some(Some(request))) => request,
@@ -793,7 +797,9 @@ impl Service {
                 Request::Watch => {
                     if watching.is_none() {
                         let (sender, receiver) = mpsc::channel();
-                        lock(&self.shared.watchers).push(sender);
+                        let number = self.shared.next_watcher.fetch_add(1, Ordering::SeqCst);
+                        lock(&self.shared.watchers).push((number, sender));
+                        watcher = Some(number);
                         let sending = connection.try_clone()?;
                         sending.set_send_timeout(std::time::Duration::from_secs(2))?;
                         let service = self.clone();
@@ -848,7 +854,13 @@ impl Service {
         if holding {
             self.hold(false);
         }
-        drop(watching);
+        // Its channel goes, and with it its sending thread.
+        if let Some(number) = watcher {
+            lock(&self.shared.watchers).retain(|(n, _)| *n != number);
+        }
+        if let Some(watching) = watching {
+            let _ = watching.join();
+        }
         result
     }
 
