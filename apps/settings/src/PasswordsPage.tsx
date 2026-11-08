@@ -49,6 +49,7 @@ import {
   keychainClient,
   otpauthFrom,
   outcomeMessage,
+  personsRequest,
   recoveryKeyGroups,
   search,
   stageOf,
@@ -82,7 +83,26 @@ async function asked<T>(request: Promise<Outcome<T>>): Promise<Outcome<T>> {
 export function PasswordsPage({ actions, strings, locale }: Props) {
   const words = strings.passwords;
   const platform = actions.keychain;
-  const client = React.useMemo(() => (platform ? keychainClient(platform) : null), [platform]);
+  // Five minutes with nothing asked of the keychain by the person (decision 8), whatever the page
+  // shows (the open keychain, a recovery key, a join's code): it is made anew and the password
+  // asked again. What the page asks on its own (a status, a code as it runs out, a join or an
+  // approval followed, the devices listed again) is no activity.
+  const lapsed = React.useRef<() => void>(() => {});
+  const idle = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  React.useEffect(() => () => idle.current && clearTimeout(idle.current), []);
+  const client = React.useMemo(() => {
+    if (!platform) return null;
+    return keychainClient({
+      ...platform,
+      ask: (request) => {
+        if (personsRequest(request)) {
+          if (idle.current) clearTimeout(idle.current);
+          idle.current = setTimeout(() => lapsed.current(), ACCESS_IDLE_MS);
+        }
+        return platform.ask(request);
+      },
+    });
+  }, [platform]);
   // undefined while asked; null when the service could not say (no account session, refused).
   const [status, setStatus] = React.useState<KeychainStatus | null | undefined>(undefined);
   const turn = React.useRef(0);
@@ -98,6 +118,8 @@ export function PasswordsPage({ actions, strings, locale }: Props) {
   // Closed here (five minutes idle, the proof lapsed): the password again, whatever the service
   // still says, until it is given.
   const [closed, setClosed] = React.useState(false);
+  // Each making of the page's stages anew (closed): what they held is forgotten.
+  const [generation, setGeneration] = React.useState(0);
   const close = React.useCallback(async () => {
     setClosed(true);
     await refresh();
@@ -106,6 +128,11 @@ export function PasswordsPage({ actions, strings, locale }: Props) {
     setClosed(false);
     await refresh();
   }, [refresh]);
+  lapsed.current = () => {
+    setClosed(true);
+    setGeneration((count) => count + 1);
+    void refresh();
+  };
   // The session's lock leaves no window active (docs/adr/0016-windows.mdx) and locks the keychain,
   // but tells applications nothing else. So whenever Settings' window is not the active one (it
   // stopped being, or another application was active when the session locked), the service is
@@ -116,7 +143,6 @@ export function PasswordsPage({ actions, strings, locale }: Props) {
   // list, an item, a recovery key, a code, what was typed), and the account's password is asked
   // again. While the window stays active nothing is asked: the lock makes it inactive first.
   const [hidden, setHidden] = React.useState(false);
-  const [generation, setGeneration] = React.useState(0);
   React.useEffect(() => {
     if (!client?.watchActive) return;
     let current = true;
@@ -575,6 +601,7 @@ function TurnOn({ client, words, onChanged, interrupted }: Common & { interrupte
                 onSubmit={() => void confirm()}
                 autoFocus
                 monospace
+                secure
                 invalid={error !== null}
                 editable={!working}
                 testID="passwords-recovery-typed"
@@ -726,6 +753,7 @@ function Join({ client, words, onChanged, note }: Common & { note: string | null
             onSubmit={() => void withKey()}
             autoFocus
             monospace
+            secure
             invalid={error !== null}
             editable={!working}
             testID="passwords-join-key"
@@ -1608,11 +1636,14 @@ function ItemSheet({
           <Field label={words.username} value={current.username} onChange={change("username")} testID="passwords-edit-username" />
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
             <View style={{ flex: 1 }}>
+              {/* Always a secure field: copying from one does nothing (docs/adr/0007-clipboard.mdx,
+                  decision 6), so a password leaves only by Copy, marked sensitive. Shown, it is
+                  drawn under the field as text no one can select. */}
               <Field
                 label={words.password}
                 value={current.password}
                 onChange={change("password")}
-                secure={!shown}
+                secure
                 testID="passwords-edit-password"
               />
             </View>
@@ -1623,6 +1654,17 @@ function ItemSheet({
               testID="passwords-edit-show"
             />
           </View>
+          {shown && current.password !== "" ? (
+            <Text
+              variant="body-regular"
+              selectable={false}
+              style={{ fontFamily: "monospace" }}
+              accessibilityLabel={`${words.password}, ${current.password}`}
+              testID="passwords-edit-password-shown"
+            >
+              {current.password}
+            </Text>
+          ) : null}
           <Button
             size="sm"
             appearance="plain"

@@ -12,6 +12,7 @@ import {
   memberFrom,
   otpauthFrom,
   outcomeMessage,
+  personsRequest,
   recoveryKeyGroups,
   search,
   stageOf,
@@ -219,6 +220,16 @@ test("the page opens behind the password, but for a locked keychain and a lost p
   assert.equal(staysOpen(status("member", false)), false);
   assert.equal(staysOpen(status("locked", false, null)), false);
   assert.equal(staysOpen(null), false);
+  // Only the person's requests keep it open, never what the page asks on its own.
+  assert.equal(personsRequest({ keychainList: {} }), true);
+  assert.equal(personsRequest({ keychainReveal: { itemId: "i1" } }), true);
+  assert.equal(personsRequest({ keychainJoin: { method: "recoveryKey", recoveryKey: "k" } }), true);
+  assert.equal(personsRequest({ keychainApprove: { enrollmentId: "e1", confirm: true } }), true);
+  assert.equal(personsRequest({ keychainStatus: {} }), false);
+  assert.equal(personsRequest({ keychainCode: { itemId: "i1" } }), false);
+  assert.equal(personsRequest({ keychainJoin: { method: "approval" } }), false);
+  assert.equal(personsRequest({ keychainApprove: { enrollmentId: "e1" } }), false);
+  assert.equal(personsRequest({ keychainMembers: {} }), false);
   assert.equal(closesAccess({ refused: "verificationRequired" }), true);
   assert.equal(closesAccess({ refused: "locked" }), true);
   assert.equal(closesAccess({ refused: "wrongPassword" }), false);

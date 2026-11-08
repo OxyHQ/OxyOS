@@ -570,6 +570,16 @@ export function stageOf(status: KeychainStatus | null): Stage {
   }
 }
 
+/** Whether a request is the person's doing, which keeps Passwords open: not what the page asks on
+    its own (the status, a code as it runs out, a join or an approval followed, the devices). */
+export function personsRequest(request: KeychainRequest): boolean {
+  if ("keychainStatus" in request || "keychainCode" in request) return false;
+  if ("keychainEnrollments" in request || "keychainMembers" in request) return false;
+  if ("keychainJoin" in request) return request.keychainJoin.method === "recoveryKey";
+  if ("keychainApprove" in request) return request.keychainApprove.confirm === true;
+  return true;
+}
+
 /** Whether what the page shows may stay, as the service tells the keychain now: unlocked and the
     person verified. Anything else (locked with the session, the proof gone with the lock) makes
     the page anew and asks for the password. */

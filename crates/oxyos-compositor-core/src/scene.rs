@@ -3941,6 +3941,17 @@ impl Scene {
         }
         self.pointer_cancel();
         self.touch_cancel();
+        // A copy marked sensitive (ADR 0007 decision 6: a password or a code from the keychain)
+        // goes with the lock: the keychain locks with the session, and an unlock that does not
+        // open it (a PIN, ADR 0050) must not paste what was copied from it.
+        if self.clipboard.as_ref().is_some_and(|held| {
+            held.types
+                .iter()
+                .any(|mime| mime.as_str() == SENSITIVE_TYPE)
+        }) {
+            self.clipboard = None;
+            self.tell_clipboard();
+        }
         self.set_pointer_focus(None);
         self.set_focus(None);
         self.focus_next();

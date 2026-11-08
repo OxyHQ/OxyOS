@@ -4305,6 +4305,36 @@ fn a_sensitive_copy_is_cleared_by_its_owner_with_no_input() {
 }
 
 #[test]
+fn a_sensitive_copy_goes_with_the_lock_and_a_plain_one_stays() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    copy(&mut h, APP, 1);
+    h.scene.lock();
+    h.scene.unlock();
+    assert!(h.scene.clipboard().is_some());
+    let serial = type_key(&mut h);
+    for request in [
+        Request::ClipboardOffer { offer: 2, serial },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(super::SENSITIVE_TYPE),
+        },
+        Request::ClipboardCommit { offer: 2 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    assert!(h.scene.clipboard().is_some());
+    h.scene.lock();
+    assert!(h.scene.clipboard().is_none());
+    h.scene.unlock();
+    assert!(h.scene.clipboard().is_none());
+}
+
+#[test]
 fn the_clipboard_empties_when_its_owner_clears_it_or_goes() {
     let mut h = Harness::new();
     let (app, other) = two_windows(&mut h);
