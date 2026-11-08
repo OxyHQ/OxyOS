@@ -15,6 +15,7 @@
 
 #include <folly/dynamic.h>
 
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -101,6 +102,10 @@ class Networking {
     std::string partial;  // an incremental text body's trailing bytes of an unfinished character
     uint64_t progress = 0;
     int64_t total = -1;
+    // What it is, as a failure names it (method and where it went, never its query), and when it
+    // was sent.
+    std::string what;
+    std::chrono::steady_clock::time_point sent;
   };
 
   void complete(int64_t id, const std::string& error, bool timedOut);
