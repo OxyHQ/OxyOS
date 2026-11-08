@@ -12,7 +12,9 @@
 //! - `POST /auth/signin/second-factor {challengeId, code, device}`.
 //!
 //! - `POST /session/device/platform {device, platformClient, redemptionKey}`: the QR's device proof
-//!   redeemed for the platform credential (ADR 0058 R6), repeatable with the same key (R7).
+//!   redeemed for the platform credential (ADR 0058 R6), repeatable with the same key (R7);
+//! - `POST /session/device/platform/confirm {deviceId, deviceSecret}`: a platform credential
+//!   confirmed once the machine holds it (R8).
 //!
 //! A sign-in of the platform's own (Oxy ADR 0058 2.1, as accepted with OxyOS's refinements) names
 //! OxyOS's public client (`platformClient: {platform: "oxyos", clientId}`), sent with no web
@@ -110,7 +112,9 @@ pub struct SignedIn {
     pub device_secret: Option<Secret>,
 }
 
-/// OxyOS's public client, named by the platform's own sign-ins (`platformClient`).
+/// OxyOS's public client, named by the platform's own sign-ins (`platformClient`). It says that
+/// it confirms each platform credential it is issued (`confirms: true`, Oxy ADR 0058 R8): the
+/// credential is pending, and mints nothing, until [`OxyApi::confirm_platform_credential`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlatformClient {
     pub client_id: String,
@@ -119,9 +123,10 @@ pub struct PlatformClient {
 impl Serialize for PlatformClient {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut client = serializer.serialize_struct("PlatformClient", 2)?;
+        let mut client = serializer.serialize_struct("PlatformClient", 3)?;
         client.serialize_field("platform", PLATFORM)?;
         client.serialize_field("clientId", &self.client_id)?;
+        client.serialize_field("confirms", &true)?;
         client.end()
     }
 }
@@ -269,6 +274,13 @@ pub trait OxyApi {
         platform: &PlatformClient,
         key: &RedemptionKey,
     ) -> Result<SignedIn, ApiError>;
+    /// Confirms a platform credential a platform sign-in issued (Oxy ADR 0058 R8): until then it
+    /// is pending, mints nothing and expires with the QR's ten minutes (a password's sign-in's,
+    /// ten minutes after it), and the credential it replaces still works. The machine confirms it
+    /// once it holds it: an answer lost on its way leaves nothing live that nobody holds. Again
+    /// for a confirmed credential, the same answer. Every credential that cannot be confirmed
+    /// (unknown, expired) is one refusal, `InvalidDeviceSecret`.
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError>;
     /// A short token for one application, minted with the platform credential, pinned to
     /// `account`.
     fn mint_app_token(

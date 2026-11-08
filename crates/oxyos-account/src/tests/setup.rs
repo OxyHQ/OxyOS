@@ -74,7 +74,7 @@ fn an_account_is_set_up_with_its_user_verifier_and_credential() {
     );
     assert_eq!(
         machine.api().calls(),
-        vec![Call::Mint, Call::Profile, Call::Password]
+        vec![Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     assert_eq!(
         machine.setup.users().verifier(&name).as_deref(),
@@ -273,7 +273,8 @@ fn an_authenticator_is_asked_for_and_a_wrong_code_may_be_followed_by_the_right_o
             Call::Profile,
             Call::Password,
             Call::SecondFactor,
-            Call::SecondFactor
+            Call::SecondFactor,
+            Call::Confirm
         ]
     );
 }
@@ -375,8 +376,9 @@ fn a_first_account_that_cannot_be_made_the_administrator_is_not_set_up() {
         Err(SetupError::Failed(_))
     ));
     nothing_left(&machine);
-    // Its platform credential was ended online, as any failed setup's is.
-    assert!(machine.api().calls().contains(&Call::SignOut));
+    // Its platform credential was never confirmed: pending at Oxy, it expires by itself (R8).
+    assert!(!machine.api().calls().contains(&Call::SignOut));
+    assert!(machine.api().is_pending(&platform_secret(1)));
 }
 
 #[test]
@@ -729,7 +731,7 @@ fn without_oxyoss_client_id_nothing_is_set_up() {
 }
 
 #[test]
-fn a_platform_credential_the_machine_could_not_take_is_ended_online() {
+fn a_platform_credential_the_machine_could_not_take_is_left_to_expire() {
     let machine = machine(FakeApi::default());
     machine.setup.users().fail(UserStep::SetVerifier);
     assert!(matches!(
@@ -737,18 +739,16 @@ fn a_platform_credential_the_machine_could_not_take_is_ended_online() {
         Err(SetupError::Failed(_))
     ));
     nothing_left(&machine);
-    // Its device was signed out at Oxy with the credential the sign-in issued.
+    // Never confirmed: the credential the sign-in issued is pending at Oxy and expires by itself
+    // (R8), and the setup client's, which it would have replaced, still works. Nothing is ended
+    // online.
     assert_eq!(
         machine.api().calls(),
-        vec![
-            Call::Mint,
-            Call::Profile,
-            Call::Password,
-            Call::Mint,
-            Call::SignOut
-        ]
+        vec![Call::Mint, Call::Profile, Call::Password]
     );
-    assert!(machine.api().revoked.load(Ordering::SeqCst));
+    assert!(machine.api().is_pending(&platform_secret(1)));
+    assert!(machine.api().live().contains(&DEVICE_SECRET.to_string()));
+    assert!(!machine.api().revoked.load(Ordering::SeqCst));
 }
 
 #[test]

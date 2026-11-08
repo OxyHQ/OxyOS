@@ -440,6 +440,16 @@ impl OxyApi for HttpApi {
         }
     }
 
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError> {
+        let answer = self.post("/session/device/platform/confirm", &Proof::from(credential))?;
+        match answer.status {
+            200 => Ok(()),
+            // One answer for every credential that cannot be confirmed: never told apart.
+            401 => Err(ApiError::InvalidDeviceSecret),
+            _ => Err(refusal(&answer)),
+        }
+    }
+
     fn mint_app_token(
         &self,
         credential: &DeviceCredential,
