@@ -798,7 +798,7 @@ function SessionShell() {
   // Up Now and Skip This Backup asked of the session citing the press, Browse Backups opening
   // Dropsea's, Open Backups Settings… Settings at its Backups page.
   const backupMenu: ShellBackupMenu | undefined = React.useMemo(() => {
-    const state = backupStateOf(backupTold);
+    const state = backupStateOf((backupTold as { backup?: unknown } | null)?.backup);
     return state
       ? {
           state,

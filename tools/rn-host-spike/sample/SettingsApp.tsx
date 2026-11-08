@@ -778,9 +778,9 @@ const backupActions: BackupActions = {
  * page.
  */
 function useBackupModel(): { backup: BackupState | null | undefined; actions: BackupActions | undefined } {
-  const told = useBackupState() as unknown;
-  if (!available || told === undefined) return { backup: undefined, actions: undefined };
-  return { backup: backupStateOf(told), actions: backupActions };
+  const told = useBackupState() as { backup?: unknown } | null;
+  if (!available || told === null) return { backup: undefined, actions: undefined };
+  return { backup: backupStateOf(told.backup), actions: backupActions };
 }
 
 /**

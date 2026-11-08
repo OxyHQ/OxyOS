@@ -592,7 +592,8 @@ it with a client id (`platform`); `login.enroll` plays the setup's conversation 
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
 lists `enroll.account` once enrolled. A step's `accounts_asked` is what the setup asked the service
 in it ("ASKED: ANSWERED", exactly, in order) and `oxy_requests` requests Oxy's API answered in it
-("METHOD PATH STATUS", each at least once). No credential of anyone's is in a scenario: every one
+("METHOD PATH STATUS", each at least once), `oxy_requests_times` how many times each was answered
+({"METHOD PATH STATUS": N}, exactly). No credential of anyone's is in a scenario: every one
 is the run's own. `login.record`: what the login program must have recorded once the run
 ended, each line beginning so, in order (none: nobody signed in). A step's `shell.signed_in` says
 whether the login screen was told someone signed in.
@@ -1344,10 +1345,21 @@ def played_oxy(spec, log):
     (`identifier`, `password`, `id`, `username`, `has_password`) and the device credential its
     sign-in commits (`device`: {deviceId, deviceSecret}, the run's own, no credential of anyone's).
     Every request is logged by its method and path, never its body; one not played is answered 404
-    and logged so. Returns its base URL and the server."""
+    and logged so. Returns its base URL and the server.
+
+    As the API does, a sign-in's access token is the only way into the account's routes (`/users/me`
+    and what is under it, `/accounts`, `/session/device/*`): a request without it, or with one the
+    API no longer takes, is answered 401. A sign-in puts the account on the sign-in's device (the
+    claim's `finalizeDeviceLogin`), so the device's state and directory list it from then on, as
+    `POST /session/device/add`, `GET /session/device/state` and `GET /session/device/directory`
+    answer them. `qr.token_refused_at` ("METHOD PATH") plays what production did on 2026-11-08: the
+    first QR sign-in's token refused when it first reaches that request (the API task that approved
+    the request held the session as it was before the claim bound it, OxyHQ/oxy#2224), and never
+    taken again."""
     import secrets as _secrets
 
-    state = {"has_password": spec.get("has_password", True), "requests": {}}
+    state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
+             "on_device": False, "revision": 0, "qr_claims": 0}
     lock = threading.Lock()
 
     class Oxy(BaseHTTPRequestHandler):
@@ -1376,11 +1388,65 @@ def played_oxy(spec, log):
             except ValueError:
                 return {}
 
-        def session(self):
+        def session(self, refused_at=None):
+            """A sign-in's session: its token taken by the account's routes, and the account on the
+            sign-in's device."""
+            # Shaped as the API's tokens are (a JWT the SDK reads its expiry from; an opaque one it
+            # would not send), signed by nobody: the played API knows its tokens by value.
+            def part(value):
+                return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+            now = int(time.time())
+            token = ".".join((part({"alg": "none", "typ": "JWT"}),
+                              part({"sub": spec["id"], "sid": "played-session", "type": "access",
+                                    "iat": now, "exp": now + 900, "jti": _secrets.token_hex(8)}),
+                              "played"))
+            with lock:
+                state["tokens"][token] = {"refused_at": refused_at, "refused": False}
+                if not state["on_device"]:
+                    state["on_device"] = True
+                    state["revision"] += 1
             return {"sessionId": "played-session", "deviceId": spec["device"]["deviceId"],
                     "deviceSecret": spec["device"]["deviceSecret"],
-                    "expiresAt": "2026-11-13T12:00:00.000Z", "accessToken": "played." + _secrets.token_hex(8),
+                    "expiresAt": "2026-11-13T12:00:00.000Z", "accessToken": token,
                     "user": {"id": spec["id"], "username": spec["username"]}}
+
+        def signed_in(self, request):
+            """Whether the request carries a token the API takes; answers 401 when it does not."""
+            header = self.headers.get("Authorization", "")
+            token = header[len("Bearer "):] if header.startswith("Bearer ") else None
+            with lock:
+                held = state["tokens"].get(token)
+                if held and held["refused_at"] == request:
+                    held["refused"] = True
+                taken = held is not None and not held["refused"]
+            if not taken:
+                self.reply(401, {"error": "invalid_token", "message": "Invalid or expired session"})
+            return taken
+
+        def device_state(self):
+            """The sign-in's device as `GET /session/device/state` answers it: the account on it,
+            active, once a sign-in put it there."""
+            with lock:
+                on, revision = state["on_device"], state["revision"]
+            accounts = [{"accountId": spec["id"], "sessionId": "played-session", "authuser": 0}] if on else []
+            return {"deviceId": spec["device"]["deviceId"], "accounts": accounts,
+                    "activeAccountId": spec["id"] if on else None, "revision": revision,
+                    "updatedAt": 1794096000000}
+
+        def device_directory(self):
+            """The device's directory (`GET /session/device/directory`): its one person, acting as
+            themself, once a sign-in put them on it."""
+            device = self.device_state()
+            profile = {"id": spec["id"], "username": spec["username"], "name": self.user()["name"],
+                       "avatar": None, "color": None}
+            principals = [{"id": "played-principal", "userId": spec["id"], "authuser": 0, "user": profile,
+                           "contexts": [{"id": "played-context", "accountId": spec["id"], "kind": "personal",
+                                         "relationship": "self", "account": profile, "onDevice": True,
+                                         "available": True, "active": True, "lastUsedAt": None}]}] \
+                if device["accounts"] else []
+            return {"deviceId": device["deviceId"], "revision": device["revision"],
+                    "activeContextId": "played-context" if principals else None, "principals": principals,
+                    "updatedAt": device["updatedAt"]}
 
         def user(self):
             return {"id": spec["id"], "username": spec["username"],
@@ -1413,7 +1479,21 @@ def played_oxy(spec, log):
                 if opcode != 0x1:
                     continue
                 packet = payload.decode()
-                if packet.startswith("40/auth-session"):
+                if packet.startswith("40") and not packet.startswith("40/"):
+                    # The device's own namespace, which a signed-in SessionClient joins with its
+                    # token: connected while the API takes the token, else refused (`44`).
+                    try:
+                        auth = json.loads(packet[2:] or "{}")
+                    except ValueError:
+                        auth = {}
+                    with lock:
+                        held = state["tokens"].get(auth.get("token") if isinstance(auth, dict) else None)
+                        taken = held is not None and not held["refused"]
+                    self.log("WS / connect" if taken else "WS / refused")
+                    with writing:
+                        websocket_send(self.wfile, 0x1, '40{"sid":"played-device"}' if taken
+                                       else '44{"message":"Authentication error"}')
+                elif packet.startswith("40/auth-session"):
                     self.log("WS /auth-session connect")
                     with writing:
                         websocket_send(self.wfile, 0x1, '40/auth-session,{"sid":"played-auth"}')
@@ -1450,15 +1530,30 @@ def played_oxy(spec, log):
                     self.socket_io()
                 except (OSError, ValueError, struct.error):
                     pass
-            elif path == "/users/me/sign-in-methods":
-                self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
-                                 "backupCodesRemaining": 0})
-            elif path == "/users/me":
-                self.reply(200, self.user())
-            elif path == "/accounts":
-                self.reply(200, {"accounts": []})
+            elif path in ("/users/me/sign-in-methods", "/users/me", "/accounts") or path.startswith("/session/device/"):
+                if not self.signed_in(f"GET {path}"):
+                    pass
+                elif path == "/users/me/sign-in-methods":
+                    self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
+                                     "backupCodesRemaining": 0})
+                elif path == "/users/me":
+                    self.reply(200, self.user())
+                elif path == "/accounts":
+                    self.reply(200, {"accounts": []})
+                elif path == "/session/device/state":
+                    self.reply(200, {"state": self.device_state(), "activeToken": None})
+                elif path == "/session/device/directory":
+                    self.reply(200, self.device_directory())
+                else:
+                    self.reply(404, {"error": "not_found", "message": "not played"})
             elif path == "/auth/oauth/client/oxy_pk_played":
-                self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS"}})
+                # OxyOS's registry entry as the API answers it: Oxy's own, official, so its sign-in
+                # takes the device lane (an application answered with less is classified a third
+                # party's and signed in on an isolated OAuth session, which production never is).
+                self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS", "type": "first_party",
+                                                 "isOfficial": True, "isInternal": False, "scopes": [],
+                                                 "description": "Official Oxy desktop shell for Linux.",
+                                                 "websiteUrl": "https://oxy.so/os"}})
             elif path in ("/", "/health"):
                 self.reply(200, {"ok": True})
             elif path.startswith("/auth/session/status/"):
@@ -1519,11 +1614,21 @@ def played_oxy(spec, log):
                     if ok:
                         request["status"] = "consumed"
                 if ok:
-                    self.reply(200, dict(self.session(), user=self.user()))
+                    with lock:
+                        state["qr_claims"] += 1
+                        first = state["qr_claims"] == 1
+                    refused_at = spec.get("qr", {}).get("token_refused_at") if first else None
+                    self.reply(200, dict(self.session(refused_at), user=self.user()))
                 else:
                     self.reply(400, {"error": "invalid_request", "message": "Invalid or expired session"})
             elif path == "/users/me/reauth/email":
-                self.reply(200, {"verificationId": "played-reauth", "expiresAt": int(time.time() * 1000) + 600000})
+                if self.signed_in(f"POST {path}"):
+                    self.reply(200, {"verificationId": "played-reauth",
+                                     "expiresAt": int(time.time() * 1000) + 600000})
+            elif path == "/session/device/add":
+                # The account is on the device already (the sign-in put it there): the device as is.
+                if self.signed_in(f"POST {path}"):
+                    self.reply(200, {"state": self.device_state(), "activeToken": None})
             elif path == "/auth/signin/password":
                 if body.get("identifier") == spec["identifier"] and body.get("password") == spec.get("password") \
                         and state["has_password"]:
@@ -1539,7 +1644,9 @@ def played_oxy(spec, log):
             body = self.body()
             if path == "/users/me/password":
                 # The SDK's own flow of adding a password, confirmed with a code sent by email.
-                if json.dumps(body.get("reauth", {})).find(spec["code"]) >= 0 and body.get("newPassword"):
+                if not self.signed_in(f"PUT {path}"):
+                    pass
+                elif json.dumps(body.get("reauth", {})).find(spec["code"]) >= 0 and body.get("newPassword"):
                     state["has_password"] = True
                     self.reply(200, {"success": True})
                 else:
@@ -3365,6 +3472,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         missing = [wanted for wanted in expect["oxy_requests"] if wanted not in got]
         if missing:
             fail(f"Oxy's API was not asked {missing} (it was asked {sorted(got)})")
+    if "oxy_requests_times" in expect:
+        # How many times the played Oxy API answered each request in the step, exactly: a QR's
+        # session claimed once ("POST /auth/session/claim 200": 1), a request never made (0).
+        log = ACCOUNT.get("oxy_log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        asked = [f"{line['request']} {line['status']}" for line in lines if start <= line["t"] <= end]
+        for wanted, times in expect["oxy_requests_times"].items():
+            if asked.count(wanted) != times:
+                fail(f"Oxy's API answered {wanted!r} {asked.count(wanted)} times, expected {times} "
+                     f"(it was asked {asked})")
     if "account_session" in expect:
         # What the played accounts' service was asked in the step (`account`): "APPLICATION ASKED:
         # ANSWERED", exactly, in any order (an application none, "-").
