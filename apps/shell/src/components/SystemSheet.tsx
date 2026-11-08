@@ -14,6 +14,8 @@ import {
   type SheetText,
 } from "../sheet";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 export const SHEET_WIDTH = 380;
 /** Every sheet is this tall, its words scrolling within it, and its buttons are this wide at its
@@ -35,7 +37,7 @@ const BACKDROP = {
   alignItems: "center",
   justifyContent: "center",
 } as const;
-const CARD = { backgroundColor: "#ffffffee", borderRadius: 18, padding: 20, gap: 12 } as const;
+const CARD = { borderRadius: 18, padding: 20, gap: 12 } as const;
 const QUIET = "#5b6472";
 const ERROR = "#d93025";
 /** The space after each digit of a code shown. */
@@ -94,6 +96,7 @@ export const SystemSheet = memo(function SystemSheet({
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const view = sheetView(text, messages, names);
   const [password, setPassword] = useState("");
@@ -147,7 +150,10 @@ export const SystemSheet = memo(function SystemSheet({
           accessibilityViewIsModal
           accessibilityRole="alertdialog"
           accessibilityLabel={report.title}
-          style={[CARD, { width: WIDE_SHEET_WIDTH, height: REPORT_SHEET_HEIGHT }]}
+          style={[
+            CARD,
+            { width: WIDE_SHEET_WIDTH, height: REPORT_SHEET_HEIGHT, backgroundColor: glass("#ffffffee", reduced) },
+          ]}
         >
           <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 17, fontWeight: "600", color: INK }}>
             {report.title}
@@ -197,7 +203,10 @@ export const SystemSheet = memo(function SystemSheet({
             .filter(Boolean)
             .join(". ") || undefined
         }
-        style={[CARD, { width: wide ? WIDE_SHEET_WIDTH : SHEET_WIDTH, height: SHEET_HEIGHT }]}
+        style={[
+          CARD,
+          { width: wide ? WIDE_SHEET_WIDTH : SHEET_WIDTH, height: SHEET_HEIGHT, backgroundColor: glass("#ffffffee", reduced) },
+        ]}
       >
         <Box style={{ flex: 1, gap: 12, overflow: "hidden" }}>
         {/* The sheet is named by its title: the title is not read again as text. */}

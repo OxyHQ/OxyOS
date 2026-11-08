@@ -1208,6 +1208,8 @@ int main(int argc, char** argv) {
     folly::dynamic toldShellState = nullptr;
     // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
+    // Reduce transparency as the session told it at connect: expo-blur's views blur nothing.
+    if (window) oxyos::setReducedTransparency(window->drawing().reduceTransparency);
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
     // The session's locale as JavaScript was last told it (docs/adr/0040-language-and-region.mdx):
@@ -2483,6 +2485,14 @@ int main(int argc, char** argv) {
             dirty = true;
           }
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
+          // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
+          // again), every one of them, though none of their props changed: the window is drawn
+          // again whole, as when the painter changes.
+          if (now.reduceTransparency != toldDrawing->reduceTransparency) {
+            oxyos::setReducedTransparency(now.reduceTransparency);
+            painterChanged = true;
+            dirty = true;
+          }
           emit("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;

@@ -150,6 +150,9 @@ fn log(peer: &Peer, outcome: &Outcome) {
             enrolled.account, enrolled.user, enrolled.uid
         ),
         Outcome::Refused(error) => eprintln!("oxyos-accountd: {who}: setup refused: {error}"),
+        Outcome::Interrupted(error) => {
+            eprintln!("oxyos-accountd: {who}: setup failed, its sign-in kept for a retry: {error}")
+        }
         Outcome::SecondFactorRequired => {
             eprintln!("oxyos-accountd: {who}: setup waits for the authenticator's code")
         }
