@@ -1,0 +1,169 @@
+{
+ "about": "Dropsea's Browse Versions… and Browse Backups over the platform's backups (docs/adr/0059-backups.mdx, step 3; OxyHQ/Dropsea#53): a real oxyos-backupd --development backed the run's home up twice before the run (notes.txt changed between), then notes.txt changed again and plan.txt was deleted. notes.txt selected, File › Browse Versions… lists its two versions, the newest chosen; Restore asks as a Mac does, since a notes.txt is there, and Keep Both writes the backup's notes beside it as Time Machine names it, “notes (original).txt”, the notes there now untouched. File › Browse Backups shows the home as the newest backup held it, plan.txt among its items though it is gone; plan.txt chosen and restored goes back where it was, under its own name. Every step checks the disk.",
+ "module": "Dropsea",
+ "window": [
+  1000,
+  640
+ ],
+ "app": {
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Documents/report.txt": "quarterly report",
+   "notes.txt": "first draft\n",
+   "plan.txt": "the plan, first version"
+  }
+ },
+ "backups": {
+  "states": [
+   {},
+   {
+    "items": {
+     "notes.txt": "second draft, longer\n"
+    },
+    "modified": 1767434400
+   }
+  ],
+  "after": {
+   "items": {
+    "notes.txt": "third, not backed up\n"
+   },
+   "modified": 1767520800,
+   "remove": [
+    "plan.txt"
+   ]
+  }
+ },
+ "steps": [
+  {
+   "name": "Dropsea opens at the home, Browse Versions… and Browse Backups offered: a backup disk keeps backups",
+   "do": [
+    "wait_named",
+    [
+     "notes.txt",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "menus": {
+     "File > Browse Versions…": {},
+     "File > Browse Backups": {}
+    }
+   }
+  },
+  {
+   "name": "a press selects notes.txt",
+   "do": [
+    "press_named",
+    "notes.txt"
+   ],
+   "expect": {}
+  },
+  {
+   "name": "File › Browse Versions…: its versions, newest first, in a sheet",
+   "do": [
+    "menu",
+    "File > Browse Versions…"
+   ],
+   "expect": {
+    "texts": [
+     "Versions of “notes.txt”",
+     "Restore"
+    ]
+   }
+  },
+  {
+   "name": "the versions are listed (asked of the service, restic's find), under Today",
+   "do": [
+    "wait_named",
+    [
+     "Today",
+     30000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts_matching": [
+     "^Today at "
+    ]
+   }
+  },
+  {
+   "name": "Restore: a notes.txt is there, so Dropsea asks as a Mac asks",
+   "do": [
+    "press_named",
+    "Restore"
+   ],
+   "expect": {
+    "texts": [
+     "Keep Both",
+     "Replace"
+    ]
+   }
+  },
+  {
+   "name": "Keep Both: the backup's newest notes beside it, as Time Machine names it; the notes there now untouched",
+   "do": [
+    "press_named",
+    "Keep Both"
+   ],
+   "expect": {
+    "home": {
+     "notes (original).txt": "second draft, longer\n",
+     "notes.txt": "third, not backed up\n"
+    }
+   }
+  },
+  {
+   "name": "File › Browse Backups: the home as the newest backup held it, plan.txt among its items though it is gone",
+   "do": [
+    "menu",
+    "File > Browse Backups"
+   ],
+   "expect": {}
+  },
+  {
+   "name": "its items, from the backup",
+   "do": [
+    "wait_named",
+    [
+     "plan.txt",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "home": {
+     "plan.txt": false
+    },
+    "texts_matching": [
+     "Not here now"
+    ]
+   }
+  },
+  {
+   "name": "plan.txt chosen",
+   "do": [
+    "press_named",
+    "plan.txt"
+   ],
+   "expect": {}
+  },
+  {
+   "name": "Restore: plan.txt back where it was, under its own name",
+   "do": [
+    "press_named",
+    "Restore"
+   ],
+   "expect": {
+    "home": {
+     "plan.txt": "the plan, first version"
+    }
+   }
+  }
+ ]
+}
