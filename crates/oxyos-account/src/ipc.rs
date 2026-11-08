@@ -612,6 +612,39 @@ impl Connection {
         Ok(Self { fd })
     }
 
+    /// Two connected ends (the tests' stand-in for a peer).
+    #[cfg(test)]
+    pub(crate) fn pair() -> io::Result<(Self, Self)> {
+        let (a, b) = rustix::net::socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )?;
+        Ok((Self { fd: a }, Self { fd: b }))
+    }
+
+    /// A connection on a descriptor the tests made.
+    #[cfg(test)]
+    pub(crate) fn from_fd(fd: OwnedFd) -> Self {
+        Self { fd }
+    }
+
+    /// Another handle on the same connection (a duplicated descriptor), to send from one thread
+    /// while another waits to receive.
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            fd: rustix::io::fcntl_dupfd_cloexec(&self.fd, 0)?,
+        })
+    }
+
+    /// Waits at most `timeout` to send each message.
+    pub fn set_send_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        use rustix::net::sockopt::{set_socket_timeout, Timeout};
+        set_socket_timeout(&self.fd, Timeout::Send, timeout)?;
+        Ok(())
+    }
+
     pub fn peer(&self) -> io::Result<Peer> {
         let credentials = rustix::net::sockopt::socket_peercred(&self.fd)?;
         Ok(Peer {

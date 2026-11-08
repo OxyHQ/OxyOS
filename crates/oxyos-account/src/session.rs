@@ -85,6 +85,7 @@
 use crate::api::OxyApi;
 use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
+use crate::keychain::passkey::{PasskeyAssertion, PasskeyCreate, PasskeyCreated, PasskeyGet};
 use crate::keychain::{
     self, AuditView, CodeView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView,
     JoinMethod, MemberView, Status, Suggestion,
@@ -221,6 +222,21 @@ pub enum Request {
     KeychainCode {
         item_id: String,
     },
+    // Passkeys (ADR 0050 step 5, `crate::keychain::passkey`): any registered application's.
+    PasskeyCreate(PasskeyCreate),
+    PasskeyGet(PasskeyGet),
+    // The registrar's prompts connection.
+    PasskeyPrompts {},
+    PasskeyConfirm {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<Secret>,
+    },
+    PasskeyCancel {
+        id: String,
+    },
     ErasePreview {},
     EraseAll {
         password: Secret,
@@ -301,6 +317,14 @@ pub enum Reason {
     NoPin,
     /// The account has an authenticator: set it up again at the login screen.
     SecondFactorRequired,
+    // Passkeys', as WebAuthn's errors (`crate::keychain::passkey`).
+    /// `NotAllowedError`: cancelled, not verified, timed out, no passkey, or a relying party the
+    /// application may not use, all alike.
+    NotAllowed,
+    /// `InvalidStateError`: an excluded credential is in the keychain.
+    InvalidState,
+    /// `NotSupportedError`: no algorithm OxyOS makes (ES256).
+    NotSupported,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -354,6 +378,9 @@ pub enum Answer {
     KeychainAudit(AuditView),
     KeychainLeft,
     KeychainCode(CodeView),
+    PasskeyCreated(PasskeyCreated),
+    PasskeyAssertion(PasskeyAssertion),
+    PasskeyPromptsOpen,
     ErasePreview(ErasePreview),
     Erasing(Erasing),
     LocalSignIn(platform::LocalView),
@@ -793,6 +820,18 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     }
                     continue;
                 }
+                // The session's prompts connection: from now on, the passkey sheets to show.
+                Some(Request::PasskeyPrompts {}) => {
+                    let Some(keychains) = self.platform.keychains() else {
+                        connection.send(&Answer::refused(Reason::Locked))?;
+                        continue;
+                    };
+                    return keychains.serve_prompts(
+                        enrollment.uid,
+                        enrollment.user.as_str(),
+                        connection,
+                    );
+                }
                 Some(request) if keychain::is_registrar_request(&request) => {
                     match self.platform.keychains() {
                         Some(keychains) => {
@@ -952,6 +991,23 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     | Request::RemovePin { .. }
                     | Request::SetPasswordSignIn { .. }),
                 ) => self.change_local(uid, request, log),
+                // Passkeys (ADR 0050 decision 7): any registered application, for the relying
+                // parties associated with it, each verified by the person on the session's sheet.
+                Some(request) if keychain::is_passkey_request(&request) => {
+                    match (self.platform.keychains(), self.platform.enrollment_of(uid)) {
+                        (Some(keychains), Ok(Some(enrollment))) => {
+                            let gone = || hung_up(connection) || !self.live(registration);
+                            let asker = keychain::Asker {
+                                desktop_entry_id: &registration.desktop_entry_id,
+                                pid: registration.pid,
+                                gone: &gone,
+                            };
+                            keychains.passkey(uid, enrollment.user.as_str(), &asker, request)
+                        }
+                        (None, _) => Answer::refused(Reason::Locked),
+                        _ => Answer::refused(Reason::Failed),
+                    }
+                }
                 // The keychain is Settings' alone to manage (ADR 0050 decision 5), and AutoFill
                 // the registrar's: any other application never learns whether it holds anything.
                 Some(request) if keychain::is_keychain_request(&request) => {
@@ -1106,6 +1162,15 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
     fn change_local(&self, _uid: u32, _request: Request, _log: &mut impl FnMut(&Event)) -> Answer {
         Answer::refused(Reason::Failed)
     }
+}
+
+/// Whether the peer of `connection` closed it (a ceremony it asked for is then abandoned).
+fn hung_up(connection: &Connection) -> bool {
+    let mut fds = [PollFd::new(connection, PollFlags::RDHUP)];
+    matches!(poll(&mut fds, Some(&rustix::time::Timespec { tv_sec: 0, tv_nsec: 0 })), Ok(n) if n > 0)
+        && fds[0]
+            .revents()
+            .intersects(PollFlags::RDHUP | PollFlags::HUP | PollFlags::ERR)
 }
 
 /// Whether a registration is Settings', registered as a system application: the one that may
