@@ -184,7 +184,7 @@ fn the_password_is_checked_on_the_same_device_naming_the_platform() {
             "identifier": USERNAME,
             "password": PASSWORD,
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
-            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID, "confirms": true},
         })
     );
     // A native client: no web Origin, which would have the platform client refused.
@@ -331,7 +331,7 @@ fn an_authenticator_is_a_challenge_answered_with_its_code() {
             "challengeId": CHALLENGE,
             "code": CODE,
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
-            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID, "confirms": true},
         })
     );
 }
@@ -468,7 +468,7 @@ fn a_qr_sign_in_is_redeemed_by_its_device_proof_alone_naming_the_platform() {
         request.body,
         serde_json::json!({
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
-            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID, "confirms": true},
             "redemptionKey": key.expose(),
         })
     );
@@ -500,5 +500,40 @@ fn a_proof_that_cannot_be_redeemed_is_one_refusal_and_a_limit_says_when() {
             retry_after: Some(120)
         })
     );
+    request.join().unwrap();
+}
+
+#[test]
+fn a_platform_credential_is_confirmed_by_itself_and_one_refusal_says_it_cannot_be() {
+    let (base, request) = server(200, "", r#"{"confirmed":true}"#);
+    api(&base)
+        .confirm_platform_credential(&credential())
+        .unwrap();
+    let request = request.join().unwrap();
+    assert_eq!(
+        request.line,
+        "POST /session/device/platform/confirm HTTP/1.1"
+    );
+    // The credential proves itself: its device and secret, no bearer.
+    assert_eq!(
+        request.body,
+        serde_json::json!({"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET})
+    );
+    assert_eq!(request.header("authorization"), None);
+    let (base, request) = server(
+        401,
+        "",
+        r#"{"error":"invalid_grant","message":"Invalid grant"}"#,
+    );
+    assert_eq!(
+        api(&base).confirm_platform_credential(&credential()),
+        Err(ApiError::InvalidDeviceSecret)
+    );
+    request.join().unwrap();
+    let (base, request) = server(503, "", r#"{"error":"unavailable"}"#);
+    assert!(matches!(
+        api(&base).confirm_platform_credential(&credential()),
+        Err(ApiError::Refused { status: 503, .. })
+    ));
     request.join().unwrap();
 }

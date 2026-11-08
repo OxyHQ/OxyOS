@@ -435,6 +435,7 @@ pub fn stage_name(stage: Stage) -> &'static CStr {
         Stage::Preparing => c"preparing",
         Stage::SigningIn => c"signingIn",
         Stage::Finishing => c"finishing",
+        Stage::Confirming => c"confirming",
     }
 }
 
@@ -449,6 +450,8 @@ pub struct Enrollment {
     appearance: Option<Appearance>,
     /// Told each step of the setup as the service starts it.
     progress: Option<Box<dyn FnMut(Stage)>>,
+    /// Told each wait Oxy asks of the setup, in seconds.
+    waiting: Option<Box<dyn FnMut(u64)>>,
     /// The last answer, as JSON, for a caller whose buffer was too small.
     answer: String,
 }
@@ -465,6 +468,7 @@ impl Enrollment {
             started: false,
             appearance: None,
             progress: None,
+            waiting: None,
             answer: String::new(),
         })
     }
@@ -480,12 +484,19 @@ impl Enrollment {
         self.progress = Some(progress);
     }
 
+    /// `waiting` is told each wait Oxy asks of the setup (seconds), on the thread that waits for
+    /// its answer; the setup goes on after it.
+    pub fn on_waiting(&mut self, waiting: Box<dyn FnMut(u64)>) {
+        self.waiting = Some(waiting);
+    }
+
     fn turn(&mut self, request: &ipc::Request) -> Result<&str, SessionError> {
         let connection = self
             .connection
             .as_ref()
             .ok_or_else(|| SessionError::Failed("the setup has ended".into()))?;
         let progress = &mut self.progress;
+        let waiting = &mut self.waiting;
         let result = connection
             .send(request)
             .map_err(|error| failed(&self.socket, error))
@@ -494,6 +505,16 @@ impl Enrollment {
                     Ok(Some(Some(ipc::Answer::Progress(stage)))) => {
                         if let Some(progress) = progress.as_mut() {
                             progress(stage);
+                        }
+                    }
+                    Ok(Some(Some(ipc::Answer::Waiting {
+                        retry_after_seconds,
+                    }))) => {
+                        // The service waits that long before it goes on: so does the answer.
+                        let _ = connection
+                            .set_timeout(ENROLL_WAIT + Duration::from_secs(retry_after_seconds));
+                        if let Some(waiting) = waiting.as_mut() {
+                            waiting(retry_after_seconds);
                         }
                     }
                     Ok(Some(Some(answer))) => {
@@ -505,6 +526,8 @@ impl Enrollment {
                     Err(error) => break Err(failed(&self.socket, error)),
                 }
             });
+        // A wait lengthened the answer's: the next turn waits as long as any.
+        let _ = connection.set_timeout(ENROLL_WAIT);
         match result {
             Ok((json, continues)) => {
                 if !continues {
@@ -1060,7 +1083,7 @@ pub unsafe extern "C" fn oxyos_account_enrollment_answer(
 }
 
 /// Tells a setup's steps as the service starts them: `progress(context, stage)`, `stage` one of
-/// "securing", "verifying", "preparing", "signingIn", "finishing" (a static NUL-terminated
+/// "securing", "verifying", "preparing", "signingIn", "finishing", "confirming" (a static NUL-terminated
 /// string), called on the thread blocked in `_enroll`, `_second_factor` or `_retry`, before that
 /// call returns. Null `progress` tells nothing.
 ///
@@ -1093,6 +1116,41 @@ pub unsafe extern "C" fn oxyos_account_enrollment_on_progress(
 /// A setup's step, told as the service starts it.
 pub type OxyOSAccountEnrollmentProgressFn =
     Option<unsafe extern "C" fn(context: *mut c_void, stage: *const c_char)>;
+
+/// Tells the waits Oxy asks of a setup: `waiting(context, seconds)` when Oxy rate-limits the
+/// QR's redemption and the wait ends within its window, called on the thread blocked in `_enroll`,
+/// `_second_factor` or `_retry`, which goes on blocking through the wait and the rest of the
+/// setup. Null `waiting` tells nothing.
+///
+/// # Safety
+/// `enrollment` is one `oxyos_account_enrollment_new` returned, not freed; `waiting`, if not null,
+/// may be called with `context` from the thread that calls `_enroll`, `_second_factor` or `_retry`
+/// until the setup is freed.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_enrollment_on_waiting(
+    enrollment: *mut OxyOSAccountEnrollment,
+    waiting: OxyOSAccountEnrollmentWaitingFn,
+    context: *mut c_void,
+) -> c_int {
+    if enrollment.is_null() {
+        return fail("null setup");
+    }
+    // SAFETY: the caller's contract.
+    let enrollment = &mut unsafe { &mut *enrollment }.0;
+    match waiting {
+        Some(waiting) => enrollment.on_waiting(Box::new(move |seconds| {
+            // SAFETY: the caller's contract: `waiting` may be called with `context` here.
+            unsafe { waiting(context, seconds) }
+        })),
+        None => enrollment.waiting = None,
+    }
+    0
+}
+
+/// A wait Oxy asks of a setup, in seconds.
+pub type OxyOSAccountEnrollmentWaitingFn =
+    Option<unsafe extern "C" fn(context: *mut c_void, retry_after_seconds: u64)>;
 
 /// The appearance a new account's home starts with: "light", "dark" or "auto" (anything else:
 /// OXYOS_ERROR, nothing set). Before `_enroll`; an account set up again keeps its own.

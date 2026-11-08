@@ -99,6 +99,7 @@ pub(crate) enum Call {
     Password,
     SecondFactor,
     PlatformDevice,
+    Confirm,
     AppToken,
     SignOut,
 }
@@ -157,6 +158,13 @@ pub(crate) struct FakeApi {
     pub(crate) redemptions: Mutex<Vec<Redemption>>,
     /// The keys redemptions were asked with, in order.
     pub(crate) keys: Mutex<Vec<String>>,
+    /// Platform credentials issued and not confirmed yet (R8), each with the live one it replaces
+    /// once confirmed: they prove nothing.
+    pub(crate) pending: Mutex<Vec<(String, Option<String>)>>,
+    /// What goes wrong with each next confirmation, in order.
+    pub(crate) confirm_hiccups: Mutex<std::collections::VecDeque<Hiccup>>,
+    /// The next redemptions are rate-limited, each with this `Retry-After`.
+    pub(crate) limited: Mutex<std::collections::VecDeque<Option<u64>>>,
 }
 
 impl Default for FakeApi {
@@ -179,6 +187,9 @@ impl Default for FakeApi {
             hiccups: Mutex::new(std::collections::VecDeque::new()),
             redemptions: Mutex::new(Vec::new()),
             keys: Mutex::new(Vec::new()),
+            pending: Mutex::new(Vec::new()),
+            confirm_hiccups: Mutex::new(std::collections::VecDeque::new()),
+            limited: Mutex::new(std::collections::VecDeque::new()),
         }
     }
 }
@@ -223,17 +234,17 @@ impl FakeApi {
 
     /// The proof redeemed for `platform`, or redeemed again with the key it was redeemed with:
     /// the platform credential it issues, the one a redemption before issued revoked.
-    fn redeem(
-        &self,
-        device: &DeviceCredential,
-        platform: &PlatformClient,
-        key: &RedemptionKey,
-    ) -> Option<SignedIn> {
+    fn redeem(&self, device: &DeviceCredential, key: &RedemptionKey) -> Option<SignedIn> {
         if !self.on_device.contains(&ACCOUNT) {
             return None;
         }
         if self.proven(device) {
-            let signed_in = self.signed_in(device, Some(platform));
+            // The proof is spent at once (R6): nothing for the new credential to replace.
+            self.secrets
+                .lock()
+                .unwrap()
+                .retain(|secret| secret != device.device_secret.expose());
+            let signed_in = self.issue();
             self.redemptions.lock().unwrap().push(Redemption {
                 proof: device.device_secret.expose().into(),
                 key: key.expose().into(),
@@ -248,9 +259,14 @@ impl FakeApi {
                 && redemption.key == key.expose()
         })?;
         let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
-        let mut secrets = self.secrets.lock().unwrap();
-        secrets.retain(|secret| *secret != redemption.issued);
-        secrets.push(issued.clone());
+        // The credential the attempt before issued is revoked, confirmed or not (R7).
+        self.secrets
+            .lock()
+            .unwrap()
+            .retain(|secret| *secret != redemption.issued);
+        let mut pending = self.pending.lock().unwrap();
+        pending.retain(|(secret, _)| *secret != redemption.issued);
+        pending.push((issued.clone(), None));
         redemption.issued = issued.clone();
         Some(SignedIn {
             user_id: ACCOUNT.into(),
@@ -259,21 +275,51 @@ impl FakeApi {
         })
     }
 
+    /// A platform credential issued pending (R8), nothing replaced: the redemption's.
+    fn issue(&self) -> SignedIn {
+        let (user, device_id) = self.signs_in.unwrap_or((ACCOUNT, DEVICE));
+        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
+        self.pending.lock().unwrap().push((issued.clone(), None));
+        SignedIn {
+            user_id: user.into(),
+            device_id: device_id.into(),
+            device_secret: Some(Secret::new(issued)),
+        }
+    }
+
+    /// The pending credentials expire (their ten minutes passed).
+    pub(crate) fn expire(&self) {
+        self.pending.lock().unwrap().clear();
+    }
+
+    /// Whether `secret` was issued and is still pending.
+    pub(crate) fn is_pending(&self, secret: &str) -> bool {
+        self.pending
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(pending, _)| pending == secret)
+    }
+
     pub(crate) fn revoke(&self) {
         self.revoked.store(true, Ordering::SeqCst);
     }
 
-    /// A sign-in completed: naming the platform's client, it retires the proof and issues the
-    /// platform credential; otherwise another holder secret beside the others.
+    /// A sign-in completed: naming the platform's client, it issues the platform credential
+    /// pending (R8), which retires the proof once confirmed; otherwise another holder secret
+    /// beside the others.
     fn signed_in(&self, device: &DeviceCredential, platform: Option<&PlatformClient>) -> SignedIn {
         let (user, device_id) = self.signs_in.unwrap_or((ACCOUNT, DEVICE));
         assert!(self.proven(device), "a sign-in carries the device's proof");
         let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
-        let mut secrets = self.secrets.lock().unwrap();
         if platform.is_some() {
-            secrets.retain(|secret| secret != device.device_secret.expose());
+            self.pending
+                .lock()
+                .unwrap()
+                .push((issued.clone(), Some(device.device_secret.expose().into())));
+        } else {
+            self.secrets.lock().unwrap().push(issued.clone());
         }
-        secrets.push(issued.clone());
         SignedIn {
             user_id: user.into(),
             device_id: device_id.into(),
@@ -363,6 +409,9 @@ impl OxyApi for FakeApi {
     ) -> Result<SignedIn, ApiError> {
         self.call(Call::PlatformDevice)?;
         self.keys.lock().unwrap().push(key.expose().into());
+        if let Some(retry_after) = self.limited.lock().unwrap().pop_front() {
+            return Err(ApiError::Locked { retry_after });
+        }
         let hiccup = self.hiccups.lock().unwrap().pop_front();
         match hiccup {
             Some(Hiccup::Unreachable) => {
@@ -385,11 +434,50 @@ impl OxyApi for FakeApi {
         // Redeemable once (the proof is the handed-over secret, still live), or again with the
         // key it was redeemed with.
         let signed_in = self
-            .redeem(device, platform, key)
+            .redeem(device, key)
             .ok_or(ApiError::InvalidDeviceSecret)?;
         match hiccup {
             Some(Hiccup::AnswerLost) => Err(ApiError::Offline("connection reset".into())),
             _ => Ok(signed_in),
+        }
+    }
+
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError> {
+        self.call(Call::Confirm)?;
+        let hiccup = self.confirm_hiccups.lock().unwrap().pop_front();
+        if hiccup == Some(Hiccup::Unreachable) {
+            return Err(ApiError::Offline("connection timed out".into()));
+        }
+        if hiccup == Some(Hiccup::Unavailable) {
+            return Err(ApiError::Refused {
+                status: 503,
+                code: None,
+            });
+        }
+        let secret = credential.device_secret.expose();
+        if credential.device_id != DEVICE {
+            return Err(ApiError::InvalidDeviceSecret);
+        }
+        let mut pending = self.pending.lock().unwrap();
+        if let Some(index) = pending.iter().position(|(issued, _)| issued == secret) {
+            let (issued, replaces) = pending.remove(index);
+            let mut secrets = self.secrets.lock().unwrap();
+            if let Some(replaces) = replaces {
+                secrets.retain(|live| *live != replaces);
+            }
+            secrets.push(issued);
+        } else if !self
+            .secrets
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|live| live == secret)
+        {
+            return Err(ApiError::InvalidDeviceSecret);
+        }
+        match hiccup {
+            Some(Hiccup::AnswerLost) => Err(ApiError::Offline("connection reset".into())),
+            _ => Ok(()),
         }
     }
 
