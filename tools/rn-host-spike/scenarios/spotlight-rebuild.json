@@ -1,0 +1,172 @@
+{
+ "about": "Settings › Spotlight's Rebuild Index… (docs/adr/0051-search.mdx, decision 14) on the real search service, on a home the scenario makes, in English: the page follows the index's state (the service started at its first question, its first crawl told as it ends, never asked on a clock); Rebuild Index… asks first, and cancelled, the dialog goes and the page is as it was; confirmed, the service builds a new index from the files beside the one answering and puts it in its place, the page told as it goes and showing what the new index holds; every press Settings', exactly, and nothing else delivered.",
+ "module": "OxyOSSettings",
+ "locale": "en_US.UTF-8",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings"
+  ]
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Documents/journal.txt": "dear diary",
+   "Documents/Projects/": "",
+   "Documents/Projects/lighthouse budget.txt": "paint and glass"
+  }
+ },
+ "steps": [
+  {
+   "name": "Spotlight, from the sidebar: Search Privacy… and Rebuild Index… under the results' switches",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Spotlight"
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Search results",
+     "Search Privacy…",
+     "Rebuild Index…"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Rebuild Index…"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the index's state, followed: the first crawl told as it ends",
+   "do": [
+    "wait",
+    4000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts_matching": [
+     "^\\d+ items indexed$"
+    ],
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Rebuild Index… asks first",
+   "do": [
+    "press_named",
+    "Rebuild Index…"
+   ],
+   "expect": {
+    "texts": [
+     "Rebuild the Spotlight index?",
+     "Spotlight reads your files again from the start. Until the new index is ready, searches use the current one. This can take a while.",
+     "Rebuild",
+     "Cancel"
+    ],
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "cancelled: the dialog goes, the index as it was",
+   "do": [
+    "press_named",
+    "Cancel"
+   ],
+   "expect": {
+    "absent": [
+     "Rebuild the Spotlight index?"
+    ],
+    "texts_matching": [
+     "^\\d+ items indexed$"
+    ],
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Rebuild Index… again",
+   "do": [
+    "press_named",
+    "Rebuild Index…"
+   ],
+   "expect": {
+    "texts": [
+     "Rebuild the Spotlight index?"
+    ],
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "confirmed: the dialog goes and the service rebuilds",
+   "do": [
+    "press_named",
+    "Rebuild"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Rebuild the Spotlight index?"
+    ],
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "rebuilt: the new index answers, the page told what it holds, Rebuild Index… available again",
+   "do": [
+    "wait",
+    4000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts_matching": [
+     "^\\d+ items indexed$"
+    ],
+    "absent": [
+     "Rebuild the Spotlight index?"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Rebuild Index…"
+      }
+     ]
+    },
+    "delivered": {}
+   }
+  }
+ ]
+}
