@@ -1811,42 +1811,51 @@ std::shared_ptr<TurboModule> createHostModule(
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
     // thumbnail pressed, `file://`, docs/adr/0028-file-access.mdx, decision 6) or a URL of a scheme
     // its entry declares (the dock's Trash opening Dropsea at dropsea://trash, docs/adr/0034-the-dock.mdx);
-    // else none. An application opens no other application's links yet (there is no browser, and no
-    // request for one) but the platform's Settings (below): any other fails with the reason.
+    // else none.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       const char* url = std::getenv("OXYOS_LAUNCH_URL");
       if (url && *url) return resolved(rt, jsi::String::createFromUtf8(rt, url));
       return resolved(rt, jsi::Value::null());
     });
-    // The one kind an application opens is the platform's Settings at a page
-    // (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), as a Mac's application opens
-    // `x-apple.systempreferences:`: asked of the session from its window, citing the person's
-    // latest press or key, resolved once the session opened it.
+    // It opens a URL by its scheme (docs/adr/0058-the-platform-api.mdx, step 6): the platform's
+    // Settings at a page, as a Mac's application opens `x-apple.systempreferences:`, or the
+    // application whose entry declares the scheme, as `NSWorkspace.open`: asked of the session
+    // from its window, citing the person's latest press or key, resolved once the session opened
+    // it. A file is opened by its type, never as a URL. Whether an application declares the scheme
+    // is the session's to say, as it opens it: `canOpenURL` says only whether the URL is one this
+    // window may ask to open.
     auto schemeOf = [](const std::string& url) {
       auto colon = url.find(':');
       std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
       std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
       return scheme;
     };
-    auto opensSettings = [&services, schemeOf](const std::string& url) {
-      return services.openSettingsUrl && url.find(':') != std::string::npos &&
-             schemeOf(url) == OXYOS_PLATFORM_SETTINGS_SCHEME;
+    auto opensByScheme = [&services, schemeOf](const std::string& url) {
+      // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
+      auto scheme = schemeOf(url);
+      bool named = url.find(':') != std::string::npos && !scheme.empty() &&
+                   std::isalpha(static_cast<unsigned char>(scheme[0])) &&
+                   std::all_of(scheme.begin(), scheme.end(),
+                               [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
+      return services.openUrl && named && scheme != "file";
     };
-    module->method("canOpenURL", [opensSettings](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      return resolved(rt, jsi::Value(count > 0 && args[0].isString() && opensSettings(args[0].asString(rt).utf8(rt))));
+    module->method("canOpenURL", [opensByScheme](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      return resolved(rt, jsi::Value(count > 0 && args[0].isString() && opensByScheme(args[0].asString(rt).utf8(rt))));
     });
-    module->method("openURL", [&services, invoker, opensSettings, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
+    module->method("openURL", [&services, invoker, opensByScheme, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
                                                                            size_t count) {
       std::string url = count > 0 ? text(rt, args[0]) : "";
-      if (!opensSettings(url)) {
-        return rejected(rt, "OxyOS has no application that opens " + schemeOf(url) + " links yet (" + url + ")");
+      if (!opensByScheme(url)) {
+        return rejected(rt, schemeOf(url) == "file"
+                                ? "OxyOS opens a file by its type, never as a URL (" + url + ")"
+                                : "OxyOS opens no " + url + " from here: not a URL it can ask to open");
       }
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "openURL"), 2,
           [&services, invoker, url](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
             auto reject = std::make_shared<jsi::Value>(rt, args[1]);
-            services.openSettingsUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
+            services.openUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
               invoker->invokeAsync([resolve, reject, opened, reason, url](jsi::Runtime& rt) {
                 if (opened) {
                   resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(true));

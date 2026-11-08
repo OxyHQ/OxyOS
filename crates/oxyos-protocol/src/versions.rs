@@ -71,7 +71,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// search (`SearchRequest`, `SearchText`, docs/adr/0051-search.mdx), both ways, asked by any
 /// client, the index's changes sent unasked to a client that asked to watch them; version 32, a
 /// lock surface's PIN (`AuthenticatePasscode`, docs/adr/0020-oxy-account-login.mdx decision 2),
-/// asked by a lock surface.
+/// asked by a lock surface; version 33 adds no message: an application's `OpenUrl` may name any
+/// scheme but `file` (`APPLICATION_OPENS_URLS_VERSION`).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),

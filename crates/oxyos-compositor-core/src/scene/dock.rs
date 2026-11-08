@@ -24,7 +24,7 @@ use super::launch::assemble;
 use super::{ClientId, Scene, SurfaceKey};
 use oxyos_protocol::{
     ApplicationListKind, ErrorCode, Event, PreeditText, TextChunk, MAX_APPLICATION_LIST_BYTES,
-    MAX_URL_BYTES, PLATFORM_SETTINGS_SCHEME,
+    MAX_URL_BYTES,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -332,12 +332,14 @@ impl Scene {
         last: bool,
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
-        // The shell opens any URL; an application only the platform's Settings at a page
-        // (`oxyos-settings:`, docs/adr/0019-settings.mdx), as a Mac's application opens
-        // `x-apple.systempreferences:`, and one at a time: its first chunk names the scheme, and
-        // beginning one drops whatever else it was sending.
+        // The shell opens any URL; an application one that names its scheme (the platform's
+        // Settings at a page, `oxyos-settings:`, docs/adr/0019-settings.mdx, or an application's,
+        // docs/adr/0058-the-platform-api.mdx, step 6), never a file (opened by its type, with its
+        // own rules), and one at a time: its first chunk names the scheme, and beginning one drops
+        // whatever else it was sending. The program opens it with the application whose entry
+        // declares the scheme, for the person's input, as a Mac's `NSWorkspace.open` does.
         if !self.clients[&client].shell && index == 0 {
-            if !opens_platform_settings(text.as_str()) {
+            if !opens_by_scheme(text.as_str()) {
                 return Err(ErrorCode::Unauthorized);
             }
             self.dock
@@ -437,11 +439,17 @@ impl Scene {
     }
 }
 
-/// Whether `text` (a URL, or its first chunk) opens the platform's Settings: it begins with its
-/// scheme, `oxyos-settings`, in any case (RFC 3986), and `:`.
-pub(super) fn opens_platform_settings(text: &str) -> bool {
-    let scheme = PLATFORM_SETTINGS_SCHEME;
-    text.len() > scheme.len()
-        && text.as_bytes()[scheme.len()] == b':'
-        && text.as_bytes()[..scheme.len()].eq_ignore_ascii_case(scheme.as_bytes())
+/// Whether `text` (a URL, or its first chunk) is one an application may ask to open: it begins
+/// with a scheme (RFC 3986: a letter, then letters, digits, `+`, `-` and `.`) and `:`, and the
+/// scheme, in any case, is not `file`.
+pub(super) fn opens_by_scheme(text: &str) -> bool {
+    let Some((scheme, _)) = text.split_once(':') else {
+        return false;
+    };
+    let mut characters = scheme.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && characters.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        && !scheme.eq_ignore_ascii_case("file")
 }

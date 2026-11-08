@@ -864,8 +864,8 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
-        // The URLs the shell opens and the force quits it asks for (docs/adr/0034-the-dock.mdx),
-        // as the session serves them.
+        // The URLs the shell and applications open, and the force quits the shell asks for
+        // (docs/adr/0034-the-dock.mdx), as the session serves them.
         for request in self.compositor.scene.take_url_requests() {
             let opened = request.with_input
                 && match launcher.open_url(&request.url) {
