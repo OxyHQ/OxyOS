@@ -100,7 +100,9 @@ jobs:
   # Backups go through Debian's restic and, for a share, rclone's SMB client (docs/adr/0059-backups.mdx):
   # the engine's and the service's tests need both, and the share's a samba of their own, which smbd
   # runs as root (it changes to the share's user). Debian trixie's are the image's versions; without
-  # them the job above skips those tests, saying why, and here they must run.
+  # them the job above skips those tests, saying why, and here they must run. So must a whole
+  # computer's restore (tests/restore.rs): its users made again on another root by Debian's
+  # groupadd and useradd (`--prefix`), and, as root here, its files' owners checked.
   backup-engine:
     strategy:
       fail-fast: false
@@ -121,3 +123,4 @@ jobs:
       - run: cargo test --locked -p oxyos-backup
         env:
           OXYOS_BACKUP_ENGINE: required
+          OXYOS_ACCOUNT_PASSWD_TOOLS: required
