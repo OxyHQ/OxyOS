@@ -7,9 +7,10 @@
 #     Actions runners and every run of the gate are its;
 #   - oxyosgate.slice: every gate's, a weight of 20 against system.slice's 100 (the machine's own
 #     work), at most GATE_CPU_QUOTA of CPU and GATE_MEMORY_MAX of memory in all; inside it each
-#     runner's slice, oxyosgate-N.slice, and a deploy's, oxyosgate-deploy.slice, sharing it evenly,
-#     each at most GATE_RUN_MEMORY_MAX (systemd nests a slice under the part of its name before a
-#     dash);
+#     runner's slice, oxyosgate-N.slice, and a deploy's, oxyosgate-deploy.slice, each at most
+#     GATE_RUN_MEMORY_MAX (systemd nests a slice under the part of its name before a dash). Their
+#     CPU they share task by task (no CPU controller below oxyosgate.slice): every gate's builds run
+#     at the least priority (run-scenarios.sh), below every gate's scenarios;
 #   - the GPU's render node (group render), and uinput with the event nodes of the development
 #     compositor's own virtual devices (named "oxyos-offscreen ...") for the scenarios that go
 #     through libinput (group oxyos-uinput), instead of running those as root;
@@ -31,7 +32,7 @@ GATE_MEMORY_MAX=${GATE_MEMORY_MAX:-32G}
 GATE_RUN_MEMORY_MAX=${GATE_RUN_MEMORY_MAX:-16G}
 RUNNER_LABEL=oxyos-gate
 
-# gate_slice NAME DESCRIPTION: one gate's slice in oxyosgate.slice, an even share of it.
+# gate_slice NAME DESCRIPTION: one gate's slice in oxyosgate.slice, its memory capped.
 gate_slice() {
   cat > "/etc/systemd/system/$1" <<EOF
 # OxyOS's scenario gate (docs/developing.mdx), written by tools/gate/machine.sh: $2.
