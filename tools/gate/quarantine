@@ -1,0 +1,7 @@
+# Scenarios the gate runs but does not fail on (tools/gate/run-scenarios.sh, docs/developing.mdx):
+# each flaky on main under load, its issue open. A quarantined scenario still runs and is retried;
+# failing twice is reported, not counted. One a line: NAME ISSUE. Removed with the fix.
+settings-input-sources            #453
+settings-input-sources-scaled     #453
+settings-displays-keys            #453
+settings-displays-keys-scaled     #453

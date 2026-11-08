@@ -250,6 +250,17 @@ impl Scene {
             .collect()
     }
 
+    /// The clients told the account's applications' capabilities unasked as they change (serial
+    /// 0): those with the `privacy` grant, Settings (its Privacy page and Login Items &
+    /// Extensions, docs/adr/0060-login-items-and-background-activity.mdx).
+    pub fn privacy_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.privacy)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// A sheet to show, described by `text`, asked for `asker` (a client whose request it is, if
     /// any: when it goes, the sheet is withdrawn and answered no). Sent to every shell connected
     /// and to any that connects before it is answered; its number, or none if too many are asked.

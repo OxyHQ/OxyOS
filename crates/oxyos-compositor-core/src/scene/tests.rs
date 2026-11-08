@@ -1432,7 +1432,7 @@ fn activity_counts_the_persons_input_and_nothing_else() {
         &|scene| scene.pointer_button(BUTTON, true),
         &|scene| scene.pointer_button(BUTTON, false),
         &|scene| scene.pointer_scroll(0, 256, ScrollSource::Wheel, false),
-        &|scene| scene.pointer_pinch(GesturePhase::Begin, 65536, 0),
+        &|scene| scene.pointer_pinch(GesturePhase::Begin, 2, 65536, 0),
         &|scene| scene.key(30, true),
         &|scene| scene.keyboard(30, false, None),
         &|scene| scene.text("a"),
@@ -2827,11 +2827,11 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
             .collect()
     };
     // An update with no pinch begun reaches nobody.
-    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 65536, 0);
     assert!(pinches(h.pump()).is_empty());
     // At the pointer, in the window's coordinates (1/256 of a pixel, as a pointer event's).
-    h.scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
-    h.scene.pointer_pinch(GesturePhase::Update, 98304, -2560);
+    h.scene.pointer_pinch(GesturePhase::Begin, 2, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 98304, -2560);
     assert_eq!(
         pinches(h.pump()),
         [
@@ -2851,8 +2851,8 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
     let o = h.rect(other);
     h.scene.pointer_motion(o.x + 10, o.y + 10);
     h.pump();
-    h.scene.pointer_pinch(GesturePhase::Update, 131072, 0);
-    h.scene.pointer_pinch(GesturePhase::End, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::End, 2, 131072, 0);
     let (x, y) = ((o.x + 10 - w.x) * 256, (o.y + 10 - w.y) * 256);
     assert_eq!(
         pinches(h.pump()),
@@ -2862,7 +2862,7 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
         ]
     );
     // After it ends, an update without a new beginning reaches nobody.
-    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 65536, 0);
     assert!(pinches(h.pump()).is_empty());
     // A pinch is not a press: focus and stacking are unchanged.
     assert_eq!(h.scene.focus(), focus);
@@ -5816,6 +5816,43 @@ fn a_login_screens_password_carries_its_account_once() {
 }
 
 #[test]
+fn a_pin_is_said_for_its_password_alone() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.lock();
+    let surface = h.lock_surface(1);
+    let pin = Request::AuthenticatePasscode { surface: 1 };
+    h.request(LOCKER, pin).unwrap();
+    h.give_password(surface, "482916").unwrap();
+    let submitted = h.scene.take_authentication().unwrap();
+    assert!(submitted.passcode);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    // The next one is the password again, unless said once more.
+    h.give_password(surface, "correct horse").unwrap();
+    assert!(!h.scene.take_authentication().unwrap().passcode);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    // Only a lock surface says it; said while unlocked, or for a surface gone, it is for nothing.
+    assert_eq!(
+        h.request(APP, Request::AuthenticatePasscode { surface: window.id }),
+        Err(ErrorCode::InvalidRole)
+    );
+    h.scene.unlock();
+    h.request(LOCKER, pin).unwrap();
+    h.scene.lock();
+    h.give_password(surface, "482916").unwrap();
+    assert!(!h.scene.take_authentication().unwrap().passcode);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    h.request(LOCKER, pin).unwrap();
+    h.request(LOCKER, Request::Destroy { surface: 1 }).unwrap();
+    let surface = h.lock_surface(2);
+    h.give_password(surface, "482916").unwrap();
+    assert!(!h.scene.take_authentication().unwrap().passcode);
+}
+
+#[test]
 fn only_a_lock_surface_while_locked_gives_a_password() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
@@ -8148,6 +8185,8 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// AutoFill's list and its fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
 mod autofill;
+/// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
+mod background;
 mod choosers;
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;

@@ -4,9 +4,10 @@
  * `oxyos-session --greeter`), the compositor locked from the start. Its root, the output's
  * background, is the wallpaper; the login screen is a lock surface of its own, the only thing the
  * compositor shows and reaches. The accounts are the accounts' service's; the password goes
- * through the compositor to the login program, never further into JavaScript. Adding an account
- * runs the Oxy SDK's own sign-in (SetupSignIn.tsx) and hands the credential and the password to
- * the accounts' service through the host (`OxyOSAccountSession`), never keeping either here.
+ * through the compositor to the login program, never further into JavaScript; a PIN likewise, said
+ * as one. Adding an account runs the Oxy SDK's own sign-in (SetupSignIn.tsx) and hands the
+ * credential, the password and the PIN chosen to the accounts' service through the host
+ * (`OxyOSAccountSession`), never keeping any of them here.
  */
 import * as React from 'react';
 import { StyleSheet, TurboModuleRegistry, View } from 'react-native';
@@ -46,7 +47,7 @@ async function reachable(api: string): Promise<boolean> {
 const accountSession = TurboModuleRegistry.get<{
   getConstants(): { setup: boolean };
   platform(): unknown;
-  enroll(password: string): Promise<unknown>;
+  enroll(password: string | null, pin: string | null): Promise<unknown>;
   secondFactor(code: string): Promise<unknown>;
   endEnrollment(): void;
 }>('OxyOSAccountSession');
@@ -57,7 +58,11 @@ const setupActions: SetupActions | undefined =
     ? {
         platform: () => platformFrom(accountSession.platform()),
         SignIn: SetupSignIn,
-        enroll: async (password) => enrollAnswerFrom(await accountSession.enroll(password)),
+        enroll: async (password, pin) => {
+          // What the setup sends, for the log; never the secrets.
+          console.info(`[setup] enroll with ${password ? 'the password' : 'no password'} and ${pin ? 'a PIN' : 'no PIN'}`);
+          return enrollAnswerFrom(await accountSession.enroll(password, pin));
+        },
         secondFactor: async (code) => enrollAnswerFrom(await accountSession.secondFactor(code)),
         end: () => accountSession.endEnrollment(),
       }
@@ -76,10 +81,17 @@ export default function LoginSession() {
     const timer = setTimeout(() => setAccounts(accountsFrom(shell.accounts())), RETRY_MS);
     return () => clearTimeout(timer);
   }, [accounts, shell]);
+  // A rejected attempt may have locked a PIN out: the accounts are read again, so the screen
+  // offers the password (or Oxy) in its place.
+  const answer = shell.authentication;
+  React.useEffect(() => {
+    if (answer?.outcome === 'rejected') setAccounts(accountsFrom(shell.accounts()));
+  }, [answer?.id]);
   // The catalog's default, as the login screen's session tells it (docs/adr/0048-wallpapers.mdx).
   const wallpaper = useShellWallpaper(state?.wallpaper);
   const actions: LoginActions = {
     authenticate: (account, password) => shell.authenticate(password, account),
+    authenticatePin: (account, pin) => shell.authenticatePin(pin, account),
     answer: shell.authentication ?? undefined,
     capsLock: !!state?.capsLock,
     online: (api) => reachable(api ?? state?.oxyApi ?? 'https://api.oxy.so'),

@@ -1243,6 +1243,91 @@ fn the_audit_finds_reused_and_weak_passwords() {
 }
 
 #[test]
+fn settings_shows_codes_and_makes_strong_passwords_only_verified() {
+    let (_oxy, base) = Oxy::start();
+    let a = machine(&base, "a");
+    a.unlock(PASSWORD_A);
+    a.create();
+    // Neither a code nor a strong password before the person proved themselves.
+    assert_eq!(
+        a.settings(Request::KeychainGenerate {}),
+        refused(Reason::VerificationRequired)
+    );
+    a.verify(PASSWORD_A);
+    let Answer::GeneratedPassword(generated) = a.settings(Request::KeychainGenerate {}) else {
+        panic!("no strong password")
+    };
+    let generated = generated.expose();
+    assert_eq!(
+        generated.len(),
+        23,
+        "four groups of five, joined by hyphens"
+    );
+    assert_eq!(generated.matches('-').count(), 3);
+    // RFC 6238's SHA-1 secret ("12345678901234567890" in base32).
+    let uri = "otpauth://totp/Example:bea@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example";
+    let mut with_code = login("Coded", "bea@example.com", "pw-one", &[]);
+    with_code["totp"] = json!(uri);
+    let coded = a.put(with_code);
+    let plain = a.put(login("Plain", "bea@example.com", "pw-two", &[]));
+    let code_item = a.put(json!({"type": "totp", "title": "Example", "uri": uri}));
+    // A code that is no otpauth URI is refused, and nothing is written.
+    let mut broken = login("Broken", "bea@example.com", "pw-three", &[]);
+    broken["totp"] = json!("not a code");
+    assert_eq!(
+        a.settings(Request::KeychainPut {
+            item: serde_json::from_value(broken).unwrap()
+        }),
+        refused(Reason::InvalidRequest)
+    );
+    let listed = a.list();
+    let has_code = |id: &str| {
+        listed
+            .iter()
+            .find(|item| item.item_id == id)
+            .unwrap()
+            .has_code
+    };
+    assert!(has_code(&coded) && has_code(&code_item) && !has_code(&plain));
+    for id in [&coded, &code_item] {
+        let Answer::KeychainCode(view) = a.settings(Request::KeychainCode {
+            item_id: id.clone(),
+        }) else {
+            panic!("no code")
+        };
+        assert_eq!(view.code.expose().len(), 6);
+        assert!(view.code.expose().bytes().all(|b| b.is_ascii_digit()));
+        assert_eq!(view.period, 30);
+        assert!((1..=30).contains(&view.remaining));
+    }
+    assert_eq!(
+        a.settings(Request::KeychainCode { item_id: plain }),
+        refused(Reason::NotFound)
+    );
+    assert_eq!(
+        a.settings(Request::KeychainCode {
+            item_id: "not an id".into()
+        }),
+        refused(Reason::InvalidRequest)
+    );
+    // The registrar asks neither.
+    assert_eq!(
+        a.registrar(Request::KeychainGenerate {}),
+        refused(Reason::NotPermitted)
+    );
+    assert_eq!(
+        a.registrar(Request::KeychainCode { item_id: coded }),
+        refused(Reason::NotPermitted)
+    );
+    // Locked, the verification is gone with everything else.
+    a.lock();
+    assert_eq!(
+        a.settings(Request::KeychainGenerate {}),
+        refused(Reason::Locked)
+    );
+}
+
+#[test]
 fn a_password_changed_elsewhere_asks_for_the_previous_one() {
     let (_oxy, base) = Oxy::start();
     let a = machine(&base, "a");
@@ -1424,6 +1509,16 @@ fn the_wire_format_is_the_documented_one() {
             },
             json!({"keychainList": {"type": "login"}}),
         ),
+        (
+            Request::KeychainGenerate {},
+            json!({"keychainGenerate": {}}),
+        ),
+        (
+            Request::KeychainCode {
+                item_id: "i".into(),
+            },
+            json!({"keychainCode": {"itemId": "i"}}),
+        ),
     ] {
         assert_eq!(serde_json::to_value(&request).unwrap(), wire);
         let read: Request = serde_json::from_value(wire).unwrap();
@@ -1459,6 +1554,28 @@ fn the_wire_format_is_the_documented_one() {
             json!({"generatedPassword": "abcde-fghij-klmno-pqrs1"}),
         ),
         (Answer::KeychainLocked, json!("keychainLocked")),
+        (
+            Answer::KeychainCode(CodeView {
+                code: Secret::new("287082"),
+                period: 30,
+                remaining: 12,
+            }),
+            json!({"keychainCode": {"code": "287082", "period": 30, "remaining": 12}}),
+        ),
+        (
+            Answer::KeychainItems(vec![ItemSummary {
+                item_id: "i".into(),
+                kind: ItemKind::Login,
+                title: Secret::new("Example"),
+                username: Some(Secret::new("bea@example.com")),
+                domains: vec![Secret::new("example.com")],
+                has_code: true,
+                modified_at: "2026-11-08T10:00:00.000Z".into(),
+            }]),
+            json!({"keychainItems": [{"itemId": "i", "type": "login", "title": "Example",
+                "username": "bea@example.com", "domains": ["example.com"], "hasCode": true,
+                "modifiedAt": "2026-11-08T10:00:00.000Z"}]}),
+        ),
         (
             refused(Reason::Locked),
             json!({"refused": {"reason": "locked"}}),

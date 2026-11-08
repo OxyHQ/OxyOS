@@ -1015,3 +1015,55 @@ fn the_sessions_own_notification_is_a_system_applications_and_replaces_by_identi
         Some("5% battery remaining.")
     );
 }
+
+#[test]
+fn the_sessions_own_notification_that_opens_a_url_opens_it_as_the_shells_once() {
+    let mut h = Harness::new();
+    // Settings runs: pressing the notification does not activate it nor give it a response.
+    h.scene.set_application(APP, "so.oxy.settings");
+    h.toplevel(APP, 1, 400, 300);
+    let number = h
+        .scene
+        .post_system_notification_opening(
+            "so.oxy.settings",
+            "background-item:so.oxy.allo",
+            "Background Items Added",
+            "“Allo” added an item that can run in the background.",
+            true,
+            "oxyos-settings://login-items",
+        )
+        .unwrap();
+    h.pump();
+    // A press the shell never received opens nothing.
+    activate(&mut h, number, 0, 999);
+    assert!(h.scene.take_url_requests().is_empty());
+    let serial = shell_press(&mut h);
+    activate(&mut h, number, 0, serial);
+    h.pump();
+    let opened = h.scene.take_url_requests();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(
+        (
+            opened[0].client,
+            opened[0].serial,
+            opened[0].url.as_str(),
+            opened[0].with_input
+        ),
+        (SHELL, 0, "oxyos-settings://login-items", true)
+    );
+    assert!(!to(&h.log, APP)
+        .iter()
+        .any(|event| matches!(event, Event::NotificationResponse { .. })));
+    assert!(h.scene.take_notification_launches().is_empty());
+    // It went, as any notification pressed: pressed again, nothing more.
+    assert!(told(&to(&h.log, SHELL))[&number].removed);
+    activate(&mut h, number, 0, serial);
+    assert!(h.scene.take_url_requests().is_empty());
+    // Its answer is no request's: the shell is told nothing.
+    h.clear_log();
+    h.scene.launched(SHELL, 0, true);
+    h.pump();
+    assert!(!to(&h.log, SHELL)
+        .iter()
+        .any(|event| matches!(event, Event::LaunchResult { .. })));
+}

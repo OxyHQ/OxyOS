@@ -16,21 +16,21 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
-    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
-    DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase, Gravity, MenuField,
-    MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind,
-    PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect,
-    ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
-    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
+    BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
+    CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
+    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind,
+    ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints,
+    TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 31;
+pub const VERSION: u16 = 33;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -39,6 +39,10 @@ pub const APPLICATION_OPENS_SETTINGS_VERSION: u16 = 27;
 /// windows is the active one (docs/adr/0010-lock-screen.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
 pub const APPLICATION_LOCKS_VERSION: u16 = 27;
+/// The first version whose compositor takes a lock surface's PIN (`AuthenticatePasscode`,
+/// docs/adr/0020-oxy-account-login.mdx decision 2): an older one closes the connection for it, so
+/// a client sends one only to this version or newer.
+pub const PASSCODE_VERSION: u16 = 32;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";

@@ -3,6 +3,7 @@
 // private business; only these exports are a contract.
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
+import { createApplication, type ApplicationModule } from './application.ts';
 import { createFrameworks } from './frameworks.ts';
 import { createSession, type SystemModule } from './session.ts';
 
@@ -10,6 +11,7 @@ export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.t
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type { BackgroundItem, BackgroundItemStatus } from './application.ts';
 
 const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { api: number } } | null;
 /** The API level this runtime gives (its `api`, ADR 0030, decision 2); 0 where it says none. */
@@ -20,3 +22,10 @@ export const session = createSession(TurboModuleRegistry.get('OxyOSSystem') as S
 
 const frameworks = createFrameworks(session);
 export const { network, bluetooth, power, audio, settings, store } = frameworks;
+
+/** This application (docs/adr/0058-the-platform-api.mdx, decision 1): its login item and background
+    activity (docs/adr/0060-login-items-and-background-activity.mdx). */
+export const application = createApplication(
+  TurboModuleRegistry.get('OxyOSApplication') as ApplicationModule | null,
+  DeviceEventEmitter,
+);

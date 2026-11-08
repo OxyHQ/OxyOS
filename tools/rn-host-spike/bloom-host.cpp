@@ -57,7 +57,6 @@
 #include <react/nativemodule/defaults/DefaultTurboModules.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
-#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/components/root/RootComponentDescriptor.h>
 #include <react/renderer/components/view/BaseViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
@@ -702,6 +701,9 @@ int main(int argc, char** argv) {
   auto context = std::make_shared<ContextContainer>();
   context->insert(ImageManagerKey, std::make_shared<ImageManager>(context));
   context->insert(RuntimeSchedulerKey, std::weak_ptr<RuntimeScheduler>(instance->getRuntimeScheduler()));
+  // The window's size, which a modal starts at (modal.h); set as the surface is laid out.
+  auto modalScreen = std::make_shared<oxyos::ModalScreen>();
+  context->insert(oxyos::kModalScreenKey, modalScreen);
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
   toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
@@ -723,7 +725,8 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSDropTargetViewComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
+  // React Native's Modal, laid out at the window's size from its first rendering (modal.h).
+  providers->add(concreteComponentDescriptorProvider<oxyos::ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoImageComponentDescriptor>());
@@ -787,6 +790,13 @@ int main(int argc, char** argv) {
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
   oxyos::ShellState shellState(output);
   if (shellMode) shellState.followApplications();
+  // Settings follows the session's applications as the shell does (docs/adr/0030-installing-
+  // applications.mdx): Open at Login and Notifications name each as the registry does, one installed,
+  // updated or removed while Settings is open included (docs/adr/0060-login-items-and-background-
+  // activity.mdx). Watched once the window is granted `settings`.
+  std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> settingsApplications{
+      nullptr, oxyos_applications_watch_free};
+  bool settingsApplicationsAsked = false;
   if (windowed) {
     // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
     // shell's and the login screen's, by their package's id (the manifest beside the bundle).
@@ -927,6 +937,7 @@ int main(int argc, char** argv) {
   scheduler->registerSurface(surface);
   auto layOut = [&] {
     Size size{display.width, display.height};
+    modalScreen->size = size;
     surface.constraintLayout(LayoutConstraints{.minimumSize = size, .maximumSize = size},
                              LayoutContext{.pointScaleFactor = display.scale});
   };
@@ -1301,9 +1312,10 @@ int main(int argc, char** argv) {
             ++launchSerial;
             return window->launch(launchSerial, id) ? launchSerial : 0;
           },
-          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account) {
+          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account,
+                                                    bool passcode) {
             auto surface = shellSurfaces.lockSurface();
-            return surface && window->authenticate(*surface, secret, account);
+            return surface && window->authenticate(*surface, secret, account, passcode);
           },
           .activateMenuItem = [&window](uint32_t target, uint32_t serial, uint32_t index) {
             window->activateMenuItem(target, serial, index);
@@ -1497,6 +1509,11 @@ int main(int argc, char** argv) {
     oxyos::ChunkTexts screenshotPaths;
     uint32_t systemSerial = 0;
     std::map<uint32_t, std::string> askedCapabilities;
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the asks' serials, and whether this process may run on in the background once its window
+    // closes, as the session last said (an answer, or a change the person made), and whether it is.
+    uint32_t backgroundSerial = 0;
+    bool backgroundEnabled = false;
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
     // requests, assembled from chunks. A request and an answer cite the latest press or key, as
     // the session requires.
@@ -1557,6 +1574,17 @@ int main(int argc, char** argv) {
           return launchCapabilities.allows(capability);
         },
     };
+    // An application's window of a compositor that has them (protocol version 33) asks about its
+    // login item and background activity; the session decides, by its launch record.
+    if (!shellMode && window && window->protocolVersion() >= 33) {
+      services.backgroundItems.ask = [&window, &backgroundSerial](uint8_t kind, uint8_t action) -> uint32_t {
+        backgroundSerial = backgroundSerial == UINT32_MAX ? 1 : backgroundSerial + 1;
+        bool sent = window->backgroundItem(backgroundSerial, kind, action);
+        oxyos::Report::get().input("background.ask", 0,
+                                   folly::dynamic::object("kind", kind)("action", action)("sent", sent));
+        return sent ? backgroundSerial : 0;
+      };
+    }
     window->onClipboardChanged([&instance, &window] {
       instance->callFunctionOnModule(
           "RCTDeviceEventEmitter", "emit",
@@ -2106,7 +2134,7 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
         std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
-        std::vector<OxyOSEvent> sheetsGone, capabilityResults;
+        std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates;
         bool responded = false;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {
@@ -2140,6 +2168,7 @@ int main(int argc, char** argv) {
                 }
               }
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
+              if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
@@ -2361,7 +2390,20 @@ int main(int argc, char** argv) {
         }
         if (closeRequested || closeAsked) {
           if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
-          break;
+          // Its background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+          // application the session allows runs on without its window, its JavaScript going on (a
+          // chat's connection, a sync), as a Mac's application with no window open keeps running;
+          // the session ends it when the person turns that off or another of its processes is
+          // already there. Any other ends with its window, as an Android activity finishes.
+          if (!backgroundEnabled || window->toplevelClosed()) break;
+          closeAsked = false;
+          window->closeToplevel();
+          services.appState = "background";
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("appStateDidChange", folly::dynamic::object("app_state", "background")));
+          oxyos::Report::get().input("background.entered", 0, folly::dynamic::object());
+          std::cerr << "[host] " << applicationName << " runs on in the background\n";
         }
         // The session's preferences (docs/adr/0019-settings.mdx), as React Native's own modules tell
         // a change on Android: the appearance (a configuration change), reduce motion; the rest to
@@ -2389,13 +2431,31 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
         }
+        // Settings' applications (`getApplications`): told to read them again as the registry
+        // changes, and once as the watch begins, for a change before it.
+        if (window && !shellMode && !settingsApplicationsAsked && window->settingsGranted()) {
+          settingsApplicationsAsked = true;
+          settingsApplications.reset(oxyos_applications_watch_new());
+          if (!settingsApplications) {
+            std::cerr << "[host] Settings' applications are not followed: " << oxyos_last_error() << "\n";
+          }
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+        } else if (settingsApplications && oxyos_applications_watch_changed(settingsApplications.get())) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+        }
         // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
         // Intl's default is already the new one (the window set it); JavaScript is told, and
         // expo-localization's module tells its listeners, as Android's configuration change does.
         if (window && window->locale() != toldLocale) {
           toldLocale = window->locale();
-          // The shell's applications by their names in the new language.
+          // The shell's applications by their names in the new language, and Settings'.
           if (shellMode) shellState.relocalize();
+          if (settingsApplications) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSApplicationsChanged"));
+          }
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSLocaleChanged",
                                                                folly::dynamic::object("locale", toldLocale)));
@@ -2451,6 +2511,22 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSheetDismissed",
                                                                folly::dynamic::object("sheet", gone.code)));
+        }
+        // How its login item and background activity stand (docs/adr/0060-login-items-and-background-activity.mdx):
+        // an answer, or a change the person made (serial 0), to JavaScript; and whether it may run
+        // on without its window, which its close below follows.
+        for (const auto& state : backgroundStates) {
+          bool background = state.detail == OXYOS_BACKGROUND_ITEM_BACKGROUND;
+          if (background) backgroundEnabled = state.flag == OXYOS_BACKGROUND_ENABLED;
+          const char* status = state.flag == OXYOS_BACKGROUND_ENABLED             ? "enabled"
+                               : state.flag == OXYOS_BACKGROUND_REQUIRES_APPROVAL ? "requiresApproval"
+                               : state.flag == OXYOS_BACKGROUND_NOT_PERMITTED     ? "notPermitted"
+                                                                                  : "notRegistered";
+          folly::dynamic told = folly::dynamic::object("serial", state.code)(
+              "kind", background ? "background" : "loginItem")("status", status);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSBackgroundItemState", told));
+          oxyos::Report::get().input("background.state", 0, told);
         }
         for (const auto& result : capabilityResults) {
           auto asked = askedCapabilities.find(result.code);
@@ -3092,6 +3168,9 @@ int main(int argc, char** argv) {
           for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
           if (int applications = shellMode ? shellState.applicationsFd() : -1; applications >= 0) {
             fds.push_back({applications, POLLIN, 0});
+          }
+          if (settingsApplications) {
+            fds.push_back({oxyos_applications_watch_fd(settingsApplications.get()), POLLIN, 0});
           }
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);

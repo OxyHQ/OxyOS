@@ -119,8 +119,9 @@ struct ShellService {
   // could not be sent. `OxyOSShellLaunch` answers.
   std::function<uint32_t(const std::string& id)> launch;
   // At the login screen (docs/adr/0020-oxy-account-login.mdx) the password is for `account`, an
-  // enrolled account's Unix user; empty, the session's own user.
-  std::function<bool(const std::string& secret, const std::string& account)> authenticate;
+  // enrolled account's Unix user; empty, the session's own user. `passcode`: it is the account's
+  // PIN for this computer (decision 2).
+  std::function<bool(const std::string& secret, const std::string& account, bool passcode)> authenticate;
   // Chooses the entry `index` of the commit `serial` of window `window`'s menus, as the shell was
   // told them (docs/adr/0021-menu-bar.mdx); the compositor delivers it only if they are still the
   // active window's.
@@ -266,6 +267,15 @@ struct SystemService {
   std::function<bool(const std::string& capability)> allows;
 };
 
+// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx), for
+// an application's window of a compositor of protocol version 33: how one of its background items
+// stands, or registering or unregistering it (`kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND,
+// `action` OXYOS_BACKGROUND_ITEM_STATUS, _REGISTER, _UNREGISTER): its serial, 0 if it was not sent,
+// answered by `OxyOSBackgroundItemState` naming it (serial 0: the person changed it, unasked).
+struct BackgroundItemsService {
+  std::function<uint32_t(uint8_t kind, uint8_t action)> ask;
+};
+
 // Search (docs/adr/0051-search.mdx): whether the compositor has the search index (protocol version
 // 30, known before JavaScript starts), and a request of the index's vocabulary (its serial, 0 if it
 // was not sent), answered by `OxyOSSearchText` events naming the serial. Any window has it, the
@@ -321,6 +331,10 @@ struct HostServices {
   NotificationsService notifications{};
   SystemService system{};
   SearchService search{};
+  BackgroundItemsService backgroundItems{};
+  // React Native's AppState: `active` while it has its window, `background` once it runs on
+  // without it (docs/adr/0060-login-items-and-background-activity.mdx).
+  std::string appState = "active";
   FileChooserService fileChooser{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};

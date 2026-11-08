@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod autofill;
+pub mod background;
 pub mod backups;
 pub mod controls;
 pub mod drag_badge;
@@ -776,12 +777,13 @@ pub struct Compositor {
 /// the login program's (ADR 0020); the development compositor's a fixture, never a session's.
 pub trait Authentication {
     /// Begins checking `secret`, for `account` when the lock surface named one (a login
-    /// screen's), else for the session's own user: `None` while it is checked, or an answer at
-    /// once (busy, throttled, an account it may not check) with the seconds until another may be
-    /// tried.
+    /// screen's), else for the session's own user, as the account's PIN when `passcode` (ADR 0020
+    /// decision 2), else as its password: `None` while it is checked, or an answer at once (busy,
+    /// throttled, an account it may not check) with the seconds until another may be tried.
     fn attempt(
         &mut self,
         account: Option<&str>,
+        passcode: bool,
         secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)>;
     /// Readable when the password being checked has its answer.
@@ -3880,6 +3882,7 @@ impl Compositor {
             // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
             oxyos_input::Action::Pinch {
                 phase,
+                fingers,
                 scale,
                 rotation,
             } => self.scene.pointer_pinch(
@@ -3889,6 +3892,7 @@ impl Compositor {
                     oxyos_input::GesturePhase::End => GesturePhase::End,
                     oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
                 },
+                u8::try_from(fingers).unwrap_or(u8::MAX),
                 (scale.max(0.0) * 65536.0).round() as u32,
                 (rotation * 256.0).round() as i32,
             ),
@@ -4761,7 +4765,11 @@ impl Compositor {
                 self.scene.authenticated(key, AuthOutcome::Rejected, 0);
                 continue;
             };
-            match authentication.attempt(submitted.account.as_deref(), submitted.secret) {
+            match authentication.attempt(
+                submitted.account.as_deref(),
+                submitted.passcode,
+                submitted.secret,
+            ) {
                 None => self.checking = Some(key),
                 Some((outcome, wait_s)) => self.scene.authenticated(key, outcome, wait_s),
             }

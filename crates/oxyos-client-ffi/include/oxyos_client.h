@@ -93,6 +93,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CAPABILITY_RESULT 163
 /* Search (docs/adr/0051-search.mdx, protocol version 31). */
 #define OXYOS_EVENT_SEARCH_TEXT 164
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33). */
+#define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -132,10 +135,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_INTENT_TOGGLE 0
 #define OXYOS_SHORTCUT_INTENT_OPEN 1
 #define OXYOS_SHORTCUT_INTENT_CLOSE 2
-/* Which view a touchpad's vertical swipe drives a shell surface is (oxyos_client_set_gesture_overlay). */
+/* Which view a touchpad's gesture drives a shell surface is (oxyos_client_set_gesture_overlay):
+ * Mission Control's and App Exposé's (swiped up and down), Launchpad's (pinched, version 33). */
 #define OXYOS_GESTURE_OVERLAY_NONE 0
 #define OXYOS_GESTURE_OVERLAY_MISSION_CONTROL 1
 #define OXYOS_GESTURE_OVERLAY_APP_EXPOSE 2
+#define OXYOS_GESTURE_OVERLAY_LAUNCHPAD 3
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
@@ -152,6 +157,18 @@ typedef struct OxyOSClient OxyOSClient;
 /* Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
  * changed by it; a compositor of version 23 or later. */
 #define OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF 3
+/* An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33), as a Mac's SMAppService: itself opened at login, or its process kept
+ * running once its window closes; what it asks of one; and how one stands. */
+#define OXYOS_BACKGROUND_ITEM_LOGIN_ITEM 1
+#define OXYOS_BACKGROUND_ITEM_BACKGROUND 2
+#define OXYOS_BACKGROUND_ITEM_STATUS 1
+#define OXYOS_BACKGROUND_ITEM_REGISTER 2
+#define OXYOS_BACKGROUND_ITEM_UNREGISTER 3
+#define OXYOS_BACKGROUND_NOT_REGISTERED 1
+#define OXYOS_BACKGROUND_ENABLED 2
+#define OXYOS_BACKGROUND_REQUIRES_APPROVAL 3
+#define OXYOS_BACKGROUND_NOT_PERMITTED 4
 /* The system's interface sounds an application asks for (oxyos_client_play_system_sound). */
 #define OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH 1
 #define OXYOS_SYSTEM_SOUND_EMPTY_TRASH 2
@@ -532,6 +549,10 @@ typedef struct OxyOSClient OxyOSClient;
  *                      (0: what the client asked to watch changed, unasked), `detail` its index,
  *                      `flag` 1 on the last; `text` the chunk; JSON once whole
  *                      (docs/adr/0051-search.mdx).
+ *   BACKGROUND_ITEM_STATE  how one of the application's background items stands, answering
+ *                      oxyos_client_background_item `code` (0: the person changed it, unasked);
+ *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
+ *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -799,10 +820,11 @@ int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, boo
  * shown, flying from where they are as it arrives and back as it goes; or copies again. Said
  * before its first frame. -1 to a compositor of version 23 or older. */
 int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);
-/* Which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
- * (OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, backdrop and overlay alike, or
- * none (docs/adr/0046-interactive-gestures.mdx): the swipe drives it as far as the fingers go. Said
- * before its first frame. -1 for another value, or to a compositor of version 24 or older. */
+/* Which view a touchpad's gesture drives one of the shell's own shell surfaces is
+ * (OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, backdrop and overlay
+ * alike, or none (docs/adr/0046-interactive-gestures.mdx): the gesture drives it as far as the
+ * fingers go. Said before its first frame. -1 for another value, or to a compositor of version 24
+ * or older (32 or older for Launchpad's). */
 int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
@@ -924,6 +946,12 @@ int oxyos_client_request_capability(OxyOSClient* client, uint32_t serial, uint64
  * vocabulary (JSON); SEARCH_TEXT events naming `serial` answer. An error, sending nothing, to a
  * compositor of a version before 30. */
 int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char* text);
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+ * application asks how one of its background items stands (`kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+ * or _BACKGROUND), or registers or unregisters it (`action` OXYOS_BACKGROUND_ITEM_STATUS,
+ * _REGISTER, _UNREGISTER); a BACKGROUND_ITEM_STATE naming `serial` answers. An error, sending
+ * nothing, to a compositor of a version before 33. */
+int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),
@@ -950,6 +978,11 @@ int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char*
  * its Unix user's name (NUL-terminated, 1 to 31 bytes; null for the session's own user). */
 int oxyos_client_authenticate_account(OxyOSClient* client, uint32_t surface, const char* account, const char* secret,
                                       size_t length);
+/* The same with the account's PIN for this computer (docs/adr/0020-oxy-account-login.mdx, decision
+ * 2): checked as a PIN, never as the password and never online. Refused, nothing sent, by a
+ * compositor older than protocol version 32. */
+int oxyos_client_authenticate_passcode(OxyOSClient* client, uint32_t surface, const char* account, const char* secret,
+                                       size_t length);
 /* Focuses (and restores, showing its workspace; a window hidden with its application brings back
  * the others), closes (the application is asked), minimizes or moves (to `workspace`) the window
  * numbered `window`, hides or quits its application; activates, adds or removes a workspace. */
@@ -2039,7 +2072,8 @@ int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, 
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
- * [{"user" (its Unix user's name), "name", "picture" (a file, or null)}]. Written as
+ * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "pin" ("none", "set" or
+ * "locked"), "password" (whether it signs in)}]. Written as
  * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
 int64_t oxyos_accounts(char* out, size_t capacity);
 
@@ -2077,6 +2111,15 @@ int64_t oxyos_account_session_erase_preview(char* out, size_t capacity);
  * "unavailable", "failed"), "retryAfter"? (seconds, throttled)}}, nothing changed. Give
  * OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when the service could not be asked. */
 int64_t oxyos_account_session_erase_all(const char* password, char* out, size_t capacity);
+/* The account's local sign-in (docs/adr/0020-oxy-account-login.mdx, decision 2): JSON {"pin": "none" |
+ * "set" | "locked", "password": bool}. Settings and the shell may ask. OXYOS_ERROR otherwise. */
+int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
+/* Settings changes it: `change` "setPin" (with `pin`), "removePin", "passwordOn" or "passwordOff",
+ * proved by `password` or `current_pin` (the other null). Blocks: call it off the interface's
+ * thread. JSON {"localSignIn": {"pin", "password"}} or {"refused": {"reason", "retryAfter"?}},
+ * nothing changed. */
+int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
+                                           const char* current_pin, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */
@@ -2099,15 +2142,18 @@ int64_t oxyos_account_platform(char* out, size_t capacity);
 typedef struct OxyOSAccountEnrollment OxyOSAccountEnrollment;
 /* NULL when the service cannot be reached (oxyos_last_error). */
 OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
-/* Sends the setup: the device credential the SDK's sign-in obtained, the account's id and its
- * password (NUL-terminated UTF-8; the secrets are copied into buffers this library overwrites, the
- * caller overwrites its own). Blocks while the service signs in online. The answer, JSON:
+/* Sends the setup: the device credential the SDK's sign-in obtained, the account's id, its
+ * password (null for an account without one) and the PIN chosen for this computer (null for none;
+ * 4 to 16 digits; docs/adr/0020-oxy-account-login.mdx decision 2), NUL-terminated UTF-8; the
+ * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
+ * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
  * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}}; larger than `capacity`, oxyos_account_enrollment_answer gives it again.
+ * "retryAfterSeconds"}} ("pinRequired": a setup without a password, by the QR, needs a PIN;
+ * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
                                         const char* device_secret, const char* account_id,
-                                        const char* password, char* out, size_t capacity);
+                                        const char* password, const char* pin, char* out, size_t capacity);
 /* Answers the second factor the service asked for (`code`, secret): the answer as _enroll's; a wrong
  * code {"refused": {"reason": "secondFactorInvalid"}}, after which another may be sent. */
 int64_t oxyos_account_enrollment_second_factor(OxyOSAccountEnrollment* enrollment, const char* code,

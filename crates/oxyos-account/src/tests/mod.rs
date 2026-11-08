@@ -10,6 +10,8 @@ mod id;
 mod ipc;
 #[cfg(feature = "keychain")]
 mod keychain;
+#[cfg(feature = "local")]
+mod pin;
 mod platform;
 mod session;
 mod setup;
@@ -94,6 +96,7 @@ pub(crate) enum Call {
     Profile,
     Password,
     SecondFactor,
+    PlatformDevice,
     AppToken,
     SignOut,
 }
@@ -271,6 +274,25 @@ impl OxyApi for FakeApi {
             return Err(ApiError::SecondFactorInvalid);
         }
         Ok(self.signed_in(device, platform))
+    }
+
+    fn platform_device_sign_in(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+    ) -> Result<SignedIn, ApiError> {
+        self.call(Call::PlatformDevice)?;
+        self.platforms.lock().unwrap().push(Some(platform.clone()));
+        if self.locked {
+            return Err(ApiError::Locked {
+                retry_after: Some(900),
+            });
+        }
+        // Redeemable once: the proof is the handed-over secret, still live.
+        if !self.proven(device) || !self.on_device.contains(&ACCOUNT) {
+            return Err(ApiError::InvalidDeviceSecret);
+        }
+        Ok(self.signed_in(device, Some(platform)))
     }
 
     fn mint_app_token(

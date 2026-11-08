@@ -1,0 +1,300 @@
+{
+  "about": "Adding an Oxy account that has a password, by its QR, with a PIN for this computer (docs/adr/0020-oxy-account-login.mdx, decision 2 as amended): \"Add Account\", the SDK's chooser with its QR, a phone's approval, and the screen asks for a PIN, its field focused, required, and never asks for or offers the account's password (a sign-in by the QR involves none, as Oxy's own Commons model); something that is no PIN is said and asked again; typed again different, chosen again. The accounts' service sets the account up with the credential and the PIN alone; enrolled, the new account is chosen and its PIN's field focused, with no password offered. A wrong PIN is checked by the accounts' service (oxyos-pin-check under the login program's PIN service, never Oxy) and said; the right one signs it in.",
+  "shell": "OxyOSLogin",
+  "outputs": "1280x800",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Bea Ramos"
+      }
+    ],
+    "record": [
+      "session would start for oxy-cccccccccccccccccccc (user session): "
+    ],
+    "oxy": {
+      "identifier": "ada",
+      "code": "246810",
+      "id": "0123456789abcdef01234569",
+      "username": "ada",
+      "name": "Ada Lovelace",
+      "has_password": true,
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "qr": {
+        "approve": "socket",
+        "approve_after_ms": 7500
+      }
+    },
+    "enroll": {
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "password": "played password 1",
+      "account": {
+        "accountId": "0123456789abcdef01234569",
+        "user": "oxy-cccccccccccccccccccc",
+        "uid": 1003,
+        "name": "Ada Lovelace"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "the login screen with one account",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Add Account: setup, online, the SDK's chooser asking for its QR",
+      "do": [
+        "press_named",
+        "Add Account"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "platform: platform"
+        ],
+        "delivered": {},
+        "oxy_requests": [
+          "POST /auth/session/create 200",
+          "WS /auth-session join {token} 101"
+        ]
+      }
+    },
+    {
+      "name": "the SDK's chooser, its QR beside the form, the field focused",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Add an Oxy Account",
+            "Sign in",
+            "Email or username",
+            "Scan with Commons to sign in",
+            "Create account"
+          ],
+          "absent": [
+            "Get Commons",
+            "Commons isn't installed"
+          ],
+          "focus_input": "signin-identifier"
+        }
+      }
+    },
+    {
+      "name": "a phone approves the QR: the session claimed, and a PIN for this computer asked, its field focused",
+      "do": [
+        "wait",
+        4000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "oxy_requests": [
+          "POST /auth/session/claim 200",
+          "GET /users/me/sign-in-methods 200"
+        ],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Choose a PIN for this computer",
+            "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it."
+          ],
+          "absent": [
+            "Email or username",
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password"
+          ],
+          "focus_input": "login-setup-pin-password"
+        }
+      }
+    },
+    {
+      "name": "what is no PIN is not taken: it is asked again, said why",
+      "do": [
+        "keyboard",
+        "12\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Choose a PIN for this computer",
+            "A PIN is 4 to 16 digits, and not your password."
+          ],
+          "focus_input": "login-setup-pin-password"
+        }
+      }
+    },
+    {
+      "name": "a PIN, then typed again: a different one is said, and it is chosen again",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Enter the PIN again"
+          ],
+          "focus_input": "login-setup-pin-again-password"
+        }
+      }
+    },
+    {
+      "name": "typed again wrong: chosen again",
+      "do": [
+        "keyboard",
+        "482917\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Choose a PIN for this computer",
+            "The PINs don't match. Choose it again."
+          ],
+          "focus_input": "login-setup-pin-password"
+        }
+      }
+    },
+    {
+      "name": "the PIN chosen: typed again, its field focused",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Enter the PIN again"
+          ],
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "typed again the same: the account set up with its PIN alone, never asked its password; listed and chosen, its PIN's field focused",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "enroll: enrolled"
+        ],
+        "delivered": {},
+        "never": [
+          "482916",
+          "played password 1"
+        ],
+        "in_shell": {
+          "texts": [
+            "Bea Ramos",
+            "Ada Lovelace",
+            "Add Account"
+          ],
+          "absent": [
+            "Add an Oxy Account",
+            "Enter Ada Lovelace's password",
+            "Use Password"
+          ],
+          "focus_input": "login-pin-password",
+          "never": [
+            "played password 1",
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a wrong PIN: checked by the accounts' service, never online, and said",
+      "do": [
+        "keyboard",
+        "000000\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "verifyPin: rejected"
+        ],
+        "delivered": {},
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Incorrect PIN"
+          ],
+          "focus_input": "login-pin-password"
+        }
+      }
+    },
+    {
+      "name": "its PIN signs it in",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "verifyPin: accepted"
+        ],
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "never": [
+          "482916",
+          "played password 1",
+          "oxyos.correcta"
+        ],
+        "in_shell": {
+          "never": [
+            "482916",
+            "played password 1",
+            "oxyos.correcta"
+          ]
+        }
+      }
+    }
+  ]
+}

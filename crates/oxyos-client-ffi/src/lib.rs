@@ -283,12 +283,14 @@ pub const OXYOS_SHORTCUT_REVEAL: u32 = 15;
 pub const OXYOS_SHORTCUT_INTENT_TOGGLE: u8 = 0;
 pub const OXYOS_SHORTCUT_INTENT_OPEN: u8 = 1;
 pub const OXYOS_SHORTCUT_INTENT_CLOSE: u8 = 2;
-/// Which view a touchpad's vertical swipe drives a shell surface is
+/// Which view a touchpad's gesture drives a shell surface is
 /// (`oxyos_client_set_gesture_overlay`, protocol version 25): none, Mission Control's or App
-/// Exposé's.
+/// Exposé's (swiped up and down); and Launchpad's (pinched with the thumb and three fingers),
+/// since version 33.
 pub const OXYOS_GESTURE_OVERLAY_NONE: u8 = 0;
 pub const OXYOS_GESTURE_OVERLAY_MISSION_CONTROL: u8 = 1;
 pub const OXYOS_GESTURE_OVERLAY_APP_EXPOSE: u8 = 2;
+pub const OXYOS_GESTURE_OVERLAY_LAUNCHPAD: u8 = 3;
 /// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
 /// screenshot interface to show or change (serial: a user input of its own, the same until the
 /// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:
@@ -314,6 +316,18 @@ pub const OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN: u32 = 2;
 /// Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
 /// changed by it; a compositor of version 23 or later.
 pub const OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF: u32 = 3;
+/// An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
+/// protocol version 33), as a Mac's `SMAppService`: itself opened at login, or its process kept
+/// running once its window closes; what it asks of one; and how one stands.
+pub const OXYOS_BACKGROUND_ITEM_LOGIN_ITEM: u8 = 1;
+pub const OXYOS_BACKGROUND_ITEM_BACKGROUND: u8 = 2;
+pub const OXYOS_BACKGROUND_ITEM_STATUS: u8 = 1;
+pub const OXYOS_BACKGROUND_ITEM_REGISTER: u8 = 2;
+pub const OXYOS_BACKGROUND_ITEM_UNREGISTER: u8 = 3;
+pub const OXYOS_BACKGROUND_NOT_REGISTERED: u8 = 1;
+pub const OXYOS_BACKGROUND_ENABLED: u8 = 2;
+pub const OXYOS_BACKGROUND_REQUIRES_APPROVAL: u8 = 3;
+pub const OXYOS_BACKGROUND_NOT_PERMITTED: u8 = 4;
 /// The system's interface sounds an application asks for (`oxyos_client_play_system_sound`,
 /// docs/adr/0044-system-sounds.mdx): items put in the Trash, the Trash emptied.
 pub const OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH: u32 = 1;
@@ -447,6 +461,10 @@ pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 /// oxyos_client_search_request `code` (0: what the client asked to watch changed, unasked);
 /// detail, its index (0 begins it); flag 1 on the last; text, the chunk.
 pub const OXYOS_EVENT_SEARCH_TEXT: u32 = 164;
+/// Login items and background activity (protocol version 33): how one of the application's
+/// background items stands, answering oxyos_client_background_item `code` (0: the person changed
+/// it, unasked); detail, its kind (OXYOS_BACKGROUND_ITEM_*); flag, its status (OXYOS_BACKGROUND_*).
+pub const OXYOS_EVENT_BACKGROUND_ITEM_STATE: u32 = 165;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -1939,6 +1957,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::BackgroundItemState {
+            serial,
+            kind,
+            status,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_BACKGROUND_ITEM_STATE,
+                code: serial,
+                detail: u32::from(kind as u8),
+                flag: status as u8,
+                ..out
+            }
+        }
         Event::Activated { surface, active } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_ACTIVATED,
@@ -2912,6 +2943,41 @@ pub unsafe extern "C" fn oxyos_client_request_capability(
     }
 }
 
+/// An application asks how one of its background items stands, or registers or unregisters it
+/// (docs/adr/0060-login-items-and-background-activity.mdx): `kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+/// or _BACKGROUND, `action` OXYOS_BACKGROUND_ITEM_STATUS, _REGISTER or _UNREGISTER. A
+/// BACKGROUND_ITEM_STATE naming `serial` answers. 0 on success; an error, sending nothing, for an
+/// unknown kind or action, or to a compositor of a version before 33.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_background_item(
+    client: *mut OxyOSClient,
+    serial: u32,
+    kind: u8,
+    action: u8,
+) -> c_int {
+    let Some(kind) = oxyos_protocol::BackgroundItemKind::from_raw(kind) else {
+        return fail("unknown background item");
+    };
+    let Some(action) = oxyos_protocol::BackgroundItemAction::from_raw(action) else {
+        return fail("unknown background item action");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::BackgroundItem {
+                serial,
+                kind,
+                action,
+            },
+        )
+    }
+}
+
 /// Locks the session (the session's shell, with the `shell` grant). 0 on success.
 ///
 /// # Safety
@@ -2958,6 +3024,41 @@ pub unsafe extern "C" fn oxyos_client_authenticate_account(
     length: usize,
 ) -> c_int {
     // SAFETY: forwarded caller contract.
+    unsafe { authenticate(client, surface, account, false, secret, length) }
+}
+
+/// As `oxyos_client_authenticate_account`, the secret being the account's PIN for this computer
+/// (docs/adr/0020-oxy-account-login.mdx decision 2): the session checks it as a PIN, never as the
+/// password and never online. Refused (nothing sent) by a compositor older than protocol version
+/// 32. 0 on success.
+///
+/// # Safety
+/// As `oxyos_client_authenticate_account`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_authenticate_passcode(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { authenticate(client, surface, account, true, secret, length) }
+}
+
+/// # Safety
+/// As `oxyos_client_authenticate_account`.
+#[allow(unsafe_code)]
+unsafe fn authenticate(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    passcode: bool,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {
         return fail("null client");
     };
@@ -2988,8 +3089,17 @@ pub unsafe extern "C" fn oxyos_client_authenticate_account(
                 None => return fail("an account is a user name of 1 to 31 bytes of UTF-8"),
             }
         };
+    // A PIN to a compositor that would not know it for one is never sent as a password.
+    if passcode && client.version() < oxyos_protocol::PASSCODE_VERSION {
+        return fail("the compositor takes no PIN (protocol version 32)");
+    }
     if let Some(user) = account.and_then(PreeditText::new) {
         if let Err(error) = client.send(&Request::AuthenticateAccount { surface, user }) {
+            return fail(error);
+        }
+    }
+    if passcode {
+        if let Err(error) = client.send(&Request::AuthenticatePasscode { surface }) {
             return fail(error);
         }
     }
@@ -3887,13 +3997,13 @@ pub unsafe extern "C" fn oxyos_client_move_windows_to_views(
     unsafe { send(client, Request::MoveWindowsToViews { surface, moved }) }
 }
 
-/// Says which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
-/// (`overlay`, OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, its backdrop and its
-/// overlay alike, or none (docs/adr/0046-interactive-gestures.mdx). While such a surface is shown,
-/// the swipe back closes it as far as the fingers go; while a swipe opening it drives it, it
-/// arrives as far as they have gone. Said before the surface's first frame, it holds from its
-/// arrival. 0 on success; -1 for an overlay the protocol does not have, or to a compositor of
-/// version 24 or older, which is sent nothing.
+/// Says which view a touchpad's gesture drives one of the shell's own shell surfaces is
+/// (`overlay`, OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, its
+/// backdrop and its overlay alike, or none (docs/adr/0046-interactive-gestures.mdx). While such a
+/// surface is shown, the gesture back closes it as far as the fingers go; while a gesture opening
+/// it drives it, it arrives as far as they have gone. Said before the surface's first frame, it
+/// holds from its arrival. 0 on success; -1 for an overlay the protocol does not have, or to a
+/// compositor of version 24 or older (32 or older for Launchpad's), which is sent nothing.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.

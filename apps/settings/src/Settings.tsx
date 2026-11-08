@@ -29,6 +29,7 @@ import {
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiLoginBoxLine,
   RiLockLine,
   RiMoreLine,
   RiMouseLine,
@@ -77,6 +78,7 @@ import {
   refreshRates,
   resolutions,
   sideOfKey,
+  swipeItems,
   type Appearance,
   type Display,
   type HourCycle,
@@ -88,7 +90,10 @@ import {
   type SettingsActions,
   type SettingsSnapshot,
   type Side,
+  type SwipeFingers,
 } from "./model";
+import { fingerCount, type Gesture } from "./gestures";
+import { GestureIllustration } from "./GestureIllustration";
 import {
   currentNetwork,
   detailRows,
@@ -159,6 +164,8 @@ import { BackupsPage } from "./BackupsPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { LoginItemsPage } from "./LoginItemsPage";
+import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -177,12 +184,14 @@ type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings
 function ToggleItem({
   title,
   description,
+  icon,
   value,
   onChange,
   testID,
 }: {
   title: string;
   description?: string;
+  icon?: React.ReactNode;
   value: boolean;
   onChange: (on: boolean) => void;
   testID: string;
@@ -191,6 +200,7 @@ function ToggleItem({
     <GroupedSectionItem
       title={title}
       description={description}
+      icon={icon}
       testID={testID}
       rightElement={<Switch checked={value} onCheckedChange={onChange} accessibilityLabel={title} testID={`${testID}-switch`} />}
     />
@@ -1713,18 +1723,29 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
  * result, alphabetically as a Mac lists them, each kept by the search service at once; **Search
  * Privacy…**, a sheet of the folders kept out of the index, a folder added with **+** from the
  * system's folder chooser (docs/adr/0028-file-access.mdx) and the selected one removed with **−**,
- * each change said once the service kept it; and the index's state in small text, asked again
- * each time the service says the index changed (never on a clock: docs/performance.mdx's idle rule). Without the search service, it says Spotlight is not
- * available here.
+ * each change said once the service kept it; **Rebuild Index…**, which, once confirmed, has the
+ * service discard the index and read every file again (the old index answering until the new one
+ * is ready); and the index's state in small text, how far a crawl went while one goes on, followed
+ * while the page shows (docs/adr/0058-the-platform-api.mdx's followed state: told by the service as
+ * it changes, never asked on a clock, docs/performance.mdx's idle rule). Without the search
+ * service, it says Spotlight is not available here.
  */
+/** What the page follows without the search service: nothing. */
+const NO_SUBSCRIPTION = () => () => {};
+const NO_STATE = () => null;
+
 function SpotlightPage({ actions, strings, locale }: PageProps) {
   const words = strings.spotlight;
   const theme = useTheme();
   const service = actions.search;
   const [preferences, setPreferences] = React.useState<SearchPreferences | null>(null);
-  const [status, setStatus] = React.useState<SearchStatus | null>(null);
+  const status: SearchStatus | null = React.useSyncExternalStore(
+    service?.state.subscribe ?? NO_SUBSCRIPTION,
+    service?.state.current ?? NO_STATE,
+  );
   const [failed, setFailed] = React.useState(false);
   const [privacy, setPrivacy] = React.useState(false);
+  const [confirmingRebuild, setConfirmingRebuild] = React.useState(false);
   const [selected, setSelected] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!service) return undefined;
@@ -1738,18 +1759,8 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
         if (live) setFailed(true);
       },
     );
-    const ask = () =>
-      service.status().then(
-        (told) => {
-          if (live) setStatus(told);
-        },
-        (error: unknown) => console.warn("[settings] the index's state could not be read:", error),
-      );
-    ask();
-    const unwatch = service.watch(ask);
     return () => {
       live = false;
-      unwatch();
     };
   }, [service]);
   if (!service || failed) {
@@ -1790,6 +1801,11 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
     setSelected(excludedAfterRemoving(excluded, chosen));
     change({ excluded: withoutExcluded(excluded, chosen) }, words.removed(folderName(chosen)));
   };
+  const rebuild = () =>
+    service.rebuild().then(
+      () => AccessibilityInfo.announceForAccessibility(words.rebuildStarted),
+      (error: unknown) => console.warn("[settings] the index was not rebuilt:", error),
+    );
   return (
     <View style={PAGE}>
       <GroupedSection title={words.results} footer={words.resultsFooter}>
@@ -1807,12 +1823,34 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
         <Button size="sm" appearance="outline" tone="neutral" onPress={() => setPrivacy(true)} testID="spotlight-privacy">
           {words.privacy}
         </Button>
+        <Button
+          size="sm"
+          appearance="outline"
+          tone="neutral"
+          onPress={() => setConfirmingRebuild(true)}
+          disabled={status?.rebuilding === true}
+          testID="spotlight-rebuild"
+        >
+          {words.rebuild}
+        </Button>
         {status ? (
           <Text testID="spotlight-status" style={{ flex: 1, fontSize: 11, color: theme.colors.textSecondary, textAlign: "right" }}>
             {statusLine(status, words)}
           </Text>
         ) : null}
       </View>
+      <AlertDialog
+        open={confirmingRebuild}
+        onOpenChange={(open) => {
+          if (!open) setConfirmingRebuild(false);
+        }}
+        title={words.rebuildTitle}
+        description={words.rebuildDescription}
+        confirmLabel={words.rebuildConfirm}
+        cancelLabel={words.cancel}
+        onConfirm={() => void rebuild()}
+        testID="spotlight-rebuild-confirm"
+      />
       <Dialog
         open={privacy}
         onClose={() => setPrivacy(false)}
@@ -2360,6 +2398,9 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
           testID="oxy-account-remove"
         />
       </GroupedSection>
+      {view.kind === "signed_in" && account?.local ? (
+        <LocalSignInSection actions={account.local} strings={strings} />
+      ) : null}
       <AlertDialog
         open={confirming === "sign-out"}
         onOpenChange={(open) => {
@@ -2420,8 +2461,103 @@ function CurrentOxyAccountPage(props: PageProps) {
 function MousePage(props: PageProps) {
   return <ScrollingPage {...props} preference="mouseNaturalScrolling" />;
 }
+/** Trackpad's page: its natural scrolling, then More Gestures below it, as a Mac's Trackpad settings
+    has its More Gestures tab. Natural scrolling stays where it was. */
 function TrackpadPage(props: PageProps) {
-  return <ScrollingPage {...props} preference="trackpadNaturalScrolling" />;
+  return (
+    <View style={PAGE}>
+      <ScrollingPage {...props} preference="trackpadNaturalScrolling" />
+      <MoreGestures {...props} />
+    </View>
+  );
+}
+
+/** The swipes of More Gestures, each its preference and its control's id, in a Mac's order. */
+const SWIPES = [
+  { gesture: "desktops", preference: "desktopsSwipe", testID: "gesture-desktops" },
+  { gesture: "missionControl", preference: "missionControlSwipe", testID: "gesture-mission-control" },
+  { gesture: "appExpose", preference: "appExposeSwipe", testID: "gesture-app-expose" },
+] as const satisfies readonly {
+  gesture: Exclude<Gesture, "launchpad">;
+  preference: "desktopsSwipe" | "missionControlSwipe" | "appExposeSwipe";
+  testID: string;
+}[];
+
+/**
+ * Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx), as a Mac's: swiping between
+ * desktops, Mission Control and App Exposé, each three fingers, four or off, and Launchpad's pinch.
+ * Each row's picture plays its gesture as its choice changes and as the pointer comes over it. A
+ * change sends its own key alone: the session links Mission Control's and App Exposé's fingers as a
+ * Mac does, and the next snapshot says both. What OxyOS cannot do is not offered: swiping between
+ * pages (no application honours a page back and forward), Notification Center's swipe from the edge
+ * (libinput tells no finger's place) and Show Desktop (OxyOS has none).
+ */
+function MoreGestures({ snapshot, actions, strings }: PageProps) {
+  const words = strings.gestures;
+  const { preferences } = snapshot;
+  return (
+    <GroupedSection title={words.title}>
+      {SWIPES.map(({ gesture, preference, testID }) => (
+        <GestureRow key={gesture}>
+          {(hovers) => (
+            <GroupedSectionItem
+              title={words[gesture]}
+              // Its menu says the whole gesture, as a Mac's popup does: a long title wraps rather
+              // than being cut short ("Pasar de un escritorio a otro").
+              titleNumberOfLines={2}
+              testID={`${testID}-row`}
+              icon={
+                <GestureIllustration
+                  gesture={gesture}
+                  fingers={fingerCount(preferences[preference])}
+                  off={preferences[preference] === "off"}
+                  choice={preferences[preference]}
+                  hovers={hovers}
+                  reduceMotion={preferences.reduceMotion}
+                />
+              }
+              rightElement={
+                <SettingsSelect<SwipeFingers>
+                  label={words[gesture]}
+                  value={preferences[preference]}
+                  items={swipeItems(words.choices[gesture])}
+                  onChange={(value) => actions.setPreference(preference, value)}
+                  testID={testID}
+                />
+              }
+            />
+          )}
+        </GestureRow>
+      ))}
+      <GestureRow>
+        {(hovers) => (
+          <ToggleItem
+            title={words.launchpad}
+            description={words.launchpadDescription}
+            icon={
+              <GestureIllustration
+                gesture="launchpad"
+                fingers={4}
+                off={!preferences.launchpadPinch}
+                choice={String(preferences.launchpadPinch)}
+                hovers={hovers}
+                reduceMotion={preferences.reduceMotion}
+              />
+            }
+            value={preferences.launchpadPinch}
+            onChange={(on) => actions.setPreference("launchpadPinch", on)}
+            testID="trackpad-launchpad"
+          />
+        )}
+      </GestureRow>
+    </GroupedSection>
+  );
+}
+
+/** A row of More Gestures that counts the pointer coming over it, for its picture to play. */
+function GestureRow({ children }: { children: (hovers: number) => React.ReactNode }) {
+  const [hovers, setHovers] = React.useState(0);
+  return <View onPointerEnter={() => setHovers((count) => count + 1)}>{children(hovers)}</View>;
 }
 
 /**
@@ -2537,6 +2673,9 @@ export function Settings({
           { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
           { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
           { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
+          // After Date & Time, as a Mac's General lists Login Items & Extensions after its language
+          // and its time (docs/adr/0060-login-items-and-background-activity.mdx).
+          { key: "login-items", label: words.loginItems, icon: RiLoginBoxLine, page: "login-items" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
           // Just before Transfer or Reset, as a Mac's General lists Time Machine.
           ...(backupItem ? [{ key: "backups", label: words.backups, icon: RiHistoryLine, page: "backups" }] : []),
@@ -2570,6 +2709,7 @@ export function Settings({
       about: { title: words.about, content: <WithPageProps render={AboutPage} /> },
       "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
       "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
+      "login-items": { title: words.loginItems, content: <WithPageProps render={LoginItemsPage} /> },
       spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },
       privacy: { title: words.privacy, content: <WithPageProps render={PrivacyPage} /> },
       ...(networked

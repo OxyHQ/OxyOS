@@ -10,7 +10,11 @@
 //!   removed in one step), its dates and size. Words are folded: lowercase, accents and other marks
 //!   removed (`camion` finds `Camión`).
 //! - **The text is not stored:** a file's text is read again from the file for a result's snippet,
-//!   so the index holds the words alone and stays small.
+//!   so the index holds the words alone and stays small. A donated item's text, which nothing can
+//!   read again, is kept in its stored record, so a rebuild carries it over.
+//! - **Its directories** ([`Layout`]): the one answering, and a rebuild's beside it while it is
+//!   built; which is which is one small file written whole, so the index on the disk is always one
+//!   or the other, whenever the machine stops.
 //! - **Ranking:** BM25 over the fields, the title weighing most, then keywords and tags, then the
 //!   text; then each candidate weighed by its category (applications first, as Spotlight puts
 //!   them), by how recently it changed or was used, and by how often the person opened it. The top
@@ -22,7 +26,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
-use tantivy::collector::TopDocs;
+use std::sync::{Arc, RwLock};
+use tantivy::collector::{DocSetCollector, TopDocs};
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, Occur, PhrasePrefixQuery, PhraseQuery, Query, RangeQuery,
     TermQuery,
@@ -348,32 +353,108 @@ impl<S: TokenStream> TokenStream for EdgePrefixesStream<S> {
     }
 }
 
+/// Which of the cache's directories holds the index answering, and which a rebuild under way
+/// (`index-N.json`, written whole: the one record of a rebuild's state on the disk). Without the
+/// file, the index is `index-N`, as before there were rebuilds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Layout {
+    /// The directory of the index answering.
+    pub live: String,
+    /// The directory of the index being rebuilt, until it takes the live one's place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rebuild: Option<String>,
+}
+
+impl Layout {
+    fn file(folder: &Path) -> PathBuf {
+        folder.join(format!("index-{VERSION}.json"))
+    }
+
+    /// The layout of the index in `folder`.
+    pub fn read(folder: &Path) -> Layout {
+        std::fs::read(Layout::file(folder))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Layout>(&bytes).ok())
+            .filter(|layout| {
+                // Only this version's directories, by their names alone.
+                let ours = |name: &str| generation(name).is_some();
+                ours(&layout.live) && layout.rebuild.as_deref().is_none_or(ours)
+            })
+            .unwrap_or_else(|| Layout {
+                live: format!("index-{VERSION}"),
+                rebuild: None,
+            })
+    }
+
+    /// Writes it whole, synced, then the folder's entry: after a crash the file is the old one or
+    /// this one.
+    fn write(&self, folder: &Path) -> std::io::Result<()> {
+        use std::io::Write as _;
+        let file = Layout::file(folder);
+        let staged = file.with_extension("json.staged");
+        {
+            let mut out = std::fs::File::create(&staged)?;
+            out.write_all(&serde_json::to_vec(self).expect("JSON"))?;
+            out.sync_all()?;
+        }
+        std::fs::rename(&staged, &file)?;
+        std::fs::File::open(folder)?.sync_all()
+    }
+}
+
+/// A directory's generation: `index-N` is 0, `index-N.G` is G; none for another version's.
+fn generation(name: &str) -> Option<u64> {
+    let rest = name.strip_prefix(&format!("index-{VERSION}"))?;
+    if rest.is_empty() {
+        return Some(0);
+    }
+    rest.strip_prefix('.')?.parse().ok()
+}
+
 /// The index, open.
 pub struct Index {
     index: tantivy::Index,
     fields: Fields,
     reader: IndexReader,
+    /// What answers questions from it, shared with every thread that asks: a rebuilt index
+    /// taking its place points it at its own reader.
+    handle: Searcher,
     writer: Option<IndexWriter>,
     /// Changes not yet committed.
     uncommitted: usize,
+    /// Its cache folder and directory's name (none in memory).
+    place: Option<(PathBuf, String)>,
 }
 
 impl Index {
-    /// Opens the index in `folder` (its version's directory inside), making it if there is none
-    /// or the one there cannot be read (another version's, or damaged: it is made again, as a
-    /// cache is).
+    /// Opens the index answering in `folder` (the directory its [`Layout`] names), making it if
+    /// there is none or the one there cannot be read (another version's, or damaged: it is made
+    /// again, as a cache is). Every other directory is removed (other versions', an index a
+    /// rebuild replaced), but a rebuild's under way, which [`Index::rebuild`] goes on with.
     pub fn open(folder: &Path) -> tantivy::Result<Index> {
-        let directory = folder.join(format!("index-{VERSION}"));
-        // Other versions' indexes are left behind by an update: removed.
+        let layout = Layout::read(folder);
         if let Ok(entries) = std::fs::read_dir(folder) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if name.starts_with("index-") && entry.path() != directory {
-                    let _ = std::fs::remove_dir_all(entry.path());
+                let kept = name == layout.live.as_str()
+                    || layout.rebuild.as_deref() == Some(&*name)
+                    || entry.path() == Layout::file(folder);
+                if name.starts_with("index-") && !kept {
+                    let _ = if entry.path().is_dir() {
+                        std::fs::remove_dir_all(entry.path())
+                    } else {
+                        std::fs::remove_file(entry.path())
+                    };
                 }
             }
         }
+        Index::open_at(folder, &layout.live)
+    }
+
+    /// Opens or makes the index in `folder`'s directory `name`.
+    fn open_at(folder: &Path, name: &str) -> tantivy::Result<Index> {
+        let directory = folder.join(name);
         let (schema, fields) = schema();
         let open = || -> tantivy::Result<tantivy::Index> {
             std::fs::create_dir_all(&directory)?;
@@ -395,7 +476,66 @@ impl Index {
                 open()?
             }
         };
-        Index::with(index, fields)
+        let mut index = Index::with(index, fields)?;
+        index.place = Some((folder.to_path_buf(), name.to_string()));
+        Ok(index)
+    }
+
+    /// Whether a rebuild was under way in `folder` when the service last stopped.
+    pub fn rebuild_under_way(folder: &Path) -> bool {
+        Layout::read(folder).rebuild.is_some()
+    }
+
+    /// The index a rebuild writes, beside the one answering: the one under way when `resume` and
+    /// there is one (its committed items are not read again), else a new, empty one, named in the
+    /// layout before anything is written to it.
+    pub fn rebuild(folder: &Path, resume: bool) -> tantivy::Result<Index> {
+        let mut layout = Layout::read(folder);
+        if let (true, Some(name)) = (resume, layout.rebuild.clone()) {
+            return Index::open_at(folder, &name);
+        }
+        if let Some(abandoned) = layout.rebuild.take() {
+            let _ = std::fs::remove_dir_all(folder.join(abandoned));
+        }
+        let next = generation(&layout.live).unwrap_or(0) + 1;
+        let name = format!("index-{VERSION}.{next}");
+        let _ = std::fs::remove_dir_all(folder.join(&name));
+        let index = Index::open_at(folder, &name)?;
+        layout.rebuild = Some(name);
+        layout.write(folder)?;
+        Ok(index)
+    }
+
+    /// The rebuilt index takes the place of `live`, the one answering: everything it holds
+    /// committed and its writer closed, the layout names it (the one step that changes which
+    /// index is the person's, written whole), every handle that answers questions is pointed at
+    /// it, and the old one's directory is removed (the mapped segments of a question under way
+    /// stay readable until it ends). Returns the index now answering: `self`, or `live` if the
+    /// layout could not be written (the rebuild then goes on at the next start).
+    pub fn promote(mut self, live: Index) -> (Index, tantivy::Result<()>) {
+        let promoted = (|| -> tantivy::Result<()> {
+            self.commit(true)?;
+            let (folder, name) = self.place.clone().ok_or_else(|| {
+                tantivy::TantivyError::InvalidArgument("an index in memory".into())
+            })?;
+            Layout {
+                live: name,
+                rebuild: None,
+            }
+            .write(&folder)?;
+            Ok(())
+        })();
+        if promoted.is_err() {
+            return (live, promoted);
+        }
+        live.handle.point_at(&self.reader);
+        self.handle = live.handle.clone();
+        let old = live.place.clone();
+        drop(live);
+        if let Some((folder, name)) = old {
+            let _ = std::fs::remove_dir_all(folder.join(name));
+        }
+        (self, Ok(()))
     }
 
     /// An index in memory (tests).
@@ -413,12 +553,18 @@ impl Index {
             .reload_policy(ReloadPolicy::Manual)
             .num_warming_threads(0)
             .try_into()?;
+        let handle = Searcher {
+            reader: Arc::new(RwLock::new(reader.clone())),
+            fields,
+        };
         Ok(Index {
             index,
             fields,
             reader,
+            handle,
             writer: None,
             uncommitted: 0,
+            place: None,
         })
     }
 
@@ -427,12 +573,10 @@ impl Index {
         self.reader.clone()
     }
 
-    /// A handle that answers questions, on the reader's segments as last reloaded.
+    /// A handle that answers questions, on the reader's segments as last reloaded; shared, so
+    /// that it answers from a rebuilt index once that takes this one's place.
     pub fn searcher_handle(&self) -> Searcher {
-        Searcher {
-            reader: self.reader.clone(),
-            fields: self.fields,
-        }
+        self.handle.clone()
     }
 
     fn writer(&mut self) -> tantivy::Result<&mut IndexWriter> {
@@ -447,6 +591,7 @@ impl Index {
         let fields = self.fields;
         let document = document(fields, record, text);
         let writer = self.writer()?;
+        // (`document` keeps a donated item's text in its record: nothing else can give it again.)
         writer.delete_term(Term::from_field_text(fields.id, &record.id));
         writer.add_document(document)?;
         self.uncommitted += 1;
@@ -574,35 +719,49 @@ fn document(fields: Fields, record: &Record, text: Option<&str>) -> TantivyDocum
     document.add_i64(fields.modified, record.modified.unwrap_or(0));
     document.add_i64(fields.changed, record.changed.unwrap_or(0));
     document.add_u64(fields.size, record.size.unwrap_or(0));
-    document.add_text(
-        fields.record,
-        serde_json::to_string(record).expect("a record is JSON"),
-    );
+    let mut stored = serde_json::to_value(record).expect("a record is JSON");
+    if let (Source::Donated, Some(text), Some(object)) =
+        (&record.source, text, stored.as_object_mut())
+    {
+        object.insert(DONATED_TEXT.into(), text.into());
+    }
+    document.add_text(fields.record, stored.to_string());
     document
 }
 
-/// What answers questions: a reader's handle, on any thread.
+/// The key of a donated item's text in its stored record.
+const DONATED_TEXT: &str = "donatedText";
+
+/// What answers questions: a reader's handle, on any thread, its clones one handle (pointed at a
+/// rebuilt index's reader when that takes the old one's place).
 #[derive(Clone)]
 pub struct Searcher {
-    reader: IndexReader,
+    reader: Arc<RwLock<IndexReader>>,
     fields: Fields,
 }
 
 impl Searcher {
+    fn tantivy(&self) -> tantivy::Searcher {
+        self.reader.read().expect("lock").searcher()
+    }
+
+    fn point_at(&self, reader: &IndexReader) {
+        *self.reader.write().expect("lock") = reader.clone();
+    }
+
     /// Takes the index as last committed.
     pub fn reload(&self) -> tantivy::Result<()> {
-        self.reader.reload()
+        self.reader.read().expect("lock").reload()
     }
 
     /// How many items it holds.
     pub fn count(&self) -> u64 {
-        self.reader.searcher().num_docs()
+        self.tantivy().num_docs()
     }
 
     /// Its size on the disk, in bytes.
     pub fn disk_size(&self) -> u64 {
-        self.reader
-            .searcher()
+        self.tantivy()
             .segment_readers()
             .iter()
             .filter_map(|segment| segment.space_usage().ok())
@@ -612,7 +771,7 @@ impl Searcher {
 
     /// Every file and folder the index holds: its path's id, the time it changed and its size.
     pub fn files(&self) -> tantivy::Result<HashMap<String, (i64, u64)>> {
-        let searcher = self.reader.searcher();
+        let searcher = self.tantivy();
         let mut files = HashMap::new();
         let query = term_query(self.fields.source, Source::File.name());
         let weight = query.weight(tantivy::query::EnableScoring::disabled_from_searcher(
@@ -650,7 +809,7 @@ impl Searcher {
 
     /// The record of `id`.
     pub fn record(&self, id: &str) -> Option<Record> {
-        let searcher = self.reader.searcher();
+        let searcher = self.tantivy();
         let found = searcher
             .search(
                 &TermQuery::new(
@@ -668,6 +827,36 @@ impl Searcher {
         let document: TantivyDocument = searcher.doc(address).ok()?;
         let text = document.get_first(self.fields.record)?.as_str()?;
         serde_json::from_str(text).ok()
+    }
+
+    /// Every item that is not a file or folder (the applications, the items packages declare and
+    /// those applications donated), with a donated item's text: what a rebuild cannot read again
+    /// from the disk, carried over to the new index.
+    pub fn given(&self) -> tantivy::Result<Vec<(Record, Option<String>)>> {
+        let searcher = self.tantivy();
+        let query = BooleanQuery::new(vec![
+            (Occur::Must, Box::new(AllQuery) as Box<dyn Query>),
+            (
+                Occur::MustNot,
+                term_query(self.fields.source, Source::File.name()),
+            ),
+        ]);
+        let mut given = Vec::new();
+        for address in searcher.search(&query, &DocSetCollector)? {
+            let document: TantivyDocument = searcher.doc(address)?;
+            let Some(stored) = document
+                .get_first(self.fields.record)
+                .and_then(|value| value.as_str())
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            else {
+                continue;
+            };
+            let text = stored[DONATED_TEXT].as_str().map(String::from);
+            if let Ok(record) = serde_json::from_value::<Record>(stored) {
+                given.push((record, text));
+            }
+        }
+        Ok(given)
     }
 
     /// The items answering `question` for `viewer`, best first, weighed by `usage` as of `now`
@@ -823,7 +1012,7 @@ impl Searcher {
         let mut all = vec![(Occur::Must, scored)];
         all.extend(filters);
         let query = BooleanQuery::new(all);
-        let searcher = self.reader.searcher();
+        let searcher = self.tantivy();
         let candidates = searcher.search(
             &query,
             &TopDocs::with_limit(CANDIDATES.max(question.limit)).order_by_score(),

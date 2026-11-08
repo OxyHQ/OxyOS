@@ -58,6 +58,35 @@ test("a kind the preferences do not name is shown, and the index's state is a li
   assert.equal(statusLine({ indexing: false, items: 3, partial: false }, es), "3 ítems indexados");
 });
 
+test("how far a crawl went is the items it went through, never a percentage; a rebuild says so", () => {
+  // A crawl going on: the items it went through, not those the index held before it.
+  assert.equal(
+    statusLine({ indexing: true, items: 40, partial: false, rebuilding: false, found: 1234 }, en),
+    "Indexing… 1,234 items so far",
+  );
+  // Indexing with no crawl going on (a change settling): what the index holds.
+  assert.equal(statusLine({ indexing: true, items: 40, partial: false, rebuilding: false, found: null }, en), "Indexing… 40 items so far");
+  // Rebuilding: the new index's crawl, whatever the old one, still answering, holds.
+  assert.equal(
+    statusLine({ indexing: true, items: 48210, partial: false, rebuilding: true, found: 1 }, en),
+    "Rebuilding the index… 1 item so far",
+  );
+  assert.equal(
+    statusLine({ indexing: true, items: 48210, partial: false, rebuilding: true, found: null }, es),
+    "Reconstruyendo el índice… 0 ítems hasta ahora",
+  );
+  assert.equal(
+    statusLine({ indexing: true, items: 10, partial: true, rebuilding: true, found: 2500 }, es),
+    "Reconstruyendo el índice… 2500 ítems hasta ahora. Algunas carpetas no se han podido indexar.",
+  );
+  // Done: what the new index holds.
+  assert.equal(statusLine({ indexing: false, items: 3, partial: false, rebuilding: false, found: null }, en), "3 items indexed");
+  for (const words of [en, es]) {
+    assert.ok(words.rebuild.endsWith("…"), "the button asks before it acts, as its ellipsis says");
+    assert.ok(words.rebuildTitle && words.rebuildDescription && words.rebuildConfirm && words.cancel);
+  }
+});
+
 /** The pages Settings shows, by key, with where each one's title is in the catalogue. */
 function settingsPages(): Map<string, string[]> {
   const source = readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8");

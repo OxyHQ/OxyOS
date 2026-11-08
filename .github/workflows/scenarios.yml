@@ -1,0 +1,48 @@
+name: Scenarios
+
+# The scenario gate (docs/developing.mdx): this tree's runtime and the applications' packages
+# built with Bloom, Dropsea and Atlas at tools/dev/pins, and every scenario run against them, on the
+# gate machine's self-hosted runners. It is the merge queue's check: each entry's run is of main with
+# the pull requests ahead of it and its own, so main only takes what passes together, and a run that
+# fails takes its pull request out of the queue. On a pull request it runs only when asked (the
+# `gate` label) or dispatched for a branch; otherwise it is skipped, which lets the pull request join
+# the queue. A required check of main. Nothing here builds or publishes an image.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scenarios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scenarios:
+    # Always in the merge queue and when dispatched; on a pull request only with the `gate` label, and
+    # never a fork's (its code would run on the gate's machine unreviewed: the merge queue runs it once
+    # a maintainer queues it).
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'gate') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    # The merge queue's runs on runners of their own (label oxyos-merge), the pull requests' on the
+    # others (oxyos-gate): a merge waits for the runs that merge, never behind the pull requests'
+    # (docs/developing.mdx, "The gate's machine").
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('["self-hosted", "oxyos-merge"]') || fromJSON('["self-hosted", "oxyos-gate"]') }}
+    timeout-minutes: 150
+    env:
+      # Kept between runs, outside the checkout (cleaned for every run): the Cargo build. The rest
+      # (toolchain, input methods, the applications at tools/dev/pins) is tools/dev/bootstrap's
+      # cache in the runner user's home (docs/developing.mdx).
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../cargo-target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # What a deploy installs for the login, accounts and PIN is every such file the tree has.
+      - name: The deploy's system files
+        run: python3 tools/deploy/system-files.py
+      - name: Every scenario
+        run: sh tools/gate/run-scenarios.sh

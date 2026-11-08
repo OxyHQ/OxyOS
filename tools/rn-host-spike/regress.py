@@ -108,6 +108,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- background: the applications' background activity (docs/adr/0060-login-items-and-background-
+  activity.mdx): "ended", the processes the session ended in the step, by their application's id,
+  exactly and in order (a step that ends one and does not say so fails); "running", given, the
+  applications with a process running in the background once the step settled, exactly;
+  "idle_cpu_ms_max" and "idle_wakeups_max", the most CPU each such process used and the most
+  times its threads woke since the step before (nothing wakes one with nothing to do);
+- notifications: the notifications the session keeps once the step settled (docs/adr/0026-
+  notifications.mdx), exactly, oldest first, each {"number", "application", "title"}: the number is
+  one more for every post, so a notification posted twice, or once more than it should be, shows;
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
@@ -389,7 +398,13 @@ drag goes on into the steps after it, each step's frame showing it midway (`move
 pointer there and releases it, dropping it or ending it over nothing.
 
 A `swipe` step ([fingers, dx, dy, steps]) is three or four fingers swiped on the touchpad, the
-system's (Mission Control up, App Exposé down, ADR 0045); a `scroll_named` step ([name, dy] a
+system's (Mission Control up, App Exposé down, ADR 0045; which fingers the person chose,
+docs/adr/0046-interactive-gestures.mdx); through the virtual devices, the fingers on the virtual
+touchpad, which libinput recognizes and counts, resting before they lift so nothing is flicked. A
+`pinch` step ([x, y, percent, degrees] or [x, y, percent, degrees, fingers]) pinches at a point of
+the window, two fingers unless it says (the thumb and three fingers: Launchpad's); a step's
+`delivered` count may be a [least, most] (a pinch through libinput, as many updates as it
+recognized frames of the fingers). A `scroll_named` step ([name, dy] a
 wheel's notch, [name, dy, events] a touchpad's two fingers in that many events, then lifted)
 scrolls on the node of that accessible name (a dock icon), and a `scroll_output` step ([x, y, dy]
 or [x, y, dy, events]) at a point of the output.
@@ -453,10 +468,11 @@ Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
 `wallpaper_all_desktops`, and the session's own lines, `wallpaper.DISPLAY` and
-`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). A
-scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
-follows (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on) and the time zone whose sun a
-`sun` wallpaper's Automatic follows (ADR 0012).
+`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). Every
+run fixes the moment and the place a `sun` wallpaper's Automatic follows (ADR 0012): the default,
+Solar Gradients, shows its Midday (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on: 14:00
+in Madrid on the June solstice; `OXYOS_WALLPAPER_PLACE`, Madrid). A scenario with `wallpaper`
+({tz, now}) fixes its own moment and the time zone whose sun it follows.
 
 A scenario with `reader` ({}) runs the session's screen reader (`oxyos-reader`, beside the
 offscreen compositor unless `--reader` names it), which speaks the session's language (the
@@ -507,7 +523,8 @@ attributes: a value as above, or false for none. The home's attributes are read 
 that sets or checks some. Every scenario runs in one fixed language, never the machine's
 (docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
 scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
-and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`).
+and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`), else
+its wallpaper's, else Europe/Bucharest (FIXED_TZ), never the machine's.
 
 What applications keep (their data and cache directories by id, application.h) is under the run's
 own XDG_DATA_HOME and XDG_CACHE_HOME. A scenario's `app_data` ({ID: {FILE: JSON}}) is written to an
@@ -515,7 +532,11 @@ application's data directory before it starts; the `final` `app_data` expectatio
 file holds that JSON once the run ended.
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
-password (ADR 0010; never PAM).
+password (ADR 0010; never PAM), and with `lock_pin` with that PIN, said as one
+(docs/adr/0020-oxy-account-login.mdx decision 2). The played session socket's `account.local`
+({"pin", "password"}) is the account's local sign-in it tells the shell's lock screen and Settings,
+which changes it (`setPin`, `removePin`, `setPasswordSignIn`) proved by `account.local_password` or
+`account.local_pin`.
 
 A scenario with `store` runs offline but for a store of its own (docs/adr/0030-installing-applications.mdx,
 decision 14): the machine reaches Oxy's API (`api.oxy.so`) only through a proxy of the run's own
@@ -590,7 +611,12 @@ for the one account it plays, committing the device credential `oxy.device`; eve
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
-lists `enroll.account` once enrolled. A step's `accounts_asked` is what the setup asked the service
+lists `enroll.account` once enrolled; a setup without a password and with a PIN is a sign-in by the
+QR, which the real service redeems through Oxy's device-proof route (played as its answer: enrolled,
+its password not signing in), and a `pin` given with the setup becomes the account's PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
+listed `pin: set`; `login.pin_failures`: {USER: N} wrong ones before the run) is checked by `oxyos-pin-check`, which the login program's PIN service runs
+(`oxyos-login-pin`, pam_exec, as the real one is), asking the stand-in's `verifyPin`: the tenth
+wrong one in a row locks it out (listed `locked`). A step's `accounts_asked` is what the setup asked the service
 in it ("ASKED: ANSWERED", exactly, in order) and `oxy_requests` requests Oxy's API answered in it
 ("METHOD PATH STATUS", each at least once), `oxy_requests_times` how many times each was answered
 ({"METHOD PATH STATUS": N}, exactly). No credential of anyone's is in a scenario: every one
@@ -640,6 +666,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import atexit
 import base64
 import collections
 import hashlib
@@ -678,13 +705,20 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
 # clock's time of a report's line, for what follows the wall clock (the shell's minute).
 WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
 
-# The time zone the run's applications tell the time in (a scenario's `tz`), else this process's.
+# The time zone the run's applications tell the time in: a scenario's `tz`, else FIXED_TZ.
+FIXED_TZ = "Europe/Bucharest"
 RUN_TZ = None
 # The run's locale (its `locale`, else FIXED_LOCALE): the language the shell says its clock in.
 RUN_LOCALE = FIXED_LOCALE
 SPANISH_WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 SPANISH_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
                   "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+# What every run's sun wallpaper follows unless a scenario says (ADR 0048): 2026-06-21 12:00 UTC,
+# 14:00 in Madrid.
+SOLSTICE_AFTERNOON = 1782043200
+MADRID = "40.4,-3.68"
 
 
 def clock_said(t_ns):
@@ -899,7 +933,8 @@ def director_args(step, out):
         return args + ["--scroll-output", f"{value[0]},{value[1]},{value[2]},{events}"]
     if kind == "swipe":
         # Fingers swiped on the touchpad and lifted (Mission Control, App Exposé, the desktops, ADR
-        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz].
+        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz]; through the
+        # virtual devices, on the virtual touchpad.
         return args + ["--swipe", ",".join(map(str, value))]
     if kind == "swipe_begin":
         # The same, the fingers left down for the steps after it: a swipe partway.
@@ -911,6 +946,7 @@ def director_args(step, out):
         # The fingers left down lifted, this many milliseconds after their last motion.
         return args + ["--swipe-end", str(value)]
     if kind == "pinch":
+        # [x, y, percent, degrees] two fingers, or [x, y, percent, degrees, fingers].
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
@@ -1082,7 +1118,16 @@ def serve_accounts(path, accounts, login=None, log=None):
     listener.bind(str(path))
     listener.listen(16)
     login = login or {}
-    accounts = list(accounts)
+    accounts = [dict(account) for account in accounts]
+    # The accounts' PINs, as the real service's verifiers are: the played run's own, never logged.
+    pins = dict(login.get("pins", {}))
+    # Wrong PINs in a row before the run (`login.pin_failures`): ten have locked it out.
+    failures = dict(login.get("pin_failures", {}))
+    for account in accounts:
+        if account["user"] in pins:
+            account.setdefault("pin", "locked" if failures.get(account["user"], 0) >= 10 else "set")
+        account.setdefault("pin", "none")
+        account.setdefault("password", True)
 
     def record(asked, answered):
         if log:
@@ -1092,9 +1137,18 @@ def serve_accounts(path, accounts, login=None, log=None):
     def enroll(connection, message):
         played = login.get("enroll")
         request = message["enroll"]
+        pin = request.get("pin")
         if not played or request.get("deviceId") != played["device"]["deviceId"] \
                 or request.get("deviceSecret") != played["device"]["deviceSecret"]:
             answer = {"refused": {"reason": "credentialRefused"}}
+        elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
+            answer = {"refused": {"reason": "unusablePin"}}
+        elif request.get("password") is None and pin is None:
+            answer = {"refused": {"reason": "pinRequired"}}
+        elif request.get("password") is None:
+            # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
+            # (the real service's; played here as its answer), and the PIN is the local credential.
+            answer = None
         elif request.get("password") != played["password"]:
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
@@ -1103,9 +1157,13 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = None
         while True:
             if answer is None:
-                listed = played["account"]
-                if all(account["user"] != listed["user"] for account in accounts):
-                    accounts.append(listed)
+                listed = dict(played["account"], password=request.get("password") is not None)
+                if pin is not None:
+                    pins[listed["user"]] = pin
+                    failures.pop(listed["user"], None)
+                listed["pin"] = "set" if listed["user"] in pins else "none"
+                accounts[:] = [account for account in accounts if account["user"] != listed["user"]]
+                accounts.append(listed)
                 answer = {"enrolled": {"accountId": listed["accountId"], "user": listed["user"], "uid": 1001,
                                        "profile": {"id": listed["accountId"], "username": listed["name"],
                                                    "displayName": None, "avatar": None}}}
@@ -1140,6 +1198,24 @@ def serve_accounts(path, accounts, login=None, log=None):
                     elif isinstance(message, dict) and "enroll" in message:
                         record.turn = 0
                         enroll(connection, message)
+                    elif isinstance(message, dict) and "verifyPin" in message:
+                        # oxyos-pin-check's, for PAM: the PIN checked here, a wrong one counted.
+                        user, pin = message["verifyPin"]["user"], message["verifyPin"]["pin"]
+                        listed = next((a for a in accounts if a["user"] == user), None)
+                        if user not in pins or listed is None:
+                            result = "none"
+                        elif failures.get(user, 0) >= 10:
+                            result = "locked"
+                        elif pin == pins[user]:
+                            failures.pop(user, None)
+                            result = "accepted"
+                        else:
+                            failures[user] = failures.get(user, 0) + 1
+                            result = "locked" if failures[user] >= 10 else "rejected"
+                        if listed is not None and user in pins:
+                            listed["pin"] = "locked" if failures.get(user, 0) >= 10 else "set"
+                        record("verifyPin", result)
+                        connection.send(json.dumps({"pin": {"result": result}}).encode())
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
 
@@ -1197,6 +1273,10 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
+    # changes them; the secrets are the run's own and never logged.
+    local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
+    pins_set = [spec.get("local_pin")]
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1211,6 +1291,12 @@ def serve_account_session(path, spec, log):
         except OSError:
             return None
         names = dict(item.split(b"=", 1) for item in environ if b"=" in item)
+        # The session's shell, which the session registers as the system's `so.oxy.shell`.
+        try:
+            if b"OxyOSShell" in pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0"):
+                return "so.oxy.shell"
+        except OSError:
+            pass
         if b"OXYOS_APP_UNRECORDED" in names:
             return None
         application = names.get(b"OXYOS_APP_ID", b"").decode() or None
@@ -1294,6 +1380,43 @@ def serve_account_session(path, spec, log):
                            "erasing" if "erasing" in answer else answer["refused"]["reason"])
                     # The real service then restarts the computer; the run goes on.
                     connection.send(json.dumps(answer).encode())
+                elif message == "localSignIn" and application in ("so.oxy.shell", "so.oxy.settings"):
+                    # The account's PIN and password on this computer (ADR 0020 decision 2),
+                    # `account.local`: what the lock screen and Settings are told.
+                    record(application, asked, f"pin {local_sign_in['pin']}")
+                    connection.send(json.dumps({"localSignIn": local_sign_in}).encode())
+                elif asked in ("setPin", "removePin", "setPasswordSignIn") and application == "so.oxy.settings":
+                    # Settings' changes, proved by the password (`account.local_password`) or the
+                    # current PIN (`account.local_pin`), as the real service checks them.
+                    change = message[asked]
+                    password_ok = local_sign_in["password"] and change.get("password") is not None \
+                        and change.get("password") == spec.get("local_password")
+                    pin_ok = change.get("currentPin") is not None and change.get("currentPin") == pins_set[0]
+                    if asked == "setPasswordSignIn" and change.get("enabled"):
+                        proved = change.get("password") == spec.get("local_password")
+                    else:
+                        proved = password_ok or pin_ok
+                    if not proved:
+                        answer = {"refused": {"reason": "wrongPin" if "currentPin" in change else "wrongPassword"}}
+                    elif asked == "setPin" and not re.fullmatch(r"[0-9]{4,16}", change.get("pin", "")):
+                        answer = {"refused": {"reason": "unusablePin"}}
+                    elif asked == "removePin" and not local_sign_in["password"]:
+                        answer = {"refused": {"reason": "passwordSignInOff"}}
+                    elif asked == "setPasswordSignIn" and not change.get("enabled") and local_sign_in["pin"] == "none":
+                        answer = {"refused": {"reason": "noPin"}}
+                    else:
+                        if asked == "setPin":
+                            pins_set[0] = change["pin"]
+                            local_sign_in["pin"] = "set"
+                        elif asked == "removePin":
+                            pins_set[0] = None
+                            local_sign_in["pin"] = "none"
+                        else:
+                            local_sign_in["password"] = bool(change.get("enabled"))
+                        answer = {"localSignIn": dict(local_sign_in)}
+                    record(application, asked, next(iter(answer)) if "localSignIn" in answer
+                           else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
                     # The real service then ends the account's sessions, this one with them.
@@ -1344,7 +1467,7 @@ def account_later(changes, report_path):
 def played_oxy(spec, log):
     """Oxy's API as the login screen's setup reaches it (`login.oxy`): the SDK's own sign-in and the
     calls around it, answered in the API's shapes for the one account the scenario plays
-    (`identifier`, `password`, `id`, `username`, `has_password`) and the device credential its
+    (`identifier`, `password`, `id`, `username`, `has_password`, `has_email`) and the device credential its
     sign-in commits (`device`: {deviceId, deviceSecret}, the run's own, no credential of anyone's).
     Every request is logged by its method and path, never its body; one not played is answered 404
     and logged so. Returns its base URL and the server.
@@ -1536,7 +1659,7 @@ def played_oxy(spec, log):
                 if not self.signed_in(f"GET {path}"):
                     pass
                 elif path == "/users/me/sign-in-methods":
-                    self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
+                    self.reply(200, {"hasEmail": spec.get("has_email", True), "hasPassword": state["has_password"], "totpEnabled": False,
                                      "backupCodesRemaining": 0})
                 elif path == "/users/me":
                     self.reply(200, self.user())
@@ -1679,7 +1802,15 @@ def login_program(out, offscreen, login):
         "account required pam_permit.so\nsession required pam_permit.so\n")
     # Sockets in a short directory of their own: a socket's path holds at most 107 bytes.
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-login-"))
+    atexit.register(shutil.rmtree, sockets, True)
     accountd, greeter, record = sockets / "accountd", sockets / "greeter", out / "login-record"
+    # A PIN (docs/adr/0020-oxy-account-login.mdx decision 2): its own service, as the image's
+    # (tools/oxyos-login/pam.d/oxyos-login-pin), oxyos-pin-check asking the accounts' stand-in.
+    pin_check = pathlib.Path(offscreen).resolve().parent / "oxyos-pin-check"
+    (pam / "oxyos-login-pin").write_text(
+        f"auth [success=1 default=ignore] pam_exec.so quiet expose_authtok {pin_check} --socket {accountd}\n"
+        "auth requisite pam_deny.so\nauth required pam_permit.so\n"
+        "account required pam_permit.so\nsession required pam_permit.so\n")
     record.unlink(missing_ok=True)
     # Online, Oxy's API is played (`login.oxy`) and the accounts' service names it, with a client id.
     for log in ("oxy-api.jsonl", "login-accounts.jsonl"):
@@ -3171,7 +3302,8 @@ def check_views(index, step, result, results, failures):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None):
+               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None,
+               previous=None):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -3713,7 +3845,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         companion = delivered.pop("companion", {})
         shell_drags = delivered.pop("shell_drags", {})
         wanted = dict(expect["delivered"])
-        if "companion" in wanted and companion != wanted.pop("companion"):
+        if "companion" in wanted and not counts_match(companion, wanted.pop("companion")):
             fail(f"the companion was delivered {companion}, expected exactly {expect['delivered']['companion']}")
         if "shell_drags" in wanted and shell_drags != wanted.pop("shell_drags"):
             fail(f"the shell was delivered drag events {shell_drags}, expected exactly {expect['delivered']['shell_drags']}")
@@ -3729,7 +3861,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"the file chooser was delivered {chooser}, expected exactly {expect['delivered']['chooser']}")
         if leaked:
             fail(f"{leaked} input events reached another client")
-        if delivered != wanted:
+        if not counts_match(delivered, wanted):
             fail(f"compositor delivered {delivered}, expected exactly {wanted}")
     elif result.get("delivered", {}).get("leaked"):
         # Whatever a step says, no input reaches a client that is neither the application, its
@@ -4260,6 +4392,37 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                    for url in expect.get("urls_opened", [])]
     if urls != wanted_urls:
         fail(f"URLs opened: {urls}, expected {wanted_urls}")
+    # Background activity (docs/adr/0060-login-items-and-background-activity.mdx): the processes the
+    # session ended in the step, by application, exactly (a step that ends one and does not say so
+    # fails), and, given, the applications with a process running in the background once it settled.
+    background = result.get("background") or {"running": [], "ended": []}
+    if not step.get("within"):
+        wanted_background = expect.get("background", {})
+        if background["ended"] != wanted_background.get("ended", []):
+            fail(f"background processes ended: {background['ended']}, expected {wanted_background.get('ended', [])}")
+        if "running" in wanted_background and background["running"] != wanted_background["running"]:
+            fail(f"running in the background: {background['running']}, expected {wanted_background['running']}")
+        # Nothing wakes a process in the background that has nothing to do: since the step before,
+        # each used at most `idle_cpu_ms_max` of CPU and woke at most `idle_wakeups_max` times.
+        if "idle_cpu_ms_max" in wanted_background or "idle_wakeups_max" in wanted_background:
+            before = (previous or {}).get("background", {}).get("used", {})
+            for id, now in background.get("used", {}).items():
+                if id not in before:
+                    fail(f"{id}: in the background only since this step, nothing to compare")
+                    continue
+                cpu = now["cpu_ms"] - before[id]["cpu_ms"]
+                wakeups = now["wakeups"] - before[id]["wakeups"]
+                if cpu > wanted_background.get("idle_cpu_ms_max", float("inf")):
+                    fail(f"{id} used {cpu:.1f} ms of CPU in the background, at most {wanted_background['idle_cpu_ms_max']}")
+                if wakeups > wanted_background.get("idle_wakeups_max", float("inf")):
+                    fail(f"{id} woke {wakeups} times in the background, at most {wanted_background['idle_wakeups_max']}")
+    # The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+    # given: exactly those, oldest first, each its number (one more for every post: a notification
+    # posted twice, or replaced, shows in it), application and title.
+    if "notifications" in expect and not step.get("within"):
+        kept = result.get("notifications") or []
+        if kept != expect["notifications"]:
+            fail(f"notifications kept: {kept}, expected {expect['notifications']}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
     # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,
@@ -4863,6 +5026,18 @@ def wait_for(path, seconds=10):
         time.sleep(0.05)
 
 
+def counts_match(got, wanted):
+    """Whether what the compositor delivered (`got`: by window, each event's count) is `wanted`
+    exactly: the same windows and events, each count the same, or within the [least, most] a step
+    gives for it (a pinch through libinput, which reports as many updates as it recognized frames
+    of the fingers)."""
+    if isinstance(wanted, list) and len(wanted) == 2 and isinstance(got, int):
+        return wanted[0] <= got <= wanted[1]
+    if isinstance(wanted, dict) and isinstance(got, dict):
+        return wanted.keys() == got.keys() and all(counts_match(got[key], wanted[key]) for key in wanted)
+    return got == wanted
+
+
 def matches_within(wanted, got, where):
     """How `got` differs from `wanted`: each key `wanted` gives (a dict's keys, a list's items, of
     the same length), compared exactly otherwise."""
@@ -5259,6 +5434,9 @@ def main():
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
         command += ["--lock-password", scenario["lock_password"]]
+        if scenario.get("lock_pin"):
+            # The account's PIN (ADR 0020 decision 2), which the fixture takes said as one.
+            command += ["--lock-pin", scenario["lock_pin"]]
     if "reader" in scenario:
         # The session's screen reader (ADR 0014), saying into a record, in the scenario's locale.
         reader = options.reader or str(pathlib.Path(options.offscreen).resolve().parent / "oxyos-reader")
@@ -5377,6 +5555,7 @@ def main():
     # The accounts' service's session socket (decision 6): the scenario's played one (`account`),
     # else a path where nothing listens, so no run ever asks the machine's.
     account_dir = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-account-"))
+    atexit.register(shutil.rmtree, account_dir, True)
     env["OXYOS_ACCOUNTD_SESSION_SOCKET"] = str(account_dir / "session")
     if "account" in scenario:
         account_log = out / "account-session.jsonl"
@@ -5404,11 +5583,16 @@ def main():
     # developer's machine's.
     env["OXYOS_WALLPAPERS"] = str(pathlib.Path(__file__).resolve().parents[2] /
                                   "config/includes.chroot_after_packages/usr/share/oxyos/wallpapers")
-    env.pop("OXYOS_WALLPAPER_NOW", None)
+    # The default wallpaper, Solar Gradients, follows the sun: what any run sees of it is fixed, the
+    # sun at 14:00 in Madrid on the June solstice (its Midday), whatever the machine's clock and
+    # time zone.
+    env["OXYOS_WALLPAPER_NOW"] = str(SOLSTICE_AFTERNOON)
+    env["OXYOS_WALLPAPER_PLACE"] = MADRID
     if scenario.get("wallpaper"):
-        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), fixed.
+        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), the scenario's.
         wallpaper = scenario["wallpaper"]
         env["TZ"] = wallpaper["tz"]
+        env.pop("OXYOS_WALLPAPER_PLACE")
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
@@ -5443,9 +5627,10 @@ def main():
     # never the developer's machine's.
     env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /
                                      "config/includes.chroot_after_packages/usr/share/X11/locale"))
-    if "tz" in scenario:
-        env["TZ"] = scenario["tz"]
-        RUN_TZ = scenario["tz"]
+    # One fixed time zone, never the machine's: the scenario's `tz`, else the one the scenarios'
+    # dates and times were written in (a machine in another zone showed every date it formats
+    # hours apart, and a wallpaper that follows the sun at another hour).
+    env["TZ"] = RUN_TZ = scenario.get("tz", scenario.get("wallpaper", {}).get("tz", FIXED_TZ))
     # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
     # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first",
     # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26).
@@ -5511,7 +5696,8 @@ def main():
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, through_devices,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
-                           out / "preferences", refresh_hz, recorder)
+                           out / "preferences", refresh_hz, recorder,
+                           previous=summary["steps"][index - 1] if index else None)
         check_views(index, step, result, summary["steps"], failures)
     # The person's input reached whom it should, once (every scenario, every step).
     check_input_delivery(summary, host_reports(out), failures)

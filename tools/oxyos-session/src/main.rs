@@ -117,6 +117,8 @@ const SIGNED_IN_SPLASH: Duration = Duration::from_millis(250);
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 /// The PAM service the lock checks passwords under (`/etc/pam.d/oxyos`).
 const PAM_SERVICE: &str = "oxyos";
+/// The PAM service the lock checks the account's PIN under (`/etc/pam.d/oxyos-pin`).
+const PAM_PIN_SERVICE: &str = "oxyos-pin";
 /// A shell that exits while locked is started again, but no sooner than this after the last.
 const SHELL_RESTART: Duration = Duration::from_secs(1);
 /// The longest a turn waits when nothing is due: the session wakes for its devices, its clients,
@@ -290,6 +292,9 @@ fn main() -> Result<()> {
             pam.user().to_string_lossy()
         );
         let user = pam.user().to_owned();
+        // The account's PIN for this computer (ADR 0020 decision 2): its own service, its own
+        // throttle, checked by the accounts' service offline and never online.
+        let pin = oxyos_auth::Authenticator::for_session(PAM_PIN_SERVICE)?;
         let socket = accountd_session_socket();
         // Registered with the accounts' service from here on: the shells, then each launch.
         match oxyos_account::session::RegistrarThread::spawn(socket.clone(), |said| {
@@ -302,6 +307,8 @@ fn main() -> Result<()> {
         }
         Box::new(Pam {
             checker: oxyos_auth::Checker::spawn_online(pam, Box::new(online_check(socket)))?,
+            pins: oxyos_auth::Checker::spawn(pin)?,
+            checking_pin: false,
             user,
         })
     };
@@ -571,6 +578,11 @@ fn main() -> Result<()> {
         (!greeter).then(|| installd::Installd::start(PathBuf::from(oxyos_install::ipc::SOCKET)));
     // The store's, Settings' and applications' requests to install, update, remove and use
     // capabilities (ADR 0030): over the same service, each confirmed in the shell's sheet.
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the applications' own, decided by their launch records and their account's decisions. The
+    // login screen has none.
+    let mut background = (!greeter)
+        .then(|| oxyos_compositor::background::BackgroundActivity::new(installed.clone()));
     let mut installs = if greeter {
         None
     } else {
@@ -1063,6 +1075,20 @@ fn main() -> Result<()> {
                 },
             })
         });
+        // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx),
+        // after Settings' changes of Open at Login: each application's asks, and its process in the
+        // background ended when it loses the right.
+        if let Some(background) = background.as_mut() {
+            for pid in background.serve(
+                &mut compositor,
+                &mut settings,
+                &|pid| launcher.application_of(pid).cloned(),
+                installs.as_mut(),
+                settings::now(),
+            ) {
+                launcher.terminate(pid);
+            }
+        }
         // Search's asks, once every client that asked is named by its launch record: who asked is
         // told the index with each.
         if let Some(search) = search.as_mut() {
@@ -1390,6 +1416,10 @@ fn spawn_reader(socket: &std::path::Path, program: &OsString) -> Result<std::pro
 /// for the session's own user.
 struct Pam {
     checker: oxyos_auth::Checker,
+    /// The PIN's (`PAM_PIN_SERVICE`): no online check, a throttle of its own.
+    pins: oxyos_auth::Checker,
+    /// Whether the check under way is a PIN's.
+    checking_pin: bool,
     user: std::ffi::CString,
 }
 
@@ -1397,6 +1427,7 @@ impl Authentication for Pam {
     fn attempt(
         &mut self,
         account: Option<&str>,
+        passcode: bool,
         mut secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)> {
         // The lock checks the session's own user's password, never another account's.
@@ -1405,7 +1436,16 @@ impl Authentication for Pam {
         }
         // The password's memory moves to PAM's side whole, and is overwritten there.
         let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
-        match self.checker.attempt(secret, Instant::now()) {
+        let checker = if passcode {
+            &mut self.pins
+        } else {
+            &mut self.checker
+        };
+        let attempt = checker.attempt(secret, Instant::now());
+        if let oxyos_auth::Attempt::Checking = attempt {
+            self.checking_pin = passcode;
+        }
+        match attempt {
             oxyos_auth::Attempt::Checking => None,
             oxyos_auth::Attempt::Busy => Some((AuthOutcome::Busy, 0)),
             oxyos_auth::Attempt::Throttled(wait) => {
@@ -1415,11 +1455,20 @@ impl Authentication for Pam {
     }
 
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.checker.as_fd()
+        if self.checking_pin {
+            self.pins.as_fd()
+        } else {
+            self.checker.as_fd()
+        }
     }
 
     fn answer(&mut self) -> Option<(AuthOutcome, u32)> {
-        let answer = self.checker.answer(Instant::now())?;
+        let checker = if self.checking_pin {
+            &mut self.pins
+        } else {
+            &mut self.checker
+        };
+        let answer = checker.answer(Instant::now())?;
         let outcome = match answer.outcome {
             oxyos_auth::Outcome::Accepted => AuthOutcome::Accepted,
             oxyos_auth::Outcome::Rejected => AuthOutcome::Rejected,

@@ -139,8 +139,8 @@
     "url": "oxyos-settings://trackpad",
     "titles": { "en": "Trackpad", "es": "Trackpad" },
     "keywords": {
-      "en": ["trackpad", "touchpad", "natural scrolling", "scrolling", "gestures", "swipe", "tap to click", "pointer", "fingers"],
-      "es": ["trackpad", "touchpad", "panel táctil", "desplazamiento natural", "desplazamiento", "gestos", "deslizar", "tocar para hacer clic", "puntero", "dedos"]
+      "en": ["trackpad", "touchpad", "natural scrolling", "scrolling", "gestures", "swipe", "tap to click", "pointer", "fingers", "more gestures", "mission control", "app exposé", "app expose", "launchpad", "pinch", "desktops", "three fingers", "four fingers"],
+      "es": ["trackpad", "touchpad", "panel táctil", "desplazamiento natural", "desplazamiento", "gestos", "deslizar", "tocar para hacer clic", "puntero", "dedos", "más gestos", "mission control", "app exposé", "launchpad", "pellizcar", "escritorios", "tres dedos", "cuatro dedos"]
     }
   },
   {
@@ -171,6 +171,15 @@
     }
   },
   {
+    "id": "settings:login-items",
+    "url": "oxyos-settings://login-items",
+    "titles": { "en": "Login Items & Extensions", "es": "Ítems de inicio y extensiones" },
+    "keywords": {
+      "en": ["login items", "open at login", "startup", "startup apps", "launch at login", "background", "background activity", "background items", "run in background", "extensions"],
+      "es": ["ítems de inicio", "abrir al iniciar sesión", "arranque", "apps de inicio", "iniciar con el sistema", "segundo plano", "actividad en segundo plano", "ítems en segundo plano", "ejecutar en segundo plano", "extensiones"]
+    }
+  },
+  {
     "id": "settings:backups",
     "url": "oxyos-settings://backups",
     "titles": { "en": "Backups", "es": "Copias de seguridad" },
@@ -193,8 +202,8 @@
     "url": "oxyos-settings://privacy",
     "titles": { "en": "Privacy", "es": "Privacidad" },
     "keywords": {
-      "en": ["privacy", "security", "permissions", "camera", "microphone", "location", "files", "notifications", "background", "login items", "app access", "tracking"],
-      "es": ["privacidad", "seguridad", "permisos", "cámara", "micrófono", "ubicación", "archivos", "notificaciones", "segundo plano", "ítems de inicio", "acceso de apps", "rastreo"]
+      "en": ["privacy", "security", "permissions", "camera", "microphone", "location", "files", "notifications", "app access", "tracking"],
+      "es": ["privacidad", "seguridad", "permisos", "cámara", "micrófono", "ubicación", "archivos", "notificaciones", "acceso de apps", "rastreo"]
     }
   },
   {
