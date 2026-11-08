@@ -189,6 +189,15 @@ class Scenario:
                 return True
         return False
 
+    def choose(self, label, since):
+        """Chooses the recovery's menu item `label`, by the number the menu printed for it (the
+        menu is the machine's: Restore from Backup is offered only where the recovery may erase)."""
+        menu = self.m.serial_text()[since:]
+        numbers = re.findall(r"^\s*(\d+)  " + re.escape(label), menu, re.MULTILINE)
+        if not numbers:
+            raise Failure(f"the recovery's menu has no {label}")
+        self.m.send_serial(numbers[-1] + "\r")
+
     # The phases.
 
     def install(self):
@@ -323,7 +332,7 @@ class Scenario:
         sh = self.shell(debug)
         self.recovery_checks(sh)
         marks = len(self.m.serial_text()), len(self.m.debug_text())
-        self.m.send_serial("6\r")
+        self.choose("Restart", console)
         self.m.wait_serial("Restarting", timeout=60, after=marks[0])
         self.unlock()
         sh = self.shell(marks[1])
@@ -348,7 +357,7 @@ class Scenario:
         self.check("OxyOS's entry has no tries left", any(re.fullmatch(r"oxyos-.+\+0-3\.conf", e) for e in entries),
                    " ".join(entries))
         marks = len(self.m.serial_text()), len(self.m.debug_text())
-        self.m.send_serial("6\r")
+        self.choose("Restart", console)
         self.m.wait_serial("Restarting", timeout=60, after=marks[0])
         self.unlock()
         sh = self.shell(marks[1])
@@ -418,7 +427,7 @@ class Scenario:
         self.m.keys("down")
         self.m.keys("ret")
         _, at = self.m.wait_serial("Choose an option: ", timeout=self.args.timeout, after=console)
-        self.m.send_serial("1\r")
+        self.choose("Erase and Reinstall OxyOS", console)
         _, at = self.m.wait_serial("to erase this computer", timeout=60, after=at)
         started = time.monotonic()
         self.m.send_serial("erase\r")
@@ -473,7 +482,7 @@ class Scenario:
         _, at = self.m.wait_serial("Choose an option: ", timeout=self.args.timeout, after=console)
         menu = self.m.serial_text()[console:at]
         self.check("the recovery offers Restore from Backup", "2  Restore from Backup" in menu, menu[-600:])
-        self.m.send_serial("2\r")
+        self.choose("Restore from Backup", console)
         _, at = self.m.wait_serial("press Enter to go back: ", timeout=120, after=at)
         listed = self.m.serial_text()[console:at]
         self.check("the backup disk is offered, the computer's own disk is not",
