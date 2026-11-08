@@ -634,9 +634,10 @@ pub fn erase(
     destroy(host, &layout.root)?;
 
     progress(Step::Recreating);
-    // The old system's kernels go with it: the image brings its own.
+    // The old system's kernels go with it, their Safe Mode entries too: the image brings its own.
     entries
         .remove_system()
+        .and_then(|_| entries.remove_safe_mode())
         .map_err(|e| failed("the boot entries", e.to_string()))?;
     match fs::remove_dir_all(esp.join("oxyos")) {
         Ok(()) => {}

@@ -7570,3 +7570,13 @@ fn a_background_item_and_its_state_cross_the_abi() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn safe_mode_crosses_the_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_SAFE_MODE"),
+        i64::from(OXYOS_EVENT_SAFE_MODE)
+    );
+    let told = convert(&Event::SafeMode {}).unwrap();
+    assert_eq!(told.kind, OXYOS_EVENT_SAFE_MODE);
+}

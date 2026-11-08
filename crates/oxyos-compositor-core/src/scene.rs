@@ -549,6 +549,8 @@ pub struct Scene {
     /// What applications asked of their login items and background activity
     /// (docs/adr/0060-login-items-and-background-activity.mdx).
     background: background::Background,
+    /// The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+    safe_mode: bool,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
     choosers: choosers::Choosers,
     /// The user's preferences as the program running the compositor told them, and the changes
@@ -1182,6 +1184,9 @@ impl Scene {
         }
         if new.shell || new.settings {
             self.tell_application_lists(client);
+        }
+        if new.shell || new.lock {
+            self.tell_safe_mode(client);
         }
         Ok(())
     }
@@ -5141,6 +5146,9 @@ pub use search::{SearchAsk, MAX_SEARCH_ASKS, SEARCH_VERSION};
 /// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
 mod background;
 pub use background::{BackgroundItemRequest, BACKGROUND_VERSION};
+/// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+mod safe_mode;
+pub use safe_mode::SAFE_MODE_VERSION;
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 mod choosers;
 pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};
@@ -5152,8 +5160,8 @@ pub use displays::{
 /// Notifications (docs/adr/0026-notifications.mdx).
 mod notifications;
 pub use notifications::{
-    NotificationPolicy, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION, NOTIFICATION_BURST,
-    NOTIFICATION_WINDOW,
+    NotificationPolicy, SessionActivation, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION,
+    NOTIFICATION_BURST, NOTIFICATION_WINDOW,
 };
 mod appearances;
 mod menus;

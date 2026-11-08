@@ -65,6 +65,7 @@ import {
   largeFiles,
   measuredOf,
   removeOutcomeOf,
+  resetOutcomeOf,
   type LargeFile,
   type StorageActions,
   type StorageMeasured,
@@ -1123,6 +1124,10 @@ function useStorageActions(): StorageActions {
           apps = apps.filter((app) => app.id !== id);
           return 'removed';
         },
+        reset: async (id) => {
+          apps = apps.map((app) => (app.id === id ? { ...app, data: 0, caches: 0 } : app));
+          return 'reset';
+        },
       };
     }
     const failure = (answer: any) =>
@@ -1155,6 +1160,7 @@ function useStorageActions(): StorageActions {
         if (!moved?.ok) throw new Error(moved?.error ?? 'failed');
       },
       remove: async (id) => removeOutcomeOf(await systemStorage.remove(id)),
+      reset: async (id) => resetOutcomeOf(await systemStorage.reset(id)),
     };
   }, []);
 }

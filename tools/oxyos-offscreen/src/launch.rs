@@ -888,6 +888,10 @@ pub struct Launch {
     /// `--trash`: the user's Trashes followed for the dock as the session follows them
     /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
     pub trash: bool,
+    /// `--safe-mode`: the session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx,
+    /// decision 10), as `oxyos-session` reads it from the kernel's command line: nothing opened at
+    /// login, no background activity but the system's, the shell and the login screen told.
+    pub safe_mode: bool,
     /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0062-storage.mdx),
     /// on the run's own home, the volume's figures and the system's a played disk's (FILE, JSON:
     /// `name`, `capacity`, `available`, `reserved`, `system`), never the developer's disk.
@@ -1076,6 +1080,7 @@ impl Launch {
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
+        let mut safe_mode = false;
         let mut storage = None;
         let mut runtimes = None;
         let mut installed_fixture = None;
@@ -1252,6 +1257,10 @@ impl Launch {
                 }
                 Some("--trash") => {
                     trash = true;
+                    continue;
+                }
+                Some("--safe-mode") => {
+                    safe_mode = true;
                     continue;
                 }
                 Some("--storage") => {
@@ -1858,6 +1867,7 @@ impl Launch {
                 grants,
                 installd,
                 trash,
+                safe_mode,
                 storage,
                 runtimes,
                 installed_fixture,
@@ -5116,6 +5126,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.follow_displays(file)?;
     }
     session.grant_settings = launch.grant_settings.clone();
+    // Safe Mode, told to the shell and the login screen as they connect.
+    if launch.safe_mode {
+        session.compositor.scene.set_safe_mode();
+    }
     session.chooser_command = launch.file_chooser.clone();
     session.grants = launch.grants.clone();
     if let Some(socket) = &launch.installd {
@@ -5366,8 +5380,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             )
             .with_installed(None)
             // What `--grant` gives, told to the applications it starts as the policy's would be.
-            .with_fixture_grants(launch.grants.clone()),
+            .with_fixture_grants(launch.grants.clone())
+            // Where each says why it ends, if it ends for a fault (docs/adr/0061), in the run's
+            // own folder.
+            .with_crash_reports(session.directory().join("reports"))?,
         );
+        // What an erasure a crash interrupted left aside, deleted as a session starts.
+        if let Err(error) = oxyos_apps::data::sweep(&oxyos_apps::data::bases()) {
+            eprintln!("[launch] what resets left is not all deleted: {error}");
+        }
         if let Some(root) = &launch.installed_fixture {
             let user = oxyos_apps::session_user().unwrap_or_default();
             session.launcher = session.launcher.take().map(|launcher| {
@@ -5386,9 +5407,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }),
         ));
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
-        // starts them.
+        // starts them; none in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
         let open_at_login = session.settings.preferences().open_at_login.clone();
-        if let Some(launcher) = session.launcher.as_mut() {
+        if launch.safe_mode {
+            eprintln!("[launch] Safe Mode: nothing opened at login");
+            if let Some(background) = session.background.as_mut() {
+                background.set_safe_mode();
+            }
+        } else if let Some(launcher) = session.launcher.as_mut() {
             for id in &open_at_login {
                 if let Err(error) = launcher.launch(id) {
                     eprintln!("[launch] {id} not opened at login: {error}");
