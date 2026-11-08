@@ -54,16 +54,6 @@ AccountSession::~AccountSession() {
   if (wake_ >= 0) close(wake_);
 }
 
-folly::dynamic AccountSession::snapshot() {
-  std::string buffer(kMessage, '\0');
-  auto answer = answered(oxyos_account_session_snapshot(buffer.data(), buffer.size()), buffer);
-  if (!answer.json) {
-    std::cerr << "[host] the Oxy session: " << answer.error << "\n";
-    return nullptr;
-  }
-  return folly::parseJson(*answer.json);
-}
-
 std::optional<std::string> AccountSession::platform() {
   std::string buffer(kMessage, '\0');
   auto answer = answered(oxyos_account_platform(buffer.data(), buffer.size()), buffer);
@@ -71,18 +61,24 @@ std::optional<std::string> AccountSession::platform() {
   return answer.json;
 }
 
-bool AccountSession::subscribe(std::function<void(const folly::dynamic&)> changed) {
-  if (subscription_) {
-    changed_ = std::move(changed);
-    return true;
-  }
+bool AccountSession::follow() {
+  if (subscription_) return true;
   subscription_ = oxyos_account_session_subscribe();
   if (!subscription_) {
     std::cerr << "[host] the Oxy session: " << oxyos_last_error() << "\n";
     return false;
   }
-  changed_ = std::move(changed);
   return true;
+}
+
+folly::dynamic AccountSession::current() {
+  drain();
+  return latest_;
+}
+
+bool AccountSession::subscribe(std::function<void(const folly::dynamic&)> changed) {
+  changed_ = std::move(changed);
+  return follow();
 }
 
 int AccountSession::subscriptionFd() const {
@@ -259,6 +255,29 @@ void AccountSession::work() {
   }
 }
 
+bool AccountSession::drain() {
+  if (!subscription_) return false;
+  bool told = false;
+  std::string buffer(kMessage, '\0');
+  for (;;) {
+    int64_t length = oxyos_account_session_subscription_next(subscription_, buffer.data(), buffer.size());
+    if (length == 0) break;
+    told = true;
+    if (length < 0 || static_cast<size_t>(length) >= buffer.size()) {
+      std::cerr << "[host] the Oxy session's subscription ended: "
+                << (length < 0 ? oxyos_last_error() : "an answer longer than a message") << "\n";
+      oxyos_account_session_subscription_free(subscription_);
+      subscription_ = nullptr;
+      latest_ = nullptr;
+      if (changed_) changed_(nullptr);
+      break;
+    }
+    latest_ = folly::parseJson(std::string_view(buffer.data(), static_cast<size_t>(length)));
+    if (changed_) changed_(latest_);
+  }
+  return told;
+}
+
 bool AccountSession::deliver() {
   bool busy = false;
   std::deque<std::pair<Answer, Done>> answers;
@@ -276,23 +295,7 @@ bool AccountSession::deliver() {
     }
     busy = true;
   }
-  if (subscription_) {
-    std::string buffer(kMessage, '\0');
-    for (;;) {
-      int64_t length = oxyos_account_session_subscription_next(subscription_, buffer.data(), buffer.size());
-      if (length == 0) break;
-      busy = true;
-      if (length < 0 || static_cast<size_t>(length) >= buffer.size()) {
-        std::cerr << "[host] the Oxy session's subscription ended: "
-                  << (length < 0 ? oxyos_last_error() : "an answer longer than a message") << "\n";
-        oxyos_account_session_subscription_free(subscription_);
-        subscription_ = nullptr;
-        if (changed_) changed_(nullptr);
-        break;
-      }
-      if (changed_) changed_(folly::parseJson(std::string_view(buffer.data(), static_cast<size_t>(length))));
-    }
-  }
+  busy |= drain();
   return busy;
 }
 

@@ -1901,9 +1901,12 @@ std::shared_ptr<TurboModule> createHostModule(
         });
       };
     };
-    module->method("snapshot", [available](jsi::Runtime& rt, const jsi::Value*, size_t) {
+    // The last snapshot the service told the host, which follows it from its start: never a
+    // question to the service on the JavaScript thread (docs/adr/0058-the-platform-api.mdx,
+    // decision 8). Null before the first.
+    module->method("snapshot", [available, session](jsi::Runtime& rt, const jsi::Value*, size_t) {
       if (!available) return jsi::Value::null();
-      return jsi::valueFromDynamic(rt, AccountSession::snapshot());
+      return jsi::valueFromDynamic(rt, session().current());
     });
     module->method("subscribe", [&services, available, session](jsi::Runtime&, const jsi::Value*, size_t) {
       if (!available) return jsi::Value(false);

@@ -643,6 +643,13 @@ int main(int argc, char** argv) {
   services.webSockets = &webSockets;
   // The application it runs, as its launcher started it (application.h).
   services.application = application;
+  // The machine's Oxy session, followed from now in an application the session launched (never
+  // the shell or the login screen), so its first snapshot is held before JavaScript reads it
+  // (account-session.h; OxyOSAccountSession's `available`).
+  if (application.recorded && !shellMode) {
+    services.accountSession = std::make_unique<oxyos::AccountSession>();
+    services.accountSession->follow();
+  }
   services.emit = [&instance](const std::string& event, folly::dynamic body) {
     instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
   };

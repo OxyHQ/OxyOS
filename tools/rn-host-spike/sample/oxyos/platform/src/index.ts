@@ -7,6 +7,7 @@ import NativeOxyOSApplication from '../specs/NativeOxyOSApplication.ts';
 import NativeOxyOSClipboard from '../specs/NativeOxyOSClipboard.ts';
 import NativeOxyOSNotifications from '../specs/NativeOxyOSNotifications.ts';
 import NativeOxyOSSounds from '../specs/NativeOxyOSSounds.ts';
+import { createAccount, type AccountModule } from './account.ts';
 import { createApplication } from './application.ts';
 import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
@@ -17,6 +18,7 @@ import { createPasteboard } from './pasteboard.ts';
 import { createSession, type SystemModule } from './session.ts';
 import { createSounds } from './sounds.ts';
 
+export type { AccessToken, Account, AccountState, TokenReason } from './account.ts';
 export type { Capability, Permission } from './application.ts';
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
@@ -85,3 +87,10 @@ export const files = createFiles(fileService);
 /** This application: what the session started it as and to open, opening a URL elsewhere, and its
     permissions (docs/adr/0030-installing-applications.mdx, decision 8). */
 export const application = createApplication(NativeOxyOSApplication, session);
+
+/** The machine's Oxy session, for an application the session launched
+    (docs/adr/0020-oxy-account-login.mdx, decision 6). */
+export const account = createAccount(
+  TurboModuleRegistry.get('OxyOSAccountSession') as AccountModule | null,
+  DeviceEventEmitter,
+);

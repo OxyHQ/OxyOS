@@ -4,112 +4,67 @@
 // (`OxyProvider`'s host mode) signs in to nothing: it shows the platform's account and asks the
 // platform for short tokens for this application alone. Never in the shell, the login screen (which
 // runs the SDK's own sign-in to set an account up) or a process the session did not start: the host
-// says where it is available (`OxyOSAccountSession.available`), and the accounts' service knows the
+// says where it is available (the platform's `account`), and the accounts' service knows the
 // asking process by its launch, never by what it says.
 //
 // The interface is `@oxy.so/core/host`'s (B1, contract 1), mirrored here: the runtime and the
 // application each carry their own copy of the SDK, so the registration is the one global both read,
 // `globalThis[Symbol.for('oxy.so/session-host')]`, made once and never replaced.
-import { DeviceEventEmitter, Linking, TurboModuleRegistry } from 'react-native';
+import { account as platformAccount, application as platformApplication } from '@oxyos/platform';
 
 /** The contract this host speaks (`OXY_SESSION_HOST_CONTRACT`). */
 export const OXY_SESSION_HOST_CONTRACT = 1;
 const KEY = Symbol.for('oxy.so/session-host');
 /** Settings' Oxy account page, where the account is managed, signed out and removed. */
 export const ACCOUNT_SETTINGS_URL = 'oxyos-settings://oxy-account';
-const REASONS = new Set(['boot', 'preflight', 'response-401']);
 const ACTIONS = new Set(['sign_in', 'switch_account', 'sign_out', 'manage_account']);
 
-/** A snapshot of the service's, kept only if it is one; anything else is none. */
-function snapshotOf(told) {
-  if (typeof told !== 'object' || told === null) return null;
-  const { status, account, online } = told;
-  if (status !== 'signed_in' && status !== 'signed_out' && status !== 'unavailable') return null;
-  if (typeof online !== 'boolean') return null;
-  let kept = null;
-  if (account != null) {
-    if (typeof account !== 'object' || typeof account.id !== 'string' || typeof account.handle !== 'string') return null;
-    kept = Object.freeze({
-      id: account.id,
-      handle: account.handle,
-      ...(typeof account.displayName === 'string' ? { displayName: account.displayName } : {}),
-      ...(typeof account.avatar === 'string' ? { avatar: account.avatar } : {}),
-    });
-  }
-  if ((status === 'signed_in') !== (kept !== null)) return null;
-  return { status, account: kept, online };
-}
-
 /**
- * The host over the Bloom host's `OxyOSAccountSession`, or null where it is not available. Its
- * `revision` is its own: the SDK takes a new revision, a new status or another account's id for a
- * switch of account, so it rises only when the status or the account's id changes, whatever the
- * service numbered (a service started again numbers from the start). A change of the profile or of
- * the network is a new snapshot of the same revision.
+ * The host over the platform's `account` (`@oxyos/platform`), or null where there is no session.
+ * Its `revision` is its own: the SDK takes a new revision, a new status or another account's id for
+ * a switch of account, so it rises only when the status or the account's id changes. A change of
+ * the profile or of the network is a new snapshot of the same revision.
  */
-export function createSessionHost(native = TurboModuleRegistry.get('OxyOSAccountSession'), events = DeviceEventEmitter,
-  linking = Linking) {
-  if (!native || !native.getConstants().available) return null;
+export function createSessionHost(account = platformAccount, application = platformApplication) {
+  if (!account.available) return null;
   let revision = 0;
   let current = null;
-  const listeners = new Set();
-  const take = (told) => {
-    const next = snapshotOf(told) ?? { status: 'unavailable', account: null, online: false };
-    if (current && current.status === next.status && current.online === next.online
-      && JSON.stringify(current.account) === JSON.stringify(next.account)) {
-      return false;
+  const take = (state) => {
+    if (current && current.status === state.status && current.online === state.online
+      && JSON.stringify(current.account) === JSON.stringify(state.account)) {
+      return current;
     }
-    if (!current || current.status !== next.status || current.account?.id !== next.account?.id) revision += 1;
-    current = Object.freeze({ ...next, revision });
-    return true;
+    if (!current || current.status !== state.status || current.account?.id !== state.account?.id) revision += 1;
+    current = Object.freeze({ ...state, revision });
+    return current;
   };
-  take(native.snapshot());
-  const tell = () => {
-    for (const listener of [...listeners]) listener();
-  };
-  // Followed on one connection the service keeps. Once it ends (the service went away), the session
-  // is unavailable until the application next asks for a token, which follows it again: nothing
-  // wakes an idle application to look.
-  let following = false;
-  const follow = () => {
-    following = native.subscribe();
-    if (!following && take(null)) tell();
-  };
-  events.addListener('OxyOSAccountSessionChanged', (told) => {
-    if (told === null) following = false;
-    if (take(told)) tell();
-  });
-  follow();
   const host = {
     contract: OXY_SESSION_HOST_CONTRACT,
     platform: 'oxyos',
-    snapshot: () => current,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    snapshot: () => take(account.state.current() ?? { status: 'unavailable', account: null, online: false }),
+    subscribe: (listener) => account.state.subscribe(() => listener()),
     async getAccessToken(request) {
-      const reason = request?.reason;
-      if (!REASONS.has(reason)) return null;
-      if (!following) follow();
-      const token = await native.getAccessToken(reason);
-      if (typeof token !== 'object' || token === null) return null;
-      const { accessToken, expiresAt } = token;
-      if (typeof accessToken !== 'string' || !accessToken || typeof expiresAt !== 'string' || !expiresAt) return null;
-      return { accessToken, expiresAt };
+      try {
+        return await account.accessToken(request?.reason);
+      } catch {
+        // A reason that is not one, or no session: no token, as the contract answers.
+        return null;
+      }
     },
     async request(action) {
       if (!ACTIONS.has(action)) throw new Error(`OxyOS's session host: no action ${String(action)}`);
       // Signing in again: the session locks, and unlocking checks the password with Oxy online.
       if (action === 'sign_in') {
-        if (!native.lockSession()) throw new Error('OxyOS could not lock the session');
+        try {
+          await account.lock();
+        } catch {
+          throw new Error('OxyOS could not lock the session');
+        }
         return;
       }
       // The account is managed, signed out of and switched in Settings' Oxy account page: signing
       // out ends the session, and switching is signing out to the login screen (decision 5).
-      await linking.openURL(ACCOUNT_SETTINGS_URL);
+      await application.open(ACCOUNT_SETTINGS_URL);
     },
   };
   return Object.freeze(host);
