@@ -390,11 +390,14 @@ fn chart(spans: &[Span], screen: &[(u64, u64)], now: u64, bin: u64, bins: usize)
     for index in 0..bins as u64 {
         let from = start + index * bin;
         let to = from + bin;
+        // A bin holds what began before its end; the last ends at `now` when `now` is on a bin's
+        // edge, and holds what began at `now` too.
+        let reach = if to == end { to.max(now + 1) } else { to };
         // The charge at the bin's end, or, where the session stopped within it, at its stop.
         let level = spans
             .iter()
             .rev()
-            .filter(|span| span.from < to && span.to >= from)
+            .filter(|span| span.from < reach && span.to >= from)
             .find_map(|span| span.level_at(span.to.min(to).min(now)))
             .map(|(percent, _)| percent);
         levels.push(level);
