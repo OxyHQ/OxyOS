@@ -58,6 +58,7 @@ import {
 } from '../../../apps/settings/src/account';
 import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
 import { localOutcomeFrom, localSignInFrom } from '../../../apps/settings/src/local-sign-in';
+import type { KeychainPlatform } from '../../../apps/settings/src/passwords';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
@@ -988,6 +989,7 @@ const accountSession = TurboModuleRegistry.get<{
   remove(): Promise<unknown>;
   erasePreview(): Promise<unknown>;
   eraseAll(password: string): Promise<unknown>;
+  keychain(request: string): Promise<unknown>;
 }>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
@@ -1017,6 +1019,18 @@ const eraseActions: EraseActions | undefined = accountSession
       eraseAll: async (password) => eraseOutcomeFrom(await accountSession.eraseAll(password)),
     }
   : undefined;
+
+/** Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): each
+    request handed to the host, which sends it to the accounts' service and forgets it, and a copy
+    marked sensitive, which the host clears after 90 seconds (docs/adr/0007-clipboard.mdx). */
+const clipboard = TurboModuleRegistry.get<{ setSensitiveString?(text: string): Promise<boolean> }>('OxyOSClipboard');
+const keychainPlatform: KeychainPlatform | undefined =
+  accountSession && typeof accountSession.keychain === 'function'
+    ? {
+        ask: (request) => accountSession.keychain(JSON.stringify(request)),
+        copySensitive: async (text) => (clipboard?.setSensitiveString ? clipboard.setSensitiveString(text) : false),
+      }
+    : undefined;
 
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
@@ -1071,6 +1085,7 @@ export default function SettingsApp() {
     // preferences from Settings alone.
     search: oxyosSurfaces.search,
     erase: sessionHost ? eraseActions : undefined,
+    keychain: sessionHost ? keychainPlatform : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

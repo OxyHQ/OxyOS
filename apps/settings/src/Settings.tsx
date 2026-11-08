@@ -28,6 +28,7 @@ import {
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiKey2Line,
   RiLockLine,
   RiMoreLine,
   RiMouseLine,
@@ -157,6 +158,7 @@ import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { PasswordsPage } from "./PasswordsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
@@ -2483,6 +2485,7 @@ export function Settings({
   // then Battery (Energy on a computer without one, docs/adr/0057-battery-and-energy.mdx), once the
   // session has told it.
   const networked = snapshot.network !== undefined;
+  const keychain = actions.keychain !== undefined;
   const bluetooth = snapshot.bluetooth !== undefined;
   const power = snapshot.power;
   // The sidebar's Battery or Energy item, once the session told the power; its page's title, also
@@ -2548,6 +2551,9 @@ export function Settings({
           { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
           { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
           { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
+          // After Lock Screen, as a Mac lists Passwords after Touch ID & Password: where the
+          // platform has an account session to keep them (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+          ...(keychain ? [{ key: "passwords", label: words.passwords, icon: RiKey2Line, page: "passwords" }] : []),
           { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
           { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
         ],
@@ -2572,7 +2578,7 @@ export function Settings({
         ],
       },
     ];
-  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon]);
+  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon, keychain]);
   const pages = React.useMemo<Record<string, SettingsModalPage>>(
     () => ({
       ...(accountKind
@@ -2583,6 +2589,7 @@ export function Settings({
       notifications: { title: words.notifications, content: <WithPageProps render={NotificationsPage} /> },
       sound: { title: words.sound, content: <WithPageProps render={SoundPage} /> },
       "lock-screen": { title: words.lockScreen, content: <WithPageProps render={LockScreenPage} /> },
+      ...(keychain ? { passwords: { title: words.passwords, content: <WithPageProps render={PasswordsPage} /> } } : {}),
       displays: { title: words.displays, content: <WithPageProps render={DisplaysPage} /> },
       accessibility: { title: words.accessibility, content: <WithPageProps render={AccessibilityPage} /> },
       keyboard: { title: words.keyboard, content: <WithPageProps render={KeyboardPage} /> },
@@ -2611,7 +2618,7 @@ export function Settings({
           }
         : {}),
     }),
-    [strings, words, networked, bluetooth, powerPage, accountKind],
+    [strings, words, networked, bluetooth, powerPage, accountKind, keychain],
   );
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

@@ -90,6 +90,15 @@
     }
   },
   {
+    "id": "settings:passwords",
+    "url": "oxyos-settings://passwords",
+    "titles": { "en": "Passwords", "es": "Contraseñas" },
+    "keywords": {
+      "en": ["passwords", "keychain", "passkeys", "verification codes", "two-factor", "autofill", "logins", "accounts", "security", "recovery key", "wi-fi passwords"],
+      "es": ["contraseñas", "llavero", "llaves de acceso", "códigos de verificación", "verificación en dos pasos", "autorrelleno", "inicios de sesión", "cuentas", "seguridad", "clave de recuperación", "contraseñas wi-fi"]
+    }
+  },
+  {
     "id": "settings:displays",
     "url": "oxyos-settings://displays",
     "titles": { "en": "Displays", "es": "Pantallas" },

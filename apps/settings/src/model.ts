@@ -4,6 +4,7 @@ import type { LowPowerMode, PowerActions, PowerState } from "./battery";
 import type { EraseActions } from "./erase";
 import type { InputMethod, InputSourcesState } from "./input-sources";
 import type { NetworkActions, NetworkState } from "./network";
+import type { KeychainPlatform } from "./passwords";
 import type { SoundActions, SoundState } from "./sound";
 import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
 import type { AddedWallpaper, WallpaperCatalog } from "./wallpaper";
@@ -226,6 +227,10 @@ export type SettingsActions = {
       none where the platform has no account session to ask (a development session started from a
       terminal), which offers no erase. */
   erase?: EraseActions;
+  /** Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): the
+      accounts' service's keychain, asked item by item. None where the platform has no account
+      session to ask, which shows no Passwords page. */
+  keychain?: KeychainPlatform;
   /** Settings › Spotlight's platform (docs/adr/0051-search.mdx). */
   search?: SettingsSearch;
   /** The system's folder chooser (docs/adr/0028-file-access.mdx): the folder chosen, as a

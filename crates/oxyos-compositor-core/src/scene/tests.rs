@@ -4268,6 +4268,43 @@ fn the_clipboard_is_read_and_replaced_only_by_the_user_s_own_actions() {
 }
 
 #[test]
+fn a_sensitive_copy_is_cleared_by_its_owner_with_no_input() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    // A plain copy needs an input of the owner's to be cleared.
+    copy(&mut h, APP, 1);
+    h.clear_log();
+    h.request(APP, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert!(clipboard_events(&h, APP).is_empty());
+    // One marked sensitive (a password copied from the keychain) is cleared on no input, as its
+    // owner clears it after a while.
+    let serial = type_key(&mut h);
+    for request in [
+        Request::ClipboardOffer { offer: 2, serial },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(super::SENSITIVE_TYPE),
+        },
+        Request::ClipboardCommit { offer: 2 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    h.clear_log();
+    // By its owner alone.
+    h.request(OTHER, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert!(clipboard_events(&h, APP).is_empty());
+    h.request(APP, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert_eq!(clipboard_events(&h, APP), [Event::ClipboardEmpty {}]);
+}
+
+#[test]
 fn the_clipboard_empties_when_its_owner_clears_it_or_goes() {
     let mut h = Harness::new();
     let (app, other) = two_windows(&mut h);

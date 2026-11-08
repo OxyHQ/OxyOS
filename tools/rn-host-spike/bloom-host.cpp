@@ -1147,6 +1147,9 @@ int main(int argc, char** argv) {
     };
     services.clipboard = {
         .copy = [&window, &lastPress](const std::string& text) { return window->copyText(lastPress, text); },
+        .copySensitive = [&window, &lastPress](const std::string& text) {
+          return window->copySensitiveText(lastPress, text);
+        },
         .paste = [&window, &lastPress](std::function<void(std::string)> done) {
           window->pasteText(lastPress, std::move(done));
         },

@@ -323,6 +323,10 @@ struct ApplicationOutput {
     work_area: Rect,
 }
 
+/// The media type a copy is marked sensitive with (ADR 0007, decision 6): clipboard managers keep
+/// none of it, and its owner may clear it on no input (a password cleared after a while).
+pub const SENSITIVE_TYPE: &str = "x-oxyos-sensitive";
+
 /// What the clipboard holds: an offer its owner committed, and the name receivers know it by.
 #[derive(Clone, Debug)]
 struct Clipboard {
@@ -1601,8 +1605,16 @@ impl Scene {
                 Ok(())
             }
             Request::ClipboardClear { serial } => {
-                let owner = self.clipboard.as_ref().map(|clipboard| clipboard.owner);
-                if owner == Some(client) && self.recent_input(client, serial) {
+                // The owner empties it with an input of its own; a copy it marked sensitive (ADR
+                // 0007, decision 6: a password copied from the keychain) also without one, as it
+                // clears it after a while (ADR 0050 decision 8's 90 seconds) on no input at all.
+                let owned = self.clipboard.as_ref().filter(|held| held.owner == client);
+                let sensitive = owned.is_some_and(|held| {
+                    held.types
+                        .iter()
+                        .any(|mime| mime.as_str() == SENSITIVE_TYPE)
+                });
+                if owned.is_some() && (sensitive || self.recent_input(client, serial)) {
                     self.clipboard = None;
                     self.tell_clipboard();
                 }
