@@ -632,3 +632,12 @@ session required pam_permit.so
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[test]
+fn a_wait_is_said_in_whole_seconds_rounded_up() {
+    assert_eq!(whole_seconds(Duration::ZERO), 0);
+    assert_eq!(whole_seconds(Duration::from_millis(200)), 1);
+    assert_eq!(whole_seconds(Duration::from_secs(30)), 30);
+    assert_eq!(whole_seconds(Duration::from_millis(30_001)), 31);
+    assert_eq!(whole_seconds(Duration::MAX), u32::MAX);
+}

@@ -133,11 +133,6 @@ pub struct Manager {
     checks: u64,
 }
 
-/// Whole seconds, rounded up: a wait of 0.2 s is still a wait.
-fn seconds(wait: Duration) -> u32 {
-    u32::try_from(wait.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
-}
-
 impl Manager {
     /// The login program starting: the login screen first.
     pub fn start(now: Instant) -> (Self, Vec<Action>) {
@@ -193,12 +188,12 @@ impl Manager {
         if let Some(wait) = throttle.wait(now) {
             return vec![Action::Answer {
                 verdict: Verdict::Throttled,
-                wait_s: seconds(wait),
+                wait_s: oxyos_auth::whole_seconds(wait),
             }];
         }
         if !enrolled {
             throttle.record(Outcome::Rejected, now);
-            let wait_s = seconds(throttle.wait(now).unwrap_or_default());
+            let wait_s = oxyos_auth::whole_seconds(throttle.wait(now).unwrap_or_default());
             return vec![Action::Answer {
                 verdict: Verdict::Rejected,
                 wait_s,
@@ -238,7 +233,7 @@ impl Manager {
         if counted {
             throttle.record(Outcome::Rejected, now);
         }
-        let wait_s = seconds(throttle.wait(now).unwrap_or_default());
+        let wait_s = oxyos_auth::whole_seconds(throttle.wait(now).unwrap_or_default());
         self.state = State::Greeter { checking: None };
         vec![Action::Answer {
             verdict: Verdict::Rejected,

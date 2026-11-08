@@ -224,5 +224,11 @@ impl Throttle {
     }
 }
 
+/// A wait in whole seconds, rounded up, as the login screen, the lock screen and the session say
+/// and send it: a wait of 0.2 s is still a wait of a second.
+pub fn whole_seconds(wait: Duration) -> u32 {
+    u32::try_from(wait.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
+}
+
 #[cfg(test)]
 mod tests;
