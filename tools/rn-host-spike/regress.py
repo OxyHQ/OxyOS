@@ -1130,29 +1130,52 @@ def serve_accounts(path, accounts, login=None, log=None):
             with open(log, "a") as out:
                 out.write(json.dumps({"t": time.monotonic_ns(), "asked": asked, "answered": answered}) + "\n")
 
+    def progress(connection, stages):
+        """The steps the real service tells as it starts each (`{"progress": ...}`), a moment apart
+        (`login.enroll.stage_ms`, 250 by default) so a screen can show each."""
+        for stage in stages:
+            connection.send(json.dumps({"progress": stage}).encode())
+            time.sleep(login.get("enroll", {}).get("stage_ms", 250) / 1000)
+
     def enroll(connection, message):
         played = login.get("enroll")
         request = message["enroll"]
         pin = request.get("pin")
-        if not played or request.get("deviceId") != played["device"]["deviceId"] \
+        appearance = request.get("appearance")
+        by_device = request.get("password") is None
+        if appearance is not None and appearance not in ("light", "dark", "auto"):
+            answer = {"refused": {"reason": "invalidRequest"}}
+        elif not played or request.get("deviceId") != played["device"]["deviceId"] \
                 or request.get("deviceSecret") != played["device"]["deviceSecret"]:
             answer = {"refused": {"reason": "credentialRefused"}}
         elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
             answer = {"refused": {"reason": "unusablePin"}}
-        elif request.get("password") is None and pin is None:
+        elif by_device and pin is None:
             answer = {"refused": {"reason": "pinRequired"}}
-        elif request.get("password") is None:
+        elif by_device:
             # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
             # (the real service's; played here as its answer), and the PIN is the local credential.
+            progress(connection, (["securing"] if pin else []) + ["verifying", "preparing", "signingIn"])
             answer = None
         elif request.get("password") != played["password"]:
+            progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn"])
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
+            progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn"])
             answer = "secondFactorRequired"
         else:
+            progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn", "preparing"])
             answer = None
+        # `login.enroll.fail_first`: the first setup that would succeed fails so (`unreachable`: Oxy
+        # could not be reached; `localFailure`: the machine could not be set up), the sign-in kept
+        # for a `"retry"`, as the real service keeps it.
+        failing = played.get("fail_first") if played else None
         while True:
-            if answer is None:
+            if answer is None and failing:
+                answer = {"failed": {"reason": failing}}
+                failing = None
+            elif answer is None:
+                progress(connection, ["finishing"])
                 listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
@@ -1160,20 +1183,41 @@ def serve_accounts(path, accounts, login=None, log=None):
                 listed["pin"] = "set" if listed["user"] in pins else "none"
                 accounts[:] = [account for account in accounts if account["user"] != listed["user"]]
                 accounts.append(listed)
+                if appearance:
+                    # What a new home's preferences start with: told, for a scenario to check.
+                    record("appearance", appearance)
                 answer = {"enrolled": {"accountId": listed["accountId"], "user": listed["user"], "uid": 1001,
                                        "profile": {"id": listed["accountId"], "username": listed["name"],
                                                    "displayName": None, "avatar": None}}}
-            record("secondFactor" if record.turn else "enroll",
-                   answer if isinstance(answer, str) else next(iter(answer)))
-            record.turn += 1
+            record(record.asked, answer if isinstance(answer, str) else
+                   f"{next(iter(answer))} {answer['failed']['reason']}" if "failed" in answer else next(iter(answer)))
             connection.send(json.dumps(answer).encode())
-            if answer != "secondFactorRequired" and answer != {"refused": {"reason": "secondFactorInvalid"}}:
+            kept = isinstance(answer, dict) and "failed" in answer
+            if answer != "secondFactorRequired" and answer != {"refused": {"reason": "secondFactorInvalid"}} \
+                    and not kept:
                 return
             packet = connection.recv(16384)
             if not packet:
                 return
-            code = json.loads(packet).get("secondFactor", {}).get("code")
-            answer = None if code == played["code"] else {"refused": {"reason": "secondFactorInvalid"}}
+            turn = json.loads(packet)
+            if kept and turn == "retry":
+                # What the service kept is set up again: the machine, and Oxy only if it was not
+                # reached.
+                record.asked = "retry"
+                progress(connection, ["preparing", "signingIn"] if answer["failed"]["reason"] == "unreachable"
+                         else ["preparing"])
+                answer = None
+                continue
+            if kept or not isinstance(turn, dict) or "secondFactor" not in turn:
+                connection.send(json.dumps({"refused": {"reason": "invalidRequest"}}).encode())
+                return
+            record.asked = "secondFactor"
+            code = turn["secondFactor"].get("code")
+            if code == played["code"]:
+                progress(connection, ["signingIn", "preparing"])
+                answer = None
+            else:
+                answer = {"refused": {"reason": "secondFactorInvalid"}}
 
     def serve():
         while True:
@@ -1192,7 +1236,7 @@ def serve_accounts(path, accounts, login=None, log=None):
                         connection.send(json.dumps({"platform": platform} if platform
                                                    else {"refused": {"reason": "notConfigured"}}).encode())
                     elif isinstance(message, dict) and "enroll" in message:
-                        record.turn = 0
+                        record.asked = "enroll"
                         enroll(connection, message)
                     elif isinstance(message, dict) and "verifyPin" in message:
                         # oxyos-pin-check's, for PAM: the PIN checked here, a wrong one counted.
@@ -1215,7 +1259,7 @@ def serve_accounts(path, accounts, login=None, log=None):
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
 
-    record.turn = 0
+    record.asked = "enroll"
     threading.Thread(target=serve, daemon=True).start()
     return listener
 
@@ -1476,11 +1520,13 @@ def played_oxy(spec, log):
     answer them. `qr.token_refused_at` ("METHOD PATH") plays what production did on 2026-11-08: the
     first QR sign-in's token refused when it first reaches that request (the API task that approved
     the request held the session as it was before the claim bound it, OxyHQ/oxy#2224), and never
-    taken again."""
+    taken again. `qr.stall_after_claim_ms` plays what the owner's network did on 2026-11-08: the
+    link stalls the moment the first QR claim is answered, and every answer the API gives in that
+    time (each one quick, as production's were) reaches the screen only once it comes back."""
     import secrets as _secrets
 
     state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
-             "on_device": False, "revision": 0, "qr_claims": 0}
+             "on_device": False, "revision": 0, "qr_claims": 0, "stalled_until": 0}
     lock = threading.Lock()
 
     class Oxy(BaseHTTPRequestHandler):
@@ -1490,6 +1536,11 @@ def played_oxy(spec, log):
             pass
 
         def reply(self, status, body):
+            # A link that stalls (`qr.stall_after_claim_ms`): the answer waits for it to come back.
+            with lock:
+                stalled = state["stalled_until"] - time.monotonic()
+            if stalled > 0:
+                time.sleep(stalled)
             data = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -1740,6 +1791,10 @@ def played_oxy(spec, log):
                         first = state["qr_claims"] == 1
                     refused_at = spec.get("qr", {}).get("token_refused_at") if first else None
                     self.reply(200, dict(self.session(refused_at), user=self.user()))
+                    stall = spec.get("qr", {}).get("stall_after_claim_ms", 0) if first else 0
+                    if stall:
+                        with lock:
+                            state["stalled_until"] = time.monotonic() + stall / 1000
                 else:
                     self.reply(400, {"error": "invalid_request", "message": "Invalid or expired session"})
             elif path == "/users/me/reauth/email":
