@@ -54,6 +54,7 @@ Nothing on OxyOS said why the machine was slow, what filled its memory or what d
 - **The scene**: `Grants::activity`, `client_shown`, `quit_application_by_id`, `force_quit_application_by_id`, `system_data`. **`oxyos-apps`**: the `activity` grant.
 - **Protocol version 33**: `SystemData` (event 165, `MAX_SYSTEM_DATA_BYTES`); `Compositor::system_data` (the sealed file); the client library's `system_data`; the C ABI's `OXYOS_EVENT_SYSTEM_DATA` and `oxyos_client_system_data`; the Bloom host's `Window::systemData`.
 - **The session**: `oxyos_compositor::activity` (the vocabulary, the followers shown, the thread that samples), served by `oxyos-session` (not at the login screen) and the development compositor, whose steps say what it did (`activity`: samples taken and sent, its thread's and the application's wakeups).
+- **The deploy** (`tools/deploy/deploy.sh`) installs it as a system application, its entry not in the dock, the policy giving it `activity`.
 - **The application**: `apps/activity-monitor` (`ActivityMonitor.tsx`, `Summary.tsx`, `Inspector.tsx`, `model.ts`, `messages.ts`), `sample/ActivityMonitorApp.tsx` over `@oxyos/platform`'s `activity` (its session's `activity` state and `activityView`, a long answer's `text` parsed), its package (`so.oxy.activitymonitor`), development entry and icon (`scripts/make-activity-monitor-icon.py`).
 
 ## Tests

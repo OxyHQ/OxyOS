@@ -3,7 +3,7 @@
 # (tools/gate/run-scenarios.sh, which bootstraps), then stages what passed as the image installs it and
 # sends it, and the test machine builds the session and installs everything (tools/deploy/remote.sh).
 #   /usr/lib/oxyos/runtimes/1/                 the runtime (root's)
-#   /usr/lib/oxyos/apps/<id>/                  Settings, the shell, the login screen, Dropsea, Atlas (root's)
+#   /usr/lib/oxyos/apps/<id>/                  Settings, the shell, the login screen, Dropsea, Atlas, Activity Monitor (root's)
 #   /usr/lib/oxyos/input-methods/              the input methods' engine (root's)
 #   /usr/share/oxyos/applications/<id>.desktop the system applications' entries (root's)
 #   /usr/share/oxyos/system-apps.json          the policy naming them (root's)
@@ -99,6 +99,7 @@ if [ -d config/includes.chroot_after_packages/usr/share/oxyos/wallpapers ]; then
 fi
 system="so.oxy.settings so.oxy.shell so.oxy.login"; [ -d $M/packages/so.oxy.dropsea ] && system="$system so.oxy.dropsea"
 [ -d $M/packages/so.oxy.atlas ] && system="$system so.oxy.atlas"
+[ -d $M/packages/so.oxy.activitymonitor ] && system="$system so.oxy.activitymonitor"
 for id in $system; do cp -a $M/packages/$id $D/apps/$id; done
 for id in so.oxy.inbox so.oxy.allo; do cp -a $M/packages/$id $D/packages/$id; done
 # The system applications' entries: their name, icon and module, and the package they run (the
@@ -130,6 +131,12 @@ if [ -d $D/apps/so.oxy.atlas ]; then
   # and removing, its alone) and `updates` (the account's updates, as Settings' Software Update).
   entry so.oxy.atlas Atlas "" Atlas 2
   policy="$policy,"' "so.oxy.atlas": { "entry": "/usr/share/oxyos/applications/so.oxy.atlas.desktop", "bloom": { "host": "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/apps/so.oxy.atlas/index.hbc" }, "grants": ["store", "updates"] }'
+fi
+if [ -d $D/apps/so.oxy.activitymonitor ]; then
+  # Activity Monitor (docs/adr/0060-activity-monitor.mdx), not in the dock, with the policy's
+  # `activity`: the machine's use and every process's, and quitting the person's own.
+  entry so.oxy.activitymonitor "Activity Monitor" "Monitor de Actividad" OxyOSActivityMonitor
+  policy="$policy,"' "so.oxy.activitymonitor": { "entry": "/usr/share/oxyos/applications/so.oxy.activitymonitor.desktop", "bloom": { "host": "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/apps/so.oxy.activitymonitor/index.hbc" }, "grants": ["activity"] }'
 fi
 printf '{ "applications": { %s } }\n' "$policy" | python3 -m json.tool > $D/system-apps.json
 # Inbox and Allo: development entries, as oxyos-pack writes them, naming where they are on the
