@@ -74,6 +74,7 @@ use std::time::Duration;
 
 #[cfg(feature = "keychain")]
 pub mod api;
+pub mod passkey;
 #[cfg(feature = "keychain")]
 pub mod service;
 
@@ -344,6 +345,11 @@ pub trait Keychains: Send + Sync {
     fn may_save(&self, uid: u32, user: &str) -> Result<(), Reason>;
     /// Saves a login the person said yes to in the session's sheet, for its application.
     fn save(&self, uid: u32, user: &str, login: &SaveLogin) -> Result<(), Reason>;
+    /// A passkey ceremony (`passkeyCreate`, `passkeyGet`) of `uid`'s application `asker`.
+    fn passkey(&self, uid: u32, user: &str, asker: &Asker<'_>, request: Request) -> Answer;
+    /// Serves `uid`'s session's prompts connection (`passkeyPrompts`) until it closes: answers
+    /// `passkeyPromptsOpen` once its sheets are shown there.
+    fn serve_prompts(&self, uid: u32, user: &str, connection: &Connection) -> io::Result<()>;
     /// `user`'s account was removed from the machine: its keychain is locked and erased.
     fn forget(&self, uid: u32, user: &str);
 }
@@ -404,6 +410,19 @@ pub fn savable_text(text: &str, max: usize) -> bool {
                 || ('\u{202a}'..='\u{202e}').contains(&c)
                 || ('\u{2066}'..='\u{2069}').contains(&c)
         })
+}
+
+/// The application asking for a passkey, as its registration says.
+pub struct Asker<'a> {
+    pub desktop_entry_id: &'a str,
+    pub pid: i32,
+    /// Whether it went away: its connection closed, its process ended.
+    pub gone: &'a (dyn Fn() -> bool + Sync),
+}
+
+/// Whether a session request is a passkey ceremony (any registered application's).
+pub fn is_passkey_request(request: &Request) -> bool {
+    matches!(request, Request::PasskeyCreate(_) | Request::PasskeyGet(_))
 }
 
 /// Whether a session request is the keychain's.

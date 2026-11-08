@@ -38,13 +38,16 @@ use oxyos_keychain::vault::{
 use oxyos_keychain::{EnrollmentId, ItemId, MemberId, SecretString};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 /// Where the keychains are kept: a directory per account's user under it.
 pub const STATE_DIRECTORY: &str = oxyos_keychain::store::STATE_DIRECTORY;
+
+mod passkeys;
+pub use passkeys::{RelyingParties, WebOrigins, BROWSERS};
 
 /// How long a keychain the login program unlocked waits for its session's registrar.
 pub const GRACE: Duration = Duration::from_secs(120);
@@ -79,6 +82,8 @@ pub struct KeychainService<V> {
     token: TokenSource,
     memory: Memory,
     users: Mutex<HashMap<u32, Arc<User>>>,
+    /// Which relying parties each application may use (passkeys).
+    parties: Mutex<Arc<RelyingParties>>,
     me: Weak<Self>,
 }
 
@@ -87,6 +92,9 @@ struct User {
     data: Mutex<Data>,
     /// The account's calls to Oxy, one at a time.
     net: Mutex<()>,
+    /// The session's passkey sheets, and the ceremony shown.
+    prompts: Mutex<passkeys::Prompts>,
+    prompted: Condvar,
 }
 
 struct Data {
@@ -237,6 +245,12 @@ impl Throttle {
         self.until.is_some_and(|until| until > Instant::now())
     }
 
+    /// Seconds until another attempt may be made, while waiting.
+    fn retry_after(&self) -> Option<u64> {
+        let left = self.until?.checked_duration_since(Instant::now())?;
+        Some(left.as_secs() + u64::from(left.subsec_nanos() > 0))
+    }
+
     fn record(&mut self, accepted: bool) {
         if accepted {
             *self = Self::default();
@@ -330,6 +344,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
             token,
             memory,
             users: Mutex::new(HashMap::new()),
+            parties: Mutex::new(Arc::new(RelyingParties::system())),
             me: me.clone(),
         });
         let weak = Arc::downgrade(&service);
@@ -383,6 +398,8 @@ impl<V: VaultApi + 'static> KeychainService<V> {
                         throttle: Throttle::default(),
                     }),
                     net: Mutex::new(()),
+                    prompts: Mutex::new(passkeys::Prompts::default()),
+                    prompted: Condvar::new(),
                 })
             })
             .clone()
@@ -1385,28 +1402,8 @@ impl<V: VaultApi + 'static> KeychainService<V> {
 
     /// Settings' verification: the keybag opened with `password` (Argon2id, as the unlock).
     fn verify(&self, user: &User, password: &Secret) -> Result<Answer, Reason> {
-        let epoch = {
-            let data = lock(&user.data);
-            if !matches!(data.phase, Phase::Open(_)) {
-                return Err(Reason::Locked);
-            }
-            if data.throttle.waiting() {
-                return Err(Reason::Throttled);
-            }
-            data.epoch
-        };
-        let store = self.store(user)?;
-        let opened = store.unlock(password.expose());
+        let epoch = self.check_password(user, password)?;
         let mut data = lock(&user.data);
-        let accepted = match opened {
-            Ok(_) => true,
-            Err(oxyos_keychain::Error::WrongPassword) => false,
-            Err(error) => return Err(self.failed(user, "verifying", error)),
-        };
-        data.throttle.record(accepted);
-        if !accepted {
-            return Err(Reason::WrongPassword);
-        }
         if data.epoch != epoch {
             return Err(Reason::Locked);
         }
@@ -2251,6 +2248,27 @@ impl<V: VaultApi + 'static> Keychains for KeychainService<V> {
         }
         let account = self.user(uid, user);
         self.save_login(&account, uid, login)
+    }
+
+    fn passkey(&self, uid: u32, user: &str, asker: &Asker<'_>, request: Request) -> Answer {
+        let account = self.user(uid, user);
+        let answer = match &request {
+            Request::PasskeyCreate(create) => self.passkey_create(&account, uid, asker, create),
+            Request::PasskeyGet(get) => self.passkey_get(&account, asker, get),
+            _ => Err(Reason::NotPermitted),
+        };
+        if let Err(reason) = &answer {
+            eprintln!(
+                "oxyos-accountd: {}'s passkey for {}: refused {reason:?}",
+                account.name, asker.desktop_entry_id
+            );
+        }
+        self::answer(answer)
+    }
+
+    fn serve_prompts(&self, uid: u32, user: &str, connection: &Connection) -> std::io::Result<()> {
+        let account = self.user(uid, user);
+        self.serve_prompts_of(&account, connection)
     }
 
     fn forget(&self, uid: u32, user: &str) {
