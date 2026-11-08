@@ -86,6 +86,7 @@
 
 mod cursor_file;
 mod installd;
+mod passkeys;
 
 use oxyos_compositor::displays::{Connector, Displays, Heads};
 use oxyos_compositor::settings::{self, Settings};
@@ -594,6 +595,28 @@ fn main() -> Result<()> {
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
     };
+    // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the accounts'
+    // service's sheets verifying each passkey an application makes or uses. The login screen has
+    // none.
+    let mut passkeys = if greeter {
+        None
+    } else {
+        match oxyos_account::keychain::passkey::PasskeySheets::spawn(
+            accountd_session_socket(),
+            |said| eprintln!("[session] passkeys: {said}"),
+        ) {
+            Ok(sheets) => {
+                compositor.wakers.push(sheets.wake_fd()?);
+                Some(oxyos_compositor::passkeys::Passkeys::new(Box::new(
+                    passkeys::Sheets(sheets),
+                )))
+            }
+            Err(error) => {
+                eprintln!("[session] no passkey sheets: {error}; no passkey is verified");
+                None
+            }
+        }
+    };
     // Search (docs/adr/0051-search.mdx): the user's index, this program's child (`--search-service`,
     // its standard input a socket only this program holds), started with the session after its
     // shell and told the applications the shell's launcher lists. The login screen has none.
@@ -757,6 +780,9 @@ fn main() -> Result<()> {
                 })
                 .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        if let Some(passkeys) = passkeys.as_mut() {
+            passkeys.serve(&mut compositor);
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {

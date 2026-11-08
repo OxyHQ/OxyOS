@@ -268,5 +268,14 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword, answerCode };
+  // A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+  // passkey chosen and the Oxy account's password the person typed, to the session alone, citing
+  // the press or key that submitted it. The session takes it only from the shell, for a passkey
+  // sheet it shows, and hands it to the accounts' service, never to the application.
+  const answerPasskey = React.useCallback((sheet, choice, password) => {
+    const passkey = choice === undefined ? { sheet, password } : { sheet, choice, password };
+    native?.request(JSON.stringify({ passkey }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword, answerCode, answerPasskey };
 }

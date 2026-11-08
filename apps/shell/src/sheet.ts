@@ -20,6 +20,15 @@
  * device (`bluetooth-display`, which only Cancel answers: the session takes it away once paired),
  * asks for the code the device shows or its PIN (`bluetooth-code`) and says a connection failed
  * (`bluetooth-failed`). The code typed goes to the session alone, as a password does.
+ *
+ * An application creating or using a passkey (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 7), the session asks the person to verify (`passkey`): "Use your passkey for
+ * github.com?" or "Create a passkey for …", the application asking (by its id, named as the
+ * registry names it), the account (a chooser when several passkeys match) and the Oxy account's
+ * password, typed in the sheet's own secure field, which goes to the session alone and on to the
+ * accounts' service, never to the application. A wrong one asks again saying so; too many say how
+ * long to wait. A relying party where the person already has one (`excluded`) or has none
+ * (`none`) is only said, with one button.
  */
 
 import type { Language, ShellMessages } from "./messages";
@@ -48,7 +57,29 @@ export type SheetText =
   | { kind: "bluetooth-service"; name: string; device: BluetoothKind; service: BluetoothService }
   | { kind: "bluetooth-display"; name: string; device: BluetoothKind; code: string }
   | { kind: "bluetooth-code"; name: string; device: BluetoothKind; code: BluetoothCodeKind }
-  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string };
+  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string }
+  // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): `id` the asking
+  // application's desktop entry id, `rpId` the relying party (a domain name).
+  | PasskeySheet;
+
+/** What a passkey's sheet asks: to make one, to use one, or only says one is there already or none
+    is. */
+export type PasskeyMode = "create" | "get" | "excluded" | "none";
+
+export type PasskeySheet = {
+  kind: "passkey";
+  mode: PasskeyMode;
+  id: string;
+  rpId: string;
+  userName?: string;
+  choices: { userName: string; displayName: string }[];
+  /** The password given was not right. */
+  incorrect: boolean;
+  /** Too many were not: seconds to wait. */
+  retryAfter?: number;
+  /** Asked again, the account the person had chosen. */
+  chosen?: number;
+};
 
 /** What a paired device that is not trusted asks to use. */
 export type BluetoothService = "audio" | "input" | "phone" | "files" | "network" | "other";
@@ -101,7 +132,18 @@ export type SheetView = {
   /** A field for a pairing code, whose text is the answer (`accept` enabled once it is a valid
       one, Return submitting it): its label, and what it takes. */
   codeField?: { label: string; kind: BluetoothCodeKind };
+  /** A passkey's chooser (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the accounts the
+      person may use, the first chosen until they choose another. Its rows' label is the list's. */
+  choices?: { label: string; rows: { title: string; detail: string }[] };
+  /** Which password the field takes: a Wi-Fi network's (8 to 63 bytes, or 64 hexadecimal digits),
+      or the Oxy account's (anything not empty). */
+  passwordKind?: "wifi" | "account";
 };
+
+/** Whether what the password field holds can be submitted, by the password it takes. */
+export function submittablePassword(password: string, kind: "wifi" | "account" = "wifi"): boolean {
+  return kind === "account" ? password.length > 0 : validWifiPassword(password);
+}
 
 /** A capability's name, in the catalogue's language; its own name for one OxyOS does not know. */
 export function capabilityLabel(name: string, messages: ShellMessages): string {
@@ -340,6 +382,8 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         codeField: { label: pin ? w.bluetoothPinField : w.bluetoothCodeField, kind: pin ? "pin" : "passkey" },
       };
     }
+    case "passkey":
+      return passkeyView(sheet, messages, names);
     case "bluetooth-failed":
       return {
         title: w.bluetoothFailed(sheet.name),
@@ -368,4 +412,50 @@ export function sheetArrived(queue: SheetQueue, sheet: number, text: string): Sh
 
 export function sheetGone(queue: SheetQueue, sheet: number): SheetQueue {
   return queue.filter((s) => s.sheet !== sheet);
+}
+
+/** A passkey's sheet: what it asks, for which relying party, by which application. */
+function passkeyView(sheet: PasskeySheet, messages: ShellMessages, names: Record<string, string>): SheetView {
+  const w = messages.sheet;
+  const app = names[sheet.id] ?? sheet.id;
+  const requested = w.passkeyRequestedBy(app);
+  const tells = sheet.mode === "excluded" || sheet.mode === "none";
+  if (tells) {
+    return {
+      title: sheet.mode === "excluded" ? w.passkeyExcluded(sheet.rpId) : w.passkeyNone(sheet.rpId),
+      body: `${sheet.mode === "excluded" ? w.passkeyExcludedBody : w.passkeyNoneBody} ${requested}`,
+      lines: [],
+      accept: w.ok,
+      refuse: "",
+      destructive: false,
+    };
+  }
+  const create = sheet.mode === "create";
+  const several = !create && sheet.choices.length > 1;
+  const account = create ? sheet.userName : (sheet.choices[0]?.userName ?? sheet.userName);
+  const error =
+    sheet.retryAfter !== undefined
+      ? w.passkeyThrottled(sheet.retryAfter)
+      : sheet.incorrect
+        ? w.passkeyIncorrect
+        : undefined;
+  return {
+    title: create ? w.passkeyCreate(sheet.rpId) : w.passkeyGet(sheet.rpId),
+    body: [several ? "" : account ? w.passkeyAccount(account) : "", create ? w.passkeyCreateBody : "", requested]
+      .filter(Boolean)
+      .join(" "),
+    lines: [],
+    accept: w.passkeyContinue,
+    refuse: w.cancel,
+    destructive: false,
+    password: { label: w.passkeyField, show: w.showPassword, hide: w.hidePassword },
+    passwordKind: "account",
+    error,
+    choices: several
+      ? {
+          label: w.passkeyChoose,
+          rows: sheet.choices.map((choice) => ({ title: choice.userName, detail: choice.displayName })),
+        }
+      : undefined,
+  };
 }

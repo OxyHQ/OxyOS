@@ -436,7 +436,7 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
+  const { sheets, answer, answerPassword, answerCode, answerPasskey } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -834,8 +834,10 @@ function SessionShell() {
       answerPassword: (password: string) => answerPassword(first.sheet, password),
       // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
       answerCode: (code: string) => answerCode(first.sheet, code),
+      // A passkey sheet's answer (ADR 0050): to the session alone.
+      answerPasskey: (choice: number | undefined, password: string) => answerPasskey(first.sheet, choice, password),
     };
-  }, [first, registry, answer, answerPassword, answerCode]);
+  }, [first, registry, answer, answerPassword, answerCode, answerPasskey]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell

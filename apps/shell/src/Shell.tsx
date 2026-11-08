@@ -178,6 +178,10 @@ export const Shell = memo(function Shell({
     /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
         to the session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerCode?: (code: string) => void;
+    /** A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the passkey
+        chosen and the Oxy account's password, to the session alone. Without it such a sheet
+        cannot be answered but by Cancel. */
+    answerPasskey?: (choice: number | undefined, password: string) => void;
   };
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
@@ -1127,6 +1131,7 @@ export const Shell = memo(function Shell({
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
+              answerPasskey={sheet.answerPasskey}
               keyboard={platform.keyboard}
             />
           </Surface>

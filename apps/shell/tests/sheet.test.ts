@@ -8,6 +8,7 @@ import {
   sheetView,
   size,
   spokenCode,
+  submittablePassword,
   validBluetoothCode,
   validWifiPassword,
   type AvailableUpdate,
@@ -262,4 +263,95 @@ test("a passkey is one to six digits; a PIN one to 16 bytes", () => {
   assert.equal(bluetoothCodeTyped("ñ".repeat(9), "pin"), "ñ".repeat(8));
   // Said digit by digit.
   assert.equal(spokenCode("048213"), "0 4 8 2 1 3");
+});
+
+test("a passkey's sheet asks to use one for the relying party, by the app, with the Oxy account's password", () => {
+  const get = {
+    kind: "passkey" as const,
+    mode: "get" as const,
+    id: "so.oxy.astro",
+    rpId: "github.com",
+    choices: [{ userName: "ada", displayName: "Ada Lovelace" }],
+    incorrect: false,
+  };
+  const es = sheetView(get, ES, { "so.oxy.astro": "Astro" });
+  assert.equal(es.title, "¿Usar tu llave de acceso para github.com?");
+  assert.equal(es.body, "Cuenta: ada. Lo pide Astro.");
+  assert.equal(es.accept, "Continuar");
+  assert.equal(es.refuse, "Cancelar");
+  assert.deepEqual(es.password, { label: "Contraseña de la cuenta Oxy", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
+  assert.equal(es.passwordKind, "account");
+  assert.equal(es.choices, undefined);
+  assert.equal(es.error, undefined);
+  const en = sheetView(get, EN, {});
+  assert.equal(en.title, "Use your passkey for github.com?");
+  assert.equal(en.body, "Account: ada. Requested by so.oxy.astro.");
+  assert.equal(en.accept, "Continue");
+  assert.deepEqual(readSheet(JSON.stringify(get)), get);
+});
+
+test("several passkeys are a chooser; a wrong password or too many say so", () => {
+  const sheet = {
+    kind: "passkey" as const,
+    mode: "get" as const,
+    id: "so.oxy.mention",
+    rpId: "mention.earth",
+    choices: [
+      { userName: "ada@example.com", displayName: "Ada" },
+      { userName: "bea@example.com", displayName: "Bea" },
+    ],
+    incorrect: true,
+  };
+  const es = sheetView(sheet, ES, { "so.oxy.mention": "Mention" });
+  assert.equal(es.body, "Lo pide Mention.");
+  assert.deepEqual(es.choices, {
+    label: "Elige una cuenta",
+    rows: [
+      { title: "ada@example.com", detail: "Ada" },
+      { title: "bea@example.com", detail: "Bea" },
+    ],
+  });
+  assert.equal(es.error, "La contraseña no es correcta. Inténtalo de nuevo.");
+  const throttled = sheetView({ ...sheet, incorrect: false, retryAfter: 30 }, EN, {});
+  assert.equal(throttled.error, "Too many attempts. Try again in 30 seconds.");
+  assert.equal(sheetView({ ...sheet, incorrect: false, retryAfter: 1 }, ES, {}).error, "Demasiados intentos. Inténtalo de nuevo dentro de 1 segundo.");
+});
+
+test("creating a passkey names the account and where it is kept", () => {
+  const sheet = {
+    kind: "passkey" as const,
+    mode: "create" as const,
+    id: "so.oxy.astro",
+    rpId: "github.com",
+    userName: "ada",
+    choices: [],
+    incorrect: false,
+  };
+  const es = sheetView(sheet, ES, { "so.oxy.astro": "Astro" });
+  assert.equal(es.title, "¿Crear una llave de acceso para github.com?");
+  assert.equal(
+    es.body,
+    "Cuenta: ada. Se guarda en el llavero de tu cuenta Oxy, cifrado de extremo a extremo, en todos tus dispositivos. Lo pide Astro.",
+  );
+  assert.equal(sheetView(sheet, EN, {}).title, "Create a passkey for github.com?");
+});
+
+test("a passkey already there, or none, is only said, with one button", () => {
+  const base = { kind: "passkey" as const, id: "so.oxy.astro", rpId: "github.com", choices: [], incorrect: false };
+  const excluded = sheetView({ ...base, mode: "excluded" }, ES, { "so.oxy.astro": "Astro" });
+  assert.equal(excluded.title, "Ya tienes una llave de acceso para github.com.");
+  assert.equal(excluded.body, "No hace falta crear otra. Lo pide Astro.");
+  assert.equal(excluded.accept, "Aceptar");
+  assert.equal(excluded.refuse, "");
+  assert.equal(excluded.password, undefined);
+  const none = sheetView({ ...base, mode: "none" }, EN, {});
+  assert.equal(none.title, "You don't have a passkey for github.com.");
+  assert.equal(none.accept, "OK");
+});
+
+test("the account's password is submitted once anything is typed; a Wi-Fi password once it can be one", () => {
+  assert.equal(submittablePassword("", "account"), false);
+  assert.equal(submittablePassword("x", "account"), true);
+  assert.equal(submittablePassword("x"), false);
+  assert.equal(submittablePassword("12345678", "wifi"), true);
 });

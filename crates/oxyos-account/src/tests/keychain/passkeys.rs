@@ -628,6 +628,58 @@ fn on_the_session_socket_applications_create_and_use_passkeys() {
     pretender.end();
     drop(sheet);
     drop(client);
+
+    // The session's own client, on a thread of its own: told the sheet, it answers for the person.
+    // Unlocked again by the lock's check first.
+    crate::session::check(
+        &socket.path,
+        Secret::new(PASSWORD),
+        crate::platform::Local::Accepted,
+    )
+    .unwrap();
+    sockets::wait_for("the keychain unlocked again", || {
+        !matches!(
+            keychains.settings(uid, &user, Request::KeychainStatus {}),
+            Answer::KeychainStatus(Status {
+                state: KeychainState::Locked,
+                ..
+            })
+        )
+    });
+    let sheets = PasskeySheets::spawn(socket.path.clone(), |_| {}).unwrap();
+    sockets::wait_for("the session's sheets served", || {
+        keychains.shows_sheets(uid)
+    });
+    let mut threaded = Application::start(
+        &socket,
+        json!([{"send": get_request("mention.earth", "threaded", &[])}]),
+    );
+    register(&threaded, MENTION);
+    threaded.go();
+    let mut taken = Vec::new();
+    sockets::wait_for("the sheet told", || {
+        taken.extend(sheets.take());
+        !taken.is_empty()
+    });
+    let Prompt::ConfirmPasskey(shown) = taken.remove(0) else {
+        panic!("not a sheet");
+    };
+    assert_eq!(shown.kind, PromptKind::Get);
+    sheets.confirm(&shown.id, Some(0), Some(Secret::new(PASSWORD)));
+    assert!(verifies(
+        &threaded.line(),
+        &point,
+        "mention.earth",
+        "threaded"
+    ));
+    sockets::wait_for("the sheet done", || {
+        taken.extend(sheets.take());
+        taken.contains(&Prompt::PasskeyDone {
+            id: shown.id.clone(),
+        })
+    });
+    threaded.end();
+    drop(sheets);
     socket.machine.platform.settle();
 }
 

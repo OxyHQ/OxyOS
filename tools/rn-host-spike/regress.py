@@ -4472,6 +4472,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
         if differing:
             fail(f"AutoFill has {differing}, expected {wanted}")
+    if "passkeys" in expect:
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): what
+        # the fixture accounts' service was answered so far, exactly, in order.
+        held, wanted = (result.get("passkeys") or {}).get("told"), expect["passkeys"]["told"]
+        if held != wanted:
+            fail(f"the passkeys' service was told {held}, expected {wanted}")
     if "input_sources" in expect:
         held, wanted = result.get("input_sources") or {}, expect["input_sources"]
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
@@ -5290,6 +5296,11 @@ def main():
         # AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) answered by the development
         # compositor's fixture keychain, its made-up items associated with the application named.
         command += ["--autofill-fixture", scenario["autofill"]["application"]]
+    if scenario.get("passkeys"):
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7) asked by
+        # the development compositor's fixture accounts' service for the application named, its
+        # account password made up (oxyos-offscreen's passkeys.rs).
+        command += ["--passkey-fixture", scenario["passkeys"]["application"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
