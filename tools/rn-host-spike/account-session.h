@@ -59,12 +59,18 @@ class AccountSession {
   void remove(Done done);
   void erasePreview(Done done);
   void eraseAll(std::string password, Done done);
+  // The account's local sign-in (its PIN, whether its password signs in): Settings and the shell's
+  // lock screen read it; Settings changes it ("setPin", "removePin", "passwordOn",
+  // "passwordOff"), proved by the password or the current PIN (an empty one is none).
+  void localSignIn(Done done);
+  void changeLocal(std::string change, std::string pin, std::string password, std::string currentPin, Done done);
   // The login screen's setup. The device credential the SDK's sign-in handed over is held here,
-  // not in JavaScript, until the person gives the account's password once more (a credential held
-  // before replaces it); `enroll` sends both, and every secret is forgotten once sent.
+  // not in JavaScript, until the person gives the account's password once more and chooses a PIN
+  // for this computer (a credential held before replaces it); `enroll` sends them (an empty
+  // password or PIN is none), and every secret is forgotten once sent.
   void holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId);
   bool holdsCredential() const { return held_ != nullptr; }
-  void enroll(std::string password, Done done);
+  void enroll(std::string password, std::string pin, Done done);
   void secondFactor(std::string code, Done done);
   void endEnrollment();
   static std::optional<std::string> platform();

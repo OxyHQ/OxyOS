@@ -7,7 +7,9 @@
 //!   packet. The login program accepts only its greeter's user, by the kernel's peer credentials.
 //! - **Greeter → login program:**
 //!   - `Attempt`: `a`, the account's length (one byte, 1 to [`MAX_ACCOUNT_BYTES`]), the account
-//!     (a Unix user's name), then the password (the rest, at most [`MAX_SECRET_BYTES`]);
+//!     (a Unix user's name), then the password (the rest, at most [`MAX_SECRET_BYTES`]); `p` in
+//!     place of `a` when it is the account's PIN for this computer (ADR 0020 decision 2), which
+//!     the login program checks as a PIN, never as the password and never online;
 //!   - `Shown`: `s`, once, when the greeter's first frame is on a display (the boot logo may go,
 //!     docs/adr/0017-boot-logo.mdx).
 //! - **Login program → greeter:** `Answer`: `r`, the verdict (one byte: 0 accepted, 1 rejected,
@@ -49,6 +51,8 @@ pub struct Answer {
 pub enum ToLogin {
     Attempt {
         account: String,
+        /// The account's PIN, not its password.
+        passcode: bool,
         secret: crate::Secret,
     },
     Shown,
@@ -57,7 +61,12 @@ pub enum ToLogin {
 impl std::fmt::Debug for ToLogin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ToLogin::Attempt { account, .. } => write!(f, "Attempt {{ account: {account:?}, … }}"),
+            ToLogin::Attempt {
+                account, passcode, ..
+            } => write!(
+                f,
+                "Attempt {{ account: {account:?}, passcode: {passcode}, … }}"
+            ),
             ToLogin::Shown => f.write_str("Shown"),
         }
     }
@@ -71,14 +80,18 @@ impl ToLogin {
     fn encode(&self) -> io::Result<Zeroizing<Vec<u8>>> {
         let mut packet = Zeroizing::new(Vec::with_capacity(MAX_PACKET));
         match self {
-            ToLogin::Attempt { account, secret } => {
+            ToLogin::Attempt {
+                account,
+                passcode,
+                secret,
+            } => {
                 if account.is_empty() || account.len() > MAX_ACCOUNT_BYTES {
                     return Err(invalid("an account is 1 to 31 bytes"));
                 }
                 if secret.0.len() > MAX_SECRET_BYTES {
                     return Err(invalid("a password is at most 512 bytes"));
                 }
-                packet.push(b'a');
+                packet.push(if *passcode { b'p' } else { b'a' });
                 packet.push(account.len() as u8);
                 packet.extend_from_slice(account.as_bytes());
                 packet.extend_from_slice(&secret.0);
@@ -91,7 +104,7 @@ impl ToLogin {
     pub fn decode(packet: &[u8]) -> io::Result<Self> {
         match packet {
             [b's'] => Ok(ToLogin::Shown),
-            [b'a', length, rest @ ..] => {
+            [kind @ (b'a' | b'p'), length, rest @ ..] => {
                 let length = usize::from(*length);
                 if length == 0 || length > MAX_ACCOUNT_BYTES || rest.len() < length {
                     return Err(invalid("not an account"));
@@ -105,6 +118,7 @@ impl ToLogin {
                     .to_owned();
                 Ok(ToLogin::Attempt {
                     account,
+                    passcode: *kind == b'p',
                     secret: crate::Secret::new(secret.to_vec()),
                 })
             }
@@ -191,7 +205,12 @@ impl Greeter {
     /// Hands the login program what was typed for `account`: `None` while it checks, or an
     /// answer at once (busy while another is checked; rejected without an account, which the
     /// login screen always names, or if the login program cannot be told).
-    pub fn attempt(&mut self, account: Option<&str>, secret: crate::Secret) -> Option<Answer> {
+    pub fn attempt(
+        &mut self,
+        account: Option<&str>,
+        passcode: bool,
+        secret: crate::Secret,
+    ) -> Option<Answer> {
         if self.checking {
             return Some(Answer {
                 verdict: Verdict::Busy,
@@ -207,6 +226,7 @@ impl Greeter {
         };
         let attempt = ToLogin::Attempt {
             account: account.to_owned(),
+            passcode,
             secret,
         };
         match self.send(&attempt) {

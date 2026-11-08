@@ -41,7 +41,8 @@ fn request(password: &str) -> Request {
     Request {
         credential: credential(),
         account: ACCOUNT.into(),
-        password: Secret::new(password),
+        password: Some(Secret::new(password)),
+        pin: None,
     }
 }
 
@@ -596,7 +597,8 @@ fn unusable_requests_never_reach_oxy() {
             .enroll(Request {
                 credential: credential(),
                 account: account.into(),
-                password: Secret::new(password),
+                password: Some(Secret::new(password)),
+                pin: None,
             })
             .unwrap_err();
         assert!(

@@ -14,9 +14,18 @@
 //!   [`COMMIT_EVERY`] while it goes on, so results appear as a long crawl goes. After a commit
 //!   with the crawler settled, the tantivy writer is closed: its threads end and its memory is
 //!   given back.
+//! - **A rebuild** ([`Write::Rebuild`]): a second index beside the one answering, which takes what
+//!   cannot be read again from the disk (the applications, the packages' declared items, what
+//!   applications donated) from the old one, then the crawler's reading. While it is built, what
+//!   the crawler reads goes into it alone; what the service gives goes into both, and what is
+//!   removed is removed from both (a folder kept out leaves the results at once). Once the
+//!   crawler has read everything ([`Write::Rebuilt`]) it takes the old one's place
+//!   ([`Index::promote`]), and the questions are answered from it.
 //! - **Idle:** with nothing written and not committed, it waits on its channel with no deadline.
 
 use crate::index::{Index, Record, Source};
+use std::io::Write as _;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -41,7 +50,38 @@ pub enum Write {
     Settled,
     /// The crawler has work again (a change said, a crawl begun).
     Busy,
+    /// A rebuild begins, into this index (the crawler's reading goes into it from now on).
+    Rebuild(Box<Index>),
+    /// The rebuild's crawl ended: the rebuilt index takes the old one's place.
+    Rebuilt,
 }
+
+/// Wakes the service's answering thread from another: something committed (the results may have
+/// changed: it reloads and tells its watchers), or only the index's state changed (it tells who
+/// follows the state).
+#[derive(Clone)]
+pub struct Wake(std::sync::Arc<UnixStream>);
+
+impl Wake {
+    pub fn new(stream: UnixStream) -> Wake {
+        Wake(std::sync::Arc::new(stream))
+    }
+
+    /// What is committed changed.
+    pub fn results(&self) {
+        let _ = (&*self.0).write(&[RESULTS]);
+    }
+
+    /// The index's state changed (a crawl began or went on, a rebuild began).
+    pub fn status(&self) {
+        let _ = (&*self.0).write(&[STATUS]);
+    }
+}
+
+/// [`Wake::results`]'s byte.
+pub const RESULTS: u8 = 1;
+/// [`Wake::status`]'s byte.
+pub const STATUS: u8 = 2;
 
 /// What the crawler and the writer say of themselves, read by the service.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -56,6 +96,12 @@ pub struct Status {
     pub partial: bool,
     /// Files read for their text since the start.
     pub read: u64,
+    /// A rebuild is under way: from the crawler's asking until its index answers.
+    pub rebuilding: bool,
+    /// The items a crawl under way has gone through so far (none with no crawl going on).
+    pub found: Option<u64>,
+    /// Someone follows the state: the crawler says how far it went as it goes.
+    pub followed: bool,
 }
 
 impl Status {
@@ -72,19 +118,28 @@ fn background() {
     }
 }
 
-/// Runs the writer on the calling thread until `writes` ends; `committed` is called after each
-/// commit (the service reloads its reader and tells its watchers).
-pub fn run(
-    mut index: Index,
-    writes: Receiver<Write>,
-    status: Arc<Mutex<Status>>,
-    committed: Box<dyn Fn() + Send>,
-) {
+/// Runs the writer on the calling thread until `writes` ends; `wake` after each commit (the
+/// service reloads its reader and tells its watchers) and each change of the state.
+pub fn run(mut index: Index, writes: Receiver<Write>, status: Arc<Mutex<Status>>, wake: Wake) {
     background();
+    let mut rebuilding: Option<Index> = None;
     let mut first_uncommitted: Option<Instant> = None;
     let mut asked = false;
     let mut settled = false;
+    let mut promoted = false;
     let mut done: Vec<Box<dyn FnOnce() + Send>> = Vec::new();
+    // Every index written to: the one answering, and a rebuild's.
+    macro_rules! each {
+        ($index:ident => $body:expr) => {{
+            {
+                let $index = &mut index;
+                let _ = $body;
+            }
+            if let Some($index) = rebuilding.as_mut() {
+                let _ = $body;
+            }
+        }};
+    }
     loop {
         // Wait: for anything, with nothing uncommitted; until the commit is due otherwise.
         let first = match first_uncommitted {
@@ -103,7 +158,7 @@ pub fn run(
                     Ok(write) => Some(write),
                     Err(RecvTimeoutError::Timeout) => None,
                     Err(RecvTimeoutError::Disconnected) => {
-                        let _ = index.commit(true);
+                        each!(index => index.commit(true));
                         return;
                     }
                 }
@@ -114,19 +169,31 @@ pub fn run(
         while let Some(write) = next.take() {
             match write {
                 Write::Put(record, text) => {
-                    let _ = index.put(&record, text.as_deref());
+                    match rebuilding.as_mut() {
+                        // What the crawler reads goes into the rebuild alone; what the session
+                        // and the applications give, into both.
+                        Some(rebuilt) => {
+                            let _ = rebuilt.put(&record, text.as_deref());
+                            if record.source != Source::File {
+                                let _ = index.put(&record, text.as_deref());
+                            }
+                        }
+                        None => {
+                            let _ = index.put(&record, text.as_deref());
+                        }
+                    }
                     first_uncommitted.get_or_insert_with(Instant::now);
                 }
                 Write::Remove(id) => {
-                    let _ = index.remove(&id);
+                    each!(index => index.remove(&id));
                     first_uncommitted.get_or_insert_with(Instant::now);
                 }
                 Write::RemoveInside(folder) => {
-                    let _ = index.remove_inside(&folder);
+                    each!(index => index.remove_inside(&folder));
                     first_uncommitted.get_or_insert_with(Instant::now);
                 }
                 Write::RemoveSource(source, owner) => {
-                    let _ = index.remove_source(&source, owner.as_deref());
+                    each!(index => index.remove_source(&source, owner.as_deref()));
                     first_uncommitted.get_or_insert_with(Instant::now);
                 }
                 Write::Commit => asked = true,
@@ -136,13 +203,43 @@ pub fn run(
                 }
                 Write::Settled => settled = true,
                 Write::Busy => settled = false,
+                Write::Rebuild(mut rebuilt) => {
+                    // What the disk cannot give again, from the index answering.
+                    match index.searcher_handle().given() {
+                        Ok(given) => {
+                            for (record, text) in given {
+                                let _ = rebuilt.put(&record, text.as_deref());
+                            }
+                        }
+                        Err(error) => eprintln!(
+                            "[search] the rebuild starts without the applications' items: {error}"
+                        ),
+                    }
+                    rebuilding = Some(*rebuilt);
+                    first_uncommitted.get_or_insert_with(Instant::now);
+                }
+                Write::Rebuilt => {
+                    if let Some(rebuilt) = rebuilding.take() {
+                        // What the old one was given since is committed with it: nothing of the
+                        // new one's is lost if the layout cannot be written.
+                        let _ = index.commit(false);
+                        let (answering, promoted_now) = rebuilt.promote(index);
+                        index = answering;
+                        if let Err(error) = promoted_now {
+                            eprintln!("[search] the rebuilt index could not take the old one's place: {error}");
+                        }
+                        status.lock().expect("lock").rebuilding = false;
+                        promoted = true;
+                        asked = true;
+                    }
+                }
             }
             status.lock().expect("lock").committed = false;
             next = match writes.try_recv() {
                 Ok(write) => Some(write),
                 Err(TryRecvError::Empty) => None,
                 Err(TryRecvError::Disconnected) => {
-                    let _ = index.commit(true);
+                    each!(index => index.commit(true));
                     return;
                 }
             };
@@ -153,8 +250,12 @@ pub fn run(
         }
         let close = settled;
         let wrote = first_uncommitted.is_some();
+        // What answers changes only with what the answering index was given.
+        let answering_changed = index.uncommitted() > 0 || promoted;
         if wrote || close {
-            if let Err(error) = index.commit(close) {
+            let mut failed = None;
+            each!(index => if let Err(error) = index.commit(close) { failed = Some(error) });
+            if let Some(error) = failed {
                 eprintln!("[search] the index could not be written: {error}");
             }
             if close {
@@ -163,17 +264,20 @@ pub fn run(
         }
         first_uncommitted = None;
         asked = false;
+        promoted = false;
         // `settled` stays: the crawler says when it has work again. Nothing to close now.
         settled = false;
         status.lock().expect("lock").committed = true;
-        // What waited on the commit is said before the service is woken to say it; the service is
-        // woken only when there is something to say.
+        // What waited on the commit is said before the service is woken to say it.
         let answered = !done.is_empty();
         for then in done.drain(..) {
             then();
         }
-        if wrote || answered {
-            committed();
+        if answering_changed || answered {
+            wake.results();
+        } else {
+            // A rebuild's progress, or the crawler settled: the state alone changed.
+            wake.status();
         }
     }
 }

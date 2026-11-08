@@ -283,6 +283,7 @@ fn requests() -> Vec<Request> {
             surface: 5,
             user: PreeditText::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap(),
         },
+        Request::AuthenticatePasscode { surface: 5 },
         Request::AccessibleSelection {
             surface: 1,
             index: 1,
@@ -2988,6 +2989,16 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
         read_event_for(&mut Cursor::new(older), 25).unwrap(),
         entering(0, 0)
     );
+}
+
+#[test]
+fn version_32_a_pin_is_only_version_32s() {
+    let request = Request::AuthenticatePasscode { surface: 3 };
+    assert_eq!(request_since(&request), crate::PASSCODE_VERSION);
+    assert_eq!(crate::PASSCODE_VERSION, 32);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &request).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), request);
 }
 
 #[test]

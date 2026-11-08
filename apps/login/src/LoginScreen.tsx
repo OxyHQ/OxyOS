@@ -12,11 +12,13 @@ import { Box } from "../../shell/src/primitives";
 import { LockBackdrop } from "../../shell/src/components/LockScreen";
 import { UserPicture } from "../../shell/src/components/UserPicture";
 import { PasswordField, textShadow } from "../../shell/src/components/PasswordField";
+import { SecretFields } from "../../shell/src/components/LockScreen";
 import type { ShellLock, ShellWallpaper } from "../../shell/src/model";
 import type { MaskedProps } from "../../shell/src/platform";
 import { chosenAccount, opensOnSetup, type Accounts, type LoginAccount } from "./model";
 import {
   afterEnroll,
+  usablePin,
   type EnrollAnswer,
   type SetupPlatform,
   type SetupStep,
@@ -42,8 +44,9 @@ export type SetupActions = {
   platform: () => SetupPlatform | null;
   /** The SDK's own sign-in. */
   SignIn: ComponentType<SetupSignInProps>;
-  /** The account's password once more, with the credential the sign-in handed over. */
-  enroll: (password: string) => Promise<EnrollAnswer>;
+  /** The account's password once more (null: it has none) and the PIN chosen for this computer
+      (null: none for now), with the credential the sign-in handed over. */
+  enroll: (password: string | null, pin: string | null) => Promise<EnrollAnswer>;
   /** The second factor the accounts' service asked for, on the same setup. */
   secondFactor: (code: string) => Promise<EnrollAnswer>;
   /** Ends the setup: what the platform held of it is forgotten. */
@@ -55,6 +58,9 @@ export type LoginActions = {
   /** Sends the password typed for `account` (its Unix user) to be checked; false if it could
       not be sent. */
   authenticate: (account: string, password: string) => boolean;
+  /** Sends the PIN typed for `account` to be checked as its PIN for this computer; false if it
+      could not be sent. */
+  authenticatePin?: (account: string, pin: string) => boolean;
   /** The latest answer, a new `id` for each. */
   answer?: ShellLock["answer"];
   capsLock?: boolean;
@@ -165,10 +171,13 @@ function SecondFactor({
 }
 
 /**
- * Adding an account (docs/adr/0020-oxy-account-login.mdx, decision 4): online only, as ADR 0020
- * decides; offline it says so and does nothing else. Online, the SDK's own sign-in (the
- * platform's); then the account's password once more and, when Oxy asks, a second factor, which
- * the platform's accounts' service sets the account up with. Enrolled, the new account is chosen.
+ * Adding an account (docs/adr/0020-oxy-account-login.mdx, decisions 2 and 4): online only, as ADR
+ * 0020 decides; offline it says so and does nothing else. Online, the SDK's own sign-in (the
+ * platform's); then a PIN for this computer, chosen and typed again (an account with a password
+ * may leave it for later), and the account's password once more when it has one, with which the
+ * platform's accounts' service sets the account up, asking a second factor when Oxy does. An
+ * account without a password is never asked to make one: it cannot be set up yet, and the panel
+ * says so, nothing changed. Enrolled, the new account is chosen.
  */
 function SetupPanel({
   step,
@@ -193,25 +202,45 @@ function SetupPanel({
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const answered = useRef(0);
-  const settle = (told: EnrollAnswer, at: "password" | "secondFactor") => {
+  // The PIN chosen, until the account is set up with it (or the setup ends): the platform's then.
+  const chosenPin = useRef<string | null>(null);
+  const account = "account" in step ? step.account : null;
+  const enroll = (password: string | null, at: "password" | "pin") => {
+    if (!setup) return;
+    setProblem(null);
+    setBusy(true);
+    setup.enroll(password, chosenPin.current).then((told) => settle(told, at));
+  };
+  const settle = (told: EnrollAnswer, at: "password" | "pin" | "secondFactor") => {
     setBusy(false);
-    const next = afterEnroll(told, at);
+    const next = afterEnroll(told, at === "pin" ? "password" : at);
     const id = ++answered.current;
     switch (next.next) {
       case "enrolled":
         setProblem(null);
-        enrolled(next.user, "account" in step ? step.account.name || step.account.id : "");
+        chosenPin.current = null;
+        enrolled(next.user, account ? account.name || account.id : "");
         return;
       case "secondFactor":
-        if (step.step === "password" || step.step === "secondFactor") {
-          setStep({ step: "secondFactor", account: step.account, invalid: next.invalid });
-        }
+        if (account) setStep({ step: "secondFactor", account, invalid: next.invalid });
+        return;
+      case "pin":
+        chosenPin.current = null;
+        if (account) setStep({ step: "pin", account, problem: "unusable" });
+        return;
+      case "noPassword":
+        chosenPin.current = null;
+        setup?.end();
+        if (account) setStep({ step: "noPassword", account });
         return;
       case "password":
-        if (step.step === "password" || step.step === "secondFactor") {
-          setStep({ step: "password", account: step.account });
-        }
         setProblem(next.problem === "unusable" ? words.unusablePassword : next.problem === "failed" ? words.failed : null);
+        if (account && !account.hasPassword) {
+          // No password to ask again: the PIN's step says it failed.
+          setStep({ step: "pin", account });
+          return;
+        }
+        if (account) setStep({ step: "password", account });
         setAnswer({
           id,
           outcome: next.problem === "incorrect" ? "rejected" : next.problem === "throttled" ? "throttled" : "busy",
@@ -219,10 +248,12 @@ function SetupPanel({
         });
         return;
       case "signIn":
+        chosenPin.current = null;
         setup?.end();
         setStep({ step: "checking" });
         return;
       case "offline":
+        chosenPin.current = null;
         setup?.end();
         setStep({ step: "offline" });
     }
@@ -250,12 +281,67 @@ function SetupPanel({
         >
           <SignIn
             platform={step.platform}
-            onSignedIn={(account) => setStep({ step: "password", account })}
+            onSignedIn={(signedIn) => {
+              chosenPin.current = null;
+              setStep({ step: "pin", account: signedIn });
+            }}
             onFrameWidth={setFrameWidth}
           />
         </ScrollView>
       </Box>
     );
+  } else if (step.step === "pin" && setup) {
+    const again = step.first !== undefined;
+    const said =
+      step.problem === "mismatch" ? words.pinMismatch : step.problem === "unusable" ? words.unusablePin : problem;
+    content = (
+      <>
+        <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>
+          {again ? words.pinAgainTitle : words.pinTitle}
+        </Text>
+        {again ? null : (
+          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>{words.pinDescription}</Text>
+        )}
+        <PasswordField
+          key={again ? "again" : `first-${step.problem ?? ""}`}
+          testID={again ? "login-setup-pin-again" : "login-setup-pin"}
+          passcode
+          placeholder={words.pinPlaceholder}
+          accessibilityLabel={again ? words.pinAgainTitle : words.pinTitle}
+          authenticate={(pin) => {
+            setProblem(null);
+            if (!again) {
+              setStep(usablePin(pin) ? { step: "pin", account: step.account, first: pin } : { step: "pin", account: step.account, problem: "unusable" });
+              return true;
+            }
+            if (pin !== step.first) {
+              setStep({ step: "pin", account: step.account, problem: "mismatch" });
+              return true;
+            }
+            chosenPin.current = pin;
+            if (step.account.hasPassword) setStep({ step: "password", account: step.account });
+            else enroll(null, "pin");
+            return true;
+          }}
+          answer={undefined}
+          announce={actions.announce}
+        />
+        {said ? <SetupMessage text={said} /> : null}
+        {busy ? <SetupMessage text={words.adding} /> : null}
+        {step.account.hasPassword && !again ? (
+          <Link
+            testID="login-setup-pin-later"
+            label={words.notNow}
+            onPress={() => {
+              chosenPin.current = null;
+              setStep({ step: "password", account: step.account });
+            }}
+          />
+        ) : null}
+      </>
+    );
+  } else if (step.step === "noPassword") {
+    content = <SetupMessage text={words.noPassword} />;
   } else if (step.step === "password" && setup) {
     content = (
       <>
@@ -270,9 +356,7 @@ function SetupPanel({
           placeholder={words.passwordPlaceholder}
           accessibilityLabel={words.passwordPlaceholder}
           authenticate={(password) => {
-            setProblem(null);
-            setBusy(true);
-            setup.enroll(password).then((told) => settle(told, "password"));
+            enroll(password, "password");
             return true;
           }}
           answer={answer}
@@ -322,6 +406,7 @@ function SetupPanel({
           testID="login-setup-back"
           label={words.back}
           onPress={() => {
+            chosenPin.current = null;
             setup?.end();
             back();
           }}
@@ -468,17 +553,36 @@ export function LoginScreen({
             <Text style={{ ...white(15, "600"), marginTop: 10 }}>{account.name}</Text>
           </>
         )}
-        {/* A field of its own for each account: what was typed for one is never sent for
-            another. */}
-        <PasswordField
-          key={account.user}
-          testID="login"
-          authenticate={(password) => actions.authenticate(account.user, password)}
-          answer={actions.answer}
-          capsLock={actions.capsLock}
-          announce={actions.announce}
-          focusRequest={toPassword}
-        />
+        {/* Fields of their own for each account: what was typed for one is never sent for
+            another. Its PIN first when it has one, as Windows Hello offers it; a PIN locked out
+            with no password to fall back on is set anew by signing in with Oxy. */}
+        {account.pin === "locked" && account.password === false ? (
+          <>
+            <Text
+              testID="login-pin-locked"
+              accessibilityRole="alert"
+              style={{ ...white(13, "400", 0.9), marginTop: 12, maxWidth: 320, textAlign: "center" }}
+            >
+              {words.pinLocked}
+            </Text>
+            <Link testID="login-sign-in-oxy" label={words.signInWithOxy} onPress={() => setSetup({ step: "checking" })} />
+          </>
+        ) : (
+          <SecretFields
+            key={account.user}
+            testID="login"
+            pin={account.pin}
+            password={account.password}
+            authenticate={(password) => actions.authenticate(account.user, password)}
+            authenticatePin={
+              actions.authenticatePin ? (pin) => actions.authenticatePin!(account.user, pin) : undefined
+            }
+            answer={actions.answer}
+            capsLock={actions.capsLock}
+            announce={actions.announce}
+            focusRequest={toPassword}
+          />
+        )}
         <Link testID="login-add" label={words.addAccount} onPress={() => setSetup({ step: "checking" })} />
       </>
     );

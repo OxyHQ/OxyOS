@@ -122,7 +122,7 @@
       }
     },
     {
-      "name": "a second approval: claimed once, the account's password asked once more, its field focused",
+      "name": "a second approval: claimed once, a PIN for this computer asked, its field focused",
       "do": [
         "wait",
         11500
@@ -137,19 +137,42 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+            "Choose a PIN for this computer",
+            "Not Now"
           ],
           "absent": [
             "Scan with Commons to sign in",
             "Email or username",
             "Choose an account",
-            "Use another account"
+            "Use another account",
+            "Enter Ada Lovelace's password"
           ],
-          "focus_input": "login-setup-password"
+          "focus_input": "login-setup-pin-password"
         },
         "oxy_requests_times": {
           "POST /auth/session/claim 200": 1
+        }
+      }
+    },
+    {
+      "name": "Not Now: the PIN left for later, the account's password asked once more, its field focused",
+      "do": [
+        "press_named",
+        "Not Now"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Enter Ada Lovelace's password",
+            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+          ],
+          "absent": [
+            "Choose a PIN for this computer"
+          ],
+          "focus_input": "login-setup-password"
         }
       }
     },

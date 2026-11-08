@@ -1842,7 +1842,8 @@ impl Scene {
             Request::LockSession {}
             | Request::AuthenticateSecret { .. }
             | Request::Authenticate { .. }
-            | Request::AuthenticateAccount { .. } => self.lock_request(client, request),
+            | Request::AuthenticateAccount { .. }
+            | Request::AuthenticatePasscode { .. } => self.lock_request(client, request),
             Request::InputMethodKeyHandled { .. }
             | Request::InputMethodDelete { .. }
             | Request::InputMethodCommitText { .. }
