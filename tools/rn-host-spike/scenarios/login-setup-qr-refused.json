@@ -1,0 +1,217 @@
+{
+  "about": "A QR sign-in whose token Oxy's API refuses, as production did on 2026-11-08 (docs/adr/0020-oxy-account-login.mdx, decision 4; OxyHQ/oxy#2224): at the first boot a phone approves, the session is claimed and the account put on the device, and then the token is refused at the account's first read (`qr.token_refused_at`: the API task that approved the request held the session as it was before the claim bound it). The setup keeps no credential, so the SDK cannot mint another: it signs out and drops the device with the session (@oxy.so/services 14.15.1), and the sign-in starts again on its QR, its field focused, never on a \"Choose an account\" picker listing the account it just lost, and never asking for a password. A second approval then signs in once, and the account is set up and signs in. Nothing reaches any application at any step.",
+  "shell": "OxyOSLogin",
+  "outputs": "1280x800",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [],
+    "record": [
+      "session would start for oxy-cccccccccccccccccccc (user session): "
+    ],
+    "oxy": {
+      "identifier": "ada",
+      "code": "246810",
+      "id": "0123456789abcdef01234569",
+      "username": "ada",
+      "name": "Ada Lovelace",
+      "has_password": true,
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "qr": {
+        "approve": "socket",
+        "approve_after_ms": 10000,
+        "token_refused_at": "GET /users/me/sign-in-methods"
+      }
+    },
+    "enroll": {
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "password": "played password 1",
+      "account": {
+        "accountId": "0123456789abcdef01234569",
+        "user": "oxy-cccccccccccccccccccc",
+        "uid": 1003,
+        "name": "Ada Lovelace"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "first boot: setup, online, straight to the SDK's sign-in, never a device picker",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Add an Oxy Account"
+          ],
+          "absent": [
+            "Choose an account",
+            "Use another account"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the SDK's chooser, its QR beside the form, the field focused",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Add an Oxy Account",
+            "Sign in",
+            "Email or username",
+            "Scan with Commons to sign in",
+            "Create account"
+          ],
+          "absent": [
+            "Get Commons",
+            "Commons isn't installed",
+            "Choose an account",
+            "Use another account"
+          ],
+          "focus_input": "signin-identifier"
+        }
+      }
+    },
+    {
+      "name": "a phone approves: the session claimed, its token refused, the sign-in on its QR again, never a device picker",
+      "do": [
+        "wait",
+        11000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "oxy_requests": [
+          "POST /auth/session/claim 200",
+          "POST /session/device/add 200",
+          "GET /users/me/sign-in-methods 401",
+          "POST /auth/session/create 200"
+        ],
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 1
+        },
+        "in_shell": {
+          "texts": [
+            "Add an Oxy Account",
+            "Email or username",
+            "Scan with Commons to sign in"
+          ],
+          "absent": [
+            "Choose an account",
+            "Use another account",
+            "Enter Ada Lovelace's password"
+          ],
+          "focus_input": "signin-identifier"
+        }
+      }
+    },
+    {
+      "name": "a second approval: claimed once, the account's password asked once more, its field focused",
+      "do": [
+        "wait",
+        11500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "oxy_requests": [
+          "POST /auth/session/claim 200",
+          "GET /users/me/sign-in-methods 200"
+        ],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Enter Ada Lovelace's password",
+            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+          ],
+          "absent": [
+            "Scan with Commons to sign in",
+            "Email or username",
+            "Choose an account",
+            "Use another account"
+          ],
+          "focus_input": "login-setup-password"
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 1
+        }
+      }
+    },
+    {
+      "name": "the password: the account set up with the credential the QR's sign-in handed over",
+      "do": [
+        "keyboard",
+        "played password 1\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "enroll: enrolled"
+        ],
+        "delivered": {},
+        "never": [
+          "played password 1"
+        ],
+        "in_shell": {
+          "texts": [
+            "Ada Lovelace"
+          ],
+          "absent": [
+            "Add an Oxy Account",
+            "Enter Ada Lovelace's password",
+            "Bea Ramos",
+            "Choose an account",
+            "Use another account"
+          ],
+          "never": [
+            "played password 1"
+          ]
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 0,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    },
+    {
+      "name": "its password signs it in",
+      "do": [
+        "keyboard",
+        "oxyos.correcta\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "never": [
+          "oxyos.correcta",
+          "played password 1"
+        ],
+        "in_shell": {
+          "never": [
+            "oxyos.correcta",
+            "played password 1"
+          ]
+        }
+      }
+    }
+  ]
+}
