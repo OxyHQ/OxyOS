@@ -25,6 +25,9 @@ oxyos-search = { path = "../../crates/oxyos-search" }
 oxyos-sound = { path = "../../crates/oxyos-sound" }
 oxyos-input-methods = { path = "../../crates/oxyos-input-methods" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
+# The accounts' service's save confirmations (`--autofill-saves`, docs/adr/0050-keychain-autofill-and-passkeys.mdx):
+# its sockets only.
+oxyos-account = { path = "../../crates/oxyos-account", default-features = false }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
 # The sound played (docs/adr/0056-sound-devices.mdx).
 oxyos-audio = { path = "../../crates/oxyos-audio" }

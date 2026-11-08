@@ -87,7 +87,7 @@ use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
 use crate::keychain::{
     self, AuditView, CodeView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView,
-    JoinMethod, MemberView, Status, Suggestion,
+    JoinMethod, MemberView, SaveConfirmation, SaveLogin, Status, Suggestion,
 };
 use crate::pidfd::{self, Program};
 use crate::platform::{self, Checked, Local, Platform, Snapshot, Token, TokenReason};
@@ -111,8 +111,9 @@ pub const SESSION_PROGRAM: &str = "/usr/bin/oxyos-session";
 
 /// How long an application's connection waits for its next message.
 pub const IDLE: Duration = Duration::from_secs(60);
-/// Registrar connections of one user at once.
-pub const MAX_REGISTRARS: usize = 4;
+/// Registrar connections of one user at once: the session keeps three (its launches', AutoFill's
+/// and the save confirmations'), and the lock's check makes one while it asks.
+pub const MAX_REGISTRARS: usize = 6;
 /// Application connections of one user at once.
 pub const MAX_APPLICATION_CONNECTIONS: usize = 16;
 
@@ -122,6 +123,12 @@ pub const LOGIN_PROGRAM: &str = "/usr/libexec/oxyos/oxyos-login";
 pub const MAX_REGISTRATIONS: usize = 512;
 /// Subscriptions of one registration at once.
 pub const MAX_SUBSCRIPTIONS: usize = 4;
+/// How long an application's `savePassword` waits for the person's answer in the session's sheet:
+/// past it, nothing is saved and the sheet is withdrawn.
+pub const SAVE_WAIT: Duration = Duration::from_secs(120);
+/// Bytes of a username or a password an application asks to save.
+pub const MAX_SAVED_USERNAME: usize = 512;
+pub const MAX_SAVED_PASSWORD: usize = 1024;
 
 const _: () = assert!(MAX_MESSAGE >= 4096);
 
@@ -221,6 +228,20 @@ pub enum Request {
     KeychainCode {
         item_id: String,
     },
+    // Saving a credential (ADR 0050 decision 5, `crate::keychain`): an application asks, the
+    // registrar's connection that takes confirmations (`confirmSaves`) asks the person and answers
+    // each (`saveDecision`).
+    SavePassword {
+        username: Secret,
+        password: Secret,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<String>,
+    },
+    ConfirmSaves {},
+    SaveDecision {
+        id: String,
+        save: bool,
+    },
     ErasePreview {},
     EraseAll {
         password: Secret,
@@ -287,7 +308,7 @@ pub enum Reason {
     Conflict,
     /// An erase asked by an account that is not one of the machine's administrators.
     NotAdministrator,
-    /// An erase of a machine without a recovery.
+    /// An erase of a machine without a recovery; a save with no session to ask the person in.
     Unavailable,
     // The local sign-in's (`crate::pin`).
     WrongPin,
@@ -354,6 +375,15 @@ pub enum Answer {
     KeychainAudit(AuditView),
     KeychainLeft,
     KeychainCode(CodeView),
+    // Saving a credential (`crate::keychain`): the application's answers, and what the
+    // confirmations' connection is told.
+    Saved {},
+    NotSaved {},
+    ConfirmingSaves,
+    ConfirmSave(SaveConfirmation),
+    SaveWithdrawn {
+        id: String,
+    },
     ErasePreview(ErasePreview),
     Erasing(Erasing),
     LocalSignIn(platform::LocalView),
@@ -489,6 +519,45 @@ pub struct Sessions<A, U> {
     /// Application connections open, by uid.
     open_applications: Mutex<Vec<u32>>,
     next: AtomicU64,
+    saves: Saves,
+    /// [`SAVE_WAIT`], in milliseconds (shorter in the tests).
+    save_wait: AtomicU64,
+}
+
+/// Saving a credential (ADR 0050 decision 5): the session's connection that asks the person, one
+/// per user, and the applications' requests waiting for their answer. Locked in this order when
+/// both are: `pending`, then `confirmers`.
+#[derive(Default)]
+struct Saves {
+    confirmers: Mutex<std::collections::HashMap<u32, Confirmer>>,
+    pending: Mutex<std::collections::HashMap<String, PendingSave>>,
+    next: AtomicU64,
+}
+
+/// A registrar connection that takes save confirmations: what it is to be told, and what wakes it.
+struct Confirmer {
+    registrar: u64,
+    outbox: Arc<Mutex<std::collections::VecDeque<Answer>>>,
+    wake: Arc<OwnedFd>,
+}
+
+impl Confirmer {
+    fn tell(&self, answer: Answer) {
+        self.outbox
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push_back(answer);
+        let _ = rustix::io::write(&*self.wake, &1u64.to_ne_bytes());
+    }
+}
+
+/// An application's request to save, waiting for the person's answer.
+struct PendingSave {
+    uid: u32,
+    desktop_entry_id: String,
+    /// The confirmations' connection it was asked on: only it answers.
+    registrar: u64,
+    decided: std::sync::mpsc::SyncSender<bool>,
 }
 
 /// Takes one of `uid`'s places among `open`, if it has fewer than `limit`.
@@ -543,6 +612,20 @@ pub enum Event {
         not_signed_out: usize,
     },
     EraseRefused(Reason),
+    /// An application's login saved once the person said yes in the session's sheet (the
+    /// application's desktop entry id; never what was saved).
+    Saved {
+        id: String,
+    },
+    /// The person said no, or did not answer in time.
+    NotSaved {
+        id: String,
+    },
+    /// An application's request to save refused, and why.
+    SaveRefused {
+        id: String,
+        reason: Reason,
+    },
     Refused(Reason),
     /// Settings changed the local sign-in (`setPin`, `removePin`, `passwordOn`, `passwordOff`),
     /// or was refused.
@@ -562,7 +645,17 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
             open_registrars: Mutex::new(Vec::new()),
             open_applications: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
+            saves: Saves::default(),
+            save_wait: AtomicU64::new(SAVE_WAIT.as_millis() as u64),
         }
+    }
+
+    /// How long a save waits for the person's answer ([`SAVE_WAIT`]).
+    pub fn set_save_wait(&self, wait: Duration) {
+        self.save_wait.store(
+            u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
     }
 
     pub fn platform(&self) -> &Arc<Platform<A, U>> {
@@ -801,10 +894,248 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                         None => Answer::refused(Reason::Locked),
                     }
                 }
+                // From here on this connection takes the save confirmations of its user's
+                // applications (ADR 0050 decision 5), and does nothing else: one that registered
+                // launches keeps doing that alone.
+                Some(Request::ConfirmSaves {}) => {
+                    if !mine.is_empty() {
+                        Answer::refused(Reason::InvalidRequest)
+                    } else {
+                        return self.confirm_saves(connection, id, enrollment.uid);
+                    }
+                }
                 Some(_) => Answer::refused(Reason::NotPermitted),
                 None => Answer::refused(Reason::InvalidRequest),
             };
             connection.send(&answer)?;
+        }
+    }
+
+    /// The registrar connection `registrar` takes `uid`'s save confirmations until it closes:
+    /// each application's `savePassword` is told it as `{"confirmSave": …}` (never the password),
+    /// a request that ended unanswered as `{"saveWithdrawn": {"id"}}`, and it answers each
+    /// `{"saveDecision": {"id", "save"}}`. A user has one at a time. Closing it answers every
+    /// request it was asked `notSaved`.
+    fn confirm_saves(&self, connection: &Connection, registrar: u64, uid: u32) -> io::Result<()> {
+        let wake = Arc::new(eventfd()?);
+        let outbox = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+        {
+            let mut confirmers = self
+                .saves
+                .confirmers
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if confirmers.contains_key(&uid) {
+                drop(confirmers);
+                return connection.send(&Answer::refused(Reason::TooMany));
+            }
+            confirmers.insert(
+                uid,
+                Confirmer {
+                    registrar,
+                    outbox: outbox.clone(),
+                    wake: wake.clone(),
+                },
+            );
+        }
+        let served = (|| -> io::Result<()> {
+            connection.send(&Answer::ConfirmingSaves)?;
+            loop {
+                let mut fds = [
+                    PollFd::new(connection, PollFlags::IN),
+                    PollFd::new(&*wake, PollFlags::IN),
+                ];
+                match poll(&mut fds, None) {
+                    Ok(_) => {}
+                    Err(rustix::io::Errno::INTR) => continue,
+                    Err(error) => return Err(error.into()),
+                }
+                let (message, woken) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
+                if woken {
+                    drain(&wake);
+                    loop {
+                        let next = outbox.lock().unwrap_or_else(|p| p.into_inner()).pop_front();
+                        let Some(told) = next else { break };
+                        connection.send(&told)?;
+                    }
+                }
+                if !message {
+                    continue;
+                }
+                match connection.receive::<Request>()? {
+                    None => return Ok(()),
+                    Some(Some(Request::SaveDecision { id, save })) => {
+                        let pending = self.saves.pending.lock().unwrap_or_else(|p| p.into_inner());
+                        // Only the request this connection was asked, of its own user.
+                        if let Some(waiting) = pending
+                            .get(&id)
+                            .filter(|waiting| waiting.uid == uid && waiting.registrar == registrar)
+                        {
+                            let _ = waiting.decided.try_send(save);
+                        }
+                    }
+                    Some(_) => connection.send(&Answer::refused(Reason::InvalidRequest))?,
+                }
+            }
+        })();
+        {
+            let mut confirmers = self
+                .saves
+                .confirmers
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if confirmers
+                .get(&uid)
+                .is_some_and(|confirmer| confirmer.registrar == registrar)
+            {
+                confirmers.remove(&uid);
+            }
+        }
+        // Nobody is left to answer what it was asked: not saved.
+        for waiting in self
+            .saves
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .filter(|waiting| waiting.registrar == registrar)
+        {
+            let _ = waiting.decided.try_send(false);
+        }
+        served
+    }
+
+    /// An application's request to save a login it has just used (ADR 0050 decision 5): never on
+    /// its word. The keychain must be unlocked and a vault's member; the session's sheet asks the
+    /// person, naming the application and the username; only their yes, within [`SAVE_WAIT`],
+    /// saves it, associated with the application's desktop entry id (and `domain`'s URL). One
+    /// request of an application waits at a time.
+    fn save_password(
+        &self,
+        registration: &Registration,
+        username: Secret,
+        password: Secret,
+        domain: Option<String>,
+        log: &mut impl FnMut(&Event),
+    ) -> Answer {
+        let uid = registration.uid;
+        let app = registration.desktop_entry_id.as_str();
+        let domain = match domain.as_deref().map(keychain::saved_domain) {
+            None => None,
+            Some(Some(domain)) => Some(domain),
+            Some(None) => return Answer::refused(Reason::InvalidRequest),
+        };
+        if !keychain::savable_text(username.expose(), MAX_SAVED_USERNAME)
+            || password.is_empty()
+            || password.expose().len() > MAX_SAVED_PASSWORD
+        {
+            return Answer::refused(Reason::InvalidRequest);
+        }
+        let Some(keychains) = self.platform.keychains() else {
+            return Answer::refused(Reason::Locked);
+        };
+        let Ok(Some(enrollment)) = self.platform.enrollment_of(uid) else {
+            return Answer::refused(Reason::Failed);
+        };
+        let user = enrollment.user.as_str();
+        if let Err(reason) = keychains.may_save(uid, user) {
+            log(&Event::SaveRefused {
+                id: app.to_owned(),
+                reason,
+            });
+            return Answer::refused(reason);
+        }
+        let (id, decided, registrar) = {
+            let mut pending = self.saves.pending.lock().unwrap_or_else(|p| p.into_inner());
+            if pending
+                .values()
+                .any(|waiting| waiting.uid == uid && waiting.desktop_entry_id == app)
+            {
+                log(&Event::SaveRefused {
+                    id: app.to_owned(),
+                    reason: Reason::TooMany,
+                });
+                return Answer::refused(Reason::TooMany);
+            }
+            let confirmers = self
+                .saves
+                .confirmers
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let Some(confirmer) = confirmers.get(&uid) else {
+                log(&Event::SaveRefused {
+                    id: app.to_owned(),
+                    reason: Reason::Unavailable,
+                });
+                return Answer::refused(Reason::Unavailable);
+            };
+            let id = self.saves.next.fetch_add(1, Ordering::SeqCst).to_string();
+            let (decide, decided) = std::sync::mpsc::sync_channel(1);
+            pending.insert(
+                id.clone(),
+                PendingSave {
+                    uid,
+                    desktop_entry_id: app.to_owned(),
+                    registrar: confirmer.registrar,
+                    decided: decide,
+                },
+            );
+            confirmer.tell(Answer::ConfirmSave(SaveConfirmation {
+                id: id.clone(),
+                desktop_entry_id: app.to_owned(),
+                username: Secret::new(username.expose()),
+                domain: domain.clone(),
+            }));
+            (id, decided, confirmer.registrar)
+        };
+        let decision = decided.recv_timeout(Duration::from_millis(
+            self.save_wait.load(Ordering::Relaxed),
+        ));
+        self.saves
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&id);
+        let save = match decision {
+            Ok(save) => save,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // The sheet goes: nothing will be saved for it.
+                if let Some(confirmer) = self
+                    .saves
+                    .confirmers
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(&uid)
+                    .filter(|confirmer| confirmer.registrar == registrar)
+                {
+                    confirmer.tell(Answer::SaveWithdrawn { id });
+                }
+                false
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => false,
+        };
+        if !save {
+            log(&Event::NotSaved { id: app.to_owned() });
+            return Answer::NotSaved {};
+        }
+        let login = SaveLogin {
+            desktop_entry_id: app.to_owned(),
+            username,
+            password,
+            domain,
+        };
+        match keychains.save(uid, user, &login) {
+            Ok(()) => {
+                log(&Event::Saved { id: app.to_owned() });
+                Answer::Saved {}
+            }
+            Err(reason) => {
+                log(&Event::SaveRefused {
+                    id: app.to_owned(),
+                    reason,
+                });
+                Answer::refused(reason)
+            }
         }
     }
 
@@ -952,6 +1283,11 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     | Request::RemovePin { .. }
                     | Request::SetPasswordSignIn { .. }),
                 ) => self.change_local(uid, request, log),
+                Some(Request::SavePassword {
+                    username,
+                    password,
+                    domain,
+                }) => self.save_password(registration, username, password, domain, log),
                 // The keychain is Settings' alone to manage (ADR 0050 decision 5), and AutoFill
                 // the registrar's: any other application never learns whether it holds anything.
                 Some(request) if keychain::is_keychain_request(&request) => {

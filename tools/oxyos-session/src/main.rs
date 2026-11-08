@@ -64,6 +64,10 @@
 //! turn. Bluetooth (docs/adr/0055-bluetooth.mdx) is BlueZ's, through the session alone: on and
 //! off, discovery while Settings' Bluetooth page holds it, connecting, pairing (the session is
 //! BlueZ's default pairing agent, its questions the shell's sheets), forgetting and renaming.
+//! AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) is the accounts' service's keychain,
+//! asked on registrar connections of the session's own off the turn (`autofill.rs`): a field's
+//! suggestions and the person's pick, and an application's request to save a login asked in the
+//! shell's sheet; a session the login program did not start has no registrar, and no AutoFill.
 //!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
@@ -84,6 +88,7 @@
 //! starts the person's session. Nothing is launched, sleep is not held, and the first frame on a
 //! display is told to the login program, which tells the service manager.
 
+mod autofill;
 mod cursor_file;
 mod installd;
 
@@ -688,6 +693,23 @@ fn main() -> Result<()> {
             }
         }
     };
+    // AutoFill and saving passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decisions 5
+    // and 6): the accounts' service's keychain, on registrar connections of the session's own, each
+    // on a thread of its own. Only a session the login program started is the service's registrar
+    // (ADR 0020, step 5): any other is refused, and AutoFill stays off. The login screen has none.
+    let mut autofill = if greeter {
+        None
+    } else {
+        let socket = accountd_session_socket();
+        let provider = autofill::provider(socket.clone())?;
+        compositor.wakers.push(provider.wake_fd()?);
+        let saves = autofill::saves(socket)?;
+        compositor.wakers.push(saves.0.wake_fd()?);
+        Some(
+            oxyos_compositor::autofill::Autofill::new(Box::new(provider))
+                .with_saves(Box::new(saves)),
+        )
+    };
     let mut shell_started = Instant::now();
     // Whether the session was locked at the end of the last turn: locking, its keychain locks too
     // (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 2).
@@ -738,6 +760,12 @@ fn main() -> Result<()> {
             // Its answer sent now: the turn ends the session before it would be.
             compositor.flush();
             compositor.ending = true;
+        }
+        // AutoFill (ADR 0050): after the sign-out, so a session that is ending neither fills nor
+        // asks anything; before the store, which takes the requests left (the shell's press on a
+        // suggestion). The scene offers and fills nothing while locked.
+        if let Some(autofill) = autofill.as_mut().filter(|_| !compositor.ending) {
+            autofill.serve(&mut compositor);
         }
         // Input sources (ADR 0041), before the store, which takes the requests left.
         if let Some(methods) = input_methods.as_mut() {

@@ -4,12 +4,14 @@
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 import { createFrameworks } from './frameworks.ts';
+import { createKeychain, type KeychainModule } from './keychain.ts';
 import { createSession, type SystemModule } from './session.ts';
 
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type { Credential, SaveResult } from './keychain.ts';
 
 const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { api: number } } | null;
 /** The API level this runtime gives (its `api`, ADR 0030, decision 2); 0 where it says none. */
@@ -20,3 +22,5 @@ export const session = createSession(TurboModuleRegistry.get('OxyOSSystem') as S
 
 const frameworks = createFrameworks(session);
 export const { network, bluetooth, power, audio, settings, store } = frameworks;
+/** The keychain (docs/adr/0050-keychain-autofill-and-passkeys.mdx): asking to save a login. */
+export const keychain = createKeychain(TurboModuleRegistry.get('OxyOSKeychain') as KeychainModule | null);

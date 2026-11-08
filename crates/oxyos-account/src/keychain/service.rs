@@ -1540,13 +1540,38 @@ impl<V: VaultApi + 'static> KeychainService<V> {
     }
 
     fn put_held(&self, user: &User, uid: u32, input: &ItemInput) -> Result<Answer, Reason> {
-        let (epoch, prepared) = self.verified(user, |open| {
+        let written = self.write_held(user, uid, &|open| {
+            if !open.verified() {
+                return Err(Reason::VerificationRequired);
+            }
             let vault = member_of(&mut open.vault, open.standing)?;
-            let item = build(vault, input)?;
+            build(vault, input).map(Some)
+        })?;
+        let item_id = written.ok_or(Reason::Failed)?;
+        Ok(Answer::KeychainSaved { item_id })
+    }
+
+    /// Writes the item `make` makes of the open keychain (none: nothing to write), sealed, to Oxy,
+    /// then kept: its id once written. The account's calls must be held (`net`).
+    fn write_held(
+        &self,
+        user: &User,
+        uid: u32,
+        make: &dyn Fn(&mut Open) -> Result<Option<Item>, Reason>,
+    ) -> Result<Option<String>, Reason> {
+        let (epoch, prepared) = self.with_open(user, None, |open| {
+            let Some(item) = make(open)? else {
+                return Ok(None);
+            };
+            let vault = member_of(&mut open.vault, open.standing)?;
             vault
                 .prepare(&item)
+                .map(Some)
                 .map_err(|error| self.failed(user, "sealing an item", error))
         })?;
+        let Some(prepared) = prepared else {
+            return Ok(None);
+        };
         let (id, base, sealed) = (prepared.id.clone(), prepared.base, prepared.sealed.clone());
         let answer = self.ask(user, uid, "writing an item", |api, token| {
             api.put_item(token, &id, base, &sealed)
@@ -1559,11 +1584,26 @@ impl<V: VaultApi + 'static> KeychainService<V> {
             vault
                 .save_items(&open.store)
                 .map_err(|error| self.failed(user, "keeping the items", error))?;
-            Ok(Answer::KeychainSaved {
-                item_id: id.to_string(),
-            })
+            Ok(Some(id.to_string()))
         })
-        .map(|(_, answer)| answer)
+        .map(|(_, written)| written)
+    }
+
+    // An application's save, once the person said yes (decision 5).
+
+    fn save_login(&self, user: &User, uid: u32, login: &SaveLogin) -> Result<(), Reason> {
+        let _net = lock(&user.net);
+        let make = |open: &mut Open| saved_item(open, login);
+        match self.write_held(user, uid, &make) {
+            Err(Reason::Conflict) => {
+                // Another device wrote first: what it wrote is read, then the save is made again
+                // over it.
+                self.sync_held(user, uid)?;
+                self.write_held(user, uid, &make)
+            }
+            other => other,
+        }
+        .map(|_| ())
     }
 
     fn delete(&self, user: &User, uid: u32, id: &ItemId) -> Result<Answer, Reason> {
@@ -1827,6 +1867,76 @@ fn view(item: &Item) -> ItemView {
 
 fn text(value: &Option<Secret>) -> SecretString {
     value.as_ref().map(secret_string).unwrap_or_default()
+}
+
+/// The item an application's save makes, the person having said yes: the next version of the
+/// application's login with the same username (the password replaced, the old one kept in its
+/// history, the domain's URL added), else a new login associated with the application alone,
+/// titled by the domain or the application's id. None when the login already holds all of it.
+fn saved_item(open: &mut Open, login: &SaveLogin) -> Result<Option<Item>, Reason> {
+    let vault = member_of(&mut open.vault, open.standing)?;
+    let url = login
+        .domain
+        .as_ref()
+        .map(|domain| format!("https://{domain}"));
+    let existing = vault.open_items().find_map(|(id, item)| {
+        let item = item.ok()?;
+        if !vault::associated(&item, &login.desktop_entry_id) {
+            return None;
+        }
+        match item.content {
+            Content::Login(old) if old.username.expose() == login.username.expose() => {
+                Some((id.clone(), old))
+            }
+            _ => None,
+        }
+    });
+    let input = match existing {
+        Some((id, old)) => {
+            let has_url = login.domain.as_ref().is_none_or(|domain| {
+                old.urls
+                    .iter()
+                    .any(|url| host(url.url.expose()).eq_ignore_ascii_case(domain))
+            });
+            if old.password.expose() == login.password.expose() && has_url {
+                return Ok(None);
+            }
+            let mut urls: Vec<Secret> = old.urls.iter().map(|url| secret(&url.url)).collect();
+            if !has_url {
+                urls.extend(url.map(Secret::new));
+            }
+            ItemInput {
+                item_id: Some(id.to_string()),
+                fields: ItemFields::Login {
+                    title: secret(&old.title),
+                    username: secret(&old.username),
+                    password: Secret::new(login.password.expose()),
+                    urls,
+                    apps: old.apps.iter().map(secret).collect(),
+                    totp: old.totp.as_ref().map(secret),
+                    notes: (!old.notes.expose().is_empty()).then(|| secret(&old.notes)),
+                },
+            }
+        }
+        None => ItemInput {
+            item_id: None,
+            fields: ItemFields::Login {
+                title: Secret::new(
+                    login
+                        .domain
+                        .as_deref()
+                        .unwrap_or(login.desktop_entry_id.as_str()),
+                ),
+                username: Secret::new(login.username.expose()),
+                password: Secret::new(login.password.expose()),
+                urls: url.into_iter().map(Secret::new).collect(),
+                apps: vec![Secret::new(login.desktop_entry_id.as_str())],
+                totp: None,
+                notes: None,
+            },
+        },
+    };
+    build(vault, &input).map(Some)
 }
 
 /// The item Settings' input makes: a new one, or the next version of the one it names (its
@@ -2125,6 +2235,22 @@ impl<V: VaultApi + 'static> Keychains for KeychainService<V> {
             }
             _ => Err(Reason::NotPermitted),
         })
+    }
+
+    fn may_save(&self, uid: u32, user: &str) -> Result<(), Reason> {
+        let account = self.user(uid, user);
+        self.with_open(&account, None, |open| {
+            member_of(&mut open.vault, open.standing).map(|_| ())
+        })
+        .map(|_| ())
+    }
+
+    fn save(&self, uid: u32, user: &str, login: &SaveLogin) -> Result<(), Reason> {
+        if !valid_entry_id(&login.desktop_entry_id) {
+            return Err(Reason::InvalidRequest);
+        }
+        let account = self.user(uid, user);
+        self.save_login(&account, uid, login)
     }
 
     fn forget(&self, uid: u32, user: &str) {

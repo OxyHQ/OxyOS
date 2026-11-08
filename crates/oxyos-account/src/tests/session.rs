@@ -68,14 +68,27 @@ pub(super) fn service(api: FakeApi) -> Socket {
 
 /// An application: a child of the test that, once told (a line on its standard input), connects
 /// and runs `steps`: `{"send": message}` sends it and prints the answer, `"recv"` prints the next
-/// message, `"wait"` waits for another line; `{"child": steps}` runs them in a child of its own.
+/// message, `"wait"` waits for another line; `{"child": steps}` runs them in a child of its own;
+/// `{"post": message}` sends it on a connection of its own, kept open, and `"collect"` prints the
+/// answer of the oldest one posted.
 const APPLICATION: &str = r#"
 import json, socket, subprocess, sys
 def run(path, steps):
     s = None
+    posted = []
     for step in steps:
         if step == "wait":
             sys.stdin.readline()
+            continue
+        if isinstance(step, dict) and "post" in step:
+            other = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            other.connect(path)
+            other.send(json.dumps(step["post"]).encode())
+            posted.append(other)
+            continue
+        if step == "collect":
+            data = posted.pop(0).recv(65536)
+            print(data.decode() if data else "closed", flush=True)
             continue
         if isinstance(step, dict) and "child" in step:
             child = subprocess.Popen([sys.executable, "-I", "-c", sys.argv[3], path, json.dumps(step["child"])],

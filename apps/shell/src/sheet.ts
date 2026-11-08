@@ -20,6 +20,11 @@
  * device (`bluetooth-display`, which only Cancel answers: the session takes it away once paired),
  * asks for the code the device shows or its PIN (`bluetooth-code`) and says a connection failed
  * (`bluetooth-failed`). The code typed goes to the session alone, as a password does.
+ *
+ * An application asking to save a login it has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 5), the session asks the person (`save-password`): the application, by its id (named
+ * as the registry names it), the username and the website it names, never the password. Save
+ * saves it in the account's keychain; Not Now, Escape or the application going saves nothing.
  */
 
 import type { Language, ShellMessages } from "./messages";
@@ -48,7 +53,10 @@ export type SheetText =
   | { kind: "bluetooth-service"; name: string; device: BluetoothKind; service: BluetoothService }
   | { kind: "bluetooth-display"; name: string; device: BluetoothKind; code: string }
   | { kind: "bluetooth-code"; name: string; device: BluetoothKind; code: BluetoothCodeKind }
-  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string };
+  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string }
+  // AutoFill's "ask to save" (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): `id`
+  // the asking application's desktop entry id.
+  | { kind: "save-password"; id: string; username: string; domain?: string };
 
 /** What a paired device that is not trusted asks to use. */
 export type BluetoothService = "audio" | "input" | "phone" | "files" | "network" | "other";
@@ -340,6 +348,15 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         codeField: { label: pin ? w.bluetoothPinField : w.bluetoothCodeField, kind: pin ? "pin" : "passkey" },
       };
     }
+    case "save-password":
+      return {
+        title: w.savePassword(names[sheet.id] ?? sheet.id),
+        body: sheet.domain ? `${sheet.username} · ${sheet.domain}` : sheet.username,
+        lines: [{ label: w.savePasswordNote }],
+        accept: w.save,
+        refuse: w.notNow,
+        destructive: false,
+      };
     case "bluetooth-failed":
       return {
         title: w.bluetoothFailed(sheet.name),

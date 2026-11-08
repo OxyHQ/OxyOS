@@ -282,6 +282,46 @@ fn an_erase_is_answered_or_refused_with_its_reason_and_wait() {
 }
 
 #[test]
+fn a_save_is_answered_saved_not_saved_or_refused() {
+    let (socket, dir) = socket_path("session");
+    let shapes = [
+        json!({"saved": {}}),
+        json!({"notSaved": {}}),
+        json!({"refused": {"reason": "locked"}}),
+        json!("removed"),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |_| {
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let save = |domain: Option<&str>| {
+        save_password_at(
+            &socket,
+            Secret::new("ada"),
+            Secret::new("made-up-pass"),
+            domain.map(str::to_owned),
+        )
+        .map(|answer| serde_json::to_value(answer).unwrap())
+    };
+    assert_eq!(save(Some("dropsea.net")), Ok(json!({"saved": {}})));
+    assert_eq!(save(None), Ok(json!({"notSaved": {}})));
+    assert_eq!(save(None), Ok(json!({"refused": {"reason": "locked"}})));
+    let failed = save(None).unwrap_err();
+    assert!(!failed.to_string().contains("made-up-pass"));
+    assert_eq!(
+        served.join().unwrap(),
+        [
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass", "domain": "dropsea.net"}}),
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass"}}),
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass"}}),
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass"}}),
+        ]
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn the_platform_is_the_services() {
     let (socket, dir) = socket_path("accountd");
     let answers = std::sync::Mutex::new(

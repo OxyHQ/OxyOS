@@ -27,6 +27,31 @@
 //!   handle made at random for this unlock, never the item's id, and dies with the lock; a fill
 //!   checks the association and the unlock again. Its own `check` accepted, the registrar's
 //!   account is unlocked with that password.
+//!   A registrar connection of the session's own takes the save confirmations instead (below).
+//! - **Saving** (decision 5, "ask to save"): an application, on its own connection, asks to save a
+//!   login it has just used; the service never saves on its word, but asks the session, which asks
+//!   the person in a system sheet over the application's window:
+//!
+//!   ```text
+//!   app       → {"savePassword": {"username", "password", "domain"?}}
+//!   session   → {"confirmSaves": {}}         ← "confirmingSaves", then, for each request:
+//!             ← {"confirmSave": {"id", "desktopEntryId", "username", "domain"?}}   (no password)
+//!             → {"saveDecision": {"id", "save"}}
+//!             ← {"saveWithdrawn": {"id"}}      (the request ended unanswered)
+//!   app       ← {"saved": {}} | {"notSaved": {}} | {"refused": {"reason"}}
+//!   ```
+//!
+//!   Only on `save: true` is the login saved, associated with the application's desktop entry id
+//!   (`apps: [id]`, and `https://<domain>` among its URLs when given); a login of the application
+//!   with the same username is updated instead (its old password kept in its history), and nothing
+//!   is written when it already holds that password. `notSaved` is the person's no, no answer within
+//!   two minutes ([`SAVE_WAIT`](crate::session::SAVE_WAIT)), the sheet not shown (the application's
+//!   window is not the key window) or the session's connection gone. Refused: `locked` (the
+//!   session is locked), `notMember` (no vault: Settings turns the keychain on), `tooMany` (the
+//!   application already waits for an answer), `unavailable` (no session to ask the person in),
+//!   `invalidRequest` (an empty or overlong username or password, a username with control
+//!   characters, a domain that is not a host name), and, after a yes, what writing says
+//!   (`offline`, `conflict`, …). An application never learns whether the keychain held the login.
 //! - **Settings** (an application registered as the system's `so.oxy.settings`, on the session
 //!   socket): `keychainStatus`, `keychainCreate`, `keychainConfirmRecoveryKey`, `keychainJoin`,
 //!   `keychainEnrollments`, `keychainApprove`, `keychainDeny`, `keychainMembers`,
@@ -314,8 +339,71 @@ pub trait Keychains: Send + Sync {
     fn registrar(&self, uid: u32, user: &str, request: Request) -> Answer;
     /// A request of `uid`'s Settings.
     fn settings(&self, uid: u32, user: &str, request: Request) -> Answer;
+    /// Whether `uid`'s keychain could save a login now (an application asked): unlocked, and a
+    /// member of a vault.
+    fn may_save(&self, uid: u32, user: &str) -> Result<(), Reason>;
+    /// Saves a login the person said yes to in the session's sheet, for its application.
+    fn save(&self, uid: u32, user: &str, login: &SaveLogin) -> Result<(), Reason>;
     /// `user`'s account was removed from the machine: its keychain is locked and erased.
     fn forget(&self, uid: u32, user: &str);
+}
+
+/// What the session's sheet asks the person about an application's request to save
+/// (`confirmSave`): never the password.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveConfirmation {
+    pub id: String,
+    pub desktop_entry_id: String,
+    pub username: Secret,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+}
+
+/// A login the person said yes to saving, for an application.
+#[derive(Debug)]
+pub struct SaveLogin {
+    pub desktop_entry_id: String,
+    pub username: Secret,
+    pub password: Secret,
+    /// A host name, lower case (`saved_domain`).
+    pub domain: Option<String>,
+}
+
+/// A domain an application names for a login it saves, as a host name in lower case: labels of
+/// letters, digits and hyphens (none at an end), at least two, at most 253 bytes. Anything else
+/// (a URL, a port, a path, an address) is none.
+pub fn saved_domain(text: &str) -> Option<String> {
+    let domain = text.to_ascii_lowercase();
+    let labels: Vec<&str> = domain.split('.').collect();
+    let valid = domain.len() <= 253
+        && labels.len() >= 2
+        && labels.iter().all(|label| {
+            (1..=63).contains(&label.len())
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+        })
+        && !labels
+            .last()
+            .is_some_and(|tld| tld.bytes().all(|b| b.is_ascii_digit()));
+    valid.then_some(domain)
+}
+
+/// Whether a username may be shown in the system's sheet and saved: not empty, at most `max`
+/// bytes, and nothing that is not drawn as itself (control characters, the marks that reorder
+/// text, which could make the sheet read as something else).
+pub fn savable_text(text: &str, max: usize) -> bool {
+    !text.trim().is_empty()
+        && text.len() <= max
+        && !text.chars().any(|c| {
+            c.is_control()
+                || matches!(c, '\u{200e}' | '\u{200f}' | '\u{061c}')
+                || ('\u{202a}'..='\u{202e}').contains(&c)
+                || ('\u{2066}'..='\u{2069}').contains(&c)
+        })
 }
 
 /// Whether a session request is the keychain's.
@@ -449,6 +537,266 @@ impl RegistrarClient {
             Ok(Answer::KeychainLocked) => Ok(Ok(())),
             Ok(_) => Err(Self::unexpected()),
             Err(reason) => Ok(Err(reason)),
+        }
+    }
+}
+
+/// What the session's confirmations' connection was told.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SaveEvent {
+    /// An application asks to save a login: the person is to be asked.
+    Confirm(SaveConfirmation),
+    /// A request asked before ended unanswered (its two minutes passed, or the service went): its
+    /// sheet goes.
+    Withdrawn(String),
+}
+
+/// The waits before connecting again to a service that went or could not be reached; the last
+/// repeats.
+const CONFIRM_RECONNECT: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+
+/// The session's registrar connection that takes save confirmations (`confirmSaves`), on a thread
+/// of its own, so the compositor's turn never waits for the service: what it is told arrives in
+/// [`SaveConfirmations::take`] (`wake_fd` readable meanwhile), and the person's answers go back
+/// with [`SaveConfirmations::decide`]. An answer is sent only for a request asked on the connection
+/// open now; when the service goes, every request it asked is withdrawn and it connects again. A
+/// service that refuses the session (a session the login program did not start is no registrar)
+/// is said once and not asked again: nothing is ever saved there.
+pub struct SaveConfirmations {
+    events: std::sync::mpsc::Receiver<SaveEvent>,
+    decisions: std::sync::mpsc::Sender<(String, bool)>,
+    /// Readable while events wait (the compositor's waker).
+    woken: std::os::unix::net::UnixStream,
+    /// Wakes the thread for a decision; closed, it ends.
+    poke: std::os::unix::net::UnixStream,
+}
+
+impl SaveConfirmations {
+    /// The confirmations of the service at `socket`; `log` says what it could not do (never a
+    /// username).
+    pub fn spawn(
+        socket: std::path::PathBuf,
+        log: impl Fn(&str) + Send + 'static,
+    ) -> io::Result<Self> {
+        let (events_in, events) = std::sync::mpsc::channel();
+        let (decisions, decided) = std::sync::mpsc::channel();
+        let (woken, wake) = std::os::unix::net::UnixStream::pair()?;
+        woken.set_nonblocking(true)?;
+        let (poke, poked) = std::os::unix::net::UnixStream::pair()?;
+        poked.set_nonblocking(true)?;
+        std::thread::Builder::new()
+            .name("oxyos-save-confirmations".into())
+            .spawn(move || {
+                confirmations_thread(&socket, &events_in, &wake, &decided, &poked, &log)
+            })?;
+        Ok(Self {
+            events,
+            decisions,
+            woken,
+            poke,
+        })
+    }
+
+    /// What wakes the compositor's turn when something arrived.
+    pub fn wake_fd(&self) -> io::Result<rustix::fd::OwnedFd> {
+        Ok(self.woken.try_clone()?.into())
+    }
+
+    /// What arrived since the last call, in order.
+    pub fn take(&self) -> Vec<SaveEvent> {
+        use std::io::Read;
+        let mut buffer = [0u8; 64];
+        while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
+        self.events.try_iter().collect()
+    }
+
+    /// The person's answer to the request `id`.
+    pub fn decide(&self, id: &str, save: bool) {
+        if self.decisions.send((id.to_owned(), save)).is_ok() {
+            use std::io::Write;
+            let _ = (&self.poke).write(&[1]);
+        }
+    }
+}
+
+/// Connects and asks for the confirmations: the connection, or why not (`Ok(Err)`: refused).
+fn confirming(socket: &Path) -> io::Result<Result<Connection, Reason>> {
+    let connection = Connection::connect(socket)?;
+    connection.set_timeout(AUTOFILL_WAIT)?;
+    connection.send(&Request::ConfirmSaves {})?;
+    match connection.receive::<Answer>()? {
+        Some(Some(Answer::ConfirmingSaves)) => {
+            connection.set_receive_timeout(None)?;
+            Ok(Ok(connection))
+        }
+        Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
+        Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
+        None => Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the service closed the connection",
+        )),
+    }
+}
+
+fn confirmations_thread(
+    socket: &Path,
+    events: &std::sync::mpsc::Sender<SaveEvent>,
+    wake: &std::os::unix::net::UnixStream,
+    decided: &std::sync::mpsc::Receiver<(String, bool)>,
+    poked: &std::os::unix::net::UnixStream,
+    log: &dyn Fn(&str),
+) {
+    use rustix::event::{poll, PollFd, PollFlags};
+    use std::io::{Read, Write};
+    let tell = |event: SaveEvent| {
+        let _ = events.send(event);
+        let _ = (&*wake).write(&[1]);
+    };
+    let mut attempts = 0usize;
+    let mut said = false;
+    loop {
+        let connection = match confirming(socket) {
+            Ok(Ok(connection)) => {
+                said = false;
+                connection
+            }
+            Ok(Err(Reason::NotPermitted)) => {
+                log("the accounts' service does not take this session's confirmations: nothing is saved");
+                return;
+            }
+            Ok(Err(reason)) => {
+                if !std::mem::replace(&mut said, true) {
+                    log(&format!("the save confirmations were refused: {reason:?}"));
+                }
+                if !wait(
+                    poked,
+                    CONFIRM_RECONNECT[attempts.min(CONFIRM_RECONNECT.len() - 1)],
+                ) {
+                    return;
+                }
+                attempts += 1;
+                continue;
+            }
+            Err(error) => {
+                if !std::mem::replace(&mut said, true) {
+                    log(&format!(
+                        "the accounts' service at {}: {error}; nothing is saved until it answers",
+                        socket.display()
+                    ));
+                }
+                if !wait(
+                    poked,
+                    CONFIRM_RECONNECT[attempts.min(CONFIRM_RECONNECT.len() - 1)],
+                ) {
+                    return;
+                }
+                attempts += 1;
+                continue;
+            }
+        };
+        // The requests asked on this connection and not yet answered nor withdrawn.
+        let mut open: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Decisions for requests of an earlier connection are dropped.
+        while decided.try_recv().is_ok() {}
+        let ended: io::Error = loop {
+            let mut fds = [
+                PollFd::new(&connection, PollFlags::IN),
+                PollFd::new(poked, PollFlags::IN),
+            ];
+            match poll(&mut fds, None) {
+                Ok(_) => {}
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(error) => break io::Error::from(error),
+            }
+            let (message, poke) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
+            if poke {
+                let mut bytes = [0u8; 64];
+                // The session let go: it is ending.
+                if let Ok(0) = (&*poked).read(&mut bytes) {
+                    return;
+                }
+                while matches!((&*poked).read(&mut bytes), Ok(read) if read > 0) {}
+                let mut sent = Ok(());
+                for (id, save) in decided.try_iter() {
+                    if open.remove(&id) {
+                        sent = sent.and(connection.send(&Request::SaveDecision { id, save }));
+                    }
+                }
+                if let Err(error) = sent {
+                    break error;
+                }
+            }
+            if !message {
+                continue;
+            }
+            match connection.receive::<Answer>() {
+                Ok(Some(Some(Answer::ConfirmSave(confirmation)))) => {
+                    open.insert(confirmation.id.clone());
+                    tell(SaveEvent::Confirm(confirmation));
+                }
+                Ok(Some(Some(Answer::SaveWithdrawn { id }))) => {
+                    if open.remove(&id) {
+                        tell(SaveEvent::Withdrawn(id));
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    break io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "the service closed the connection",
+                    )
+                }
+                Err(error) => break error,
+            }
+        };
+        // The service went, and with it what it asked: those sheets go.
+        for id in open.drain() {
+            tell(SaveEvent::Withdrawn(id));
+        }
+        log(&format!(
+            "the save confirmations' connection ended: {ended}"
+        ));
+        if !wait(poked, CONFIRM_RECONNECT[0]) {
+            return;
+        }
+        attempts = 1;
+    }
+}
+
+/// Waits `wait`, or until the session lets go (false). Decisions poked meanwhile are for requests
+/// of a connection that went: dropped when the next one opens.
+fn wait(poked: &std::os::unix::net::UnixStream, wait: Duration) -> bool {
+    use rustix::event::{poll, PollFd, PollFlags};
+    use std::io::Read;
+    let until = std::time::Instant::now() + wait;
+    loop {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return true;
+        }
+        let timeout = rustix::time::Timespec {
+            tv_sec: left.as_secs() as i64,
+            tv_nsec: i64::from(left.subsec_nanos()),
+        };
+        let mut fds = [PollFd::new(poked, PollFlags::IN)];
+        match poll(&mut fds, Some(&timeout)) {
+            Ok(0) => return true,
+            Ok(_) => {
+                let mut bytes = [0u8; 64];
+                match (&*poked).read(&mut bytes) {
+                    Ok(0) => return false,
+                    _ => continue,
+                }
+            }
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(_) => return true,
         }
     }
 }
