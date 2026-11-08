@@ -143,12 +143,35 @@ pub struct PinChecks {
     failed_at: std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
 }
 
-#[cfg(feature = "local")]
 impl PinChecks {
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// `user` signed in with the password (or was set up again online): its wrong PINs are
+    /// forgotten, and a locked-out PIN signs in again.
+    pub fn forget_failures(
+        &self,
+        store: &crate::store::Store,
+        user: &crate::id::UserName,
+    ) -> std::io::Result<()> {
+        self.failed_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(user.as_str());
+        let mut local = store.local(user)?;
+        match local.pin.as_mut() {
+            Some(record) if record.failures != 0 => {
+                record.failures = 0;
+                store.put_local(user, &local)
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+#[cfg(feature = "local")]
+impl PinChecks {
     /// Checks `pin` for `user`, counting a wrong one, at `now`.
     pub fn check(
         &self,
@@ -203,27 +226,6 @@ impl PinChecks {
             },
             locked,
         })
-    }
-
-    /// `user` signed in with the password (or was set up again online): its wrong PINs are
-    /// forgotten, and a locked-out PIN signs in again.
-    pub fn forget_failures(
-        &self,
-        store: &crate::store::Store,
-        user: &crate::id::UserName,
-    ) -> std::io::Result<()> {
-        self.failed_at
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(user.as_str());
-        let mut local = store.local(user)?;
-        match local.pin.as_mut() {
-            Some(record) if record.failures != 0 => {
-                record.failures = 0;
-                store.put_local(user, &local)
-            }
-            _ => Ok(()),
-        }
     }
 }
 

@@ -14,8 +14,9 @@ fn socket() -> PathBuf {
         .map_or_else(|| oxyos_account::ipc::SOCKET.into(), PathBuf::from)
 }
 
-/// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null)}]` in the
-/// service's order, or why they could not be read.
+/// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null), "pin" ("none",
+/// "set" or "locked"), "password" (whether it signs in)}]` in the service's order, or why they
+/// could not be read.
 pub fn accounts_json() -> Result<String, String> {
     accounts_json_at(&socket())
 }
@@ -26,14 +27,20 @@ fn accounts_json_at(socket: &std::path::Path) -> Result<String, String> {
     let items: Vec<String> = accounts
         .iter()
         .map(|account| {
+            let pin = match account.pin {
+                oxyos_account::pin::PinState::None => "none",
+                oxyos_account::pin::PinState::Set => "set",
+                oxyos_account::pin::PinState::Locked => "locked",
+            };
             format!(
-                "{{\"user\":{},\"name\":{},\"picture\":{}}}",
+                "{{\"user\":{},\"name\":{},\"picture\":{},\"pin\":\"{pin}\",\"password\":{}}}",
                 json_string(&account.user),
                 json_string(&account.name),
                 account
                     .picture
                     .as_deref()
-                    .map_or("null".into(), json_string)
+                    .map_or("null".into(), json_string),
+                account.password
             )
         })
         .collect();
@@ -98,6 +105,8 @@ mod tests {
                         name: "Ada \"Countess\" Lovelace".into(),
                         picture: Some("/var/lib/oxyos/pictures/oxy-a".into()),
                         state: oxyos_account::store::State::Ready,
+                        pin: oxyos_account::pin::PinState::Set,
+                        password: true,
                     },
                     Account {
                         account_id: "b".into(),
@@ -106,13 +115,15 @@ mod tests {
                         name: "Bea".into(),
                         picture: None,
                         state: oxyos_account::store::State::Ready,
+                        pin: oxyos_account::pin::PinState::None,
+                        password: false,
                     },
                 ]))
                 .unwrap();
         });
         assert_eq!(
             accounts_json_at(&socket).unwrap(),
-            r#"[{"user":"oxy-a","name":"Ada \"Countess\" Lovelace","picture":"/var/lib/oxyos/pictures/oxy-a"},{"user":"oxy-b","name":"Bea","picture":null}]"#
+            r#"[{"user":"oxy-a","name":"Ada \"Countess\" Lovelace","picture":"/var/lib/oxyos/pictures/oxy-a","pin":"set","password":true},{"user":"oxy-b","name":"Bea","picture":null,"pin":"none","password":false}]"#
         );
         service.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();

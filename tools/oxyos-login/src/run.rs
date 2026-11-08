@@ -135,9 +135,15 @@ fn worker_args(
 /// A person's worker: their session, the session program with the shell's package as its shell
 /// on the Bloom host the login screen runs on (which also starts any development entry that names
 /// no runtime of its own).
+/// The PAM services a person's worker checks under: the password's, and the PIN's (ADR 0020
+/// decision 2), which asks the accounts' service and never Oxy.
+pub const PASSWORD_SERVICE: &str = "oxyos-login";
+pub const PIN_SERVICE: &str = "oxyos-login-pin";
+
 fn person_args(
     config: &Config,
     account: &str,
+    passcode: bool,
     passed: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<OsString> {
     let shell = format!(
@@ -147,7 +153,11 @@ fn person_args(
     );
     worker_args(
         config,
-        "oxyos-login",
+        if passcode {
+            PIN_SERVICE
+        } else {
+            PASSWORD_SERVICE
+        },
         account,
         "user",
         &[("OXYOS_BLOOM_HOST", config.host.display().to_string())],
@@ -329,8 +339,8 @@ impl Login {
             }
             Action::Answer { verdict, wait_s } => {
                 // Accepted, the password opens the account's keychain (ADR 0050 decision 2)
-                // before it is let go.
-                if verdict == Verdict::Accepted {
+                // before it is let go; a PIN opens none (it is not the keybag's password).
+                if verdict == Verdict::Accepted && !self.manager.handing_over_with_pin() {
                     self.unlock_keychain();
                 }
                 // The attempt has concluded: its password is let go.
@@ -348,7 +358,7 @@ impl Login {
                     self.greeter_gone();
                 }
             }
-            Action::Check { account } => {
+            Action::Check { account, passcode } => {
                 let secret = Secret::new(
                     self.password
                         .as_ref()
@@ -359,7 +369,7 @@ impl Login {
                 if let Some(earlier) = self.person.take() {
                     self.abandoned.push(earlier.child);
                 }
-                let started = self.start_person(&account).and_then(|worker| {
+                let started = self.start_person(&account, passcode).and_then(|worker| {
                     worker.channel.send_password(secret)?;
                     Ok(worker)
                 });
@@ -449,8 +459,8 @@ impl Login {
         self.execute(actions);
     }
 
-    fn start_person(&self, account: &str) -> std::io::Result<Worker> {
-        Worker::spawn(person_args(&self.config, account, &|name| {
+    fn start_person(&self, account: &str, passcode: bool) -> std::io::Result<Worker> {
+        Worker::spawn(person_args(&self.config, account, passcode, &|name| {
             std::env::var(name).ok()
         }))
     }
@@ -518,10 +528,14 @@ impl Login {
                     }
                 }
             }
-            Ok(Some(ToLogin::Attempt { account, secret })) => {
+            Ok(Some(ToLogin::Attempt {
+                account,
+                passcode,
+                secret,
+            })) => {
                 let actions = match self.enrolled(&account) {
                     Some(enrolled) => {
-                        let actions = self.manager.attempt(&account, enrolled, now);
+                        let actions = self.manager.attempt(&account, passcode, enrolled, now);
                         // Kept only for the check it starts.
                         if actions
                             .iter()
@@ -743,7 +757,12 @@ mod tests {
         let greeter = strings(greeter_args(&config, &|_| None));
         assert!(greeter.contains(&format!("{HOST},{LOGIN_BUNDLE},OxyOSLogin")));
         assert!(!greeter.iter().any(|arg| arg.contains(SHELL_BUNDLE)));
-        let person = strings(person_args(&config, "oxy-a", &|_| None));
+        let person = strings(person_args(&config, "oxy-a", false, &|_| None));
+        assert!(person.contains(&"oxyos-login".to_owned()));
+        // A PIN is checked under its own service, the session otherwise the same.
+        let pin = strings(person_args(&config, "oxy-a", true, &|_| None));
+        assert!(pin.contains(&"oxyos-login-pin".to_owned()));
+        assert_eq!(pin.len(), person.len());
         let program = &person[person.iter().position(|arg| arg == "--").unwrap() + 1..];
         assert_eq!(
             program,
