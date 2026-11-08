@@ -2384,10 +2384,11 @@ int main(int argc, char** argv) {
           }
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
           // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
-          // again), every one of them, so the window is drawn again whole, as for the appearance.
+          // again), every one of them, though none of their props changed: the window is drawn
+          // again whole, as when the painter changes.
           if (now.reduceTransparency != toldDrawing->reduceTransparency) {
             oxyos::setReducedTransparency(now.reduceTransparency);
-            windowCanvas = oxyos::Canvas{};
+            painterChanged = true;
             dirty = true;
           }
           emit("OxyOSPreferencesChanged", services.settings.drawing());

@@ -1,5 +1,5 @@
 {
- "about": "At 1.25, as reduce-transparency.json at 1: Reduce transparency (docs/adr/0019-settings.mdx, step 3 amended 8 November 2026), followed live by the shell and an application with no restart. sample/MaterialProbe.tsx is the application: expo-blur's blur views over a target half black, half white, and the lock screen's clock in its material. Settings runs beside it (`companion`), granted `settings`. Its Accessibility page has Vision and Display as a Mac's. Off, the application's blur views blur their targets (the edge a ramp) and the shell's volume bezel is glass. Turned on, the session keeps it and tells every client. The host's expo-blur draws each blur view as its tint alone (the edge sharp, black and white under the tint), the clock's glyphs are plain white, the bezel is opaque (#1b1f27), and Launchpad's backdrop is an opaque dark grey (#2c2f36) with no wallpaper drawn. Turned off, all of it is glass again. Settings' switch is pressed: each press is delivered to Settings alone, and the application receives nothing.",
+ "about": "At 1.25, as reduce-transparency.json at 1: Reduce transparency (docs/adr/0019-settings.mdx, step 3 amended 8 November 2026), followed live by the shell and an application with no restart. sample/MaterialProbe.tsx is the application: expo-blur's blur views over a target half black, half white, and the lock screen's clock in its material. Settings runs beside it (`companion`), granted `settings`. Its Accessibility page has Vision and Display as a Mac's. Off, the application's blur views blur their targets (the edge a ramp) and the shell's volume bezel is glass. Turned on, the session keeps it and tells every client. The host's expo-blur draws each blur view as its tint alone (the edge sharp, black and white under the tint), the clock's glyphs are plain white, the bezel is opaque (#1b1f27), and Launchpad's backdrop is an opaque dark grey (#2c2f36) with no wallpaper drawn. Turned off, all of it is glass again. Settings' switch is pressed where it is drawn (its row's text and the switch share its name): each press is delivered to Settings alone, and the application receives nothing.",
  "module": "MaterialProbe",
  "window": [
   400,
@@ -138,8 +138,11 @@
   {
    "name": "Reduce transparency turned on in Settings: the session keeps it and tells every application at once",
    "do": [
-    "press_named",
-    "Reduce transparency"
+    "press_output",
+    [
+     598,
+     421
+    ]
    ],
    "allow_unchanged": true,
    "expect": {
@@ -194,7 +197,7 @@
    }
   },
   {
-   "name": "Super alone: Launchpad",
+   "name": "Super alone: Launchpad, which takes the keyboard and the pointer from Settings",
    "do": [
     "key",
     [
@@ -204,7 +207,10 @@
    "allow_unchanged": true,
    "expect": {
     "delivered": {
-     "companion": {}
+     "companion": {
+      "focus.out": 1,
+      "leave": 1
+     }
     }
    }
   },
@@ -225,7 +231,7 @@
    }
   },
   {
-   "name": "Escape closes it",
+   "name": "Escape closes it: Settings has the keyboard and the pointer again",
    "do": [
     "key",
     [
@@ -235,15 +241,21 @@
    "allow_unchanged": true,
    "expect": {
     "delivered": {
-     "companion": {}
+     "companion": {
+      "enter": 1,
+      "focus.in": 1
+     }
     }
    }
   },
   {
    "name": "Reduce transparency off again, Settings' switch pressed",
    "do": [
-    "press_named",
-    "Reduce transparency"
+    "press_output",
+    [
+     598,
+     421
+    ]
    ],
    "allow_unchanged": true,
    "expect": {
