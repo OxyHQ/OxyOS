@@ -23,8 +23,9 @@
 //!   ```
 //!
 //!   Closing the connection abandons a setup; nothing of it is kept. `pin` (4 to 16 digits, never
-//!   the password) becomes the account's PIN on this computer (`crate::pin`); an account without
-//!   `password` is refused `passwordRequired`, nothing asked of Oxy (`crate::setup`).
+//!   the password) becomes the account's PIN on this computer (`crate::pin`). Without `password`
+//!   (a sign-in by the QR) the PIN is required (`pinRequired` without one) and Oxy's device-proof
+//!   route issues the platform credential (`crate::setup`).
 //! - **The accounts** (step 2, for the login screen and the login program, the same peers):
 //!
 //!   ```text
@@ -212,7 +213,7 @@ pub enum Reason {
     InvalidAccount,
     UnusablePassword,
     UnusablePin,
-    PasswordRequired,
+    PinRequired,
     Offline,
     CredentialRefused,
     AccountNotOnDevice,
@@ -314,7 +315,7 @@ impl From<&SetupError> for Answer {
             SetupError::InvalidAccount => Reason::InvalidAccount,
             SetupError::UnusablePassword => Reason::UnusablePassword,
             SetupError::UnusablePin => Reason::UnusablePin,
-            SetupError::PasswordRequired => Reason::PasswordRequired,
+            SetupError::PinRequired => Reason::PinRequired,
             SetupError::Offline => Reason::Offline,
             SetupError::CredentialRefused => Reason::CredentialRefused,
             SetupError::AccountNotOnDevice => Reason::AccountNotOnDevice,
