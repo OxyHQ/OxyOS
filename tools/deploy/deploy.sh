@@ -73,9 +73,10 @@ if [ -n "${ASTRO_PACKAGE:-}" ]; then
   echo "astro scenarios passed"
 fi
 
-# Where the test machine keeps the user's applications: its home.
+# Where the test machine keeps the user's applications: its home (asked only when sending; a staged
+# run touches no other machine).
 REMOTE_HOME=/home/user
-[ -z "$HOST" ] || REMOTE_HOME=$(ssh -o BatchMode=yes "$HOST" 'echo $HOME')
+[ -n "$STAGE_ONLY" ] || REMOTE_HOME=$(ssh -o BatchMode=yes "$HOST" 'echo $HOME')
 # What goes to the test machine, staged as it is installed there.
 D=$R/deploy; rm -rf $D && mkdir -p $D/runtimes $D/apps $D/entries $D/packages $D/registry/oxyos/applications
 cp -a $M/runtimes/1 $D/runtimes/1
