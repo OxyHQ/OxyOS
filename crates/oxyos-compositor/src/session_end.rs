@@ -441,6 +441,19 @@ impl SessionEnding {
         }
     }
 
+    /// Ends the part now: the power key's inhibitor let go and logind's connection closed (the
+    /// development compositor checks it leaves no descriptor). A part on a thread ends as it is
+    /// dropped, its thread letting both go.
+    pub fn end(&mut self) {
+        if let Worker::Inline(calls, done) = &mut self.worker {
+            calls.held = None;
+            done.clear();
+            if let Some(bus) = calls.bus.take() {
+                let _ = bus.close();
+            }
+        }
+    }
+
     /// Time the development compositor says passed with no input (an `idle` step).
     pub fn pass(&mut self, time: Duration) {
         self.passed += time;

@@ -1192,6 +1192,11 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // The session's ending (ADR 0064): its inhibitor let go and its connection to the played
+        // logind closed.
+        if let Some(mut ending) = self.ending.take() {
+            ending.end();
+        }
         // Battery and energy's side, its threads waited for, its waker given back, and the
         // played services gone.
         if let Some(power) = self.power.as_mut() {
