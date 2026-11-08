@@ -1389,3 +1389,66 @@ fn safe_mode_is_written_beside_each_kernel_never_counted_and_goes_with_it() {
         ["oxyos-6.12.48+deb13-amd64+3.conf", "oxyos-recovery.conf"]
     );
 }
+
+#[test]
+fn safe_mode_entries_follow_the_kernels_entries_and_a_second_sync_changes_nothing() {
+    // A machine converted before Safe Mode (ADR 0054, decisions 9 and 10): two kernels' entries,
+    // one counted and one not, the recovery's, and a Safe Mode entry left by a kernel since removed.
+    let esp = esp_with(&["oxyos-recovery.conf"]);
+    let entries = Entries::new(esp.path());
+    let dir = esp.path().join("loader/entries");
+    fs::write(dir.join("oxyos-6.12.101+deb13-amd64+3.conf"), KERNEL_ENTRY).unwrap();
+    fs::write(dir.join("oxyos-6.12.74+deb13+1-amd64.conf"), KERNEL_ENTRY).unwrap();
+    fs::write(
+        dir.join("oxyos-safe-mode-6.12.48+deb13-amd64.conf"),
+        "title old\n",
+    )
+    .unwrap();
+    let (written, removed) = entries.sync_safe_mode("oxyos").unwrap();
+    assert_eq!(
+        written,
+        [
+            "oxyos-safe-mode-6.12.101+deb13-amd64.conf",
+            "oxyos-safe-mode-6.12.74+deb13+1-amd64.conf"
+        ]
+    );
+    assert_eq!(removed, ["oxyos-safe-mode-6.12.48+deb13-amd64.conf"]);
+    assert_eq!(
+        names(&esp),
+        [
+            "oxyos-6.12.101+deb13-amd64+3.conf",
+            "oxyos-6.12.74+deb13+1-amd64.conf",
+            "oxyos-recovery.conf",
+            "oxyos-safe-mode-6.12.101+deb13-amd64.conf",
+            "oxyos-safe-mode-6.12.74+deb13+1-amd64.conf"
+        ]
+    );
+    // Each never counted, its version's own (a `+1-amd64` in a version is no counter).
+    for entry in entries.safe_mode().unwrap() {
+        assert!(entry.tries.is_none() && !entry.is_system(), "{entry:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(dir.join("oxyos-safe-mode-6.12.101+deb13-amd64.conf")).unwrap(),
+        layout::safe_mode_entry(KERNEL_ENTRY).unwrap()
+    );
+    // Again: nothing to do.
+    assert_eq!(
+        entries.sync_safe_mode("oxyos").unwrap(),
+        (Vec::<String>::new(), Vec::<String>::new())
+    );
+    // An entry that differs from its kernel's is written again; another token's kernels are not
+    // OxyOS's.
+    fs::write(
+        dir.join("oxyos-safe-mode-6.12.74+deb13+1-amd64.conf"),
+        "title edited\n",
+    )
+    .unwrap();
+    fs::write(dir.join("debian-6.12.99-amd64.conf"), KERNEL_ENTRY).unwrap();
+    assert_eq!(
+        entries.sync_safe_mode("oxyos").unwrap(),
+        (
+            vec!["oxyos-safe-mode-6.12.74+deb13+1-amd64.conf".to_string()],
+            Vec::new()
+        )
+    );
+}
