@@ -49,6 +49,8 @@
 //! error, the journal's; never a password, a secret, a code or a token.
 
 mod passwords;
+#[cfg(test)]
+mod unit_sandbox;
 
 use oxyos_account::api::{Attestation, HttpApi, PlatformClient};
 use oxyos_account::erase::{Eraser, Systemctl};
