@@ -78,7 +78,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 36, Safe Mode (`SafeMode`, docs/adr/0054-recovery-and-erasing.mdx, decision 10), told to
 /// the shell and the login screen; version 38, the session asking applications to quit before
 /// it ends (`QuitRequested`, `QuitReply`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx),
-/// both ways.
+/// both ways, and the modifiers held told to the surface with the keyboard as they change (`Modifiers`).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -100,7 +100,7 @@ const EVENTS_ADDED: Added = &[
     (31, 164..=164),
     (33, 165..=165),
     (36, 166..=166),
-    (38, 168..=168),
+    (38, 168..=169),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

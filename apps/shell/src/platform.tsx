@@ -118,6 +118,18 @@ export type ShellKeyEvent = {
  */
 export type ShellKeyboard = {
   subscribe(listener: (event: ShellKeyEvent) => boolean): () => void;
+  /** The modifiers held, told as they change, as a Mac's `flagsChanged:`: Option going down or up
+      shows or hides a menu's alternates at once (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+      Where the platform does not tell them, none. */
+  subscribeModifiers?(listener: (flags: ShellModifiers) => void): () => void;
+};
+
+/** The modifiers held. */
+export type ShellModifiers = {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
 };
 
 /** What a search result is (docs/adr/0051-search.mdx): its kind, as Spotlight groups results. */

@@ -952,6 +952,10 @@ def director_args(step, out):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if step.get("until_sheet"):
         args.append("--until-sheet")
+    if step.get("until_ended"):
+        # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+        # logged out, or logind asked, once every application quit on its own clock.
+        args.append("--until-ended")
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]

@@ -100,6 +100,8 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_SAFE_MODE 166
 /* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, protocol version 38). */
 #define OXYOS_EVENT_QUIT_REQUESTED 168
+/* The modifiers held changed (protocol version 38), as a Mac's flagsChanged:. */
+#define OXYOS_EVENT_MODIFIERS 169
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -564,6 +566,9 @@ typedef struct OxyOSClient OxyOSClient;
  *                      (OXYOS_SESSION_END_*). Answer with oxyos_client_reply_to_quit, then end the
  *                      process if it quits (protocol version 38,
  *                      docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+ *   MODIFIERS          to the surface with the keyboard: the modifiers held changed, or were held
+ *                      as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's
+ *                      flagsChanged: (protocol version 38).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).

@@ -123,6 +123,8 @@ fn ours(text: &str) -> bool {
 enum Job {
     /// Hold the power key's inhibitor.
     Hold,
+    /// Let it go: the person logged out, and the session is no longer the seat's.
+    Release,
     /// Whether the machine may end so.
     Can(End),
     /// End it so (asked again first).
@@ -185,6 +187,10 @@ impl Calls {
                         None => {}
                     }
                 }
+                None
+            }
+            Job::Release => {
+                self.held = None;
                 None
             }
             Job::Can(end) => Some(Done::Can(
@@ -1005,6 +1011,9 @@ impl SessionEnding {
                     eprintln!("[session end] logging out");
                     self.state = State::Ended;
                     served.log_out = true;
+                    // The session is no longer the seat's: logind sees its hold of the power key
+                    // go as it ends, and the login screen takes it.
+                    self.worker.send(Job::Release);
                 }
                 Some(end) => {
                     self.state = State::Ending(action);

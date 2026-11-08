@@ -7623,6 +7623,15 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
         (told.kind, told.code, told.detail),
         (OXYOS_EVENT_QUIT_REQUESTED, 7, OXYOS_SESSION_END_SHUT_DOWN)
     );
+    let flags = convert(&Event::Modifiers {
+        surface: 4,
+        modifiers: oxyos_protocol::MODIFIER_ALT,
+    })
+    .unwrap();
+    assert_eq!(
+        (flags.kind, flags.surface, flags.modifiers),
+        (OXYOS_EVENT_MODIFIERS, 4, oxyos_protocol::MODIFIER_ALT)
+    );
 
     let directory =
         std::env::temp_dir().join(format!("oxyos-client-ffi-quit-{}", std::process::id()));

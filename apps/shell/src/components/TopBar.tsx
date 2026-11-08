@@ -721,12 +721,19 @@ const BarMenus = memo(function BarMenus({
       return undefined;
     }
     if (!keyboard) return undefined;
-    return keyboard.subscribe((event) => {
-      // A key's press says whether Alt is held with it; Alt's own press says it is. (The platform
-      // offers presses alone: Alt let go shows as the next key or pointer event without it.)
+    // The modifiers as they change, as a Mac's flagsChanged: Option down shows the alternates and
+    // Option up hides them, the instant it happens; told as the menu takes the keyboard too, so a
+    // menu opened with Option held opens on them.
+    const flags = keyboard.subscribeModifiers?.((held) => holdOption(held.altKey));
+    // A key's press says whether Alt is held with it, where the platform tells no modifiers.
+    const keys = keyboard.subscribe((event) => {
       holdOption(event.key === "Alt" || !!event.altKey);
       return false;
     });
+    return () => {
+      flags?.();
+      keys();
+    };
   }, [oxyOpen, keyboard, holdOption]);
   const systemRows = systemMenuRows(messages, { canLock, power: !!powerActions, name: userName, option });
   const systemCommand = (id: SystemMenuCommand, confirm: boolean) => {

@@ -259,3 +259,50 @@ fn the_power_key_held_is_never_pressed_again() {
     h.scene.repeat_keys();
     assert_eq!(h.scene.take_session_keys(), [SessionKey::Power]);
 }
+
+#[test]
+fn the_keyboards_surface_is_told_the_modifiers_as_they_go_down_and_up() {
+    use oxyos_protocol::{MODIFIER_ALT, MODIFIER_SHIFT};
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.set_version(APP, QUIT_REQUESTS_VERSION);
+    h.activate(window);
+    logged(&mut h);
+    let flags = |events: &[(ClientId, Event)], client| -> Vec<u8> {
+        to(events, client)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Modifiers { modifiers, .. } => Some(modifiers),
+                _ => None,
+            })
+            .collect()
+    };
+    h.scene.key(ALT, true);
+    h.scene.key(SHIFT, true);
+    h.scene.key(ALT, false);
+    // Another key changes no modifier: told nothing.
+    h.scene.key(Q, true);
+    h.scene.key(Q, false);
+    h.scene.key(SHIFT, false);
+    let events = logged(&mut h);
+    assert_eq!(
+        flags(&events, APP),
+        [
+            MODIFIER_ALT,
+            MODIFIER_ALT | MODIFIER_SHIFT,
+            MODIFIER_SHIFT,
+            0
+        ]
+    );
+    // Held as another surface takes the keyboard: it is told at once; a client of an older
+    // version never is.
+    let other = h.toplevel(OTHER, 1, 300, 200);
+    h.scene.set_version(OTHER, QUIT_REQUESTS_VERSION);
+    h.scene.key(ALT, true);
+    logged(&mut h);
+    h.activate(other);
+    assert_eq!(flags(&logged(&mut h), OTHER), [MODIFIER_ALT]);
+    h.scene.set_version(OTHER, QUIT_REQUESTS_VERSION - 1);
+    h.scene.key(ALT, false);
+    assert!(flags(&logged(&mut h), OTHER).is_empty());
+}

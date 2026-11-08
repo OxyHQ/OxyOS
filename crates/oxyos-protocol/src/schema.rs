@@ -800,6 +800,10 @@ messages! {
         // Answered by QuitReply naming `serial`; never sent to a client of version 37 or older,
         // whose windows are each sent CloseRequested instead.
         168 => QuitRequested { serial: u32, reason: SessionEnd },
+        // To the surface with the keyboard (version 38): the modifiers held changed, or were held
+        // as it took the keyboard (MODIFIER_* bits), as a Mac's `flagsChanged:`: a menu's
+        // alternates follow Option the instant it goes down or up.
+        169 => Modifiers { surface: u32, modifiers: u8 },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.

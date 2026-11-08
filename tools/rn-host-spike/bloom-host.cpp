@@ -2223,6 +2223,9 @@ int main(int argc, char** argv) {
         std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
         std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates, quitRequests;
         bool responded = false;
+        // The modifiers held, as the compositor last told them this turn (protocol version 38, a
+        // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
+        std::optional<uint8_t> modifiersHeld;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
@@ -2257,6 +2260,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
               if (event.kind == OXYOS_EVENT_QUIT_REQUESTED && !shellMode) quitRequests.push_back(event);
+              if (event.kind == OXYOS_EVENT_MODIFIERS) modifiersHeld = event.modifiers;
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
@@ -2476,6 +2480,20 @@ int main(int argc, char** argv) {
           refresh.set(toldRefresh);
           diagnostics.setRefresh(refresh.periodMs());
           oxyos::Report::get().refresh(toldRefresh);
+        }
+        // The modifiers held changed (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision
+        // 2): told to JavaScript as their own event, as a Mac's flagsChanged:, so the Oxy menu's
+        // alternates follow Option the instant it goes down or up, not at the next key or move.
+        if (modifiersHeld) {
+          uint8_t held = *modifiersHeld;
+          oxyos::Report::get().input("modifiers.changed", 0, folly::dynamic::object("modifiers", static_cast<int>(held)));
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSModifiersChanged",
+                                    folly::dynamic::object("altKey", (held & OXYOS_MODIFIER_ALT) != 0)(
+                                        "ctrlKey", (held & OXYOS_MODIFIER_CONTROL) != 0)(
+                                        "metaKey", (held & OXYOS_MODIFIER_SUPER) != 0)(
+                                        "shiftKey", (held & OXYOS_MODIFIER_SHIFT) != 0)));
         }
         // The session asks it to quit before logging out, restarting or shutting down
         // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5), as a Mac asks

@@ -1,0 +1,103 @@
+{
+  "about": "A log out that completes, as a Mac's (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), with the session's shell and an application whose document is saved (sample/QuitProbe.tsx, launched as Allo), over logind played on the run's own bus (never the machine's). Shift+Super+Q asks, the keyboard on Log Out; Return logs out: the application is asked to quit, agrees and ends its process, and once it is gone the session ends (`logged_out`), letting logind's handle-power-key inhibitor go, which logind then holds for nobody; logind is asked to restart, shut down or sleep nothing. With the session ending before the application has gone, or never, or asking logind anything, the run fails.",
+  "module": "QuitProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "power": {
+    "on_ac": true
+  },
+  "steps": [
+    {
+      "name": "Save: nothing unsaved, so the application will agree to quit; the session holds the power key's inhibitor",
+      "do": [
+        "press_named",
+        "Save"
+      ],
+      "expect": {
+        "texts": [
+          "Unsaved changes: no",
+          "Quit requests: 0"
+        ],
+        "power": {
+          "calls": [],
+          "inhibitors": [
+            "handle-power-key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift+Super+Q: the question to log out, its countdown, the keyboard on Log Out; nothing asked yet",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          16
+        ]
+      ],
+      "until_named": [
+        "Are you sure you want to quit all applications and log out now?",
+        15000
+      ],
+      "expect": {
+        "texts": [
+          "Quit requests: 0"
+        ],
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to quit all applications and log out now?",
+            "Reopen windows when logging back in",
+            "Cancel",
+            "Log Out"
+          ],
+          "texts_matching": [
+            "^If you do nothing, you will be logged out automatically in \\d+ seconds?\\.$"
+          ],
+          "keyboard_focus": {
+            "target": "system-sheet-accept"
+          }
+        },
+        "power": {
+          "calls": [],
+          "inhibitors": [
+            "handle-power-key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return logs out: the application is asked, agrees and quits, and with it gone the session ends; logind sees the session let the power key go, and is asked nothing else",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "until_ended": true,
+      "allow_unchanged": true,
+      "expect": {
+        "logged_out": true,
+        "in_shell": {
+          "absent": [
+            "Are you sure you want to quit all applications and log out now?"
+          ]
+        },
+        "power": {
+          "calls": [],
+          "inhibitors": [],
+          "power_offs": 0,
+          "reboots": 0,
+          "suspends": 0
+        }
+      }
+    }
+  ]
+}

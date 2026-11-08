@@ -3690,6 +3690,10 @@ impl Scene {
                     },
                 );
             }
+            // Modifiers already held as it takes the keyboard (a menu opened with Option down).
+            if self.modifiers() != 0 {
+                self.tell_modifiers(new);
+            }
         }
         self.focus = key;
         self.update_active();
@@ -4693,10 +4697,36 @@ impl Scene {
         if modifier_of(key) == 0 {
             return;
         }
+        let before = self.modifiers();
         if pressed {
             self.modifier_keys.insert(key);
         } else {
             self.modifier_keys.remove(&key);
+        }
+        if self.modifiers() != before {
+            if let Some(focus) = self.focus {
+                self.tell_modifiers(focus);
+            }
+        }
+    }
+
+    /// Tells the surface with the keyboard the modifiers held now, as a Mac's `flagsChanged:`
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx: a menu's alternates follow Option the
+    /// instant it goes down or up): a client of version 38 or newer, as they change and as it takes
+    /// the keyboard with some held.
+    fn tell_modifiers(&mut self, focus: SurfaceKey) {
+        if self
+            .version_of(focus.client)
+            .is_some_and(|version| version >= oxyos_protocol::QUIT_REQUESTS_VERSION)
+        {
+            let modifiers = self.modifiers();
+            self.emit(
+                focus.client,
+                Event::Modifiers {
+                    surface: focus.id,
+                    modifiers,
+                },
+            );
         }
     }
 

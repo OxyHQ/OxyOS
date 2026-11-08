@@ -472,6 +472,9 @@ pub const OXYOS_EVENT_SAFE_MODE: u32 = 166;
 /// the session ends and asks it to quit first; `code` the serial its answer names
 /// (`oxyos_client_reply_to_quit`), `detail` why (OXYOS_SESSION_END_*).
 pub const OXYOS_EVENT_QUIT_REQUESTED: u32 = 168;
+/// To the surface with the keyboard (protocol version 38): the modifiers held changed, or were held
+/// as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's `flagsChanged:`.
+pub const OXYOS_EVENT_MODIFIERS: u32 = 169;
 /// Why the session asks an application to quit: the person logs out, restarts or shuts down.
 pub const OXYOS_SESSION_END_LOG_OUT: u32 = 1;
 pub const OXYOS_SESSION_END_RESTART: u32 = 2;
@@ -1973,6 +1976,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::SafeMode {} => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SAFE_MODE,
+                ..out
+            }
+        }
+        Event::Modifiers { surface, modifiers } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MODIFIERS,
+                surface,
+                modifiers,
                 ..out
             }
         }

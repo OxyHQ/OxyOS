@@ -529,6 +529,8 @@ fn log_out_ends_the_session_once_every_application_has_quit() {
     assert!(s.logged_out);
     assert_eq!(s.part.state_name(), "ended");
     assert_eq!(s.logind()["calls"], json!([]));
+    // logind sees the session let the power key go as it ends.
+    assert_eq!(s.logind()["inhibitors"], json!([]));
 }
 
 #[test]

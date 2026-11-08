@@ -932,6 +932,10 @@ fn events() -> Vec<Event> {
             serial: 15,
             reason: SessionEnd::Restart,
         },
+        Event::Modifiers {
+            surface: 3,
+            modifiers: MODIFIER_ALT | MODIFIER_SHIFT,
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -3198,6 +3202,14 @@ fn version_38_quit_requests_are_only_version_38s() {
         assert!(read_event_for(&mut Cursor::new(new.clone()), 37).is_err());
         assert_eq!(read_event_for(&mut Cursor::new(new), 38).unwrap(), event);
     }
+    let flags = Event::Modifiers {
+        surface: 2,
+        modifiers: MODIFIER_ALT,
+    };
+    assert_eq!(event_since(&flags), 38);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &flags, 37).unwrap());
+    assert!(old.is_empty());
 }
 
 #[test]
