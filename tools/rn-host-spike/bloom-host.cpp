@@ -1061,6 +1061,9 @@ int main(int argc, char** argv) {
     dragDrop.editsText(editing);
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
+        .copySensitive = [&window](uint64_t serial, const std::string& text) {
+          window->copySensitiveText(serial, text);
+        },
         .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {
           window->pasteText(serial, std::move(done));
         },

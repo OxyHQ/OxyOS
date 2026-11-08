@@ -34,7 +34,7 @@ import {
 } from "@oxy.so/bloom/icons";
 import { Loading } from "@oxy.so/bloom/loading";
 import { Search } from "@oxy.so/bloom/search";
-import { TextField, TextFieldHint, TextFieldInput } from "@oxy.so/bloom/text-field";
+import { TextField, TextFieldHint, TextFieldInput, TextFieldLabel } from "@oxy.so/bloom/text-field";
 import { useTheme } from "@oxy.so/bloom/theme";
 import { Text } from "@oxy.so/bloom/typography";
 import type { Messages } from "./messages";
@@ -261,13 +261,18 @@ type FieldProps = {
   editable?: boolean;
   multiline?: boolean;
   monospace?: boolean;
+  /** Its label shown above it, as a form's (the field itself is named by it either way). */
+  labelled?: boolean;
+  /** What it holds, for the platform (`textContentType`): a password's text, shown, is copied
+      marked sensitive. */
+  contentType?: "password" | "username";
   testID: string;
   inputRef?: React.RefObject<React.ComponentRef<typeof TextInput> | null>;
 };
 
 /** A labelled field, as every form here has them: never corrected, never capitalized. */
 function Field(props: FieldProps) {
-  return (
+  const field = (
     <TextField invalid={props.invalid}>
       <TextFieldInput
         inputRef={props.inputRef}
@@ -284,9 +289,20 @@ function Field(props: FieldProps) {
         submitBehavior={props.multiline ? undefined : "submit"}
         onSubmitEditing={props.multiline ? undefined : props.onSubmit}
         style={props.monospace ? { fontFamily: "monospace" } : undefined}
+        textContentType={props.contentType}
         testID={props.testID}
       />
     </TextField>
+  );
+  if (!props.labelled) return field;
+  return (
+    <View>
+      {/* Drawn for the eye; the field says its own name to the screen reader. */}
+      <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <TextFieldLabel>{props.label}</TextFieldLabel>
+      </View>
+      {field}
+    </View>
   );
 }
 
@@ -1630,20 +1646,22 @@ function ItemSheet({
   })();
   const editor = (
     <View style={{ gap: 8, paddingBottom: 12 }}>
-      <Field label={words.title_} value={current.title} onChange={change("title")} autoFocus testID="passwords-edit-title" />
+      <Field label={words.title_} value={current.title} onChange={change("title")} autoFocus labelled testID="passwords-edit-title" />
       {type === "login" ? (
         <>
-          <Field label={words.username} value={current.username} onChange={change("username")} testID="passwords-edit-username" />
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <Field label={words.username} value={current.username} onChange={change("username")} labelled testID="passwords-edit-username" />
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-end" }}>
             <View style={{ flex: 1 }}>
-              {/* Always a secure field: copying from one does nothing (docs/adr/0007-clipboard.mdx,
-                  decision 6), so a password leaves only by Copy, marked sensitive. Shown, it is
-                  drawn under the field as text no one can select. */}
+              {/* Shown in the field itself when asked; a field that holds a password copies it
+                  marked sensitive (docs/adr/0007-clipboard.mdx, decision 6), cleared after 90
+                  seconds and at the lock, as Copy does. */}
               <Field
                 label={words.password}
                 value={current.password}
                 onChange={change("password")}
-                secure
+                secure={!shown}
+                contentType="password"
+                labelled
                 testID="passwords-edit-password"
               />
             </View>
@@ -1654,17 +1672,6 @@ function ItemSheet({
               testID="passwords-edit-show"
             />
           </View>
-          {shown && current.password !== "" ? (
-            <Text
-              variant="body-regular"
-              selectable={false}
-              style={{ fontFamily: "monospace" }}
-              accessibilityLabel={`${words.password}, ${current.password}`}
-              testID="passwords-edit-password-shown"
-            >
-              {current.password}
-            </Text>
-          ) : null}
           <Button
             size="sm"
             appearance="plain"
@@ -1680,19 +1687,19 @@ function ItemSheet({
             value={current.websites}
             onChange={change("websites")}
             multiline
-            testID="passwords-edit-websites"
+            labelled testID="passwords-edit-websites"
           />
           <TextFieldHint>{words.websitesHint}</TextFieldHint>
           {item?.type === "login" && item.totp ? null : (
             <>
-              <Field label={words.setUpCode} value={current.code} onChange={change("code")} testID="passwords-edit-code" />
+              <Field label={words.setUpCode} value={current.code} onChange={change("code")} labelled testID="passwords-edit-code" />
               <TextFieldHint>{words.setUpCodeHint}</TextFieldHint>
             </>
           )}
-          <Field label={words.notes} value={current.notes} onChange={change("notes")} multiline testID="passwords-edit-notes" />
+          <Field label={words.notes} value={current.notes} onChange={change("notes")} multiline labelled testID="passwords-edit-notes" />
         </>
       ) : (
-        <Field label={words.body} value={current.body} onChange={change("body")} multiline testID="passwords-edit-body" />
+        <Field label={words.body} value={current.body} onChange={change("body")} multiline labelled testID="passwords-edit-body" />
       )}
       <ErrorLine text={error} testID="passwords-edit-error" />
     </View>
