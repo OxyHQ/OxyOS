@@ -2474,9 +2474,11 @@ dependencies = [
 name = "oxyos-account"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "jiff",
  "libc",
  "oxyos-keychain",
+ "rand_core 0.6.4",
  "rustix",
  "serde",
  "serde_json",
@@ -2493,6 +2495,7 @@ dependencies = [
  "oxyos-account",
  "oxyos-auth",
  "rustix",
+ "zeroize",
 ]
 
 [[package]]

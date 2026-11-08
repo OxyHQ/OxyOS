@@ -1,0 +1,235 @@
+{
+  "about": "The lock screen with the account's PIN for this computer (docs/adr/0010-lock-screen.mdx, docs/adr/0020-oxy-account-login.mdx decision 2), against a played accounts' service that tells the shell the account has one: locked from the shell's menu, the lock screen offers the PIN first, its field focused, digits alone, as Windows Hello does, with \"Usar contraseña\" beside it. A wrong PIN is said as a PIN's; the right one unlocks, the window as it was. Locked again, \"Usar contraseña\" offers the password's field and \"Usar PIN\" the PIN's again; the password said as a PIN opens nothing, and the password itself unlocks. The development compositor's fixture checks each as what it was said to be (never PAM); neither the PIN nor the password reaches any report.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "lock_password": "oxyos.correcta",
+  "lock_pin": "482916",
+  "account": {
+    "registered": [],
+    "local": {
+      "pin": "set",
+      "password": true
+    }
+  },
+  "steps": [
+    {
+      "name": "the Oxy menu opens, with its lock item",
+      "do": [
+        "press_output",
+        [
+          16,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Bloquear pantalla"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Bloquear pantalla locks: the lock screen offers the PIN first, its field focused",
+      "do": [
+        "press_output",
+        [
+          82,
+          142
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "in_shell": {
+          "texts": [
+            "Introduce el PIN",
+            "Usar contraseña"
+          ],
+          "focus_input": "shell-lock-pin-password"
+        }
+      }
+    },
+    {
+      "name": "what is no digit is not typed into a PIN",
+      "do": [
+        "type",
+        "ab48"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "••"
+          ],
+          "never": [
+            "ab48"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a wrong PIN, said as a PIN's; still locked",
+      "do": [
+        "keyboard",
+        "0000\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "PIN incorrecto"
+          ],
+          "focus_input": "shell-lock-pin-password",
+          "never": [
+            "480000"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the right PIN unlocks",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": false
+        },
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the Oxy menu again",
+      "do": [
+        "press_output",
+        [
+          16,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Bloquear pantalla"
+          ]
+        }
+      }
+    },
+    {
+      "name": "locked again: the PIN first",
+      "do": [
+        "press_output",
+        [
+          82,
+          142
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "in_shell": {
+          "texts": [
+            "Introduce el PIN"
+          ],
+          "focus_input": "shell-lock-pin-password"
+        }
+      }
+    },
+    {
+      "name": "Usar contraseña: the password's field, focused, and Usar PIN beside it",
+      "do": [
+        "press_named",
+        "Usar contraseña"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "in_shell": {
+          "texts": [
+            "Introduce la contraseña",
+            "Usar PIN"
+          ],
+          "absent": [
+            "Introduce el PIN"
+          ],
+          "focus_input": "shell-lock-password"
+        }
+      }
+    },
+    {
+      "name": "the PIN typed as the password opens nothing",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "in_shell": {
+          "texts": [
+            "Contraseña incorrecta"
+          ],
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the password unlocks",
+      "do": [
+        "keyboard",
+        "oxyos.correcta\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": false
+        },
+        "never": [
+          "oxyos.correcta",
+          "482916"
+        ],
+        "in_shell": {
+          "never": [
+            "oxyos.correcta",
+            "482916"
+          ]
+        }
+      }
+    }
+  ]
+}

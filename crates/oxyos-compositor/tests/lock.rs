@@ -22,7 +22,12 @@ struct Fixture {
 }
 
 impl Authentication for Fixture {
-    fn attempt(&mut self, account: Option<&str>, secret: Secret) -> Option<(AuthOutcome, u32)> {
+    fn attempt(
+        &mut self,
+        account: Option<&str>,
+        _passcode: bool,
+        secret: Secret,
+    ) -> Option<(AuthOutcome, u32)> {
         self.attempts.set(self.attempts.get() + 1);
         self.accounts.borrow_mut().push(account.map(str::to_owned));
         self.asked = Some(&secret[..] == b"right");

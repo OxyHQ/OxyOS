@@ -1,5 +1,5 @@
 {
-  "about": "Adding an Oxy account with the QR (docs/adr/0020-oxy-account-login.mdx, decision 4), against a played Oxy API and a played accounts' service (no credential of anyone's): \"Add Account\" pressed beside an enrolled account, online, the login screen shows the Oxy SDK's own account chooser, the one an app's account dialog shows, on its card: on a computer, as in a browser, its split card with the Commons QR a phone scans beside the form, the card grown to the width the chooser asks, the email or username field focused. The screen joins Oxy's Socket.IO `/auth-session` namespace over React Native's WebSocket (the host's WebSocketModule) and a phone approves the request then (the played API's stand-in): told on the socket, the screen claims the session at once, once (one approval: the account on the device, its token taken by every request after; no device picker ever shown), not at its status check twelve seconds on, the credential goes to the host, and the person gives the account's password once more, in the login screen's own field, focused. The accounts' service sets the account up with the credential and the password; enrolled, the new account is chosen and its password signs it in.",
+  "about": "Adding an Oxy account with the QR (docs/adr/0020-oxy-account-login.mdx, decision 4), against a played Oxy API and a played accounts' service (no credential of anyone's): \"Add Account\" pressed beside an enrolled account, online, the login screen shows the Oxy SDK's own account chooser, the one an app's account dialog shows, on its card: on a computer, as in a browser, its split card with the Commons QR a phone scans beside the form, the card grown to the width the chooser asks, the email or username field focused. The screen joins Oxy's Socket.IO `/auth-session` namespace over React Native's WebSocket (the host's WebSocketModule) and a phone approves the request then (the played API's stand-in): told on the socket, the screen claims the session at once, once (one approval: the account on the device, its token taken by every request after; no device picker ever shown), not at its status check twelve seconds on, the credential goes to the host, and the person leaves the PIN for later (\"Not Now\", docs/adr/0020-oxy-account-login.mdx decision 2's amendment; login-setup-pin chooses one) and gives the account's password once more, in the login screen's own field, focused. The accounts' service sets the account up with the credential and the password; enrolled, the new account is chosen and its password signs it in.",
   "shell": "OxyOSLogin",
   "outputs": "1280x800",
   "login": {
@@ -101,7 +101,7 @@
       }
     },
     {
-      "name": "a phone approves the QR: the session claimed, the account's password asked once more, its field focused",
+      "name": "a phone approves the QR: the session claimed, a PIN for this computer asked, its field focused",
       "do": [
         "wait",
         4000
@@ -120,20 +120,43 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+            "Choose a PIN for this computer",
+            "Not Now"
           ],
           "absent": [
             "Scan with Commons to sign in",
             "Email or username",
             "Choose an account",
-            "Use another account"
+            "Use another account",
+            "Enter Ada Lovelace's password"
           ],
-          "focus_input": "login-setup-password"
+          "focus_input": "login-setup-pin-password"
         },
         "oxy_requests_times": {
           "POST /auth/session/claim 200": 1,
           "POST /auth/session/create 200": 0
+        }
+      }
+    },
+    {
+      "name": "Not Now: the PIN left for later, the account's password asked once more, its field focused",
+      "do": [
+        "press_named",
+        "Not Now"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Enter Ada Lovelace's password",
+            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+          ],
+          "absent": [
+            "Choose a PIN for this computer"
+          ],
+          "focus_input": "login-setup-password"
         }
       }
     },
