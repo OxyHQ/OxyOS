@@ -520,9 +520,14 @@ mod tests {
             assert!(typed, "{:?}", actions[other]);
         }
     }
-    /// The swipes and pinches libinput reads from the virtual touchpad, by phase: each swipe's or
-    /// pinch's fingers as it began, how far a swipe went (dx, dy) and a pinch's last scale.
-    fn gestures(actions: &[Action]) -> (Vec<(u32, f64, f64)>, Vec<(u32, f64)>) {
+    /// A swipe libinput read: its fingers, and how far it went (dx, dy).
+    type Swiped = (u32, f64, f64);
+    /// A pinch libinput read: its fingers, and its last scale.
+    type Pinched = (u32, f64);
+
+    /// The swipes and pinches libinput reads from the virtual touchpad, each as it began and
+    /// went.
+    fn gestures(actions: &[Action]) -> (Vec<Swiped>, Vec<Pinched>) {
         let (mut swipes, mut pinches) = (Vec::new(), Vec::new());
         for action in actions {
             match *action {
