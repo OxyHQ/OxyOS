@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { createApplication } from '../src/application.ts';
 import { codeOf, errorOf, isPlatformError, PlatformError } from '../src/errors.ts';
 import { followed } from '../src/followed.ts';
 import { createFrameworks } from '../src/frameworks.ts';
@@ -167,4 +168,106 @@ test('a followed state tells its followers in order and stops each once', () => 
   assert.equal(state.current(), 2);
   assert.deepEqual([starts, stops], [1, 1]);
   assert.ok(new PlatformError('audio', 'busy') instanceof Error);
+});
+
+/** A played OxyOSApplication: the asks sent, and a way to answer one or tell a change unasked. */
+function playedApplication({ available = true, sends = true } = {}) {
+  const asked: { serial: number; kind: string; action: string }[] = [];
+  let listener: ((event: { serial: number; kind: string; status: string }) => void) | undefined;
+  const events: Events = {
+    addListener(name, handler) {
+      assert.equal(name, 'OxyOSBackgroundItemState');
+      listener = handler;
+      return { remove() {} };
+    },
+  };
+  let next = 0;
+  const native = {
+    getConstants: () => ({ backgroundItems: available }),
+    backgroundItem(kind: 'loginItem' | 'background', action: 'status' | 'register' | 'unregister') {
+      if (!sends) return 0;
+      next += 1;
+      asked.push({ serial: next, kind, action });
+      return next;
+    },
+  };
+  return {
+    application: createApplication(native, events),
+    asked,
+    answer: (serial: number, kind: string, status: string) => listener?.({ serial, kind, status }),
+  };
+}
+
+test('an application registers its login item and background activity, the session deciding', async () => {
+  const { application, asked, answer } = playedApplication();
+  assert.equal(application.loginItem.available, true);
+  // Registered and allowed: enabled, and its followers are told.
+  const told: string[] = [];
+  const stop = application.loginItem.subscribe((status) => told.push(status));
+  assert.deepEqual(asked, [{ serial: 1, kind: 'loginItem', action: 'status' }]);
+  answer(1, 'loginItem', 'notRegistered');
+  const registering = application.loginItem.register();
+  answer(2, 'loginItem', 'enabled');
+  assert.equal(await registering, 'enabled');
+  assert.deepEqual(told, ['notRegistered', 'enabled']);
+  // The person removed it from Open at Login: told unasked.
+  answer(0, 'loginItem', 'notRegistered');
+  assert.equal(application.loginItem.current(), 'notRegistered');
+  stop();
+  // Background activity the person turned off: refused, saying why; one the platform gives none.
+  const refused = application.backgroundActivity.register();
+  answer(3, 'background', 'requiresApproval');
+  await assert.rejects(refused, (error: unknown) => {
+    assert.ok(isPlatformError(error, 'notPermitted'));
+    assert.equal(error.domain, 'application');
+    assert.equal(error.reason, 'requiresApproval');
+    return true;
+  });
+  const none = application.backgroundActivity.register();
+  answer(4, 'background', 'notPermitted');
+  await assert.rejects(none, (error: unknown) => isPlatformError(error, 'notPermitted') && error.reason === undefined);
+  // Not kept: failed. Unregistering answers how it then stands.
+  const unkept = application.backgroundActivity.register();
+  answer(5, 'background', 'notRegistered');
+  await assert.rejects(unkept, (error: unknown) => isPlatformError(error, 'failed'));
+  const unregistering = application.backgroundActivity.unregister();
+  answer(6, 'background', 'notRegistered');
+  assert.equal(await unregistering, 'notRegistered');
+  // An answer of another kind, or an unknown status, tells nothing.
+  answer(0, 'loginItem', 'sideways');
+  assert.equal(application.loginItem.current(), 'notRegistered');
+});
+
+test('an ask is cancelled with its signal, and without the session it is unavailable', async () => {
+  const { application, answer } = playedApplication();
+  const controller = new AbortController();
+  const asking = application.loginItem.status({ signal: controller.signal });
+  controller.abort();
+  await assert.rejects(asking, (error: unknown) => isPlatformError(error, 'cancelled'));
+  // Its answer, when it comes, still tells the followers, and finds no one waiting.
+  answer(1, 'loginItem', 'enabled');
+  assert.equal(application.loginItem.current(), 'enabled');
+  const aborted = new AbortController();
+  aborted.abort();
+  await assert.rejects(application.loginItem.register({ signal: aborted.signal }), (error: unknown) =>
+    isPlatformError(error, 'cancelled'),
+  );
+  const older = playedApplication({ available: false }).application;
+  assert.equal(older.backgroundActivity.available, false);
+  await assert.rejects(older.backgroundActivity.register(), (error: unknown) => isPlatformError(error, 'unavailable'));
+  const unsent = playedApplication({ sends: false }).application;
+  await assert.rejects(unsent.loginItem.status(), (error: unknown) => isPlatformError(error, 'unavailable'));
+});
+
+test("the account's applications are followed as Settings asks for them and as the session tells them", () => {
+  const { session, answer, tell } = played();
+  const told: unknown[] = [];
+  session.state.privacy.subscribe((apps) => told.push(apps));
+  void session.request({ privacy: {} });
+  answer(1, { privacy: [{ id: 'so.oxy.chat', capabilities: { background: 'granted' }, runningInBackground: false }] });
+  tell({ privacy: [{ id: 'so.oxy.chat', capabilities: { background: 'granted' }, runningInBackground: true }] });
+  assert.deepEqual(
+    told.map((apps) => (apps as { runningInBackground: boolean }[])[0].runningInBackground),
+    [false, true],
+  );
 });

@@ -87,7 +87,7 @@
       }
     },
     {
-      "name": "a phone approves the QR: the session claimed, a PIN for this computer asked, its field focused",
+      "name": "a phone approves the QR: the session claimed, a PIN for this computer asked, its field focused, no password asked or offered",
       "do": [
         "wait",
         11000
@@ -107,14 +107,17 @@
         "in_shell": {
           "texts": [
             "Choose a PIN for this computer",
-            "Not Now"
+            "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it."
           ],
           "absent": [
-            "Scan with Commons to sign in",
-            "Email or username",
             "Choose an account",
-            "Use another account",
-            "Enter Ada Lovelace's password"
+            "Email or username",
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password",
+            "Use another account"
           ],
           "focus_input": "login-setup-pin-password"
         },
@@ -125,32 +128,40 @@
       }
     },
     {
-      "name": "Not Now: the PIN left for later, the account's password asked once more, its field focused",
+      "name": "the PIN chosen: typed again, its field focused",
       "do": [
-        "press_named",
-        "Not Now"
+        "keyboard",
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [],
         "delivered": {},
+        "never": [
+          "482916"
+        ],
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
+            "Enter the PIN again"
           ],
           "absent": [
-            "Choose a PIN for this computer"
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Set a password",
+            "Send code"
           ],
-          "focus_input": "login-setup-password"
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
         }
       }
     },
     {
-      "name": "the password: the account set up with the credential the QR's sign-in handed over",
+      "name": "typed again: the account set up with its PIN alone, by the credential the QR's sign-in handed over; listed and chosen, its PIN's field focused",
       "do": [
         "keyboard",
-        "played password 1\n"
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -159,7 +170,7 @@
         ],
         "delivered": {},
         "never": [
-          "played password 1"
+          "482916"
         ],
         "in_shell": {
           "texts": [
@@ -167,14 +178,16 @@
           ],
           "absent": [
             "Add an Oxy Account",
-            "Enter Ada Lovelace's password",
             "Bea Ramos",
             "Choose an account",
+            "Enter Ada Lovelace's password",
+            "Use Password",
             "Use another account"
           ],
           "never": [
-            "played password 1"
-          ]
+            "482916"
+          ],
+          "focus_input": "login-pin-password"
         },
         "oxy_requests_times": {
           "POST /auth/session/claim 200": 0,
@@ -183,25 +196,26 @@
       }
     },
     {
-      "name": "its password signs it in",
+      "name": "its PIN signs it in",
       "do": [
         "keyboard",
-        "oxyos.correcta\n"
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
+        "accounts_asked": [
+          "verifyPin: accepted"
+        ],
         "shell": {
           "locked": true,
           "signed_in": true
         },
         "never": [
-          "oxyos.correcta",
-          "played password 1"
+          "482916"
         ],
         "in_shell": {
           "never": [
-            "oxyos.correcta",
-            "played password 1"
+            "482916"
           ]
         }
       }

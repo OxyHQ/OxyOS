@@ -324,7 +324,13 @@ fn the_images_catalog_is_whole() {
         .count();
     // Every folder read, none refused.
     assert_eq!(catalog.wallpapers.len(), on_disk);
-    assert_eq!(catalog.default.as_deref(), Some("oxyos"));
+    // The default follows the sun through its sixteen variants (Solar Gradients).
+    assert_eq!(catalog.default.as_deref(), Some("solar-gradients"));
+    let solar = catalog.wallpaper("solar-gradients").unwrap();
+    assert_eq!(
+        (solar.automatic, solar.variants.len()),
+        (Automatic::Sun, 16)
+    );
     assert!(!catalog.colors.is_empty());
     for wallpaper in &catalog.wallpapers {
         assert!(
@@ -338,5 +344,19 @@ fn the_images_catalog_is_whole() {
     }
     for color in &catalog.colors {
         assert!(color.name.es.is_some());
+    }
+}
+
+#[test]
+fn a_place_is_two_degrees() {
+    assert_eq!(
+        parse_place("40.4, -3.68"),
+        Some(oxyos_solar::Place {
+            latitude: 40.4,
+            longitude: -3.68
+        })
+    );
+    for text in ["", "40.4", "91,0", "0,181", "a,b"] {
+        assert_eq!(parse_place(text), None, "{text}");
     }
 }
