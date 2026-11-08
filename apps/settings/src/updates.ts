@@ -41,6 +41,9 @@ export type PrivacyApplication = {
   id: string;
   name: string;
   capabilities: Record<string, "granted" | "denied" | "undecided">;
+  /** A process of it runs in the background now, as the session says
+      (docs/adr/0060-login-items-and-background-activity.mdx). */
+  runningInBackground?: boolean;
 };
 
 export type UpdatesSnapshot = {

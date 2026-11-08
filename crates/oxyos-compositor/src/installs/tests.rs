@@ -187,6 +187,7 @@ fn run_beside(
         done,
         wake: Arc::new(wake),
         installing: installing.clone(),
+        in_background: Arc::default(),
     };
     let (socket, home) = (socket.to_path_buf(), home.map(Path::to_path_buf));
     let worker = std::thread::spawn(move || flow(&socket, home.as_deref(), &back, 9, 1, request));

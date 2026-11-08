@@ -136,6 +136,12 @@ struct Session {
     grants: Vec<(String, oxyos_apps::Grants)>,
     /// `--installd SOCKET`: the session's side of installing (ADR 0030).
     installs: Option<oxyos_compositor::installs::Installs>,
+    /// With `--launch --shell`: the applications' login items and background activity, as the
+    /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
+    pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// The processes the session ended for their background activity since a step last took them
+    /// (each its application's id).
+    pub background_ended: Vec<String>,
     /// The descriptor its turn is woken by, among the compositor's wakers, given back at the end.
     installs_waker: Option<std::os::fd::RawFd>,
     /// The Trash follower's waker among the compositor's, given back as the session finishes.
@@ -305,6 +311,8 @@ impl Session {
             grant_settings: None,
             grants: Vec::new(),
             installs: None,
+            background: None,
+            background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
             search: None,
@@ -772,6 +780,31 @@ impl Session {
             let launched = pid.is_some();
             if let Some(installs) = self.installs.as_ref() {
                 installs.opened(&mut self.compositor.scene, &open, launched);
+            }
+        }
+    }
+
+    /// The applications' login items and background activity
+    /// (docs/adr/0060-login-items-and-background-activity.mdx), as the session serves them, after
+    /// the install service's answers: a process in the background without the right is ended.
+    pub fn serve_background(&mut self) {
+        let Some(background) = self.background.as_mut() else {
+            return;
+        };
+        let launcher = self.launcher.as_ref();
+        let end = background.serve(
+            &mut self.compositor,
+            &mut self.settings,
+            &|pid| launcher?.application_of(pid).cloned(),
+            self.installs.as_mut(),
+            oxyos_compositor::settings::now(),
+        );
+        if let Some(launcher) = self.launcher.as_ref() {
+            for pid in end {
+                if let Some(launched) = launcher.application_of(pid) {
+                    self.background_ended.push(launched.id.clone());
+                }
+                launcher.terminate(pid);
             }
         }
     }

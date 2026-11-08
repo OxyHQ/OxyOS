@@ -68,10 +68,15 @@ export const storage = {
   remove: (id) => ask({ uninstall: { id } }),
 };
 
-/** The account's decisions on its applications' capabilities: `privacy` grant. */
+/** The account's decisions on its applications' capabilities: `privacy` grant. The list is told
+    again, unasked, when what it says changed elsewhere: an application granted a capability as it
+    registered its login item or background activity, or one running in the background or no
+    longer (docs/adr/0060-login-items-and-background-activity.mdx). */
 export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
+  current: state.privacy.current,
+  subscribe: state.privacy.subscribe,
 };
 
 /**

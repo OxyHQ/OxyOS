@@ -56,6 +56,9 @@ export type Preferences = {
   notificationPreviews: NotificationPreviews;
   /** The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx), by id. */
   notificationSoundsOff: string[];
+  /** The applications the session opens at login, in order (Open at Login, the dock's menu's too,
+      docs/adr/0060-login-items-and-background-activity.mdx), by id. */
+  openAtLogin: string[];
   /** The input methods added after the keyboard layout, in order (docs/adr/0041-input-methods.mdx,
       decision 6). */
   inputSources: InputMethod[];
@@ -163,7 +166,8 @@ export type SettingsSnapshot = {
       null until it has. */
   inputSources?: InputSourcesState | null;
   /** The session's applications, by id and name (its registry): Notifications' sound for each
-      (docs/adr/0044-system-sounds.mdx). */
+      (docs/adr/0044-system-sounds.mdx), and what Open at Login's + offers
+      (docs/adr/0060-login-items-and-background-activity.mdx). */
   applications?: readonly { id: string; name: string }[];
   /** The machine's Oxy session (docs/adr/0020-oxy-account-login.mdx), as the platform tells every
       application: none outside a session, which shows no account item. */
@@ -190,6 +194,7 @@ export const PREFERENCE_KEYS = {
   doNotDisturb: "do_not_disturb",
   notificationPreviews: "notification_previews",
   notificationSoundsOff: "notification_sounds_off",
+  openAtLogin: "open_at_login",
   inputSources: "input_sources",
   inputSource: "input_source",
   batteryPercentage: "battery_percentage",

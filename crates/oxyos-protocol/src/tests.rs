@@ -426,6 +426,11 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new(r#"{"query":{"text":"ma"}}"#).unwrap(),
         },
+        Request::BackgroundItem {
+            serial: 14,
+            kind: BackgroundItemKind::Background,
+            action: BackgroundItemAction::Register,
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -912,6 +917,11 @@ fn events() -> Vec<Event> {
             index: 1,
             last: false,
             text: PreeditText::new(r#"{"results":{"items":"#).unwrap(),
+        },
+        Event::BackgroundItemState {
+            serial: 14,
+            kind: BackgroundItemKind::LoginItem,
+            status: BackgroundStatus::RequiresApproval,
         },
         Event::GpuDevice {
             device: 0xe280,
@@ -3052,4 +3062,61 @@ fn version_31_search_is_only_version_31s() {
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &search, 30).unwrap());
     assert_eq!(read_event_for(&mut Cursor::new(old), 30).unwrap(), search);
+}
+
+#[test]
+fn version_33_background_items_are_only_version_33s() {
+    // An application's ask and the session's answer, each one packet.
+    let ask = Request::BackgroundItem {
+        serial: 3,
+        kind: BackgroundItemKind::LoginItem,
+        action: BackgroundItemAction::Unregister,
+    };
+    assert_eq!(request_since(&ask), 33);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &ask).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), ask);
+    // The answer, and a change the person made, are never told a version 32 client, and a
+    // version 32 reader refuses them.
+    for serial in [3, 0] {
+        let state = Event::BackgroundItemState {
+            serial,
+            kind: BackgroundItemKind::Background,
+            status: BackgroundStatus::Enabled,
+        };
+        assert_eq!(event_since(&state), 33);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &state, 32).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &state, 33).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 32).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 33).unwrap(), state);
+    }
+}
+
+#[test]
+fn background_items_kinds_actions_and_statuses_are_closed_sets() {
+    assert!(BackgroundItemKind::from_raw(0).is_none());
+    assert!(BackgroundItemKind::from_raw(3).is_none());
+    assert_eq!(
+        BackgroundItemKind::from_raw(1),
+        Some(BackgroundItemKind::LoginItem)
+    );
+    assert_eq!(
+        BackgroundItemKind::from_raw(2),
+        Some(BackgroundItemKind::Background)
+    );
+    assert!(BackgroundItemAction::from_raw(0).is_none());
+    assert!(BackgroundItemAction::from_raw(4).is_none());
+    assert_eq!(
+        BackgroundItemAction::from_raw(3),
+        Some(BackgroundItemAction::Unregister)
+    );
+    assert!(BackgroundStatus::from_raw(0).is_none());
+    assert!(BackgroundStatus::from_raw(5).is_none());
+    assert_eq!(
+        BackgroundStatus::from_raw(4),
+        Some(BackgroundStatus::NotPermitted)
+    );
 }

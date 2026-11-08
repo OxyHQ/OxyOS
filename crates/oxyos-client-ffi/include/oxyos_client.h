@@ -93,6 +93,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CAPABILITY_RESULT 163
 /* Search (docs/adr/0051-search.mdx, protocol version 31). */
 #define OXYOS_EVENT_SEARCH_TEXT 164
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33). */
+#define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -152,6 +155,18 @@ typedef struct OxyOSClient OxyOSClient;
 /* Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
  * changed by it; a compositor of version 23 or later. */
 #define OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF 3
+/* An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33), as a Mac's SMAppService: itself opened at login, or its process kept
+ * running once its window closes; what it asks of one; and how one stands. */
+#define OXYOS_BACKGROUND_ITEM_LOGIN_ITEM 1
+#define OXYOS_BACKGROUND_ITEM_BACKGROUND 2
+#define OXYOS_BACKGROUND_ITEM_STATUS 1
+#define OXYOS_BACKGROUND_ITEM_REGISTER 2
+#define OXYOS_BACKGROUND_ITEM_UNREGISTER 3
+#define OXYOS_BACKGROUND_NOT_REGISTERED 1
+#define OXYOS_BACKGROUND_ENABLED 2
+#define OXYOS_BACKGROUND_REQUIRES_APPROVAL 3
+#define OXYOS_BACKGROUND_NOT_PERMITTED 4
 /* The system's interface sounds an application asks for (oxyos_client_play_system_sound). */
 #define OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH 1
 #define OXYOS_SYSTEM_SOUND_EMPTY_TRASH 2
@@ -532,6 +547,10 @@ typedef struct OxyOSClient OxyOSClient;
  *                      (0: what the client asked to watch changed, unasked), `detail` its index,
  *                      `flag` 1 on the last; `text` the chunk; JSON once whole
  *                      (docs/adr/0051-search.mdx).
+ *   BACKGROUND_ITEM_STATE  how one of the application's background items stands, answering
+ *                      oxyos_client_background_item `code` (0: the person changed it, unasked);
+ *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
+ *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -924,6 +943,12 @@ int oxyos_client_request_capability(OxyOSClient* client, uint32_t serial, uint64
  * vocabulary (JSON); SEARCH_TEXT events naming `serial` answer. An error, sending nothing, to a
  * compositor of a version before 30. */
 int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char* text);
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+ * application asks how one of its background items stands (`kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+ * or _BACKGROUND), or registers or unregisters it (`action` OXYOS_BACKGROUND_ITEM_STATUS,
+ * _REGISTER, _UNREGISTER); a BACKGROUND_ITEM_STATE naming `serial` answers. An error, sending
+ * nothing, to a compositor of a version before 33. */
+int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

@@ -28,6 +28,7 @@ import {
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiLoginBoxLine,
   RiLockLine,
   RiMoreLine,
   RiMouseLine,
@@ -159,6 +160,7 @@ import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
 import { StoragePage } from "./StoragePage";
+import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
@@ -2584,10 +2586,13 @@ export function Settings({
           { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
           { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
           { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
+          // After Date & Time, as a Mac's General lists Login Items & Extensions after its language
+          // and its time (docs/adr/0060-login-items-and-background-activity.mdx).
+          { key: "login-items", label: words.loginItems, icon: RiLoginBoxLine, page: "login-items" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
           // After Software Update, as a Mac's General lists Storage (docs/adr/0062-storage.mdx).
           { key: "storage", label: words.storage, icon: RiHardDrive2Line, page: "storage" },
-          // After Software Update, as a Mac's General lists Transfer or Reset.
+          // After Storage, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
           // Just above Privacy, as a Mac's System Settings lists Spotlight.
           { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
@@ -2618,6 +2623,7 @@ export function Settings({
       "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
       storage: { title: words.storage, content: <WithPageProps render={StoragePage} /> },
       "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
+      "login-items": { title: words.loginItems, content: <WithPageProps render={LoginItemsPage} /> },
       spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },
       privacy: { title: words.privacy, content: <WithPageProps render={PrivacyPage} /> },
       ...(networked

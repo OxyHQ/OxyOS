@@ -8,7 +8,8 @@
   ],
   "shell": "OxyOSShell",
   "preferences": {
-    "appearance": "light"
+    "appearance": "light",
+    "wallpaper": "oxyos"
   },
   "steps": [
     {

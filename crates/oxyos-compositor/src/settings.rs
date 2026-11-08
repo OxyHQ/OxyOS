@@ -238,6 +238,23 @@ impl Settings {
         Ok(changed)
     }
 
+    /// Keeps the person's Open at Login as `ids` for an application that registered or
+    /// unregistered its login item (docs/adr/0060-login-items-and-background-activity.mdx), as the
+    /// shell's or Settings' change is kept, and tells the shells and Settings: whether it changed.
+    /// Refused, nothing changed, as theirs would be.
+    pub fn set_open_at_login(
+        &mut self,
+        compositor: &mut Compositor,
+        ids: &[String],
+        now: i64,
+    ) -> Result<bool, String> {
+        let changed = self.keep_list(oxyos_preferences::ApplicationList::OpenAtLogin, ids)?;
+        if changed {
+            self.apply(compositor, now);
+        }
+        Ok(changed)
+    }
+
     /// When the sun next crosses the horizon where the system is (unix seconds), with an automatic
     /// appearance: `serve` should run by then.
     pub fn next_crossing(&self) -> Option<i64> {
