@@ -26,6 +26,7 @@ fn file(path: &str, category: Category, modified: i64) -> Record {
         icon: None,
         media: None,
         size: Some(10),
+        allocated: Some(4096),
         modified: Some(modified),
         created: None,
         changed: Some(modified * 1_000_000),
@@ -47,6 +48,7 @@ fn application(id: &str, name: &str, keywords: &[&str]) -> Record {
         icon: None,
         media: None,
         size: None,
+        allocated: None,
         modified: None,
         created: None,
         changed: None,
@@ -360,6 +362,100 @@ fn snippets_are_around_the_first_word() {
     assert!(snippet.chars().count() <= 165, "{snippet}");
 }
 
+#[test]
+fn what_the_files_occupy_by_kind_and_the_largest_first_come_from_the_columns() {
+    let mut index = Index::in_memory().unwrap();
+    let sized = |path: &str, category: Category, size: u64, allocated: u64| Record {
+        size: Some(size),
+        allocated: Some(allocated),
+        ..file(path, category, NOW - DAY)
+    };
+    for (record, text) in [
+        (
+            sized(
+                "/home/ada/Pictures/beach.jpg",
+                Category::Image,
+                3_000_000,
+                3_002_368,
+            ),
+            None,
+        ),
+        (
+            sized(
+                "/home/ada/Pictures/trip.mov",
+                Category::Movie,
+                90_000_000,
+                90_001_408,
+            ),
+            None,
+        ),
+        (
+            sized(
+                "/home/ada/Documents/report.pdf",
+                Category::Pdf,
+                500_000,
+                503_808,
+            ),
+            None,
+        ),
+        (
+            sized("/home/ada/Documents/notes.txt", Category::Text, 12, 4_096),
+            Some("notes"),
+        ),
+        // A sparse disk image: large, holding little; ordered by its size, counted by its blocks.
+        (
+            sized("/home/ada/vm.img", Category::Other, 200_000_000, 8_192),
+            None,
+        ),
+        // Elsewhere than the home: not the home's.
+        (
+            sized(
+                "/media/ada/USB/big.iso",
+                Category::Archive,
+                700_000_000,
+                700_000_256,
+            ),
+            None,
+        ),
+        (file("/home/ada/Documents", Category::Folder, NOW), None),
+    ] {
+        index.put(&record, text).unwrap();
+    }
+    index
+        .put(&application("so.oxy.allo", "Allo", &[]), None)
+        .unwrap();
+    index.commit(true).unwrap();
+    let searcher = index.searcher_handle();
+    let home = std::path::Path::new("/home/ada");
+    let occupied = searcher.occupied(home).unwrap();
+    assert_eq!(
+        occupied,
+        BTreeMap::from([
+            (Category::Pdf, (1, 503_808)),
+            (Category::Text, (1, 4_096)),
+            (Category::Image, (1, 3_002_368)),
+            (Category::Movie, (1, 90_001_408)),
+            (Category::Other, (1, 8_192)),
+        ])
+    );
+    let largest: Vec<String> = searcher
+        .largest(home, 3)
+        .unwrap()
+        .into_iter()
+        .map(|record| record.title("").to_string())
+        .collect();
+    assert_eq!(largest, ["vm.img", "trip.mov", "beach.jpg"]);
+    // A file removed leaves both.
+    index.remove("file:///home/ada/Pictures/trip.mov").unwrap();
+    index.commit(true).unwrap();
+    let searcher = index.searcher_handle();
+    assert!(!searcher
+        .occupied(home)
+        .unwrap()
+        .contains_key(&Category::Movie));
+    assert_eq!(searcher.largest(home, 10).unwrap().len(), 4);
+}
+
 fn donated(owner: &str, id: &str, title: &str) -> Record {
     Record {
         id: format!("{owner}:{id}"),
@@ -375,6 +471,7 @@ fn donated(owner: &str, id: &str, title: &str) -> Record {
         icon: None,
         media: None,
         size: None,
+        allocated: None,
         modified: None,
         created: None,
         changed: None,
@@ -412,7 +509,7 @@ fn a_rebuilt_index_takes_the_old_ones_place_and_the_old_one_answers_until_then()
     // A rebuild: a new, empty index beside it, named in the layout before it is written to.
     let mut rebuilt = Index::rebuild(cache, false).unwrap();
     assert!(Index::rebuild_under_way(cache));
-    assert_eq!(names(cache), ["index-1", "index-1.1", "index-1.json"]);
+    assert_eq!(names(cache), ["index-2", "index-2.1", "index-2.json"]);
     // What the disk cannot give again is carried over, a donated item with its text.
     let given = answering.given().unwrap();
     assert_eq!(given.len(), 2, "{given:?}");
@@ -431,7 +528,7 @@ fn a_rebuilt_index_takes_the_old_ones_place_and_the_old_one_answers_until_then()
     promoted.unwrap();
     assert!(!Index::rebuild_under_way(cache));
     // The old one's directory is gone; the layout names the new one.
-    assert_eq!(names(cache), ["index-1.1", "index-1.json"]);
+    assert_eq!(names(cache), ["index-2.1", "index-2.json"]);
     // Every handle answers from the new index: the handle taken before, too.
     assert_eq!(ask(&live, "new", &shell()).0, ["file:///home/ana/new.txt"]);
     assert!(ask(&live, "old", &shell()).0.is_empty());
@@ -458,7 +555,7 @@ fn a_rebuilt_index_takes_the_old_ones_place_and_the_old_one_answers_until_then()
     assert_eq!(ask(&live, "new", &shell()).0, ["file:///home/ana/new.txt"]);
     let second = Index::rebuild(cache, false).unwrap();
     drop(second);
-    assert_eq!(names(cache), ["index-1.1", "index-1.2", "index-1.json"]);
+    assert_eq!(names(cache), ["index-2.1", "index-2.2", "index-2.json"]);
 }
 
 #[test]
@@ -487,9 +584,9 @@ fn a_rebuild_cut_short_is_kept_to_go_on_with_and_a_stray_old_index_is_removed() 
     drop(live);
     // A machine stopped after the layout was written but before the old index was removed:
     // the next open removes it, and anything else not named.
-    std::fs::create_dir_all(cache.join("index-1/stale")).unwrap();
+    std::fs::create_dir_all(cache.join("index-2/stale")).unwrap();
     std::fs::create_dir_all(cache.join("index-0")).unwrap();
-    std::fs::write(cache.join("index-1.json.staged"), "{").unwrap();
+    std::fs::write(cache.join("index-2.json.staged"), "{").unwrap();
     drop(Index::open(cache).unwrap());
-    assert_eq!(names(cache), ["index-1.1", "index-1.json"]);
+    assert_eq!(names(cache), ["index-2.1", "index-2.json"]);
 }

@@ -1197,6 +1197,42 @@ fn an_applications_directories_are_its_own_under_the_base_directories() {
     );
 }
 
+#[test]
+fn an_applications_own_data_is_its_data_and_cache_directories_and_nothing_else() {
+    // The one definition Storage measures, uninstalling removes and resetting clears.
+    if let Some(own) = OwnData::of("so.oxy.dropsea") {
+        assert_eq!(Some(own.data.clone()), data_directory("so.oxy.dropsea"));
+        assert_eq!(Some(own.caches.clone()), cache_directory("so.oxy.dropsea"));
+        assert_eq!(
+            own.directories(),
+            [own.data.as_path(), own.caches.as_path()]
+        );
+        assert_ne!(own.data, own.caches);
+    }
+    for id in ["", "..", "a/b", ".hidden"] {
+        assert_eq!(OwnData::of(id), None, "{id}");
+    }
+}
+
+#[test]
+fn an_item_is_revealed_selected_in_its_folder_by_the_file_managers_url() {
+    // As the shell's Spotlight writes it (`spotlight.ts`): encodeURIComponent's encoding.
+    assert_eq!(
+        reveal_url("file:///home/ana/Pictures/Beach%20Day.jpg"),
+        "dropsea://files?uri=file%3A%2F%2F%2Fhome%2Fana%2FPictures\
+         &select=file%3A%2F%2F%2Fhome%2Fana%2FPictures%2FBeach%2520Day.jpg"
+    );
+    // A folder is shown in the folder above it.
+    assert_eq!(
+        reveal_url("file:///home/ana/Old/"),
+        "dropsea://files?uri=file%3A%2F%2F%2Fhome%2Fana&select=file%3A%2F%2F%2Fhome%2Fana%2FOld%2F"
+    );
+    assert_eq!(
+        reveal_url("file:///etc"),
+        "dropsea://files?uri=file%3A%2F%2F%2F&select=file%3A%2F%2F%2Fetc"
+    );
+}
+
 // ---- runtimes and packages (docs/adr/0030-installing-applications.mdx, decisions 1 and 2) -----
 
 /// A runtime of `abi` in `runtimes`, as the image lays one out: its description, its host and its

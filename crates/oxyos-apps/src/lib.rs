@@ -755,6 +755,34 @@ pub fn cache_directory(id: &str) -> Option<PathBuf> {
     )
 }
 
+/// An application's own data on this account (docs/adr/0062-storage.mdx, decision 3): its data
+/// directory ([`data_directory`]) and its cache directory ([`cache_directory`]), and nothing else
+/// of the account's. The one definition of what is an application's own: Settings › Storage
+/// measures it, uninstalling removes it, and resetting the application clears it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnData {
+    /// What it keeps: its documents and its storage (Expo's document directory, AsyncStorage).
+    pub data: PathBuf,
+    /// What it may make again, and the system may delete (Expo's cache directory).
+    pub caches: PathBuf,
+}
+
+impl OwnData {
+    /// `id`'s own data, with the environment as it is; none for an id that is not one, or without
+    /// a home.
+    pub fn of(id: &str) -> Option<OwnData> {
+        Some(OwnData {
+            data: data_directory(id)?,
+            caches: cache_directory(id)?,
+        })
+    }
+
+    /// Its directories: the data's, then the caches'.
+    pub fn directories(&self) -> [&Path; 2] {
+        [&self.data, &self.caches]
+    }
+}
+
 /// `id`'s directory under the base directory `variable` names (`$HOME/<fallback>` without it),
 /// with the environment as `env` gives it.
 fn base_directory(
@@ -1316,6 +1344,38 @@ fn pinned(
 /// The file manager (docs/adr/0028-file-access.mdx, decision 7), which shows any file: what opens
 /// one no application declares its type for.
 pub const FILE_MANAGER: &str = "so.oxy.dropsea";
+
+/// The file manager's URL that shows `item` (a `file://` URL) selected in its folder, as Finder's
+/// *Show in Finder* does: Dropsea's `files` URL (docs/adr/0051-search.mdx, decision 10), the folder
+/// and the item each percent-encoded as JavaScript's `encodeURIComponent` encodes them, as the
+/// shell's Spotlight writes the same URL.
+pub fn reveal_url(item: &str) -> String {
+    let trimmed = item.trim_end_matches('/');
+    // Its folder as the shell's `parentOf` writes it: no slash at its end, the root `file:///`.
+    let folder = match trimmed.rfind('/') {
+        Some(at) if at >= "file:///".len() => &trimmed[..at],
+        _ => "file:///",
+    };
+    format!(
+        "dropsea://files?uri={}&select={}",
+        uri_component(folder),
+        uri_component(item)
+    )
+}
+
+/// `text` as `encodeURIComponent` encodes it: every byte but a letter, a digit or one of
+/// `-_.!~*'()` percent-encoded.
+fn uri_component(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
 
 /// A file's `file://` URL: its absolute path, every byte but an unreserved one or `/`
 /// percent-encoded (RFC 3986), as Android's `Uri.fromFile` makes one.

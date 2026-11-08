@@ -11,7 +11,9 @@
 //!   listing, digests and open files, by `file://` URI ([`uri`]).
 //! - [`entries`] lists a folder and renames items, never replacing one.
 //! - [`trash`] moves items to the Trash as the freedesktop.org Trash specification (1.0) says,
-//!   and lists, restores and removes what it holds.
+//!   lists, restores and removes what it holds, says what it occupies and erases what has been
+//!   in it too long.
+//! - [`usage`]: what a tree occupies on the disk, as `du` counts it.
 //! - [`places`]: the home, its favourite folders (the XDG user directories) and the volumes.
 //! - [`tags`]: the person's tags on their items (a desktop's Finder tags), in the items' extended
 //!   attributes as freedesktop.org and a Mac keep them; [`tag_index`] finds every tagged item.
@@ -42,6 +44,7 @@ pub mod tags;
 pub mod transfer;
 pub mod trash;
 pub mod uri;
+pub mod usage;
 pub mod volume;
 pub mod watch;
 
