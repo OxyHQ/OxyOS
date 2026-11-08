@@ -405,8 +405,11 @@
     {
       "name": "Back Up Automatically off: kept by the service",
       "do": [
-        "press_named",
-        "Back Up Automatically"
+        "press_output",
+        [
+          820,
+          369
+        ]
       ],
       "expect": {
         "at": {
@@ -442,8 +445,11 @@
     {
       "name": "Show Backups in menu bar off: the preference kept, the shell's item gone",
       "do": [
-        "press_named",
-        "Show Backups in menu bar"
+        "press_output",
+        [
+          820,
+          465
+        ]
       ],
       "expect": {
         "preferences_file": {

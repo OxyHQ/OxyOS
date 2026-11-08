@@ -1047,8 +1047,10 @@ def director_args(step, out):
     if kind == "backup":
         # The development backup service (ADR 0059): a played disk connected or taken away, a
         # request of the person's, or a wait until it holds a state: {"connect": uuid, "label"},
-        # {"disconnect": uuid}, {"ask": {"addDisk": {...}}}, {"until": {...}, "ms": 60000}.
-        return args + ["--backup-act", json.dumps(value)]
+        # {"disconnect": uuid}, {"ask": {"addDisk": {...}}}, {"until": {...}, "ms": 60000};
+        # "{home}" in a text the run's home.
+        home = str((out / "home").resolve())
+        return args + ["--backup-act", json.dumps(value).replace("{home}", home)]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -4935,15 +4937,23 @@ def bluetooth_daemon(spec, out, offscreen):
     return address, stop
 
 
+def write_backup_files(spec, home):
+    """The backup scenario's `files` in the run's home, once it is made: random bytes (what
+    deduplication and compression cannot shrink), by path and size."""
+    for relative, size in spec.get("files", {}).items():
+        path = home / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(os.urandom(size))
+
+
 def backup_service(spec, out, offscreen, home):
     """The development backup service (docs/adr/0059-backups.mdx) played by the development
     compositor's own program (`--play-backup`, as `oxyos-backupd --development` runs it), a
     process of its own on the run's folders: its state, its played disks (`disks`: each a folder
     named by its file system's UUID, its `label` in `.oxyos-label`), restic's cache, backing up
-    the run's `home`. `files` adds random bytes at paths of the home (what deduplication cannot
-    shrink). With `pace` (KiB/s) the service's restic is Debian's with its own upload limit
-    (`--limit-upload`), so a backup lasts long enough to be seen running; the session's and every
-    other program's PATH is the run's. restic must be installed (`apt install restic`). The
+    the run's `home` (its `files`: `write_backup_files`). With `pace` (KiB/s) the service's
+    restic is Debian's with its own upload limit (`--limit-upload`), so a backup lasts long
+    enough to be seen running; the session's and every other program's PATH is the run's. restic must be installed (`apt install restic`). The
     compositor's arguments and a function that stops it."""
     restic = shutil.which("restic")
     if restic is None:
@@ -4956,10 +4966,6 @@ def backup_service(spec, out, offscreen, home):
         (volumes / disk["uuid"]).mkdir()
         if "label" in disk:
             (volumes / disk["uuid"] / ".oxyos-label").write_text(disk["label"])
-    for relative, size in spec.get("files", {}).items():
-        path = home / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(os.urandom(size))
     env = dict(os.environ)
     if "pace" in spec:
         programs = base / "bin"
@@ -5419,6 +5425,10 @@ def main():
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
+    if "backup" in scenario:
+        # The files the backup scenario adds to the run's home (made above), which its service
+        # backs up.
+        write_backup_files(scenario["backup"], home_root)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
