@@ -512,8 +512,9 @@ A scenario with `storage` ({"name", "capacity", "available", "reserved", "system
 development compositor serve Settings › Storage as the session does (docs/adr/0062-storage.mdx,
 `--storage`): the volume's and the system's figures are that played disk's, never the developer's;
 the Trash, the files the search index holds and the applications' own data are the run's home's.
-Its `installd` may say `available` (the install service's played disk has that many bytes free: a
-download it has no room for is refused before anything is fetched) and `last_used_days_ago` ({ID:
+Its `installd` may say `available` (once the account has its `installed` applications, the install
+service runs on a played disk with that many bytes free: a download it has no room for is refused
+before anything is fetched) and `last_used_days_ago` ({ID:
 DAYS}: the account last opened it that long ago, as its record keeps it).
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
@@ -4637,14 +4638,10 @@ def install_service(spec, machine, offscreen):
                                    f"file://{repository}", "--socket", str(base / "f")],
                                   stdout=logs, stderr=logs)]
     wait_for(base / "f")
-    # A disk with this many bytes free (`available`), played: a download it has no room for is
-    # refused before anything is fetched (docs/adr/0062-storage.mdx).
-    available = ["--available", str(spec["available"])] if "available" in spec else []
-    processes.append(subprocess.Popen([str(installd), "--development", "--state", str(state), "--anchor",
-                                       str(repository / "metadata/1.root.json"), "--runtimes",
-                                       str(machine.runtimes), "--socket", str(base / "i"), "--fetcher",
-                                       str(base / "f"), "--passwd", str(base / "passwd")] + available,
-                                      stdout=logs, stderr=logs))
+    service = [str(installd), "--development", "--state", str(state), "--anchor",
+               str(repository / "metadata/1.root.json"), "--runtimes", str(machine.runtimes), "--socket",
+               str(base / "i"), "--fetcher", str(base / "f"), "--passwd", str(base / "passwd")]
+    processes.append(subprocess.Popen(service, stdout=logs, stderr=logs))
     wait_for(base / "i")
     # Installed before the run, as an account that installed it earlier has it.
     for id in spec.get("installed", []):
@@ -4656,6 +4653,17 @@ def install_service(spec, machine, offscreen):
         kept = json.loads(record.read_text())
         kept["lastUsed"] = int(time.time()) - int(days) * 86400
         record.write_text(json.dumps(kept, indent=2) + "\n")
+    # A disk with this many bytes free (`available`), played once the account has its applications:
+    # the service started again on it, so a download it has no room for is refused before anything
+    # is fetched (docs/adr/0062-storage.mdx).
+    if "available" in spec:
+        first = processes.pop()
+        first.terminate()
+        first.wait(timeout=5)
+        (base / "i").unlink(missing_ok=True)
+        processes.append(subprocess.Popen(service + ["--available", str(spec["available"])],
+                                          stdout=logs, stderr=logs))
+        wait_for(base / "i")
     # Versions the store publishes afterwards: the same package's files, its manifest's
     # versionCode, version and capabilities changed, packed and signed with the same key.
     for later in spec.get("later", []):
