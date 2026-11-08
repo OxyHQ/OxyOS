@@ -180,7 +180,7 @@ function playedKeychain(answers: unknown[], available = true) {
       return Promise.resolve(answers.shift());
     },
   };
-  return { keychain: createKeychain(module), asked };
+  return { keychain: createKeychain({ keychain: module }), asked };
 }
 
 test("asking to save a password: the person's decision, or the error it is", async () => {
@@ -216,7 +216,8 @@ test("asking to save a password: the person's decision, or the error it is", asy
 });
 
 test('asking to save is unavailable without the module and cancellable', async () => {
-  const none = createKeychain(null);
+  const none = createKeychain({ keychain: null });
+  assert.equal(createKeychain().available, false);
   assert.equal(none.available, false);
   await assert.rejects(none.savePassword({ username: 'a', password: 'b' }), (error: unknown) =>
     isPlatformError(error, 'unavailable'),
@@ -228,8 +229,10 @@ test('asking to save is unavailable without the module and cancellable', async (
   // Aborted while the person is asked: rejected at once, the answer dropped.
   let answer: (value: unknown) => void = () => {};
   const waiting = createKeychain({
-    getConstants: () => ({ available: true }),
-    savePassword: () => new Promise((resolve) => (answer = resolve)),
+    keychain: {
+      getConstants: () => ({ available: true }),
+      savePassword: () => new Promise((resolve) => (answer = resolve)),
+    },
   });
   const controller = new AbortController();
   const asked = waiting.savePassword({ username: 'a', password: 'b' }, { signal: controller.signal });

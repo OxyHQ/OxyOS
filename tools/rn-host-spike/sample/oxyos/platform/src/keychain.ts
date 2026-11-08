@@ -24,7 +24,18 @@ export interface Credential {
     minutes, or the application's window not the key window when asked). */
 export type SaveResult = 'saved' | 'notSaved';
 
-export function createKeychain(module: KeychainModule | null) {
+/** The host modules the keychain framework is made of, by what each serves: `keychain`, the
+    host's `OxyOSKeychain` (saving), absent where the runtime has none. */
+export interface KeychainModules {
+  keychain?: KeychainModule | null;
+}
+
+/**
+ * ADR 0058's one `keychain` framework (credentials, AutoFill, passkeys), composed of its host
+ * modules: `{ available, savePassword(credential, { signal }) }`.
+ */
+export function createKeychain(modules: KeychainModules = {}) {
+  const module = modules.keychain ?? null;
   const available = module?.getConstants().available ?? false;
 
   /**
@@ -53,6 +64,7 @@ export function createKeychain(module: KeychainModule | null) {
     if (signal?.aborted) throw new PlatformError('keychain', 'cancelled');
     if (!module || !available) throw new PlatformError('keychain', 'unavailable');
     const asked = module.savePassword(credential.username, credential.password, credential.domain ?? null);
+    // Its own abort until the shared `hostCall` (platform/src/host.ts) is on main.
     const answer = await new Promise<unknown>((resolve, reject) => {
       const abort = () => reject(new PlatformError('keychain', 'cancelled'));
       signal?.addEventListener('abort', abort, { once: true });
