@@ -418,15 +418,27 @@ fn addresses_are_read_as_the_kernel_writes_them() {
 // ---- Inspecting and quitting real processes: the test's own children ----
 
 /// A `sleep` of the test's own, reading a file of the test's own as its standard input (whatever
-/// the test's own descriptors are: a terminal, pipes, sockets).
+/// the test's own descriptors are: a terminal, pipes, sockets), once its exec has finished: the
+/// kernel names a process (`comm`) before it lays out its arguments, so a child read at once could
+/// be named `sleep` with no arguments yet.
 fn child() -> std::process::Child {
     let input = std::env::temp_dir().join(format!("oxyos-activity-{}-input", std::process::id()));
     std::fs::write(&input, "").unwrap();
-    std::process::Command::new("sleep")
+    let child = std::process::Command::new("sleep")
         .arg("30")
         .stdin(std::fs::File::open(&input).unwrap())
         .spawn()
-        .unwrap()
+        .unwrap();
+    let cmdline = format!("/proc/{}/cmdline", child.id());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::fs::read(&cmdline).unwrap_or_default() != b"sleep\x0030\x00" {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the child never ran sleep 30"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    child
 }
 
 fn started(pid: u32) -> u64 {
