@@ -1,5 +1,5 @@
 {
- "about": "Settings › Wallpaper (docs/adr/0048-wallpapers.mdx, decision 7) with the session's shell, in Spanish, at 1.25 (2400 × 1500, 1920 × 1200 logical): the page shows the current wallpaper and the system's catalog (the repository's, as the image installs it), each category a radio group. A wallpaper chosen with the pointer and with the keyboard (Tab lands once on the row's chosen one; the arrows choose the next, the keyboard following the choice once the session applied it), a dynamic wallpaper's variant from its menu, a solid colour and a colour of the person's own from the colour picker, and Show on all desktops turned off: each step checks what the session keeps in the preferences file, what the shell's desktop shows (its pixels, beside Settings' window), what the assistive technology holds, where the keyboard is, and exactly what React received. The wallpaper's moment is fixed (14:00 in Madrid on the June solstice), so Horizon's Automatic is its day.",
+ "about": "Settings › Wallpaper (docs/adr/0048-wallpapers.mdx, decision 7) with the session's shell, in Spanish, at 1.25 (2400 × 1500, 1920 × 1200 logical): the page shows the current wallpaper and the system's catalog (the repository's, as the image installs it), each category a radio group. A wallpaper chosen with the pointer and with the keyboard (Tab lands once on the row's chosen one; the arrows choose the next, the keyboard following the choice once the session applied it), a dynamic wallpaper's variant from its menu, a solid colour and a colour of the person's own from the colour picker, and Show on all desktops turned off: each step checks what the session keeps in the preferences file, what the shell's desktop shows (its pixels, beside Settings' window), what the assistive technology holds, where the keyboard is, and exactly what React received. The wallpaper's moment is fixed (14:00 in Madrid on the June solstice), so Solar Gradients' Automatic is its Midday.",
  "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
@@ -85,15 +85,15 @@
       },
       {
        "role": "Radio",
-       "name": "Horizonte",
-       "state": []
-      },
-      {
-       "role": "Radio",
        "name": "OxyOS",
        "state": [
         "checked"
        ]
+      },
+      {
+       "role": "Radio",
+       "name": "Solar Gradients",
+       "state": []
       },
       {
        "role": "Radio",
@@ -132,16 +132,16 @@
    }
   },
   {
-   "name": "Horizon pressed: the session keeps it, the shell's desktop crossfades to it (its day, the moment fixed at 14:00 in Madrid on the June solstice) and the top shows it, a dynamic wallpaper with its menu at Automatic",
+   "name": "Solar Gradients pressed: the session keeps it, the shell's desktop crossfades to it (its Midday, the moment fixed at 14:00 in Madrid on the June solstice) and the top shows it, a dynamic wallpaper with its menu at Automatic",
    "do": [
     "press_named",
-    "Horizonte"
+    "Solar Gradients"
    ],
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "touchStart@wallpaper-horizon": 1,
-     "touchEnd@wallpaper-horizon": 1
+     "touchStart@wallpaper-solar-gradients": 1,
+     "touchEnd@wallpaper-solar-gradients": 1
     },
     "delivered": {
      "1": {
@@ -151,26 +151,26 @@
      }
     },
     "preferences_file": {
-     "wallpaper": "horizon",
+     "wallpaper": "solar-gradients",
      "wallpaper_all_desktops": "true"
     },
     "at": {
      "window": [
       {
        "role": "Image",
-       "name": "Fondo de pantalla actual: Horizonte, Fondo dinámico"
-      },
-      {
-       "role": "Radio",
-       "name": "Horizonte",
-       "state": [
-        "checked"
-       ]
+       "name": "Fondo de pantalla actual: Solar Gradients, Fondo dinámico"
       },
       {
        "role": "Radio",
        "name": "OxyOS",
        "state": []
+      },
+      {
+       "role": "Radio",
+       "name": "Solar Gradients",
+       "state": [
+        "checked"
+       ]
       }
      ]
     },
@@ -247,7 +247,7 @@
    }
   },
   {
-   "name": "Tab: Dynamic Wallpapers: one stop, on the chosen Horizon",
+   "name": "Tab: Dynamic Wallpapers: one stop, on the chosen Solar Gradients",
    "do": [
     "key",
     [
@@ -258,28 +258,28 @@
    "expect": {
     "react": {
      "blur@wallpaper-all-desktops-switch": 1,
-     "focus@wallpaper-horizon": 1
+     "focus@wallpaper-solar-gradients": 1
     },
     "keyboard_focus": {
-     "target": "wallpaper-horizon",
+     "target": "wallpaper-solar-gradients",
      "ring": true,
      "color": "#9422ae"
     }
    }
   },
   {
-   "name": "→ chooses the next, OxyOS: the session keeps it, the desktop follows, the keyboard follows the choice",
+   "name": "← chooses the one before, OxyOS: the session keeps it, the desktop follows, the keyboard follows the choice",
    "do": [
     "key",
     [
-     106
+     105
     ]
    ],
    "allow_unchanged": true,
    "expect": {
     "react": {
      "shortcut@menu-bar": 1,
-     "blur@wallpaper-horizon": 1,
+     "blur@wallpaper-solar-gradients": 1,
      "focus@wallpaper-oxyos": 1
     },
     "keyboard_focus": {
@@ -302,7 +302,7 @@
       },
       {
        "role": "Radio",
-       "name": "Horizonte",
+       "name": "Solar Gradients",
        "state": []
       }
      ]
@@ -315,11 +315,11 @@
    }
   },
   {
-   "name": "← back to Horizon",
+   "name": "→ back to Solar Gradients",
    "do": [
     "key",
     [
-     105
+     106
     ]
    ],
    "allow_unchanged": true,
@@ -327,21 +327,21 @@
     "react": {
      "shortcut@menu-bar": 1,
      "blur@wallpaper-oxyos": 1,
-     "focus@wallpaper-horizon": 1
+     "focus@wallpaper-solar-gradients": 1
     },
     "keyboard_focus": {
-     "target": "wallpaper-horizon",
+     "target": "wallpaper-solar-gradients",
      "ring": true,
      "color": "#9422ae"
     },
     "preferences_file": {
-     "wallpaper": "horizon"
+     "wallpaper": "solar-gradients"
     },
     "at": {
      "window": [
       {
        "role": "Radio",
-       "name": "Horizonte",
+       "name": "Solar Gradients",
        "state": [
         "checked",
         "focused"
@@ -368,7 +368,7 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "blur@wallpaper-horizon": 1,
+     "blur@wallpaper-solar-gradients": 1,
      "touchStart@wallpaper-variant": 1,
      "touchEnd@wallpaper-variant": 1,
      "show@wallpaper-variant-row": 1
@@ -376,13 +376,21 @@
     "texts": [
      "Automático",
      "Noche",
+     "Antes del alba",
      "Alba",
+     "Primera luz",
      "Amanecer",
+     "Primera hora",
      "Mañana",
-     "Día",
+     "Media mañana",
+     "Mediodía",
      "Tarde",
+     "Última hora de la tarde",
+     "Hora dorada",
      "Puesta de sol",
-     "Anochecer"
+     "Anochecer",
+     "Crepúsculo",
+     "Caída de la noche"
     ],
     "at": {
      "window": [
@@ -393,14 +401,14 @@
        "name": "Noche"
       },
       {
-       "name": "Anochecer"
+       "name": "Caída de la noche"
       }
      ]
     }
    }
   },
   {
-   "name": "Night chosen: Horizon at night on the desktop whatever the sun, the menu saying so",
+   "name": "Night chosen: Solar Gradients at night on the desktop whatever the sun, the menu saying so",
    "do": [
     "press_named",
     "Noche"
@@ -412,7 +420,7 @@
      "touchEnd@wallpaper-variant-row": 1
     },
     "preferences_file": {
-     "wallpaper": "horizon/night"
+     "wallpaper": "solar-gradients/night"
     },
     "output_pixels": {
      "188,750": "#0a1332",
