@@ -28,6 +28,7 @@ import {
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiLoginBoxLine,
   RiLockLine,
   RiMoreLine,
   RiMouseLine,
@@ -157,6 +158,7 @@ import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
@@ -2568,6 +2570,9 @@ export function Settings({
           { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
           { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
           { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
+          // After Date & Time, as a Mac's General lists Login Items & Extensions after its language
+          // and its time (docs/adr/0060-login-items-and-background-activity.mdx).
+          { key: "login-items", label: words.loginItems, icon: RiLoginBoxLine, page: "login-items" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
           // After Software Update, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
@@ -2599,6 +2604,7 @@ export function Settings({
       about: { title: words.about, content: <WithPageProps render={AboutPage} /> },
       "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
       "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
+      "login-items": { title: words.loginItems, content: <WithPageProps render={LoginItemsPage} /> },
       spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },
       privacy: { title: words.privacy, content: <WithPageProps render={PrivacyPage} /> },
       ...(networked

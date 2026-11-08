@@ -314,6 +314,18 @@ pub const OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN: u32 = 2;
 /// Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
 /// changed by it; a compositor of version 23 or later.
 pub const OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF: u32 = 3;
+/// An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
+/// protocol version 33), as a Mac's `SMAppService`: itself opened at login, or its process kept
+/// running once its window closes; what it asks of one; and how one stands.
+pub const OXYOS_BACKGROUND_ITEM_LOGIN_ITEM: u8 = 1;
+pub const OXYOS_BACKGROUND_ITEM_BACKGROUND: u8 = 2;
+pub const OXYOS_BACKGROUND_ITEM_STATUS: u8 = 1;
+pub const OXYOS_BACKGROUND_ITEM_REGISTER: u8 = 2;
+pub const OXYOS_BACKGROUND_ITEM_UNREGISTER: u8 = 3;
+pub const OXYOS_BACKGROUND_NOT_REGISTERED: u8 = 1;
+pub const OXYOS_BACKGROUND_ENABLED: u8 = 2;
+pub const OXYOS_BACKGROUND_REQUIRES_APPROVAL: u8 = 3;
+pub const OXYOS_BACKGROUND_NOT_PERMITTED: u8 = 4;
 /// The system's interface sounds an application asks for (`oxyos_client_play_system_sound`,
 /// docs/adr/0044-system-sounds.mdx): items put in the Trash, the Trash emptied.
 pub const OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH: u32 = 1;
@@ -447,6 +459,10 @@ pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 /// oxyos_client_search_request `code` (0: what the client asked to watch changed, unasked);
 /// detail, its index (0 begins it); flag 1 on the last; text, the chunk.
 pub const OXYOS_EVENT_SEARCH_TEXT: u32 = 164;
+/// Login items and background activity (protocol version 33): how one of the application's
+/// background items stands, answering oxyos_client_background_item `code` (0: the person changed
+/// it, unasked); detail, its kind (OXYOS_BACKGROUND_ITEM_*); flag, its status (OXYOS_BACKGROUND_*).
+pub const OXYOS_EVENT_BACKGROUND_ITEM_STATE: u32 = 165;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -1939,6 +1955,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::BackgroundItemState {
+            serial,
+            kind,
+            status,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_BACKGROUND_ITEM_STATE,
+                code: serial,
+                detail: u32::from(kind as u8),
+                flag: status as u8,
+                ..out
+            }
+        }
         Event::Activated { surface, active } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_ACTIVATED,
@@ -2907,6 +2936,41 @@ pub unsafe extern "C" fn oxyos_client_request_capability(
                 serial,
                 input,
                 capability,
+            },
+        )
+    }
+}
+
+/// An application asks how one of its background items stands, or registers or unregisters it
+/// (docs/adr/0060-login-items-and-background-activity.mdx): `kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+/// or _BACKGROUND, `action` OXYOS_BACKGROUND_ITEM_STATUS, _REGISTER or _UNREGISTER. A
+/// BACKGROUND_ITEM_STATE naming `serial` answers. 0 on success; an error, sending nothing, for an
+/// unknown kind or action, or to a compositor of a version before 33.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_background_item(
+    client: *mut OxyOSClient,
+    serial: u32,
+    kind: u8,
+    action: u8,
+) -> c_int {
+    let Some(kind) = oxyos_protocol::BackgroundItemKind::from_raw(kind) else {
+        return fail("unknown background item");
+    };
+    let Some(action) = oxyos_protocol::BackgroundItemAction::from_raw(action) else {
+        return fail("unknown background item action");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::BackgroundItem {
+                serial,
+                kind,
+                action,
             },
         )
     }

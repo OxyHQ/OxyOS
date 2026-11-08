@@ -8,6 +8,8 @@ order: 35
 
 Status: **accepted; implemented** (the protocol, the scene, the C ABI, the Bloom host's expo-notifications and the shell). Builds on [ADR 0009](./0009-session-shell) (the shell), [ADR 0010](./0010-lock-screen) (the lock screen), [ADR 0011](./0011-transitions) (a notification's motion), [ADR 0013](./0013-launching-applications) (launch records), [ADR 0014](./0014-screen-reader) (what is said), [ADR 0015](./0015-application-model) (one API on every platform), [ADR 0019](./0019-settings) (preferences), [ADR 0024](./0024-system-shortcuts) and [ADR 0025](./0025-hardware-keys-and-control-center) (the Control Center, and the notification surface its bezel shares).
 
+**8 November 2026:** a notification the session itself posts may open a URL when pressed instead of activating its application ([ADR 0060](./0060-login-items-and-background-activity), decision 4: *Background Items Added*, which opens `oxyos-settings://login-items`): pressed in the shell, citing the shell's own input, the scene asks the session to open it as the shell's own `OpenUrl`. An application's never does.
+
 **5 November 2026:** a notification plays the system's notification sound as it arrives, as its handler's `shouldPlaySound` asks, never with Do Not Disturb or for an application whose sound the person turned off in Settings, and a burst sounds once ([ADR 0044](./0044-system-sounds), decision 6); this decision's "sounds" left out below are that.
 
 ## Problem

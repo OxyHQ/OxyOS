@@ -17,6 +17,8 @@ Status: **accepted** (decisions 1 to 15, and every choice under [Decided with th
 
 **2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Decision 13's system file manager is Dropsea. Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
 
+**8 November 2026: `background` and `login-item` are granted as the application registers, not asked** ([ADR 0060](./0060-login-items-and-background-activity), decision 3). They now mean something: an application's background activity (its process running on once its window closes) and its login item (itself in the person's Open at Login list), each registered through the session as a Mac's application registers with `SMAppService`. Declared and never decided, each is granted when the application first registers what it guards, the account's decision kept by the install service, and the person is told by the session's notification, as a Mac tells them, rather than asked in a sheet; turned off (in Login Items & Extensions, or on the *Privacy* page), it is refused until turned on again. A change of `background` applies at once, not at the next launch: the application's process in the background is ended. Decision 8's table reads so below.
+
 It resolves the "Installing applications, an application store" left out by ADR 0013 and ADR 0015 (#35, #36).
 
 ## Problem
@@ -121,7 +123,7 @@ Four facts of OxyOS's own shape the design:
    | `camera`, `microphone`, `location` | When the host has them | Asked at first use |
    | `oxy-account` | Short Oxy tokens for this application (ADR 0020, decision 6), with the scopes its Oxy application has | Shown at install, as Oxy's consent screen |
    | `open-files`, `url-schemes` | Being offered a file or a link (ADR 0027) | Shown at install |
-   | `background`, `login-item` | Running without a window, or at sign-in | Asked |
+   | `background`, `login-item` | Running on once its window closes, or opening at sign-in ([ADR 0060](./0060-login-items-and-background-activity)) | Granted as the application registers, the person told; turned off in Login Items & Extensions |
 
    - **System grants** are never a store package's (decision 7).
    - **Who decides.** The person decides in system sheets (decision 9). `oxyos-installd` keeps the answers in `users/<user>/<id>.json`, so no process of the user can grant itself a capability by writing a file. Settings shows and revokes them on a *Privacy* page, with `privacy`, a system grant the image's policy gives Settings alone (`decide` in the service's vocabulary). The session gives the launch record those grants, and the host makes each module available only with its grant, as `OxyOSSettings` is only Settings' (ADR 0019).

@@ -543,6 +543,9 @@ pub struct Scene {
     system: system::System,
     /// What clients asked the search index, and the askers gone (docs/adr/0051-search.mdx).
     search: search::Search,
+    /// What applications asked of their login items and background activity
+    /// (docs/adr/0060-login-items-and-background-activity.mdx).
+    background: background::Background,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
     choosers: choosers::Choosers,
     /// The user's preferences as the program running the compositor told them, and the changes
@@ -1199,6 +1202,7 @@ impl Scene {
         self.forget_dock_client(client);
         self.forget_system_requests(client);
         self.forget_searcher(client);
+        self.forget_background_items(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
@@ -1797,6 +1801,11 @@ impl Scene {
                 last,
                 text,
             } => self.search_request(client, serial, index, last, text),
+            Request::BackgroundItem {
+                serial,
+                kind,
+                action,
+            } => self.background_item_request(client, serial, kind, action),
             Request::ChooseFiles {
                 serial,
                 surface,
@@ -5109,6 +5118,9 @@ pub use system::{CapabilityRequest, SheetAnswered, SystemRequest};
 /// Search (docs/adr/0051-search.mdx).
 mod search;
 pub use search::{SearchAsk, MAX_SEARCH_ASKS, SEARCH_VERSION};
+/// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
+mod background;
+pub use background::{BackgroundItemRequest, BACKGROUND_VERSION};
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 mod choosers;
 pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};
