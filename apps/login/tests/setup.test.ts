@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { afterEnroll, enrollAnswerFrom, platformFrom } from "../src/setup.ts";
+import { afterEnroll, enrollAnswerFrom, platformFrom, usablePin } from "../src/setup.ts";
 import { loginMessages } from "../src/messages.ts";
 
 test("the platform is the accounts' service's, read strictly", () => {
@@ -29,6 +29,14 @@ test("each answer of the accounts' service leads somewhere", () => {
   assert.deepEqual(afterEnroll({ refused: { reason: "accountMismatch" } }), { next: "signIn" });
   assert.deepEqual(afterEnroll({ refused: { reason: "failed" } }), { next: "password", problem: "failed", wait: 0 });
   assert.deepEqual(afterEnroll({ failed: { reason: "no service" } }), { next: "password", problem: "failed", wait: 0 });
+  // A PIN the service does not take is chosen again; an account without a password is not set up.
+  assert.deepEqual(afterEnroll({ refused: { reason: "unusablePin" } }), { next: "pin" });
+  assert.deepEqual(afterEnroll({ refused: { reason: "passwordRequired" } }), { next: "noPassword" });
+});
+
+test("a PIN is four to sixteen digits, as the accounts' service takes one", () => {
+  for (const pin of ["1234", "482916", "1234567890123456"]) assert.equal(usablePin(pin), true, pin);
+  for (const pin of ["", "123", "12345678901234567", "12a4", "12 34", "١٢٣٤"]) assert.equal(usablePin(pin), false, pin);
 });
 
 test("an answer that is not one is a failure", () => {

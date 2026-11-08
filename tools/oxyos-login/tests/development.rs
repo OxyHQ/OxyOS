@@ -82,6 +82,8 @@ fn accounts(socket: &Path, verifier: PathBuf, oxy: Oxy) {
                     name: "Ada Lovelace".into(),
                     picture: None,
                     state: oxyos_account::store::State::Ready,
+                    pin: oxyos_account::pin::PinState::None,
+                    password: true,
                 }]));
             }
             Ok(Some(Some(Request::Check {
@@ -192,7 +194,11 @@ fn temporary(name: &str) -> Dir {
 
 fn attempt(greeter: &mut Greeter, account: &str, password: &str) -> Verdicted {
     assert_eq!(
-        greeter.attempt(Some(account), Secret::new(password.as_bytes().to_vec())),
+        greeter.attempt(
+            Some(account),
+            false,
+            Secret::new(password.as_bytes().to_vec())
+        ),
         None
     );
     answer(greeter)

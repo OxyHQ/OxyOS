@@ -12,7 +12,7 @@
 //! - **A conversation** is one setup on one connection:
 //!
 //!   ```text
-//!   → {"enroll": {"deviceId", "deviceSecret", "accountId", "password"}}
+//!   → {"enroll": {"deviceId", "deviceSecret", "accountId", "password"?, "pin"?}}
 //!   ← {"enrolled": {"accountId", "user", "uid", "profile"}}           and the connection ends
 //!   ← {"refused": {"reason", "retryAfterSeconds"?}}                     and the connection ends
 //!   ← "secondFactorRequired"
@@ -22,18 +22,23 @@
 //!                                                                       be sent
 //!   ```
 //!
-//!   Closing the connection abandons a setup; nothing of it is kept.
+//!   Closing the connection abandons a setup; nothing of it is kept. `pin` (4 to 16 digits, never
+//!   the password) becomes the account's PIN on this computer (`crate::pin`); an account without
+//!   `password` is refused `passwordRequired`, nothing asked of Oxy (`crate::setup`).
 //! - **The accounts** (step 2, for the login screen and the login program, the same peers):
 //!
 //!   ```text
 //!   → "list"
-//!   ← {"accounts": [{"accountId", "user", "uid", "name", "picture"?, "state"}]}
+//!   ← {"accounts": [{"accountId", "user", "uid", "name", "picture"?, "state", "pin",
+//!                    "password"}]}
 //!                                                                     and the connection ends
 //!   ```
 //!
 //!   `name` is what the screen calls the account (its display name, else its username), and
 //!   `picture` a file of the pictures' directory; `state` is `ready`, or `signInAgain` for an
-//!   account Oxy signed out, which is set up again online. Nothing secret is listed.
+//!   account Oxy signed out, which is set up again online; `pin` is `none`, `set` or `locked`
+//!   (too many wrong PINs), and `password` whether the password signs in on this computer: which
+//!   field the screen shows. Nothing secret is listed.
 //! - **Where Oxy is** (the login screen's setup reads it; nothing secret):
 //!
 //!   ```text
@@ -57,9 +62,21 @@
 //!   ← {"keychain": "off" | "member" | … | "needsPreviousPassword" | "locked"}
 //!                                                                     and the connection ends
 //!   ```
+//! - **A PIN** (`crate::pin`; `oxyos-pin-check`, which PAM runs for the login program's and the
+//!   lock's PIN, as their own user): any peer may ask for its own account's, root for any
+//!   enrolled account's; everyone else is answered `none`, as an account without a PIN is.
+//!
+//!   ```text
+//!   → {"verifyPin": {"user": "oxy-…", "pin"}}
+//!   ← {"pin": {"result": "accepted" | "rejected" | "throttled" | "locked" | "none",
+//!              "retryAfterSeconds"?}}                                   and the connection ends
+//!   ```
+//!
+//!   It is checked here, never online, and each wrong one counted.
 //! - Messages are received into buffers overwritten afterwards; their secrets are [`Secret`]s.
 
 use crate::api::{DeviceCredential, OxyApi, Profile};
+use crate::pin::{PinCheck, PinState};
 use crate::platform::{Checked, Local, Platform};
 use crate::secret::{self, Secret};
 use crate::setup::{Enrolled, Pending, Progress, Request as SetupRequest, SetupError};
@@ -100,7 +117,10 @@ pub enum Request {
         device_id: String,
         device_secret: Secret,
         account_id: String,
-        password: Secret,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<Secret>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pin: Option<Secret>,
     },
     SecondFactor {
         code: Secret,
@@ -117,6 +137,11 @@ pub enum Request {
         user: String,
         password: Secret,
     },
+    /// `oxyos-pin-check`'s: the peer's own account's PIN, or any one's as root.
+    VerifyPin {
+        user: String,
+        pin: Secret,
+    },
 }
 
 /// An enrolled account as `list` gives it.
@@ -132,6 +157,20 @@ pub struct Account {
     /// Absent in what an older service lists: `ready`.
     #[serde(default = "ready")]
     pub state: State,
+    /// Its PIN; absent in what an older service lists: none.
+    #[serde(default = "no_pin")]
+    pub pin: PinState,
+    /// Whether its password signs in here; absent in what an older service lists: it does.
+    #[serde(default = "signs_in")]
+    pub password: bool,
+}
+
+fn no_pin() -> PinState {
+    PinState::None
+}
+
+fn signs_in() -> bool {
+    true
 }
 
 fn ready() -> State {
@@ -158,6 +197,8 @@ impl From<&crate::store::Listed> for Account {
                 .as_ref()
                 .map(|path| path.to_string_lossy().into_owned()),
             state: listed.state,
+            pin: listed.pin,
+            password: listed.password,
         }
     }
 }
@@ -170,6 +211,8 @@ pub enum Reason {
     InvalidRequest,
     InvalidAccount,
     UnusablePassword,
+    UnusablePin,
+    PasswordRequired,
     Offline,
     CredentialRefused,
     AccountNotOnDevice,
@@ -204,6 +247,44 @@ pub enum Answer {
     Platform(PlatformConfig),
     Checked(Checked),
     Keychain(crate::keychain::KeychainState),
+    Pin(PinAnswer),
+}
+
+/// What a PIN came to, as `oxyos-pin-check` is told.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinAnswer {
+    pub result: PinResult,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PinResult {
+    Accepted,
+    Rejected,
+    Throttled,
+    Locked,
+    None,
+}
+
+impl From<PinCheck> for PinAnswer {
+    fn from(check: PinCheck) -> Self {
+        let seconds = |wait: Duration| (!wait.is_zero()).then(|| wait.as_secs().max(1));
+        let (result, retry_after_seconds) = match check {
+            PinCheck::Accepted => (PinResult::Accepted, None),
+            PinCheck::Rejected { locked: true, .. } => (PinResult::Locked, None),
+            PinCheck::Rejected { wait, .. } => (PinResult::Rejected, seconds(wait)),
+            PinCheck::Throttled(wait) => (PinResult::Throttled, seconds(wait)),
+            PinCheck::Locked => (PinResult::Locked, None),
+            PinCheck::NoPin => (PinResult::None, None),
+        };
+        PinAnswer {
+            result,
+            retry_after_seconds,
+        }
+    }
 }
 
 impl Answer {
@@ -232,6 +313,8 @@ impl From<&SetupError> for Answer {
             SetupError::NotConfigured => Reason::NotConfigured,
             SetupError::InvalidAccount => Reason::InvalidAccount,
             SetupError::UnusablePassword => Reason::UnusablePassword,
+            SetupError::UnusablePin => Reason::UnusablePin,
+            SetupError::PasswordRequired => Reason::PasswordRequired,
             SetupError::Offline => Reason::Offline,
             SetupError::CredentialRefused => Reason::CredentialRefused,
             SetupError::AccountNotOnDevice => Reason::AccountNotOnDevice,
@@ -309,6 +392,11 @@ pub enum Outcome {
         user: String,
         state: crate::keychain::KeychainState,
     },
+    /// `user`'s PIN was checked.
+    PinChecked {
+        user: String,
+        result: PinResult,
+    },
 }
 
 impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
@@ -332,6 +420,7 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
                     device_secret,
                     account_id,
                     password,
+                    pin,
                 }),
                 false,
                 _,
@@ -344,6 +433,7 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
                     },
                     account: account_id,
                     password,
+                    pin,
                 };
                 match self.platform.setup().enroll(request) {
                     Ok(Progress::Enrolled(enrolled)) => {
@@ -664,7 +754,23 @@ pub fn serve<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static
 ) -> io::Result<()> {
     let peer = connection.peer()?;
     if !enrollers.allow(peer.uid) {
-        return refuse(connection, Reason::NotPermitted);
+        // A PIN is anyone's to check for its own account; nothing else is theirs.
+        connection.set_timeout(REFUSAL_WAIT)?;
+        return match connection.receive::<Request>()? {
+            None => Ok(()),
+            Some(Some(Request::VerifyPin { user, pin })) => {
+                let answer = verify_pin(platform, &peer, &user, &pin);
+                log(
+                    &peer,
+                    &Outcome::PinChecked {
+                        user,
+                        result: answer.result,
+                    },
+                );
+                connection.send(&Answer::Pin(answer))
+            }
+            Some(_) => connection.send(&Answer::refused(Reason::NotPermitted)),
+        };
     }
     connection.set_timeout(IDLE)?;
     let mut conversation = Conversation::new(platform, api);
@@ -697,12 +803,66 @@ pub fn serve<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static
             };
             return connection.send(&answer);
         }
+        if let Some(Request::VerifyPin { user, pin }) = request {
+            let answer = verify_pin(platform, &peer, &user, &pin);
+            log(
+                &peer,
+                &Outcome::PinChecked {
+                    user,
+                    result: answer.result,
+                },
+            );
+            return connection.send(&Answer::Pin(answer));
+        }
         let (turn, outcome) = conversation.answer(request);
         log(&peer, &outcome);
         match turn {
             Turn::Continue(answer) => connection.send(&answer)?,
             Turn::End(answer) => return connection.send(&answer),
         }
+    }
+}
+
+/// `user`'s PIN for `peer`: root's for any enrolled account, anyone else's for its own alone (an
+/// account of another uid is answered as one without a PIN, nothing checked or counted).
+fn verify_pin<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>(
+    platform: &Arc<Platform<A, U>>,
+    peer: &Peer,
+    user: &str,
+    pin: &Secret,
+) -> PinAnswer {
+    let own = peer.uid == 0
+        || platform
+            .setup()
+            .store()
+            .get_user(user)
+            .is_ok_and(|enrollment| enrollment.is_some_and(|e| e.uid == peer.uid));
+    if !own {
+        return PinCheck::NoPin.into();
+    }
+    #[cfg(feature = "local")]
+    {
+        platform.check_pin(user, pin).into()
+    }
+    #[cfg(not(feature = "local"))]
+    {
+        let _ = pin;
+        PinCheck::NoPin.into()
+    }
+}
+
+/// How long `oxyos-pin-check` waits for its answer (Argon2id at 64 MiB).
+pub const PIN_WAIT: Duration = Duration::from_secs(20);
+
+/// `user`'s PIN, checked by the service at `socket` (`oxyos-pin-check`'s).
+pub fn verify_pin_at(socket: &Path, user: &str, pin: Secret) -> io::Result<PinAnswer> {
+    let request = Request::VerifyPin {
+        user: user.to_owned(),
+        pin,
+    };
+    match ask(socket, &request, PIN_WAIT)? {
+        Answer::Pin(answer) => Ok(answer),
+        _ => Err(unexpected("verifyPin")),
     }
 }
 

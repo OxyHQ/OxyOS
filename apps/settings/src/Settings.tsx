@@ -157,6 +157,7 @@ import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
   privacyRows,
@@ -1711,18 +1712,29 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
  * result, alphabetically as a Mac lists them, each kept by the search service at once; **Search
  * Privacy…**, a sheet of the folders kept out of the index, a folder added with **+** from the
  * system's folder chooser (docs/adr/0028-file-access.mdx) and the selected one removed with **−**,
- * each change said once the service kept it; and the index's state in small text, asked again
- * each time the service says the index changed (never on a clock: docs/performance.mdx's idle rule). Without the search service, it says Spotlight is not
- * available here.
+ * each change said once the service kept it; **Rebuild Index…**, which, once confirmed, has the
+ * service discard the index and read every file again (the old index answering until the new one
+ * is ready); and the index's state in small text, how far a crawl went while one goes on, followed
+ * while the page shows (docs/adr/0058-the-platform-api.mdx's followed state: told by the service as
+ * it changes, never asked on a clock, docs/performance.mdx's idle rule). Without the search
+ * service, it says Spotlight is not available here.
  */
+/** What the page follows without the search service: nothing. */
+const NO_SUBSCRIPTION = () => () => {};
+const NO_STATE = () => null;
+
 function SpotlightPage({ actions, strings, locale }: PageProps) {
   const words = strings.spotlight;
   const theme = useTheme();
   const service = actions.search;
   const [preferences, setPreferences] = React.useState<SearchPreferences | null>(null);
-  const [status, setStatus] = React.useState<SearchStatus | null>(null);
+  const status: SearchStatus | null = React.useSyncExternalStore(
+    service?.state.subscribe ?? NO_SUBSCRIPTION,
+    service?.state.current ?? NO_STATE,
+  );
   const [failed, setFailed] = React.useState(false);
   const [privacy, setPrivacy] = React.useState(false);
+  const [confirmingRebuild, setConfirmingRebuild] = React.useState(false);
   const [selected, setSelected] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!service) return undefined;
@@ -1736,18 +1748,8 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
         if (live) setFailed(true);
       },
     );
-    const ask = () =>
-      service.status().then(
-        (told) => {
-          if (live) setStatus(told);
-        },
-        (error: unknown) => console.warn("[settings] the index's state could not be read:", error),
-      );
-    ask();
-    const unwatch = service.watch(ask);
     return () => {
       live = false;
-      unwatch();
     };
   }, [service]);
   if (!service || failed) {
@@ -1788,6 +1790,11 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
     setSelected(excludedAfterRemoving(excluded, chosen));
     change({ excluded: withoutExcluded(excluded, chosen) }, words.removed(folderName(chosen)));
   };
+  const rebuild = () =>
+    service.rebuild().then(
+      () => AccessibilityInfo.announceForAccessibility(words.rebuildStarted),
+      (error: unknown) => console.warn("[settings] the index was not rebuilt:", error),
+    );
   return (
     <View style={PAGE}>
       <GroupedSection title={words.results} footer={words.resultsFooter}>
@@ -1805,12 +1812,34 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
         <Button size="sm" appearance="outline" tone="neutral" onPress={() => setPrivacy(true)} testID="spotlight-privacy">
           {words.privacy}
         </Button>
+        <Button
+          size="sm"
+          appearance="outline"
+          tone="neutral"
+          onPress={() => setConfirmingRebuild(true)}
+          disabled={status?.rebuilding === true}
+          testID="spotlight-rebuild"
+        >
+          {words.rebuild}
+        </Button>
         {status ? (
           <Text testID="spotlight-status" style={{ flex: 1, fontSize: 11, color: theme.colors.textSecondary, textAlign: "right" }}>
             {statusLine(status, words)}
           </Text>
         ) : null}
       </View>
+      <AlertDialog
+        open={confirmingRebuild}
+        onOpenChange={(open) => {
+          if (!open) setConfirmingRebuild(false);
+        }}
+        title={words.rebuildTitle}
+        description={words.rebuildDescription}
+        confirmLabel={words.rebuildConfirm}
+        cancelLabel={words.cancel}
+        onConfirm={() => void rebuild()}
+        testID="spotlight-rebuild-confirm"
+      />
       <Dialog
         open={privacy}
         onClose={() => setPrivacy(false)}
@@ -2358,6 +2387,9 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
           testID="oxy-account-remove"
         />
       </GroupedSection>
+      {view.kind === "signed_in" && account?.local ? (
+        <LocalSignInSection actions={account.local} strings={strings} />
+      ) : null}
       <AlertDialog
         open={confirming === "sign-out"}
         onOpenChange={(open) => {
