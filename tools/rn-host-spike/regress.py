@@ -5447,7 +5447,8 @@ def main():
         # with Desktop, Documents and Downloads in it (a machine that had a desktop) made the
         # dock's zoom (dock-edges, window-zoom-scaled) leave the work area uncovered, and passed
         # for a user whose home had none. The machine's GPU cache and drivers are named above.
-        empty = (out / "home").resolve()
+        # Not "home": that is a scenario's own, whose existence the checks read as such.
+        empty = (out / "empty-home").resolve()
         shutil.rmtree(empty, ignore_errors=True)
         (empty / ".config").mkdir(parents=True)
         env["HOME"] = str(empty)
