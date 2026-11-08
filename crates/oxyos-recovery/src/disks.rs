@@ -70,6 +70,21 @@ pub struct Layout {
     pub esp: Partition,
     pub recovery: Partition,
     pub root: Partition,
+    pub kind: Kind,
+}
+
+/// How the disk came to be laid out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// By an install (`oxyos-recovery install`): the root is the architecture's root type, made by
+    /// systemd-repart, which an erase can make again.
+    Installed,
+    /// By hand: a machine converted to OxyOS on the partitions it had, its recovery added in space
+    /// of its own (ADR 0054, decision 9). Its root is named by the recovery's
+    /// boot entry (`oxyos.recovery.root=PARTUUID=…`), not by its type. Its disk is not an install's,
+    /// so nothing erases it: erasing such a machine is installing OxyOS onto it from the
+    /// installation medium.
+    Converted,
 }
 
 impl Disk {
@@ -93,6 +108,28 @@ impl Disk {
             recovery: self.only(RECOVERY_TYPE)?.clone(),
             root: self.only(root_type)?.clone(),
             disk: self.clone(),
+            kind: Kind::Installed,
+        })
+    }
+
+    /// A converted machine's layout on this disk: its one EFI system partition, its recovery, and
+    /// the root the recovery's entry names by partition UUID. None when any is missing, or the
+    /// root named is the EFI system partition or the recovery.
+    pub fn converted_layout(&self, root_partuuid: &str) -> Option<Layout> {
+        let root = self.partitions.iter().find(|p| {
+            p.partuuid
+                .as_deref()
+                .is_some_and(|u| u.eq_ignore_ascii_case(root_partuuid))
+        })?;
+        if root.of_type(ESP_TYPE) || root.of_type(RECOVERY_TYPE) {
+            return None;
+        }
+        Some(Layout {
+            esp: self.only(ESP_TYPE)?.clone(),
+            recovery: self.only(RECOVERY_TYPE)?.clone(),
+            root: root.clone(),
+            disk: self.clone(),
+            kind: Kind::Converted,
         })
     }
 
@@ -143,6 +180,15 @@ pub fn suitable(disk: &Disk, medium: &str) -> Result<(), Unsuitable> {
         return Err(Unsuitable::TooSmall { size: disk.size });
     }
     Ok(())
+}
+
+/// The converted machine's root its recovery's entry names on the kernel command line
+/// (`oxyos.recovery.root=PARTUUID=<uuid>`), if it names one.
+pub fn converted_root(command_line: &str) -> Option<&str> {
+    command_line
+        .split_whitespace()
+        .find_map(|word| word.strip_prefix("oxyos.recovery.root=PARTUUID="))
+        .filter(|uuid| uuid.len() == 36 && uuid.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'))
 }
 
 /// The disk holding what is mounted at `path` (the medium this system booted from, or `/`).

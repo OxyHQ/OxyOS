@@ -285,11 +285,16 @@ class Scenario:
         shown = self.hold_space(console)
         menu = self.screen()
         self.save(menu, "boot-menu")
-        self.check("holding Space as the machine starts shows the boot menu, with OxyOS Recovery", shown and not menu.is_black())
+        picker = self.m.serial_text()[console:]
+        self.check("holding Space as the machine starts shows the startup picker: OxyOS, its Recovery and the firmware's menu",
+                   shown and not menu.is_black() and "Reboot Into Firmware Interface" in picker
+                   and "EFI Default Loader" not in picker)
         # The menu's first entry is OxyOS; the recovery is the next.
         self.m.keys("down")
         self.m.keys("ret")
-        self.since = console
+        # The recovery's own output begins with the firmware starting it again (a login prompt the
+        # system printed while it went down is not the recovery's).
+        self.since = self.m.serial_text().rfind("BdsDxe: starting", console)
         self.m.wait_serial("Choose an option: ", timeout=self.args.timeout, after=console)
         self.save(self.screen(), "recovery")
         sh = self.shell(debug)
@@ -312,7 +317,7 @@ class Scenario:
             self.m.execute("system_reset")
             time.sleep(1)
         _, at = self.m.wait_serial("Choose an option: ", timeout=self.args.timeout, after=console)
-        self.since = console
+        self.since = self.m.serial_text().rfind("BdsDxe: starting", console, at)
         self.check("after three starts that never complete, the recovery starts by itself and says so",
                    "couldn't start several times" in self.m.serial_text()[console:at])
         sh = self.shell(debug)

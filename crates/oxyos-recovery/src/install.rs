@@ -22,7 +22,7 @@
 //! 4. the root is set up as an installed system, exactly as an install sets it up; the request is
 //!    removed. The next boot is a first boot.
 
-use crate::disks::{self, Disk, Layout};
+use crate::disks::{self, Disk, Kind, Layout};
 use crate::entries::{Entries, TRIES};
 use crate::host::{failed, Command, Failed, Host};
 use crate::layout::{self, Image};
@@ -558,7 +558,7 @@ fn set_up_mounted(
             .ok_or_else(|| failed("the recovery has no partition UUID", ""))?;
         write(
             &format!("efi/loader/entries/{}", layout::RECOVERY_ENTRY),
-            &layout::recovery_entry(partuuid, entry.root_hash, entry.version),
+            &layout::recovery_entry(partuuid, entry.root_hash, entry.version, None),
             0o644,
         )?;
     }
@@ -614,6 +614,14 @@ pub fn erase(
     request: &mut EraseRequest,
     progress: &mut dyn FnMut(Step),
 ) -> Result<(), Failed> {
+    // A converted machine's disk is not an install's: systemd-repart's definitions do not describe
+    // it, and nothing here erases it.
+    if layout.kind != Kind::Installed {
+        return Err(failed(
+            "this computer was converted to OxyOS by hand",
+            "erasing it is installing OxyOS onto it from the installation medium",
+        ));
+    }
     fs::create_dir_all(&paths.run).map_err(|e| failed("the work directory", e.to_string()))?;
     progress(Step::Erasing);
     let entries = Entries::new(esp);
@@ -696,4 +704,60 @@ pub fn destroy(host: &mut dyn Host, root: &disks::Partition) -> Result<(), Faile
         format!("{} could not be erased", root.path),
         "neither discarded nor overwritten",
     ))
+}
+
+/// Writes the recovery's boot entry, with its kernel and initramfs, onto the EFI system partition
+/// mounted at `esp`, from the recovery partition `recovery`: its image checked against its root
+/// hash first. `system_root` names a converted machine's root (ADR 0054, decision 9). For a machine
+/// whose recovery was put in place after it was installed, or whose recovery image was replaced.
+pub fn add_recovery_entry(
+    host: &mut dyn Host,
+    paths: &Paths,
+    esp: &Path,
+    recovery: &disks::Partition,
+    system_root: Option<&str>,
+) -> Result<String, Failed> {
+    let partuuid = recovery
+        .partuuid
+        .clone()
+        .ok_or_else(|| failed("the recovery has no partition UUID", ""))?;
+    let mount = paths.recovery();
+    fs::create_dir_all(&mount).map_err(|e| failed("a mount point", e.to_string()))?;
+    let at = mount.display().to_string();
+    host.run(&Command::new("mount").args(["-o", "ro", &recovery.path, &at]))?;
+    let written = (|| {
+        let image = Image {
+            root: String::new(),
+            live: format!("{at}/live"),
+        };
+        let hash = root_hash(&image)?;
+        verify(host, &image.live, &hash)?;
+        let version = kernel_version(&image.live)?;
+        let directory = esp.join(layout::RECOVERY_DIRECTORY);
+        fs::create_dir_all(&directory)
+            .map_err(|e| failed("the recovery's kernel", e.to_string()))?;
+        for (from, to) in [("vmlinuz", "linux"), ("initrd.img", "initrd.img")] {
+            fs::copy(
+                format!("{}/{from}-{version}", image.live),
+                directory.join(format!("{to}.new")),
+            )
+            .and_then(|_| fs::rename(directory.join(format!("{to}.new")), directory.join(to)))
+            .map_err(|e| failed(format!("the recovery's {to}"), e.to_string()))?;
+        }
+        let entries = esp.join("loader/entries");
+        fs::create_dir_all(&entries).map_err(|e| failed("the boot entries", e.to_string()))?;
+        let new = entries.join(format!("{}.new", layout::RECOVERY_ENTRY));
+        fs::write(
+            &new,
+            layout::recovery_entry(&partuuid, &hash, &version, system_root),
+        )
+        .and_then(|()| fs::rename(&new, entries.join(layout::RECOVERY_ENTRY)))
+        .and_then(|()| fs::File::open(&entries)?.sync_all())
+        .map_err(|e| failed("the recovery's entry", e.to_string()))?;
+        Ok(hash)
+    })();
+    let unmounted = host.run(&Command::new("umount").arg(&at));
+    let hash = written?;
+    unmounted?;
+    Ok(hash)
 }

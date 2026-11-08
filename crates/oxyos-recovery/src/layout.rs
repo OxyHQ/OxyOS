@@ -148,12 +148,13 @@ pub fn kernel_command_line(root_device: &str) -> String {
 /// - the first entry that may boot is the default (`oxyos-*`, the newest kernel first and the
 ///   recovery after them: an entry with no tries left goes to the end, so the recovery comes
 ///   first once every kernel has failed);
-/// - only OxyOS's entries: none for the firmware's own loader, its setup or other systems found
-///   on the disk;
+/// - OxyOS's entries, and *Reboot Into Firmware Interface* (the firmware's own settings, where a USB
+///   installer or another disk is started); none for the firmware's default loader (shim again)
+///   or other systems' loaders on this partition;
 /// - no editing of the command line at the menu: what a person at the keyboard can change of the
 ///   boot is which entry starts, not what the kernel is told.
 pub const LOADER_CONF: &str =
-    "timeout menu-hidden\ndefault oxyos-*\neditor no\nauto-entries no\nauto-firmware no\n";
+    "timeout menu-hidden\ndefault oxyos-*\neditor no\nauto-entries no\nauto-firmware yes\n";
 
 /// The recovery's entry on the EFI system partition.
 pub const RECOVERY_ENTRY: &str = "oxyos-recovery.conf";
@@ -165,9 +166,19 @@ pub const RECOVERY_DIRECTORY: &str = "oxyos-recovery";
 /// block verified against `root_hash`, into `oxyos-recovery.target`. `live-config.nocomponents`:
 /// live-config makes no live user and logs nobody in, the recovery is its own program on the
 /// console; `noeject`: restarting asks for no medium to be removed (the medium is the disk).
-pub fn recovery_entry(recovery_partuuid: &str, root_hash: &str, version: &str) -> String {
+/// `system_root`: a converted machine's root partition (its GPT UUID), which the recovery cannot
+/// find by its type (ADR 0054, decision 9); an install's is found by its type and is not named.
+pub fn recovery_entry(
+    recovery_partuuid: &str,
+    root_hash: &str,
+    version: &str,
+    system_root: Option<&str>,
+) -> String {
+    let root = system_root
+        .map(|uuid| format!(" oxyos.recovery.root=PARTUUID={uuid}"))
+        .unwrap_or_default();
     format!(
-        "title      OxyOS Recovery\nsort-key   oxyos-recovery\nversion    {version}\nlinux      /{RECOVERY_DIRECTORY}/linux\ninitrd     /{RECOVERY_DIRECTORY}/initrd.img\noptions    boot=live live-media=/dev/disk/by-partuuid/{recovery_partuuid} live-media-path=/live noeject live-config.nocomponents dm-verity-root-hash=filesystem.squashfs:{root_hash} systemd.unit=oxyos-recovery.target systemd.hostname=oxyos-recovery quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\n"
+        "title      OxyOS Recovery\nsort-key   oxyos-recovery\nversion    {version}\nlinux      /{RECOVERY_DIRECTORY}/linux\ninitrd     /{RECOVERY_DIRECTORY}/initrd.img\noptions    boot=live live-media=/dev/disk/by-partuuid/{recovery_partuuid} live-media-path=/live noeject live-config.nocomponents dm-verity-root-hash=filesystem.squashfs:{root_hash}{root} systemd.unit=oxyos-recovery.target systemd.hostname=oxyos-recovery quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\n"
     )
 }
 

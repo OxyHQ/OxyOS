@@ -191,7 +191,7 @@ fn the_definitions_lay_out_an_esp_the_recovery_and_an_encrypted_root_that_an_era
 
 #[test]
 fn the_recovery_entry_boots_its_partition_read_only_verified_into_the_recovery_and_no_live_user() {
-    let entry = layout::recovery_entry("5f36a183", ROOT_HASH, VERSION);
+    let entry = layout::recovery_entry("5f36a183", ROOT_HASH, VERSION, None);
     assert!(entry.contains("title      OxyOS Recovery\n"));
     assert!(entry.contains("sort-key   oxyos-recovery\n"));
     assert!(entry.contains("live-media=/dev/disk/by-partuuid/5f36a183 "));
@@ -215,7 +215,7 @@ fn the_loader_hides_its_menu_lists_only_oxyos_and_does_not_edit_command_lines() 
         "default oxyos-*",
         "editor no",
         "auto-entries no",
-        "auto-firmware no",
+        "auto-firmware yes",
     ] {
         assert!(layout::LOADER_CONF.lines().any(|l| l == line), "{line}");
     }
@@ -353,6 +353,12 @@ fn entry_names_are_read_with_and_without_their_counter() {
     assert_eq!(bad.file_name_with(None), "oxyos-6.12.48.conf");
     assert!(!Entry::parse(layout::RECOVERY_ENTRY).unwrap().is_system());
     assert!(!Entry::parse("debian-6.12.conf").unwrap().is_system());
+    assert!(
+        !Entry::parse("oxyos-recovery-check.conf")
+            .unwrap()
+            .is_system(),
+        "a person's own entry"
+    );
     assert!(Entry::parse("loader.conf.new").is_none());
 }
 
@@ -1131,4 +1137,153 @@ fn a_wifi_password_goes_on_standard_input_never_on_the_command_line() {
     network::join(&mut host, "Home", Some("hunter2")).unwrap();
     assert_eq!(host.commands, ["nmcli --ask device wifi connect Home"]);
     assert_eq!(host.inputs[0].1, b"hunter2\n");
+}
+
+// A machine converted by hand (ADR 0054, decision 9).
+
+/// The ThinkPad's disk after its conversion: Debian's EFI system partition and root (the generic
+/// Linux type), OxyOS Recovery taken from the swap, and the swap that is left.
+fn converted_disk() -> disks::Disk {
+    let json = format!(
+        r#"{{"blockdevices": [{{"name": "nvme0n1", "path": "/dev/nvme0n1", "type": "disk", "size": 512110190592, "rm": false, "ro": false, "tran": "nvme", "model": "SAMSUNG", "ptuuid": "a35f77cd-74da-481b-bb73-8527aa1c6293", "mountpoints": [null], "children": [
+          {{"name": "nvme0n1p1", "path": "/dev/nvme0n1p1", "type": "part", "size": 1023410176, "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "partuuid": "efff7fe8-2a85-4cfb-9db1-091e38ff85de", "fstype": "vfat", "uuid": "AF47-1085", "mountpoints": [null]}},
+          {{"name": "nvme0n1p2", "path": "/dev/nvme0n1p2", "type": "part", "size": 484679090176, "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4", "partuuid": "129a8dff-ec84-4f37-af8a-2a048f2563a4", "fstype": "ext4", "uuid": "3e342287-6221-4fab-a3fb-61241b477e80", "mountpoints": [null]}},
+          {{"name": "nvme0n1p3", "path": "/dev/nvme0n1p3", "type": "part", "size": 3221225472, "parttype": "{RECOVERY_TYPE}", "partuuid": "5b135168-8f41-419c-bf27-3955087bcda2", "partlabel": "OxyOS Recovery", "fstype": "ext4", "uuid": "99806b1d-5215-46a4-83db-9afba809d3bb", "mountpoints": ["/run/live/medium"]}},
+          {{"name": "nvme0n1p4", "path": "/dev/nvme0n1p4", "type": "part", "size": 23185063936, "parttype": "0657fd6d-a4ab-43c4-84e5-0933c84b4f4f", "partuuid": "cc30bfc8-e8dc-43d5-aca9-e16f7813ef02", "fstype": "swap", "uuid": "ad9efa6e-0ded-4e7f-9059-071d6771876c", "mountpoints": [null]}}
+        ]}}]}}"#
+    );
+    disks::parse(&json).unwrap().remove(0)
+}
+
+#[test]
+fn a_converted_machine_is_found_by_the_root_its_recovery_names_and_never_taken_for_an_install() {
+    let disk = converted_disk();
+    assert!(
+        disk.layout().is_none(),
+        "no root of the architecture's type: not an install's layout"
+    );
+    let command_line = "boot=live live-media-path=/live oxyos.recovery.root=PARTUUID=129a8dff-ec84-4f37-af8a-2a048f2563a4 quiet";
+    let root = disks::converted_root(command_line).unwrap();
+    let layout = disk.converted_layout(root).unwrap();
+    assert_eq!(layout.kind, disks::Kind::Converted);
+    assert_eq!(
+        (
+            layout.esp.path.as_str(),
+            layout.recovery.path.as_str(),
+            layout.root.path.as_str()
+        ),
+        ("/dev/nvme0n1p1", "/dev/nvme0n1p3", "/dev/nvme0n1p2")
+    );
+    // The recovery's entry names nothing, or something malformed, or the ESP or the recovery itself.
+    assert_eq!(disks::converted_root("boot=live quiet"), None);
+    assert_eq!(
+        disks::converted_root("oxyos.recovery.root=PARTUUID=../../etc/x"),
+        None
+    );
+    assert!(disk
+        .converted_layout("efff7fe8-2a85-4cfb-9db1-091e38ff85de")
+        .is_none());
+    assert!(disk
+        .converted_layout("5b135168-8f41-419c-bf27-3955087bcda2")
+        .is_none());
+    assert!(disk
+        .converted_layout("00000000-0000-0000-0000-000000000000")
+        .is_none());
+}
+
+#[test]
+fn a_converted_machine_is_never_erased_whatever_asks() {
+    let machine = Machine::new();
+    let esp = esp_with(&["oxyos-recovery.conf"]);
+    let disk = converted_disk();
+    let layout = disk
+        .converted_layout("129a8dff-ec84-4f37-af8a-2a048f2563a4")
+        .unwrap();
+    let mut request = EraseRequest {
+        version: 1,
+        state: State::Armed,
+        disk: "a35f77cd-74da-481b-bb73-8527aa1c6293".into(),
+        root: "129a8dff-ec84-4f37-af8a-2a048f2563a4".into(),
+        encrypted: false,
+        requested_at: 1,
+    };
+    let mut host = Recorder::new();
+    let error = install::erase(
+        &mut host,
+        &machine.paths,
+        &machine.image,
+        esp.path(),
+        &layout,
+        &mut request,
+        &mut |_| {},
+    )
+    .unwrap_err();
+    assert!(error.what.contains("converted"), "{error}");
+    assert!(
+        host.commands.is_empty(),
+        "nothing ran: {:#?}",
+        host.commands
+    );
+    assert_eq!(request.state, State::Armed);
+}
+
+#[test]
+fn a_converted_machines_recovery_entry_names_its_root_and_is_written_from_its_checked_image() {
+    let machine = Machine::new();
+    // What the recovery partition holds, where the (played) mount shows it.
+    let live = machine.paths.run.join("recovery/live");
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("filesystem.squashfs.roothash"), ROOT_HASH).unwrap();
+    fs::write(live.join(format!("vmlinuz-{VERSION}")), "kernel").unwrap();
+    fs::write(live.join(format!("initrd.img-{VERSION}")), "initrd").unwrap();
+    let esp = Scratch::new("esp");
+    let disk = converted_disk();
+    let recovery = disk.only(RECOVERY_TYPE).unwrap();
+    let mut host = Recorder::new();
+    let root = "129a8dff-ec84-4f37-af8a-2a048f2563a4";
+    let hash =
+        install::add_recovery_entry(&mut host, &machine.paths, esp.path(), recovery, Some(root))
+            .unwrap();
+    assert_eq!(hash, ROOT_HASH);
+    let run = machine.paths.run.display().to_string();
+    assert_eq!(
+        host.commands,
+        [
+            format!("mount -o ro /dev/nvme0n1p3 {run}/recovery"),
+            format!("veritysetup verify {run}/recovery/live/filesystem.squashfs {run}/recovery/live/filesystem.squashfs.verity {ROOT_HASH}"),
+            format!("umount {run}/recovery"),
+        ]
+    );
+    let entry = fs::read_to_string(
+        esp.path()
+            .join("loader/entries")
+            .join(layout::RECOVERY_ENTRY),
+    )
+    .unwrap();
+    assert!(entry.contains(&format!(" oxyos.recovery.root=PARTUUID={root} ")));
+    assert!(
+        entry.contains("live-media=/dev/disk/by-partuuid/5b135168-8f41-419c-bf27-3955087bcda2 ")
+    );
+    assert_eq!(
+        fs::read_to_string(esp.path().join("oxyos-recovery/linux")).unwrap(),
+        "kernel"
+    );
+    assert!(!layout::recovery_entry("p", ROOT_HASH, VERSION, None).contains("oxyos.recovery.root"));
+
+    // An image that does not match its root hash writes nothing, and is unmounted.
+    let esp = Scratch::new("esp");
+    let mut refusing = Recorder::new().answer(|c| (c.program == "veritysetup").then(|| status(1)));
+    assert!(install::add_recovery_entry(
+        &mut refusing,
+        &machine.paths,
+        esp.path(),
+        recovery,
+        Some(root)
+    )
+    .is_err());
+    assert!(!esp.path().join("loader").exists());
+    assert_eq!(
+        refusing.commands.last().unwrap(),
+        &format!("umount {run}/recovery")
+    );
 }
