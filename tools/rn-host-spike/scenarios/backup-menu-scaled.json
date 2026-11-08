@@ -1,0 +1,511 @@
+{
+  "about": "The menu bar's backup item as a Mac's Time Machine extra (docs/adr/0059-backups.mdx, decision 10), in Spanish, over the development backup service on the run's own folders (oxyos-offscreen --play-backup: a played disk, “Disco de copias”, backing up the run's home, Debian's restic paced to 1 MiB/s so a backup is seen running) and UPower, power-profiles-daemon and logind played on the run's bus (on battery, Low Power Mode Only on Battery). Allo (sample/EditingProbe.tsx) has its field focused. No item before a destination exists. The disk added: the item appears, named Copias de seguridad; Low Power Mode holds the scheduled backup (the service says held, nothing runs) and its menu says there are no backups yet and that it waits for Low Power Mode. Plugged in, the session releases its hold and the backup starts at once: the menu says Realizando copia de seguridad… and how far, and Omitir esta copia de seguridad stops it (no snapshot kept). Hacer copia de seguridad ahora backs up: the service holds one backup and the menu says the latest backup to “Disco de copias” today. The disk taken away: the service says it is not available and the menu that the disk is not connected, Back Up Now disabled; connected again, available. Abrir ajustes de Copias de seguridad… opens Settings at its Backups page (oxyos-settings://backups). Each step checks what the service holds. At scale 1.25 (the ThinkPad's panel).",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "preferences": {
+    "low_power_mode": "battery"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/notas.txt": "la lista de la compra",
+      "Pictures/": ""
+    }
+  },
+  "backup": {
+    "disks": [
+      {
+        "uuid": "4f2a-77c1-9e0b",
+        "label": "Disco de copias"
+      }
+    ],
+    "files": {
+      "Movies/viaje.mov": 16000000
+    },
+    "pace": 1024
+  },
+  "power": {
+    "battery": {
+      "percent": 64.0,
+      "state": "discharging",
+      "time_to_empty": 12000,
+      "energy_full": 49.6,
+      "energy_full_design": 57.0,
+      "cycles": 412
+    },
+    "on_ac": false,
+    "critical_action": "HybridSleep"
+  },
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard; no backup item while no destination exists, scheduled backups held by the session (Low Power Mode on battery)",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Copias de seguridad"
+            }
+          ]
+        },
+        "backup": {
+          "destinations": [],
+          "held": true,
+          "running": null
+        }
+      }
+    },
+    {
+      "name": "The disk added as the person's (its backup password): the item appears, valued with no backups yet; the scheduled backup held, nothing runs",
+      "do": [
+        "backup",
+        {
+          "ask": {
+            "addDisk": {
+              "uuid": "4f2a-77c1-9e0b",
+              "password": "caballo correcto"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Copias de seguridad",
+              "value": "Todavía no hay copias de seguridad"
+            }
+          ]
+        },
+        "backup": {
+          "destinations": [
+            {
+              "name": "Disco de copias",
+              "kind": "disk",
+              "available": true,
+              "backups": 0
+            }
+          ],
+          "held": true,
+          "running": null
+        }
+      }
+    },
+    {
+      "name": "Pressed, its menu: no backups yet, waiting for Low Power Mode to turn off, Back Up Now, Browse Backups and Open Backups Settings…; Allo receives nothing",
+      "do": [
+        "press_named",
+        "Copias de seguridad"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Todavía no hay copias de seguridad",
+            "Esperando a que se desactive el modo de bajo consumo",
+            "Hacer copia de seguridad ahora",
+            "Explorar copias de seguridad",
+            "Abrir ajustes de Copias de seguridad…"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Copias de seguridad",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it; the keyboard is Allo's again",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "focus_input": "line",
+        "at_absent": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Explorar copias de seguridad"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Plugged in: Low Power Mode off, the session releases its hold and the held backup starts at once",
+      "do": [
+        "power",
+        {
+          "on_ac": true,
+          "state": "charging",
+          "time_to_full": 2700
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "power": {
+          "holds": []
+        }
+      }
+    },
+    {
+      "name": "The service backs up the run's home (restic reading it)",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "held": false,
+            "running": {
+              "phase": "backingUp",
+              "asked": false
+            }
+          },
+          "ms": 30000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "backup": {
+          "held": false,
+          "running": {
+            "phase": "backingUp"
+          }
+        }
+      }
+    },
+    {
+      "name": "Its menu while it runs: Realizando copia de seguridad…, the bytes copied of the total, Omitir esta copia de seguridad",
+      "do": [
+        "press_named",
+        "Copias de seguridad"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Realizando copia de seguridad…",
+            "Omitir esta copia de seguridad",
+            "Explorar copias de seguridad"
+          ],
+          "texts_matching": [
+            "^[0-9]+(,[0-9])? (bytes|KB|MB) de [0-9]+(,[0-9])? MB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Skipped: the menu closes and the service stops the backup",
+      "do": [
+        "press_named",
+        "Omitir esta copia de seguridad"
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Stopped: no snapshot kept, no failure recorded",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "running": null
+          },
+          "ms": 30000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "backup": {
+          "running": null,
+          "destinations": [
+            {
+              "backups": 0,
+              "lastFailure": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Its menu again: no backups yet, Back Up Now",
+      "do": [
+        "press_named",
+        "Copias de seguridad"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Todavía no hay copias de seguridad",
+            "Hacer copia de seguridad ahora"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Back Up Now: the service backs up at once, asked",
+      "do": [
+        "press_named",
+        "Hacer copia de seguridad ahora"
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Backed up: one backup, kept on the disk",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "running": null,
+            "destinations": [
+              {
+                "backups": 1
+              }
+            ]
+          },
+          "ms": 90000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "backup": {
+          "destinations": [
+            {
+              "backups": 1,
+              "lastFailure": null,
+              "available": true
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Copias de seguridad"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Its menu: the latest backup to “Disco de copias”, today",
+      "do": [
+        "press_named",
+        "Copias de seguridad"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Última copia de seguridad en “Disco de copias”:",
+            "Hacer copia de seguridad ahora"
+          ],
+          "texts_matching": [
+            "^Hoy, [0-9]{2}:[0-9]{2}$"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "The disk taken away: the service says it is not available",
+      "do": [
+        "backup",
+        {
+          "disconnect": "4f2a-77c1-9e0b"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Followed: not available",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "destinations": [
+              {
+                "available": false
+              }
+            ]
+          },
+          "ms": 10000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "backup": {
+          "destinations": [
+            {
+              "available": false,
+              "backups": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Its menu says the disk is not connected",
+      "do": [
+        "press_named",
+        "Copias de seguridad"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "El disco de copia de seguridad no está conectado",
+            "Hacer copia de seguridad ahora"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "Connected again: available",
+      "do": [
+        "backup",
+        {
+          "connect": "4f2a-77c1-9e0b"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Followed: available again",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "destinations": [
+              {
+                "available": true
+              }
+            ]
+          },
+          "ms": 10000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "backup": {
+          "destinations": [
+            {
+              "available": true,
+              "backups": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Its menu once more",
+      "do": [
+        "press_named",
+        "Copias de seguridad"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Última copia de seguridad en “Disco de copias”:",
+            "Abrir ajustes de Copias de seguridad…"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Open Backups Settings… opens Settings at its Backups page",
+      "do": [
+        "press_named",
+        "Abrir ajustes de Copias de seguridad…"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://backups",
+            "application": "so.oxy.settings"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

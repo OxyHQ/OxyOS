@@ -10,12 +10,14 @@ import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import {
+  backup as backupApi,
   bluetooth,
   autofill as autofillApi,
   inputSources,
   network,
   power,
   sound as soundApi,
+  useBackupState,
   useBluetoothState,
   useAutofillState,
   useInputSourcesState,
@@ -26,6 +28,7 @@ import {
 } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
+import { backupStateOf } from '../../../apps/shell/src/backup';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
@@ -34,6 +37,7 @@ import { useSessionLocale } from './oxyos/locale';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
+  ShellBackupMenu,
   ShellBatteryMenu,
   ShellEnergyApp,
   ShellInputMethod,
@@ -253,6 +257,7 @@ function ProbeShell({
   screenshots,
   inputMethod,
   battery,
+  backup,
   autofill,
 }: {
   /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
@@ -281,6 +286,8 @@ function ProbeShell({
   inputMethod?: ShellInputMethod;
   /** The battery's menu (ADR 0057), once the session told the battery and energy. */
   battery?: ShellBatteryMenu;
+  /** The menu bar's backup item (ADR 0059), once the session told the backup service's state. */
+  backup?: ShellBackupMenu;
 }) {
   // The same wallpaper while it draws the same: the wallpaper and what blurs it render again only
   // when it changes.
@@ -303,6 +310,7 @@ function ProbeShell({
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      backup={backup}
       autofill={autofill}
     />
   );
@@ -442,6 +450,8 @@ function SessionShell() {
   const sources = useInputSourcesState();
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
   const powerState = usePowerState() as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
+  // The backup service's state as the session tells it (ADR 0059): the menu bar's backup item.
+  const backupTold = useBackupState();
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -784,6 +794,30 @@ function SessionShell() {
     [!!powerState, showPercentage, lowPower, shell.openUrl],
   );
 
+  // The menu bar's backup item (ADR 0059): the state as the session tells it, read strictly; Back
+  // Up Now and Skip This Backup asked of the session citing the press, Browse Backups opening
+  // Dropsea's, Open Backups Settings… Settings at its Backups page.
+  const backupMenu: ShellBackupMenu | undefined = React.useMemo(() => {
+    const state = backupStateOf(backupTold);
+    return state
+      ? {
+          state,
+          backUpNow: () => {
+            backupApi.backUpNow();
+          },
+          skip: () => {
+            backupApi.stop();
+          },
+          browse: () => {
+            shell.openUrl('dropsea://backups');
+          },
+          openSettings: () => {
+            shell.openUrl('oxyos-settings://backups');
+          },
+        }
+      : undefined;
+  }, [backupTold, shell.openUrl]);
+
   // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
   // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
   const autofillTold = useAutofillState();
@@ -829,6 +863,7 @@ function SessionShell() {
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      backup={backupMenu}
       autofill={autofill}
     />
   );

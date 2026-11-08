@@ -1,4 +1,5 @@
 import type { AccountActions, AccountSnapshot } from "./account";
+import type { BackupActions, BackupState } from "./backups";
 import type { BluetoothActions, BluetoothState } from "./bluetooth";
 import type { LowPowerMode, PowerActions, PowerState } from "./battery";
 import type { EraseActions } from "./erase";
@@ -72,6 +73,9 @@ export type Preferences = {
   sleepAdapter: number;
   /** The display slightly dimmer on battery. */
   dimOnBattery: boolean;
+  /** The menu bar's backup item, shown once a backup destination exists (docs/adr/0059-backups.mdx,
+      decision 10: *Show Backups in menu bar*). */
+  backupInMenuBar: boolean;
 };
 
 /** The system's settings and facts (systemd's timedated, localed and hostnamed; os-release). */
@@ -155,6 +159,9 @@ export type SettingsSnapshot = {
   /** The battery and energy (docs/adr/0057-battery-and-energy.mdx), as the session tells them:
       none where the platform tells none; null until it has. */
   power?: PowerState | null;
+  /** Backups (docs/adr/0059-backups.mdx, decision 9), as the session tells them: none where the
+      platform tells none (or has not yet); null when it told that the backup service is not there. */
+  backup?: BackupState | null;
   /** The input sources (docs/adr/0041-input-methods.mdx, decision 6) as the session tells them;
       null until it has. */
   inputSources?: InputSourcesState | null;
@@ -195,6 +202,7 @@ export const PREFERENCE_KEYS = {
   sleepBattery: "sleep_battery",
   sleepAdapter: "sleep_adapter",
   dimOnBattery: "dim_on_battery",
+  backupInMenuBar: "backup_in_menu_bar",
 } as const satisfies Record<keyof Preferences, string>;
 
 /**
@@ -222,6 +230,8 @@ export type SettingsActions = {
   sound?: SoundActions;
   account?: AccountActions;
   power?: PowerActions;
+  /** Settings › General › Backups' requests of the session (docs/adr/0059-backups.mdx). */
+  backup?: BackupActions;
   /** Erasing the computer (General › Transfer or Reset, docs/adr/0054-recovery-and-erasing.mdx):
       none where the platform has no account session to ask (a development session started from a
       terminal), which offers no erase. */
@@ -445,6 +455,10 @@ export const ENERGY_DEFAULTS = {
   | "sleepAdapter"
   | "dimOnBattery"
 >;
+
+/** The backup preference as the session's default has it (crates/oxyos-preferences): the menu bar's
+    backup item shown. */
+export const BACKUP_DEFAULTS = { backupInMenuBar: true } as const satisfies Pick<Preferences, "backupInMenuBar">;
 
 /** The choices of how long before the session locks, in minutes (0: never). */
 export const LOCK_AFTER_CHOICES = [1, 2, 5, 10, 15, 30, 60, 0] as const;

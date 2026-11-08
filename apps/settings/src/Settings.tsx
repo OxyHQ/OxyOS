@@ -24,6 +24,7 @@ import {
   RiCheckLine,
   RiComputerLine,
   RiGlobalLine,
+  RiHistoryLine,
   RiImageLine,
   RiInformationLine,
   RiKeyboardLine,
@@ -154,6 +155,7 @@ import {
 } from "./spotlight";
 import { BluetoothPage } from "./BluetoothPage";
 import { BatteryPage } from "./BatteryPage";
+import { BackupsPage } from "./BackupsPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
@@ -2457,6 +2459,11 @@ export function Settings({
   // before (opened by its URL, `oxyos-settings://battery`, the battery's menu's Battery Settings…).
   const powerItem = power ? (power.battery ? words.battery : words.energy) : null;
   const powerPage = power === undefined ? null : power?.battery || power === null ? "battery" : "energy";
+  // Backups (docs/adr/0059-backups.mdx): the sidebar's item once the session told the backup
+  // service is there; the page, also before (opened by its URL, `oxyos-settings://backups`, the
+  // menu bar's Open Backups Settings…), says when it is not.
+  const backupItem = !!snapshot.backup;
+  const backupPage = snapshot.backup !== undefined;
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
@@ -2531,6 +2538,8 @@ export function Settings({
           { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
           { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
+          // Just before Transfer or Reset, as a Mac's General lists Time Machine.
+          ...(backupItem ? [{ key: "backups", label: words.backups, icon: RiHistoryLine, page: "backups" }] : []),
           // After Software Update, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
           // Just above Privacy, as a Mac's System Settings lists Spotlight.
@@ -2540,7 +2549,7 @@ export function Settings({
         ],
       },
     ];
-  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon]);
+  }, [strings, words, networked, bluetooth, powerItem, backupItem, accountKind, accountName, AccountIcon]);
   const pages = React.useMemo<Record<string, SettingsModalPage>>(
     () => ({
       ...(accountKind
@@ -2578,8 +2587,9 @@ export function Settings({
             },
           }
         : {}),
+      ...(backupPage ? { backups: { title: words.backups, content: <WithPageProps render={BackupsPage} /> } } : {}),
     }),
-    [strings, words, networked, bluetooth, powerPage, accountKind],
+    [strings, words, networked, bluetooth, powerPage, backupPage, accountKind],
   );
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

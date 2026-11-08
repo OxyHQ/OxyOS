@@ -23,6 +23,7 @@ test("preferences are named as the session's file names them", () => {
   assert.deepEqual(Object.values(PREFERENCE_KEYS).sort(), [
     "accent",
     "appearance",
+    "backup_in_menu_bar",
     "battery_percentage",
     "caret_blink",
     "dim_on_battery",

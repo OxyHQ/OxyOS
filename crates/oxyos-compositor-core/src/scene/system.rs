@@ -207,6 +207,16 @@ impl Scene {
             .collect()
     }
 
+    /// The clients told the backups' state as it changes (docs/adr/0059-backups.mdx): the shell
+    /// (the menu bar's backup item) and Settings (its Backups page).
+    pub fn backup_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.settings || grants.shell)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// Tells `client` the answer to its request `serial` (0: the update state, unasked), if it
     /// still holds a grant that asks.
     pub fn system_text(&mut self, client: ClientId, serial: u32, text: &str) {

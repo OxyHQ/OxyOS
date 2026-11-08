@@ -18,6 +18,10 @@ oxyos-vt = { path = "../../crates/oxyos-vt" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
 # The power services played on a run's own bus (docs/adr/0057-battery-and-energy.mdx).
 oxyos-power = { path = "../../crates/oxyos-power" }
+# The development backup service, played on a run's own folders (`--play-backup`,
+# docs/adr/0059-backups.mdx), and its socket, which a step asks.
+oxyos-backupd = { path = "../oxyos-backupd" }
+oxyos-install = { path = "../../crates/oxyos-install" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 # The search service, which this program runs as its child (docs/adr/0051-search.mdx).
 oxyos-search = { path = "../../crates/oxyos-search" }

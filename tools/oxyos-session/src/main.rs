@@ -64,6 +64,9 @@
 //! turn. Bluetooth (docs/adr/0055-bluetooth.mdx) is BlueZ's, through the session alone: on and
 //! off, discovery while Settings' Bluetooth page holds it, connecting, pairing (the session is
 //! BlueZ's default pairing agent, its questions the shell's sheets), forgetting and renaming.
+//! Backups (docs/adr/0059-backups.mdx) are the system's backup service's (`oxyos-backupd`), which
+//! the session follows on one connection for the menu bar's item and Settings, holding its
+//! scheduled backups while Low Power Mode is on; not at the login screen.
 //!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
@@ -623,6 +626,20 @@ fn main() -> Result<()> {
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
     };
+    // Backups (docs/adr/0059-backups.mdx): the menu bar's backup item and Settings › Backups,
+    // over the system's backup service (followed on one connection, waited for while it is not
+    // there), its scheduled backups held while Low Power Mode is on. The login screen has none.
+    let mut backups = match power.as_ref() {
+        Some(power) => {
+            let backups = oxyos_compositor::backups::Backups::new(
+                PathBuf::from(oxyos_backup::ipc::SOCKET),
+                power.low_power(),
+            )?;
+            compositor.wakers.push(backups.wake_fd()?);
+            Some(backups)
+        }
+        None => None,
+    };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
     let mut input_methods = if greeter {
@@ -750,6 +767,10 @@ fn main() -> Result<()> {
                 })
                 .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        // Backups (ADR 0059), before the store, which takes the requests left.
+        if let Some(backups) = backups.as_mut() {
+            backups.serve(&mut compositor.scene, settings.preferences());
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
@@ -1143,6 +1164,8 @@ fn main() -> Result<()> {
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
+    // Its hold on scheduled backups goes with its connection.
+    drop(backups);
     // Recorded as ended; power-saver let go as it goes.
     if let Some(power) = power.as_mut() {
         power.end();

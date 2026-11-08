@@ -17,8 +17,8 @@ const waiting = new Map();
  * state): the last told (`current()`, null before the first) and who follows it (`subscribe`,
  * which returns the unsubscribe), the shape React's `useSyncExternalStore` takes.
  */
-function followed() {
-  let last = null;
+function followed(initial = null) {
+  let last = initial;
   const listeners = new Set();
   return {
     current: () => last,
@@ -41,6 +41,9 @@ const networkState = followed();
 const bluetoothState = followed();
 /** The battery and Low Power Mode (docs/adr/0057-battery-and-energy.mdx). */
 const powerState = followed();
+/** Backups (docs/adr/0059-backups.mdx): undefined until the session said, null while the backup
+    service is not there. */
+const backupState = followed(undefined);
 /** The input sources (docs/adr/0041-input-methods.mdx). */
 const inputSourcesState = followed();
 /** The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx). */
@@ -60,6 +63,7 @@ function tellAll(answer) {
   if (answer.inputSources) inputSourcesState.tell(answer.inputSources);
   if (answer.sound) soundState.tell(answer.sound);
   if (answer.power) powerState.tell(answer.power);
+  if ('backup' in answer) backupState.tell(answer.backup);
 }
 
 if (native) {
@@ -211,6 +215,36 @@ export const power = {
 /** The battery and Low Power Mode as they change, for a view: asked once, then followed. */
 export function usePowerState() {
   return useFollowed(power, power.state);
+}
+
+/**
+ * Backups (docs/adr/0059-backups.mdx): the shell (its `shell` grant: the menu bar's backup item)
+ * and Settings (`settings`: its Backups page) are told the backup service's state as it changes
+ * (`{backup: {automatic, destinations, excluded, running, lastBackup, nextBackup, held,
+ * administrator, inMenuBar}}`, or `{backup: null}` while the service is not there). Both back up
+ * now and skip a backup, citing the press that asked; Settings alone lists the disks that can be
+ * added (`{backupDisks: [disk]}`), adds a disk or a share (`{backupAddDisk: {id}}`,
+ * `{backupAddShare: {id}}`), removes a destination, sets the excluded items and Back Up
+ * Automatically, each citing the press. A refusal is `{refused: {reason}}`, what the service would
+ * not do `{failed: {reason}}`. The service decides who is an administrator.
+ */
+export const backup = {
+  state: () => ask({ backup: {} }),
+  backUpNow: () => ask({ backupNow: {} }),
+  stop: () => ask({ backupStop: {} }),
+  disks: () => ask({ backupDisks: {} }),
+  addDisk: (uuid, password) => ask({ backupAddDisk: { uuid, password } }),
+  addShare: (share, sharePassword, password) => ask({ backupAddShare: { share, sharePassword, password } }),
+  remove: (id) => ask({ backupRemove: { id } }),
+  setExcluded: (paths) => ask({ backupExcluded: { paths } }),
+  setAutomatic: (enabled) => ask({ backupAutomatic: { enabled } }),
+  current: backupState.current,
+  subscribe: backupState.subscribe,
+};
+
+/** Backups as the session tells them, for a view: asked once, then followed. */
+export function useBackupState() {
+  return useFollowed(backup, backup.state);
 }
 
 /**
