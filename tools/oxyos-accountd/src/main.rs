@@ -16,6 +16,9 @@
 //!   program and the session's lock with the account's password, locked with the session; AutoFill
 //!   for the session, the vault for Settings, synced with Oxy with OxyOS's own token. Their keys are
 //!   locked in memory: a keychain whose keys cannot be stays locked (the unit's `LimitMEMLOCK`).
+//! - The accounts' PINs (`oxyos-account`'s `pin`): set at setup and by Settings, checked for PAM
+//!   by `oxyos-pin-check` (this package's other program, which `pam_exec` runs for the PIN
+//!   services), offline, with their own throttle and lockout.
 //!
 //! The first account set up on a machine is its administrator (a member of `sudo`); at its start
 //! the service makes the enrolled account with the lowest uid one where accounts are enrolled and
@@ -165,6 +168,9 @@ fn log(peer: &Peer, outcome: &Outcome) {
         Outcome::KeychainUnlocked { user, state } => {
             eprintln!("oxyos-accountd: {who} unlocked {user}'s keychain: {state:?}")
         }
+        Outcome::PinChecked { user, result } => {
+            eprintln!("oxyos-accountd: {who} checked {user}'s PIN: {result:?}")
+        }
     }
 }
 
@@ -196,6 +202,14 @@ fn session_log(uid: u32, event: &Event) {
         Event::Refused(_) => {
             eprintln!("oxyos-accountd: uid {uid} on the session socket: not permitted")
         }
+        Event::LocalChanged {
+            change,
+            refused: None,
+        } => eprintln!("oxyos-accountd: uid {uid}'s Settings: {change}"),
+        Event::LocalChanged {
+            change,
+            refused: Some(reason),
+        } => eprintln!("oxyos-accountd: uid {uid}'s Settings: {change} refused: {reason:?}"),
     }
 }
 

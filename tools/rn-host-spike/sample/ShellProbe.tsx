@@ -4,6 +4,7 @@
  * shell (`--shell`) they are panels and an overlay of their own (docs/adr/0009-session-shell.mdx).
  */
 import * as React from 'react';
+import { TurboModuleRegistry } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
@@ -31,6 +32,7 @@ import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
+import { localSignInFrom, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
@@ -309,6 +311,9 @@ function ProbeShell({
 }
 
 /** In a window (`--window`): every region in place. */
+/** The machine's Oxy session, for the account's local sign-in (ADR 0020 decision 2). */
+const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown> }>('OxyOSAccountSession');
+
 export default function ShellProbe() {
   return (
     <ShellProviders>
@@ -632,6 +637,22 @@ function SessionShell() {
   const locked = !!state?.locked;
   const user = state?.user;
   const capsLock = !!state?.capsLock;
+  // The account's PIN (ADR 0020 decision 2), asked of the accounts' service as the session locks
+  // and after each answer (a PIN locked out on the way): which field the lock screen shows. Not
+  // read, it shows the password's, as before.
+  const [local, setLocal] = React.useState<LocalSignIn>({ pin: undefined, password: true });
+  const answerId = shell.authentication?.id;
+  React.useEffect(() => {
+    if (!locked || !accountSession) return undefined;
+    let current = true;
+    accountSession
+      .localSignIn()
+      .then((told) => current && setLocal(localSignInFrom(told)))
+      .catch(() => current && setLocal({ pin: undefined, password: true }));
+    return () => {
+      current = false;
+    };
+  }, [locked, answerId]);
   const lock: ShellLock = React.useMemo(
     () => ({
       locked,
@@ -639,9 +660,12 @@ function SessionShell() {
       capsLock,
       lockSession: shell.lockSession,
       authenticate: shell.authenticate,
+      pin: local.pin,
+      password: local.password,
+      authenticatePin: (pin: string) => shell.authenticatePin(pin),
       answer: shell.authentication ?? undefined,
     }),
-    [locked, user, capsLock, shell.authentication],
+    [locked, user, capsLock, shell.authentication, local],
   );
   // The machine as the session says it is, and the Control Center's intents (ADR 0025): only
   // what it told is shown.

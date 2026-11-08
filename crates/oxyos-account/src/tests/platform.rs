@@ -67,7 +67,8 @@ pub(crate) fn machine_as(api: FakeApi, password: &str, uid: Option<u32>) -> Mach
     let request = Request {
         credential: credential(),
         account: ACCOUNT.into(),
-        password: Secret::new(password),
+        password: Some(Secret::new(password)),
+        pin: None,
     };
     match setup.enroll(request).unwrap() {
         Progress::Enrolled(_) => {}
@@ -90,7 +91,7 @@ pub(crate) fn machine_as(api: FakeApi, password: &str, uid: Option<u32>) -> Mach
     }
 }
 
-fn machine(api: FakeApi) -> Machine {
+pub(crate) fn machine(api: FakeApi) -> Machine {
     machine_as(api, PASSWORD, None)
 }
 
@@ -280,7 +281,8 @@ fn oxy_ending_the_device_session_signs_the_account_out_on_the_machine() {
     let mut request = Request {
         credential: credential(),
         account: ACCOUNT.into(),
-        password: Secret::new(PASSWORD),
+        password: Some(Secret::new(PASSWORD)),
+        pin: None,
     };
     request.credential.device_secret = Secret::new(OTHER_DEVICE_SECRET);
     let Progress::Enrolled(enrolled) = machine.platform.setup().enroll(request).unwrap() else {
@@ -456,7 +458,7 @@ fn every_online_sign_in_rotates_the_platform_credential() {
         assert!(!live.contains(&platform_secret(n - 1)));
     }
     // Written whole: nothing half-written beside the file (and the machine's administrator made,
-    // a fact of its own).
+    // a fact of its own, and its local sign-in).
     let mut files: Vec<String> = std::fs::read_dir(machine.platform.setup().store().directory())
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -466,7 +468,8 @@ fn every_online_sign_in_rotates_the_platform_credential() {
         files,
         [
             crate::store::ADMINISTRATOR_MADE.to_owned(),
-            format!("{}.json", user())
+            format!("{}.json", user()),
+            format!("{}.local", user())
         ]
     );
     // The old session's tokens are not handed out again.
