@@ -53,6 +53,10 @@ fn launched(id: &str, name: &str, origin: Origin) -> Launched {
     }
 }
 
+/// What a client was told of one of its items: the client, the serial answered, the kind and how
+/// it stands.
+type Told = (ClientId, u32, BackgroundItemKind, BackgroundStatus);
+
 struct Session {
     compositor: Compositor,
     settings: Settings,
@@ -127,12 +131,7 @@ impl Session {
 
     /// What each client was told of its items, and the notifications the shell was told (each
     /// one's title and body), since the last call.
-    fn told(
-        &mut self,
-    ) -> (
-        Vec<(ClientId, u32, BackgroundItemKind, BackgroundStatus)>,
-        Vec<String>,
-    ) {
+    fn told(&mut self) -> (Vec<Told>, Vec<String>) {
         let mut states = Vec::new();
         let mut notifications = Vec::new();
         let mut text = String::new();
@@ -710,7 +709,13 @@ fn quit_ends_it_with_its_windows_where_closing_them_keeps_it_running() {
     let installed = installed("quit");
     decide(&installed, "so.oxy.chat", &[("background", "granted")]);
     let mut session = Session::new(Some(installed.clone()));
-    let chat = || Some(launched("so.oxy.chat", "Chat", Origin::Installed { version_code: 3 }));
+    let chat = || {
+        Some(launched(
+            "so.oxy.chat",
+            "Chat",
+            Origin::Installed { version_code: 3 },
+        ))
+    };
     let clients = [(APP, 100, chat())];
     session.ask(
         APP,
@@ -726,9 +731,22 @@ fn quit_ends_it_with_its_windows_where_closing_them_keeps_it_running() {
         quits: vec![APP],
         ..Turn::default()
     };
-    assert!(session.turn(turn, &clients, &showing(&[100]), None).is_empty());
-    assert_eq!(session.turn(Turn::default(), &clients, &none(), None), [100]);
+    assert!(session
+        .turn(turn, &clients, &showing(&[100]), None)
+        .is_empty());
+    assert_eq!(
+        session.turn(Turn::default(), &clients, &none(), None),
+        [100]
+    );
     assert!(session.background.in_background().is_empty());
     assert!(!session.background.watching());
-    let _ = std::fs::remove_dir_all(installed.parent().unwrap().parent().unwrap().parent().unwrap());
+    let _ = std::fs::remove_dir_all(
+        installed
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap(),
+    );
 }

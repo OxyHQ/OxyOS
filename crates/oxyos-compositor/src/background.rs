@@ -533,7 +533,7 @@ impl BackgroundActivity {
         }
 
         if background_changed || decided_here {
-            if let Some(installs) = installs.as_deref_mut() {
+            if let Some(installs) = installs {
                 installs.set_in_background(self.in_background());
                 installs.tell_privacy(&compositor.scene);
             }
