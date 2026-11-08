@@ -92,6 +92,9 @@ it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the
    display opened), `gpu-client` with `tools/oxyos-gpu-client` as its client, and the session
    composed on the GPU alone (`--gpu-only`). Without one this is said and skipped.
 
+A scenario in `tools/gate/quarantine` (flaky on main under load, its issue open) still runs and is
+retried, but failing twice is reported, not counted; it leaves the quarantine with its fix.
+
 Left out: `astro*` (an Astro engine, a deploy's `ASTRO_PACKAGE`), `terminal` (a real display) and
 `fidelity-thresholds` (settings, not a scenario). A failed scenario's record (its log, frames, a
 host's backtrace) is kept in the run's directory, `~/.cache/oxyos/runs/` unless `--out` names one;
