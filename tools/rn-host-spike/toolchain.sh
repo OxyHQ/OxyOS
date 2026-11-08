@@ -30,7 +30,7 @@ mkdir -p "$WORK/.locks"
 exec 9>"$WORK/.locks/toolchain"
 flock 9
 
-# What holds this directory's absolute path (the venv's scripts, Skia's and each Hermes build's
+# What holds this directory's absolute path (the venv's scripts, Skia's, each Hermes and host build's
 # files, the codegen) is good only where it was made: a toolchain moved elsewhere (a cache renamed)
 # has those parts made again rather than run against a path that is gone.
 # A toolchain from before this was written has no record of its place: its venv's cmake not running
@@ -38,7 +38,7 @@ flock 9
 if { [ -f "$WORK/.oxyos-toolchain-root" ] && [ "$(cat "$WORK/.oxyos-toolchain-root")" != "$WORK" ]; } ||
   { [ -e "$WORK/tools/bin/cmake" ] && ! "$WORK/tools/bin/cmake" --version >/dev/null 2>&1; }; then
   echo "toolchain: made elsewhere than $WORK: its venv and builds made again"
-  rm -rf "$WORK/tools" "$WORK/skia-build" "$WORK"/rn-*
+  rm -rf "$WORK/tools" "$WORK/skia-build" "$WORK"/rn-* "$WORK"/host-*
 fi
 rm -f "$WORK/.oxyos-toolchain-root"
 
