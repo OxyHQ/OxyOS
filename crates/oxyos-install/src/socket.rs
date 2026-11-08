@@ -4,12 +4,12 @@
 
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use rustix::net::{
-    AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
-    SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType,
+    AddressFamily, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix,
+    SocketFlags, SocketType,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::io::{self, IoSlice, IoSliceMut};
+use std::io::{self, IoSlice};
 use std::mem::MaybeUninit;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
@@ -198,25 +198,18 @@ impl Connection {
         &self,
     ) -> io::Result<Option<(Option<T>, Option<OwnedFd>)>> {
         let mut packet = vec![0u8; MAX_MESSAGE + 1];
-        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(2))];
-        let mut control = RecvAncillaryBuffer::new(&mut space);
-        let received = rustix::net::recvmsg(
-            &self.fd,
-            &mut [IoSliceMut::new(&mut packet)],
-            &mut control,
-            RecvFlags::CMSG_CLOEXEC,
-        )?;
-        let mut fds: Vec<OwnedFd> = Vec::new();
-        for message in control.drain() {
-            if let RecvAncillaryMessage::ScmRights(received) = message {
-                fds.extend(received);
-            }
-        }
-        if received.bytes == 0 && fds.is_empty() {
+        let Some(received) =
+            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet, true, RecvFlags::empty())?
+        else {
             return Ok(None);
-        }
-        let length = received.bytes;
-        let message = if length > MAX_MESSAGE || fds.len() > 1 {
+        };
+        let mut fds = received.descriptors;
+        let length = received.length;
+        let message = if length > MAX_MESSAGE
+            || received.truncated
+            || fds.len() > 1
+            || received.descriptors_truncated
+        {
             None
         } else {
             serde_json::from_slice(&packet[..length]).ok()

@@ -34,6 +34,8 @@ import {
 } from "../screenshots";
 import type { ShellMessages } from "../messages";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 /** The tint over the window a press captures, as a Mac's window picking shows it. */
 const WINDOW_TINT = "#3d8bff59";
@@ -84,6 +86,7 @@ export const Screenshots = memo(function Screenshots({
   dock: boolean;
   dockHeight: number;
 }) {
+  const reduced = useReducedTransparency();
   const words = useShellMessages().screenshots;
   const { Surface } = platform;
   const { active, output, target } = screenshots;
@@ -318,7 +321,7 @@ export const Screenshots = memo(function Screenshots({
                 borderRadius: 48,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#1d2430b3",
+                backgroundColor: glass("#1d2430b3", reduced),
               }}
             >
               <Text style={{ fontSize: 44, fontWeight: "600", color: "#ffffff" }}>
@@ -356,6 +359,7 @@ function CaptureToolbar({
   capture: () => void;
   close: () => void;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const words = messages.screenshots;
   return (
@@ -371,7 +375,7 @@ function CaptureToolbar({
         gap: 4,
         padding: 6,
         borderRadius: 14,
-        backgroundColor: "#f5f7fbf2",
+        backgroundColor: glass("#f5f7fbf2", reduced),
         boxShadow: "0 12px 40px #0b183a40, 0 0 0 .5px #0b183a1f",
         cursor: "auto",
       }}
@@ -439,6 +443,7 @@ function CaptureOptions({
   setDestination: (destination: CaptureDestination) => void;
   setTimer: (timer: CaptureTimer) => void;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const words = messages.screenshots;
   const row = (label: string, chosen: boolean, choose: () => void, testID: string) => (
@@ -465,7 +470,7 @@ function CaptureOptions({
         minWidth: 220,
         padding: 8,
         borderRadius: 12,
-        backgroundColor: "#f5f7fbf2",
+        backgroundColor: glass("#f5f7fbf2", reduced),
         boxShadow: "0 12px 40px #0b183a40, 0 0 0 .5px #0b183a1f",
         cursor: "auto",
       }}

@@ -1459,42 +1459,48 @@ function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
+/** Accessibility, as a Mac's: Vision (the screen reader) and Display (reduce motion, reduce
+    transparency and the steady caret, as a Mac's Display pane holds them). */
 function AccessibilityPage({ snapshot, actions, strings }: PageProps) {
   const words = strings.accessibility;
   const { preferences } = snapshot;
   const toggle = (key: "screenReader" | "reduceMotion" | "reduceTransparency") => (on: boolean) =>
     actions.setPreference(key, on);
   return (
-    <GroupedSection>
-      <ToggleItem
-        title={words.screenReader}
-        description={words.screenReaderDescription}
-        value={preferences.screenReader}
-        onChange={toggle("screenReader")}
-        testID="screen-reader"
-      />
-      <ToggleItem
-        title={words.reduceMotion}
-        description={words.reduceMotionDescription}
-        value={preferences.reduceMotion}
-        onChange={toggle("reduceMotion")}
-        testID="reduce-motion"
-      />
-      <ToggleItem
-        title={words.reduceTransparency}
-        description={words.reduceTransparencyDescription}
-        value={preferences.reduceTransparency}
-        onChange={toggle("reduceTransparency")}
-        testID="reduce-transparency"
-      />
-      <ToggleItem
-        title={words.steadyCaret}
-        description={words.steadyCaretDescription}
-        value={prefersSteadyCaret(preferences)}
-        onChange={(on) => actions.setPreference("caretBlink", !on)}
-        testID="steady-caret"
-      />
-    </GroupedSection>
+    <View style={PAGE}>
+      <GroupedSection title={words.vision}>
+        <ToggleItem
+          title={words.screenReader}
+          description={words.screenReaderDescription}
+          value={preferences.screenReader}
+          onChange={toggle("screenReader")}
+          testID="screen-reader"
+        />
+      </GroupedSection>
+      <GroupedSection title={words.display}>
+        <ToggleItem
+          title={words.reduceMotion}
+          description={words.reduceMotionDescription}
+          value={preferences.reduceMotion}
+          onChange={toggle("reduceMotion")}
+          testID="reduce-motion"
+        />
+        <ToggleItem
+          title={words.reduceTransparency}
+          description={words.reduceTransparencyDescription}
+          value={preferences.reduceTransparency}
+          onChange={toggle("reduceTransparency")}
+          testID="reduce-transparency"
+        />
+        <ToggleItem
+          title={words.steadyCaret}
+          description={words.steadyCaretDescription}
+          value={prefersSteadyCaret(preferences)}
+          onChange={(on) => actions.setPreference("caretBlink", !on)}
+          testID="steady-caret"
+        />
+      </GroupedSection>
+    </View>
   );
 }
 

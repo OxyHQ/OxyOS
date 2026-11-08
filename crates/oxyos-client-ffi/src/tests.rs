@@ -105,6 +105,10 @@ fn the_header_names_the_platforms_settings_as_the_protocol_does() {
         i64::from(oxyos_protocol::APPLICATION_OPENS_SETTINGS_VERSION)
     );
     assert_eq!(
+        define("OXYOS_APPLICATION_OPENS_URLS_VERSION"),
+        i64::from(oxyos_protocol::APPLICATION_OPENS_URLS_VERSION)
+    );
+    assert_eq!(
         define("OXYOS_APPLICATION_LOCKS_VERSION"),
         i64::from(oxyos_protocol::APPLICATION_LOCKS_VERSION)
     );
@@ -2894,7 +2898,7 @@ fn window_events_convert_field_by_field() {
         output: 2,
         index: 1,
         last: true,
-        text: PreeditText::new("horizon").unwrap(),
+        text: PreeditText::new("ocean").unwrap(),
     })
     .unwrap();
     assert_eq!(
@@ -2906,7 +2910,7 @@ fn window_events_convert_field_by_field() {
         ),
         (OXYOS_EVENT_OUTPUT_WALLPAPER, 2, 1, OXYOS_WALLPAPER_LAST)
     );
-    assert_eq!(&wallpaper.text[..8], b"horizon\0");
+    assert_eq!(&wallpaper.text[..6], b"ocean\0");
     let removed = convert(&Event::OutputRemoved { output: 2 }).unwrap();
     assert_eq!(
         (removed.kind, removed.code),
@@ -4027,15 +4031,19 @@ fn the_header_matches_the_wallpaper_abi() {
     let json = catalog_json(&oxyos_wallpaper::Catalog::read(&root), "es-ES");
     assert_eq!(json["default"], "solar-gradients");
     assert_eq!(json["categories"][0]["id"], "dynamic");
-    let horizon = json["categories"][0]["wallpapers"]
-        .as_array()
-        .unwrap()
+    let dynamic = json["categories"][0]["wallpapers"].as_array().unwrap();
+    let solar = dynamic
         .iter()
-        .find(|w| w["id"] == "horizon")
+        .find(|w| w["id"] == "solar-gradients")
         .unwrap();
-    assert_eq!(horizon["name"], "Horizonte");
-    assert_eq!(horizon["automatic"], "sun");
-    assert!(horizon["preview"].as_str().unwrap().starts_with("file:///"));
+    assert_eq!(solar["name"], "Solar Gradients");
+    assert_eq!(solar["automatic"], "sun");
+    assert!(solar["preview"].as_str().unwrap().starts_with("file:///"));
+    // Solar Gradients is the one that follows the sun: Horizon was withdrawn (ADR 0048).
+    assert_eq!(
+        dynamic.iter().filter(|w| w["automatic"] == "sun").count(),
+        1
+    );
     // Not a URI: refused, said.
     let bad = CString::new("relative/a.png").unwrap();
     // SAFETY: a NUL-terminated string and no buffer.
@@ -5570,6 +5578,10 @@ fn the_header_matches_the_files_abi() {
     assert_eq!(
         define("OXYOS_FILES_NO_NETWORK"),
         i64::from(OXYOS_FILES_NO_NETWORK)
+    );
+    assert_eq!(
+        define("OXYOS_FILES_NO_BACKUPS"),
+        i64::from(OXYOS_FILES_NO_BACKUPS)
     );
     type New = unsafe extern "C" fn(*const c_char, usize, *const c_char, usize) -> *mut OxyOSFiles;
     type NewWith =
