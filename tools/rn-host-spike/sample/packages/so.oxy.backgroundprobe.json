@@ -13,7 +13,19 @@
     "any"
   ],
   "capabilities": [
-    { "name": "login-item", "purpose": { "en": "To open when you log in.", "es": "Para abrirse al iniciar sesión." } },
-    { "name": "background", "purpose": { "en": "To keep your conversations up to date.", "es": "Para mantener tus conversaciones al día." } }
+    {
+      "name": "background",
+      "purpose": {
+        "en": "To keep your conversations up to date.",
+        "es": "Para mantener tus conversaciones al día."
+      }
+    },
+    {
+      "name": "login-item",
+      "purpose": {
+        "en": "To open when you log in.",
+        "es": "Para abrirse al iniciar sesión."
+      }
+    }
   ]
 }
