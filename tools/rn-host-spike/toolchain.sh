@@ -30,6 +30,18 @@ mkdir -p "$WORK/.locks"
 exec 9>"$WORK/.locks/toolchain"
 flock 9
 
+# What holds this directory's absolute path (the venv's scripts, Skia's and each Hermes build's
+# files, the codegen) is good only where it was made: a toolchain moved elsewhere (a cache renamed)
+# has those parts made again rather than run against a path that is gone.
+# A toolchain from before this was written has no record of its place: its venv's cmake not running
+# says the same.
+if { [ -f "$WORK/.oxyos-toolchain-root" ] && [ "$(cat "$WORK/.oxyos-toolchain-root")" != "$WORK" ]; } ||
+  { [ -e "$WORK/tools/bin/cmake" ] && ! "$WORK/tools/bin/cmake" --version >/dev/null 2>&1; }; then
+  echo "toolchain: made elsewhere than $WORK: its venv and builds made again"
+  rm -rf "$WORK/tools" "$WORK/skia-build" "$WORK"/rn-*
+fi
+rm -f "$WORK/.oxyos-toolchain-root"
+
 # Skia, from its own repository, at the revision Chrome 156.0.8078.79 (stable) ships. To bump it:
 # take the Skia revision of the Chrome stable release from chromiumdash.appspot.com (or
 # `skia_revision` in Chromium's DEPS at that release's tag), set it here and run build.sh (or the scenario gate) again;
@@ -257,4 +269,20 @@ ICU_SYSROOT=$WORK/icu/usr
 SKIA_DIR=$WORK/skia
 SKIA_BUILD=$WORK/skia-build
 EOF
+# Ready only when everything named above is there and runs: a toolchain missing a part (a build
+# stopped, a directory moved or removed) fails here, never later in someone's build.
+missing=
+for tool in tools/bin/cmake tools/bin/ninja clang/usr/bin/clang-19 clang/usr/bin/clang++-19 clang/usr/bin/llvm-ar-19 \
+    clang/usr/lib/llvm-19/bin/ld.lld; do
+  "$WORK/$tool" --version >/dev/null 2>&1 || missing="$missing $tool"
+done
+for file in $(for lib in $skia_libs; do echo "skia-build/$lib"; done) "rn-$RN_VERSION/hermes-build/bin/hermesc" \
+    "rn-$RN_VERSION/hermes-build/lib/libhermesvm.so" text/usr/include/harfbuzz/hb.h icu/usr/include/unicode/uchar.h; do
+  [ -s "$WORK/$file" ] || missing="$missing $file"
+done
+for dir in "$RN/third-party" "$RN/codegen/out/jni" "$RN/textinput" "$REA/out/jni" "$SVG/out/jni"; do
+  [ -d "$dir" ] || missing="$missing ${dir#"$WORK"/}"
+done
+[ -z "$missing" ] || { echo "toolchain.sh: $WORK is not complete:$missing" >&2; exit 1; }
+echo "$WORK" > "$WORK/.oxyos-toolchain-root"
 echo "toolchain: react-native $RN_VERSION, $(git -C "$RN/hermes" describe --tags), Skia $(git -C "$WORK/skia" rev-parse --short HEAD)"
