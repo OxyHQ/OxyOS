@@ -57,7 +57,13 @@ import {
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
 import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
-import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
+import type {
+  DiagnosticsAnswer,
+  NetworkActions,
+  NetworkAnswer,
+  NetworkState,
+  ResetAnswer,
+} from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
   BluetoothAnswer,
@@ -225,9 +231,9 @@ const NETWORK_FIXTURE: NetworkState = {
       { ssid: 'Oficina', signal: 30, security: 'wpa', known: true, current: false, supported: true },
     ],
     known: [
-      { id: '6f1c2a4e-0b8d-4f3e-9a51-2d7c8e1b9f01', ssid: 'LukeSkyRouter', autoJoin: true },
-      { id: 'b2e94d17-5c3a-4a8f-8e6d-0f1a2b3c4d02', ssid: 'Oficina', autoJoin: true },
-      { id: 'd8a7c6b5-4e3f-4a2b-9c1d-0e9f8a7b6c03', ssid: 'Casa Abuela', autoJoin: true },
+      { id: '6f1c2a4e-0b8d-4f3e-9a51-2d7c8e1b9f01', ssid: 'LukeSkyRouter', autoJoin: true, privateAddress: 'fixed' },
+      { id: 'b2e94d17-5c3a-4a8f-8e6d-0f1a2b3c4d02', ssid: 'Oficina', autoJoin: true, privateAddress: 'fixed' },
+      { id: 'd8a7c6b5-4e3f-4a2b-9c1d-0e9f8a7b6c03', ssid: 'Casa Abuela', autoJoin: true, privateAddress: 'off' },
     ],
     details: {
       interface: 'wlp0s20f3',
@@ -524,6 +530,10 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
       scan: () => {
         systemNetwork.scan();
       },
+      setPrivateAddress: (id, mode) => systemNetwork.setPrivateAddress(id, mode) as Promise<NetworkAnswer>,
+      resetPreview: () => systemNetwork.resetPreview() as Promise<ResetAnswer>,
+      resetNetwork: () => systemNetwork.reset() as Promise<ResetAnswer>,
+      diagnose: () => systemNetwork.diagnose() as Promise<DiagnosticsAnswer>,
     }),
     [],
   );
@@ -569,7 +579,7 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
             networks,
             known: state.wifi.known.some((k) => k.ssid === ssid)
               ? state.wifi.known
-              : [...state.wifi.known, { id: `fixture-${ssid}`, ssid, autoJoin: true }],
+              : [...state.wifi.known, { id: `fixture-${ssid}`, ssid, autoJoin: true, privateAddress: 'fixed' }],
           },
           };
         });
@@ -597,6 +607,22 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
         return { forgotten: {} };
       },
       scan: () => {},
+      setPrivateAddress: async (id, mode) => {
+        const known = current.current.wifi.known.find((k) => k.id === id);
+        if (!known) return { failed: { reason: 'notFound' } };
+        setFixture((state) => ({
+          ...state,
+          wifi: {
+            ...state.wifi,
+            known: state.wifi.known.map((k) => (k.id === id ? { ...k, privateAddress: mode } : k)),
+          },
+        }));
+        return { privateAddress: { mode, rejoined: current.current.wifi.current?.ssid === known.ssid } };
+      },
+      // Without a session there is no daemon to reset or to diagnose: said as such.
+      resetPreview: async () => ({ failed: { reason: 'unavailable' } }),
+      resetNetwork: async () => ({ failed: { reason: 'unavailable' } }),
+      diagnose: async () => ({ failed: { reason: 'unavailable' } }),
     }),
     [],
   );

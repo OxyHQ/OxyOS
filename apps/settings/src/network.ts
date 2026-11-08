@@ -22,8 +22,20 @@ export type NearbyNetwork = {
   supported: boolean;
 };
 
+/**
+ * The address the computer joins a known network with (docs/adr/0038-networks.mdx, 8 November
+ * 2026), as a Mac's Private Wi-Fi Address: fixed (one of NetworkManager's making for this network,
+ * what a new network gets), rotating (another after every start of the computer), off (the
+ * hardware's own), or a hardware address someone set elsewhere.
+ */
+export type PrivateAddress = "fixed" | "rotating" | "off" | "other";
+
+/** The choices a person makes, in a Mac's order. */
+export const PRIVATE_ADDRESS_CHOICES = ["off", "fixed", "rotating"] as const;
+export type PrivateAddressChoice = (typeof PRIVATE_ADDRESS_CHOICES)[number];
+
 /** A saved Wi-Fi connection: `id` is the connection's UUID. */
-export type KnownNetwork = { id: string; ssid: string; autoJoin: boolean };
+export type KnownNetwork = { id: string; ssid: string; autoJoin: boolean; privateAddress: PrivateAddress };
 
 /** A connection's addresses, as the daemon configured them. */
 export type NetworkDetails = {
@@ -80,12 +92,60 @@ export type FailureReason =
   | "timeout"
   | "failed";
 
-/** The session's answer to a join or a forget (or its refusal, without the grant). */
+/** The session's answer to a join, a forget or a private address (or its refusal, without the grant). */
 export type NetworkAnswer =
   | { joined: { ssid: string } }
   | { forgotten: Record<string, never> }
+  | { privateAddress: { mode: PrivateAddress; rejoined: boolean; rejoinFailed?: string } }
   | { failed: { reason: string } }
   | { refused: { reason: string } };
+
+/** A saved connection a reset counts. */
+export type SavedConnection = { id: string; name: string; kind: "wifi" | "vpn" | "ethernet" };
+
+/** Why a reset keeps one: an administrator's, Ethernet's, or the daemon refused. */
+export type KeptConnection = SavedConnection & { because: "notPermitted" | "ethernet" | "failed" };
+
+/** What resetting the network settings removes and keeps: before, as the confirmation lists it,
+    and after, as it went. */
+export type ResetPlan = { removed: SavedConnection[]; kept: KeptConnection[] };
+
+export type ResetAnswer =
+  | { networkResetPreview: ResetPlan }
+  | { networkReset: ResetPlan }
+  | { failed: { reason: string } }
+  | { refused: { reason: string } };
+
+export type RouterVerdict = "reached" | "present" | "unreachable" | "notAllowed" | "notChecked";
+export type DnsVerdict = "resolved" | "failed" | "timedOut" | "notChecked";
+export type ConnectivityState = "full" | "limited" | "portal" | "none" | "unknown";
+
+/** Wi-Fi Diagnostics as the session measured them, once, when asked: nothing estimated. */
+export type Diagnostics = {
+  /** Null when Wi-Fi is not joined. */
+  link: {
+    ssid: string;
+    interface: string;
+    bssid: string;
+    signal: number;
+    quality: "good" | "fair" | "poor";
+    frequency: number;
+    band: "2.4" | "5" | "6" | null;
+    channel: number | null;
+    width: number | null;
+    txRate: number | null;
+    maxRate: number | null;
+    security: Security;
+    address: string;
+    permanentAddress: string;
+    privateAddress: PrivateAddress;
+  } | null;
+  connectivity: { checked: boolean; state: ConnectivityState };
+  router: { address: string | null; verdict: RouterVerdict; sent: number; answered: number; ms: number | null };
+  dns: { servers: string[]; name: string; verdict: DnsVerdict; ms: number | null; addresses: number };
+};
+
+export type DiagnosticsAnswer = { wifiDiagnostics: Diagnostics } | { failed: { reason: string } } | { refused: { reason: string } };
 
 /**
  * Intents. The session answers a join once it is done (a password asked on the way, in its own
@@ -97,6 +157,13 @@ export type NetworkActions = {
   forget: (id: string) => Promise<NetworkAnswer>;
   /** NetworkManager refuses scans more often than every ten seconds or so. */
   scan: () => void;
+  /** A known network's private address; the network joined is joined again with it. */
+  setPrivateAddress: (id: string, mode: PrivateAddressChoice) => Promise<NetworkAnswer>;
+  /** What resetting the network settings would remove and keep; nothing changes. */
+  resetPreview: () => Promise<ResetAnswer>;
+  resetNetwork: () => Promise<ResetAnswer>;
+  /** Wi-Fi Diagnostics, run once as asked. */
+  diagnose: () => Promise<DiagnosticsAnswer>;
 };
 
 /** How often a page showing the networks nearby asks for a scan (ADR 0038, decision 6). */
@@ -205,4 +272,153 @@ export function formatSpeed(megabits: number, language: string): string {
     return `${language === "es" ? gigabits.replace(".", ",") : gigabits} Gb/s`;
   }
   return `${megabits} Mb/s`;
+}
+
+/** The known network a network's sheet is about: the saved connection of that name. */
+export function knownByName(state: WifiState, ssid: string): KnownNetwork | null {
+  return state.known.find((known) => known.ssid === ssid) ?? null;
+}
+
+/** Whether `known` is the network joined: its sheet then shows the address in use, and changing
+    its private address joins it again. */
+export function isJoined(state: WifiState, known: KnownNetwork): boolean {
+  return state.state === "connected" && currentNetwork(state)?.ssid === known.ssid;
+}
+
+/** The private address a sheet shows as chosen: none of the three for one set elsewhere. */
+export function privateChoice(known: KnownNetwork): PrivateAddressChoice | null {
+  return known.privateAddress === "other" ? null : known.privateAddress;
+}
+
+/** A private address's answer: the reason it failed, if it did, and whether the network joined
+    could not be joined again (the address is changed all the same). */
+export function privateAddressOutcome(answer: NetworkAnswer | null | undefined): {
+  failure: FailureReason | null;
+  rejoinFailed: boolean;
+} {
+  if (answer && "privateAddress" in answer)
+    return { failure: null, rejoinFailed: answer.privateAddress.rejoinFailed !== undefined };
+  return { failure: failureOf(answer), rejoinFailed: false };
+}
+
+/** A reset's answer, before or after: its plan, or why there is none. */
+export function resetPlanOf(answer: ResetAnswer | null | undefined): { plan: ResetPlan } | { failure: string } {
+  if (answer && "networkResetPreview" in answer) return { plan: answer.networkResetPreview };
+  if (answer && "networkReset" in answer) return { plan: answer.networkReset };
+  if (answer && "refused" in answer) return { failure: "notPermitted" };
+  const reason = answer && "failed" in answer ? answer.failed.reason : "failed";
+  return { failure: ["notPermitted", "unavailable", "busy"].includes(reason) ? reason : "failed" };
+}
+
+/** What a reset's confirmation says goes and stays, in lines: the Wi-Fi networks and the VPNs
+    removed, then what is kept and why. */
+export function resetLines(
+  plan: ResetPlan,
+  words: {
+    resetGoes: string;
+    resetNothing: string;
+    resetKinds: Record<"wifi" | "vpn", string>;
+    resetLine: (kind: string, names: string) => string;
+    resetKeptAdmin: (names: string) => string;
+    resetKeptEthernet: (names: string) => string;
+  },
+  list: (names: string[]) => string,
+): string[] {
+  const lines: string[] = [];
+  const named = (kind: "wifi" | "vpn") => plan.removed.filter((saved) => saved.kind === kind).map((saved) => saved.name);
+  const removed = (["wifi", "vpn"] as const).filter((kind) => named(kind).length > 0);
+  if (removed.length === 0) lines.push(words.resetNothing);
+  else {
+    lines.push(words.resetGoes);
+    for (const kind of removed) lines.push(words.resetLine(words.resetKinds[kind], list(named(kind))));
+  }
+  const kept = (because: KeptConnection["because"]) =>
+    plan.kept.filter((saved) => saved.because === because).map((saved) => saved.name);
+  if (kept("notPermitted").length > 0) lines.push(words.resetKeptAdmin(list(kept("notPermitted"))));
+  if (kept("ethernet").length > 0) lines.push(words.resetKeptEthernet(list(kept("ethernet"))));
+  return lines;
+}
+
+/** A diagnostics row: what it is, what was found. */
+export type DiagnosticRow = { key: string; title: string; value: string };
+
+/** A time measured, as people read it: tenths under 10 ms ("1.2 ms", "1,2 ms"), whole above. */
+export function formatMs(ms: number | null, language: string): string {
+  if (ms === null) return "";
+  const digits = ms < 10 ? 1 : 0;
+  return `${new Intl.NumberFormat(language, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(ms)} ms`;
+}
+
+/** Diagnostics' sections, each a list of rows, the verdict first: the connection (when Wi-Fi is
+    joined), the router, the internet, DNS. Only what was measured is shown. */
+export function diagnosticSections(
+  found: Diagnostics,
+  words: {
+    connection: string;
+    network: string;
+    signal: string;
+    quality: Record<"good" | "fair" | "poor", string>;
+    channel: string;
+    channelValue: (channel: string, band: string, width: string) => string;
+    txRate: string;
+    security: string;
+    securities: Record<Security, string>;
+    accessPoint: string;
+    router: string;
+    routerVerdicts: Record<RouterVerdict, string>;
+    answered: (answered: number, sent: number, time: string) => string;
+    internet: string;
+    connectivity: Record<ConnectivityState, string>;
+    dns: string;
+    dnsServers: string;
+    noServers: string;
+    dnsVerdicts: Record<DnsVerdict, (name: string, time: string) => string>;
+  },
+  wifiAddress: string,
+  language: string,
+): { key: string; title: string; rows: DiagnosticRow[] }[] {
+  const sections: { key: string; title: string; rows: DiagnosticRow[] }[] = [];
+  const link = found.link;
+  if (link) {
+    const percent = new Intl.NumberFormat(language, { style: "percent" }).format(link.signal / 100);
+    const rows: DiagnosticRow[] = [
+      { key: "network", title: words.network, value: link.ssid },
+      { key: "signal", title: words.signal, value: `${words.quality[link.quality]} · ${percent}` },
+    ];
+    const band = link.band ? `${link.band.replace(".", language === "es" ? "," : ".")} GHz` : "";
+    const width = link.width ? `${link.width} MHz` : "";
+    const channel = link.channel === null ? "" : String(link.channel);
+    if (channel || band) rows.push({ key: "channel", title: words.channel, value: words.channelValue(channel, band, width) });
+    if (link.txRate) rows.push({ key: "txRate", title: words.txRate, value: `${link.txRate} Mb/s` });
+    rows.push({ key: "security", title: words.security, value: words.securities[link.security] });
+    rows.push({ key: "accessPoint", title: words.accessPoint, value: link.bssid });
+    rows.push({ key: "address", title: wifiAddress, value: link.address });
+    sections.push({ key: "connection", title: words.connection, rows });
+  }
+  const router = found.router;
+  const routerRows: DiagnosticRow[] = [
+    { key: "router-verdict", title: router.address ?? words.router, value: words.routerVerdicts[router.verdict] },
+  ];
+  if (router.sent > 0)
+    routerRows.push({
+      key: "router-answered",
+      title: "",
+      value: words.answered(router.answered, router.sent, formatMs(router.ms, language)),
+    });
+  sections.push({ key: "router", title: words.router, rows: routerRows });
+  sections.push({
+    key: "internet",
+    title: words.internet,
+    rows: [{ key: "internet-verdict", title: words.internet, value: words.connectivity[found.connectivity.state] }],
+  });
+  const dns = found.dns;
+  sections.push({
+    key: "dns",
+    title: words.dns,
+    rows: [
+      { key: "dns-verdict", title: words.dns, value: words.dnsVerdicts[dns.verdict](dns.name, formatMs(dns.ms, language)) },
+      { key: "dns-servers", title: words.dnsServers, value: dns.servers.length ? dns.servers.join(", ") : words.noServers },
+    ],
+  });
+  return sections;
 }

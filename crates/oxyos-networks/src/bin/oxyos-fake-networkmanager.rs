@@ -8,6 +8,12 @@
 //! point appearing) and says what the daemon holds (`State`: its connections with their
 //! passwords, what was tried), so a test asserts the daemon's state, not only what was drawn.
 //!
+//! It also plays the network behind the daemon for Wi-Fi Diagnostics (`Probe`: the router's echoes
+//! and ARP, the resolver), counting each probe, and each connection's private address as the
+//! daemon makes it (`assigned-mac-address`, `stable-id`): the device's address is the one the
+//! connection joined with, a fixed one the same at every join, a rotating one another after a
+//! restart (`{"restart":{}}`).
+//!
 //! Never installed: a test fixture, like the development compositor.
 //!
 //! Usage: oxyos-fake-networkmanager --address ADDRESS --machine FILE [--state FILE]
@@ -23,6 +29,8 @@ const NM_PATH: &str = "/org/freedesktop/NetworkManager";
 const WIFI_DEVICE: &str = "/org/freedesktop/NetworkManager/Devices/1";
 const ETHERNET_DEVICE: &str = "/org/freedesktop/NetworkManager/Devices/2";
 const STEP: Duration = Duration::from_millis(40);
+/// The Wi-Fi device's own address.
+const PERMANENT: &str = "F4:A4:75:12:34:56";
 
 type Settings = HashMap<String, HashMap<String, OwnedValue>>;
 
@@ -41,6 +49,63 @@ struct Machine {
     ethernet: Option<String>,
     /// polkit refuses connections for every user (`settings.modify.system`).
     deny_system: bool,
+    /// The router behind the access points, for diagnostics' echoes.
+    router: RouterSpec,
+    /// The resolver, for diagnostics' lookups.
+    resolver: ResolverSpec,
+    /// The daemon's connectivity check.
+    connectivity: ConnectivitySpec,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct RouterSpec {
+    /// This user may send echoes (`net.ipv4.ping_group_range`).
+    allowed: bool,
+    /// It answers echoes, each in these ms.
+    answers: bool,
+    ms: Vec<f64>,
+    /// It answered ARP for its address.
+    neighbour: bool,
+}
+
+impl Default for RouterSpec {
+    fn default() -> Self {
+        Self {
+            allowed: true,
+            answers: true,
+            ms: vec![1.4, 1.1, 1.2],
+            neighbour: true,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct ResolverSpec {
+    /// "answers", "fails" or "silent".
+    does: String,
+    ms: u64,
+    addresses: usize,
+}
+
+impl Default for ResolverSpec {
+    fn default() -> Self {
+        Self {
+            does: "answers".into(),
+            ms: 14,
+            addresses: 2,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Default)]
+#[serde(default, deny_unknown_fields)]
+struct ConnectivitySpec {
+    /// A check is configured and enabled.
+    check: bool,
+    /// Its `NMConnectivityState` (4 full, 3 limited, 2 portal, 1 none).
+    state: u32,
 }
 
 #[derive(Deserialize, Clone)]
@@ -52,6 +117,21 @@ struct PointSpec {
     security: String,
     #[serde(default)]
     password: Option<String>,
+    /// MHz.
+    #[serde(default)]
+    frequency: Option<u32>,
+    #[serde(default)]
+    bssid: Option<String>,
+    /// The rate the card sends at to it, and the fastest it offers, Mb/s; its channel's width, MHz.
+    #[serde(default)]
+    rate: Option<u32>,
+    #[serde(default)]
+    max_rate: Option<u32>,
+    #[serde(default)]
+    width: Option<u32>,
+    /// The only addresses it lets join (a network filtering by address); any when none.
+    #[serde(default)]
+    admits: Option<Vec<String>>,
 }
 
 fn open() -> String {
@@ -61,9 +141,28 @@ fn open() -> String {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConnectionSpec {
+    /// A Wi-Fi network's.
+    #[serde(default)]
     ssid: String,
     #[serde(default)]
     password: Option<String>,
+    /// "wifi" (the default), "vpn", "wireguard" or "ethernet".
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
+    /// Another kind's name.
+    #[serde(default)]
+    name: Option<String>,
+    /// The users it is for (`user:NAME:`); none, every user.
+    #[serde(default)]
+    permissions: Vec<String>,
+    /// `assigned-mac-address` and `stable-id`, unset unless said.
+    #[serde(default)]
+    assigned: Option<String>,
+    #[serde(default)]
+    stable_id: Option<String>,
+    /// `NMSettingsConnectionFlags` (2: the daemon made it).
+    #[serde(default)]
+    flags: u32,
 }
 
 struct Point {
@@ -75,11 +174,18 @@ struct Connection {
     number: u32,
     uuid: String,
     ssid: String,
+    /// NetworkManager's type: `802-11-wireless`, `vpn`, `wireguard`, `802-3-ethernet`.
+    kind: String,
+    /// Its `connection.id`.
+    name: String,
     key_mgmt: Option<String>,
     psk: Option<String>,
     permissions: Vec<String>,
     autoconnect: bool,
     registered: bool,
+    assigned: Option<String>,
+    stable_id: Option<String>,
+    flags: u32,
 }
 
 impl Connection {
@@ -104,6 +210,18 @@ struct Model {
     deny_system: bool,
     scans: u32,
     attempts: Vec<Json>,
+    /// The connection the Wi-Fi device joined with, by its number.
+    active_connection: Option<u32>,
+    /// The Wi-Fi device's address now: the one its connection joined with.
+    address: String,
+    /// This boot's id (`${BOOT}`), another after `{"restart":{}}`.
+    boot: u32,
+    router: RouterSpec,
+    resolver: ResolverSpec,
+    connectivity: ConnectivitySpec,
+    /// Diagnostics' probes, in order, and the connectivity checks run.
+    probes: Vec<String>,
+    checks: u32,
     /// Bumped by every activation, so an older one's steps stop.
     activation: u64,
     state_file: Option<String>,
@@ -143,10 +261,17 @@ impl Model {
             "active": self.active.map(|at| self.points[at].spec.ssid.clone()),
             "connections": self.connections.iter().map(|c| json!({
                 "uuid": c.uuid, "ssid": c.ssid, "psk": c.psk, "key_mgmt": c.key_mgmt,
-                "permissions": c.permissions,
+                "permissions": c.permissions, "type": c.kind, "name": c.name,
+                "assigned": c.assigned, "stable_id": c.stable_id,
             })).collect::<Vec<_>>(),
             "scans": self.scans,
             "attempts": self.attempts,
+            "address": self.address,
+            "joined_with": self.active_connection
+                .and_then(|number| self.connections.iter().find(|c| c.number == number))
+                .map(|c| c.uuid.clone()),
+            "probes": self.probes,
+            "connectivity_checks": self.checks,
             "ethernet": match self.carrier {
                 None => "none",
                 Some(false) => "unplugged",
@@ -177,13 +302,56 @@ impl Model {
             number,
             uuid: format!("00000000-0000-4000-8000-{number:012}"),
             ssid: ssid.into(),
+            kind: "802-11-wireless".into(),
+            name: ssid.into(),
             key_mgmt,
             psk,
             permissions: Vec::new(),
             autoconnect: true,
             registered: false,
+            assigned: None,
+            stable_id: None,
+            flags: 0,
         });
         self.connections.len() - 1
+    }
+
+    /// The address a connection joins with, as NetworkManager makes it: the hardware's for none,
+    /// `preserve` or `permanent`; for `stable`, one hashed from its stable-id (its substitutions
+    /// made; unset, `default${CONNECTION}`) with a key of this machine's, locally administered;
+    /// for `random`, another at every activation; an explicit one as it is.
+    fn address_of(&self, connection: &Connection) -> String {
+        let expand = |id: &str| {
+            id.replace("${CONNECTION}", &connection.uuid)
+                .replace("${BOOT}", &format!("boot-{}", self.boot))
+                .replace("${RANDOM}", &format!("random-{}", self.activation))
+                .replace("${NETWORK_SSID}", &connection.ssid)
+        };
+        let seed = match connection.assigned.as_deref() {
+            None | Some("preserve" | "permanent") => return PERMANENT.into(),
+            Some("stable") => expand(
+                connection
+                    .stable_id
+                    .as_deref()
+                    .unwrap_or("default${CONNECTION}"),
+            ),
+            Some("stable-ssid") => expand("${NETWORK_SSID}"),
+            Some("random") => format!("random-{}", self.activation),
+            Some(explicit) => return explicit.to_uppercase(),
+        };
+        // FNV-1a, keyed by this played machine.
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in format!("fake-machine-key/{seed}").bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let mut bytes = hash.to_be_bytes();
+        bytes[0] = (bytes[0] & 0xfe) | 0x02;
+        bytes[..6]
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<Vec<_>>()
+            .join(":")
     }
 
     fn add_point(&mut self, spec: PointSpec) -> String {
@@ -252,12 +420,24 @@ fn register_connection(model: &Shared, at: usize) {
     m.save();
 }
 
+/// The active connection object of the connection numbered `number`, as the daemon has one for
+/// each activation (its `Connection`).
+fn register_active(model: &Shared, number: u32) {
+    let _ = bus().object_server().at(
+        format!("{NM_PATH}/ActiveConnection/{number}"),
+        Active {
+            model: model.clone(),
+            number,
+        },
+    );
+}
+
 /// Joins the access point `point` with the connection numbered `number`, through the device's
 /// states as NetworkManager's: a protected network whose password is not the access point's fails
 /// for want of secrets.
 fn activate(model: Shared, number: u32, point: usize) {
     use std::thread::sleep;
-    let (activation, was_up, accepted) = {
+    let (activation, was_up, accepted, admitted) = {
         let mut m = model.lock().unwrap();
         m.activation += 1;
         let connection = m
@@ -270,13 +450,24 @@ fn activate(model: Shared, number: u32, point: usize) {
             "wpa" | "wpa3" => connection.psk.is_some() && connection.psk == spec.password,
             _ => true,
         };
-        let attempt = json!({"ssid": spec.ssid, "psk": connection.psk});
+        // The address it would join with, which a network filtering by address may refuse.
+        let address = m.address_of(connection);
+        let admitted = spec
+            .admits
+            .as_ref()
+            .is_none_or(|admits| admits.iter().any(|a| a.eq_ignore_ascii_case(&address)));
+        let attempt = json!({"ssid": spec.ssid, "psk": connection.psk, "address": address});
         m.attempts.push(attempt);
-        (m.activation, m.wifi_state == 100, accepted)
+        (m.activation, m.wifi_state == 100, accepted, admitted)
     };
     let current = |model: &Shared| model.lock().unwrap().activation == activation;
     if was_up {
-        model.lock().unwrap().active = None;
+        {
+            let mut m = model.lock().unwrap();
+            m.active = None;
+            m.active_connection = None;
+            m.address = PERMANENT.into();
+        }
         device_state(&model, WIFI_DEVICE, 110, 60);
         device_state(&model, WIFI_DEVICE, 30, 60);
     }
@@ -291,13 +482,31 @@ fn activate(model: Shared, number: u32, point: usize) {
     if !current(&model) {
         return;
     }
-    if accepted {
+    if !admitted {
+        // The access point refuses the association: the supplicant fails, no secrets asked.
+        device_state(&model, WIFI_DEVICE, 120, 10);
+        device_state(&model, WIFI_DEVICE, 30, 10);
+    } else if accepted {
         device_state(&model, WIFI_DEVICE, 70, 0);
         sleep(STEP);
         if !current(&model) {
             return;
         }
-        model.lock().unwrap().active = Some(point);
+        {
+            let mut m = model.lock().unwrap();
+            m.active = Some(point);
+            m.active_connection = Some(number);
+            // The address it joins with, as the daemon sets it as the connection activates.
+            let address = m
+                .connections
+                .iter()
+                .find(|c| c.number == number)
+                .map(|c| m.address_of(c));
+            if let Some(address) = address {
+                m.address = address;
+            }
+        }
+        register_active(&model, number);
         changed(
             WIFI_DEVICE,
             "org.freedesktop.NetworkManager.Device.Wireless",
@@ -342,6 +551,8 @@ impl Manager {
                 m.activation += 1;
                 if !enabled {
                     m.active = None;
+                    m.active_connection = None;
+                    m.address = PERMANENT.into();
                 }
                 m.save();
                 m.wifi_state
@@ -376,6 +587,61 @@ impl Manager {
     #[zbus(property)]
     fn version(&self) -> String {
         "1.52.1".into()
+    }
+
+    /// What polkit lets the caller do, as NetworkManager asks it: `auth` for what needs an
+    /// administrator's password (no agent here answers it).
+    fn get_permissions(&self) -> HashMap<String, String> {
+        let m = self.model.lock().unwrap();
+        HashMap::from([
+            (
+                "org.freedesktop.NetworkManager.settings.modify.system".to_string(),
+                if m.deny_system { "auth" } else { "yes" }.to_string(),
+            ),
+            (
+                "org.freedesktop.NetworkManager.settings.modify.own".to_string(),
+                "yes".to_string(),
+            ),
+            (
+                "org.freedesktop.NetworkManager.network-control".to_string(),
+                "yes".to_string(),
+            ),
+        ])
+    }
+
+    #[zbus(property)]
+    fn connectivity(&self) -> u32 {
+        let m = self.model.lock().unwrap();
+        if m.connectivity.check {
+            m.connectivity.state
+        } else {
+            // No check: the daemon assumes the internet answers when a device is up.
+            if m.wifi_state == 100 || m.ethernet_state == 100 {
+                4
+            } else {
+                1
+            }
+        }
+    }
+
+    #[zbus(property)]
+    fn connectivity_check_available(&self) -> bool {
+        self.model.lock().unwrap().connectivity.check
+    }
+
+    #[zbus(property)]
+    fn connectivity_check_enabled(&self) -> bool {
+        self.model.lock().unwrap().connectivity.check
+    }
+
+    /// Runs the check now: its state, counted.
+    fn check_connectivity(&self) -> u32 {
+        {
+            let mut m = self.model.lock().unwrap();
+            m.checks += 1;
+            m.save();
+        }
+        self.connectivity()
     }
 
     fn activate_connection(
@@ -445,6 +711,8 @@ impl Manager {
                 text("802-11-wireless-security", "psk"),
             );
             m.connections[at].permissions = permissions;
+            m.connections[at].assigned = text("802-11-wireless", "assigned-mac-address");
+            m.connections[at].stable_id = text("connection", "stable-id");
             (at, m.connections[at].number, point)
         };
         register_connection(&self.model, at);
@@ -489,29 +757,40 @@ impl SettingsConnection {
             .find(|c| c.number == self.number)
             .ok_or_else(|| NmError::UnknownConnection(self.number.to_string()))?;
         let mut settings: Settings = HashMap::new();
-        settings.insert(
-            "connection".into(),
-            HashMap::from([
-                ("id".to_string(), owned(Value::from(c.ssid.clone()))),
-                ("uuid".to_string(), owned(Value::from(c.uuid.clone()))),
-                ("type".to_string(), owned(Value::from("802-11-wireless"))),
-                ("autoconnect".to_string(), owned(Value::from(c.autoconnect))),
-                (
-                    "permissions".to_string(),
-                    owned(Value::from(c.permissions.clone())),
-                ),
-            ]),
-        );
-        settings.insert(
-            "802-11-wireless".into(),
-            HashMap::from([
-                (
-                    "ssid".to_string(),
-                    owned(Value::from(c.ssid.as_bytes().to_vec())),
-                ),
-                ("mode".to_string(), owned(Value::from("infrastructure"))),
-            ]),
-        );
+        let mut connection = HashMap::from([
+            ("id".to_string(), owned(Value::from(c.name.clone()))),
+            ("uuid".to_string(), owned(Value::from(c.uuid.clone()))),
+            ("type".to_string(), owned(Value::from(c.kind.clone()))),
+            ("autoconnect".to_string(), owned(Value::from(c.autoconnect))),
+            (
+                "permissions".to_string(),
+                owned(Value::from(c.permissions.clone())),
+            ),
+        ]);
+        if let Some(stable_id) = &c.stable_id {
+            connection.insert(
+                "stable-id".to_string(),
+                owned(Value::from(stable_id.clone())),
+            );
+        }
+        settings.insert("connection".into(), connection);
+        if c.kind != "802-11-wireless" {
+            return Ok(settings);
+        }
+        let mut wireless = HashMap::from([
+            (
+                "ssid".to_string(),
+                owned(Value::from(c.ssid.as_bytes().to_vec())),
+            ),
+            ("mode".to_string(), owned(Value::from("infrastructure"))),
+        ]);
+        if let Some(assigned) = &c.assigned {
+            wireless.insert(
+                "assigned-mac-address".to_string(),
+                owned(Value::from(assigned.clone())),
+            );
+        }
+        settings.insert("802-11-wireless".into(), wireless);
         if let Some(key_mgmt) = &c.key_mgmt {
             settings.insert(
                 "802-11-wireless-security".into(),
@@ -553,24 +832,32 @@ impl SettingsConnection {
         if denied && c.permissions.is_empty() {
             return Err(NmError::PermissionDenied("settings.modify.system".into()));
         }
-        let text = |key: &str| -> Option<String> {
-            String::try_from(
-                settings
-                    .get("802-11-wireless-security")?
-                    .get(key)?
-                    .try_clone()
-                    .ok()?,
-            )
-            .ok()
+        let text = |group: &str, key: &str| -> Option<String> {
+            String::try_from(settings.get(group)?.get(key)?.try_clone().ok()?).ok()
         };
-        c.psk = text("psk");
-        c.key_mgmt = text("key-mgmt");
+        // An update that carries no secrets keeps those saved, as NetworkManager's does
+        // (nm-settings-connection.c: "we do not want to remove all secrets").
+        if let Some(psk) = text("802-11-wireless-security", "psk") {
+            c.psk = Some(psk);
+        }
+        c.key_mgmt = text("802-11-wireless-security", "key-mgmt");
+        c.assigned = text("802-11-wireless", "assigned-mac-address");
+        c.stable_id = text("connection", "stable-id");
         m.save();
         Ok(())
     }
 
+    #[zbus(property)]
+    fn flags(&self) -> u32 {
+        let m = self.model.lock().unwrap();
+        m.connections
+            .iter()
+            .find(|c| c.number == self.number)
+            .map_or(0, |c| c.flags)
+    }
+
     fn delete(&self) -> Result<(), NmError> {
-        let path = {
+        let gone = {
             let mut m = self.model.lock().unwrap();
             let denied = m.deny_system;
             let at = m
@@ -581,17 +868,43 @@ impl SettingsConnection {
             if denied && m.connections[at].permissions.is_empty() {
                 return Err(NmError::PermissionDenied("settings.modify.system".into()));
             }
-            let path = m.connections.remove(at).path();
+            let removed = m.connections.remove(at);
+            // The connection joined with: the device leaves the network, as the daemon's does.
+            let joined = m.active_connection == Some(removed.number);
+            if joined {
+                m.activation += 1;
+                m.active = None;
+                m.active_connection = None;
+                m.address = PERMANENT.into();
+            }
             m.save();
-            path
+            (removed.path(), joined)
         };
         let model = self.model.clone();
         std::thread::spawn(move || {
+            let (removed, joined) = gone;
             let _ = bus()
                 .object_server()
-                .remove::<SettingsConnection, _>(path.as_str());
+                .remove::<SettingsConnection, _>(removed.as_str());
+            let _ = bus().emit_signal(
+                None::<&str>,
+                removed.as_str(),
+                "org.freedesktop.NetworkManager.Settings.Connection",
+                "Removed",
+                &(),
+            );
+            let _ = bus().emit_signal(
+                None::<&str>,
+                format!("{NM_PATH}/Settings").as_str(),
+                "org.freedesktop.NetworkManager.Settings",
+                "ConnectionRemoved",
+                &(path(&removed),),
+            );
+            if joined {
+                device_state(&model, WIFI_DEVICE, 110, 39);
+                device_state(&model, WIFI_DEVICE, 30, 39);
+            }
             changed(NM_PATH, "org.freedesktop.NetworkManager");
-            drop(model);
         });
         Ok(())
     }
@@ -628,14 +941,23 @@ impl Device {
         if self.wifi { "wlp0s20f3" } else { "enp0s31f6" }.into()
     }
 
+    /// The address in use: the Wi-Fi device's, the one its connection joined with.
     #[zbus(property)]
     fn hw_address(&self) -> String {
         if self.wifi {
-            "F4:A4:75:12:34:56"
+            self.model.lock().unwrap().address.clone()
         } else {
-            "38:F3:AB:65:43:21"
+            "38:F3:AB:65:43:21".into()
         }
-        .into()
+    }
+
+    #[zbus(property)]
+    fn active_connection(&self) -> OwnedObjectPath {
+        let m = self.model.lock().unwrap();
+        match m.active_connection.filter(|_| self.wifi) {
+            Some(number) => path(&format!("{NM_PATH}/ActiveConnection/{number}")),
+            None => path("/"),
+        }
     }
 
     #[zbus(property, name = "Ip4Config")]
@@ -713,6 +1035,68 @@ impl Wireless {
     fn last_scan(&self) -> i64 {
         i64::from(self.model.lock().unwrap().scans) * 1000
     }
+
+    #[zbus(property)]
+    fn perm_hw_address(&self) -> String {
+        PERMANENT.into()
+    }
+
+    /// The rate it sends at to the access point joined, kb/s.
+    #[zbus(property)]
+    fn bitrate(&self) -> u32 {
+        let m = self.model.lock().unwrap();
+        m.active.and_then(|at| m.points[at].spec.rate).unwrap_or(0) * 1000
+    }
+}
+
+/// An activation's object: the connection it is of.
+struct Active {
+    model: Shared,
+    number: u32,
+}
+
+#[zbus::interface(name = "org.freedesktop.NetworkManager.Connection.Active")]
+impl Active {
+    #[zbus(property)]
+    fn connection(&self) -> OwnedObjectPath {
+        let _ = &self.model;
+        path(&format!("{NM_PATH}/Settings/{}", self.number))
+    }
+}
+
+/// The DNS configuration the daemon applied: each device up's servers.
+struct DnsManager {
+    model: Shared,
+}
+
+#[zbus::interface(name = "org.freedesktop.NetworkManager.DnsManager")]
+impl DnsManager {
+    #[zbus(property)]
+    fn configuration(&self) -> Vec<HashMap<String, OwnedValue>> {
+        let m = self.model.lock().unwrap();
+        let entry = |server: &str, interface: &str, priority: i32| {
+            HashMap::from([
+                (
+                    "nameservers".to_string(),
+                    owned(Value::from(vec![server.to_string()])),
+                ),
+                (
+                    "interface".to_string(),
+                    owned(Value::from(interface.to_string())),
+                ),
+                ("priority".to_string(), owned(Value::from(priority))),
+                ("vpn".to_string(), owned(Value::from(false))),
+            ])
+        };
+        let mut configuration = Vec::new();
+        if m.ethernet_state == 100 {
+            configuration.push(entry("10.0.0.1", "enp0s31f6", 100));
+        }
+        if m.wifi_state == 100 {
+            configuration.push(entry("192.168.8.1", "wlp0s20f3", 600));
+        }
+        configuration
+    }
 }
 
 struct Wired {
@@ -776,6 +1160,29 @@ impl AccessPoint {
     #[zbus(property)]
     fn rsn_flags(&self) -> u32 {
         self.spec().map_or(0, |s| flags(&s.security).2)
+    }
+
+    #[zbus(property)]
+    fn hw_address(&self) -> String {
+        let number = self.path.rsplit('/').next().unwrap_or("0");
+        self.spec()
+            .and_then(|s| s.bssid)
+            .unwrap_or_else(|| format!("A0:B1:C2:00:00:{:02X}", number.parse::<u8>().unwrap_or(0)))
+    }
+
+    #[zbus(property)]
+    fn frequency(&self) -> u32 {
+        self.spec().and_then(|s| s.frequency).unwrap_or(2437)
+    }
+
+    #[zbus(property)]
+    fn max_bitrate(&self) -> u32 {
+        self.spec().and_then(|s| s.max_rate).unwrap_or(0) * 1000
+    }
+
+    #[zbus(property)]
+    fn bandwidth(&self) -> u32 {
+        self.spec().and_then(|s| s.width).unwrap_or(0)
     }
 }
 
@@ -866,6 +1273,9 @@ enum Act {
     Strength(StrengthSpec),
     /// An access point seen again by a scan: its `LastSeen` alone, nothing else changed.
     Seen(String),
+    /// The computer started again: another boot's id (`${BOOT}`), for the addresses of the next
+    /// joins.
+    Restart {},
 }
 
 #[derive(Deserialize)]
@@ -980,8 +1390,50 @@ impl Control {
                     HashMap::from([("LastSeen", Value::from(1000i32))]),
                 );
             }
+            Act::Restart {} => {
+                let mut m = model.lock().unwrap();
+                m.boot += 1;
+                m.save();
+            }
         });
         Ok(())
+    }
+
+    /// What the network behind the daemon does for Wi-Fi Diagnostics, counted:
+    /// `{"ping":ADDRESS,"count":N}` (`{"rtts_ms":[…]}`, or `{"not_allowed":true}`),
+    /// `{"neighbour":ADDRESS}` (`{"neighbour":bool}`) and `{"resolve":NAME}`
+    /// (`{"addresses":N,"ms":N}`, `{"failed":true,"ms":N}` or `{"timed_out":true}`).
+    fn probe(&self, what: String) -> zbus::fdo::Result<String> {
+        let asked: Json = serde_json::from_str(&what)
+            .map_err(|error| zbus::fdo::Error::InvalidArgs(error.to_string()))?;
+        let mut m = self.model.lock().unwrap();
+        let answer = if let Some(address) = asked.get("ping").and_then(Json::as_str) {
+            let count = asked.get("count").and_then(Json::as_u64).unwrap_or(1) as usize;
+            m.probes.push(format!("ping {address}"));
+            let reached = m.wifi_state == 100 && address == "192.168.8.1";
+            if !m.router.allowed {
+                json!({"not_allowed": true})
+            } else if reached && m.router.answers {
+                let times: Vec<f64> = m.router.ms.iter().copied().cycle().take(count).collect();
+                json!({"rtts_ms": times})
+            } else {
+                json!({"rtts_ms": []})
+            }
+        } else if let Some(address) = asked.get("neighbour").and_then(Json::as_str) {
+            m.probes.push(format!("neighbour {address}"));
+            json!({"neighbour": m.wifi_state == 100 && address == "192.168.8.1" && m.router.neighbour})
+        } else if let Some(name) = asked.get("resolve").and_then(Json::as_str) {
+            m.probes.push(format!("resolve {name}"));
+            match m.resolver.does.as_str() {
+                "answers" => json!({"addresses": m.resolver.addresses, "ms": m.resolver.ms}),
+                "fails" => json!({"failed": true, "ms": m.resolver.ms}),
+                _ => json!({"timed_out": true}),
+            }
+        } else {
+            return Err(zbus::fdo::Error::InvalidArgs(what));
+        };
+        m.save();
+        Ok(answer.to_string())
     }
 
     /// What the daemon holds: its connections (with their passwords), what was tried, the scans.
@@ -1034,6 +1486,14 @@ fn main() {
         attempts: Vec::new(),
         activation: 0,
         state_file,
+        active_connection: None,
+        address: PERMANENT.into(),
+        boot: 1,
+        router: spec.router.clone(),
+        resolver: spec.resolver.clone(),
+        connectivity: spec.connectivity.clone(),
+        probes: Vec::new(),
+        checks: 0,
     };
     if model.carrier == Some(true) {
         model.ethernet_state = 100;
@@ -1055,13 +1515,41 @@ fn main() {
                 _ => None,
             });
         let at = model.add_connection(&connection.ssid, key_mgmt, connection.password.clone());
-        model.connections[at].registered = true;
+        let saved = &mut model.connections[at];
+        saved.registered = true;
+        saved.permissions = connection.permissions.clone();
+        saved.assigned = connection.assigned.clone();
+        saved.stable_id = connection.stable_id.clone();
+        saved.flags = connection.flags;
+        match connection.kind.as_deref().unwrap_or("wifi") {
+            "wifi" => {}
+            kind => {
+                saved.kind = match kind {
+                    "ethernet" => "802-3-ethernet",
+                    "wireguard" => "wireguard",
+                    _ => "vpn",
+                }
+                .into();
+                saved.name = connection.name.clone().unwrap_or_default();
+                saved.ssid = String::new();
+                saved.key_mgmt = None;
+            }
+        }
     }
     if let Some(active) = &spec.active {
         if model.wifi_enabled {
             model.active = model.points.iter().position(|p| &p.spec.ssid == active);
             if model.active.is_some() {
                 model.wifi_state = 100;
+                let joined = model
+                    .connections
+                    .iter()
+                    .find(|c| c.kind == "802-11-wireless" && &c.ssid == active)
+                    .map(|c| (c.number, model.address_of(c)));
+                if let Some((number, address)) = joined {
+                    model.active_connection = Some(number);
+                    model.address = address;
+                }
             }
         }
     }
@@ -1120,6 +1608,13 @@ fn main() {
                 model: model.clone(),
             },
         )
+        .expect("served")
+        .serve_at(
+            format!("{NM_PATH}/DnsManager"),
+            DnsManager {
+                model: model.clone(),
+            },
+        )
         .expect("served");
     for (number, wifi) in [(2, true), (1, false)] {
         builder = builder
@@ -1148,6 +1643,17 @@ fn main() {
                     SettingsConnection {
                         model: model.clone(),
                         number: connection.number,
+                    },
+                )
+                .expect("served");
+        }
+        if let Some(number) = m.active_connection {
+            builder = builder
+                .serve_at(
+                    format!("{NM_PATH}/ActiveConnection/{number}"),
+                    Active {
+                        model: model.clone(),
+                        number,
                     },
                 )
                 .expect("served");

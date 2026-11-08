@@ -13,8 +13,8 @@
     "url": "oxyos-settings://wifi",
     "titles": { "en": "Wi-Fi", "es": "Wi-Fi" },
     "keywords": {
-      "en": ["wifi", "wi-fi", "wireless", "internet", "network", "router", "hotspot", "ssid", "password", "join", "airport", "wlan", "known networks", "auto-join"],
-      "es": ["wifi", "wi-fi", "inalámbrica", "internet", "red", "router", "punto de acceso", "ssid", "contraseña", "conectarse", "wlan", "redes conocidas", "conexión automática"]
+      "en": ["wifi", "wi-fi", "wireless", "internet", "network", "router", "hotspot", "ssid", "password", "join", "airport", "wlan", "known networks", "auto-join", "private address", "private wi-fi address", "mac address", "forget network", "diagnostics", "wireless diagnostics"],
+      "es": ["wifi", "wi-fi", "inalámbrica", "internet", "red", "router", "punto de acceso", "ssid", "contraseña", "conectarse", "wlan", "redes conocidas", "conexión automática", "dirección privada", "dirección wi-fi privada", "dirección mac", "olvidar red", "diagnóstico", "diagnóstico de wi-fi"]
     }
   },
   {
@@ -31,8 +31,8 @@
     "url": "oxyos-settings://network",
     "titles": { "en": "Network", "es": "Red" },
     "keywords": {
-      "en": ["network", "ethernet", "cable", "wired", "lan", "ip address", "ipv4", "ipv6", "dns", "router", "gateway", "subnet", "mac address", "internet", "connection"],
-      "es": ["red", "ethernet", "cable", "por cable", "lan", "dirección ip", "ipv4", "ipv6", "dns", "router", "puerta de enlace", "subred", "dirección mac", "internet", "conexión"]
+      "en": ["network", "ethernet", "cable", "wired", "lan", "ip address", "ipv4", "ipv6", "dns", "router", "gateway", "subnet", "mac address", "internet", "connection", "reset network settings", "reset"],
+      "es": ["red", "ethernet", "cable", "por cable", "lan", "dirección ip", "ipv4", "ipv6", "dns", "router", "puerta de enlace", "subred", "dirección mac", "internet", "conexión", "restablecer ajustes de red", "restablecer"]
     }
   },
   {

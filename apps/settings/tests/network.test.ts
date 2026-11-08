@@ -3,15 +3,27 @@ import assert from "node:assert/strict";
 import {
   currentNetwork,
   detailRows,
+  diagnosticSections,
   ethernetStatus,
   failureLabel,
   failureOf,
+  formatMs,
   formatSpeed,
+  isJoined,
   isLocked,
   joinFailureNeedsNote,
+  knownByName,
   otherNetworks,
+  PRIVATE_ADDRESS_CHOICES,
+  privateAddressOutcome,
+  privateChoice,
+  resetLines,
+  resetPlanOf,
+  type Diagnostics,
   type EthernetState,
+  type KnownNetwork,
   type NearbyNetwork,
+  type ResetPlan,
   type WifiState,
 } from "../src/network.ts";
 import { messagesFor } from "../src/messages.ts";
@@ -140,4 +152,167 @@ test("a link's speed", () => {
   assert.equal(formatSpeed(2500, "en"), "2.5 Gb/s");
   assert.equal(formatSpeed(2500, "es"), "2,5 Gb/s");
   assert.equal(formatSpeed(10000, "en"), "10 Gb/s");
+});
+
+const saved = (ssid: string, privateAddress: KnownNetwork["privateAddress"] = "fixed"): KnownNetwork => ({
+  id: `id-${ssid}`,
+  ssid,
+  autoJoin: true,
+  privateAddress,
+});
+
+test("a known network's sheet: its connection by name, whether it is the one joined, the choice shown", () => {
+  const joined = nearby("Home", 73, { known: true, current: true });
+  const state = { ...wifi([joined, nearby("Café", 40, { known: true })], joined), known: [saved("Home"), saved("Café", "other")] };
+  assert.equal(knownByName(state, "Home")?.id, "id-Home");
+  assert.equal(knownByName(state, "Nowhere"), null);
+  assert.equal(isJoined(state, saved("Home")), true);
+  assert.equal(isJoined(state, saved("Café")), false);
+  assert.equal(isJoined({ ...state, state: "connecting" }, saved("Home")), false, "joined once connected");
+  // A Mac's three, in its order; one set elsewhere shows none of them chosen.
+  assert.deepEqual([...PRIVATE_ADDRESS_CHOICES], ["off", "fixed", "rotating"]);
+  assert.equal(privateChoice(saved("Home", "rotating")), "rotating");
+  assert.equal(privateChoice(saved("Café", "other")), null);
+});
+
+test("a private address's answer: set, its rejoin failed, or why it was not set", () => {
+  assert.deepEqual(privateAddressOutcome({ privateAddress: { mode: "rotating", rejoined: true } }), {
+    failure: null,
+    rejoinFailed: false,
+  });
+  assert.deepEqual(
+    privateAddressOutcome({ privateAddress: { mode: "fixed", rejoined: false, rejoinFailed: "timeout" } }),
+    { failure: null, rejoinFailed: true },
+  );
+  assert.deepEqual(privateAddressOutcome({ failed: { reason: "notPermitted" } }), {
+    failure: "notPermitted",
+    rejoinFailed: false,
+  });
+  assert.deepEqual(privateAddressOutcome({ refused: { reason: "needsInput" } }), {
+    failure: "notPermitted",
+    rejoinFailed: false,
+  });
+});
+
+const plan: ResetPlan = {
+  removed: [
+    { id: "1", name: "LukeSkyRouter", kind: "wifi" },
+    { id: "2", name: "Vecinos", kind: "wifi" },
+    { id: "3", name: "Work VPN", kind: "vpn" },
+  ],
+  kept: [
+    { id: "4", name: "Office", kind: "wifi", because: "notPermitted" },
+    { id: "5", name: "Office static", kind: "ethernet", because: "ethernet" },
+  ],
+};
+
+test("a reset's confirmation lists what goes and what stays, and why", () => {
+  const list = (names: string[]) => names.join(", ");
+  assert.deepEqual(resetLines(plan, messagesFor("en").network, list), [
+    "These are removed, with their passwords:",
+    "Wi-Fi: LukeSkyRouter, Vecinos",
+    "VPN: Work VPN",
+    "Kept, as only an administrator can remove them: Office.",
+    "Kept: Office static, Ethernet's configuration, which NetworkManager would not set up again by itself.",
+  ]);
+  assert.deepEqual(resetLines({ removed: [], kept: [] }, messagesFor("es").network, list), [
+    "No hay redes guardadas que eliminar.",
+  ]);
+  assert.deepEqual(resetLines({ removed: [plan.removed[2]], kept: [] }, messagesFor("es").network, list), [
+    "Se eliminan, con sus contraseñas:",
+    "VPN: Work VPN",
+  ]);
+});
+
+test("a reset's answer: its plan before and after, or why there is none", () => {
+  assert.deepEqual(resetPlanOf({ networkResetPreview: plan }), { plan });
+  assert.deepEqual(resetPlanOf({ networkReset: plan }), { plan });
+  assert.deepEqual(resetPlanOf({ failed: { reason: "busy" } }), { failure: "busy" });
+  assert.deepEqual(resetPlanOf({ failed: { reason: "somethingNew" } }), { failure: "failed" });
+  assert.deepEqual(resetPlanOf({ refused: { reason: "needsInput" } }), { failure: "notPermitted" });
+  assert.deepEqual(resetPlanOf(null), { failure: "failed" });
+});
+
+const found: Diagnostics = {
+  link: {
+    ssid: "LukeSkyRouter",
+    interface: "wlp0s20f3",
+    bssid: "A0:B1:C2:D3:E4:F5",
+    signal: 73,
+    quality: "good",
+    frequency: 5180,
+    band: "5",
+    channel: 36,
+    width: 80,
+    txRate: 866,
+    maxRate: 1201,
+    security: "wpa",
+    address: "1A:2B:3C:4D:5E:6F",
+    permanentAddress: "F4:A4:75:12:34:56",
+    privateAddress: "fixed",
+  },
+  connectivity: { checked: false, state: "unknown" },
+  router: { address: "192.168.8.1", verdict: "reached", sent: 3, answered: 3, ms: 1.2 },
+  dns: { servers: ["192.168.8.1"], name: "oxy.so", verdict: "resolved", ms: 14, addresses: 2 },
+};
+
+test("diagnostics: each check's verdict first, only what was measured", () => {
+  const en = messagesFor("en");
+  const sections = diagnosticSections(found, en.wifi.diagnostics, en.wifi.wifiAddress, "en");
+  assert.deepEqual(
+    sections.map((section) => [section.key, section.rows.map((row) => [row.title, row.value])]),
+    [
+      [
+        "connection",
+        [
+          ["Network", "LukeSkyRouter"],
+          ["Signal", "Good · 73%"],
+          ["Channel", "36 · 5 GHz, 80 MHz"],
+          ["Transmit rate", "866 Mb/s"],
+          ["Security", "WPA2 Personal"],
+          ["Access point", "A0:B1:C2:D3:E4:F5"],
+          ["Wi-Fi address", "1A:2B:3C:4D:5E:6F"],
+        ],
+      ],
+      ["router", [["192.168.8.1", "Answers"], ["", "3 of 3 answered · 1.2 ms"]]],
+      ["internet", [["Internet", "Not checked: no connectivity check is set up on this computer"]]],
+      ["dns", [["DNS", "Resolved oxy.so in 14 ms"], ["DNS servers", "192.168.8.1"]]],
+    ],
+  );
+  // Not joined, nothing measured: no connection, no counts, no times.
+  const quiet = diagnosticSections(
+    {
+      link: null,
+      connectivity: { checked: true, state: "portal" },
+      router: { address: null, verdict: "notChecked", sent: 0, answered: 0, ms: null },
+      dns: { servers: [], name: "oxy.so", verdict: "notChecked", ms: null, addresses: 0 },
+    },
+    en.wifi.diagnostics,
+    en.wifi.wifiAddress,
+    "en",
+  );
+  assert.deepEqual(
+    quiet.map((section) => section.rows.map((row) => row.value)),
+    [["Not checked"], ["A sign-in page blocks the internet"], ["Not checked", "None"]],
+  );
+  const es = messagesFor("es");
+  const spanish = diagnosticSections(
+    { ...found, link: { ...found.link!, band: "2.4", channel: 6, width: null, txRate: null } },
+    es.wifi.diagnostics,
+    es.wifi.wifiAddress,
+    "es",
+  );
+  const rows = Object.fromEntries(spanish.flatMap((section) => section.rows.map((row) => [row.key, row.value])));
+  assert.equal(rows.channel, "6 · 2,4 GHz");
+  assert.equal(rows.txRate, undefined, "a rate the daemon did not say is not shown");
+  assert.equal(rows["router-answered"], "3 de 3 respondidos · 1,2 ms");
+  assert.equal(rows["dns-verdict"], "oxy.so resuelto en 14 ms");
+});
+
+test("a time measured", () => {
+  assert.equal(formatMs(null, "en"), "");
+  assert.equal(formatMs(1.2, "en"), "1.2 ms");
+  assert.equal(formatMs(1.2, "es"), "1,2 ms");
+  assert.equal(formatMs(14, "en"), "14 ms");
+  assert.equal(formatMs(1234, "en"), "1,234 ms");
 });

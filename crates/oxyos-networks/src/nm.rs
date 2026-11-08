@@ -2,10 +2,12 @@
 //! tests and the development compositor, on a bus of their own where a played daemon answers.
 //! Every property is read when asked (nothing is cached), so what it says is what the daemon says.
 
+use crate::diagnostics::{band_and_channel, Connectivity, Link, LinkQuality, Survey};
 use crate::secret::Secret;
 use crate::{
     device_state, ethernet_state, networks, plan, secrets_reason, security, ssid_text, subnet_mask,
-    wifi_state, AccessPoint, Details, Ethernet, Failure, Ipv4, Known, Plan, State, Wifi, WifiState,
+    wifi_state, AccessPoint, Details, Ethernet, Failure, Ipv4, KeptBecause, KeptConnection, Known,
+    Plan, PrivateAddress, Rejoin, ResetPlan, Saved, SavedKind, State, Wifi, WifiState,
 };
 use futures_lite::StreamExt;
 use std::collections::HashMap;
@@ -24,6 +26,9 @@ const DEVICE: &str = "org.freedesktop.NetworkManager.Device";
 const WIRELESS: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const WIRED: &str = "org.freedesktop.NetworkManager.Device.Wired";
 const ACCESS_POINT: &str = "org.freedesktop.NetworkManager.AccessPoint";
+const ACTIVE: &str = "org.freedesktop.NetworkManager.Connection.Active";
+const DNS_PATH: &str = "/org/freedesktop/NetworkManager/DnsManager";
+const DNS: &str = "org.freedesktop.NetworkManager.DnsManager";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 /// The longest a scan asked for is waited for (a card that never says it ended, a scan not
 /// allowed so soon after another): its access points are then read as they are.
@@ -37,6 +42,17 @@ const WIFI_TYPE: &str = "802-11-wireless";
 pub const JOIN_TIMEOUT: Duration = Duration::from_secs(45);
 
 type Settings = HashMap<String, HashMap<String, OwnedValue>>;
+/// A connection's settings as sent back to the daemon.
+type Editable = HashMap<String, HashMap<String, Value<'static>>>;
+
+/// polkit's actions for changing a connection for every user, and one for this user alone.
+const MODIFY_SYSTEM: &str = "org.freedesktop.NetworkManager.settings.modify.system";
+const MODIFY_OWN: &str = "org.freedesktop.NetworkManager.settings.modify.own";
+/// `NMSettingsConnectionFlags`: made by the daemon (an Ethernet port's automatic configuration),
+/// deleted as it disconnects, or describing a configuration made outside it. None is the person's.
+const NM_GENERATED: u32 = 0x2;
+const VOLATILE: u32 = 0x4;
+const EXTERNAL: u32 = 0x8;
 
 fn failed(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
@@ -558,14 +574,7 @@ impl NetworkManager {
     ) -> Result<(), Failure> {
         let proxy = self.proxy(connection, CONNECTION).map_err(failure)?;
         let saved: Settings = proxy.call("GetSettings", &()).map_err(failure)?;
-        let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
-        for (group, values) in saved {
-            let values = values
-                .into_iter()
-                .map(|(key, value)| (key, Value::from(value)))
-                .collect();
-            settings.insert(group, values);
-        }
+        let mut settings = editable(saved);
         let security = settings
             .entry("802-11-wireless-security".to_string())
             .or_default();
@@ -585,6 +594,297 @@ impl NetworkManager {
         proxy
             .call::<_, _, ()>("Update", &(settings,))
             .map_err(failure)
+    }
+
+    /// Sets a known network's private Wi-Fi address (docs/adr/0038-networks.mdx, 8 November 2026).
+    /// When it is the network joined, it is joined again, so the new address is the one used, and
+    /// this returns once the daemon has joined it or given up.
+    pub fn set_private_address(&self, id: &str, mode: PrivateAddress) -> Result<Rejoin, Failure> {
+        let (assigned, stable_id) = mode.settings().ok_or(Failure::Unsupported)?;
+        let known = self.known().map_err(failure)?;
+        let (path, _) = known
+            .iter()
+            .find(|(_, k)| k.id == id)
+            .ok_or(Failure::NotFound)?;
+        let proxy = self.proxy(path, CONNECTION).map_err(failure)?;
+        let saved: Settings = proxy.call("GetSettings", &()).map_err(failure)?;
+        let mut settings = editable(saved);
+        let wireless = settings.entry(WIFI_TYPE.to_string()).or_default();
+        // The deprecated byte form holds only explicit addresses: the string form alone says it.
+        wireless.remove("cloned-mac-address");
+        wireless.insert(
+            "assigned-mac-address".to_string(),
+            Value::from(assigned.to_string()),
+        );
+        let connection = settings.entry("connection".to_string()).or_default();
+        match stable_id {
+            Some(stable_id) => {
+                connection.insert("stable-id".to_string(), Value::from(stable_id.to_string()));
+            }
+            None => {
+                connection.remove("stable-id");
+            }
+        }
+        // Without its secrets: the daemon keeps those it has (an update that carries none).
+        proxy
+            .call::<_, _, ()>("Update", &(settings,))
+            .map_err(failure)?;
+        // Set: what follows is joining it again, whose failure leaves it set.
+        let rejoin = || -> Result<Rejoin, Failure> {
+            let devices = self.devices().map_err(failure)?;
+            let Some(device) = Self::wifi_device(&devices) else {
+                return Ok(Rejoin::NotJoined);
+            };
+            let active: OwnedObjectPath = self
+                .property(&device.path, DEVICE, "ActiveConnection")
+                .map_err(failure)?;
+            if active.as_str() == "/" {
+                return Ok(Rejoin::NotJoined);
+            }
+            let joined_with: OwnedObjectPath = self
+                .property(&active, ACTIVE, "Connection")
+                .map_err(failure)?;
+            if joined_with != *path {
+                return Ok(Rejoin::NotJoined);
+            }
+            // Joined again: the address is the connection's as it activates.
+            let mut changes = self.device_changes(&device.path).map_err(failure)?;
+            let any = OwnedObjectPath::try_from("/").expect("a valid path");
+            self.proxy(NM_PATH, NM)
+                .and_then(|nm| {
+                    nm.call::<_, _, OwnedObjectPath>(
+                        "ActivateConnection",
+                        &(path, &device.path, &any),
+                    )
+                })
+                .map_err(failure)?;
+            wait(&mut changes, Instant::now() + JOIN_TIMEOUT, None).map(|()| Rejoin::Rejoined)
+        };
+        Ok(rejoin().unwrap_or_else(Rejoin::Failed))
+    }
+
+    /// The saved connections a reset of the network settings considers: Wi-Fi networks, VPNs and
+    /// Ethernet configurations, none of those the daemon made or keeps for a moment alone; each
+    /// with the users it is for (`connection.permissions`, empty for every user).
+    fn saved(&self) -> zbus::Result<Vec<(OwnedObjectPath, Saved, bool)>> {
+        let paths: Vec<OwnedObjectPath> = self
+            .proxy(SETTINGS_PATH, SETTINGS)?
+            .call("ListConnections", &())?;
+        let mut saved = Vec::new();
+        for path in paths {
+            let Ok(proxy) = self.proxy(&path, CONNECTION) else {
+                continue;
+            };
+            let Ok(settings) = proxy.call::<_, _, Settings>("GetSettings", &()) else {
+                continue;
+            };
+            // Older daemons than 1.12 have no flags: none of their connections is generated.
+            let flags: u32 = proxy.get_property("Flags").unwrap_or(0);
+            if flags & (NM_GENERATED | VOLATILE | EXTERNAL) != 0 {
+                continue;
+            }
+            let Some(connection) = settings.get("connection") else {
+                continue;
+            };
+            let kind = match connection.get("type").and_then(string_of).as_deref() {
+                Some(WIFI_TYPE) => SavedKind::Wifi,
+                Some("vpn" | "wireguard") => SavedKind::Vpn,
+                Some("802-3-ethernet") => SavedKind::Ethernet,
+                _ => continue,
+            };
+            let Some(id) = connection.get("uuid").and_then(string_of) else {
+                continue;
+            };
+            let name = match kind {
+                SavedKind::Wifi => known_of(&settings).map(|known| known.ssid),
+                _ => connection.get("id").and_then(string_of),
+            }
+            .unwrap_or_default();
+            let shared = connection
+                .get("permissions")
+                .and_then(|value| Vec::<String>::try_from(value.try_clone().ok()?).ok())
+                .is_none_or(|users| users.is_empty());
+            saved.push((path, Saved { id, name, kind }, shared));
+        }
+        saved.sort_by(|a, b| {
+            (a.1.kind as u8, &a.1.name, &a.1.id).cmp(&(b.1.kind as u8, &b.1.name, &b.1.id))
+        });
+        Ok(saved)
+    }
+
+    /// What resetting the network settings would remove and keep (docs/adr/0038-networks.mdx,
+    /// 8 November 2026): every saved Wi-Fi network and VPN polkit lets this person change (a
+    /// connection for every user needs `settings.modify.system`, one for this user
+    /// `settings.modify.own`, as the daemon says now: `GetPermissions`), never an Ethernet
+    /// configuration.
+    pub fn reset_plan(&self) -> Result<ResetPlan, Failure> {
+        let permissions: HashMap<String, String> = self
+            .proxy(NM_PATH, NM)
+            .and_then(|nm| nm.call("GetPermissions", &()))
+            .map_err(failure)?;
+        let allowed = |action: &str| permissions.get(action).map(String::as_str) == Some("yes");
+        let (system, own) = (allowed(MODIFY_SYSTEM), allowed(MODIFY_OWN));
+        let mut plan = ResetPlan::default();
+        for (_, saved, shared) in self.saved().map_err(failure)? {
+            let because = if saved.kind == SavedKind::Ethernet {
+                Some(KeptBecause::Ethernet)
+            } else if (shared && !system) || (!shared && !own) {
+                Some(KeptBecause::NotPermitted)
+            } else {
+                None
+            };
+            match because {
+                Some(because) => plan.kept.push(KeptConnection { saved, because }),
+                None => plan.removed.push(saved),
+            }
+        }
+        Ok(plan)
+    }
+
+    /// Resets the network settings: removes what [`Self::reset_plan`] says (each connection with
+    /// its secrets, which the daemon keeps in it), and returns what was removed and what was kept,
+    /// a connection the daemon refused to remove among those kept.
+    pub fn reset(&self) -> Result<ResetPlan, Failure> {
+        let plan = self.reset_plan()?;
+        let saved = self.saved().map_err(failure)?;
+        let mut done = ResetPlan {
+            removed: Vec::new(),
+            kept: plan.kept,
+        };
+        for connection in plan.removed {
+            let Some((path, _, _)) = saved.iter().find(|(_, s, _)| s.id == connection.id) else {
+                // Gone already.
+                continue;
+            };
+            match self
+                .proxy(path, CONNECTION)
+                .and_then(|proxy| proxy.call::<_, _, ()>("Delete", &()))
+            {
+                Ok(()) => done.removed.push(connection),
+                Err(error) => done.kept.push(KeptConnection {
+                    saved: connection,
+                    because: if refused(&error) {
+                        KeptBecause::NotPermitted
+                    } else {
+                        KeptBecause::Failed
+                    },
+                }),
+            }
+        }
+        Ok(done)
+    }
+
+    /// What Wi-Fi Diagnostics read of the daemon: the link to the network joined, whether the
+    /// internet answers (the daemon's own check, run now when one is configured), the router and
+    /// the DNS servers it configured.
+    pub fn survey(&self) -> Result<Survey, Failure> {
+        let survey = |this: &Self| -> zbus::Result<Survey> {
+            let nm = this.proxy(NM_PATH, NM)?;
+            let available: bool = nm
+                .get_property("ConnectivityCheckAvailable")
+                .unwrap_or(false);
+            let enabled: bool = nm.get_property("ConnectivityCheckEnabled").unwrap_or(false);
+            let checked = available && enabled;
+            let state: u32 = if checked {
+                match nm.call::<_, _, u32>("CheckConnectivity", &()) {
+                    Ok(state) => state,
+                    Err(_) => nm.get_property("Connectivity")?,
+                }
+            } else {
+                0
+            };
+            let dns: Vec<String> = this
+                .property::<Vec<HashMap<String, OwnedValue>>>(DNS_PATH, DNS, "Configuration")
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|entry| {
+                    Vec::<String>::try_from(entry.get("nameservers")?.try_clone().ok()?).ok()
+                })
+                .flatten()
+                .fold(Vec::new(), |mut servers, server| {
+                    if !servers.contains(&server) {
+                        servers.push(server);
+                    }
+                    servers
+                });
+            let devices = this.devices()?;
+            let (link, router) = match Self::wifi_device(&devices) {
+                Some(device) if device.state == device_state::ACTIVATED => {
+                    (this.link(&device.path)?, this.router(&device.path))
+                }
+                _ => (None, None),
+            };
+            Ok(Survey {
+                connectivity: Connectivity::of(state, checked),
+                router: link.as_ref().and(router),
+                link,
+                dns,
+            })
+        };
+        survey(self).map_err(failure)
+    }
+
+    /// The link to the access point the Wi-Fi device has joined.
+    fn link(&self, device: &OwnedObjectPath) -> zbus::Result<Option<Link>> {
+        let point: OwnedObjectPath = self.property(device, WIRELESS, "ActiveAccessPoint")?;
+        if point.as_str() == "/" {
+            return Ok(None);
+        }
+        let bytes: Vec<u8> = self.property(&point, ACCESS_POINT, "Ssid")?;
+        let signal: u8 = self.property(&point, ACCESS_POINT, "Strength")?;
+        let frequency: u32 = self.property(&point, ACCESS_POINT, "Frequency")?;
+        let flags: u32 = self.property(&point, ACCESS_POINT, "Flags")?;
+        let wpa: u32 = self.property(&point, ACCESS_POINT, "WpaFlags")?;
+        let rsn: u32 = self.property(&point, ACCESS_POINT, "RsnFlags")?;
+        // kb/s; the width since NetworkManager 1.46.
+        let max_rate: u32 = self
+            .property(&point, ACCESS_POINT, "MaxBitrate")
+            .unwrap_or(0);
+        let width: u32 = self
+            .property(&point, ACCESS_POINT, "Bandwidth")
+            .unwrap_or(0);
+        let bitrate: u32 = self.property(device, WIRELESS, "Bitrate").unwrap_or(0);
+        let (band, channel) = band_and_channel(frequency);
+        // The connection joined with: its private address.
+        let active: OwnedObjectPath = self.property(device, DEVICE, "ActiveConnection")?;
+        let private_address = (active.as_str() != "/")
+            .then(|| -> zbus::Result<Option<Known>> {
+                let connection: OwnedObjectPath = self.property(&active, ACTIVE, "Connection")?;
+                let settings: Settings = self
+                    .proxy(&connection, CONNECTION)?
+                    .call("GetSettings", &())?;
+                Ok(known_of(&settings))
+            })
+            .and_then(|known| known.ok().flatten())
+            .map_or(PrivateAddress::Off, |known| known.private_address);
+        let signal = signal.min(100);
+        Ok(Some(Link {
+            ssid: ssid_text(&bytes),
+            interface: self.property(device, DEVICE, "Interface")?,
+            bssid: self.property(&point, ACCESS_POINT, "HwAddress")?,
+            signal,
+            quality: LinkQuality::of(signal),
+            frequency,
+            band,
+            channel,
+            width: (width > 0).then_some(width),
+            tx_rate: (bitrate > 0).then_some(bitrate / 1000),
+            max_rate: (max_rate > 0).then_some(max_rate / 1000),
+            security: security(flags, wpa, rsn),
+            address: self.property(device, DEVICE, "HwAddress")?,
+            permanent_address: self.property(device, WIRELESS, "PermHwAddress")?,
+            private_address,
+        }))
+    }
+
+    /// The device's IPv4 router.
+    fn router(&self, device: &OwnedObjectPath) -> Option<std::net::Ipv4Addr> {
+        let ip4: OwnedObjectPath = self.property(device, DEVICE, "Ip4Config").ok()?;
+        if ip4.as_str() == "/" {
+            return None;
+        }
+        let gateway: String = self.property(&ip4, IP4, "Gateway").ok()?;
+        gateway.parse().ok()
     }
 
     fn device_changes(&self, device: &OwnedObjectPath) -> zbus::Result<zbus::MessageStream> {
@@ -611,6 +911,20 @@ impl Drop for NetworkManager {
     }
 }
 
+/// A connection's settings as the daemon gave them, to be changed and sent back.
+fn editable(saved: Settings) -> Editable {
+    saved
+        .into_iter()
+        .map(|(group, values)| {
+            let values = values
+                .into_iter()
+                .map(|(key, value)| (key, Value::from(value)))
+                .collect();
+            (group, values)
+        })
+        .collect()
+}
+
 /// A saved connection's entry if it is Wi-Fi.
 fn known_of(settings: &Settings) -> Option<Known> {
     let connection = settings.get("connection")?;
@@ -624,6 +938,11 @@ fn known_of(settings: &Settings) -> Option<Known> {
         .ok()?
         .try_into()
         .ok()?;
+    let assigned = settings
+        .get(WIFI_TYPE)
+        .and_then(|wireless| wireless.get("assigned-mac-address"))
+        .and_then(string_of);
+    let stable_id = connection.get("stable-id").and_then(string_of);
     Some(Known {
         id: connection.get("uuid").and_then(string_of)?,
         ssid: ssid_text(&ssid),
@@ -631,6 +950,7 @@ fn known_of(settings: &Settings) -> Option<Known> {
             .get("autoconnect")
             .and_then(|value| bool::try_from(value.try_clone().ok()?).ok())
             .unwrap_or(true),
+        private_address: PrivateAddress::of(assigned.as_deref(), stable_id.as_deref()),
     })
 }
 
@@ -642,7 +962,8 @@ fn u32_of(value: &OwnedValue) -> Option<u32> {
     u32::try_from(value.try_clone().ok()?).ok()
 }
 
-/// A new Wi-Fi connection's settings: its name, infrastructure, and the password the daemon
+/// A new Wi-Fi connection's settings: its name, infrastructure, a fixed private address (as a Mac
+/// and an iPhone join a new network: `stable`, the connection's own), and the password the daemon
 /// keeps (`psk-flags` 0: the daemon's to store).
 fn new_connection(
     ssid: &str,
@@ -662,6 +983,15 @@ fn new_connection(
         HashMap::from([
             ("ssid", Value::from(ssid.as_bytes().to_vec())),
             ("mode", Value::from("infrastructure")),
+            (
+                "assigned-mac-address",
+                Value::from(
+                    PrivateAddress::Fixed
+                        .settings()
+                        .expect("fixed is set from here")
+                        .0,
+                ),
+            ),
         ]),
     );
     if let Some(key_mgmt) = security.and_then(|s| s.key_mgmt()) {

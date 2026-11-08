@@ -156,6 +156,13 @@ export const network = {
   join: (ssid) => ask({ join: { ssid } }),
   forget: (id) => ask({ forget: { id } }),
   setWifi: (enabled) => ask({ wifi: { enabled } }),
+  // A known network's private Wi-Fi address (`fixed`, `rotating` or `off`), resetting the network
+  // settings (what goes, then going), and Wi-Fi Diagnostics, run once as asked (ADR 0038, 8
+  // November 2026).
+  setPrivateAddress: (id, mode) => ask({ privateAddress: { id, mode } }),
+  resetPreview: () => ask({ networkResetPreview: {} }),
+  reset: () => ask({ networkReset: {} }),
+  diagnose: () => ask({ wifiDiagnostics: {} }),
   current: networkState.current,
   subscribe: networkState.subscribe,
 };
