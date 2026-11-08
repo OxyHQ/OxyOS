@@ -2449,7 +2449,7 @@ int main(int argc, char** argv) {
                                      folly::dynamic::object("serial", serial)("answer", answer));
         }
         // Search (docs/adr/0051-search.mdx): the index's answers as it wrote them, JSON text the
-        // window's search client reads (sample/oxyos/search.js).
+        // window's search client reads (the platform's `search`).
         for (const auto& [serial, text] : searchAnswers) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSearchText",

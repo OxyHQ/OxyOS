@@ -31,6 +31,7 @@ export type PlatformDomain =
   | 'notifications'
   | 'pasteboard'
   | 'power'
+  | 'search'
   | 'settings'
   | 'sounds'
   | 'store';

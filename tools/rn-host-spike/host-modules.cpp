@@ -996,7 +996,7 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "OxyOSSearch") {
-    // Search (sample/oxyos/search.js, Bloom's PlatformSearch, docs/adr/0051-search.mdx): a request
+    // Search (the platform's `search`, Bloom's PlatformSearch, docs/adr/0051-search.mdx): a request
     // of the search index's vocabulary (JSON), its serial (0 if it was not sent), answered by
     // `OxyOSSearchText`s naming it ({serial, text}; serial 0: what the window asked to watch
     // changed). The compositor tells the index who asks; nothing here says it.

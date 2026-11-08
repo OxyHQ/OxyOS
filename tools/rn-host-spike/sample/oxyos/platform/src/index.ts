@@ -15,6 +15,7 @@ import { createFiles, createFileService, type FilesModule } from './files.ts';
 import { createFrameworks } from './frameworks.ts';
 import { createNotifications } from './notifications.ts';
 import { createPasteboard } from './pasteboard.ts';
+import { createSearch, type SearchModule } from './search.ts';
 import { createSession, type SystemModule } from './session.ts';
 import { createSounds } from './sounds.ts';
 
@@ -94,3 +95,6 @@ export const account = createAccount(
   TurboModuleRegistry.get('OxyOSAccountSession') as AccountModule | null,
   DeviceEventEmitter,
 );
+
+/** The session's search index (docs/adr/0051-search.mdx). */
+export const search = createSearch(TurboModuleRegistry.get('OxyOSSearch') as SearchModule | null, DeviceEventEmitter);

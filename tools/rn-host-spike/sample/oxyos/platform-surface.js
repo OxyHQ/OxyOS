@@ -30,11 +30,11 @@
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
-import { createSearch, searchAvailable } from './search';
 import {
   chooser as platformChooser,
   drag as platformDrag,
   files as platformFiles,
+  search as platformSearch,
   sounds as platformSounds,
 } from '@oxyos/platform';
 
@@ -384,7 +384,24 @@ const files = platformFiles.available ? createFiles() : undefined;
 
 // Bloom's `PlatformSearch` (docs/adr/0051-search.mdx): the session's search index, which every
 // window reaches (protocol version 30), the shell's and Settings' included.
-const search = searchAvailable ? createSearch() : undefined;
+// The platform's `search` (`@oxyos/platform`), in Bloom's words.
+const search = platformSearch.available
+  ? Object.freeze({
+      query: (query) => platformSearch.query(query),
+      watch: (listener) => platformSearch.onChange(listener),
+      used: (id) => platformSearch.used(id),
+      index: Object.freeze({
+        donate: (items) => platformSearch.donate(items),
+        remove: (ids) => platformSearch.remove(ids),
+        removeAll: () => platformSearch.removeAll(),
+      }),
+      preferences: () => platformSearch.preferences(),
+      setPreferences: (preferences) => platformSearch.setPreferences(preferences),
+      status: () => platformSearch.status(),
+      state: platformSearch.state,
+      rebuild: () => platformSearch.rebuild(),
+    })
+  : undefined;
 
 // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): the drop target the host
 // answers the compositor for from its props (drag.h), and the application's own drags, the
